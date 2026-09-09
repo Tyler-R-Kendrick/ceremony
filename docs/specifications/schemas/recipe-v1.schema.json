@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "type": "number", "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "description": { "type": "string", "maxLength": 1000 },
+    "inputs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "contract": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "required": { "type": "boolean" }
+        },
+        "required": ["contract", "required"],
+        "additionalProperties": false
+      }
+    },
+    "invocations": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "use": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "operation" },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+                  }
+                },
+                "required": ["kind", "id", "version"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "recipe" },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+                  },
+                  "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                },
+                "required": ["kind", "id", "version", "digest"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "dependsOn": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+            }
+          },
+          "bindings": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "from": { "type": "string", "const": "input" },
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                    }
+                  },
+                  "required": ["from", "name"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "from": { "type": "string", "const": "output" },
+                    "node": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                    }
+                  },
+                  "required": ["from", "node", "name"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "from": { "type": "string", "const": "literal" },
+                    "value": {
+                      "anyOf": [
+                        { "type": "string", "maxLength": 512 },
+                        { "type": "number" },
+                        { "type": "boolean" },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["from", "value"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": ["id", "use", "dependsOn", "bindings"],
+        "additionalProperties": false
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          }
+        },
+        "required": ["node", "name"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "description",
+    "inputs",
+    "invocations",
+    "outputs"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:recipe-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

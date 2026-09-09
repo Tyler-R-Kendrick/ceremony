@@ -16,12 +16,15 @@ import { CeremonyDatabase } from "./storage.js";
 import { CeremonyEnvironment } from "./environment.js";
 import {
   runArazzo,
+  validateConnectorWorkflows,
   type ArazzoDocument,
   type WorkflowStepEvent,
 } from "./arazzo.js";
 
 export const serviceManifests = [
   manifestSchema.parse({
+    schemaVersion: 1,
+    support: "live-adapter",
     id: "stripe",
     name: "Stripe",
     description: "Verify API access without creating a payment.",
@@ -32,18 +35,52 @@ export const serviceManifests = [
         kind: "api-key",
         templateId: "api-key",
         scopes: [],
+        contract: {
+          profile: "stripe-api-key",
+          surfaces: ["browser", "headless"],
+          configuration: [
+            {
+              name: "STRIPE_SECRET_KEY",
+              source: "session-environment",
+              classification: "secret",
+              required: false,
+            },
+          ],
+          prerequisites: [],
+          configurationGroups: [],
+          handoff: {
+            surface: "private-collector",
+            recipient: "initiating-subject",
+            delegation: "a2h-authorize",
+            resume: "verify",
+          },
+          completion: {
+            verifier: "stripe.balance-read",
+            ownership: ["authenticated"],
+          },
+          workflows: [
+            {
+              document: "stripe",
+              version: "1.0.0",
+              workflowId: "verify-access",
+            },
+          ],
+        },
         fields: [
           {
             name: "token",
             label: "Stripe secret key",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
       },
     ],
   }),
   manifestSchema.parse({
+    schemaVersion: 1,
+    support: "live-adapter",
     id: "supabase",
     name: "Supabase",
     description:
@@ -55,13 +92,77 @@ export const serviceManifests = [
         kind: "form",
         templateId: "form",
         scopes: [],
+        contract: {
+          profile: "supabase-password",
+          surfaces: ["browser", "headless"],
+          configuration: [
+            {
+              name: "SUPABASE_URL",
+              source: "session-environment",
+              classification: "public",
+              required: true,
+            },
+            {
+              name: "SUPABASE_PUBLISHABLE_KEY",
+              source: "session-environment",
+              classification: "public",
+              required: false,
+            },
+            {
+              name: "SUPABASE_ANON_KEY",
+              source: "session-environment",
+              classification: "public",
+              required: false,
+            },
+          ],
+          prerequisites: [
+            {
+              id: "project-configuration",
+              kind: "configuration",
+              reuse: "verified-context",
+              handoff: {
+                surface: "private-collector",
+                recipient: "authorized-owner",
+                delegation: "a2h-authorize",
+                resume: "verify",
+              },
+            },
+          ],
+          configurationGroups: [
+            {
+              id: "project-key",
+              rule: "at-least-one",
+              names: ["SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"],
+            },
+          ],
+          handoff: {
+            surface: "private-collector",
+            recipient: "initiating-subject",
+            delegation: "a2h-authorize",
+            resume: "verify",
+          },
+          completion: {
+            verifier: "supabase.auth-session",
+            ownership: ["authenticated"],
+          },
+          workflows: [
+            { document: "supabase", version: "1.0.0", workflowId: "sign-in" },
+          ],
+        },
         fields: [
-          { name: "email", label: "Email", type: "email", required: true },
+          {
+            name: "email",
+            label: "Email",
+            type: "email",
+            required: true,
+            classification: "personal",
+          },
           {
             name: "password",
             label: "Password",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
       },
@@ -130,6 +231,11 @@ export function serviceRegistrations(
     onStep?: (event: WorkflowStepEvent) => void | Promise<void>;
   } = {},
 ): ConnectorRegistration[] {
+  for (const manifest of serviceManifests)
+    validateConnectorWorkflows(
+      manifest,
+      new Map(Object.entries(serviceWorkflows)),
+    );
   const request: typeof fetch = (input, init) =>
     (options.fetch ?? fetch)(input, {
       ...init,

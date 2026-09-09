@@ -7,6 +7,7 @@
 - [API and protocol reference](reference.md): detailed library examples, WebMCP hooks and presentation contracts.
 - [Live authentication](live-auth.md), [service support](service-examples.md), and [auth catalog](auth-catalog.md): real adapters versus simulations and unsupported profiles.
 - [Workflow studio](workflow-studio.md): reviewed recipes and existing Arazzo/presentation compatibility.
+- [Formal specifications](specifications/README.md): versioned connector manifests, AI decision contracts, Arazzo/A2H profiles and executable conformance.
 
 ## Develop and operate
 

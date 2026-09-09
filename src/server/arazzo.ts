@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { manifestSchema, type ConnectorManifest } from "../core/schema.js";
 
 const name = z.string().regex(/^[A-Za-z0-9_-]+$/);
 /** Deliberately bounded Arazzo 1.0.1 profile: sequential trusted operations.
@@ -62,6 +63,27 @@ export const arazzoSchema = z
       });
   });
 export type ArazzoDocument = z.infer<typeof arazzoSchema>;
+
+/** Validate the host's pinned catalog before mounting a connector; never fetch a source URL. */
+export function validateConnectorWorkflows(
+  manifest: ConnectorManifest,
+  documents: ReadonlyMap<string, ArazzoDocument>,
+): void {
+  for (const method of manifestSchema.parse(manifest).methods) {
+    for (const reference of method.contract?.workflows ?? []) {
+      const document = arazzoSchema.parse(documents.get(reference.document));
+      if (
+        document.info.version !== reference.version ||
+        !document.workflows.some(
+          (workflow) => workflow.workflowId === reference.workflowId,
+        )
+      )
+        throw new Error(
+          "Connector workflow reference is unavailable or incompatible",
+        );
+    }
+  }
+}
 export interface WorkflowStepEvent {
   workflowId: string;
   stepId: string;

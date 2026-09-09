@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "surface": {
+      "type": "string",
+      "enum": ["provider-browser", "private-collector"]
+    },
+    "recipient": {
+      "type": "string",
+      "enum": ["initiating-subject", "authorized-owner"]
+    },
+    "delegation": { "type": "string", "const": "a2h-authorize" },
+    "resume": { "type": "string", "const": "verify" }
+  },
+  "required": ["surface", "recipient", "delegation", "resume"],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:human-handoff-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

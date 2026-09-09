@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "selectedMethodId": {
+      "anyOf": [
+        { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+        { "type": "null" }
+      ]
+    },
+    "candidates": {
+      "minItems": 1,
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "methodId": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+          "availability": {
+            "type": "string",
+            "enum": ["available", "configured", "unavailable"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "eligible",
+              "unavailable",
+              "unsupported-surface",
+              "insufficient-scopes"
+            ]
+          }
+        },
+        "required": ["methodId", "availability", "reason"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["selectedMethodId", "candidates"],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:method-selection-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

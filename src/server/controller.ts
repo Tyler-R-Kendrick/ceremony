@@ -123,6 +123,8 @@ export class CeremonyController {
     const usable = registration.manifest.methods.filter(
       (method) =>
         registration.availability?.(owner, method) !== "unavailable" &&
+        (!method.contract ||
+          method.contract.surfaces.includes(context.surface)) &&
         context.requiredScopes.every((scope) => method.scopes.includes(scope)),
     );
     if (!usable.length)

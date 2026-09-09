@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "arazzo": { "type": "string", "const": "1.0.1" },
+    "info": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "required": ["title", "version"],
+      "additionalProperties": false
+    },
+    "sourceDescriptions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+          "url": { "type": "string" },
+          "type": { "type": "string", "const": "openapi" }
+        },
+        "required": ["name", "url", "type"],
+        "additionalProperties": false
+      }
+    },
+    "workflows": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "workflowId": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+          "summary": { "type": "string" },
+          "steps": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stepId": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+                "description": { "type": "string" },
+                "operationId": { "type": "string", "minLength": 1 },
+                "operationPath": {
+                  "type": "string",
+                  "pattern": "^\\{\\$sourceDescriptions\\.[A-Za-z0-9_-]+\\.url\\}#\\/paths\\/.+\\/(get|post|put|patch|delete|head|options)$"
+                }
+              },
+              "required": ["stepId", "description"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["workflowId", "summary", "steps"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["arazzo", "info", "sourceDescriptions", "workflows"],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:arazzo-profile-1.0.1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

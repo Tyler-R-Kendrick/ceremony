@@ -56,11 +56,27 @@ export function toolState(
 ) {
   return {
     connectorId: manifest.id,
-    methods: manifest.methods.map(({ id, label, kind, scopes }) => ({
+    methods: manifest.methods.map(({ id, label, kind, scopes, contract }) => ({
       id,
       label,
       kind,
       scopes,
+      ...(contract
+        ? {
+            requirements: {
+              profile: contract.profile,
+              surfaces: [...contract.surfaces],
+              prerequisites: contract.prerequisites.map((item) => ({
+                id: item.id,
+                kind: item.kind,
+              })),
+              humanSurface: contract.handoff.surface,
+              humanRecipient: contract.handoff.recipient,
+              delegation: contract.handoff.delegation,
+              resume: contract.handoff.resume,
+            },
+          }
+        : {}),
     })),
     ...(snapshot
       ? {

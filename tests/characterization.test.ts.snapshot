@@ -196,7 +196,19 @@ exports[`characterization: agent tool contracts exclude execution functions and 
       "kind": "oauth-code",
       "scopes": [
         "read:user"
-      ]
+      ],
+      "requirements": {
+        "profile": "oauth-code-pkce",
+        "surfaces": [
+          "browser",
+          "headless"
+        ],
+        "prerequisites": [],
+        "humanSurface": "provider-browser",
+        "humanRecipient": "initiating-subject",
+        "delegation": "a2h-authorize",
+        "resume": "verify"
+      }
     },
     {
       "id": "device",
@@ -204,13 +216,37 @@ exports[`characterization: agent tool contracts exclude execution functions and 
       "kind": "device",
       "scopes": [
         "read:user"
-      ]
+      ],
+      "requirements": {
+        "profile": "device",
+        "surfaces": [
+          "browser",
+          "headless"
+        ],
+        "prerequisites": [],
+        "humanSurface": "provider-browser",
+        "humanRecipient": "initiating-subject",
+        "delegation": "a2h-authorize",
+        "resume": "verify"
+      }
     },
     {
       "id": "api-key",
       "label": "Personal access token",
       "kind": "api-key",
-      "scopes": []
+      "scopes": [],
+      "requirements": {
+        "profile": "personal-access-token",
+        "surfaces": [
+          "browser",
+          "headless"
+        ],
+        "prerequisites": [],
+        "humanSurface": "private-collector",
+        "humanRecipient": "initiating-subject",
+        "delegation": "a2h-authorize",
+        "resume": "verify"
+      }
     }
   ],
   "actions": [

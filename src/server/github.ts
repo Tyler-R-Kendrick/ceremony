@@ -12,6 +12,7 @@ import {
 import { CeremonyDatabase } from "./storage.js";
 import {
   runArazzo,
+  validateConnectorWorkflows,
   type ArazzoDocument,
   type WorkflowStepEvent,
 } from "./arazzo.js";
@@ -64,6 +65,8 @@ export const githubWorkflows: ArazzoDocument = {
 };
 
 export const githubAppManifest = manifestSchema.parse({
+  schemaVersion: 1,
+  support: "live-adapter",
   id: "github",
   name: "GitHub",
   description:
@@ -76,9 +79,93 @@ export const githubAppManifest = manifestSchema.parse({
       fields: [],
       scopes: ["contents:read"],
       templateId: "github-app",
+      contract: {
+        profile: "github-app",
+        surfaces: ["browser", "headless"],
+        configuration: [
+          {
+            name: "GITHUB_APP_ID",
+            source: "session-environment",
+            classification: "public",
+            required: false,
+          },
+          {
+            name: "GITHUB_APP_SLUG",
+            source: "session-environment",
+            classification: "public",
+            required: false,
+          },
+          {
+            name: "GITHUB_APP_OWNER",
+            source: "session-environment",
+            classification: "personal",
+            required: false,
+          },
+          {
+            name: "GITHUB_APP_PRIVATE_KEY",
+            source: "session-environment",
+            classification: "secret",
+            required: false,
+          },
+        ],
+        prerequisites: [
+          {
+            id: "prepare-app",
+            kind: "provider-registration",
+            reuse: "verified-context",
+            handoff: {
+              surface: "provider-browser",
+              recipient: "authorized-owner",
+              delegation: "a2h-authorize",
+              resume: "verify",
+            },
+          },
+          {
+            id: "authorize-installation",
+            kind: "provider-consent",
+            reuse: "verified-context",
+            handoff: {
+              surface: "provider-browser",
+              recipient: "authorized-owner",
+              delegation: "a2h-authorize",
+              resume: "verify",
+            },
+          },
+        ],
+        configurationGroups: [
+          {
+            id: "existing-app",
+            rule: "all-or-none",
+            names: [
+              "GITHUB_APP_ID",
+              "GITHUB_APP_SLUG",
+              "GITHUB_APP_OWNER",
+              "GITHUB_APP_PRIVATE_KEY",
+            ],
+          },
+        ],
+        handoff: {
+          surface: "provider-browser",
+          recipient: "initiating-subject",
+          delegation: "a2h-authorize",
+          resume: "verify",
+        },
+        completion: {
+          verifier: "github.verify-connection",
+          ownership: ["authenticated"],
+        },
+        workflows: [
+          { document: "github", version: "1.0.0", workflowId: "register-app" },
+          { document: "github", version: "1.0.0", workflowId: "verify-access" },
+        ],
+      },
     },
   ],
 });
+validateConnectorWorkflows(
+  githubAppManifest,
+  new Map([["github", githubWorkflows]]),
+);
 const appSchema = z.object({
   id: z.number().int().positive(),
   slug: z.string().regex(/^[a-zA-Z0-9-]+$/),
