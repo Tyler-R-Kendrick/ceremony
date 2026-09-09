@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { start } from "workflow/api";
 import { ceremonyAgentWorkflow } from "../../src/server/agent/workflow.js";
 import { createHostedRuntime } from "../../src/server/hosted/runtime.js";
@@ -12,6 +12,23 @@ import { fork, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+const ambientCeremony = new Map<string, string>();
+beforeAll(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!key.startsWith("CEREMONY_")) continue;
+    const value = process.env[key];
+    if (value !== undefined) ambientCeremony.set(key, value);
+    delete process.env[key];
+  }
+});
+afterAll(() => {
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith("CEREMONY_")) delete process.env[key];
+  }
+  for (const [key, value] of ambientCeremony) process.env[key] = value;
+  ambientCeremony.clear();
+});
 
 async function restartWorker(dataDir: string) {
   const child = fork(
@@ -100,6 +117,10 @@ async function restartWorker(dataDir: string) {
 }
 
 test("AGT Workflow compiled local carrier fails closed without configured hosted authority", async () => {
+  expect(
+    Object.keys(process.env).filter((key) => key.startsWith("CEREMONY_"))
+      .length,
+  ).toBe(0);
   const run = await start(ceremonyAgentWorkflow, [
     "run:fixture",
     "turn:fixture",
