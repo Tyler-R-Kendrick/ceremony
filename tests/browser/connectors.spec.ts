@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomBytes } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { startReferenceApp } from "../../examples/server.js";
 
 test("the service collection starts real ceremonies with inline prerequisites", async ({
@@ -7,19 +8,26 @@ test("the service collection starts real ceremonies with inline prerequisites", 
 }) => {
   const starts: string[] = [];
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().includes("/ceremonies"))
+    if (
+      request.method() === "POST" &&
+      (request.url().includes("/ceremonies") || request.url().endsWith("/runs"))
+    )
       starts.push(request.url());
   });
   await page.goto("/");
   await expect(
     page.getByRole("link", { name: "Connect a real GitHub App" }),
   ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Connect GitHub", exact: true })
+    .click();
+  await page.getByLabel("GitHub account or organization").fill("fixture-owner");
+  await page
+    .getByRole("button", { name: "Connect GitHub", exact: true })
+    .click();
   await expect(
-    page.getByRole("list", { name: "Connection prerequisites" }),
-  ).toContainText("Prepare GitHub App");
-  await expect(
-    page.getByRole("list", { name: "Connection prerequisites" }),
-  ).toContainText("Needs your approval");
+    page.getByRole("region", { name: "Connection and reusable steps" }),
+  ).toContainText("Prepare GitHub App — your participation is needed");
   const services = page.getByRole("complementary", {
     name: "Available services",
   });
@@ -36,9 +44,13 @@ test("the service collection starts real ceremonies with inline prerequisites", 
   ).toBeVisible();
   await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   expect(starts.length).toBeGreaterThanOrEqual(3);
-  expect(starts.every((url) => url.includes("/api/live/ceremonies"))).toBe(
-    true,
-  );
+  expect(
+    starts.every(
+      (url) =>
+        url.includes("/api/live/ceremonies") ||
+        url.includes("/api/v1/teaching/runs"),
+    ),
+  ).toBe(true);
   await expect(page.getByText("Local simulation", { exact: true })).toHaveCount(
     0,
   );
@@ -59,9 +71,10 @@ test("collection completes real SDK ceremonies through private collection and re
           const url = String(input);
           calls.push(url);
           if (url === "https://api.stripe.com/v1/balance") {
-            expect(new Headers(init?.headers).get("authorization")).toBe(
-              "Bearer sk_test_browser_fixture",
-            );
+            expect(
+              new Headers(init?.headers).get("authorization") ===
+                "Bearer sk_test_browser_fixture",
+            ).toBe(true);
             return Response.json({
               object: "balance",
               available: [],
@@ -72,11 +85,13 @@ test("collection completes real SDK ceremonies through private collection and re
           expect(url).toBe(
             "https://synthetic.supabase.co/auth/v1/token?grant_type=password",
           );
-          expect(JSON.parse(String(init?.body))).toEqual({
-            email: "alice@example.com",
-            password: "synthetic-password",
-            gotrue_meta_security: {},
-          });
+          expect(
+            isDeepStrictEqual(JSON.parse(String(init?.body)), {
+              email: "alice@example.com",
+              password: "synthetic-password",
+              gotrue_meta_security: {},
+            }),
+          ).toBe(true);
           return Response.json({
             access_token: "synthetic-access",
             refresh_token: "synthetic-refresh",
@@ -144,9 +159,11 @@ test("collection completes real SDK ceremonies through private collection and re
       "https://synthetic.supabase.co/auth/v1/token?grant_type=password",
     ]);
     expect(actionBodies.some((body) => body.includes("secretRef"))).toBe(true);
-    expect(actionBodies.join()).not.toMatch(
-      /sk_test_browser_fixture|synthetic-password|synthetic-access/,
-    );
+    expect(
+      /sk_test_browser_fixture|synthetic-password|synthetic-access/.test(
+        actionBodies.join(),
+      ),
+    ).toBe(false);
   } finally {
     await app.close();
   }

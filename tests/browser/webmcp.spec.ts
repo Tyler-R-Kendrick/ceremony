@@ -60,16 +60,25 @@ for (const surface of ["document", "navigator"] as const)
     cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
     await cdp.send("WebMCP.enable");
     await page.goto("/");
-    await expect.poll(() => registered.size).toBe(11);
+    await expect.poll(() => registered.size).toBe(4);
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("native-fixture-owner");
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
     await expect(
-      page.getByRole("list", { name: "Connection prerequisites" }),
-    ).toContainText("Needs your approval");
+      page.getByRole("link", { name: "Continue with GitHub", exact: true }),
+    ).toBeVisible();
     // Opening DevTools after the page loaded must discover the existing tools too.
     await cdp.send("WebMCP.disable");
     registered.clear();
     await cdp.send("WebMCP.enable");
-    await expect.poll(() => registered.size).toBe(11);
-    const tool = registered.get("ceremony_github_read")!;
+    await expect.poll(() => registered.size).toBe(4);
+    const tool = registered.get("ceremony_github_snapshot")!;
     expect(tool).toBeDefined();
     const { invocationId } = await cdp.send("WebMCP.invokeTool", {
       frameId: tool.frameId,
@@ -88,25 +97,20 @@ for (const surface of ["document", "navigator"] as const)
     )!.output;
     expect(
       typeof output === "string" ? JSON.parse(output) : output,
-    ).toMatchObject({ ok: true, connectorId: "github" });
-    await page.getByRole("button", { name: "Stripe API key" }).click();
+    ).toMatchObject({
+      ok: true,
+      state: { provider: "github", status: "active" },
+    });
+    await page
+      .getByRole("button", { name: "Workflow studio", exact: true })
+      .click();
+    await expect.poll(() => registered.size).toBe(0);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
     await expect
       .poll(() => [...registered.keys()].sort())
       .toEqual(
-        [
-          "begin",
-          "cancel",
-          "claim",
-          "finish",
-          "navigate",
-          "read",
-          "request-human",
-          "request-input",
-          "retry",
-          "start",
-          "submit",
-        ]
-          .map((action) => `ceremony_stripe_${action}`)
+        ["cancel", "connect", "snapshot", "advance"]
+          .map((action) => `ceremony_github_${action}`)
           .sort(),
       );
     await cdp.detach();
@@ -174,7 +178,7 @@ async function events(page: Page): Promise<RecordedEvent[]> {
   return JSON.parse(await page.locator("#hook-events").innerText());
 }
 
-test("native tools share UI execution, classify failures, serialize submits, redact hooks and unregister", async ({
+test("native tools share UI execution, reject private arguments, redact hooks and unregister", async ({
   page,
 }) => {
   await mount(page);
@@ -233,27 +237,28 @@ test("native tools share UI execution, classify failures, serialize submits, red
     source: "ui",
     status: "success",
   });
-  const current = await call(page, "read");
-  const secretRef = await page.evaluate(
-    async ({ id, revision }) => {
-      const response = await fetch(`/api/ceremonies/${id}/collect`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revision, values: { token: "demo-api-key" } }),
-      });
-      return (await response.json()).secretRef;
-    },
-    { id: current.instanceId, revision: current.revision },
-  );
   const submitted = await Promise.all([
-    call(page, "submit", { secretRef }),
-    call(page, "submit", { secretRef }),
+    call(page, "submit", { secretRef: "00000000-0000-4000-8000-000000000000" }),
+    call(page, "submit", { values: { token: "demo-api-key" } }),
   ]);
-  expect(submitted.filter((result) => result.ok)).toHaveLength(1);
+  expect(submitted.every((result) => result.ok === false)).toBe(true);
+  await page
+    .locator("#hook-harness")
+    .getByLabel("GitHub personal access token", { exact: true })
+    .fill("demo-api-key");
+  await page
+    .locator("#hook-harness")
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(
+    page
+      .locator("#hook-harness")
+      .getByRole("heading", { name: "You’re connected" }),
+  ).toBeVisible();
   expect((await call(page, "read")).step).toBe("complete");
   expect((await call(page, "cancel")).ok).toBe(false);
   const recorded = await events(page);
-  expect(recorded.filter((event) => event.action === "submit")).toHaveLength(3);
+  expect(recorded.filter((event) => event.action === "submit")).toHaveLength(2);
   expect(new Set(recorded.map((event) => event.executionId)).size).toBe(
     recorded.length,
   );
@@ -268,7 +273,7 @@ test("native tools share UI execution, classify failures, serialize submits, red
   expect(await names(page)).toContain("ceremony_github_read");
 });
 
-test("native anonymous finish/claim/cancel and device navigation preserve provider approval", async ({
+test("native anonymous finish/claim/cancel and claim navigation preserve provider approval", async ({
   page,
 }) => {
   await mount(page, "neon");
@@ -353,4 +358,25 @@ test("WebMCP requests a private human collector without accepting a secret argum
     page.getByRole("heading", { name: "You’re connected" }),
   ).toBeVisible();
   await popup.close();
+});
+
+test("native device tools exclude transient codes while the trusted human view retains them", async ({
+  page,
+}) => {
+  await mount(page);
+  await call(page, "start", { methodId: "device" });
+  await call(page, "begin");
+  const instruction = page
+    .locator("#hook-harness")
+    .getByLabel("Verification code", { exact: true });
+  await expect(instruction).toBeVisible();
+  const code = (await instruction.textContent())!;
+  expect(code.length > 0).toBe(true);
+  const state = await call(page, "read");
+  expect(state.step).toBe("waiting");
+  const serialized = JSON.stringify(state);
+  expect(serialized.includes(code)).toBe(false);
+  expect(serialized).not.toMatch(
+    /userCode|user_code|device_code|verificationUri|secretRef/,
+  );
 });

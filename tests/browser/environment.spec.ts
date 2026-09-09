@@ -4,7 +4,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 test("Environment shares private session values across connectors and blocks unsafe writes", async ({
   page,
   context,
-}, testInfo) => {
+}) => {
   await page.goto("/?mode=live&connector=github&section=environment");
   await page.getByRole("button", { name: "Environment", exact: true }).click();
   await expect(
@@ -64,12 +64,6 @@ test("Environment shares private session values across connectors and blocks uns
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: testInfo.outputPath(
-        `environment-${viewport.width === 1440 ? "desktop" : "mobile"}.png`,
-      ),
-      fullPage: true,
-    });
   }
   await page
     .getByRole("button", { name: "Remove PRIVATE_TEST", exact: true })
@@ -87,6 +81,21 @@ test("Environment shares private session values across connectors and blocks uns
   ).toBe(403);
   // Stored configuration is actually consulted by the live adapter: incomplete app setup blocks begin.
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Connect GitHub", exact: true })
+    .click();
+  const account = page.getByLabel("GitHub account or organization");
+  await expect(
+    account
+      .or(page.getByText(/Complete all four GitHub App variables/))
+      .first(),
+  ).toBeVisible();
+  if (await account.isVisible()) {
+    await account.fill("fixture-owner");
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
+  }
   await expect(
     page.getByText(/Complete all four GitHub App variables/),
   ).toBeVisible();

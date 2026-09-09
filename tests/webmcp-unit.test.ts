@@ -4,6 +4,7 @@ import {
   registerCeremonyTools,
   toolState,
   browserModelContext,
+  createCeremonyTools,
   type CeremonyTool,
 } from "../src/core/webmcp.js";
 import { actionNames, type CeremonySnapshot } from "../src/core/schema.js";
@@ -145,6 +146,27 @@ test("atomic: tool projection includes actionable navigation but never URLs or c
       prerequisites: [{ id: "app", label: "App", status: "blocked" }],
     });
     assert.ok(result.actions.includes("navigate"));
-    assert.doesNotMatch(JSON.stringify(result), /private-handle|https:/);
+    assert.doesNotMatch(JSON.stringify(result), /private-handle|https:|ABCD/);
+  }
+});
+
+test("AC-15 AC-16 AC-22: local and native tools enforce current public fields without private references", async () => {
+  const manifest=manifests[1]!;
+  const signal=new AbortController().signal;
+  let calls=0;
+  const snapshot: CeremonySnapshot={id:"run",revision:1,connectorId:manifest.id,connectorName:manifest.name,description:"",method:manifest.methods[0]!,step:"input",fields:[{name:"choice",label:"Choice",type:"text",required:true,classification:"public"},{name:"note",label:"Note",type:"text",required:false}],actions:["submit"],expiresAt:Date.now()+1000};
+  const invoke=async()=>{calls++;return snapshot;};
+  const local=createCeremonyTools("safe",manifest,invoke,signal,()=>snapshot);
+  const native: CeremonyTool[]=[];
+  await registerCeremonyTools({registerTool:t=>{native.push(t);}},"safe",manifest,invoke,signal,()=>snapshot);
+  assert.deepEqual(local.map(({execute,...definition})=>definition),native.map(({execute,...definition})=>definition));
+  for(const tools of [local,native]) {
+    const submit=tools.find(t=>t.name==="safe_submit")!;
+    for(const input of [{secretRef:crypto.randomUUID()},{values:{email:"not-current"}},{values:{note:"unknown-sensitive"}},{values:{choice:"yes"},source:"ui"}]) {
+      const before=calls;
+      assert.equal(Reflect.get(Object(await submit.execute(input)),"ok"),false);
+      assert.equal(calls,before);
+    }
+    assert.equal(Reflect.get(Object(await submit.execute({values:{choice:"yes"}})),"ok"),true);
   }
 });

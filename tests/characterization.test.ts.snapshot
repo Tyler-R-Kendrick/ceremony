@@ -67,12 +67,7 @@ exports[`characterization: agent tool contracts exclude execution functions and 
             "type": "string",
             "maxLength": 4096
           },
-          "description": "Public choices only. Never provide passwords, API keys or other secrets. A human must enter credentials in the private collector; submit only its secretRef."
-        },
-        "secretRef": {
-          "type": "string",
-          "format": "uuid",
-          "description": "One-use reference from private collection, bound to this run and revision."
+          "description": "Explicitly public choices for the current step only. Use request-input for all other fields; private collection completes without exposing a reference to the agent."
         }
       },
       "required": []

@@ -47,3 +47,8 @@ app/plugins/impeccable-live.client.ts
 src/plugins/impeccable-live.client.ts
 # impeccable-live-ignore-end
 .ceremony/
+/.swc
+# Local hosted build and durable Workflow development state (never package evidence).
+.output/
+.nitro/
+.workflow-data/

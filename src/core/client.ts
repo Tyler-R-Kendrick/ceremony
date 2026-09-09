@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { classifyField } from "./projections.js";
 import {
   entryContextSchema,
   resolveCeremonyMethod,
@@ -359,12 +360,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
             if (!prior.actions.includes(parsed.action))
               throw new Error("Action is not available in the current state.");
             if (
-              source === "webmcp" &&
-              prior.fields.some(
-                (field) =>
-                  field.type === "password" &&
-                  Object.hasOwn(parsed.values ?? {}, field.name),
-              )
+              (source === "webmcp" || source === "agent") &&
+              (parsed.secretRef || Object.keys(parsed.values ?? {}).some((name) =>
+                !prior.fields.some((field) => field.name === name && classifyField(field) === "public")))
             )
               throw new Error(
                 "Use private credential collection, not tool arguments.",
@@ -478,6 +476,7 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
         manifest,
         (command, signal) => execute(command, "webmcp", signal),
         lifetime.signal,
+        () => state.snapshot,
       ).catch(() => {
         if (!lifetime.signal.aborted) {
           lifetime.abort();

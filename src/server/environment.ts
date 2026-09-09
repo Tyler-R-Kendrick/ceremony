@@ -2,23 +2,19 @@ import { parseEnv } from "node:util";
 import { z } from "zod";
 import { CeremonyDatabase } from "./storage.js";
 import { CeremonyError } from "./controller.js";
-
-const valuesSchema = z.record(
-  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/),
-  z.string().max(16_384),
-);
+import {
+  nextGitHubEnvironmentRevision,
+  resolveGitHubEnvironment,
+} from "./async-environment.js";
+import {
+  environmentValuesSchema as valuesSchema,
+  environmentEditSchema as editSchema,
+} from "./environment-schema.js";
 const recordSchema = z.object({
   revision: z.number().int().nonnegative(),
+  githubRevision: z.number().int().nonnegative().optional(),
   values: valuesSchema,
 });
-const editSchema = z
-  .object({
-    revision: z.number().int().nonnegative(),
-    values: valuesSchema.default({}),
-    remove: z.array(z.string()).max(100).default([]),
-    dotenv: z.string().max(64_000).optional(),
-  })
-  .strict();
 
 /** Server-only session configuration, shared by connectors. Never exposed to tools. */
 export class CeremonyEnvironment {
@@ -51,12 +47,23 @@ export class CeremonyEnvironment {
         "Legacy environment exceeds session limits. Reconcile before migration.",
         409,
       );
-    const record = { revision: 0, values };
+    const record = { revision: 0, githubRevision: 0, values };
     this.db.put(this.key(owner), record);
     return record;
   }
   read(owner: string): Record<string, string> {
     return this.record(owner).values;
+  }
+  githubConfiguration(owner: string, sessionId: string, baseVersion: string) {
+    const record = this.record(owner);
+    return resolveGitHubEnvironment(
+      {
+        revision: record.githubRevision ?? record.revision,
+        values: record.values,
+        sessionId,
+      },
+      baseVersion,
+    );
   }
   describe(owner: string) {
     const record = this.record(owner);
@@ -102,6 +109,11 @@ export class CeremonyEnvironment {
         );
       this.db.put(this.key(owner), {
         revision: record.revision + 1,
+        githubRevision: nextGitHubEnvironmentRevision(
+          record.values,
+          values,
+          record.githubRevision ?? record.revision,
+        ),
         values,
       });
       return this.describe(owner);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fieldClassificationSchema } from "./operation-contracts.js";
 
 export const flowKinds = [
   "api-key",
@@ -17,8 +18,18 @@ export const fieldSchema = z
     label: z.string().min(1).max(100),
     type: z.enum(["text", "email", "password"]),
     required: z.boolean(),
+    classification: fieldClassificationSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (field) =>
+      !(
+        field.type === "password" || ["password", "token"].includes(field.name)
+      ) ||
+      field.classification === undefined ||
+      field.classification === "secret",
+    "Credential fields must remain secret",
+  );
 export type Field = z.infer<typeof fieldSchema>;
 export const methodSchema = z
   .object({

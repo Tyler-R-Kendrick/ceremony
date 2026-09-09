@@ -2,7 +2,7 @@ import type { ActionName, CeremonySnapshot, Step } from "./index.js";
 
 export type CeremonyOperation =
   ActionName | "start" | "read" | "navigate" | "request-input";
-export type ExecutionSource = "ui" | "webmcp" | "system";
+export type ExecutionSource = "ui" | "webmcp" | "agent" | "system";
 /** Deliberately excludes input values, URLs, provider messages and connection handles. */
 export interface ActionEvent {
   executionId: string;

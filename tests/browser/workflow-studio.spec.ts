@@ -21,6 +21,12 @@ test("studio exports the server workflow without introducing a second connection
   ).toEqual(["apps/create-from-manifest", "apps/get-authenticated"]);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(
-    page.getByRole("list", { name: "Connection prerequisites" }),
-  ).toContainText("Prepare GitHub App");
+    page.getByRole("button", { name: "Connect GitHub", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Create from demonstration",
+      exact: true,
+    }),
+  ).toHaveCount(0);
 });

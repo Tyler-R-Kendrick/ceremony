@@ -26,6 +26,8 @@ import {
 import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
+import { TeachingConnection } from "./teaching.js";
+import { usePwaInstall } from "./pwa.js";
 
 // Simulated providers are an explicit test harness, never the default product.
 const liveMode = new URLSearchParams(location.search).get("mode") !== "test";
@@ -37,6 +39,7 @@ const configSchema = z.object({
   generationAvailable: z.boolean(),
   liveManifests: z.array(manifestSchema).default([]),
   liveAvailable: z.boolean().default(false),
+  teachingAvailable: z.boolean().default(false),
 });
 type Config = z.infer<typeof configSchema>;
 function download(name: string, value: string, type = "application/json") {
@@ -338,6 +341,7 @@ function Studio({
   );
 }
 function App() {
+  const install = usePwaInstall();
   const [config, setConfig] = useState<Config>();
   const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState(
@@ -419,6 +423,18 @@ function App() {
             Environment
           </button>
         </nav>
+        <details className="install-controls">
+          <summary>Install app</summary>
+          <p>{install.instructions}</p>
+          {install.canInstall && (
+            <button onClick={() => void install.install()}>
+              Install Ceremony
+            </button>
+          )}
+          {install.updateAvailable && (
+            <button onClick={install.update}>Update static shell</button>
+          )}
+        </details>
         <span className="header-note">
           <span />
           Local workspace
@@ -434,11 +450,12 @@ function App() {
               <div>
                 <h1>Workflow studio</h1>
                 <p>
-                  The Connections page runs the workflows. Customize their
-                  presentation here.
+                  Demonstrate a connection, review reusable steps, or customize
+                  their presentation.
                 </p>
               </div>
             </div>
+            {config.teachingAvailable && <TeachingConnection mode="studio" />}
             <details className="presentation-tools">
               <summary>Advanced: customize presentation templates</summary>
               <Studio
@@ -572,7 +589,11 @@ function App() {
                     {liveMode ? "Provider-backed" : "Local simulation"}
                   </span>
                 </div>
-                {liveMode && !config.liveAvailable ? (
+                {liveMode &&
+                config.teachingAvailable &&
+                connector.id === "github" ? (
+                  <TeachingConnection connectorId={connector.id} />
+                ) : liveMode && !config.liveAvailable ? (
                   <div className="ceremony">
                     <h3>Configure the connection server</h3>
                     <p>
