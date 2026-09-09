@@ -30,6 +30,7 @@ async function mount(
   props: TeachingConnectionProps = {},
   status = 200,
   capabilityOverrides: Record<string, boolean> = {},
+  snapshot: TeachingRun = waiting,
 ) {
   const { window, document } = parseHTML(
     '<html><body><div id="root"></div></body></html>',
@@ -102,7 +103,7 @@ async function mount(
       else if (url.endsWith("/runs") && init?.method === "POST") {
         code = status;
         body = status === 200 ? waiting : { error: "untrusted-provider-body" };
-      } else if (url.includes("/runs/")) body = waiting;
+      } else if (url.includes("/runs/")) body = snapshot;
       return new Response(JSON.stringify(body), { status: code });
     },
   };
@@ -128,6 +129,12 @@ async function mount(
     document,
     streams,
     calls,
+    async setOnline(online: boolean) {
+      Reflect.set(navigator, "onLine", online);
+      await act(async () => {
+        window.dispatchEvent(new window.Event(online ? "online" : "offline"));
+      });
+    },
     get navigations() {
       return navigations;
     },
@@ -155,6 +162,54 @@ test("TeachingConnection renders server-side without browser globals", () => {
     renderToString(createElement(TeachingConnection, { webmcp: false })),
     /connection/i,
   );
+});
+
+test("completed connection heading is neutral offline and restores trusted status online without replaying effects", async () => {
+  const view = await mount(
+    { resumeId: waiting.id, onRunChange() {} },
+    200,
+    { modelAvailable: false },
+    {
+      ...waiting,
+      status: "complete",
+      nodes: waiting.nodes.map((node) => ({
+        ...node,
+        state: "complete",
+        verified: true,
+      })),
+    },
+  );
+  try {
+    assert.equal(
+      view.document.querySelector("h2")?.textContent,
+      "GitHub connection verified",
+    );
+    await view.setOnline(false);
+    assert.equal(
+      view.document.querySelector("h2")?.textContent,
+      "Reconnect to check GitHub",
+    );
+    assert.match(
+      view.document.querySelector('[role="status"]')?.textContent ?? "",
+      /Offline\. Reconnect/,
+    );
+    assert.equal(
+      view.document.body.textContent?.includes("Verified access is ready"),
+      false,
+    );
+    await view.setOnline(true);
+    assert.equal(
+      view.document.querySelector("h2")?.textContent,
+      "GitHub connection verified",
+    );
+    assert.match(
+      view.document.querySelector('[role="status"]')?.textContent ?? "",
+      /Verified access is ready/,
+    );
+    assert.ok(view.calls.every((call) => call.body === undefined));
+  } finally {
+    await view.close();
+  }
 });
 
 test("host owns navigation and styling; deterministic controls preserve callback and cancel semantics", async () => {

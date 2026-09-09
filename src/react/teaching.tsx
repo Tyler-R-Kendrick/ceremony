@@ -566,11 +566,13 @@ export function TeachingConnection({
     >
       <div className="teaching-current">
         <h2 ref={status} tabIndex={-1}>
-          {complete
-            ? "GitHub connection verified"
-            : mode === "studio" && !run
-              ? "Create from demonstration"
-              : "Connect GitHub"}
+          {offline
+            ? "Reconnect to check GitHub"
+            : complete
+              ? "GitHub connection verified"
+              : mode === "studio" && !run
+                ? "Create from demonstration"
+                : "Connect GitHub"}
         </h2>
         <p role="status" aria-live="polite">
           {offline

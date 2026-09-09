@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { awaitStarted } from "./fixtures/await-started.js";
 import { test } from "node:test";
 import { randomBytes } from "node:crypto";
 import {
@@ -50,7 +51,14 @@ for (const stop of ["abort", "dispose"] as const)
     await client.execute({ action: "start", methodId: snapshot.method.id });
     const signal = new AbortController();
     const result = client.execute({ action: "read" }, "webmcp", signal.signal);
-    await started.promise;
+    try {
+      await awaitStarted(started.promise, result);
+    } catch (error) {
+      pending.resolve(snapshot);
+      client.dispose();
+      await result.catch(() => undefined);
+      throw error;
+    }
     if (stop === "abort") signal.abort();
     else client.dispose();
     pending.resolve({
@@ -140,7 +148,14 @@ for (const phase of ["collection", "recovery"] as const)
         "ui",
         signal.signal,
       );
-      await started.promise;
+      try {
+        await awaitStarted(started.promise, result);
+      } catch (error) {
+        pending.resolve();
+        client.dispose();
+        await result.catch(() => undefined);
+        throw error;
+      }
       if (stop === "abort") signal.abort();
       else client.dispose();
       pending.resolve();

@@ -10,7 +10,7 @@
       "--experimental-test-isolation=none",
       "--test-reporter=tap"
     ],
-    "forceBail": false
+    "forceBail": true
   },
   "coverageAnalysis": "perTest",
   "mutate": [

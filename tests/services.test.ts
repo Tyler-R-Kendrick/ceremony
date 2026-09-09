@@ -102,6 +102,107 @@ test("atomic: saved service results expire at the exact boundary and configured 
   );
 });
 
+test("atomic: completed service access outranks pending attempts for every database enumeration order", (t) => {
+  const { db, registrations } = fixture(t);
+  const controller = new CeremonyController(registrations);
+  const source = controller.start("alice", "stripe", "api-key");
+  for (const [id, step] of [
+    ["pending-a", "input"],
+    ["verified", "complete"],
+    ["pending-b", "intro"],
+  ]) {
+    db.put(`instance:${id}`, {
+      owner: "alice",
+      snapshot: { ...source, id, step },
+    });
+  }
+  let order: string[] = [];
+  t.mock.method(db, "keys", () => order);
+  for (const permutation of [
+    ["pending-a", "verified", "pending-b"],
+    ["pending-a", "pending-b", "verified"],
+    ["verified", "pending-a", "pending-b"],
+    ["verified", "pending-b", "pending-a"],
+    ["pending-b", "pending-a", "verified"],
+    ["pending-b", "verified", "pending-a"],
+  ]) {
+    order = permutation.map((id) => `instance:${id}`);
+    assert.equal(registrations[0]!.resume!("alice", "api-key"), "verified");
+  }
+});
+
+test("atomic: services reject unsupported callbacks before transport or connection persistence", async (t) => {
+  let calls = 0;
+  const { adapter, db } = fixture(t, async () => {
+    calls++;
+    throw new Error("Unexpected transport");
+  });
+  for (const index of [0, 1]) {
+    const service = adapter(index);
+    await assert.rejects(
+      service.callback(new URL("https://host.example/callback?code=synthetic")),
+      /does not use a callback/,
+    );
+    assert.equal(service.initial!().step, "input");
+  }
+  assert.equal(calls, 0);
+  assert.deepEqual(db.keys("connection:"), []);
+  assert.deepEqual(db.keys("service-result:"), []);
+});
+
+test("behavior: server Supabase exchanges do not read browser storage or URL and never reuse an ambient session", async (t) => {
+  assert.equal(typeof window, "undefined");
+  assert.equal(typeof document, "undefined");
+  let ambientReads = 0;
+  for (const name of ["localStorage", "location"]) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      get() {
+        ambientReads++;
+        throw new Error("Browser state is unavailable on this server");
+      },
+    });
+    t.after(() => {
+      if (previous) Object.defineProperty(globalThis, name, previous);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+  let requests = 0;
+  const { adapter } = fixture(t, async () => {
+    requests++;
+    return Response.json({
+      access_token: `synthetic-access-${requests}`,
+      refresh_token: `synthetic-refresh-${requests}`,
+      expires_in: 3600,
+      token_type: "bearer",
+      user: { id: `synthetic-user-${requests}` },
+    });
+  });
+  const results = [];
+  for (const subject of ["first", "second"]) {
+    results.push(
+      await adapter(1, subject).submit(
+        {
+          projectUrl: "https://synthetic.supabase.co",
+          publishableKey: "synthetic-key",
+          email: `${subject}@example.com`,
+          password: "synthetic-password",
+        },
+        false,
+      ),
+    );
+  }
+  assert.equal(requests, 2);
+  assert.equal(ambientReads, 0);
+  assert.ok(results.every((result) => result.step === "complete"));
+  assert.notEqual(
+    results[0]!.outcome!.connectionRef,
+    results[1]!.outcome!.connectionRef,
+  );
+  assert.equal(JSON.stringify(results).includes("synthetic"), false);
+});
+
 test("atomic: missing credentials and invalid key prefixes never invoke SDK transport", async (t) => {
   let calls = 0;
   const { adapter } = fixture(t, async () => {

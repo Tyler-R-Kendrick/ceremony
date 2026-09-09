@@ -1,0 +1,16 @@
+{
+  "profile": "production",
+  "origin": "unconfigured",
+  "environment": "production",
+  "configurationVersion": "unconfigured",
+  "identityIssuer": "unconfigured",
+  "keyId": "unconfigured",
+  "model": "unconfigured",
+  "modelRoute": "disabled",
+  "capabilities": {
+    "nativeWebMCP": false,
+    "remoteBrowser": false,
+    "inAppAgent": true,
+    "installedPwa": true
+  }
+}

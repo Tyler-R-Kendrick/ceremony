@@ -1,0 +1,16 @@
+{
+  "profile": "local",
+  "origin": "http://127.0.0.1:4173",
+  "environment": "deterministic-local",
+  "configurationVersion": "teaching-fixtures-v1",
+  "identityIssuer": "local-signed-oidc-fixtures",
+  "keyId": "test",
+  "model": "fixture",
+  "modelRoute": "compatible",
+  "capabilities": {
+    "nativeWebMCP": true,
+    "remoteBrowser": false,
+    "inAppAgent": true,
+    "installedPwa": false
+  }
+}

@@ -1,0 +1,468 @@
+{
+  "schemaVersion": 1,
+  "commit": "5714098d6ec53f2431e85cf8a5f7141e4989291c",
+  "checkedAt": "2026-09-09T20:34:32.093Z",
+  "profile": "production",
+  "configurationDigest": "955d7dc3680c42d1e096608efb1e6371d3966231541e3b7a1fc905536033a7c8",
+  "dependencyVersions": {
+    "ai": "7.0.95",
+    "workflow": "4.8.7",
+    "pg": "8.23.0",
+    "oauth4webapi": "3.8.8",
+    "jose": "6.2.12",
+    "@playwright/test": "1.63.0",
+    "nitro": "3.0.260903-beta",
+    "zod": "4.5.4"
+  },
+  "capabilities": {
+    "nativeWebMCP": {
+      "enabled": false,
+      "certified": false
+    },
+    "remoteBrowser": {
+      "enabled": false,
+      "certified": false
+    },
+    "inAppAgent": {
+      "enabled": true,
+      "certified": false
+    },
+    "installedPwa": {
+      "enabled": true,
+      "certified": false
+    }
+  },
+  "cases": [
+    {
+      "id": "AC-01",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-02",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-03",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-04",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-05",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-06",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-07",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-08",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-09",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-10",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-11",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-12",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-13",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-14",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-15",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-16",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-17",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-18",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-19",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "invalid-configuration"
+    },
+    {
+      "id": "AC-20",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-21",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-22",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-23",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-24",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-25",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-26",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-27",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-28",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-29",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-30",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-31",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-32",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-33",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-34",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-35",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-36",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-37",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-38",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-39",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-40",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "capability-disabled"
+    },
+    {
+      "id": "AC-41",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-42",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-43",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-44",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-45",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-46",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-47",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-48",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "LIVE-01",
+      "status": "BLOCKED_EXTERNAL",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "missing-external-evidence"
+    },
+    {
+      "id": "LIVE-02",
+      "status": "BLOCKED_EXTERNAL",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "missing-external-evidence"
+    },
+    {
+      "id": "LIVE-03",
+      "status": "BLOCKED_EXTERNAL",
+      "command": "npm run verify:live",
+      "environment": "deployed",
+      "evidencePaths": [],
+      "reasonCode": "missing-external-evidence"
+    },
+    {
+      "id": "LIVE-04",
+      "status": "BLOCKED_EXTERNAL",
+      "command": "npm run verify:live",
+      "environment": "real-device",
+      "evidencePaths": [],
+      "reasonCode": "missing-external-evidence"
+    },
+    {
+      "id": "LIVE-05",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "capability-disabled"
+    }
+  ],
+  "counts": {
+    "passed": 0,
+    "failed": 47,
+    "blocked": 4,
+    "notRequested": 2
+  },
+  "releaseVerdict": "FAIL"
+}

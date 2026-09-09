@@ -37,6 +37,8 @@ Mutation review added explicit assertions for every browser/headless method pair
 
 ### Reviewed behavior-preserving mutations
 
+The TAP runner uses `forceBail: true`: the installed parser can stop a mutant's process after parsing a failed assertion. Ordinary test selection, successful initial coverage collection, and mutation thresholds are unchanged. `tests/tap-bail.test.ts` exercises a real failed Node assertion, a completed next assertion that flushes the TAP record, and then a blocked test. The parser can buffer a failure if the very next test hangs before completing; early bailout therefore does not replace bounded test latches. An identical 26-mutant experiment reported 21 killed/five timeouts without bailout and 25 killed/one timeout with bailout, without runner errors; scheduling may also affect these counts. Timeouts remain separately reported, never claimed as asserted guards. Explicit bounded lifecycle latches and entry-surface validation cover the diagnosed test hangs.
+
 These remain enabled in reports; none is suppressed to raise the score. IDs below refer to the earlier five-file mutation checkpoint, before adding the Arazzo executor; consult current reports for current IDs.
 
 | File / IDs                 | Review                                                                                                                                                                                                                                                                                          |
