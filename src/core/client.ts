@@ -249,6 +249,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
                     manifest.id,
                     resolveCeremonyMethod(manifest, context).id,
                   );
+            signal?.throwIfAborted();
+            if (disposed)
+              throw new Error("This ceremony client has been disposed.");
             next = accept(next);
             if (!disposed) observe(() => options.onInstance?.(next.id));
             // Only protocol preparation is automatic, not provisioning anonymous resources.
@@ -275,6 +278,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
               );
               if (prepared) next = prepared;
             }
+            signal?.throwIfAborted();
+            if (disposed)
+              throw new Error("This ceremony client has been disposed.");
             if (
               !parsed.methodId &&
               options.delegation === "agent" &&
