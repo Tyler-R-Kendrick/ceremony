@@ -70,7 +70,7 @@ export async function mountPrivateCollector(
         );
         const request = fetch(collection.endpoint, {
           method: "POST",
-          credentials: "omit",
+          credentials: "include",
           redirect: "error",
           referrerPolicy: "no-referrer",
           headers: {

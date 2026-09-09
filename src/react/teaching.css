@@ -1,0 +1,122 @@
+.teaching-connection {
+  min-width: 0;
+}
+.teaching-current {
+  padding: 28px;
+}
+.teaching-current h2 {
+  margin-top: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.teaching-connection p {
+  max-width: 70ch;
+}
+.teaching-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 16px;
+}
+.teaching-note {
+  color: var(--muted);
+  font-size: 14px;
+}
+.teaching-error {
+  color: #a03620;
+}
+.teaching-progress {
+  margin-block: 24px;
+}
+.teaching-progress li {
+  padding-block: 6px;
+}
+.teaching-progress li span {
+  color: var(--muted);
+  margin-inline-start: 12px;
+}
+.teaching-connection summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 10px;
+}
+.teaching-review {
+  padding: 24px 28px;
+  border-top: 1px solid var(--line);
+}
+.teaching-review h3 {
+  margin-top: 0;
+  font-size: 18px;
+}
+.teaching-review dt {
+  font-weight: 600;
+  margin-top: 16px;
+}
+.teaching-review dd {
+  margin: 4px 0 0;
+  max-width: 70ch;
+}
+.teaching-review li {
+  overflow-wrap: anywhere;
+}
+.teaching-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-block: 24px;
+}
+.teaching-connection label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.teaching-connection input,
+.teaching-connection select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #aebdce;
+  border-radius: 6px;
+  font-size: 16px;
+  background: var(--surface);
+  color: inherit;
+}
+.teaching-connection pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow: auto;
+  font-size: 12px;
+}
+.teaching-saved {
+  list-style: none;
+  padding: 0;
+}
+.teaching-saved li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 12px;
+}
+.teaching-saved label {
+  flex-direction: row;
+  align-items: center;
+}
+.teaching-saved input {
+  width: 20px;
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .teaching-current,
+  .teaching-review {
+    padding: 24px 20px;
+  }
+  .teaching-range {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .teaching-saved li {
+    flex-wrap: wrap;
+  }
+}

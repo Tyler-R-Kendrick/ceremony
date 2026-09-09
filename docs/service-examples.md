@@ -2,7 +2,7 @@
 
 Reviewed 2026-09-08 against the primary sources below. Available services across simulation and live modes cover every member of the runtime's `flowKinds`. All examples execute through the shared client, controller, native WebMCP actions and success/failure hooks. They render functional OpenUI ceremonies, not static screenshots.
 
-Live mode separately offers the seventh family, GitHub App registration and installation, with blocking prerequisites and real provider endpoints. The table below remains simulation-only. [Live authentication](live-auth.md) documents implementation, host setup and the outstanding external validation; the live adapter is not yet account-certified.
+The default collection now offers GitHub App registration/installation, Stripe key verification and Supabase project sign-in through actual provider SDKs. Registration and missing configuration are part of the selected ceremony, not separate experiences. [Live authentication](live-auth.md) documents their exact boundaries and host setup. The table below describes the explicit developer harness at `/?mode=test`; it is not the normal connector collection. Jira and Neon remain test-only until their live prerequisite and recovery paths are ready.
 
 **Execution is local simulation.** Vendor names identify documented methods, not a live account connection or certified adapter. Do not enter real credentials in the demo. Provider-specific application registration, endpoints, secrets, wire formats and storage are host responsibilities.
 

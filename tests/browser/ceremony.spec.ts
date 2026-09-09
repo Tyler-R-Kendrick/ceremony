@@ -24,7 +24,7 @@ test.afterEach(({ page }) => {
 test("every named service renders only its documented methods and clearly identifies local execution", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   const services = page.getByRole("complementary", {
     name: "Available services",
     exact: true,
@@ -70,7 +70,7 @@ test("every named service renders only its documented methods and clearly identi
 async function selectMethod(page: Page, id: string) {
   const connector =
     { basic: "jira", form: "supabase", anonymous: "neon" }[id] ?? "github";
-  await page.goto(`/?connector=${connector}`);
+  await page.goto(`/?mode=test&connector=${connector}`);
   await expect(page.locator("#impeccable-live-global-bar-brand")).toHaveCount(
     0,
   );
@@ -81,7 +81,7 @@ async function selectMethod(page: Page, id: string) {
 test("connector entry chooses browser OAuth and preserves progress across service switches", async ({
   page,
 }) => {
-  await page.goto("/?connector=github");
+  await page.goto("/?mode=test&connector=github");
   await expect(
     page.getByRole("link", { name: /Continue to provider/ }),
   ).toBeVisible();
@@ -128,13 +128,13 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
       page.getByRole("heading", { name: "Connections", exact: true }),
     ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-    await page.getByRole("button", { name: "Template studio" }).click();
+    await page.getByRole("button", { name: "Workflow studio" }).click();
     await expect(
-      page.getByRole("heading", { name: "Template studio", exact: true }),
+      page.getByRole("heading", { name: "Workflow studio", exact: true }),
     ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     for (const control of await page
-      .locator("nav button, .toolbar button, .toolbar .button")
+      .locator("nav button, .toolbar button:visible, .toolbar .button:visible")
       .all()) {
       const box = await control.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
@@ -142,7 +142,7 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
     }
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const button = page.getByRole("button", { name: "Template studio" });
+  const button = page.getByRole("button", { name: "Workflow studio" });
   await button.hover();
   await page.mouse.down();
   expect(
@@ -228,10 +228,21 @@ test("OAuth leaves for the provider and resumes the same ceremony after callback
   page,
 }) => {
   await selectMethod(page, "oauth");
+  await expect(
+    page.getByRole("link", { name: /Continue to provider/ }),
+  ).toBeVisible();
+  const id = new URL(page.url()).searchParams.get("ceremony");
+  expect(id).not.toBeNull();
   await page.getByRole("link", { name: /Continue to provider/ }).click();
   await expect(page).toHaveURL(/4174\/authorize/);
   await signIn(page);
-  await expect(page).toHaveURL(/4173\/\?connector=github&ceremony=/);
+  await expect(page).toHaveURL(
+    (url) =>
+      url.origin === "http://127.0.0.1:4173" &&
+      url.searchParams.get("mode") === "test" &&
+      url.searchParams.get("connector") === "github" &&
+      url.searchParams.get("ceremony") === id,
+  );
   await expect(
     page.getByRole("heading", { name: "You’re connected" }),
   ).toBeVisible();
@@ -348,7 +359,10 @@ test("studio previews every state, rejects malformed imports, and fits a mobile 
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Template studio" }).click();
+  await page.getByRole("button", { name: "Workflow studio" }).click();
+  await page
+    .getByText("Advanced: customize presentation templates", { exact: true })
+    .click();
   await expect(page.getByText("✓ Validated", { exact: true })).toBeVisible();
   for (const step of [
     "intro",
@@ -417,8 +431,11 @@ test("generate, export, import and run an authored template after the model is o
     modelName: "test-model",
   });
   try {
-    await page.goto(`${app.origin}/`);
-    await page.getByRole("button", { name: "Template studio" }).click();
+    await page.goto(`${app.origin}/?mode=test`);
+    await page.getByRole("button", { name: "Workflow studio" }).click();
+    await page
+      .getByText("Advanced: customize presentation templates", { exact: true })
+      .click();
     await page.getByLabel("Auth family").selectOption("api-key");
     await page
       .getByRole("button", { name: "Generate template", exact: true })

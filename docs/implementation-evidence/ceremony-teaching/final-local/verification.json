@@ -1,0 +1,587 @@
+{
+  "schemaVersion": 1,
+  "commit": "29e8340fb4b9aeeb47eeddb8416c0a7e34a66930",
+  "checkedAt": "2026-09-09T21:18:42.558Z",
+  "profile": "local",
+  "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
+  "dependencyVersions": {
+    "ai": "7.0.95",
+    "workflow": "4.8.7",
+    "pg": "8.23.0",
+    "oauth4webapi": "3.8.8",
+    "jose": "6.2.12",
+    "@playwright/test": "1.63.0",
+    "nitro": "3.0.260903-beta",
+    "zod": "4.5.4"
+  },
+  "capabilities": {
+    "nativeWebMCP": {
+      "enabled": true,
+      "certified": true
+    },
+    "remoteBrowser": {
+      "enabled": false,
+      "certified": false
+    },
+    "inAppAgent": {
+      "enabled": true,
+      "certified": false
+    },
+    "installedPwa": {
+      "enabled": false,
+      "certified": false
+    }
+  },
+  "cases": [
+    {
+      "id": "AC-01",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-06",
+      "status": "FAIL",
+      "command": "npm run verify",
+      "environment": "local-integration",
+      "evidencePaths": [],
+      "reasonCode": "missing-local-evidence"
+    },
+    {
+      "id": "AC-07",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-10",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-11",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-12",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-13",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-14",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-15",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-16",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-17",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-18",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-19",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-20",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-21",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-22",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-23",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-24",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-25",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-26",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-27",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-28",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-29",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-30",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-31",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-32",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-33",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-34",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/workflow-results.json"
+      ]
+    },
+    {
+      "id": "AC-35",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-36",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-37",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-38",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json"
+      ]
+    },
+    {
+      "id": "AC-39",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-40",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-41",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-42",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-43",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-44",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-45",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-46",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-47",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "AC-48",
+      "status": "PASS",
+      "command": "npm run test:coverage",
+      "environment": "local-integration",
+      "evidencePaths": [
+        "docs/implementation-evidence/ceremony-teaching/final-local/commands.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/coverage.json",
+        "docs/implementation-evidence/ceremony-teaching/final-local/browser-results.json"
+      ]
+    },
+    {
+      "id": "LIVE-01",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "external-not-requested"
+    },
+    {
+      "id": "LIVE-02",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "external-not-requested"
+    },
+    {
+      "id": "LIVE-03",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "deployed",
+      "evidencePaths": [],
+      "reasonCode": "external-not-requested"
+    },
+    {
+      "id": "LIVE-04",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "real-device",
+      "evidencePaths": [],
+      "reasonCode": "capability-disabled"
+    },
+    {
+      "id": "LIVE-05",
+      "status": "NOT_REQUESTED",
+      "command": "npm run verify:live",
+      "environment": "live-provider",
+      "evidencePaths": [],
+      "reasonCode": "capability-disabled"
+    }
+  ],
+  "counts": {
+    "passed": 46,
+    "failed": 2,
+    "blocked": 0,
+    "notRequested": 5
+  },
+  "releaseVerdict": "FAIL"
+}

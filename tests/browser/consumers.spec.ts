@@ -37,6 +37,24 @@ test.beforeAll(async () => {
     );
     if (framework === "vue")
       await expect(access(join(root, "node_modules/react"))).rejects.toThrow();
+    if (framework === "react") {
+      await run(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
+        import { createElement } from 'react';
+        import { renderToString } from 'react-dom/server';
+        import { TeachingConnection } from '@ceremony/auth/react';
+        if (typeof window !== 'undefined') throw new Error('SSR fixture has browser globals');
+        const html = renderToString(createElement(TeachingConnection, { webmcp: false, autoFocus: false }));
+        if (!html) throw new Error('Teaching SSR produced no content');
+      `,
+        ],
+        { cwd: root },
+      );
+    }
     await run("npm", ["run", "build"], {
       cwd: root,
       maxBuffer: 4_000_000,
@@ -75,6 +93,16 @@ test("packed React components compose, isolate IDs, theme, and retain native Web
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("http://127.0.0.1:4373");
+  await expect(
+    page
+      .locator("#teaching-host")
+      .getByRole("button", { name: "Connect GitHub", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page
+      .locator(".host-teaching")
+      .evaluate((node) => getComputedStyle(node).borderRadius),
+  ).toBe("7px");
   await expect(
     page.locator("#light").getByLabel("Stripe secret key"),
   ).toBeVisible();

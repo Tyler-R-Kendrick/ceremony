@@ -1,6 +1,6 @@
 # Ceremony
 
-Reusable authentication ceremonies, authored with an LLM and rendered with OpenUI. Runtime execution is deterministic: templates arrange screens; server-side adapters execute protocols and store credentials.
+Reusable authentication ceremonies with browser-native teaching and optional agent assistance. OpenUI arranges presentation; registered server operations execute protocols and verify access. Reviewed recipes run deterministically without a model.
 
 ## Run
 
@@ -13,11 +13,19 @@ npm run dev
 
 Open **http://127.0.0.1:4173**. The separate local protocol provider runs on port **4174**. Use `127.0.0.1`, not `localhost`; callback and origin checks are exact.
 
-The [live GitHub App ceremony](http://127.0.0.1:4173/?mode=live&connector=github) uses real GitHub endpoints with blocking registration, installation and verification prerequisites. Local startup provisions an encrypted SQLite vault. See [live authentication and host setup](docs/live-auth.md) for configuration, private collection, remote assistance and the remaining live-validation requirements.
+The [connector collection](http://127.0.0.1:4173/) runs real GitHub, Stripe and Supabase adapters. GitHub app registration is an inline blocking prerequisite when no app exists in the session, not a separate experience. Stripe verifies key access without payments; Supabase collects missing project settings alongside user sign-in. Local startup provisions an encrypted SQLite vault. See [live authentication and host setup](docs/live-auth.md) for configuration, private collection, remote assistance and validation boundaries.
 
-Open [Environment](http://127.0.0.1:4173/?mode=live&section=environment) to optionally import a `.env` file or add, replace and remove session-scoped variables shared by all connectors. Saved values stay encrypted and are never returned to the page. GitHub App setup consumes its four documented variables; other example adapters remain simulations. See [environment behavior and limits](docs/live-auth.md#environment-section).
+Open [Environment](http://127.0.0.1:4173/?section=environment) to optionally import a `.env` file or add, replace and remove session-scoped variables shared by all connectors. Saved values stay encrypted and are never returned to the page. GitHub App configuration, `STRIPE_SECRET_KEY`, and Supabase project settings skip corresponding setup inputs. See [environment behavior and limits](docs/live-auth.md#environment-section).
 
-The **Connect** page uses GitHub, Stripe, Jira, Supabase and Neon examples to cover all six implemented auth families. These are working local simulations of documented service interactions, not live connections to those vendors. Each example links its official authentication documentation. GitHub and Stripe share the API-key template with service-specific fields. See [service examples and coverage](docs/service-examples.md) for exact profiles and production prerequisites. **Template studio** generates, edits, validates, previews, imports, and exports templates; previews cannot invoke adapters.
+The normal **Connect** page contains only provider-backed adapters. The explicit developer harness at `/?mode=test` retains GitHub OAuth/device/token, Stripe, Jira, Supabase and Neon simulations for protocol testing; never enter real credentials there. Jira and Neon are not offered as ready live integrations. See [service examples and coverage](docs/service-examples.md). **Workflow studio** supports demonstrations, reviewed reusable recipes, and presentation templates. Existing Arazzo exports remain supported; generated code never becomes an executable operation.
+
+## Connect, teach, and reuse
+
+GitHub Connect reuses freshly verified access or selects compatible published recipes, including independently authored fragments. Missing app registration and installation consent stay in one parent connection. **Teach this step** or **Create from demonstration** records permitted server transitions, not provider DOM or private entry. Stop recording, select a whole ceremony or a contiguous part, review it, and save a reusable step. Sharing a procedure never shares the original author’s credentials or consent.
+
+The optional in-page assistant uses AI SDK through the protected command service; hosted continuation uses Workflow and PostgreSQL. Stopping the assistant, cancelling the connection, and discarding a demonstration are distinct actions. A configured, idempotent host continuation resumes the original task after provider verification, even without the initiating tab.
+
+See [teaching](docs/ceremony-teaching.md), [agent integration](docs/agent-integration.md), [production hosting](docs/production-deployment.md), and [release evidence](docs/implementation-evidence/ceremony-teaching/README.md). Local protocol/browser evidence is not real-account or deployed-platform certification. The loopback example is not production identity.
 
 Local test credentials:
 
@@ -56,13 +64,14 @@ Routine OAuth/device preparation runs automatically and emits execution hooks. S
 
 `npm run build` emits ESM and declarations. See [embedding ceremonies](docs/integration.md) for installation, host UI libraries, styling and framework-neutral lifecycles.
 
-| Import                      | Responsibility                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| `@ceremony/auth`            | Framework-neutral client, HTTP transport, WebMCP, hooks, schemas and template contracts     |
-| `@ceremony/auth/react`      | `Ceremony`, `CeremonyView`, `useCeremony`, OpenUI validation and rendering                  |
-| `@ceremony/auth/styles.css` | Optional scoped styles and host-overridable theme tokens                                    |
-| `@ceremony/auth/server`     | `CeremonyController`, `AuthAdapter`, protocol reference adapter, credential-store interface |
-| `@ceremony/auth/mcp-app`    | Trusted MCP App private-collector mount function                                            |
+| Import                           | Responsibility                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `@ceremony/auth`                 | Framework-neutral client, HTTP transport, WebMCP, hooks, schemas and template contracts                             |
+| `@ceremony/auth/react`           | `Ceremony`, `CeremonyView`, `useCeremony`, OpenUI validation and rendering                                          |
+| `@ceremony/auth/styles.css`      | Optional scoped styles and host-overridable theme tokens                                                            |
+| `@ceremony/auth/server`          | `CeremonyController`, `AuthAdapter`, protocol reference adapter, credential-store interface                         |
+| `@ceremony/auth/server/teaching` | Authenticated teaching runtime, registered recipes, async stores, private broker and hosted-handler building blocks |
+| `@ceremony/auth/mcp-app`         | Trusted MCP App private-collector mount function                                                                    |
 
 ```tsx
 import { Ceremony, createHttpTransport } from "@ceremony/auth/react";
@@ -93,19 +102,23 @@ The included `createProtocolAdapter` takes explicit server-only endpoints and a 
 
 ### WebMCP and execution hooks
 
-`Ceremony` registers eleven native WebMCP tools when `document.modelContext` is available: `ceremony_<connector-id>_start`, `read`, `begin`, `submit`, `claim`, `finish`, `retry`, `cancel`, `navigate`, `request-human`, and `request-input` (each with that prefix). `start` takes `{methodId}`; `submit` accepts public `{values}` or an opaque `{secretRef}`, never password fields. `request-input` opens a private human collector; `request-human` uses the configured assistance adapter. The remaining commands take `{}`. `read` returns methods, current fields, prerequisites and allowed actions. Unavailable actions fail without executing the adapter. Start can select or switch methods; switching also emits a cancellation execution event.
+The teaching-enabled GitHub surface registers four protected tools: `ceremony_github_connect`, `snapshot`, `advance`, and `cancel`. `createConnectionTools` exposes the same definitions for embedded hosts without native WebMCP. Its authenticated `/tools` routes restore recorded agent authority; changing transport does not bypass Stop assistant. Snapshot is a pure read; advance accepts only node/revision/command identity and binds inputs on the server.
+
+Legacy `Ceremony` surfaces retain eleven tools: `start`, `read`, `begin`, `submit`, `claim`, `finish`, `retry`, `cancel`, `navigate`, `request-human`, and `request-input`, with a connector prefix. `submit` now accepts only explicitly public fields of the current step. **Agent-contract migration:** raw private fields, opaque secret references and device codes are excluded from agent arguments/results. `request-input` opens the native private collector; necessary device instructions remain in the human view. Unclassified legacy text fields are not implicitly public.
 
 Tools and UI controls share the same dispatcher, synchronous concurrency guard, field validation, server revisions and session authorization. `navigate` uses only the current trusted provider destination: OAuth leaves the page, while device/claim approval opens a separate tab. Provider sign-in/consent remains provider-owned, not a ceremony tool. `read` can poll and persist approval, so it is deliberately not marked read-only. No tools are exposed to additional origins. Consequential annotations are browser hints, not replacements for host authorization or user consent.
 
-Use `webmcp={false}` to disable registration, or `webmcp={{prefix: "unique_instance"}}` for multiple mounted ceremonies. Tools are removed on unmount without removing another instance's tools. Remount the component when changing connectors (`key={manifest.id}`). Unsupported browsers retain the normal controls; a registration failure is visible and does not disable the UI. This targets the experimental [current Chrome imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api), not the older `navigator.modelContext` proposal or remote MCP server authentication. Native tests enable `--enable-experimental-web-platform-features` in Chromium 153.
+Use `webmcp={false}` to disable registration, or `webmcp={{prefix: "unique_instance"}}` for multiple mounted ceremonies. Tools are removed on unmount without removing another instance's tools. Remount the component when changing connectors (`key={manifest.id}`). The library prefers `document.modelContext` and falls back to the older native `navigator.modelContext` entry point; it also accepts callers that omit execution options. Unsupported browsers retain the normal controls and show an explicit availability message; registration failures remain visible. No fake registry or polyfill is installed. This uses the experimental [Chrome imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api), not remote MCP server authentication.
 
-`onActionSuccess` and `onActionFailure` receive an execution ID, action, source (`ui`, `webmcp`, or `system`), connector/method/instance IDs, timestamps, and resulting revision/step when available. Each dispatched operation emits exactly one of these notifications. Failure reasons are `execution_failed` (validation, concurrency, transport or navigation failure), `ceremony_failed` (a resolved error state), or `expired`. Invalid tool argument shapes rejected before dispatch are not executions. Hooks and tool results exclude submitted credentials, arbitrary error text, provider URLs and connection handles. Tool status includes the device verification code needed for approval; treat it as sensitive transient data.
+To verify registration, open **Application → WebMCP → Available tools**. Teaching-enabled GitHub exposes four tools; legacy connector surfaces expose eleven. Changing surfaces removes their owned tools. Tests exercise actual `WebMCP.toolsAdded`, `WebMCP.toolsRemoved` and `WebMCP.invokeTool` through the [DevTools protocol](https://chromedevtools.github.io/devtools-protocol/tot/WebMCP/), separately from ordinary Chromium/Firefox/WebKit operation without experimental features. Native verification uses the supported experimental Chromium build; it does not certify every Chrome release.
+
+`onActionSuccess` and `onActionFailure` receive an execution ID, action, source (`ui`, `webmcp`, `agent`, or `system`), connector/method/instance IDs, timestamps, and resulting revision/step when available. Each dispatched operation emits exactly one terminal notification. Invalid tool arguments rejected before dispatch are not executions. Hooks and agent results exclude credentials, raw errors, provider URLs, private references and transient device verification codes. Source is an observability label, never proof of human authority.
 
 Success means the operation executed, **not** that authentication finished: beginning OAuth succeeds at `redirect`; poll/resume succeeds at the observed state. Keep using `onComplete` for verified completion. A successful navigation hook means handoff was initiated, not that the external page loaded or consent succeeded. Poll/resume operations emit `system` events, allowing hooks to observe later approval or rejection.
 
 Hooks may return promises; their exceptions/rejections are isolated from auth results and they are not awaited. They are best-effort in-page notifications, not durable delivery: navigation, closed tabs and server-only callbacks can outlive the page. Persist orchestration on your backend if durability is needed, deduplicate by execution ID, and re-read current state before choosing another action. Do not use hooks as an authorization gate. Framework-independent consumers can use the exported `executeCeremonyAction(context, operation, hooks)` helper around their own operations.
 
-Aborted tool calls are rejected before dispatch and before starting a replacement method. An already-dispatched server action is allowed to settle and publish its real outcome; aborting a browser invocation does not undo server side effects. Use the explicit `cancel` action to cancel the ceremony. Durable controllers additionally persist a sanitized transactional outbox; hosts deliver it with `CeremonyDatabase.deliverEvents` and deduplicate `eventId`. No model-driven workflow engine is included.
+Aborted tool calls are rejected before dispatch and before starting a replacement method. Aborting a browser invocation does not undo provider effects. Use explicit cancellation to fence local work. Legacy controllers expose `CeremonyDatabase.deliverEvents`; the teaching runtime uses transactional events, effect identities, worker generations and a deduplicating continuation outbox. The assistant proposes registered operations, not arbitrary executable workflows.
 
 ### HTTP transport
 
@@ -136,21 +149,23 @@ Template code is an authored artifact: validation constrains execution, not the 
 [Impeccable setup and resolve log](docs/impeccable-audit.md) records the design/accessibility findings, fixes, verification and automatic-hook setup limitation.
 
 ```sh
-npm exec playwright install chromium
+npm exec playwright install chromium firefox webkit
 npm run verify
 ```
 
-`verify` runs type checks, Node tests with local HTTP providers, Pact consumer contracts, the library/web build, and Chromium browser tests. Run `npm run test:pact` for the focused GitHub App boundary suite; see [contract testing and agent guidance](docs/contract-testing.md) for coverage and provider-verification limits. On restricted machines, place browsers under a writable directory with `PLAYWRIGHT_BROWSERS_PATH` and use the same setting for installation and tests. The browser suite verifies generation using a local OpenAI-compatible test endpoint, then shuts it down and completes a ceremony using the exported/imported template.
+`verify` includes formatting/type checks, recursively discovered Node/Pact/security/integration tests, coverage, the actual local Workflow runtime, critical-guard mutation tests, library/browser/hosted builds, packed consumers, and three-engine teaching browser tests. Fixtures start and stop automatically. Focused commands include `test:integration`, `test:security`, `test:agent`, `test:pact`, and `test:e2e`. `verify:live` and `verify:release` fail when required authorized configuration or exact-commit evidence is missing. See [evidence policy](docs/implementation-evidence/ceremony-teaching/README.md).
+
+On restricted machines, use `PLAYWRIGHT_BROWSERS_PATH` consistently for installation and tests. Install the documented Playwright system libraries for all requested browsers. Optional `PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH` supports an operator-provided native launcher; no recorder, extension or CLI is an end-user dependency.
 
 Protocol tests cover successful flows plus credential rejection, state/PKCE mismatch, callback replay, pending approval, slowdown, denial, cancellation, expiration, isolation, signed-assertion validation, and anonymous credential replacement. Browser tests cover the actual user and authoring pages, reload, multiple connectors, keyboard submission, mobile layout, secret exclusion, accessibility, and independent React/Vue hosts installed from the packed library. The consumer tests install fixture dependencies using npm and require registry access or a populated cache.
 
 ## Boundaries
 
 - The reference app binds to loopback. Its authoring API is a local development surface; a hosted authoring service requires host authentication and authorization.
-- Simulation adapters remain process-local. Live GitHub persists encrypted state, configuration and sessions across restart. This reference uses bounded leases, not a certified distributed runtime; deploy one active controller process and supply host authentication, key management and retention policy.
+- Simulation adapters remain process-local. The legacy synchronous controller is a compatibility/development path. Production teaching routes use authenticated host identity, async PostgreSQL transactions, encrypted records and fenced workers; see the explicit migration and deployment requirements. Do not deploy SQLite on ephemeral function disks.
 - Cancellation stops local work; it does not revoke upstream credentials. Claiming replaces the stored anonymous credential only after provider confirmation. Anonymous access remains recorded when claiming fails or is cancelled. After choosing “Continue anonymously,” resume the original instance to claim it within the provider's claim window. Transient polling failures keep the attempt pending and retry until expiry.
 - External provider interoperability has not been certified. The included providers exercise real HTTP protocol exchanges and real JWT signatures, but they are intentionally not production authorization servers.
 - OAuth/OIDC token refresh, provider-wide revocation, connector URL discovery, and the catalog-only families are outside v1. [Auth catalog](docs/auth-catalog.md) lists exact coverage and references.
-- Payment processing, lead capture, generic workflow engines, hosted deployment, and package publication are not included.
+- Payment processing, lead capture, generic workflow engines and package publication are not included. A Vercel-compatible hosting adapter is implemented, but deployment and paid-resource provisioning are not performed automatically. Legacy remote-browser/A2H/MCP collectors are not advertised as certified production teaching transports.
 
 The package is private until you choose its publication name and policy. `npm pack` can produce a local library artifact after building.

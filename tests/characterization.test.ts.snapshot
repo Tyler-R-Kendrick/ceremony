@@ -1,0 +1,453 @@
+exports[`characterization: agent tool contracts exclude execution functions and secrets 1`] = `
+[
+  {
+    "name": "github_start",
+    "description": "start the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "methodId": {
+          "type": "string",
+          "enum": [
+            "oauth",
+            "device",
+            "api-key"
+          ]
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_read",
+    "description": "read the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": false,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_begin",
+    "description": "begin the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_submit",
+    "description": "submit the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "description": "Explicitly public choices for the current step only. Use request-input for all other fields; private collection completes without exposing a reference to the agent."
+        }
+      },
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_claim",
+    "description": "claim the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_finish",
+    "description": "finish the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_retry",
+    "description": "retry the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_cancel",
+    "description": "cancel the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_request-human",
+    "description": "request-human the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_navigate",
+    "description": "navigate the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. Opens the trusted provider page; provider approval is a separate action outside this ceremony.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  },
+  {
+    "name": "github_request-input",
+    "description": "request-input the GitHub authentication ceremony. Read current state first; only invoke allowed actions with the user's authorization. ",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "consequentialHint": true,
+      "untrustedContentHint": true
+    }
+  }
+]
+`;
+
+exports[`characterization: agent tool contracts exclude execution functions and secrets 2`] = `
+{
+  "connectorId": "github",
+  "methods": [
+    {
+      "id": "oauth",
+      "label": "OAuth · PKCE",
+      "kind": "oauth-code",
+      "scopes": [
+        "read:user"
+      ]
+    },
+    {
+      "id": "device",
+      "label": "Device approval",
+      "kind": "device",
+      "scopes": [
+        "read:user"
+      ]
+    },
+    {
+      "id": "api-key",
+      "label": "Personal access token",
+      "kind": "api-key",
+      "scopes": []
+    }
+  ],
+  "actions": [
+    "start"
+  ]
+}
+`;
+
+exports[`characterization: every flow template and state action 1`] = `
+[
+  {
+    "version": 1,
+    "id": "api-key",
+    "kind": "api-key",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Connect your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "basic",
+    "kind": "basic",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Connect your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "form",
+    "kind": "form",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Connect your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "oauth-code",
+    "kind": "oauth-code",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Connect your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "device",
+    "kind": "device",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Connect your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "authmd-anonymous",
+    "kind": "authmd-anonymous",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Start anonymous access\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"Ceremony complete\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  },
+  {
+    "version": 1,
+    "id": "github-app",
+    "kind": "github-app",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Prepare your GitHub integration\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
+  }
+]
+`;
+
+exports[`characterization: every flow template and state action 2`] = `
+[
+  {
+    "step": "intro",
+    "authenticated": [
+      "begin",
+      "cancel"
+    ],
+    "anonymous": [
+      "begin",
+      "cancel"
+    ]
+  },
+  {
+    "step": "input",
+    "authenticated": [
+      "submit",
+      "cancel"
+    ],
+    "anonymous": [
+      "submit",
+      "cancel"
+    ]
+  },
+  {
+    "step": "redirect",
+    "authenticated": [
+      "cancel"
+    ],
+    "anonymous": [
+      "cancel"
+    ]
+  },
+  {
+    "step": "waiting",
+    "authenticated": [
+      "cancel"
+    ],
+    "anonymous": [
+      "cancel"
+    ]
+  },
+  {
+    "step": "anonymous",
+    "authenticated": [
+      "finish",
+      "claim",
+      "cancel"
+    ],
+    "anonymous": [
+      "finish",
+      "claim",
+      "cancel"
+    ]
+  },
+  {
+    "step": "claim",
+    "authenticated": [
+      "submit",
+      "cancel"
+    ],
+    "anonymous": [
+      "submit",
+      "cancel"
+    ]
+  },
+  {
+    "step": "complete",
+    "authenticated": [],
+    "anonymous": [
+      "claim"
+    ]
+  },
+  {
+    "step": "error",
+    "authenticated": [
+      "retry",
+      "cancel"
+    ],
+    "anonymous": [
+      "finish",
+      "claim",
+      "cancel"
+    ]
+  },
+  {
+    "step": "cancelled",
+    "authenticated": [
+      "retry"
+    ],
+    "anonymous": [
+      "retry"
+    ]
+  },
+  {
+    "step": "expired",
+    "authenticated": [
+      "retry",
+      "cancel"
+    ],
+    "anonymous": [
+      "finish",
+      "claim",
+      "cancel"
+    ]
+  }
+]
+`;

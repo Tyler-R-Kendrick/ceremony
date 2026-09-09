@@ -2,6 +2,8 @@ import { createServer, type Server } from "node:http";
 import { randomUUID, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { createServer as createViteServer } from "vite";
@@ -16,6 +18,8 @@ import {
   PrivateCredentialBroker,
   GitHubAppCeremonies,
   githubAppManifest,
+  githubWorkflows,
+  serviceRegistrations,
   type GitHubOptions,
   CloudflareHumanBrowser,
   Agent2Human,
@@ -26,8 +30,13 @@ import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
 import { json, readBody, escapeHtml } from "./http.js";
+import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import { createGitHubRuntime } from "../src/server/github-runtime.js";
+import { teachingHttp } from "../src/server/teaching-http.js";
+import type { TeachingRuntime } from "../src/server/teaching-runtime.js";
 
 export interface ReferenceOptions {
+  teaching?: TeachingRuntime | true;
   port?: number;
   providerPort?: number;
   modelUrl?: string;
@@ -38,11 +47,14 @@ export interface ReferenceOptions {
     databasePath: string;
     vaultKey: Uint8Array;
     github?: Omit<GitHubOptions, "origin">;
+    services?: Parameters<typeof serviceRegistrations>[2];
     cloudflare?: { accountId: string; apiToken: string };
     a2h?: A2HOptions;
   };
 }
 export async function startReferenceApp(options: ReferenceOptions = {}) {
+  if (process.env.NODE_ENV === "production")
+    throw new Error("Use the authenticated hosted entry point in production");
   const port = options.port ?? 4173;
   const providerPort = options.providerPort ?? 4174;
   const origin = options.publicOrigin ?? `http://127.0.0.1:${port}`;
@@ -160,6 +172,11 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
               createAdapter: (context) => github.createAdapter(context),
               resume: (owner) => github.resume(owner),
             },
+            ...serviceRegistrations(
+              liveDatabase,
+              environment,
+              options.live?.services,
+            ),
           ],
           new Map(),
           Date.now,
@@ -205,6 +222,57 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
     string,
     { expires: number; lastGeneration: number; generating: boolean }
   >();
+  const teachingStore =
+    options.teaching === true
+      ? new SQLiteCeremonyStore(
+          options.live ? `${options.live.databasePath}.teaching` : ":memory:",
+          {
+            current: "development",
+            keys: { development: options.live?.vaultKey ?? randomBytes(32) },
+          },
+        )
+      : undefined;
+  const teaching =
+    options.teaching === true
+      ? createGitHubRuntime({
+          store: teachingStore!,
+          origin,
+          environment: "development",
+          configurationVersion: "v1",
+          identity: {
+            authenticate: async (request) => {
+              const owner =
+                /(?:^|;\s*)ceremony-session=([a-f0-9-]{36})(?:;|$)/.exec(
+                  request.headers.get("cookie") ?? "",
+                )?.[1];
+              if (!owner || !sessions.has(owner)) return null;
+              return {
+                tenantId: "development",
+                subjectId: owner,
+                sessionId: owner,
+                actorKind: "human",
+                capabilities: ["executor", "author", "reviewer", "publisher"],
+              };
+            },
+          },
+          allowTarget: async () => true,
+          authorize: async (actor, run) =>
+            actor.tenantId === "development" &&
+            actor.subjectId === run.subjectId &&
+            sessions.has(actor.sessionId),
+          configuration: async (actor) =>
+            environment.githubConfiguration(
+              actor.subjectId,
+              actor.sessionId,
+              "v1",
+            ),
+          modelConfiguration: {
+            ...(options.modelUrl ? { endpoint: options.modelUrl } : {}),
+            ...(options.modelName ? { model: options.modelName } : {}),
+            ...(options.modelKey ? { apiKey: options.modelKey } : {}),
+          },
+        })
+      : options.teaching;
   const server = createServer(async (request, response) => {
     try {
       response.setHeader("x-content-type-options", "nosniff");
@@ -252,6 +320,47 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         );
       }
       const session = sessions.get(owner)!;
+      if (url.pathname.startsWith("/api/v1/teaching")) {
+        if (!teaching) return json(response, { error: "unavailable" }, 503);
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers))
+          if (typeof value === "string") headers.set(name, value);
+        // The development-only anonymous session is derived server-side, never from request JSON.
+        if (options.teaching === true)
+          headers.set("cookie", `ceremony-session=${owner}`);
+        const incoming = new Request(url, {
+          method: request.method ?? "GET",
+          headers,
+          ...(request.method === "POST"
+            ? { body: await readBody(request) }
+            : {}),
+        });
+        const result = await teachingHttp(incoming, teaching);
+        response.statusCode = result.status;
+        result.headers.forEach((value, name) =>
+          response.setHeader(name, value),
+        );
+        if (result.body) {
+          const reader = result.body.getReader();
+          await pipeline(
+            Readable.from(
+              (async function* () {
+                try {
+                  for (;;) {
+                    const chunk = await reader.read();
+                    if (chunk.done) return;
+                    yield chunk.value;
+                  }
+                } finally {
+                  await reader.cancel();
+                }
+              })(),
+            ),
+            response,
+          );
+        } else response.end();
+        return;
+      }
       const a2hCallback = /^\/api\/live\/a2h\/([a-f0-9-]{36})$/.exec(
         url.pathname,
       );
@@ -298,10 +407,13 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && url.pathname === "/api/config")
         return json(response, {
           manifests: controller.manifests(),
-          liveManifests: [githubAppManifest],
+          liveManifests: liveController?.manifests() ?? [githubAppManifest],
           liveAvailable: Boolean(liveController),
+          teachingAvailable: Boolean(teaching),
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
+      if (request.method === "GET" && url.pathname === "/api/workflows/github")
+        return json(response, githubWorkflows);
       const environmentRoute = /^\/api\/environment(?:\/([a-z0-9-]+))?$/.exec(
         url.pathname,
       );
@@ -566,7 +678,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && callback?.[1]) {
         const snapshot = await controller.callback(owner, callback[1], url);
         response.writeHead(303, {
-          location: `/?connector=${encodeURIComponent(snapshot.connectorId)}&ceremony=${snapshot.id}`,
+          location: `/?mode=test&connector=${encodeURIComponent(snapshot.connectorId)}&ceremony=${snapshot.id}`,
           "cache-control": "no-store",
         });
         return response.end();
@@ -749,6 +861,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       );
       demoDatabase.close();
       liveDatabase?.close();
+      await teachingStore?.close();
     },
   };
 }
@@ -796,6 +909,7 @@ if (
       apiToken: z.string().min(1).parse(process.env.CLOUDFLARE_API_TOKEN),
     };
   const app = await startReferenceApp({
+    teaching: true,
     port: number.parse(process.env.CEREMONY_PORT ?? 4173),
     providerPort: number.parse(process.env.CEREMONY_PROVIDER_PORT ?? 4174),
     live,

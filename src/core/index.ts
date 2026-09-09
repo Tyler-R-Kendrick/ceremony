@@ -3,3 +3,8 @@ export * from "./execution.js";
 export * from "./client.js";
 export * from "./webmcp.js";
 export * from "./resolution.js";
+export * from "./operation-contracts.js";
+export * from "./recipe-contracts.js";
+export * from "./teaching-contracts.js";
+export * from "./projections.js";
+export * from "./connection-tools.js";

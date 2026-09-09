@@ -10,9 +10,80 @@ interface RegisteredTool {
   name: string;
 }
 interface NativeModelContext {
+  registerTool(
+    tool: {
+      name: string;
+      description: string;
+      inputSchema: object;
+      execute(): string;
+    },
+    options: { signal: AbortSignal },
+  ): void;
   getTools(): Promise<RegisteredTool[]>;
   executeTool(tool: RegisteredTool, input: string): Promise<string | null>;
 }
+
+test("AC-40 real native registration collision recovers and abort only removes owned mounted tools", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    const lifetime = new AbortController();
+    document.modelContext.registerTool(
+      {
+        name: "ceremony_github_snapshot",
+        description: "Independent host registration collision fixture",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: () => "independent host",
+      },
+      { signal: lifetime.signal },
+    );
+    Object.defineProperty(window, "removeNativeCollision", {
+      value: () => lifetime.abort(),
+    });
+  });
+  await page.goto("/");
+  await expect(
+    page.getByText(
+      "Browser tools are unavailable. The normal connection controls still work.",
+    ),
+  ).toBeVisible();
+  expect(await names(page)).toEqual(["ceremony_github_snapshot"]);
+  await expect(
+    page.getByRole("button", { name: "Connect GitHub", exact: true }),
+  ).toBeEnabled();
+  await page.evaluate(() => Reflect.get(window, "removeNativeCollision")());
+  await page
+    .getByRole("button", { name: "Workflow studio", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect.poll(() => names(page)).toHaveLength(4);
+  await page.evaluate(
+    async (entry) => {
+      (await import(entry)).mountTeachingHarness("independent_teaching");
+    },
+    `/@fs${fileURLToPath(new URL("./webmcp-harness.tsx", import.meta.url))}`,
+  );
+  await expect.poll(() => names(page)).toHaveLength(8);
+  expect((await call(page, "snapshot", {}, "independent_teaching")).ok).toBe(
+    false,
+  );
+  await page
+    .getByRole("button", { name: "Unmount independent_teaching", exact: true })
+    .click();
+  await expect.poll(() => names(page)).toHaveLength(4);
+  expect(
+    (await names(page)).every((name) => name.startsWith("ceremony_github_")),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Workflow studio", exact: true })
+    .click();
+  await expect.poll(() => names(page)).toHaveLength(0);
+});
 declare global {
   interface Document {
     modelContext: NativeModelContext;
@@ -25,6 +96,116 @@ test.beforeEach(({ page }) => {
   page.on("pageerror", (error) => list.push(error.message));
 });
 test.afterEach(({ page }) => expect(errors.get(page)).toEqual([]));
+
+for (const surface of ["document", "navigator"] as const)
+  test(`DevTools discovers and invokes the actual page tools through ${surface}.modelContext`, async ({
+    page,
+    context,
+  }) => {
+    if (surface === "navigator")
+      await context.addInitScript(() => {
+        // Exercise the older entry point using Chrome's real registry, not a tool-registration mock.
+        const native = document.modelContext;
+        Object.defineProperty(navigator, "modelContext", {
+          value: native,
+          configurable: true,
+        });
+        Object.defineProperty(document, "modelContext", {
+          value: undefined,
+          configurable: true,
+        });
+      });
+    const cdp = await context.newCDPSession(page);
+    const registered = new Map<string, { name: string; frameId: string }>();
+    const responses: {
+      invocationId: string;
+      status: string;
+      output?: unknown;
+    }[] = [];
+    cdp.on("WebMCP.toolsAdded", ({ tools }) => {
+      for (const tool of tools) registered.set(tool.name, tool);
+    });
+    cdp.on("WebMCP.toolsRemoved", ({ tools }) => {
+      for (const tool of tools) registered.delete(tool.name);
+    });
+    cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
+    await cdp.send("WebMCP.enable");
+    await page.goto("/");
+    await expect.poll(() => registered.size).toBe(4);
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("native-fixture-owner");
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
+    await expect(
+      page.getByRole("link", { name: "Continue with GitHub", exact: true }),
+    ).toBeVisible();
+    // Opening DevTools after the page loaded must discover the existing tools too.
+    await cdp.send("WebMCP.disable");
+    registered.clear();
+    await cdp.send("WebMCP.enable");
+    await expect.poll(() => registered.size).toBe(4);
+    const tool = registered.get("ceremony_github_snapshot")!;
+    expect(tool).toBeDefined();
+    const { invocationId } = await cdp.send("WebMCP.invokeTool", {
+      frameId: tool.frameId,
+      toolName: tool.name,
+      input: {},
+    });
+    await expect
+      .poll(
+        () =>
+          responses.find((response) => response.invocationId === invocationId)
+            ?.status,
+      )
+      .toBe("Completed");
+    const output = responses.find(
+      (response) => response.invocationId === invocationId,
+    )!.output;
+    expect(
+      typeof output === "string" ? JSON.parse(output) : output,
+    ).toMatchObject({
+      ok: true,
+      state: { provider: "github", status: "active" },
+    });
+    await page
+      .getByRole("button", { name: "Workflow studio", exact: true })
+      .click();
+    await expect.poll(() => registered.size).toBe(0);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect
+      .poll(() => [...registered.keys()].sort())
+      .toEqual(
+        ["cancel", "connect", "snapshot", "advance"]
+          .map((action) => `ceremony_github_${action}`)
+          .sort(),
+      );
+    await cdp.detach();
+  });
+
+test("unavailable browser support is visible instead of claiming WebMCP registration", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(document, "modelContext", {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "modelContext", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/?mode=test");
+  await expect(
+    page.getByText(/WebMCP is unavailable in this browser/),
+  ).toBeVisible();
+});
 async function names(page: Page) {
   return page.evaluate(async () =>
     (await document.modelContext.getTools()).map((tool) => tool.name),
@@ -49,7 +230,7 @@ async function call(
   return result ? JSON.parse(result) : null;
 }
 async function mount(page: Page, connectorId = "github") {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect.poll(() => names(page)).toContain("ceremony_github_read");
   await page.evaluate(
     async ({ entry, connectorId }) => {
@@ -68,7 +249,7 @@ async function events(page: Page): Promise<RecordedEvent[]> {
   return JSON.parse(await page.locator("#hook-events").innerText());
 }
 
-test("native tools share UI execution, classify failures, serialize submits, redact hooks and unregister", async ({
+test("native tools share UI execution, reject private arguments, redact hooks and unregister", async ({
   page,
 }) => {
   await mount(page);
@@ -85,15 +266,25 @@ test("native tools share UI execution, classify failures, serialize submits, red
   expect(
     (await call(page, "submit", { values: { token: "wrong-secret" } })).ok,
   ).toBe(false);
-  expect((await call(page, "read")).step).toBe("input");
+  const inputState = await call(page, "read");
+  expect(inputState.step).toBe("input");
   await page
     .locator("#hook-harness")
     .getByLabel("GitHub personal access token", { exact: true })
     .fill("wrong-secret");
+  // Wait for the provider-bound action, then assert its rendered state. The
+  // network operation has a longer budget than Playwright's UI assertion timer.
+  const rejectedSubmission = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/ceremonies/${inputState.instanceId}/actions`,
+  );
   await page
     .locator("#hook-harness")
     .getByRole("button", { name: "Continue", exact: true })
     .click();
+  expect((await rejectedSubmission).ok()).toBe(true);
   await expect(
     page.locator("#hook-harness").getByRole("button", { name: "Try again" }),
   ).toBeVisible();
@@ -117,27 +308,28 @@ test("native tools share UI execution, classify failures, serialize submits, red
     source: "ui",
     status: "success",
   });
-  const current = await call(page, "read");
-  const secretRef = await page.evaluate(
-    async ({ id, revision }) => {
-      const response = await fetch(`/api/ceremonies/${id}/collect`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revision, values: { token: "demo-api-key" } }),
-      });
-      return (await response.json()).secretRef;
-    },
-    { id: current.instanceId, revision: current.revision },
-  );
   const submitted = await Promise.all([
-    call(page, "submit", { secretRef }),
-    call(page, "submit", { secretRef }),
+    call(page, "submit", { secretRef: "00000000-0000-4000-8000-000000000000" }),
+    call(page, "submit", { values: { token: "demo-api-key" } }),
   ]);
-  expect(submitted.filter((result) => result.ok)).toHaveLength(1);
+  expect(submitted.every((result) => result.ok === false)).toBe(true);
+  await page
+    .locator("#hook-harness")
+    .getByLabel("GitHub personal access token", { exact: true })
+    .fill("demo-api-key");
+  await page
+    .locator("#hook-harness")
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(
+    page
+      .locator("#hook-harness")
+      .getByRole("heading", { name: "You’re connected" }),
+  ).toBeVisible();
   expect((await call(page, "read")).step).toBe("complete");
   expect((await call(page, "cancel")).ok).toBe(false);
   const recorded = await events(page);
-  expect(recorded.filter((event) => event.action === "submit")).toHaveLength(3);
+  expect(recorded.filter((event) => event.action === "submit")).toHaveLength(2);
   expect(new Set(recorded.map((event) => event.executionId)).size).toBe(
     recorded.length,
   );
@@ -152,7 +344,7 @@ test("native tools share UI execution, classify failures, serialize submits, red
   expect(await names(page)).toContain("ceremony_github_read");
 });
 
-test("native anonymous finish/claim/cancel and device navigation preserve provider approval", async ({
+test("native anonymous finish/claim/cancel and claim navigation preserve provider approval", async ({
   page,
 }) => {
   await mount(page, "neon");
@@ -191,7 +383,7 @@ test("native anonymous finish/claim/cancel and device navigation preserve provid
 test("native OAuth navigation resumes its instance after provider callback", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect.poll(() => names(page)).toContain("ceremony_github_navigate");
   await call(page, "start", { methodId: "oauth" }, "ceremony_github");
   expect((await call(page, "begin", {}, "ceremony_github")).step).toBe(
@@ -216,7 +408,7 @@ test("native OAuth navigation resumes its instance after provider callback", asy
 test("WebMCP requests a private human collector without accepting a secret argument", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect
     .poll(() => names(page))
     .toContain("ceremony_github_request-input");
@@ -237,4 +429,25 @@ test("WebMCP requests a private human collector without accepting a secret argum
     page.getByRole("heading", { name: "You’re connected" }),
   ).toBeVisible();
   await popup.close();
+});
+
+test("native device tools exclude transient codes while the trusted human view retains them", async ({
+  page,
+}) => {
+  await mount(page);
+  await call(page, "start", { methodId: "device" });
+  await call(page, "begin");
+  const instruction = page
+    .locator("#hook-harness")
+    .getByLabel("Verification code", { exact: true });
+  await expect(instruction).toBeVisible();
+  const code = (await instruction.textContent())!;
+  expect(code.length > 0).toBe(true);
+  const state = await call(page, "read");
+  expect(state.step).toBe("waiting");
+  const serialized = JSON.stringify(state);
+  expect(serialized.includes(code)).toBe(false);
+  expect(serialized).not.toMatch(
+    /userCode|user_code|device_code|verificationUri|secretRef/,
+  );
 });

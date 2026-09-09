@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import {
   actionsFor,
+  browserModelContext,
   defaultTemplate,
   fieldsFor,
   flowKinds,
@@ -25,8 +26,11 @@ import {
 import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
+import { TeachingConnection } from "./teaching.js";
+import { usePwaInstall } from "./pwa.js";
 
-const liveMode = new URLSearchParams(location.search).get("mode") === "live";
+// Simulated providers are an explicit test harness, never the default product.
+const liveMode = new URLSearchParams(location.search).get("mode") !== "test";
 const transport = createHttpTransport(
   liveMode ? "/api/live/ceremonies" : "/api/ceremonies",
 );
@@ -35,6 +39,7 @@ const configSchema = z.object({
   generationAvailable: z.boolean(),
   liveManifests: z.array(manifestSchema).default([]),
   liveAvailable: z.boolean().default(false),
+  teachingAvailable: z.boolean().default(false),
 });
 type Config = z.infer<typeof configSchema>;
 function download(name: string, value: string, type = "application/json") {
@@ -146,10 +151,10 @@ function Studio({
     <>
       <div className="page-heading">
         <div>
-          <h1>Template studio</h1>
+          <h2>Presentation templates</h2>
           <p>
-            Compose a ceremony, inspect every state, and take the template with
-            you.
+            Customize copy and layout. This isolated preview does not execute
+            authentication.
           </p>
         </div>
         <span className="pill">Authoring studio</span>
@@ -287,7 +292,7 @@ function Studio({
         </section>
         <section className="preview-column">
           <div className="card-top">
-            <h2>Live preview</h2>
+            <h2>Presentation preview</h2>
             <span className="pill">Isolated sample data</span>
           </div>
           <label htmlFor="preview-state">Ceremony state</label>
@@ -336,12 +341,15 @@ function Studio({
   );
 }
 function App() {
+  const install = usePwaInstall();
   const [config, setConfig] = useState<Config>();
   const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState(
     new URLSearchParams(location.search).get("section") === "environment"
       ? "environment"
-      : "connect",
+      : new URLSearchParams(location.search).get("section") === "studio"
+        ? "studio"
+        : "connect",
   );
   const [connectorId, setConnectorId] = useState(
     new URLSearchParams(location.search).get("connector") ?? "github",
@@ -350,6 +358,7 @@ function App() {
     new URLSearchParams(location.search).get("ceremony") ?? undefined,
   );
   const [templates, setTemplates] = useState<CeremonyTemplate[]>([]);
+  const [delegation, setDelegation] = useState(false);
   useEffect(() => {
     void fetch("/api/config")
       .then((response) => response.json())
@@ -367,7 +376,7 @@ function App() {
     history.replaceState(
       null,
       "",
-      `/?connector=${encodeURIComponent(next)}${liveMode ? "&mode=live" : ""}`,
+      `/?connector=${encodeURIComponent(next)}${liveMode ? "" : "&mode=test"}`,
     );
   };
   const connector =
@@ -405,7 +414,7 @@ function App() {
             aria-current={tab === "studio" ? "page" : undefined}
             onClick={() => setTab("studio")}
           >
-            Template studio
+            Workflow studio
           </button>
           <button
             aria-current={tab === "environment" ? "page" : undefined}
@@ -414,6 +423,18 @@ function App() {
             Environment
           </button>
         </nav>
+        <details className="install-controls">
+          <summary>Install app</summary>
+          <p>{install.instructions}</p>
+          {install.canInstall && (
+            <button onClick={() => void install.install()}>
+              Install Ceremony
+            </button>
+          )}
+          {install.updateAvailable && (
+            <button onClick={install.update}>Update static shell</button>
+          )}
+        </details>
         <span className="header-note">
           <span />
           Local workspace
@@ -424,15 +445,37 @@ function App() {
         {!config && !loadError && <p role="status">Loading your workspace…</p>}
         {config && tab === "environment" && <Environment />}
         {config && tab === "studio" && (
-          <Studio
-            config={config}
-            apply={(template) =>
-              setTemplates((previous) => [
-                ...previous.filter((value) => value.id !== template.id),
-                template,
-              ])
-            }
-          />
+          <>
+            <div className="page-heading">
+              <div>
+                <h1>Workflow studio</h1>
+                <p>
+                  Demonstrate a connection, review reusable steps, or customize
+                  their presentation.
+                </p>
+              </div>
+            </div>
+            {config.teachingAvailable && <TeachingConnection mode="studio" />}
+            <details className="presentation-tools">
+              <summary>Advanced: customize presentation templates</summary>
+              <Studio
+                config={config}
+                apply={(template) =>
+                  setTemplates((previous) => [
+                    ...previous.filter((value) => value.id !== template.id),
+                    template,
+                  ])
+                }
+              />
+            </details>
+            <p>
+              Trusted server adapters execute provider operations. OpenUI
+              templates control presentation, never authentication logic.
+            </p>
+            <a href="/api/workflows/github" download="github.arazzo.json">
+              Export GitHub Arazzo operations
+            </a>
+          </>
         )}
         {config && connector && tab === "connect" && (
           <>
@@ -441,16 +484,10 @@ function App() {
                 <h1>Connections</h1>
                 <p>
                   {liveMode
-                    ? "Prepare an integration, approve access, and verify the connection."
-                    : "Explore real service auth methods using local test ceremonies."}
+                    ? "Choose a service. We reuse your session setup and guide you through only what’s missing."
+                    : "Developer test harness. Local providers only; never enter real credentials."}
                 </p>
               </div>
-              <a
-                className="button"
-                href={liveMode ? "/" : "/?mode=live&connector=github"}
-              >
-                {liveMode ? "Open simulations" : "Connect a real GitHub App"}
-              </a>
             </div>
             <div className="connect-grid" data-live={liveMode || undefined}>
               <aside className="connector-list" aria-label="Available services">
@@ -473,7 +510,9 @@ function App() {
                         <strong>{item.name}</strong>
                         <small>
                           {liveMode
-                            ? "App setup → installation"
+                            ? item.id === "github"
+                              ? "App setup · repository access"
+                              : connectorDetails[item.id]?.summary
                             : connectorDetails[item.id]?.summary}
                         </small>
                       </span>
@@ -502,10 +541,34 @@ function App() {
                   </details>
                 )}
                 {liveMode && (
-                  <p className="muted small">
-                    Other services remain available in simulations until their
-                    live prerequisites and adapters are implemented.
-                  </p>
+                  <details className="test-details">
+                    <summary>Session and assistance</summary>
+                    <label htmlFor="approval-assistance">
+                      Approval assistance
+                    </label>
+                    <select
+                      id="approval-assistance"
+                      value={delegation ? "agent" : "browser"}
+                      onChange={(event) =>
+                        setDelegation(event.target.value === "agent")
+                      }
+                    >
+                      <option value="browser">
+                        I’ll approve in my browser
+                      </option>
+                      <option value="agent">
+                        Request configured agent assistance
+                      </option>
+                    </select>
+                    <p>
+                      Configured agents can assist supported steps. Account
+                      consent stays with you; private input never enters model
+                      context.
+                    </p>
+                    <button onClick={() => setTab("environment")}>
+                      Manage session environment
+                    </button>
+                  </details>
                 )}
               </aside>
               <section className="connection-card">
@@ -523,10 +586,14 @@ function App() {
                     </div>
                   </div>
                   <span className="pill">
-                    {liveMode ? "Live GitHub" : "Local simulation"}
+                    {liveMode ? "Provider-backed" : "Local simulation"}
                   </span>
                 </div>
-                {liveMode && !config.liveAvailable ? (
+                {liveMode &&
+                config.teachingAvailable &&
+                connector.id === "github" ? (
+                  <TeachingConnection connectorId={connector.id} />
+                ) : liveMode && !config.liveAvailable ? (
                   <div className="ceremony">
                     <h3>Configure the connection server</h3>
                     <p>
@@ -537,9 +604,10 @@ function App() {
                   </div>
                 ) : (
                   <Ceremony
-                    key={connector.id}
+                    key={`${connector.id}:${delegation}`}
                     manifest={connector}
                     transport={transport}
+                    {...(delegation ? { delegation: "agent" as const } : {})}
                     templates={templates}
                     {...(resumeId ? { resumeId } : {})}
                     onInstance={(id) => {
@@ -547,7 +615,7 @@ function App() {
                       history.replaceState(
                         null,
                         "",
-                        `/?connector=${connector.id}&ceremony=${id}${liveMode ? "&mode=live" : ""}`,
+                        `/?connector=${connector.id}&ceremony=${id}${liveMode ? "" : "&mode=test"}`,
                       );
                     }}
                   >
@@ -561,7 +629,7 @@ function App() {
                           <h3>Connection context</h3>
                           <p>
                             {liveMode
-                              ? "Provider approval happens on GitHub. Private keys and access tokens stay in the server vault."
+                              ? "Private inputs are collected by reference. Provider SDKs run on the server; keys and tokens stay in the encrypted vault."
                               : "Runs locally. Do not enter real service credentials."}
                           </p>
                           <dl>
@@ -573,7 +641,11 @@ function App() {
                                 "Choose a method"}
                             </dd>
                             <dt>Execution</dt>
-                            <dd>UI and WebMCP share the same actions</dd>
+                            <dd>
+                              {browserModelContext()
+                                ? "UI and WebMCP share the same actions"
+                                : "WebMCP is unavailable in this browser. Enable WebMCP in Chrome and reload; the UI remains available."}
+                            </dd>
                           </dl>
                           <h3>Requested permissions</h3>
                           {model.snapshot ? (
@@ -599,14 +671,14 @@ function App() {
                           <details>
                             <summary>Provider setup</summary>
                             <p>
-                              {liveMode
+                              {liveMode && connector.id === "github"
                                 ? "An existing app is reused when configured. Otherwise, app registration blocks installation, and verified installation blocks signing. Browser completion alone never grants access."
                                 : connectorDetails[connector.id]?.note}
                             </p>
                           </details>
                           <a
                             href={
-                              liveMode
+                              liveMode && connector.id === "github"
                                 ? "https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest"
                                 : connectorDetails[connector.id]
                                     ?.documentationUrl
@@ -628,7 +700,7 @@ function App() {
                       : "Your credentials go directly to private collection, then to the adapter by reference."}
                     <br />
                     {liveMode
-                      ? "You retain control of account access and repository selection."
+                      ? "You retain control of account access and provider approvals."
                       : "Do not use real credentials in simulations."}
                   </p>
                 </div>
@@ -640,8 +712,8 @@ function App() {
       <footer className="site-footer">
         <span>
           {liveMode
-            ? "Live GitHub integration · Encrypted server storage"
-            : "Local reference workspace · Test credentials only"}
+            ? "Provider-backed connections · Encrypted session storage"
+            : "Developer test harness · Test credentials only"}
         </span>
         <span>Ceremony / 0.1</span>
       </footer>

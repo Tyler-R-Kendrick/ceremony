@@ -8,7 +8,48 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: |
+            artifacts/coverage/coverage-summary.json
+            artifacts/verification/
+            artifacts/bundle/size.json
+            artifacts/browser/results.json
+            artifacts/workflow/results.json
+  mutation:
+    name: mutation (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: resolution
+            file: src/core/resolution.ts
+          - target: execution
+            file: src/core/execution.ts
+          - target: schema
+            file: src/core/schema.ts
+          - target: environment
+            file: src/server/environment.ts
+          - target: storage
+            file: src/server/storage.ts
+          - target: arazzo
+            file: src/server/arazzo.ts
+          - target: services
+            file: src/server/services.ts
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,4 +58,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run verify
+      - run: npm run test:mutation -- --mutate "${{ matrix.file }}" --concurrency 2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-${{ matrix.target }}
+          path: artifacts/mutation/

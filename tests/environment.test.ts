@@ -77,3 +77,59 @@ test("legacy connector environments migrate once without losing originals or cro
   assert.throws(() => env.read("conflict"), /conflict/);
   db.close();
 });
+
+test("GitHub-specific configuration revision ignores unrelated edits and conservatively migrates legacy metadata", () => {
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  const env = new CeremonyEnvironment(db);
+  try {
+    env.update("alice", { revision: 0, values: { STRIPE_KEY: "synthetic" } });
+    assert.equal(
+      env.githubConfiguration("alice", "session", "v1").configurationVersion,
+      "v1",
+    );
+    env.update("alice", {
+      revision: 1,
+      values: {
+        GITHUB_APP_ID: "42",
+        GITHUB_APP_SLUG: "fixture",
+        GITHUB_APP_OWNER: "owner",
+        GITHUB_APP_PRIVATE_KEY: "synthetic-pem",
+      },
+    });
+    const version = env.githubConfiguration(
+      "alice",
+      "session",
+      "v1",
+    ).configurationVersion;
+    env.update("alice", { revision: 2, values: { STRIPE_KEY: "different" } });
+    assert.equal(
+      env.githubConfiguration("alice", "session", "v1").configurationVersion,
+      version,
+    );
+    env.update("alice", {
+      revision: 3,
+      values: { GITHUB_APP_PRIVATE_KEY: "rotated" },
+    });
+    assert.notEqual(
+      env.githubConfiguration("alice", "session", "v1").configurationVersion,
+      version,
+    );
+    db.put('session-environment:"legacy"', {
+      revision: 8,
+      values: { STRIPE_KEY: "legacy" },
+    });
+    const legacyVersion = env.githubConfiguration(
+      "legacy",
+      "session",
+      "v1",
+    ).configurationVersion;
+    assert.notEqual(legacyVersion, "v1");
+    env.update("legacy", { revision: 8, values: { STRIPE_KEY: "changed" } });
+    assert.equal(
+      env.githubConfiguration("legacy", "session", "v1").configurationVersion,
+      legacyVersion,
+    );
+  } finally {
+    db.close();
+  }
+});

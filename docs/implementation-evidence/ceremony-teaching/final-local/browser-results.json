@@ -1,0 +1,549 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 24,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3986
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 81,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 548
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 117,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2513
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 153,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1148
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 205,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 791
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 227,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 742
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 250,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2282
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 278,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2560
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 313,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1870
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 358,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 818
+    },
+    {
+      "file": "tests/browser/ceremony.spec.ts",
+      "line": 403,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1076
+    },
+    {
+      "file": "tests/browser/connectors.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 777
+    },
+    {
+      "file": "tests/browser/connectors.spec.ts",
+      "line": 59,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1202
+    },
+    {
+      "file": "tests/browser/diagnostics.spec.ts",
+      "line": 8,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1171
+    },
+    {
+      "file": "tests/browser/environment.spec.ts",
+      "line": 4,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1845
+    },
+    {
+      "file": "tests/browser/github.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1269
+    },
+    {
+      "file": "tests/browser/github.spec.ts",
+      "line": 110,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1044
+    },
+    {
+      "file": "tests/browser/workflow-studio.spec.ts",
+      "line": 3,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 457
+    },
+    {
+      "file": "tests/browser/consumers.spec.ts",
+      "line": 90,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1359
+    },
+    {
+      "file": "tests/browser/consumers.spec.ts",
+      "line": 177,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 231
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 42,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3794
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 141,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 9272
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 282,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3139
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 371,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3236
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 22,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 339
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 37,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3503
+    },
+    {
+      "file": "tests/browser/teaching-continuation.spec.ts",
+      "line": 10,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2975
+    },
+    {
+      "file": "tests/browser/teaching-handoff.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1186
+    },
+    {
+      "file": "tests/browser/teaching-identity.spec.ts",
+      "line": 9,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3150
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2742
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2818
+    },
+    {
+      "file": "tests/browser/teaching-pwa.spec.ts",
+      "line": 11,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4540
+    },
+    {
+      "file": "tests/browser/teaching-recovery.spec.ts",
+      "line": 10,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4012
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 26,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 923
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 101,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 865
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 101,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 754
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 190,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 290
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 252,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 985
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 347,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 2160
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 383,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 684
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 408,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1858
+    },
+    {
+      "file": "tests/browser/webmcp.spec.ts",
+      "line": 434,
+      "project": "native-webmcp",
+      "status": "passed",
+      "retry": 0,
+      "duration": 603
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 42,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 5315
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 141,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 12971
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 282,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3389
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 371,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3740
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 22,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 490
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 37,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 6500
+    },
+    {
+      "file": "tests/browser/teaching-continuation.spec.ts",
+      "line": 10,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4007
+    },
+    {
+      "file": "tests/browser/teaching-handoff.spec.ts",
+      "line": 7,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1825
+    },
+    {
+      "file": "tests/browser/teaching-identity.spec.ts",
+      "line": 9,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 5210
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3596
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3495
+    },
+    {
+      "file": "tests/browser/teaching-pwa.spec.ts",
+      "line": 11,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 5992
+    },
+    {
+      "file": "tests/browser/teaching-recovery.spec.ts",
+      "line": 10,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4675
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 42,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4302
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 141,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 11206
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 282,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3659
+    },
+    {
+      "file": "tests/browser/teaching-acceptance.spec.ts",
+      "line": 371,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3561
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 22,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 449
+    },
+    {
+      "file": "tests/browser/teaching-accessibility.spec.ts",
+      "line": 37,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3736
+    },
+    {
+      "file": "tests/browser/teaching-continuation.spec.ts",
+      "line": 10,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3368
+    },
+    {
+      "file": "tests/browser/teaching-handoff.spec.ts",
+      "line": 7,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 1647
+    },
+    {
+      "file": "tests/browser/teaching-identity.spec.ts",
+      "line": 9,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3626
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3201
+    },
+    {
+      "file": "tests/browser/teaching-popup.spec.ts",
+      "line": 12,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 3477
+    },
+    {
+      "file": "tests/browser/teaching-pwa.spec.ts",
+      "line": 11,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4412
+    },
+    {
+      "file": "tests/browser/teaching-recovery.spec.ts",
+      "line": 10,
+      "project": "webkit",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4623
+    }
+  ]
+}

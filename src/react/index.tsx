@@ -21,6 +21,7 @@ import {
 import { BoundCeremony, validateTemplate } from "./templates.js";
 export * from "./templates.js";
 export * from "./webmcp.js";
+export * from "./teaching.js";
 export { createHttpTransport } from "../core/index.js";
 
 /** Use the exact same client with host-owned React components instead of OpenUI. */

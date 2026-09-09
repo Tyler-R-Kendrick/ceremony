@@ -5,11 +5,46 @@ test("Environment shares private session values across connectors and blocks uns
   page,
   context,
 }) => {
+  const privateValues = ["sentinel-env-browser", "replacement-private"];
+  let forbiddenRequests = 0,
+    forbiddenDiagnostics = 0;
+  context.on("request", (request) => {
+    const exposed = privateValues.some((value) =>
+      `${request.url()}\n${request.postData() ?? ""}`.includes(value),
+    );
+    if (
+      exposed &&
+      !(
+        new URL(request.url()).pathname === "/api/environment" &&
+        request.method() === "POST"
+      )
+    )
+      forbiddenRequests++;
+  });
+  page.on("console", (message) => {
+    if (privateValues.some((value) => message.text().includes(value)))
+      forbiddenDiagnostics++;
+  });
+  page.on("pageerror", (error) => {
+    if (privateValues.some((value) => error.message.includes(value)))
+      forbiddenDiagnostics++;
+  });
+  // File upload does not have Playwright's enabled-state actionability check.
+  // Delay initial metadata so this proves uploads wait for authoritative readiness.
+  await page.route(
+    "**/api/environment",
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await page.goto("/?mode=live&connector=github&section=environment");
   await page.getByRole("button", { name: "Environment", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Environment", exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel("Import .env file")).toBeEnabled();
   await page.getByLabel("Import .env file").setInputFiles({
     name: ".env",
     mimeType: "text/plain",
@@ -47,6 +82,25 @@ test("Environment shares private session values across connectors and blocks uns
   await expect(page.getByLabel("New value", { exact: true })).toHaveValue("");
   await expect(page.getByRole("status")).toContainText("Environment saved");
   await expect(page.getByLabel("Available to connector")).toHaveCount(0);
+  const persistedPrivate = await page.evaluate(async (values) => {
+    const serialized = [
+      JSON.stringify(localStorage),
+      JSON.stringify(sessionStorage),
+    ];
+    if ("caches" in globalThis)
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+          serialized.push(request.url);
+          const response = await cache.match(request);
+          if (response) serialized.push(await response.text());
+        }
+      }
+    return serialized.some((text) =>
+      values.some((value) => text.includes(value)),
+    );
+  }, privateValues);
+  expect(persistedPrivate).toBe(false);
   expect(
     (await (await page.request.get("/api/environment/stripe")).json()).names,
   ).toContain("PRIVATE_TEST");
@@ -64,10 +118,6 @@ test("Environment shares private session values across connectors and blocks uns
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: `.impeccable/review/environment-${viewport.width === 1440 ? "desktop" : "mobile"}.png`,
-      fullPage: true,
-    });
   }
   await page
     .getByRole("button", { name: "Remove PRIVATE_TEST", exact: true })
@@ -85,6 +135,21 @@ test("Environment shares private session values across connectors and blocks uns
   ).toBe(403);
   // Stored configuration is actually consulted by the live adapter: incomplete app setup blocks begin.
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Connect GitHub", exact: true })
+    .click();
+  const account = page.getByLabel("GitHub account or organization");
+  await expect(
+    account
+      .or(page.getByText(/Complete all four GitHub App variables/))
+      .first(),
+  ).toBeVisible();
+  if (await account.isVisible()) {
+    await account.fill("fixture-owner");
+    await page
+      .getByRole("button", { name: "Connect GitHub", exact: true })
+      .click();
+  }
   await expect(
     page.getByText(/Complete all four GitHub App variables/),
   ).toBeVisible();
@@ -92,4 +157,6 @@ test("Environment shares private session values across connectors and blocks uns
   expect(
     (await (await page.request.get("/api/environment")).json()).names,
   ).toEqual([]);
+  expect(forbiddenRequests).toBe(0);
+  expect(forbiddenDiagnostics).toBe(0);
 });

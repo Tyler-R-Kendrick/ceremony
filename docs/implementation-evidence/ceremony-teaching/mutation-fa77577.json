@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "historical-mutation-summary",
+  "certifiesCurrentHead": false,
+  "commit": "fa7757714ddda830d1fa5a1f59dcb0599243da81",
+  "runId": 34401361663,
+  "runUrl": "https://github.com/Tyler-R-Kendrick/ceremony/actions/runs/34401361663",
+  "completedAt": "2026-09-09T20:55:01Z",
+  "ciConclusion": "success",
+  "command": "npm run test:mutation -- --mutate <target> --concurrency 2",
+  "targets": [
+    {
+      "file": "src/core/execution.ts",
+      "total": 25,
+      "killed": 23,
+      "timedOut": 0,
+      "survived": 2,
+      "artifactId": 10123637480,
+      "artifactDigest": "sha256:f1d5e613df096570f3bdc50ab9627aed3e082bc813541592d3ed4645b737a286"
+    },
+    {
+      "file": "src/core/resolution.ts",
+      "total": 62,
+      "killed": 56,
+      "timedOut": 1,
+      "survived": 5,
+      "artifactId": 10123683026,
+      "artifactDigest": "sha256:65226329e06c6c6419ed7f6460379417b900adaee10220edb48a71a50545f3c1"
+    },
+    {
+      "file": "src/core/schema.ts",
+      "total": 390,
+      "killed": 367,
+      "timedOut": 11,
+      "survived": 12,
+      "artifactId": 10124525217,
+      "artifactDigest": "sha256:750090e854b04be8d494cfe50ceafd79c17f2eb96e062faca0d7003d07239373"
+    },
+    {
+      "file": "src/server/environment.ts",
+      "total": 74,
+      "killed": 74,
+      "timedOut": 0,
+      "survived": 0,
+      "artifactId": 10123669111,
+      "artifactDigest": "sha256:46d461ec4460282144a747d59090bf7d4c5d8279d84fe89421b7b36574937fc8"
+    },
+    {
+      "file": "src/server/storage.ts",
+      "total": 116,
+      "killed": 111,
+      "timedOut": 2,
+      "survived": 3,
+      "artifactId": 10123762620,
+      "artifactDigest": "sha256:a167d53cbfc376fbf35a27c59b23bc3f05b75026090cef1075cb710aee3316f2"
+    },
+    {
+      "file": "src/server/arazzo.ts",
+      "total": 75,
+      "killed": 73,
+      "timedOut": 1,
+      "survived": 1,
+      "artifactId": 10123765264,
+      "artifactDigest": "sha256:c337fe4796d4dea86ed4e34dcb54d35ac6382873a2f17b07fd605a646757eff9"
+    },
+    {
+      "file": "src/server/services.ts",
+      "total": 295,
+      "killed": 281,
+      "timedOut": 1,
+      "survived": 13,
+      "artifactId": 10123865367,
+      "artifactDigest": "sha256:8c6208eb4411318857d7f5c077d44a923dabdc5709574862fdbeef927fd7cd76"
+    }
+  ],
+  "counts": {
+    "total": 1037,
+    "killed": 985,
+    "timedOut": 16,
+    "survived": 36,
+    "uncovered": 0,
+    "errors": 0
+  },
+  "strykerScorePercent": 96.52844744455159,
+  "assertionKilledPercent": 94.98553519768564,
+  "notes": [
+    "Stryker score includes timeouts; timeouts are not asserted security guards.",
+    "All seven original targets are included; their sum matches the prior unpartitioned 1037-mutant instrumentation count.",
+    "This historical report does not certify later commits or external provider deployments."
+  ]
+}

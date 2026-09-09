@@ -25,7 +25,7 @@ export class MemoryCredentialStore implements CredentialStore {
     existingRef = randomUUID(),
   ): Promise<string> {
     for (const [id, entry] of this.entries)
-      if (entry.expiresAt < Date.now()) this.entries.delete(id);
+      if (entry.expiresAt <= Date.now()) this.entries.delete(id);
     this.entries.set(existingRef, {
       secret: structuredClone(secret),
       expiresAt: Date.now() + 3_600_000,
@@ -34,7 +34,7 @@ export class MemoryCredentialStore implements CredentialStore {
   }
   get(ref: string): Readonly<Record<string, string>> | undefined {
     const entry = this.entries.get(ref);
-    if (!entry || entry.expiresAt < Date.now()) {
+    if (!entry || entry.expiresAt <= Date.now()) {
       this.entries.delete(ref);
       return undefined;
     }

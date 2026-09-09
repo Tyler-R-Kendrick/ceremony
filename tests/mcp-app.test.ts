@@ -45,6 +45,7 @@ test("MCP Apps exchanges only references; private HTTP enforces origin and one-u
     appOrigin: "https://app.example",
     appHtml: "<!doctype html><title>Trusted test resource</title>",
     owner: () => "alice",
+    requestOwner: () => "alice",
   });
   const client = new Client(
     { name: "test-host", version: "1" },
@@ -106,7 +107,7 @@ test("MCP Apps exchanges only references; private HTTP enforces origin and one-u
     .parse(await response!.json());
   assert.equal(
     (await collector.handleRequest(input("https://app.example")))?.status,
-    400,
+    403,
   );
   assert.equal(verified, false);
   await client.callTool({

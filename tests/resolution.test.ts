@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { awaitStarted } from "./fixtures/await-started.js";
 import {
   createCeremonyClient,
   resolveCeremonyMethod,
@@ -11,8 +12,22 @@ import {
   type AuthAdapter,
 } from "../src/server/controller.js";
 import { manifests } from "../examples/manifests.js";
+import { entryContextSchema } from "../src/core/resolution.js";
 
 const manifest = manifests[0]!;
+test("entry context accepts both supported surfaces and rejects undeclared surfaces", () => {
+  assert.deepEqual(entryContextSchema.parse({}), {
+    surface: "browser",
+    requiredScopes: [],
+  });
+  for (const surface of ["browser", "headless"])
+    assert.deepEqual(entryContextSchema.parse({ surface }), {
+      surface,
+      requiredScopes: [],
+    });
+  for (const surface of ["", "unknown", null, 0])
+    assert.equal(entryContextSchema.safeParse({ surface }).success, false);
+});
 test("entry selection prefers browser OAuth, headless device, trusted configuration and required grants", () => {
   assert.equal(resolveCeremonyMethod(manifest).id, "oauth");
   assert.equal(
@@ -202,7 +217,14 @@ test("manifest-only client entry advances preparation with hooks and delegates o
     "webmcp",
     abort.signal,
   );
-  await started.promise;
+  try {
+    await awaitStarted(started.promise, execution);
+  } catch (error) {
+    pending.resolve(snapshot);
+    cancelled.dispose();
+    await execution.catch(() => undefined);
+    throw error;
+  }
   abort.abort();
   pending.resolve(snapshot);
   await assert.rejects(execution, /abort/i);

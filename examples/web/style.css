@@ -515,6 +515,39 @@ fieldset label:last-child input {
   gap: 28px;
   align-items: start;
 }
+.workflow-studio {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+.workflow-studio > aside {
+  min-width: 0;
+}
+.workflow-studio select {
+  margin-bottom: 20px;
+}
+.workflow-studio > aside a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+.workflow-developer,
+.presentation-tools {
+  margin-top: 32px;
+  border-top: 1px solid var(--line);
+}
+.workflow-developer p {
+  font-size: 13px;
+}
+.presentation-tools > summary {
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .workflow-studio {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
 .editor-card {
   padding: 0 24px 20px;
 }
@@ -648,9 +681,6 @@ fieldset label:last-child input {
   }
 }
 @media (max-width: 760px) {
-  .connect-grid[data-live] .connector-list {
-    order: 2;
-  }
   .app-shell {
     padding-inline: 18px;
   }
