@@ -8,7 +8,7 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 - `npm run test:snapshots`: compare committed, human-reviewable baselines for all seven flow templates, state actions and WebMCP tool contracts.
 - `npm run test:snapshots:update`: explicitly regenerate baselines; inspect the diff and commit only intentional changes. Never run this in CI or to hide a regression.
 - `npm run test:coverage`: include every library `.ts`/`.tsx` file, including unexecuted files; emit text and `artifacts/coverage/coverage-summary.json`. This report does not count browser execution.
-- `npm run test:pact`: real GitHub consumer against an isolated HTTP contract server; see [boundary limitations](contract-testing.md).
+- `npm run test:pact`: real GitHub, OAuth/PKCE, device, credential, anonymous and A2H consumers against isolated HTTP contract servers; see [boundary limitations](contract-testing.md).
 - `npm run test:e2e`: browser functional, accessibility, WebMCP and packed React/Vue consumer scenarios.
 - `npm run test:fuzz`: seeded fast-check properties with shrinking. Replay using `FUZZ_SEED`; increase exploration using `FUZZ_RUNS`. Default: 1,000 examples per stateless/reference property, 500 quoted-template examples and 200 environment-edit sequences.
 - `npm run test:chaos`: deterministic transport disconnect/timeout/429/503, malformed payload, uncertain A2H delivery, event retry and remote browser outage scenarios. No production services are disrupted.
@@ -25,7 +25,9 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 - Browser tests wrote generated screenshots over tracked design references; captures now use per-test artifact paths.
 - Mutation tooling introduced a vulnerable pinned transitive dependency; the narrow override was verified by a clean install with zero audit findings.
 
-Latest completed local verification before final mutation review: 104 Node/Pact tests and 20 browser tests passed, with 92.51% all-source lines/statements, 83.44% branches and 90.90% functions. UI event behavior is additionally covered by browser tests but is not included in the Node V8 percentages. Live provider conformance and whole-repository mutation coverage are not established by these results.
+Latest coverage run before final mutation review: 119 Node/Pact tests passed, with 92.84% all-source lines/statements, 84.71% branches and 90.90% functions. The separate browser suite has 20 scenarios. UI event behavior is not included in the Node V8 percentages. Live provider conformance and whole-repository mutation coverage are not established by these results. Exact revision validation and the final mutation report are retained in the PR's CI artifacts.
+
+Mutation review added explicit assertions for every browser/headless method pair, hook identity, credential-layout errors, navigation trust boundaries, session count/byte limits, legacy migration, vault permissions and reference expiry. The Node TAP harness runs with `--test --experimental-test-isolation=none`: Stryker already isolates each test file in its own process, and this keeps coverage in that process while reporting import-time failures as failed tests instead of unclassified runner errors. A focused 12-mutant harness check killed all 12 with zero runner errors; that focused result is not the full mutation score. Do not count equivalent mutants, timeouts or tool failures as evidence of an asserted security invariant.
 
 ## Initial audit
 
