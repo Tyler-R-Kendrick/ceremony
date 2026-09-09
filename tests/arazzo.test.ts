@@ -21,6 +21,66 @@ const document: ArazzoDocument = {
     },
   ],
 };
+test("Arazzo binds operation paths when the provider specification has no operation ID", async () => {
+  const operationPath = "{$sourceDescriptions.auth.url}#/paths/~1token/post";
+  const doc = {
+    ...document,
+    workflows: [
+      {
+        workflowId: "sign-in",
+        summary: "Sign in",
+        steps: [{ stepId: "sign-in", description: "Sign in", operationPath }],
+      },
+    ],
+  };
+  const events: unknown[] = [];
+  let calls = 0;
+  await runArazzo(
+    doc,
+    "sign-in",
+    new Map([
+      [
+        operationPath,
+        async () => {
+          calls++;
+        },
+      ],
+    ]),
+    (event) => {
+      events.push(event);
+    },
+  );
+  assert.equal(calls, 1);
+  assert.deepEqual(events, [
+    {
+      workflowId: "sign-in",
+      stepId: "sign-in",
+      operationPath,
+      status: "success",
+    },
+  ]);
+  await assert.rejects(runArazzo(doc, "sign-in", new Map()), /Unbound/);
+  for (const operation of [
+    {},
+    { operationId: "token", operationPath },
+    { operationPath: "https://evil.example" },
+  ]) {
+    assert.equal(
+      arazzoSchema.safeParse({
+        ...doc,
+        workflows: [
+          {
+            ...doc.workflows[0],
+            steps: [
+              { stepId: "sign-in", description: "Sign in", ...operation },
+            ],
+          },
+        ],
+      }).success,
+      false,
+    );
+  }
+});
 test("Arazzo executes document order and reports redacted success/failure without retry", async () => {
   const calls: string[] = [];
   const events: unknown[] = [];

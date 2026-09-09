@@ -27,9 +27,19 @@ export const arazzoSchema = z
                   .object({
                     stepId: name,
                     description: z.string(),
-                    operationId: z.string().min(1),
+                    operationId: z.string().min(1).optional(),
+                    operationPath: z
+                      .string()
+                      .regex(
+                        /^\{\$sourceDescriptions\.[A-Za-z0-9_-]+\.url\}#\/paths\/.+\/(get|post|put|patch|delete|head|options)$/,
+                      )
+                      .optional(),
                   })
-                  .strict(),
+                  .strict()
+                  .refine(
+                    (step) => !!step.operationId !== !!step.operationPath,
+                    "Specify exactly one operationId or operationPath",
+                  ),
               )
               .min(1)
               .max(32),
@@ -55,7 +65,8 @@ export type ArazzoDocument = z.infer<typeof arazzoSchema>;
 export interface WorkflowStepEvent {
   workflowId: string;
   stepId: string;
-  operationId: string;
+  operationId?: string;
+  operationPath?: string;
   status: "success" | "failure";
 }
 
@@ -75,8 +86,9 @@ export async function runArazzo(
   if (!workflow) throw new Error("Unknown Arazzo workflow");
   // Preflight every binding before allowing an external side effect.
   for (const step of workflow.steps) {
-    if (typeof operations.get(step.operationId) !== "function")
-      throw new Error(`Unbound workflow operation: ${step.operationId}`);
+    const operation = step.operationId ?? step.operationPath!;
+    if (typeof operations.get(operation) !== "function")
+      throw new Error(`Unbound workflow operation: ${operation}`);
   }
   for (const step of workflow.steps) {
     const notify = (status: WorkflowStepEvent["status"]) => {
@@ -84,7 +96,9 @@ export async function runArazzo(
         const pending = onStep?.({
           workflowId,
           stepId: step.stepId,
-          operationId: step.operationId,
+          ...(step.operationId
+            ? { operationId: step.operationId }
+            : { operationPath: step.operationPath! }),
           status,
         });
         void Promise.resolve(pending).catch(() => {});
@@ -93,7 +107,7 @@ export async function runArazzo(
       }
     };
     try {
-      await operations.get(step.operationId)!();
+      await operations.get(step.operationId ?? step.operationPath!)!();
       notify("success");
     } catch (error) {
       notify("failure");
