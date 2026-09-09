@@ -118,6 +118,7 @@ export interface TeachingConnectionProps {
   /** Supplying this callback leaves URL/navigation ownership with the embedding host. */
   onRunChange?: (run: TeachingRun) => void;
   onSignIn?: () => void | Promise<void>;
+  onSignOut?: () => void | Promise<void>;
   onSignedOut?: () => void;
   webmcp?: false | { prefix: string };
   className?: string;
@@ -131,6 +132,7 @@ export function TeachingConnection({
   resumeId,
   onRunChange,
   onSignIn,
+  onSignOut,
   onSignedOut,
   webmcp,
   className,
@@ -1098,15 +1100,18 @@ export function TeachingConnection({
           disabled={busy || offline}
           onClick={() =>
             void act(async () => {
-              const response = await fetch("/api/auth/logout", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-                cache: "no-store",
-                credentials: "same-origin",
-              });
-              if (!response.ok)
-                throw new Error("Sign-out could not finish. Try again.");
+              if (onSignOut) await onSignOut();
+              else {
+                const response = await fetch("/api/auth/logout", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: "{}",
+                  cache: "no-store",
+                  credentials: "same-origin",
+                });
+                if (!response.ok)
+                  throw new Error("Sign-out could not finish. Try again.");
+              }
               setRun(undefined);
               currentRun.current = undefined;
               setDemo(undefined);

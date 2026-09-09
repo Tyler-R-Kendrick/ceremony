@@ -5,6 +5,69 @@ import {
   requiredStages,
   coverageTotals,
 } from "../scripts/verification-summary.js";
+import {
+  browserVersions,
+  profileFingerprint,
+} from "../scripts/verification-metadata.js";
+import { readFile } from "node:fs/promises";
+
+test("OPS: runtime metadata fingerprints actual profile and never substitutes unavailable browser versions", async () => {
+  const profile = JSON.parse(
+    await readFile(
+      new URL(
+        "../docs/implementation-evidence/ceremony-teaching/local-profile.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(profileFingerprint(profile).profile, "local");
+  assert.notEqual(
+    profileFingerprint(profile).configurationDigest,
+    profileFingerprint({ ...profile, configurationVersion: "changed" })
+      .configurationDigest,
+  );
+  assert.throws(() => profileFingerprint({ ...profile, apiKey: "forbidden" }));
+  let closed = 0;
+  const launch = async () => ({
+    version: () => "123.4",
+    close: async () => {
+      closed++;
+    },
+  });
+  assert.deepEqual(
+    await browserVersions({
+      chromium: launch,
+      firefox: launch,
+      webkit: launch,
+    }),
+    { chromium: "123.4", firefox: "123.4", webkit: "123.4" },
+  );
+  assert.equal(closed, 3);
+  await assert.rejects(
+    browserVersions({
+      chromium: launch,
+      firefox: async () => {
+        throw new Error("missing binary");
+      },
+      webkit: launch,
+    }),
+  );
+  assert.equal(closed, 4);
+  await assert.rejects(
+    browserVersions({
+      chromium: async () => ({
+        version: () => "",
+        close: async () => {
+          closed++;
+        },
+      }),
+      firefox: launch,
+      webkit: launch,
+    }),
+  );
+  assert.equal(closed, 5);
+});
 
 test("OPS: deterministic stages preserve required gates and fail closed on empty, missing or skipped summaries", () => {
   assert.deepEqual(requiredStages, [

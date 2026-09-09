@@ -18,6 +18,10 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 
 Focused commands are `test:integration`, `test:security`, `test:agent`, and `test:workflow`. `node scripts/test.mjs all --inventory` lists every discovered Node test; the separate Workflow files are discovered by Vitest. Sensitive Playwright paths disable trace, screenshots, video, HAR and automatic failure DOM/ARIA prompt attachments. An intentional-failure regression checks that policy. See [teaching release evidence](implementation-evidence/ceremony-teaching/README.md) for current commit-bound results and explicit live/device gates; older checkpoints below are historical, not current certification.
 
+The Node runner first checks that a deliberately failing assertion actually executes and fails. Restricted process environments must not produce a green file-wrapper result without running assertions. The sentinel is separate from product-test discovery and its expected failure is not a skipped product test.
+
+If the host globally sets npm `ignore-scripts=true`, the embedded PostgreSQL platform package's library symlinks are not hydrated by `npm ci`. After reviewing that installed package's `scripts/hydrate-symlinks.js`, explicitly rebuild only the configured platform package with scripts enabled (for this ARM64 Linux verification environment: `npm rebuild @embedded-postgres/linux-arm64 --ignore-scripts=false`). Do not change the global security setting or enable every dependency's install script. PostgreSQL fixture initialization failure remains a failing integration test, never a skip.
+
 ## Faults found and repaired
 
 - Aborted/disposed client reads accepted late completion results; they now reject before publishing or notifying completion. Cancellation during private collection also prevents a subsequent submit.

@@ -19,6 +19,7 @@ export async function teachingGitHubFixture(
     loseConversionResponse?: boolean;
     hostContinuation?: boolean;
     loseContinuationAcknowledgment?: boolean;
+    returnPath?: string;
   } = {},
 ) {
   const database = await postgresFixture();
@@ -155,6 +156,7 @@ export async function teachingGitHubFixture(
     origin,
     environment: "local-e2e",
     configurationVersion: "fixture-v1",
+    ...(options.returnPath ? { returnPath: options.returnPath } : {}),
     expectedAccount: "fixture-owner",
     identity: {
       authenticate: async (request) => {

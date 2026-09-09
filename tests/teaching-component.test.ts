@@ -259,6 +259,80 @@ test("host sign-in callback retains identity and navigation ownership", async ()
   }
 });
 
+test("host sign-out override owns identity action, scrubs run and assistant, then notifies host", async () => {
+  const notifications: string[] = [];
+  const view = await mount(
+    {
+      resumeId: waiting.id,
+      onRunChange() {},
+      onSignOut: async () => {
+        notifications.push("sign-out");
+      },
+      onSignedOut: () => {
+        notifications.push("signed-out");
+      },
+    },
+    200,
+    { signOutAvailable: true },
+  );
+  try {
+    await view.streams[0]!.emit("running");
+    assert.ok(view.document.querySelector('a[href$="/human"]'));
+    await view.click("Sign out");
+    assert.deepEqual(notifications, ["sign-out", "signed-out"]);
+    assert.equal(
+      view.calls.some((call) => call.path === "/api/auth/logout"),
+      false,
+    );
+    assert.equal(view.navigations, 0);
+    assert.equal(view.document.querySelector('a[href$="/human"]'), null);
+    assert.equal(
+      view.document.body.textContent?.includes("Stop assistant"),
+      false,
+    );
+    assert.equal(
+      view.document.body.textContent?.includes("Cancel connection"),
+      false,
+    );
+    assert.ok(view.document.body.textContent?.includes("Sign in to connect"));
+    assert.ok(view.streams.every((stream) => stream.closed));
+  } finally {
+    await view.close();
+  }
+});
+
+test("failed host sign-out does not falsely clear the session or invoke signed-out callback", async () => {
+  let completed = false;
+  const view = await mount(
+    {
+      resumeId: waiting.id,
+      onRunChange() {},
+      onSignOut: async () => {
+        throw new Error("Host sign-out unavailable");
+      },
+      onSignedOut: () => {
+        completed = true;
+      },
+    },
+    200,
+    { signOutAvailable: true },
+  );
+  try {
+    await view.click("Sign out");
+    assert.equal(completed, false);
+    assert.ok(view.document.querySelector('a[href$="/human"]'));
+    assert.ok(
+      view.document.body.textContent?.includes("Host sign-out unavailable"),
+    );
+    assert.equal(
+      view.calls.some((call) => call.path === "/api/auth/logout"),
+      false,
+    );
+  } finally {
+    await view.close();
+  }
+});
+
 test("unavailable host and unsupported connector are truthful and do not execute", async () => {
   for (const props of [{ connectorId: "stripe" }, {}]) {
     const view = await mount(

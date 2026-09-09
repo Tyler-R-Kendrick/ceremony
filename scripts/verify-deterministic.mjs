@@ -6,10 +6,26 @@ import {
   summarizeStage,
   coverageTotals,
 } from "./verification-summary.js";
+import {
+  profileFingerprint,
+  browserVersions,
+} from "./verification-metadata.js";
 
 // Store only allowlisted command statistics, never provider/model/DOM diagnostics.
 const commands = requiredStages;
 const startedAt = new Date().toISOString();
+const profilePath =
+  process.env.CEREMONY_RELEASE_PROFILE ??
+  "docs/implementation-evidence/ceremony-teaching/local-profile.json";
+let metadata;
+try {
+  metadata = profileFingerprint(JSON.parse(readFileSync(profilePath, "utf8")));
+} catch {
+  console.error(
+    "Verification requires a valid non-secret profile. No raw configuration retained.",
+  );
+  process.exit(1);
+}
 let commit = null;
 try {
   const dirty = execFileSync("git", ["status", "--porcelain"], {
@@ -46,6 +62,7 @@ function persist(complete = false, coverageValid = false) {
         commit,
         startedAt,
         runtime: process.version,
+        ...metadata,
         results,
         verdict,
       },
@@ -79,8 +96,30 @@ for (const command of commands) {
   }
   const record = {
     ...summarizeStage(command, result.status, output, mutation),
+    startedAt: new Date(start).toISOString(),
+    checkedAt: new Date().toISOString(),
+    browsers: {},
     durationMs: Date.now() - start,
   };
+  if (command === "test:e2e" && record.exitCode === 0) {
+    try {
+      const { chromium, firefox, webkit } = await import("playwright-core");
+      record.browsers = await browserVersions({
+        chromium: () => chromium.launch(),
+        firefox: () => firefox.launch(),
+        webkit: () =>
+          webkit.launch(
+            process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
+              ? {
+                  executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH,
+                }
+              : {},
+          ),
+      });
+    } catch {
+      record.exitCode = 1;
+    }
+  }
   results.push(record);
   console.log(
     `${command}: ${record.exitCode === 0 ? "PASS" : "FAIL"}${record.tests ? ` (${record.tests.passed ?? 0} passed, ${record.tests.failed ?? 0} failed, ${record.tests.skipped ?? 0} skipped)` : ""}`,
@@ -100,6 +139,11 @@ if (!process.exitCode) {
     if (statSync(path).mtimeMs < Date.parse(startedAt))
       throw new Error("Stale coverage");
     const coverage = coverageTotals(JSON.parse(readFileSync(path, "utf8")));
+    if (
+      profileFingerprint(JSON.parse(readFileSync(profilePath, "utf8")))
+        .configurationDigest !== metadata.configurationDigest
+    )
+      throw new Error("Profile changed during verification");
     writeFileSync(
       join(directory, "coverage.json"),
       JSON.stringify(coverage, null, 2) + "\n",

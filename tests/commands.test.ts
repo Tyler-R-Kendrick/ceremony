@@ -182,9 +182,29 @@ test("AC-18 AC-33: revocation and cancellation during an external call fence lat
   });
   const f = await fixture(t, { handler: () => wait });
   const pending = f.commands.advance(actor, f.run.id, "prepare", 1, "slow");
-  while (f.effects() === 0) await new Promise<void>((r) => setImmediate(r));
-  await f.commands.cancel(actor, f.run.id, 1);
-  release();
+  let settled = false;
+  void pending.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  const deadline = performance.now() + 1_000;
+  try {
+    while (f.effects() === 0 && !settled && performance.now() < deadline)
+      await new Promise<void>((r) => setImmediate(r));
+    assert.equal(
+      f.effects(),
+      1,
+      "authorized command must enter the provider handler before cancellation",
+    );
+    await f.commands.cancel(actor, f.run.id, 1);
+  } finally {
+    release();
+    await pending.catch(() => undefined);
+  }
   await assert.rejects(pending);
   assert.equal(
     (await f.commands.snapshot(actor, f.run.id)).status,
@@ -223,6 +243,40 @@ test("AC-29: an unverified handler response or uncertain effect cannot satisfy a
     false,
   );
 });
+
+for (const nodeState of [
+  { state: "uncertain", verified: false },
+  { state: "verifying", verified: true },
+  { state: "complete", verified: false },
+] as const) {
+  test(`AC-29: fresh command cannot repeat ${nodeState.state} child with verified=${nodeState.verified}`, async (t) => {
+    const f = await fixture(t);
+    await f.store.transaction(async (tx) => {
+      const key = {
+        tenant: actor.tenantId,
+        kind: "node" as const,
+        id: `${f.run.id}:prepare`,
+      };
+      const record = await tx.get(key);
+      await tx.put(
+        key,
+        { ...nodeState, outputs: {} },
+        record?.revision ?? null,
+      );
+    });
+    await assert.rejects(
+      f.commands.advance(actor, f.run.id, "prepare", 1, "fresh-command"),
+      /denied/,
+    );
+    assert.equal(f.effects(), 0);
+    assert.equal((await f.commands.snapshot(actor, f.run.id)).revision, 1);
+    assert.equal(
+      (await f.store.transaction((tx) => tx.list(actor.tenantId, "command")))
+        .length,
+      0,
+    );
+  });
+}
 
 test("AC-27: a completed child cannot repeat under a new command ID while its parent remains active", async (t) => {
   const f = await fixture(t);

@@ -26,6 +26,7 @@ jobs:
             artifacts/coverage/coverage-summary.json
             artifacts/verification/
             artifacts/bundle/size.json
+            artifacts/browser/results.json
   mutation:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

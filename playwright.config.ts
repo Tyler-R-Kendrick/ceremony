@@ -8,6 +8,7 @@ export default defineConfig({
   testDir: "./tests/browser",
   fullyParallel: false,
   workers: 1,
+  reporter: [["list"], ["./scripts/safe-browser-reporter.ts"]],
   timeout: 30000,
   projects: [
     {

@@ -37,7 +37,9 @@ export async function postgresFixture() {
     await server.start();
   } catch {
     await rm(directory, { recursive: true, force: true });
-    throw new Error("Local PostgreSQL fixture could not start");
+    throw new Error(
+      "Local PostgreSQL fixture could not start; verify the installed platform package's native libraries and reviewed symlink hydration (see docs/testing.md). No database tests were skipped.",
+    );
   }
   return {
     config: {

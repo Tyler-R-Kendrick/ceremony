@@ -32,6 +32,7 @@ import { TeachingConnection } from "@ceremony/auth/react";
   resumeId={hostRunId}
   onRunChange={(run) => setHostRunId(run.id)}
   onSignIn={() => host.signIn()}
+  onSignOut={() => host.signOut()}
   onSignedOut={() => host.showSignedOut()}
   autoFocus={false}
   webmcp={false}
@@ -39,7 +40,7 @@ import { TeachingConnection } from "@ceremony/auth/react";
 />;
 ```
 
-Supplying `onRunChange` leaves URL ownership with the host; no authorizing state is stored in browser storage. Use distinct WebMCP prefixes for simultaneously mounted instances, or disable registration and use the exported local tool definitions. The API base must route to the authenticated server handlers; changing presentation cannot replace server authorization. Framework-neutral hosts can render their own UI from those same HTTP contracts and tools. Own-browser handoffs still require exact server callback configuration.
+Supplying `onRunChange` leaves URL ownership with the host; no authorizing state is stored in browser storage. Host sign-in/sign-out callbacks can use existing identity UI rather than the hosted reference's default routes. Set the server's `createGitHubRuntime({returnPath: "/settings/connections", ...})` to return human handoffs and recovery to the host's own same-origin UI route; callbacks and tool arguments cannot override that trusted path. Use distinct WebMCP prefixes for simultaneously mounted instances, or disable registration and use the exported local tool definitions. The API base must route to the authenticated server handlers; changing presentation cannot replace server authorization. Framework-neutral hosts can render their own UI from those same HTTP contracts and tools. Own-browser handoffs still require exact server callback configuration.
 
 ## Different stopping controls
 

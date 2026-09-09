@@ -19,6 +19,7 @@ export default {
       "if (!run || run.value.subjectId !== actor.subjectId)",
     ),
     guard("src/server/commands.ts", "if (prior.value.digest !== intent)"),
+    guard("src/server/commands.ts", 'ownState?.value.state === "uncertain"', 2),
     guard(
       "src/server/commands.ts",
       'operation.classifications[name]?.classification !== "public"',

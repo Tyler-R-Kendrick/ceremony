@@ -29,6 +29,8 @@ export interface GitHubRuntimeOptions {
   origin: string;
   environment: string;
   configurationVersion: string;
+  /** Trusted host UI route. Never accepted from a callback, recipe, or tool argument. */
+  returnPath?: string;
   expectedAccount?: string;
   modelConfiguration?: ModelConfiguration;
   github?: Partial<Pick<AsyncGitHubOptions, "app" | "fetch">>;
@@ -146,8 +148,22 @@ export function createGitHubRuntime(
     environment: record.environment,
     signal: AbortSignal.timeout(30_000),
   });
-  const returnUrl = (runId: string) =>
-    `${origin}/?teachingRun=${encodeURIComponent(runId)}`;
+  const returnPath = options.returnPath ?? "/";
+  const returnBase = new URL(returnPath, origin);
+  if (
+    !returnPath.startsWith("/") ||
+    returnPath.startsWith("//") ||
+    returnPath.length > 512 ||
+    returnBase.origin !== origin ||
+    returnBase.search ||
+    returnBase.hash
+  )
+    throw new Error("Invalid host return path");
+  const returnUrl = (runId: string) => {
+    const target = new URL(returnBase);
+    target.searchParams.set("teachingRun", runId);
+    return target.href;
+  };
   const headers = {
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
@@ -492,7 +508,7 @@ export function createGitHubRuntime(
         return new Response(null, {
           status: 303,
           headers: {
-            location: `${origin}/?teachingRun=${encodeURIComponent(runId)}`,
+            location: returnUrl(runId),
             "cache-control": "no-store",
             "referrer-policy": "no-referrer",
           },

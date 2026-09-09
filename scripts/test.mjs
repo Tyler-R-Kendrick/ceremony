@@ -29,6 +29,28 @@ if (process.argv.includes("--inventory")) {
   console.log(JSON.stringify({ mode, files }));
   process.exit(0);
 }
+const probe = spawnSync(
+  process.execPath,
+  [
+    "--no-experimental-webstorage",
+    "--import",
+    "tsx",
+    "--test",
+    "tests/fixtures/runner-sentinel.ts",
+  ],
+  { encoding: "utf8", env: process.env },
+);
+if (
+  probe.status === 0 ||
+  !`${probe.stdout ?? ""}${probe.stderr ?? ""}`.includes(
+    "CEREMONY_EXPECTED_ASSERTION_FAILURE",
+  )
+) {
+  console.error(
+    "Node test execution unavailable: the required negative assertion preflight did not execute correctly.",
+  );
+  process.exit(1);
+}
 const result = spawnSync(
   process.execPath,
   ["--no-experimental-webstorage", "--import", "tsx", "--test", ...files],
