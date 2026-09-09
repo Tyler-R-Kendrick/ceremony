@@ -17,6 +17,18 @@ Open **http://127.0.0.1:4173**. Port **4174** is the separate local protocol fix
 
 The app does not load `.env` automatically. `.env.example` documents names only; configure authorized values through the process/secret manager or native session Environment UI. Never copy credentials into templates, chat, commit messages or test diagnostics. Local startup creates encrypted `.ceremony/` state; its key and database must be retained together. Do not point deterministic tests at live service configuration.
 
+### Local protocol fixtures
+
+Open `/?mode=test` only for the explicit developer harness. These synthetic values belong to the local provider on port 4174; never enter real credentials there or use this provider as deployed identity.
+
+| Method                                           | Fixture values                       |
+| ------------------------------------------------ | ------------------------------------ |
+| API key / personal token                         | `demo-api-key`                       |
+| Jira Basic (email / API token)                   | `demo@example.com` / `ceremony-demo` |
+| Forms, OAuth approval, device approval, claiming | `demo@example.com` / `ceremony-demo` |
+
+The Neon claiming fixture opens a local provider page where you choose **Demo organization**. It does not request an account email in the ceremony or provision a real database. Provider-backed operation support remains separate from these [service simulations](service-examples.md).
+
 ## Devcontainer
 
 Open this repository with a Dev Containers-compatible editor and choose **Reopen in Container**. Docker (or a compatible configured container engine) is a host prerequisite; no hosted service is provisioned. The pinned [official Node image](https://github.com/devcontainers/images/blob/main/src/javascript-node/history/4.0.3.md) runs as the non-root `node` user with the workspace at `/workspaces/ceremony`.
