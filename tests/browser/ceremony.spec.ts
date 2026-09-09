@@ -103,8 +103,14 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })
       .click();
+    await expect(
+      page.getByRole("heading", { name: "Connections", exact: true }),
+    ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.getByRole("button", { name: "Template studio" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Template studio", exact: true }),
+    ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     for (const control of await page
       .locator("nav button, .toolbar button, .toolbar .button")
