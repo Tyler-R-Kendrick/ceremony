@@ -64,6 +64,8 @@ test("Arazzo binds operation paths when the provider specification has no operat
     {},
     { operationId: "token", operationPath },
     { operationPath: "https://evil.example" },
+    { operationPath: `prefix${operationPath}` },
+    { operationPath: `${operationPath}suffix` },
   ]) {
     assert.equal(
       arazzoSchema.safeParse({

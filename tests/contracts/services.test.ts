@@ -237,8 +237,10 @@ test("service inputs reject unsafe origins and malformed keys before any network
   });
   for (const projectUrl of [
     "http://localhost",
+    "http://synthetic.supabase.co",
     "https://127.0.0.1",
     "https://evil.example",
+    "https://evil.synthetic.supabase.co",
     "https://x.supabase.co.evil.example",
     "https://u:p@x.supabase.co",
     "https://x.supabase.co:444",

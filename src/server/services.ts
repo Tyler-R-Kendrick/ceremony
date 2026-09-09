@@ -280,20 +280,21 @@ export function serviceRegistrations(
                         email: values.email!,
                         password: values.password!,
                       });
-                    if (
-                      error ||
-                      !data.session?.access_token ||
-                      !data.session.refresh_token ||
-                      !data.session.expires_at
-                    )
-                      throw new Error("Sign-in rejected");
-                    expiresAt = data.session.expires_at * 1000;
-                    if (expiresAt <= Date.now())
+                    if (error) throw error;
+                    const session = z
+                      .object({
+                        access_token: z.string().min(1),
+                        refresh_token: z.string().min(1),
+                        expires_at: z.number().positive(),
+                      })
+                      .parse(data.session);
+                    expiresAt = session.expires_at * 1000;
+                    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
                       throw new Error("Expired session");
                     secret = {
                       projectUrl: projectUrl.origin,
-                      access_token: data.session.access_token,
-                      refresh_token: data.session.refresh_token,
+                      access_token: session.access_token,
+                      refresh_token: session.refresh_token,
                     };
                   },
                 ],

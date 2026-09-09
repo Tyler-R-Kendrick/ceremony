@@ -1,0 +1,160 @@
+exports[`characterization: live service manifests, workflows and missing-setup presentation 1`] = `
+[
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "description": "Verify API access without creating a payment.",
+    "methods": [
+      {
+        "id": "api-key",
+        "label": "API key",
+        "kind": "api-key",
+        "fields": [
+          {
+            "name": "token",
+            "label": "Stripe secret key",
+            "type": "password",
+            "required": true
+          }
+        ],
+        "scopes": [],
+        "templateId": "api-key"
+      }
+    ]
+  },
+  {
+    "id": "supabase",
+    "name": "Supabase",
+    "description": "Sign in to your Supabase project, with missing project setup included.",
+    "methods": [
+      {
+        "id": "form",
+        "label": "Email & password",
+        "kind": "form",
+        "fields": [
+          {
+            "name": "email",
+            "label": "Email",
+            "type": "email",
+            "required": true
+          },
+          {
+            "name": "password",
+            "label": "Password",
+            "type": "password",
+            "required": true
+          }
+        ],
+        "scopes": [],
+        "templateId": "form"
+      }
+    ]
+  }
+]
+`;
+
+exports[`characterization: live service manifests, workflows and missing-setup presentation 2`] = `
+{
+  "stripe": {
+    "arazzo": "1.0.1",
+    "info": {
+      "title": "Stripe API access",
+      "version": "1.0.0"
+    },
+    "sourceDescriptions": [
+      {
+        "name": "stripe",
+        "type": "openapi",
+        "url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json"
+      }
+    ],
+    "workflows": [
+      {
+        "workflowId": "verify-access",
+        "summary": "Read balance to verify key permissions; never create payments.",
+        "steps": [
+          {
+            "stepId": "verify",
+            "description": "Verify read access with the Stripe SDK",
+            "operationId": "GetBalance"
+          }
+        ]
+      }
+    ]
+  },
+  "supabase": {
+    "arazzo": "1.0.1",
+    "info": {
+      "title": "Supabase project sign-in",
+      "version": "1.0.0"
+    },
+    "sourceDescriptions": [
+      {
+        "name": "auth",
+        "type": "openapi",
+        "url": "https://raw.githubusercontent.com/supabase/auth/master/openapi.yaml"
+      }
+    ],
+    "workflows": [
+      {
+        "workflowId": "sign-in",
+        "summary": "Sign in an existing project user with the Supabase SDK.",
+        "steps": [
+          {
+            "stepId": "authenticate",
+            "description": "Exchange email and password for a project session",
+            "operationPath": "{$sourceDescriptions.auth.url}#/paths/~1token/post"
+          }
+        ]
+      }
+    ]
+  }
+}
+`;
+
+exports[`characterization: live service manifests, workflows and missing-setup presentation 3`] = `
+[
+  {
+    "step": "input",
+    "fields": [
+      {
+        "name": "token",
+        "label": "Stripe secret key",
+        "type": "password",
+        "required": true
+      }
+    ],
+    "message": "Use a restricted key with Balance read permission. Existing session keys are reused. No payments will be made."
+  },
+  {
+    "step": "input",
+    "fields": [
+      {
+        "name": "projectUrl",
+        "label": "Supabase project URL",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "publishableKey",
+        "label": "Supabase publishable key",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "email",
+        "label": "Email",
+        "type": "email",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "type": "password",
+        "required": true
+      }
+    ],
+    "message": "Project settings are reused from your session. Supply only what’s missing, then sign in as an existing project user—not a dashboard account."
+  }
+]
+`;
