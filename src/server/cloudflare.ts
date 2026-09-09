@@ -24,7 +24,15 @@ export class CloudflareHumanBrowser {
     z.string()
       .regex(/^[a-f0-9]{32}$/)
       .parse(options.accountId);
-    if (new URL(options.origin).protocol !== "https:")
+    const origin = new URL(options.origin);
+    if (
+      origin.protocol !== "https:" ||
+      origin.username ||
+      origin.password ||
+      origin.pathname !== "/" ||
+      origin.search ||
+      origin.hash
+    )
       throw new Error(
         "Remote browsers require a publicly reachable HTTPS ceremony origin",
       );

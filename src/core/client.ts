@@ -386,6 +386,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
               );
               values = {};
             }
+            signal?.throwIfAborted();
+            if (disposed)
+              throw new Error("This ceremony client has been disposed.");
             next = await transport.act(prior.id, {
               action: parsed.action,
               revision: prior.revision,
@@ -393,6 +396,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
               ...(secretRef ? { secretRef } : {}),
             });
           }
+          signal?.throwIfAborted();
+          if (disposed)
+            throw new Error("This ceremony client has been disposed.");
           const accepted = accept(next);
           return accepted;
         } catch (cause) {
@@ -402,7 +408,12 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
                 ? cause.message
                 : "Action failed. Try again.",
           });
-          if (prior && parsed.action !== "read" && !disposed) {
+          if (
+            prior &&
+            parsed.action !== "read" &&
+            !disposed &&
+            !signal?.aborted
+          ) {
             try {
               accept(await transport.read(prior.id));
             } catch {
