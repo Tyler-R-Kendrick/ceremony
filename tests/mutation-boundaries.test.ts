@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
   defaultTemplate,
@@ -293,6 +294,15 @@ test("atomic: environment count/byte limits are inclusive and failed edits leave
     /100 variables or 64 KB/,
   );
   assert.equal(env.describe("count").revision, 1);
+  assert.throws(
+    () => env.update("count", { revision: 0 }),
+    /Environment changed. Reload before saving/,
+  );
+  db.put('environment:["legacy-exact-count","service"]', {
+    revision: 0,
+    values: hundred,
+  });
+  assert.equal(Object.keys(env.read("legacy-exact-count")).length, 100);
   const bytes = {
     A: "x".repeat(16000),
     B: "x".repeat(16000),
@@ -389,4 +399,48 @@ test("atomic: vault permissions, delivery limits and private-reference expiry ar
     }),
   );
   assert.equal(db.get("first", z.number()), 1);
+});
+
+test("atomic: vault transactions reserve the writer before callbacks and reject malformed records", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "ceremony-vault-lock-"));
+  const file = join(dir, "vault.sqlite");
+  const db = new CeremonyDatabase(file, randomBytes(32));
+  const other = new DatabaseSync(file);
+  t.after(() => {
+    other.close();
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  other.exec("PRAGMA busy_timeout=1");
+  for (let i = 0; i < 2; i++)
+    db.transaction(() => {
+      assert.throws(
+        () =>
+          other
+            .prepare("INSERT INTO records VALUES (?,?)")
+            .run("concurrent", "invalid"),
+        /locked/,
+      );
+      db.transaction(() => db.put("nested", i));
+    });
+  assert.equal(db.get("nested", z.number()), 1);
+  other
+    .prepare("INSERT INTO records VALUES (?,?)")
+    .run("corrupt", "not-a-blob");
+  assert.throws(
+    () => db.get("corrupt", z.unknown()),
+    /Invalid protected record/,
+  );
+  const token = db.acquire("lease");
+  assert.throws(
+    () => db.acquire("lease"),
+    /This ceremony is already executing/,
+  );
+  db.release("lease", token);
+});
+
+test("atomic: closing a vault releases its database handle", () => {
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  db.close();
+  assert.throws(() => db.keys("event:"), /not open/);
 });
