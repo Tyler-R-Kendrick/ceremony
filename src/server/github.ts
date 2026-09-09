@@ -315,10 +315,18 @@ export class GitHubAppCeremonies {
   createAdapter(context: AdapterContext): AuthAdapter {
     const { instanceId: id, owner } = context;
     let state = this.db.get(this.key(id), stateSchema);
-    if (!state) {
+    if (state && state.owner !== owner)
+      throw new CeremonyError("GitHub ceremony not found", 404);
+    if (!state || state.phase === "prepare") {
+      const app =
+        state?.app ??
+        this.options.resolveApp?.(owner) ??
+        this.options.app ??
+        this.db.get(`github-app:${owner}:${this.origin}`, appSchema);
       state = {
         owner,
-        phase: "prepare",
+        phase: app ? "install" : "register",
+        ...(app ? { app } : {}),
         nonce: randomBytes(32).toString("base64url"),
         expiresAt: Date.now() + 3_600_000,
       };
@@ -361,7 +369,7 @@ export class GitHubAppCeremonies {
       retry: async () => {
         const state = current();
         if (!["converting", "uncertain", "verify"].includes(state.phase))
-          state.phase = "prepare";
+          state.phase = state.app ? "install" : "register";
         state.nonce = randomBytes(32).toString("base64url");
         state.expiresAt = Date.now() + 3_600_000;
         this.save(id, state);
@@ -495,6 +503,7 @@ export class GitHubAppCeremonies {
             "App registration is required before signing",
             409,
           );
+        await this.verifyApp(next.app);
         const installationId = z.coerce
           .number()
           .int()

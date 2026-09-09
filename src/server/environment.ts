@@ -20,31 +20,52 @@ const editSchema = z
   })
   .strict();
 
-/** Server-only connector configuration. Never merges into process.env or exposes values to tools. */
+/** Server-only session configuration, shared by connectors. Never exposed to tools. */
 export class CeremonyEnvironment {
   constructor(private readonly db: CeremonyDatabase) {}
-  private key(owner: string, connector: string) {
-    return `environment:${JSON.stringify([owner, connector])}`;
+  private key(owner: string) {
+    return `session-environment:${JSON.stringify(owner)}`;
   }
-  private record(owner: string, connector: string) {
-    return (
-      this.db.get(this.key(owner, connector), recordSchema) ?? {
-        revision: 0,
-        values: {},
+  private record(owner: string) {
+    const existing = this.db.get(this.key(owner), recordSchema);
+    if (existing) return existing;
+    let values: Record<string, string> = {};
+    for (const key of this.db.keys("environment:")) {
+      const [legacyOwner] = JSON.parse(key.slice("environment:".length));
+      if (legacyOwner !== owner) continue;
+      const legacy = this.db.get(key, recordSchema)!;
+      for (const [name, value] of Object.entries(legacy.values)) {
+        if (Object.hasOwn(values, name) && values[name] !== value)
+          throw new CeremonyError(
+            "Legacy environment values conflict. Reconcile duplicate variable names before migration.",
+            409,
+          );
       }
-    );
+      values = { ...values, ...legacy.values };
+    }
+    if (
+      Object.keys(values).length > 100 ||
+      Buffer.byteLength(JSON.stringify(values)) > 64_000
+    )
+      throw new CeremonyError(
+        "Legacy environment exceeds session limits. Reconcile before migration.",
+        409,
+      );
+    const record = { revision: 0, values };
+    this.db.put(this.key(owner), record);
+    return record;
   }
-  read(owner: string, connector: string): Record<string, string> {
-    return this.record(owner, connector).values;
+  read(owner: string): Record<string, string> {
+    return this.record(owner).values;
   }
-  describe(owner: string, connector: string) {
-    const record = this.record(owner, connector);
+  describe(owner: string) {
+    const record = this.record(owner);
     return {
       revision: record.revision,
       names: Object.keys(record.values).sort(),
     };
   }
-  update(owner: string, connector: string, input: unknown) {
+  update(owner: string, input: unknown) {
     const checked = editSchema.safeParse(input);
     if (!checked.success)
       throw new CeremonyError(
@@ -63,7 +84,7 @@ export class CeremonyEnvironment {
       imported = parsed.data;
     }
     return this.db.transaction(() => {
-      const record = this.record(owner, connector);
+      const record = this.record(owner);
       if (record.revision !== edit.revision)
         throw new CeremonyError(
           "Environment changed. Reload before saving.",
@@ -79,11 +100,11 @@ export class CeremonyEnvironment {
           "Environment exceeds 100 variables or 64 KB.",
           400,
         );
-      this.db.put(this.key(owner, connector), {
+      this.db.put(this.key(owner), {
         revision: record.revision + 1,
         values,
       });
-      return this.describe(owner, connector);
+      return this.describe(owner);
     });
   }
 }

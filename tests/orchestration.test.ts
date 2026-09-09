@@ -162,10 +162,8 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     }),
   );
   assert.equal(calls.length, 0);
-  snapshot = await runtime.act("alice", snapshot.id, {
-    action: "begin",
-    revision: snapshot.revision,
-  });
+  assert.equal(snapshot.step, "redirect");
+  assert.equal(snapshot.prerequisites?.[0]?.status, "awaiting-human");
   const registration = github.destination("alice", snapshot.id);
   assert.equal(registration.kind, "manifest");
   assert.throws(() => github.destination("bob", snapshot.id));
@@ -216,7 +214,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
   await assert.rejects(runtime.callback("alice", snapshot.id, callback));
   // A second principal gets an independent app ceremony and cannot consume Alice's app configuration.
   const other = runtime.start("bob", "github", "github-app");
-  assert.equal(other.prerequisites?.[0]?.status, "ready");
+  assert.equal(other.prerequisites?.[0]?.status, "awaiting-human");
   assert.notEqual(other.id, snapshot.id);
   const shared = new GitHubAppCeremonies(db, {
     origin: "http://127.0.0.1:4173",
@@ -243,7 +241,10 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     instanceId: "environment-run",
     method: githubAppManifest.methods[0]!,
   });
-  await configuredAdapter.begin();
+  assert.equal(
+    configuredAdapter.initial?.().prerequisites?.[0]?.status,
+    "succeeded",
+  );
   assert.equal(
     configured.destination("environment-owner", "environment-run").kind,
     "installation",
@@ -260,10 +261,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     ),
     /does not match/,
   );
-  let recovery = await runtime.act("bob", other.id, {
-    action: "begin",
-    revision: other.revision,
-  });
+  let recovery = other;
   const recoveryNonce = new URL(
     github.destination("bob", other.id).url,
   ).searchParams.get("state")!;
