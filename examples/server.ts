@@ -21,7 +21,7 @@ import {
   Agent2Human,
   type A2HOptions,
 } from "../src/server/index.js";
-import { flowKindSchema } from "../src/core/index.js";
+import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
@@ -440,12 +440,18 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           url.pathname === "/api/live/ceremonies"
         ) {
           const input = z
-            .object({ connectorId: z.string(), methodId: z.string() })
+            .object({
+              connectorId: z.string(),
+              methodId: z.string().optional(),
+              context: entryContextSchema.optional(),
+            })
             .strict()
             .parse(JSON.parse(await readBody(request)));
           return json(
             response,
-            liveController.start(owner, input.connectorId, input.methodId),
+            input.methodId
+              ? liveController.start(owner, input.connectorId, input.methodId)
+              : liveController.connect(owner, input.connectorId, input.context),
           );
         }
         const match =
@@ -485,12 +491,18 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       }
       if (request.method === "POST" && url.pathname === "/api/ceremonies") {
         const input = z
-          .object({ connectorId: z.string(), methodId: z.string() })
+          .object({
+            connectorId: z.string(),
+            methodId: z.string().optional(),
+            context: entryContextSchema.optional(),
+          })
           .strict()
           .parse(JSON.parse(await readBody(request)));
         return json(
           response,
-          controller.start(owner, input.connectorId, input.methodId),
+          input.methodId
+            ? controller.start(owner, input.connectorId, input.methodId)
+            : controller.connect(owner, input.connectorId, input.context),
         );
       }
       const privateCollector =

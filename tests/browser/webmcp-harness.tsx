@@ -34,6 +34,7 @@ export async function mountHarness(connectorId = "github") {
   root.render(
     <Ceremony
       manifest={manifest}
+      selection="manual"
       transport={createHttpTransport()}
       webmcp={{ prefix: "test_ceremony" }}
       onActionSuccess={async (event) => {

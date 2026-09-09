@@ -76,6 +76,9 @@ test("native tools share UI execution, classify failures, serialize submits, red
     (await names(page)).filter((name) => name.startsWith("test_ceremony_")),
   ).toHaveLength(11);
   expect((await call(page, "read")).actions).toEqual(["start"]);
+  const automatic = await call(page, "start");
+  expect(automatic.methodId).toBe("oauth");
+  expect(automatic.step).toBe("redirect");
   expect((await call(page, "start", { methodId: "api-key" })).step).toBe(
     "input",
   );

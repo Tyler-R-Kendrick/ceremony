@@ -6,7 +6,9 @@ import {
 } from "./schema.js";
 
 export const commandSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("start"), methodId: z.string() }).strict(),
+  z
+    .object({ action: z.literal("start"), methodId: z.string().optional() })
+    .strict(),
   z.object({ action: z.literal("read") }).strict(),
   z.object({ action: z.literal("navigate") }).strict(),
   z.object({ action: z.literal("request-input") }).strict(),
@@ -139,7 +141,7 @@ export async function registerCeremonyTools(
                     },
                   }
                 : {},
-          required: action === "start" ? ["methodId"] : [],
+          required: [],
         },
         // read may poll and persist provider approval; it is not side-effect free.
         annotations: {

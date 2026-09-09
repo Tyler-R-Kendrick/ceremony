@@ -48,6 +48,12 @@ Use **Export template** to save a reviewed artifact. **Use on Connect page** act
 
 ## Library interfaces
 
+The default entry point needs only a service manifest: `<Ceremony manifest={connectorManifest} />` or `createCeremonyClient({ manifest: connectorManifest })`. The default transport uses `/api/ceremonies`; hosts can supply another transport. Automatic entry asks the server to reuse a compatible session attempt, then prefers trusted configured methods, browser OAuth, or headless device flow. GitHub App registration remains a prerequisite only when no app is available. No supported method or required grant means an error, not an invented fallback.
+
+Use `context={{ surface: "headless", requiredScopes: ["read:user"] }}` for caller constraints. A server registration can provide `availability(owner, method)` returning `configured`, `available`, or `unavailable` from trusted session configuration; clients never send credential-availability claims. `CeremonyController.connect(owner, connectorId, context)` is the session-aware server entry. WebMCP `start({})` uses the same resolution; `start({ methodId })` remains an explicit override. `selection="manual"` retains independent/manual attempts for galleries and advanced hosts.
+
+Routine OAuth/device preparation runs automatically and emits execution hooks. Secret entry, anonymous resource provisioning, and provider consent are not automated. Hosts can opt into `delegation="agent"` to invoke a configured `request-human` adapter (remote browser/A2H); delegation failure preserves the provider link/private collector. This uses the existing fixed browser handoff, not unrestricted autonomous browser control. Live GitHub currently exposes App installation auth only; automatic selection never invents a live OAuth adapter from the simulation inventory.
+
 `npm run build` emits ESM and declarations. See [embedding ceremonies](docs/integration.md) for installation, host UI libraries, styling and framework-neutral lifecycles.
 
 | Import                      | Responsibility                                                                              |

@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  entryContextSchema,
+  resolveCeremonyMethod,
+  type EntryContext,
+} from "./resolution.js";
+import {
   manifestSchema,
   snapshotSchema,
   validateInput,
@@ -42,6 +47,7 @@ export function createHttpTransport(
     return snapshotSchema.parse(result);
   }
   return {
+    connect: (connectorId, context) => request("", { connectorId, context }),
     privateInputUrl: (id) =>
       new URL(
         `${base}/${encodeURIComponent(id)}/collector`,
@@ -68,7 +74,12 @@ export function createHttpTransport(
 }
 export interface CeremonyClientOptions extends ActionHooks {
   manifest: ConnectorManifest;
-  transport: CeremonyTransport;
+  transport?: CeremonyTransport;
+  context?: EntryContext;
+  /** Automatic by default; manual is useful for a method gallery or authoring tools. */
+  selection?: "automatic" | "manual";
+  /** Opt-in host authorization to request an available agent/human handoff automatically. */
+  delegation?: "agent" | "human";
   resumeId?: string;
   onInstance?(id: string): void;
   onComplete?(outcome: AuthOutcome): void;
@@ -96,7 +107,12 @@ function browserNavigate(url: string, target: "same-tab" | "new-tab") {
 /** Framework-neutral external store. Constructing it does not perform I/O. */
 export function createCeremonyClient(options: CeremonyClientOptions) {
   const manifest = manifestSchema.parse(options.manifest);
-  const { transport } = options;
+  const transport = options.transport ?? createHttpTransport();
+  const context = entryContextSchema.parse(
+    options.context ?? {
+      surface: typeof window === "undefined" ? "headless" : "browser",
+    },
+  );
   let state: CeremonyClientState = {
     snapshot: undefined,
     busy: false,
@@ -145,6 +161,12 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
     if (!snapshot.actions.includes("submit")) privateInputPending = false;
     if (snapshot.connectorId !== manifest.id)
       throw new Error("This attempt belongs to a different connector.");
+    if (
+      !context.requiredScopes.every((scope) =>
+        (snapshot.outcome?.scopes ?? snapshot.method.scopes).includes(scope),
+      )
+    )
+      throw new Error("This attempt does not satisfy the requested access.");
     publish({ snapshot });
     const key = `${snapshot.id}:${snapshot.step}:${snapshot.outcome?.ownership ?? ""}`;
     if (!disposed && key !== notified) {
@@ -172,7 +194,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
         ...(before
           ? { instanceId: before.id, methodId: before.method.id }
           : {}),
-        ...(command.action === "start" ? { methodId: command.methodId } : {}),
+        ...(command.action === "start" && command.methodId
+          ? { methodId: command.methodId }
+          : {}),
       },
       async () => {
         const parsed = commandSchema.parse(command);
@@ -191,10 +215,11 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
           let next: CeremonySnapshot;
           if (parsed.action === "start") {
             if (
+              parsed.methodId &&
               !manifest.methods.some((method) => method.id === parsed.methodId)
             )
               throw new Error("Unknown authentication method.");
-            if (prior?.actions.includes("cancel")) {
+            if (parsed.methodId && prior?.actions.includes("cancel")) {
               const cancelled = await executeCeremonyAction(
                 {
                   action: "cancel",
@@ -216,7 +241,71 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
             signal?.throwIfAborted();
             if (disposed)
               throw new Error("This ceremony client has been disposed.");
-            next = await transport.start(manifest.id, parsed.methodId);
+            next = parsed.methodId
+              ? await transport.start(manifest.id, parsed.methodId)
+              : transport.connect
+                ? await transport.connect(manifest.id, context)
+                : await transport.start(
+                    manifest.id,
+                    resolveCeremonyMethod(manifest, context).id,
+                  );
+            next = accept(next);
+            if (!disposed) observe(() => options.onInstance?.(next.id));
+            // Only protocol preparation is automatic, not provisioning anonymous resources.
+            if (
+              !parsed.methodId &&
+              next.actions.includes("begin") &&
+              ["oauth-code", "device"].includes(next.method.kind)
+            ) {
+              const prepared = await executeCeremonyAction(
+                {
+                  action: "begin",
+                  source,
+                  connectorId: manifest.id,
+                  instanceId: next.id,
+                  methodId: next.method.id,
+                },
+                () =>
+                  transport.act(next.id, {
+                    action: "begin",
+                    revision: next.revision,
+                    values: {},
+                  }),
+                options,
+              );
+              if (prepared) next = prepared;
+            }
+            if (
+              !parsed.methodId &&
+              options.delegation === "agent" &&
+              next.actions.includes("request-human")
+            ) {
+              accept(next);
+              try {
+                const delegated = await executeCeremonyAction(
+                  {
+                    action: "request-human",
+                    source,
+                    connectorId: manifest.id,
+                    instanceId: next.id,
+                    methodId: next.method.id,
+                  },
+                  () =>
+                    transport.act(next.id, {
+                      action: "request-human",
+                      revision: next.revision,
+                      values: {},
+                    }),
+                  options,
+                );
+                if (delegated) next = delegated;
+              } catch {
+                publish({
+                  error:
+                    "Delegation is unavailable. Continue using the provider link or private collector.",
+                });
+              }
+            }
           } else if (parsed.action === "read") {
             const id = prior?.id ?? options.resumeId;
             if (!id) return undefined;
@@ -300,8 +389,6 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
             });
           }
           const accepted = accept(next);
-          if (!disposed && parsed.action === "start")
-            observe(() => options.onInstance?.(accepted.id));
           return accepted;
         } catch (cause) {
           publish({
@@ -348,6 +435,8 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
       if (initialized) return;
       initialized = true;
       if (options.resumeId) await execute({ action: "read" }, "system");
+      else if (options.selection !== "manual")
+        await execute({ action: "start" }, "system");
       else if (manifest.methods.length === 1)
         await execute(
           { action: "start", methodId: manifest.methods[0]!.id },
