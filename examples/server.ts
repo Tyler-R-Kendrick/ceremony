@@ -16,6 +16,7 @@ import {
   PrivateCredentialBroker,
   GitHubAppCeremonies,
   githubAppManifest,
+  githubWorkflows,
   type GitHubOptions,
   CloudflareHumanBrowser,
   Agent2Human,
@@ -302,6 +303,8 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           liveAvailable: Boolean(liveController),
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
+      if (request.method === "GET" && url.pathname === "/api/workflows/github")
+        return json(response, githubWorkflows);
       const environmentRoute = /^\/api\/environment(?:\/([a-z0-9-]+))?$/.exec(
         url.pathname,
       );

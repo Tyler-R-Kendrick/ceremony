@@ -26,6 +26,7 @@ import {
 import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
+import { WorkflowStudio } from "./workflow-studio.js";
 
 const liveMode = new URLSearchParams(location.search).get("mode") === "live";
 const transport = createHttpTransport(
@@ -147,10 +148,10 @@ function Studio({
     <>
       <div className="page-heading">
         <div>
-          <h1>Template studio</h1>
+          <h2>Presentation templates</h2>
           <p>
-            Compose a ceremony, inspect every state, and take the template with
-            you.
+            Customize copy and layout. This isolated preview does not execute
+            authentication.
           </p>
         </div>
         <span className="pill">Authoring studio</span>
@@ -288,7 +289,7 @@ function Studio({
         </section>
         <section className="preview-column">
           <div className="card-top">
-            <h2>Live preview</h2>
+            <h2>Presentation preview</h2>
             <span className="pill">Isolated sample data</span>
           </div>
           <label htmlFor="preview-state">Ceremony state</label>
@@ -342,7 +343,9 @@ function App() {
   const [tab, setTab] = useState(
     new URLSearchParams(location.search).get("section") === "environment"
       ? "environment"
-      : "connect",
+      : new URLSearchParams(location.search).get("section") === "studio"
+        ? "studio"
+        : "connect",
   );
   const [connectorId, setConnectorId] = useState(
     new URLSearchParams(location.search).get("connector") ?? "github",
@@ -406,7 +409,7 @@ function App() {
             aria-current={tab === "studio" ? "page" : undefined}
             onClick={() => setTab("studio")}
           >
-            Template studio
+            Workflow studio
           </button>
           <button
             aria-current={tab === "environment" ? "page" : undefined}
@@ -425,15 +428,21 @@ function App() {
         {!config && !loadError && <p role="status">Loading your workspace…</p>}
         {config && tab === "environment" && <Environment />}
         {config && tab === "studio" && (
-          <Studio
-            config={config}
-            apply={(template) =>
-              setTemplates((previous) => [
-                ...previous.filter((value) => value.id !== template.id),
-                template,
-              ])
-            }
-          />
+          <WorkflowStudio
+            manifests={config.manifests}
+            liveManifests={config.liveManifests}
+            liveAvailable={config.liveAvailable}
+          >
+            <Studio
+              config={config}
+              apply={(template) =>
+                setTemplates((previous) => [
+                  ...previous.filter((value) => value.id !== template.id),
+                  template,
+                ])
+              }
+            />
+          </WorkflowStudio>
         )}
         {config && connector && tab === "connect" && (
           <>
@@ -644,9 +653,11 @@ function App() {
       </main>
       <footer className="site-footer">
         <span>
-          {liveMode
-            ? "Live GitHub integration · Encrypted server storage"
-            : "Local reference workspace · Test credentials only"}
+          {tab === "studio"
+            ? "Workflow studio · Live connections and labelled simulations"
+            : liveMode
+              ? "Live GitHub integration · Encrypted server storage"
+              : "Local reference workspace · Test credentials only"}
         </span>
         <span>Ceremony / 0.1</span>
       </footer>

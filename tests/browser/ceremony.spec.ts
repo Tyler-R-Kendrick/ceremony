@@ -128,13 +128,13 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
       page.getByRole("heading", { name: "Connections", exact: true }),
     ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-    await page.getByRole("button", { name: "Template studio" }).click();
+    await page.getByRole("button", { name: "Workflow studio" }).click();
     await expect(
-      page.getByRole("heading", { name: "Template studio", exact: true }),
+      page.getByRole("heading", { name: "Workflow studio", exact: true }),
     ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     for (const control of await page
-      .locator("nav button, .toolbar button, .toolbar .button")
+      .locator("nav button, .toolbar button:visible, .toolbar .button:visible")
       .all()) {
       const box = await control.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
@@ -142,7 +142,7 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
     }
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const button = page.getByRole("button", { name: "Template studio" });
+  const button = page.getByRole("button", { name: "Workflow studio" });
   await button.hover();
   await page.mouse.down();
   expect(
@@ -348,7 +348,10 @@ test("studio previews every state, rejects malformed imports, and fits a mobile 
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Template studio" }).click();
+  await page.getByRole("button", { name: "Workflow studio" }).click();
+  await page
+    .getByText("Advanced: customize presentation templates", { exact: true })
+    .click();
   await expect(page.getByText("✓ Validated", { exact: true })).toBeVisible();
   for (const step of [
     "intro",
@@ -418,7 +421,10 @@ test("generate, export, import and run an authored template after the model is o
   });
   try {
     await page.goto(`${app.origin}/`);
-    await page.getByRole("button", { name: "Template studio" }).click();
+    await page.getByRole("button", { name: "Workflow studio" }).click();
+    await page
+      .getByText("Advanced: customize presentation templates", { exact: true })
+      .click();
     await page.getByLabel("Auth family").selectOption("api-key");
     await page
       .getByRole("button", { name: "Generate template", exact: true })

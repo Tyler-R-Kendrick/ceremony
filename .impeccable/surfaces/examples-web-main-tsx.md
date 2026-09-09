@@ -21,6 +21,20 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 ## Approved extension — 2026-09-08
 
+## Workflow studio extension — 2026-09-09
+
+THESIS: Put executable authentication ahead of presentation authoring. The studio is a working connection desk, not a source-code playground.
+
+OWN-WORLD: Preserve the existing daylight workbench, cobalt controls and flat white surfaces; no new visual world.
+
+STORY: Choose live GitHub or an explicitly labelled simulation, complete the next required approval, and export the trusted workflow definition. Existing registration is reused automatically. Presentation customization remains an advanced disclosure.
+
+FIRST VIEWPORT: Service and execution settings occupy a narrow left column. The active ceremony and ordered prerequisites dominate the right. The provider approval action remains visible without opening the advanced editor. Mobile keeps service selection before the next action. Signature interaction: provider callbacks advance the same prerequisite list without asking users to restart setup.
+
+FORM: Extend the incumbent request workbench, seed 8302fddc; code-led working behavior is the recommended default while the optional asynchronous mockup choice remains unanswered.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
 The user confirmed the orchestration brief in docs/ceremony-orchestration-design.md. Preserve this workbench world. Add an ordered, accessible prerequisite summary above the current action; native provider navigation and private collection are human fallbacks. Live and simulation modes must remain visually explicit. No new visual-world seed or comp is needed for this extension.
 
 ## Environment extension — 2026-09-08

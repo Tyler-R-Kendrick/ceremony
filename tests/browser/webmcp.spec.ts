@@ -188,15 +188,25 @@ test("native tools share UI execution, classify failures, serialize submits, red
   expect(
     (await call(page, "submit", { values: { token: "wrong-secret" } })).ok,
   ).toBe(false);
-  expect((await call(page, "read")).step).toBe("input");
+  const inputState = await call(page, "read");
+  expect(inputState.step).toBe("input");
   await page
     .locator("#hook-harness")
     .getByLabel("GitHub personal access token", { exact: true })
     .fill("wrong-secret");
+  // Wait for the provider-bound action, then assert its rendered state. The
+  // network operation has a longer budget than Playwright's UI assertion timer.
+  const rejectedSubmission = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/ceremonies/${inputState.instanceId}/actions`,
+  );
   await page
     .locator("#hook-harness")
     .getByRole("button", { name: "Continue", exact: true })
     .click();
+  expect((await rejectedSubmission).ok()).toBe(true);
   await expect(
     page.locator("#hook-harness").getByRole("button", { name: "Try again" }),
   ).toBeVisible();
