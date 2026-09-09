@@ -44,7 +44,8 @@ export function explainCeremonySelection(
   context: EntryContext = {},
   availability: (method: AuthMethod) => MethodAvailability = () => "available",
 ): MethodSelection {
-  manifest = manifestSchema.parse(manifest);
+  // Validate without replacing method identity: existing host callbacks may key by object.
+  manifestSchema.parse(manifest);
   const { surface, requiredScopes } = entryContextSchema.parse(context);
   const order =
     surface === "browser"

@@ -271,6 +271,13 @@ test("SPEC-06: selection explains exclusions without configuration values or hum
     "availability",
     "reason",
   ]);
+  const byIdentity = new Map(
+    manifest.methods.map((method) => [method, "available" as const]),
+  );
+  assert.equal(
+    resolveCeremonyMethod(manifest, {}, (method) => byIdentity.get(method)!).id,
+    "oauth",
+  );
 });
 
 test("SPEC-07: selection invariants hold across trusted availability, scope and surface permutations", () => {
