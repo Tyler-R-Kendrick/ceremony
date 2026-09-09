@@ -3,7 +3,13 @@
   "testRunner": "tap",
   "tap": {
     "testFiles": ["tests/*.test.ts", "tests/contracts/*.test.ts"],
-    "nodeArgs": ["--import", "tsx", "--test-reporter=tap"],
+    "nodeArgs": [
+      "--import",
+      "tsx",
+      "--test",
+      "--experimental-test-isolation=none",
+      "--test-reporter=tap"
+    ],
     "forceBail": false
   },
   "coverageAnalysis": "perTest",
