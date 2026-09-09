@@ -108,11 +108,10 @@ function browserNavigate(url: string, target: "same-tab" | "new-tab") {
 export function createCeremonyClient(options: CeremonyClientOptions) {
   const manifest = manifestSchema.parse(options.manifest);
   const transport = options.transport ?? createHttpTransport();
-  const context = entryContextSchema.parse(
-    options.context ?? {
-      surface: typeof window === "undefined" ? "headless" : "browser",
-    },
-  );
+  const context = entryContextSchema.parse({
+    surface: typeof window === "undefined" ? "headless" : "browser",
+    ...options.context,
+  });
   let state: CeremonyClientState = {
     snapshot: undefined,
     busy: false,
