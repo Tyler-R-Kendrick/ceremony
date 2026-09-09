@@ -4,12 +4,12 @@
     {
       "state": "passed",
       "file": "tests/workflow/agent.test.ts",
-      "declarationLine": 102
+      "declarationLine": 119
     },
     {
       "state": "passed",
       "file": "tests/workflow/agent.test.ts",
-      "declarationLine": 110
+      "declarationLine": 131
     }
   ],
   "counts": {

@@ -1,9 +1,9 @@
 [
   {
     "schemaVersion": 1,
-    "commit": "5714098d6ec53f2431e85cf8a5f7141e4989291c",
+    "commit": "29e8340fb4b9aeeb47eeddb8416c0a7e34a66930",
     "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
-    "checkedAt": "2026-09-09T20:28:02.664Z",
+    "checkedAt": "2026-09-09T21:12:53.199Z",
     "command": "npm run test:coverage",
     "exitCode": 0,
     "attempt": 1,
@@ -12,7 +12,7 @@
     "browsers": {},
     "interfaces": ["postgresql"],
     "tests": {
-      "passed": 277,
+      "passed": 283,
       "failed": 0,
       "skipped": 0
     },
@@ -71,9 +71,9 @@
   },
   {
     "schemaVersion": 1,
-    "commit": "5714098d6ec53f2431e85cf8a5f7141e4989291c",
+    "commit": "29e8340fb4b9aeeb47eeddb8416c0a7e34a66930",
     "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
-    "checkedAt": "2026-09-09T20:32:51.003Z",
+    "checkedAt": "2026-09-09T21:17:16.066Z",
     "command": "npm run test:e2e",
     "exitCode": 0,
     "attempt": 1,
@@ -125,9 +125,9 @@
   },
   {
     "schemaVersion": 1,
-    "commit": "5714098d6ec53f2431e85cf8a5f7141e4989291c",
+    "commit": "29e8340fb4b9aeeb47eeddb8416c0a7e34a66930",
     "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
-    "checkedAt": "2026-09-09T20:28:12.882Z",
+    "checkedAt": "2026-09-09T21:13:02.378Z",
     "command": "npm run test:workflow",
     "exitCode": 0,
     "attempt": 1,

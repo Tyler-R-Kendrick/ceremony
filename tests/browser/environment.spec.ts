@@ -29,11 +29,22 @@ test("Environment shares private session values across connectors and blocks uns
     if (privateValues.some((value) => error.message.includes(value)))
       forbiddenDiagnostics++;
   });
+  // File upload does not have Playwright's enabled-state actionability check.
+  // Delay initial metadata so this proves uploads wait for authoritative readiness.
+  await page.route(
+    "**/api/environment",
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await page.goto("/?mode=live&connector=github&section=environment");
   await page.getByRole("button", { name: "Environment", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Environment", exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel("Import .env file")).toBeEnabled();
   await page.getByLabel("Import .env file").setInputFiles({
     name: ".env",
     mimeType: "text/plain",

@@ -1,6 +1,6 @@
 # Exact-commit local evidence
 
-Tested implementation commit: `5714098d6ec53f2431e85cf8a5f7141e4989291c`.
+Tested implementation commit: `29e8340fb4b9aeeb47eeddb8416c0a7e34a66930`.
 
 The checkout was clean before the full deterministic run and before the production release check. Generated reports were added afterward. These files describe that tested implementation commit, not a claim that later documentation commits or deployments were executed.
 
@@ -9,9 +9,9 @@ The checkout was clean before the full deterministic run and before the producti
 | Gate                                          | Actual result                                                                           |
 | --------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `npm run verify`                              | PASS; all eight required stages exited zero                                             |
-| Node/contract/security coverage suite         | 277 passed, zero failed/skipped                                                         |
+| Node/contract/security coverage suite         | 283 passed, zero failed/skipped                                                         |
 | Actual local Workflow runtime                 | 2 passed, including SIGKILL/replacement-process persisted-wait recovery                 |
-| Critical-guard mutation suite                 | 41 killed, zero failed/skipped mutation outcomes                                        |
+| Critical-guard mutation suite                 | 62 killed, zero failed/skipped mutation outcomes                                        |
 | Browser suite                                 | 68 passed, zero failed/skipped; Chromium 153.0.8010.12, Firefox 155.0, WebKit 26.6      |
 | Strict local acceptance audit                 | **FAIL**: 46 passed, AC-05/AC-06 missing, five external cases not requested             |
 | Default unconfigured production release check | **FAIL**: zero passed, 47 failed, four externally blocked, two explicitly not requested |
@@ -38,7 +38,7 @@ On the clean tested checkout, the default `npm run verify:release` exited **1**,
 After preserving that report, the following audit exited **1**, correctly retaining the two undefined local acceptance cases:
 
 ```sh
-CEREMONY_RELEASE_PROFILE=docs/implementation-evidence/ceremony-teaching/local-profile.json CEREMONY_VERIFICATION_RESULTS=artifacts/verification/acceptance-executions.json node --import tsx scripts/verify-release.ts audit
+CEREMONY_RELEASE_PROFILE=docs/implementation-evidence/ceremony-teaching/local-profile.json CEREMONY_VERIFICATION_RESULTS=artifacts/verification/acceptance-executions-29e8340.json node --import tsx scripts/verify-release.ts audit
 ```
 
 The audit input is preserved here as `acceptance-executions.json`; its artifact paths resolve to this directory. The full deterministic run used the installed local browser/runtime paths documented in [domain-acceptance.md](../domain-acceptance.md), not an external deployment.
