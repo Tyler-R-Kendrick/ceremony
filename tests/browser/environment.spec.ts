@@ -4,7 +4,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 test("Environment shares private session values across connectors and blocks unsafe writes", async ({
   page,
   context,
-}) => {
+}, testInfo) => {
   await page.goto("/?mode=live&connector=github&section=environment");
   await page.getByRole("button", { name: "Environment", exact: true }).click();
   await expect(
@@ -65,7 +65,9 @@ test("Environment shares private session values across connectors and blocks uns
       ),
     ).toBe(true);
     await page.screenshot({
-      path: `.impeccable/review/environment-${viewport.width === 1440 ? "desktop" : "mobile"}.png`,
+      path: testInfo.outputPath(
+        `environment-${viewport.width === 1440 ? "desktop" : "mobile"}.png`,
+      ),
       fullPage: true,
     });
   }

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Ceremony, CeremonyView } from "../src/react/index.js";
 import {
   actionsFor,
+  defaultTemplate,
   fieldsFor,
   steps,
   createCeremonyClient,
@@ -83,4 +84,88 @@ test("rendering: external hosts can replace the complete view without triggering
     }),
   );
   assert.equal(html, "<output>github:idle</output>");
+});
+
+test("rendering: host styling, errors and every prerequisite status remain accessible", () => {
+  const manifest = githubAppManifest;
+  const client = createCeremonyClient({ manifest, selection: "manual" });
+  try {
+    const statuses = [
+      "blocked",
+      "ready",
+      "awaiting-human",
+      "verifying",
+      "succeeded",
+      "failed",
+    ] as const;
+    const snapshot: CeremonySnapshot = {
+      id: "run",
+      revision: 0,
+      connectorId: manifest.id,
+      connectorName: manifest.name,
+      description: "",
+      method: manifest.methods[0]!,
+      step: "redirect",
+      fields: [],
+      actions: ["cancel"],
+      expiresAt: 2000000000000,
+      authorizationUrl: "https://provider.example/authorize",
+      prerequisites: statuses.map((status) => ({
+        id: status,
+        label: status,
+        status,
+      })),
+    };
+    for (const current of [undefined, snapshot])
+      for (const busy of [false, true]) {
+        const html = renderToStaticMarkup(
+          createElement(CeremonyView, {
+            model: {
+              snapshot: current,
+              busy,
+              refreshing: false,
+              error: "Try again",
+              client,
+              execute: client.execute,
+              manifest,
+            },
+            "aria-label": "Host connection",
+            id: "host",
+            style: { color: "red" },
+          }),
+        );
+        assert.match(html, /role="alert"/);
+        assert.match(html, /aria-label="Host connection"/);
+        assert.match(html, /style="color:red"/);
+        if (current)
+          for (const label of [
+            "Blocked",
+            "Ready",
+            "Needs your approval",
+            "Verifying",
+            "Verified",
+            "Needs attention",
+          ])
+            assert.ok(html.includes(label));
+      }
+    const template = defaultTemplate("github-app");
+    template.screens.redirect = "bad";
+    const invalid = renderToStaticMarkup(
+      createElement(CeremonyView, {
+        model: {
+          snapshot,
+          busy: false,
+          refreshing: false,
+          error: "",
+          client,
+          execute: client.execute,
+          manifest,
+        },
+        templates: [template],
+      }),
+    );
+    assert.match(invalid, /invalid or incompatible/);
+  } finally {
+    client.dispose();
+  }
 });
