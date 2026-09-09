@@ -136,6 +136,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
   let github = new GitHubAppCeremonies(db, {
     origin: "http://127.0.0.1:4173",
     fetch: fetcher,
+    requestHuman: async () => {},
   });
   const controller = () =>
     new CeremonyController(
@@ -153,8 +154,23 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     );
   let runtime = controller();
   let snapshot = runtime.start("alice", "github", "github-app");
+  assert.ok(snapshot.actions.includes("request-human"));
   assert.equal(snapshot.prerequisites?.[1]?.status, "blocked");
   assert.equal(runtime.start("alice", "github", "github-app").id, snapshot.id);
+  db.put(`github:${snapshot.id}`, {
+    owner: "alice",
+    phase: "prepare",
+    nonce: "legacy",
+    expiresAt: Date.now() + 600_000,
+  });
+  db.put(`instance:${snapshot.id}`, {
+    owner: "alice",
+    snapshot: { ...snapshot, step: "intro", actions: ["begin", "cancel"] },
+  });
+  runtime = controller();
+  snapshot = runtime.start("alice", "github", "github-app");
+  assert.equal(snapshot.step, "redirect");
+  assert.ok(snapshot.actions.includes("request-human"));
   await assert.rejects(
     runtime.act("alice", snapshot.id, {
       action: "finish",

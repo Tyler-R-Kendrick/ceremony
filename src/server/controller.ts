@@ -171,6 +171,8 @@ export class CeremonyController {
       ...initial,
     };
     snapshot.actions = actionsFor(snapshot.step);
+    if (adapter.requestHuman && ["redirect", "input"].includes(snapshot.step))
+      snapshot.actions.push("request-human");
     snapshot.fields = initial?.fields ?? fieldsFor(snapshot.step, method);
     this.store.set(id, {
       owner,
@@ -202,6 +204,11 @@ export class CeremonyController {
           busy: false,
           lastRead: 0,
         });
+        // Resume an older preparation snapshot at its adapter's current prerequisite.
+        const restored = this.store.get(id)!;
+        const initial = restored.adapter.initial?.();
+        if (saved.snapshot.step === "intro" && initial?.step === "redirect")
+          this.update(restored, initial);
       }
     }
     const instance = this.store.get(id);
