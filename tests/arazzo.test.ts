@@ -60,6 +60,19 @@ test("Arazzo binds operation paths when the provider specification has no operat
     },
   ]);
   await assert.rejects(runArazzo(doc, "sign-in", new Map()), /Unbound/);
+  assert.throws(
+    () =>
+      arazzoSchema.parse({
+        ...doc,
+        workflows: [
+          {
+            ...doc.workflows[0],
+            steps: [{ stepId: "invalid", description: "Invalid" }],
+          },
+        ],
+      }),
+    /Specify exactly one operationId or operationPath/,
+  );
   for (const operation of [
     {},
     { operationId: "token", operationPath },

@@ -62,12 +62,15 @@ test("atomic: service resume prefers completed work and excludes other services,
   store("past-expiry", "complete", { expiresAt: now - 1 });
   const resume = () => registrations[0]!.resume!("alice", "api-key");
   assert.equal(resume(), undefined);
-  store("pending");
-  assert.equal(resume(), "pending");
-  store("complete", "complete");
-  assert.equal(resume(), "complete");
-  store("pending-after");
-  assert.equal(resume(), "complete");
+  store("a-pending");
+  assert.equal(resume(), "a-pending");
+  // SQLite can return primary-key order; put completed work after pending work.
+  store("z-complete", "complete");
+  assert.equal(resume(), "z-complete");
+  store("zz-pending-after");
+  assert.equal(resume(), "z-complete");
+  t.mock.method(db, "keys", () => ["instance:disappeared"]);
+  assert.equal(resume(), undefined);
 });
 
 test("atomic: saved service results expire at the exact boundary and configured project fields are omitted", (t) => {
@@ -178,10 +181,15 @@ test("chaos: malformed and expired Supabase success cannot persist credentials o
 });
 
 test("behavior: verified Stripe credentials stay private and outcomes do not invent scopes", async (t) => {
-  const { adapter, db } = fixture(t, async () =>
-    Response.json({ object: "balance", available: [], pending: [] }),
-  );
-  const result = await adapter(0).submit({ token: "rk_test_synthetic" }, false);
+  let requests = 0;
+  const { adapter, db } = fixture(t, async () => {
+    requests++;
+    return Response.json({ object: "balance", available: [], pending: [] });
+  });
+  const completion = adapter(0).submit({ token: "rk_test_synthetic" }, false);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(requests, 1);
+  const result = await completion;
   assert.equal(result.step, "complete");
   assert.deepEqual(result.outcome!.scopes, []);
   const connection = db.get(

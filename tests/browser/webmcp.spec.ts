@@ -59,8 +59,11 @@ for (const surface of ["document", "navigator"] as const)
     });
     cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
     await cdp.send("WebMCP.enable");
-    await page.goto("/?mode=test");
+    await page.goto("/");
     await expect.poll(() => registered.size).toBe(11);
+    await expect(
+      page.getByRole("list", { name: "Connection prerequisites" }),
+    ).toContainText("Needs your approval");
     // Opening DevTools after the page loaded must discover the existing tools too.
     await cdp.send("WebMCP.disable");
     registered.clear();
