@@ -10,7 +10,7 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 - `npm run test:coverage`: include every library `.ts`/`.tsx` file, including unexecuted files; emit text and `artifacts/coverage/coverage-summary.json`. This report does not count browser execution.
 - `npm run test:pact`: real GitHub consumer against an isolated HTTP contract server; see [boundary limitations](contract-testing.md).
 - `npm run test:e2e`: browser functional, accessibility, WebMCP and packed React/Vue consumer scenarios.
-- `npm run test:fuzz`: seeded fast-check properties with shrinking. Replay using `FUZZ_SEED`; increase exploration using `FUZZ_RUNS`. Default: 1,000 examples per stateless/reference property and 200 environment-edit sequences.
+- `npm run test:fuzz`: seeded fast-check properties with shrinking. Replay using `FUZZ_SEED`; increase exploration using `FUZZ_RUNS`. Default: 1,000 examples per stateless/reference property, 500 quoted-template examples and 200 environment-edit sequences.
 - `npm run test:chaos`: deterministic transport disconnect/timeout/429/503, malformed payload, uncertain A2H delivery, event retry and remote browser outage scenarios. No production services are disrupted.
 - `npm run test:mutation`: Stryker source mutations in method selection, schemas, execution hooks, session environment and encrypted credential storage. The TAP plugin runs affected test files; the mutation score gate is 80%. This is a declared critical-module scope, **not** whole-repository mutation coverage. Inspect `artifacts/mutation/index.html` and `mutation.json`; surviving mutants remain visible.
 

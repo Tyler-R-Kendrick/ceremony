@@ -3,6 +3,8 @@ import { test, type TestContext } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { generateKeyPair } from "jose";
 import { PactV3, Matchers, SpecificationVersion } from "@pact-foundation/pact";
 import {
   createProtocolAdapter,
@@ -11,6 +13,8 @@ import {
 } from "../../src/server/adapters.js";
 import { createNeonAdapter } from "../../src/server/neon.js";
 import { manifests } from "../../examples/manifests.js";
+import { Agent2Human } from "../../src/server/a2h.js";
+import { CeremonyDatabase } from "../../src/server/storage.js";
 
 function contract(t: TestContext, provider: string) {
   const dir = mkdtempSync(join(tmpdir(), "ceremony-protocol-pact-"));
@@ -40,6 +44,133 @@ function config(origin: string): ProtocolConfig {
     allowLoopbackHttp: true,
   };
 }
+
+test("Pact: OAuth callback exchanges its code with the original PKCE verifier", async (t) => {
+  const pact = contract(t, "oauth-code-provider");
+  const method = manifests[0]!.methods.find(
+    (method) => method.kind === "oauth-code",
+  )!;
+  const body = new URLSearchParams({
+    redirect_uri: "https://ceremony.example/callback",
+    code: "synthetic-code",
+    code_verifier: "a".repeat(43),
+    grant_type: "authorization_code",
+    client_id: "ceremony",
+  }).toString();
+  await pact
+    .given(
+      "the authorization code is approved for this client and redirect URI",
+    )
+    .uponReceiving("exchange the code using PKCE")
+    .withRequestMatchingRules(
+      {
+        method: "POST",
+        path: "/token",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      },
+      {
+        body: {
+          path: "$.code_verifier",
+          rules: [Matchers.regex("^[A-Za-z0-9_-]{43,128}$", "a".repeat(43))],
+        },
+      },
+    )
+    .willRespondWith({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: {
+        access_token: "synthetic-token",
+        token_type: "Bearer",
+        scope: "read:user",
+      },
+    })
+    .executeTest(async ({ url }) => {
+      const originalFetch = globalThis.fetch;
+      let challenge = "";
+      t.mock.method(
+        globalThis,
+        "fetch",
+        (input: string | URL | Request, init?: RequestInit) => {
+          const source = new URL(String(input));
+          assert.equal(source.origin, "https://provider.example");
+          const verifier = new URLSearchParams(String(init?.body)).get(
+            "code_verifier",
+          )!;
+          assert.equal(
+            createHash("sha256").update(verifier).digest("base64url"),
+            challenge,
+          );
+          return originalFetch(
+            `${url}${source.pathname}${source.search}`,
+            init,
+          );
+        },
+      );
+      const adapter = createProtocolAdapter(
+        method,
+        config("https://provider.example"),
+        new MemoryCredentialStore(),
+      );
+      const authorization = new URL((await adapter.begin()).authorizationUrl!);
+      challenge = authorization.searchParams.get("code_challenge")!;
+      assert.equal(
+        authorization.searchParams.get("code_challenge_method"),
+        "S256",
+      );
+      const callback = new URL("https://ceremony.example/callback");
+      callback.search = new URLSearchParams({
+        state: authorization.searchParams.get("state")!,
+        code: "synthetic-code",
+      }).toString();
+      assert.equal((await adapter.callback(callback)).step, "complete");
+      await assert.rejects(adapter.callback(callback), /no longer valid/);
+    });
+});
+
+test("Pact: A2H gateway authentication failure cannot create a pending human request", async (t) => {
+  const pact = contract(t, "a2h-gateway");
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  t.after(() => db.close());
+  const pair = await generateKeyPair("EdDSA");
+  await pact
+    .given("the gateway rejects the agent API key")
+    .uponReceiving("discover the gateway with agent authentication")
+    .withRequest({
+      method: "GET",
+      path: "/.well-known/a2h",
+      headers: {
+        "x-a2h-api-key": "synthetic-key",
+        "content-type": "application/json",
+      },
+    })
+    .willRespondWith({ status: 401 })
+    .executeTest(async ({ url }) => {
+      const agent = new Agent2Human(db, {
+        gatewayOrigin: "https://gateway.example",
+        agentId: "agent",
+        keyId: "key",
+        privateKey: pair.privateKey,
+        gatewayKey: pair.publicKey,
+        apiKey: "synthetic-key",
+        recipient: () => ({
+          principalId: "alice",
+          type: "email",
+          address: "mailto:alice@example.test",
+        }),
+        fetch: (input, init) => {
+          const source = new URL(String(input));
+          assert.equal(source.origin, "https://gateway.example");
+          return fetch(`${url}${source.pathname}`, init);
+        },
+      });
+      await assert.rejects(
+        agent.authorize("alice", "run", "https://ceremony.example/human/run"),
+        /delivery failed/,
+      );
+      assert.equal(db.keys("a2h:").length, 0);
+    });
+});
 for (const kind of ["basic", "api-key", "form"] as const) {
   for (const status of [200, 401])
     test(`Pact: configured ${kind} backend returns ${status}`, async (t) => {

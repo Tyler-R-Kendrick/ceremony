@@ -10,13 +10,29 @@ import {
 } from "../src/server/storage.js";
 import { CeremonyEnvironment } from "../src/server/environment.js";
 import { resolveCeremonyMethod } from "../src/core/resolution.js";
-import { validateInput } from "../src/core/schema.js";
+import { defaultTemplate, validateInput } from "../src/core/schema.js";
+import { validateTemplate } from "../src/react/templates.js";
 import { manifests } from "../examples/manifests.js";
 
 const options = {
   seed: Number(process.env.FUZZ_SEED ?? 20260909),
   numRuns: Number(process.env.FUZZ_RUNS ?? 1000),
 };
+assert.ok(Number.isSafeInteger(options.seed), "FUZZ_SEED must be an integer");
+assert.ok(
+  Number.isSafeInteger(options.numRuns) && options.numRuns > 0,
+  "FUZZ_RUNS must be a positive integer",
+);
+test("fuzz: quoted template text cannot introduce executable OpenUI components", () => {
+  fc.assert(
+    fc.property(fc.string({ maxLength: 2000 }), (text) => {
+      const template = defaultTemplate("basic");
+      template.screens.intro = `root = Stack([Title(${JSON.stringify(text)}), Details(), Access(), Actions(), Notice()])`;
+      assert.deepEqual(validateTemplate(template).errors, []);
+    }),
+    { ...options, numRuns: Math.min(options.numRuns, 500) },
+  );
+});
 test("fuzz: canonical JSON round trips and ignores object insertion order", () => {
   fc.assert(
     fc.property(fc.jsonValue(), (input) => {
