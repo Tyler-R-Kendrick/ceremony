@@ -48,7 +48,9 @@ test("every named service renders only its documented methods and clearly identi
             .getByRole("button", { name: "Select method", exact: true })
             .click();
         else
-          await page.getByLabel("Authentication method").selectOption(method.id);
+          await page
+            .getByLabel("Authentication method")
+            .selectOption(method.id);
       }
       await expect(page.locator(".runtime-context dd").nth(1)).toHaveText(
         method.label,
