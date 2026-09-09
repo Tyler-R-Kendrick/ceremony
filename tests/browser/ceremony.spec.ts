@@ -43,15 +43,14 @@ test("every named service renders only its documented methods and clearly identi
     ).toHaveAttribute("href", connectorDetails[manifest.id]!.documentationUrl);
     for (const method of manifest.methods) {
       if (manifest.methods.length > 1) {
-        await page.getByLabel("Authentication method").selectOption(method.id);
-        if (
-          await page
-            .getByRole("button", { name: "Select method", exact: true })
-            .count()
-        )
+        if (method === manifest.methods[0])
           await page
             .getByRole("button", { name: "Select method", exact: true })
             .click();
+        else
+          await page
+            .getByLabel("Authentication method")
+            .selectOption(method.id);
       }
       await expect(page.locator(".runtime-context dd").nth(1)).toHaveText(
         method.label,
@@ -103,8 +102,14 @@ test("Connect and studio remain accessible at desktop and mobile sizes", async (
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })
       .click();
+    await expect(
+      page.getByRole("heading", { name: "Connections", exact: true }),
+    ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.getByRole("button", { name: "Template studio" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Template studio", exact: true }),
+    ).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     for (const control of await page
       .locator("nav button, .toolbar button, .toolbar .button")

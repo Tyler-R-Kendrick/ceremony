@@ -51,7 +51,33 @@ test("live GitHub exposes blocking prerequisites and a real manifest scenario, w
   expect(await popup.locator("form").getAttribute("action")).toMatch(
     /^https:\/\/github.com\/settings\/apps\/new\?state=/,
   );
-  // Do not create an external account/app in a regression test.
+  // Exercise native form serialization, but intercept before creating an external app.
+  await popup.route("https://github.com/settings/apps/new?**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>Manifest received</title>",
+    }),
+  );
+  const posted = popup.waitForRequest(
+    (request) =>
+      request.url().startsWith("https://github.com/settings/apps/new?") &&
+      request.method() === "POST",
+  );
+  await popup.getByRole("button", { name: "Review app on GitHub" }).click();
+  const request = await posted;
+  expect(request.headers()["content-type"]).toContain(
+    "application/x-www-form-urlencoded",
+  );
+  const sent = JSON.parse(
+    new URLSearchParams(request.postData()!).get("manifest")!,
+  );
+  expect(sent.url).toBe("http://127.0.0.1:4173");
+  expect(sent.hook_attributes).toEqual({
+    url: "http://127.0.0.1:4173",
+    active: false,
+  });
+  expect(sent.default_events).toEqual([]);
   await popup.close();
   expect(
     (await (await page.request.get(`/api/live/ceremonies/${id}`)).json())
