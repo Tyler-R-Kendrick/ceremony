@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { importPKCS8, SignJWT } from "jose";
-import { createPrivateKey } from "node:crypto";
+import { createAppAuth } from "@octokit/auth-app";
+import { request as githubRequest } from "@octokit/request";
 import { z } from "zod";
 import { manifestSchema, type CeremonySnapshot } from "../core/index.js";
 import {
@@ -10,6 +10,58 @@ import {
   type AuthAdapter,
 } from "./controller.js";
 import { CeremonyDatabase } from "./storage.js";
+import {
+  runArazzo,
+  type ArazzoDocument,
+  type WorkflowStepEvent,
+} from "./arazzo.js";
+
+export const githubWorkflows: ArazzoDocument = {
+  arazzo: "1.0.1",
+  info: { title: "GitHub App connection", version: "1.0.0" },
+  sourceDescriptions: [
+    {
+      name: "github",
+      url: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+      type: "openapi",
+    },
+  ],
+  workflows: [
+    {
+      workflowId: "register-app",
+      summary: "Prepare your GitHub App",
+      steps: [
+        {
+          stepId: "exchange",
+          description:
+            "Exchange the approved registration for private app credentials",
+          operationId: "apps/create-from-manifest",
+        },
+        {
+          stepId: "verify",
+          description: "Verify the app identity and repository permissions",
+          operationId: "apps/get-authenticated",
+        },
+      ],
+    },
+    {
+      workflowId: "verify-access",
+      summary: "Verify repository access",
+      steps: [
+        {
+          stepId: "sign",
+          description: "Issue a read-only installation access token",
+          operationId: "apps/create-installation-access-token",
+        },
+        {
+          stepId: "verify",
+          description: "Verify access against GitHub's repository API",
+          operationId: "apps/list-repos-accessible-to-installation",
+        },
+      ],
+    },
+  ],
+};
 
 export const githubAppManifest = manifestSchema.parse({
   id: "github",
@@ -60,6 +112,7 @@ export interface GitHubOptions {
   resolveApp?(owner: string): GitHubAppConfiguration | undefined;
   expectedAccount?: string;
   fetch?: typeof fetch;
+  onWorkflowStep?(event: WorkflowStepEvent): void | Promise<void>;
   cancelHuman?(instanceId: string): void;
   requestHuman?(request: {
     owner: string;
@@ -178,37 +231,39 @@ export class GitHubAppCeremonies {
     authorization?: string,
     body?: unknown,
   ): Promise<unknown> {
-    const response = await this.fetcher(`https://api.github.com${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        accept: "application/vnd.github+json",
-        "x-github-api-version": "2022-11-28",
-        "user-agent": "ceremony-auth",
-        ...(authorization ? { authorization: `Bearer ${authorization}` } : {}),
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    if (!response.ok)
+    try {
+      const response = await githubRequest(`https://api.github.com${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        request: {
+          fetch: this.fetcher,
+          redirect: "error",
+          signal: AbortSignal.timeout(15_000),
+        },
+        headers: {
+          accept: "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "user-agent": "ceremony-auth",
+          ...(authorization
+            ? { authorization: `Bearer ${authorization}` }
+            : {}),
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { data: body }),
+      });
+      return response.data;
+    } catch {
       throw new CeremonyError(
         "GitHub could not verify this step. Check account permissions and retry.",
         502,
       );
-    return response.json();
+    }
   }
   private async jwt(app: GitHubAppConfiguration): Promise<string> {
-    // GitHub returns PKCS#1 PEM; normalize using Node instead of copying key material to a UI.
-    const pem = createPrivateKey(app.pem)
-      .export({ type: "pkcs8", format: "pem" })
-      .toString();
-    return new SignJWT({})
-      .setProtectedHeader({ alg: "RS256" })
-      .setIssuer(String(app.id))
-      .setIssuedAt(Math.floor(Date.now() / 1000) - 60)
-      .setExpirationTime("5m")
-      .sign(await importPKCS8(pem, "RS256"));
+    return (
+      await createAppAuth({ appId: String(app.id), privateKey: app.pem })({
+        type: "app",
+      })
+    ).token;
   }
   private async verifyApp(app: GitHubAppConfiguration): Promise<void> {
     const checked = z
@@ -468,16 +523,33 @@ export class GitHubAppCeremonies {
           next.phase = "converting";
           this.save(id, next); // Never blindly repeat this one-shot external operation after a crash.
           try {
-            const app = appSchema.parse(
-              await this.api(
-                `/app-manifests/${code}/conversions`,
-                undefined,
-                {},
-              ),
+            await runArazzo(
+              githubWorkflows,
+              "register-app",
+              new Map([
+                [
+                  "apps/create-from-manifest",
+                  async () => {
+                    next.app = appSchema.parse(
+                      await this.api(
+                        `/app-manifests/${code}/conversions`,
+                        undefined,
+                        {},
+                      ),
+                    );
+                    this.save(id, next); // Retain one-shot credentials before subsequent verification.
+                  },
+                ],
+                [
+                  "apps/get-authenticated",
+                  async () => {
+                    await this.verifyApp(appSchema.parse(next.app));
+                  },
+                ],
+              ]),
+              this.options.onWorkflowStep,
             );
-            next.app = app;
-            this.save(id, next); // Recover private credentials even if the following verification fails.
-            await this.verifyApp(app);
+            const app = appSchema.parse(next.app);
             if (
               this.options.expectedAccount &&
               app.owner.login.toLowerCase() !==
@@ -533,28 +605,47 @@ export class GitHubAppCeremonies {
         next.installationId = installationId;
         this.save(id, next);
         try {
-          const token = z
-            .object({
-              token: z.string().min(1),
-              expires_at: z.iso.datetime(),
-              permissions: z.object({ contents: z.literal("read") }),
-            })
-            .parse(
-              await this.api(
-                `/app/installations/${installationId}/access_tokens`,
-                jwt,
-                { permissions: { contents: "read" } },
-              ),
-            );
-          z.object({
-            total_count: z.number().int().nonnegative(),
-            repositories: z.array(z.object({ id: z.number() })),
-          }).parse(
-            await this.api(
-              "/installation/repositories?per_page=1",
-              token.token,
-            ),
+          const tokenSchema = z.object({
+            token: z.string().min(1),
+            expires_at: z.iso.datetime(),
+            permissions: z.object({ contents: z.literal("read") }),
+          });
+          let issued: unknown;
+          await runArazzo(
+            githubWorkflows,
+            "verify-access",
+            new Map([
+              [
+                "apps/create-installation-access-token",
+                async () => {
+                  issued = tokenSchema.parse(
+                    await this.api(
+                      `/app/installations/${installationId}/access_tokens`,
+                      jwt,
+                      { permissions: { contents: "read" } },
+                    ),
+                  );
+                },
+              ],
+              [
+                "apps/list-repos-accessible-to-installation",
+                async () => {
+                  const token = tokenSchema.parse(issued);
+                  z.object({
+                    total_count: z.number().int().nonnegative(),
+                    repositories: z.array(z.object({ id: z.number() })),
+                  }).parse(
+                    await this.api(
+                      "/installation/repositories?per_page=1",
+                      token.token,
+                    ),
+                  );
+                },
+              ],
+            ]),
+            this.options.onWorkflowStep,
           );
+          const token = tokenSchema.parse(issued);
           next.connectionRef = randomBytes(24).toString("base64url");
           next.expiresAt = Date.parse(token.expires_at);
           if (next.expiresAt <= Date.now())
