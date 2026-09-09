@@ -160,9 +160,52 @@ test("SPEC-04: configuration groups preserve alternatives and do not carry value
     inspectConfiguration(supabase, new Set(["SUPABASE_URL"])).ready,
     false,
   );
+  assert.equal(
+    inspectConfiguration(supabase, new Set(["SUPABASE_PUBLISHABLE_KEY"])).ready,
+    false,
+  );
 });
 
 test("SPEC-05: duplicate, foreign and oversized requirements fail closed", () => {
+  for (const [change, message] of [
+    [{ surfaces: ["browser", "browser"] }, "Duplicate surface"],
+    [
+      {
+        completion: {
+          ...github.completion,
+          ownership: ["authenticated", "authenticated"],
+        },
+      },
+      "Duplicate ownership",
+    ],
+    [
+      {
+        configuration: [github.configuration[0], github.configuration[0]],
+        configurationGroups: [],
+      },
+      "Duplicate contract requirement",
+    ],
+    [
+      {
+        configurationGroups: [
+          {
+            id: "bad",
+            rule: "all-or-none",
+            names: ["UNKNOWN", "GITHUB_APP_ID"],
+          },
+        ],
+      },
+      "Configuration group requires distinct declared names",
+    ],
+  ] as const) {
+    const parsed = methodContractSchema.safeParse({ ...github, ...change });
+    assert.equal(parsed.success, false);
+    if (!parsed.success)
+      assert.deepEqual(
+        parsed.error.issues.map(({ code, message }) => ({ code, message })),
+        [{ code: "custom", message }],
+      );
+  }
   for (const change of [
     { surfaces: [] },
     { surfaces: ["browser", "browser"] },
