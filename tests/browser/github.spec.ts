@@ -71,6 +71,7 @@ test("live GitHub exposes blocking prerequisites and a real manifest scenario, w
     active: false,
   });
   expect(sent.default_events).toEqual([]);
+  await expect(popup).toHaveTitle("Manifest received");
   await popup.close();
   expect(
     (await (await page.request.get(`/api/live/ceremonies/${id}`)).json())
