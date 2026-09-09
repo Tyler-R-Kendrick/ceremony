@@ -159,7 +159,8 @@ export class GitHubAppCeremonies {
           redirect_url: `${this.origin}/api/live/github/${id}/callback`,
           setup_url: `${this.origin}/api/live/github/${id}/callback`,
           public: false,
-          hook_attributes: { active: false },
+          // GitHub requires a URL even for an explicitly inactive webhook.
+          hook_attributes: { url: this.origin, active: false },
           default_permissions: { contents: "read" },
           default_events: [],
         },
