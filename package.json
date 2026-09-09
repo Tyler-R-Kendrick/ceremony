@@ -36,10 +36,11 @@
     "check": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && vite build",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:pact": "node --import tsx --test tests/contracts/*.test.ts",
     "test:e2e": "playwright test",
     "format": "prettier --write src examples tests package.json tsconfig*.json *.config.ts README.md docs",
     "format:check": "prettier --check src examples tests package.json tsconfig*.json *.config.ts README.md docs",
-    "verify": "npm run format:check && npm run check && npm test && npm run build && npm run test:e2e"
+    "verify": "npm run format:check && npm run check && npm test && npm run test:pact && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^2.0.0",
@@ -52,6 +53,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@openuidev/react-lang": "0.2.15",
+    "@pact-foundation/pact": "17.1.4",
     "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
