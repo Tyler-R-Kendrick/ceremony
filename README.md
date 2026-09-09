@@ -140,7 +140,7 @@ npm exec playwright install chromium
 npm run verify
 ```
 
-`verify` runs type checks, Node tests with local HTTP providers, the library/web build, and Chromium browser tests. On restricted machines, place browsers under a writable directory with `PLAYWRIGHT_BROWSERS_PATH` and use the same setting for installation and tests. The browser suite verifies generation using a local OpenAI-compatible test endpoint, then shuts it down and completes a ceremony using the exported/imported template.
+`verify` runs type checks, Node tests with local HTTP providers, Pact consumer contracts, the library/web build, and Chromium browser tests. Run `npm run test:pact` for the focused GitHub App boundary suite; see [contract testing and agent guidance](docs/contract-testing.md) for coverage and provider-verification limits. On restricted machines, place browsers under a writable directory with `PLAYWRIGHT_BROWSERS_PATH` and use the same setting for installation and tests. The browser suite verifies generation using a local OpenAI-compatible test endpoint, then shuts it down and completes a ceremony using the exported/imported template.
 
 Protocol tests cover successful flows plus credential rejection, state/PKCE mismatch, callback replay, pending approval, slowdown, denial, cancellation, expiration, isolation, signed-assertion validation, and anonymous credential replacement. Browser tests cover the actual user and authoring pages, reload, multiple connectors, keyboard submission, mobile layout, secret exclusion, accessibility, and independent React/Vue hosts installed from the packed library. The consumer tests install fixture dependencies using npm and require registry access or a populated cache.
 
