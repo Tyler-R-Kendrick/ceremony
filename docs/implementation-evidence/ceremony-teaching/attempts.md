@@ -1,5 +1,7 @@
 # Clean-checkout verification attempts
 
+The broad legacy mutation job in Actions run `34397964266` was cancelled at its 30-minute job limit. Its log recorded 1,037 mutants across seven production modules and a passing initial run of 48 TAP files in 54 seconds; it contained no completed mutation result. This is failed verification, not a passing timeout. CI now partitions the same seven complete targets into independent existing Ubuntu runner jobs with two workers each, unchanged test selection and unchanged mutation thresholds. Each target retains its own result artifact. The installed Stryker CLI documents `--mutate` as the target override; no source range, mutant type, or test is excluded. The matrix changes scheduling only and does not establish a passing result until all seven jobs finish successfully.
+
 These failures are retained even after corrective commits. They are not passing retries or external certification.
 
 | Commit                                     | Environment                       | Observed result                                                                                                                                                             | Disposition                                                                                                                                                                                     |
