@@ -2,6 +2,10 @@
   "name": "@ceremony/auth",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tyler-R-Kendrick/ceremony.git"
+  },
   "engines": {
     "node": ">=22.12"
   },
@@ -54,6 +58,9 @@
   ],
   "scripts": {
     "dev": "node --import tsx examples/server.ts",
+    "setup:browsers": "playwright install --with-deps chromium firefox webkit",
+    "clean": "node scripts/clean.mjs",
+    "clean:apply": "node scripts/clean.mjs --apply",
     "check": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && vite build && node scripts/check-bundle.mjs",
     "test": "node scripts/test.mjs all",
@@ -76,8 +83,8 @@
     "test:mutation": "stryker run",
     "test:security:mutation": "stryker run stryker.security.config.mjs",
     "test:e2e": "playwright test",
-    "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts README.md docs",
-    "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts README.md docs",
+    "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
+    "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
     "verify": "node --import tsx scripts/verify-deterministic.mjs"
   },
   "dependencies": {

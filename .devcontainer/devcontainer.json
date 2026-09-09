@@ -1,0 +1,24 @@
+{
+  "name": "Ceremony · Node 24",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:4.0.3-24-bookworm",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/ceremony,type=bind",
+  "workspaceFolder": "/workspaces/ceremony",
+  "remoteUser": "node",
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "npm ci && npm run setup:browsers",
+  "waitFor": "postCreateCommand",
+  "forwardPorts": [4173, 4174],
+  "portsAttributes": {
+    "4173": {
+      "label": "Ceremony — open http://127.0.0.1:4173",
+      "requireLocalPort": true,
+      "onAutoForward": "notify"
+    },
+    "4174": {
+      "label": "Local protocol fixture (not production)",
+      "requireLocalPort": true,
+      "onAutoForward": "silent"
+    }
+  },
+  "otherPortsAttributes": { "onAutoForward": "ignore" }
+}

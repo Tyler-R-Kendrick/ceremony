@@ -21,7 +21,10 @@ Provide reusable, composable ceremonies selected from a connector's declared aut
 - All ceremony operations must be invocable through WebMCP and share success/failure hooks with UI execution.
 - Preserve existing auth families, session isolation, revision checks, native credential entry, and secret exclusion from templates and execution notifications.
 - Prioritize host-controlled styling, accessibility and framework-neutral execution. A cross-framework compiler is permitted, not required.
-- Package publication, production persistence and external-provider certification remain undecided or outside the current reference implementation.
+- Browser-native semantic teaching and reviewed whole/partial recipes reuse the same registered operations; sharing procedure never shares credentials or consent.
+- Production hosting uses authenticated host identity, encrypted async PostgreSQL storage, fenced effects and durable continuation. Local SQLite and anonymous loopback ownership are development/compatibility paths.
+- AI SDK provides bounded optional assistance; Workflow carries durable turns and waits. Reviewed recipe execution remains model-independent.
+- Package publication and external-provider/deployed-device certification remain separate release gates. Implementation and local verification are not certification.
 
 ## Operating Context
 
@@ -29,7 +32,7 @@ Embedded app components and connector hubs. The repository includes a local Conn
 
 ## Evidence on Hand
 
-README.md, docs/auth-catalog.md, src/, examples/, and tests/ describe and exercise the supported slice. Demo accounts are local test data, not customer evidence.
+[Architecture](docs/architecture.md), [service support](docs/service-examples.md), and [commit-bound evidence](docs/implementation-evidence/ceremony-teaching/README.md) describe the supported slice. Demo accounts are local test data, not customer evidence. Older audit statements retain their dates and do not override current support boundaries.
 
 ## Product Principles
 
