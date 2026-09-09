@@ -10,6 +10,8 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 - `npm run test:coverage`: include every library `.ts`/`.tsx` file, including unexecuted files; emit text and `artifacts/coverage/coverage-summary.json`. This report does not count browser execution.
 - `npm run test:pact`: real GitHub consumer against an isolated HTTP contract server; see [boundary limitations](contract-testing.md).
 - `npm run test:e2e`: browser functional, accessibility, WebMCP and packed React/Vue consumer scenarios.
+- `npm run test:fuzz`: seeded fast-check properties with shrinking. Replay using `FUZZ_SEED`; increase exploration using `FUZZ_RUNS`. Default: 1,000 examples per stateless/reference property and 200 environment-edit sequences.
+- `npm run test:chaos`: deterministic transport disconnect/timeout/429/503, malformed payload, uncertain A2H delivery, event retry and remote browser outage scenarios. No production services are disrupted.
 
 ## Initial audit
 
@@ -18,3 +20,5 @@ Before this test expansion: 30 Node tests, four Pact tests and 20 browser tests.
 ## Sources
 
 [Verify](https://github.com/VerifyTests/Verify) describes the approval-baseline workflow. [Node's native snapshot testing](https://nodejs.org/api/test.html#snapshot-testing) provides that workflow in this project's runner: commit serialized baselines, compare on normal runs, and update explicitly after review. No additional snapshot framework is required.
+
+[fast-check](https://fast-check.dev/docs/tutorials/quick-start/) generates and shrinks counterexamples; property assertions use an independent invariant or model, not a copy of the production algorithm. JSON round trips compare JSON semantics because JSON normalizes negative zero. The narrow `typed-rest-client` → `qs` override fixes a vulnerable pinned mutation-tool dependency; a clean install must pass `npm audit`.

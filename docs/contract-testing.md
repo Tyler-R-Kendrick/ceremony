@@ -8,7 +8,7 @@ Fixtures use a fresh encrypted in-memory database and synthetic RSA credentials,
 
 ## What a green result means
 
-These are **consumer contract tests**, not proof that GitHub currently satisfies the contract. GitHub's implementation and provider-state setup are outside this repository's control. OAuth, device flow, A2H and remote browser boundaries are not yet covered by this Pact suite.
+These are **consumer contract tests**, not proof that live providers currently satisfy the contract. Provider implementations and state setup are outside this repository's control. Additional contracts exercise configured Basic/API-key/form backends, OAuth device authorization and Neon's anonymous identity exchange. The configured-backend contracts describe our adapter interface, not direct certification of Jira, Stripe or Supabase. OAuth authorization-code exchange, A2H and remote CDP boundaries are not yet covered by this Pact suite.
 
 For a provider we own, run Pact's `Verifier` against the real provider service with isolated state handlers and the generated pact files. Stub its downstream dependencies, not its own routes. Only after both sides verify should CI publish exact commit/branch versions and use a broker's `can-i-deploy` decision. Do not deploy a fake GitHub provider and report it as external verification. Live third-party checks require separately authorized accounts, credentials and side effects.
 
