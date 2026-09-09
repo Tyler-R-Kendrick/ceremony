@@ -235,6 +235,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
                   }),
                 options,
               );
+              signal?.throwIfAborted();
+              if (disposed)
+                throw new Error("This ceremony client has been disposed.");
               if (cancelled) accept(cancelled);
             }
             signal?.throwIfAborted();
@@ -415,7 +418,9 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
             !signal?.aborted
           ) {
             try {
-              accept(await transport.read(prior.id));
+              const recovered = await transport.read(prior.id);
+              signal?.throwIfAborted();
+              if (!disposed) accept(recovered);
             } catch {
               /* Keep the last valid screen. */
             }
