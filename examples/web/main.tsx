@@ -350,8 +350,6 @@ function App() {
     new URLSearchParams(location.search).get("ceremony") ?? undefined,
   );
   const [templates, setTemplates] = useState<CeremonyTemplate[]>([]);
-  const [switching, setSwitching] = useState(false);
-  const [notice, setNotice] = useState("");
   useEffect(() => {
     void fetch("/api/config")
       .then((response) => response.json())
@@ -362,33 +360,15 @@ function App() {
         ),
       );
   }, []);
-  const selectConnector = async (next: string) => {
-    setSwitching(true);
-    setNotice("");
-    try {
-      if (resumeId) {
-        const current = await transport.read(resumeId);
-        if (current.actions.includes("cancel"))
-          await transport.act(current.id, {
-            action: "cancel",
-            revision: current.revision,
-            values: {},
-          });
-      }
-      setConnectorId(next);
-      setResumeId(undefined);
-      history.replaceState(
-        null,
-        "",
-        `/?connector=${encodeURIComponent(next)}${liveMode ? "&mode=live" : ""}`,
-      );
-    } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : "Could not switch connector",
-      );
-    } finally {
-      setSwitching(false);
-    }
+  const selectConnector = (next: string) => {
+    if (next === connectorId) return;
+    setConnectorId(next);
+    setResumeId(undefined);
+    history.replaceState(
+      null,
+      "",
+      `/?connector=${encodeURIComponent(next)}${liveMode ? "&mode=live" : ""}`,
+    );
   };
   const connector =
     (liveMode ? config?.liveManifests : config?.manifests)?.find(
@@ -479,7 +459,6 @@ function App() {
                   (item) => (
                     <button
                       key={item.id}
-                      disabled={switching}
                       aria-pressed={connector.id === item.id}
                       className={`connector-tile ${connector.id === item.id ? "selected" : ""}`}
                       onClick={() => void selectConnector(item.id)}
@@ -547,11 +526,6 @@ function App() {
                     {liveMode ? "Live GitHub" : "Local simulation"}
                   </span>
                 </div>
-                {notice && (
-                  <p role="alert" className="notice">
-                    {notice}
-                  </p>
-                )}
                 {liveMode && !config.liveAvailable ? (
                   <div className="ceremony">
                     <h3>Configure the connection server</h3>

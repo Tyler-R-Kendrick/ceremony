@@ -30,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
     <section id="light">
       <Ceremony
         manifest={manifest}
+        selection="manual"
         transport={transport}
         autoFocus={false}
         aria-label="Personal Stripe connection"
@@ -39,6 +40,7 @@ createRoot(document.getElementById("root")!).render(
     <section id="dark">
       <Ceremony
         manifest={manifest}
+        selection="manual"
         transport={transport}
         autoFocus={false}
         style={theme}
@@ -51,6 +53,7 @@ createRoot(document.getElementById("root")!).render(
       <h2>Host UI library</h2>
       <Ceremony
         manifest={manifest}
+        selection="manual"
         transport={transport}
         webmcp={{ prefix: "external_custom" }}
       >

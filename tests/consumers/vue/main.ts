@@ -13,6 +13,7 @@ createApp({
   setup() {
     const client = createCeremonyClient({
       manifest,
+      selection: "manual",
       transport: createHttpTransport(),
     });
     const state = shallowRef(client.getState());

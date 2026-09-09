@@ -43,11 +43,7 @@ test("every named service renders only its documented methods and clearly identi
     ).toHaveAttribute("href", connectorDetails[manifest.id]!.documentationUrl);
     for (const method of manifest.methods) {
       if (manifest.methods.length > 1) {
-        if (method === manifest.methods[0])
-          await page
-            .getByRole("button", { name: "Select method", exact: true })
-            .click();
-        else
+        if (method !== manifest.methods[0])
           await page
             .getByLabel("Authentication method")
             .selectOption(method.id);
@@ -79,12 +75,38 @@ async function selectMethod(page: Page, id: string) {
     0,
   );
   if (connector !== "github") return;
-  if (id === "oauth")
-    await page
-      .getByRole("button", { name: "Select method", exact: true })
-      .click();
-  else await page.getByLabel("Authentication method").selectOption(id);
+  if (id !== "oauth")
+    await page.getByLabel("Authentication method").selectOption(id);
 }
+test("connector entry chooses browser OAuth and preserves progress across service switches", async ({
+  page,
+}) => {
+  await page.goto("/?connector=github");
+  await expect(
+    page.getByRole("link", { name: /Continue to provider/ }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".ceremony")
+      .getByRole("button", { name: "Connect", exact: true }),
+  ).toHaveCount(0);
+  const id = new URL(page.url()).searchParams.get("ceremony");
+  const services = page.getByRole("complementary", {
+    name: "Available services",
+  });
+  await services.getByRole("button", { name: /Stripe/ }).click();
+  await expect(
+    page.getByLabel("Stripe secret key", { exact: true }),
+  ).toBeVisible();
+  await services.getByRole("button", { name: /GitHub/ }).click();
+  await expect(
+    page.getByRole("link", { name: /Continue to provider/ }),
+  ).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("ceremony")).toBe(id);
+  expect(
+    (await (await page.request.get(`/api/ceremonies/${id}`)).json()).method.id,
+  ).toBe("oauth");
+});
 async function signIn(page: Page, code?: string, decision = "Approve") {
   await page.getByLabel("Email", { exact: true }).fill("demo@example.com");
   await page.getByLabel("Password", { exact: true }).fill("ceremony-demo");
@@ -206,10 +228,6 @@ test("OAuth leaves for the provider and resumes the same ceremony after callback
   page,
 }) => {
   await selectMethod(page, "oauth");
-  await page
-    .locator(".ceremony")
-    .getByRole("button", { name: "Connect", exact: true })
-    .click();
   await page.getByRole("link", { name: /Continue to provider/ }).click();
   await expect(page).toHaveURL(/4174\/authorize/);
   await signIn(page);

@@ -189,6 +189,11 @@ export const actionSchema = z
   .strict();
 export type CeremonyAction = z.infer<typeof actionSchema>;
 export interface CeremonyTransport {
+  /** Resolve using trusted session state; clients never supply credential availability. */
+  connect?(
+    connectorId: string,
+    context: import("./resolution.js").EntryContext,
+  ): Promise<CeremonySnapshot>;
   privateInputUrl?(id: string): string;
   start(connectorId: string, methodId: string): Promise<CeremonySnapshot>;
   read(id: string): Promise<CeremonySnapshot>;

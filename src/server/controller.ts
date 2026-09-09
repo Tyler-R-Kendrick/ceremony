@@ -14,6 +14,10 @@ import {
   type ConnectorManifest,
   type Step,
   snapshotSchema,
+  entryContextSchema,
+  resolveCeremonyMethod,
+  type EntryContext,
+  type MethodAvailability,
 } from "../core/index.js";
 
 export class CeremonyError extends Error {
@@ -55,6 +59,8 @@ export interface AdapterContext {
   method: AuthMethod;
 }
 export interface ConnectorRegistration {
+  /** Trusted host policy, based on private session configuration. */
+  availability?(owner: string, method: AuthMethod): MethodAvailability;
   manifest: ConnectorManifest;
   createAdapter(context: AdapterContext): AuthAdapter;
   /** Only adapters with protected, persisted protocol state can opt in. */
@@ -106,6 +112,83 @@ export class CeremonyController {
       structuredClone(value.manifest),
     );
   }
+  connect(
+    owner: string,
+    connectorId: string,
+    input: EntryContext = {},
+  ): CeremonySnapshot {
+    const context = entryContextSchema.parse(input);
+    const registration = this.registrations.get(connectorId);
+    if (!registration) throw new CeremonyError("Unknown connector", 404);
+    const usable = registration.manifest.methods.filter(
+      (method) =>
+        registration.availability?.(owner, method) !== "unavailable" &&
+        context.requiredScopes.every((scope) => method.scopes.includes(scope)),
+    );
+    if (!usable.length)
+      throw new CeremonyError(
+        "No available authentication method satisfies this connection request.",
+        409,
+      );
+    // Resume compatible completed/in-progress attempts before choosing a new method.
+    let pending: CeremonySnapshot | undefined;
+    for (const method of usable) {
+      const id = registration.resume?.(owner, method.id);
+      const existing = id
+        ? this.instance(owner, id)
+        : [...this.store.values()]
+            .filter(
+              (instance) =>
+                instance.owner === owner &&
+                instance.snapshot.connectorId === connectorId &&
+                instance.snapshot.method.id === method.id &&
+                instance.snapshot.expiresAt > this.now() &&
+                !["cancelled", "expired", "error"].includes(
+                  instance.snapshot.step,
+                ),
+            )
+            .sort(
+              (a, b) =>
+                Number(b.snapshot.step === "complete") -
+                Number(a.snapshot.step === "complete"),
+            )[0];
+      if (
+        existing &&
+        existing.snapshot.method.id === method.id &&
+        existing.snapshot.expiresAt > this.now() &&
+        !["cancelled", "expired", "error"].includes(existing.snapshot.step)
+      ) {
+        if (
+          existing.snapshot.outcome &&
+          !context.requiredScopes.every((scope) =>
+            existing.snapshot.outcome!.scopes.includes(scope),
+          )
+        )
+          continue;
+        if (existing.snapshot.step === "complete")
+          return structuredClone(existing.snapshot);
+        pending ??= existing.snapshot;
+      }
+    }
+    if (pending) return structuredClone(pending);
+    const method = resolveCeremonyMethod(
+      registration.manifest,
+      context,
+      (method) => registration.availability?.(owner, method) ?? "available",
+    );
+    const selected = this.start(owner, connectorId, method.id);
+    if (
+      selected.outcome &&
+      !context.requiredScopes.every((scope) =>
+        selected.outcome!.scopes.includes(scope),
+      )
+    )
+      throw new CeremonyError(
+        "The existing connection requires reauthorization for the requested access.",
+        409,
+      );
+    return selected;
+  }
   start(
     owner: string,
     connectorId: string,
@@ -136,6 +219,11 @@ export class CeremonyController {
     );
     if (!registration || !method)
       throw new CeremonyError("Unknown connector or method", 404);
+    if (registration.availability?.(owner, method) === "unavailable")
+      throw new CeremonyError(
+        "This authentication method is unavailable for the session",
+        409,
+      );
     const resumeId = registration.resume?.(owner, methodId);
     if (resumeId)
       return structuredClone(this.instance(owner, resumeId).snapshot);

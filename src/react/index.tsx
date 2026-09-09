@@ -54,14 +54,26 @@ export interface CeremonyProps extends CeremonyClientOptions {
   children?: (ceremony: ReturnType<typeof useCeremony>) => ReactNode;
 }
 export function Ceremony(props: CeremonyProps) {
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const callbacks = useRef(props);
   callbacks.current = props;
   const [client] = useState(() =>
     createCeremonyClient({
       manifest: props.manifest,
-      transport: props.transport,
+      ...(props.transport ? { transport: props.transport } : {}),
+      ...(props.context ? { context: props.context } : {}),
+      ...(props.selection ? { selection: props.selection } : {}),
+      ...(props.delegation ? { delegation: props.delegation } : {}),
       ...(props.resumeId ? { resumeId: props.resumeId } : {}),
-      onInstance: (id) => callbacks.current.onInstance?.(id),
+      onInstance: (id) => {
+        if (mounted.current) callbacks.current.onInstance?.(id);
+      },
       onComplete: (outcome) => callbacks.current.onComplete?.(outcome),
       onCancel: () => callbacks.current.onCancel?.(),
       onActionSuccess: (event) => callbacks.current.onActionSuccess?.(event),

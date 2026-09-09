@@ -68,10 +68,10 @@ export class CloudflareHumanBrowser {
         waitUntil: "domcontentloaded",
         timeout: 15_000,
       });
-      if (page.url() !== `${this.options.origin}/api/live/github/${id}/human`)
-        throw new Error("Unexpected scenario destination");
-      // Only the fixed broker page is automated. Provider credentials and consent belong to the human.
-      await page.locator("main form button, main a").click({ timeout: 10_000 });
+      // The trusted broker now submits/redirects automatically. Never click provider consent.
+      await page.waitForURL((url) => url.origin === "https://github.com", {
+        timeout: 10_000,
+      });
       const cdp = await context.newCDPSession(page);
       const send = async (
         method: string,
