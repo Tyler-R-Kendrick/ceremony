@@ -1,0 +1,164 @@
+/* Optional, low-specificity styles. No global reset, font download or app shell. */
+:where([data-ceremony-part="prerequisites"]) {
+  padding-inline-start: 1.25rem;
+  margin-block: 0 1.5rem;
+  font-size: 0.875rem;
+}
+:where([data-ceremony-part="prerequisites"] li) {
+  padding-block: 0.25rem;
+}
+:where([data-ceremony-part="prerequisites"] [aria-current="step"]) {
+  font-weight: 600;
+}
+:where([data-ceremony]) {
+  color: var(--ceremony-fg, #263d35);
+  background: var(--ceremony-bg, #ffffff);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  accent-color: var(--ceremony-accent, #245844);
+  caret-color: var(--ceremony-accent, #245844);
+  scrollbar-color: var(--ceremony-border, #788b80) var(--ceremony-bg, #ffffff);
+}
+:where([data-ceremony], [data-ceremony] *) {
+  box-sizing: border-box;
+}
+:where([data-ceremony])::selection,
+:where([data-ceremony] *)::selection {
+  color: var(--ceremony-on-accent, #ffffff);
+  background: var(--ceremony-accent, #245844);
+}
+:where([data-ceremony] h2) {
+  font: inherit;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: var(--ceremony-gap, 1rem) 0 0.5rem;
+}
+:where([data-ceremony] p) {
+  margin-block: 0.5rem 1rem;
+  max-inline-size: 70ch;
+}
+:where([data-ceremony] button, [data-ceremony] .button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  max-inline-size: 100%;
+  padding: 0.625rem 1rem;
+  gap: 0.5rem;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
+  border: 1px solid var(--ceremony-border, #788b80);
+  border-radius: var(--ceremony-radius, 0.5rem);
+  background: var(--ceremony-bg, #ffffff);
+  color: var(--ceremony-fg, #263d35);
+  cursor: pointer;
+}
+:where([data-ceremony] .primary) {
+  color: var(--ceremony-on-accent, #ffffff);
+  background: var(--ceremony-accent, #245844);
+  border-color: var(--ceremony-accent, #245844);
+}
+:where([data-ceremony] button:hover, [data-ceremony] .button:hover) {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+:where(
+  [data-ceremony] button:disabled,
+  [data-ceremony] [aria-disabled="true"]
+) {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+:where([data-ceremony] :focus-visible, [data-ceremony]:focus-visible) {
+  outline: 2px solid var(--ceremony-focus, #245844);
+  outline-offset: 3px;
+}
+:where([data-ceremony] input, [data-ceremony] select) {
+  font: inherit;
+  font-size: 1rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 0;
+  inline-size: 100%;
+  max-inline-size: 100%;
+  border: 1px solid var(--ceremony-border, #788b80);
+  border-radius: var(--ceremony-radius, 0.5rem);
+  padding: 0.625rem;
+  color: var(--ceremony-fg, #263d35);
+  background: var(--ceremony-bg, #ffffff);
+}
+:where([data-ceremony] input::placeholder) {
+  color: var(--ceremony-muted, #51634f);
+  opacity: 1;
+}
+:where([data-ceremony] label) {
+  display: block;
+  margin-block: 0.5rem;
+}
+:where([data-ceremony] fieldset) {
+  border: 0;
+  padding: 0;
+  margin: var(--ceremony-gap, 1rem) 0;
+  min-inline-size: 0;
+}
+:where([data-ceremony] .actions, [data-ceremony] .method-picker > div) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: var(--ceremony-gap, 1rem);
+}
+:where([data-ceremony] .method-picker select) {
+  flex: 1 1 12rem;
+}
+:where([data-ceremony] .details strong, [data-ceremony] .details span) {
+  display: block;
+}
+:where(
+  [data-ceremony] .details span,
+  [data-ceremony] .supporting,
+  [data-ceremony] .muted
+) {
+  color: var(--ceremony-muted, #51634f);
+}
+:where([data-ceremony] .notice) {
+  padding: 0.75rem;
+  border: 1px solid var(--ceremony-border, #788b80);
+  border-radius: var(--ceremony-radius, 0.5rem);
+}
+:where([data-ceremony] output) {
+  display: block;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  margin-block: 0.75rem;
+}
+:where([data-ceremony] .sr-only) {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :where([data-ceremony] button, [data-ceremony] .button) {
+    transition: background-color 120ms ease-out;
+  }
+}
+@media (forced-colors: active) {
+  :where([data-ceremony] :focus-visible) {
+    outline-color: Highlight;
+  }
+}

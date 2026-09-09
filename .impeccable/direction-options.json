@@ -1,0 +1,105 @@
+{
+  "title": "A new Ceremony workspace",
+  "question": "Choose the replacement design. Authentication behavior and reusable components stay intact.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Connection workbench",
+      "kicker": "THE ROLL",
+      "lineage": "Request workbenches and instrument control panels",
+      "thesis": "The active authentication step is the workspace, not a card below a marketing headline.",
+      "palette": ["#f4f6f8", "#17212d", "#1749c7", "#ffffff"],
+      "materials": ["crisp inset controls", "flat porcelain surfaces", "precise blue selection"],
+      "viewport": "A compact connector rail, large central auth workspace and quiet permissions column, with the primary action visible immediately.",
+      "risk": "Too much status detail would distract users; only the current step and requested permissions deserve prominence.",
+      "raised": [
+        {"from": "Fold sequence", "raise": "Show only the current actionable step; never imply every protocol shares the same number of steps."},
+        {"from": "Rain garden", "raise": "Selection must change the whole active context, not merely recolor a tile."},
+        {"from": "Lexicon", "raise": "Keep method explanations aligned in a readable supporting column."},
+        {"from": "Leather studio", "raise": "Controls need unmistakable pressed and focused states without decorative textures."},
+        {"from": "Night instruments", "raise": "Make each status label own exactly one verified fact."},
+        {"from": "HyperCard", "raise": "Keep authoring and running a template one deliberate navigation step apart."}
+      ],
+      "comp": ".impeccable/mocks/decision/workbench.png"
+    },
+    {
+      "id": "model-pick",
+      "label": "Permission review",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "Permission review sheets and account settings",
+      "thesis": "One service, one clearly explained authorization decision, one primary action.",
+      "palette": ["#ffffff", "#202625", "#126c55", "#edf3ef"],
+      "materials": ["wide white review sheet", "dark green controls", "strong typographic groups"],
+      "viewport": "A horizontal service selector above one broad review sheet; method choices left, current fields and permissions right.",
+      "risk": "Familiar and effective, but close to conventional account-settings design.",
+      "comp": ".impeccable/mocks/decision/review.png"
+    },
+    {
+      "id": "fold", "label": "Fold sequence", "verdict": "declined",
+      "thesis": "Authentication unfolds as successive reversible panels.",
+      "palette": ["#df352a", "#fff7ed", "#181818"], "materials": ["vermilion sheet", "crease-white separators"],
+      "viewport": "One current action centered in a sequence of folded panels.",
+      "risk": "A physical fold metaphor suggests reversibility that external authorization cannot guarantee.",
+      "case": "Less recognizable to integration developers and less precise about protocol state than the workbench.", "kept": "Current-step focus.",
+      "board": "https://impeccable.style/worlds/cards/paper-folds-pleats-deployable-orizuru-crane-sequence.webp"
+    },
+    {
+      "id": "rain", "label": "Rain garden", "verdict": "declined",
+      "thesis": "Connector methods converge into a common completion destination.",
+      "palette": ["#3d4945", "#9bc4ef", "#de685e"], "materials": ["directional fields", "dark garden ground"],
+      "viewport": "Methods surround a central active flow.",
+      "risk": "Spatial routing competes with reading and keyboard completion.",
+      "case": "The audience does not need a physics metaphor and it obscures the next required action.", "kept": "Context-wide selection feedback.",
+      "board": "https://impeccable.style/worlds/cards/dream-surreal-impossible-worlds-gravity-rain-garden.webp"
+    },
+    {
+      "id": "lexicon", "label": "Auth lexicon", "verdict": "declined",
+      "thesis": "Methods are entries with explanatory margin notes.",
+      "palette": ["#f1e9d6", "#191815", "#264cab"], "materials": ["book columns", "bordered color plates"],
+      "viewport": "A typographic methods index and a broad active entry.",
+      "risk": "Reads as protocol documentation rather than a task interface.",
+      "case": "Book apparatus is less familiar than a workbench and weakens action hierarchy.", "kept": "Aligned explanatory measure.",
+      "board": "https://impeccable.style/worlds/cards/rw-lexicon-shoulder-and-plate.webp"
+    },
+    {
+      "id": "leather", "label": "Connection folio", "verdict": "declined",
+      "thesis": "Each connector is a physical account folio.",
+      "palette": ["#795134", "#ece6da", "#332519"], "materials": ["leather", "linen", "paper"],
+      "viewport": "A shelf of services opens an account page.",
+      "risk": "Material simulation dominates the protocol interaction.",
+      "case": "Neither developer identification nor action clarity improves over the workbench.", "kept": "Unambiguous control states.",
+      "board": "https://impeccable.style/worlds/cards/digital-design-canon-skeuomorph-leather-studio.webp"
+    },
+    {
+      "id": "instruments", "label": "Night instruments", "verdict": "declined",
+      "thesis": "Independent instruments report auth state and permissions.",
+      "palette": ["#111719", "#e4eee9", "#92bf9b"], "materials": ["matte panel", "white markings"],
+      "viewport": "A fixed status constellation surrounds the active action.",
+      "risk": "Gauges imply numerical measurements the ceremony does not have.",
+      "case": "Instrument monitoring is less relevant and less clear than completing the current step.", "kept": "One fact per status label.",
+      "board": "https://impeccable.style/worlds/cards/signals-instruments-night-flight-six-pack.webp"
+    },
+    {
+      "id": "hypercard", "label": "Ceremony stack", "verdict": "declined",
+      "thesis": "Browse and author share a black-and-white stack of ceremony screens.",
+      "palette": ["#ffffff", "#000000", "#aaaaaa"], "materials": ["one-bit cards", "inverting buttons"],
+      "viewport": "One editable auth screen with a visible return path.",
+      "risk": "Retro chrome distracts from contemporary native controls.",
+      "case": "The authoring connection is useful, but retro conventions weaken identification and auth clarity.", "kept": "Short path between authoring and execution.",
+      "board": "https://impeccable.style/worlds/cards/medium-native-hypercard-stack-shoebox.webp"
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "comp", "toggle": true},
+  "canon": true,
+  "canonCard": {
+    "label": "Standard integration dashboard",
+    "thesis": "A familiar service directory and connection dialog.",
+    "palette": ["#ffffff", "#111827", "#2563eb"],
+    "materials": ["neutral cards", "standard app navigation"],
+    "viewport": "Service cards fill the workspace; selecting one opens its auth form.",
+    "risk": "Conventional and intentionally indistinct.",
+    "comp": ".impeccable/mocks/decision/standard.png"
+  },
+  "steer": true
+}

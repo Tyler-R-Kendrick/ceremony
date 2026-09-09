@@ -1,0 +1,85 @@
+{
+  "name": "@ceremony/auth",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "type": "module",
+  "exports": {
+    "./mcp-app": {
+      "types": "./dist/mcp-app/index.d.ts",
+      "import": "./dist/mcp-app/index.js"
+    },
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./styles.css": "./src/react/styles.css",
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/react/styles.css",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "dev": "node --import tsx examples/server.ts",
+    "check": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && vite build",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "format": "prettier --write src examples tests package.json tsconfig*.json *.config.ts README.md docs",
+    "format:check": "prettier --check src examples tests package.json tsconfig*.json *.config.ts README.md docs",
+    "verify": "npm run format:check && npm run check && npm test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "jose": "^6.1.0",
+    "oauth4webapi": "^3.8.0",
+    "playwright-core": "^1.63.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@openuidev/react-lang": "0.2.15",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "prettier": "^3.9.6",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  },
+  "peerDependencies": {
+    "@openuidev/react-lang": "0.2.15",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@openuidev/react-lang": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "sideEffects": [
+    "**/*.css"
+  ]
+}
