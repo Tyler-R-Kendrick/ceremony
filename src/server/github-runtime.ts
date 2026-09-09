@@ -21,6 +21,7 @@ import type { RunRecord } from "./commands.js";
 import type { ModelConfiguration } from "./agent/model.js";
 import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
 import { boundedJson, assertRequestBoundary } from "./authorization.js";
+import { appendSemanticTransition } from "./demonstrations.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -213,9 +214,35 @@ export function createGitHubRuntime(
       });
     },
     human: async (actor, runId, request) => {
-      const record = await store.transaction((tx) =>
+      let record = await store.transaction((tx) =>
         tx.get<RunRecord>({ tenant: actor.tenantId, kind: "run", id: runId }),
       );
+      let callbackUrl = new URL(request.url);
+      if (
+        record?.value.subjectId === actor.subjectId &&
+        record.value.status === "cancelled" &&
+        actor.actorKind === "human" &&
+        callbackUrl.pathname.endsWith("/callback")
+      ) {
+        const original = operationContext(actor, record.value);
+        const surviving = await (
+          await childrenFor(original)
+        )
+          .activeSetupSubscriber(original, callbackUrl)
+          .catch(() => {
+            throw new AuthorizationError("denied");
+          });
+        record = await store.transaction((tx) =>
+          tx.get<RunRecord>({
+            tenant: actor.tenantId,
+            kind: "run",
+            id: surviving,
+          }),
+        );
+        runId = surviving;
+        callbackUrl = new URL(callbackUrl);
+        callbackUrl.pathname = `/api/v1/teaching/github/${encodeURIComponent(surviving)}/callback`;
+      }
       if (
         !record ||
         record.value.subjectId !== actor.subjectId ||
@@ -331,8 +358,74 @@ export function createGitHubRuntime(
             { ...context, commandId, effectId: commandId },
             { appId: Number(material.appId), pem: material.pem },
           );
-          await broker.complete(actor, binding, reference, commandId);
+          if (!(await authorize(actor, record.value, "github.prepare-app")))
+            throw new AuthorizationError("denied");
           await store.transaction(async (tx) => {
+            const runKey = {
+              tenant: actor.tenantId,
+              kind: "run" as const,
+              id: runId,
+            };
+            const current = await tx.get<RunRecord>(runKey);
+            const nodeKey = {
+              tenant: actor.tenantId,
+              kind: "node" as const,
+              id: `${runId}:${node.id}`,
+            };
+            const pending = await tx.get<{ state: string }>(nodeKey);
+            if (
+              !current ||
+              current.value.status !== "active" ||
+              current.revision !== binding.revision ||
+              pending?.value.state !== "uncertain"
+            )
+              throw new AuthorizationError("denied");
+            const fence = await tx.claim(
+              runKey,
+              `recovery-${randomUUID()}`,
+              30000,
+            );
+            await tx.put(
+              nodeKey,
+              { state: "verifying", verified: false, outputs: {} },
+              pending.revision,
+            );
+            const revision = await tx.put(
+              runKey,
+              current.value,
+              current.revision,
+            );
+            await appendSemanticTransition(
+              tx,
+              actor,
+              runId,
+              {
+                nodeId: node.id,
+                operationId: node.operationId,
+                operationVersion: node.operationVersion,
+                actorKind: "human",
+                kind: "transition",
+                beforeState: "uncertain",
+                afterState: "verifying",
+                publicBindings: {},
+                verification: "pending",
+              },
+              {},
+            );
+            await tx.put(
+              {
+                tenant: actor.tenantId,
+                kind: "outbox",
+                id: `recovery:${runId}:${revision}`,
+              },
+              {
+                task: "recovery-verified",
+                runId,
+                subjectId: actor.subjectId,
+                status: "pending",
+              },
+              null,
+            );
             const ticket = await tx.get<Ticket>(key);
             if (ticket)
               await tx.put(
@@ -340,7 +433,10 @@ export function createGitHubRuntime(
                 { ...ticket.value, complete: true },
                 ticket.revision,
               );
+            await tx.assertFence(fence);
+            await tx.cancel(runKey);
           });
+          await broker.complete(actor, binding, reference, commandId);
           await advance(actor, runId);
           return Response.json({ returnUrl: returnUrl(runId) }, { headers });
         }
@@ -376,7 +472,7 @@ export function createGitHubRuntime(
       }
       if (new URL(request.url).pathname.endsWith("/callback")) {
         try {
-          await children.callback(context, new URL(request.url));
+          await children.callback(context, callbackUrl);
         } catch {
           await advance(actor, runId);
           return new Response(
@@ -412,15 +508,15 @@ export function createGitHubRuntime(
             "referrer-policy": "no-referrer",
           },
         });
+      const nonce = randomUUID();
       return new Response(
-        `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Register your GitHub App</h1><p>GitHub will ask you to confirm the app and its permissions.</p><form method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main></html>`,
+        `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Continue at GitHub</h1><p>GitHub will ask you to confirm the app and its permissions. If you are not redirected, continue below.</p><form id="handoff" method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main><script nonce="${nonce}">document.getElementById('handoff').submit();</script></html>`,
         {
           headers: {
             "content-type": "text/html; charset=utf-8",
             "cache-control": "no-store",
             "referrer-policy": "no-referrer",
-            "content-security-policy":
-              "default-src 'none'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'",
+            "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'`,
           },
         },
       );

@@ -48,9 +48,7 @@ export class AsyncCeremonyEnvironment {
         .digest("hex")}`,
     };
   }
-  async read(
-    actor: ActorContext,
-  ): Promise<{
+  async read(actor: ActorContext): Promise<{
     revision: number;
     githubRevision: number;
     values: Record<string, string>;

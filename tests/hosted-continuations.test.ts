@@ -255,6 +255,7 @@ test("AC-35: mounted workload dispatcher resumes trusted host task after lost ac
 test("OPS workload configuration is explicit and cannot be forged with user headers", () => {
   assert.equal(hostedContinuation({}), undefined);
   for (const env of [
+    { CEREMONY_CONTINUATION_TOKEN: "x".repeat(32) },
     {
       CEREMONY_CONTINUATION_URL: "http://remote.example",
       CEREMONY_CONTINUATION_TOKEN: "x".repeat(32),
@@ -299,4 +300,27 @@ test("OPS workload configuration is explicit and cannot be forged with user head
     validContinuationWorker(new Request("https://app.example"), undefined),
     false,
   );
+});
+
+test("AC-35 host acknowledgment must verify the exact stable delivery, not merely successful transport", async () => {
+  const env = {
+    CEREMONY_CONTINUATION_URL: "https://task.example/continue",
+    CEREMONY_CONTINUATION_TOKEN: "fixture-".repeat(8),
+  };
+  for (const response of [
+    new Response(null, { status: 503 }),
+    Response.json({ deliveryId: "other", completed: true }),
+    Response.json({ deliveryId: "delivery", completed: false }),
+    Response.json({
+      deliveryId: "delivery",
+      completed: true,
+      extra: "untrusted",
+    }),
+  ]) {
+    const continuation = hostedContinuation(env, async () => response)!;
+    await assert.rejects(
+      continuation.handler({ runId: "run", deliveryId: "delivery" }),
+      /^Error: Host continuation unavailable$/,
+    );
+  }
 });

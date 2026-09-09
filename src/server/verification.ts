@@ -5,7 +5,9 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const commit = z.string().regex(/^[a-f0-9]{40}$/);
 const caseId = z
   .string()
-  .regex(/^(AC-\d{2}|LIVE-\d{2}|SMOKE-GITHUB-READONLY)$/);
+  .regex(
+    /^(AC-(?:0[1-9]|[1-3][0-9]|4[0-8])|LIVE-0[1-5]|SMOKE-GITHUB-READONLY)$/,
+  );
 const environment = z.enum([
   "unit",
   "local-integration",
@@ -35,8 +37,19 @@ export const verificationExecutionSchema = z
     runtime: z.string().min(1).max(100),
     browsers: z.record(
       z.string().regex(/^[A-Za-z0-9_-]{1,40}$/),
-      z.string().max(100),
+      z.string().min(1).max(100),
     ),
+    interfaces: z
+      .array(z.enum(["postgresql", "workflow-local", "native-webmcp"]))
+      .max(3)
+      .default([]),
+    tests: z
+      .object({
+        passed: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+        skipped: z.number().int().nonnegative(),
+      })
+      .strict(),
     cases: z
       .array(caseId)
       .max(60)
@@ -103,6 +116,7 @@ export const verificationResultSchema = z
                 "capability-disabled",
                 "external-not-requested",
                 "invalid-configuration",
+                "missing-required-boundary",
               ])
               .optional(),
           })
@@ -133,6 +147,64 @@ export const acceptanceIds = Array.from(
   (_, index) => `AC-${String(index + 1).padStart(2, "0")}`,
 );
 export const liveIds = ["LIVE-01", "LIVE-02", "LIVE-03", "LIVE-04", "LIVE-05"];
+// A passing unit command cannot certify an actual browser, shared database or
+// Workflow interface. These are minimum evidence boundaries, not test coverage claims.
+const browserCases = new Set([
+  "AC-01",
+  "AC-02",
+  "AC-03",
+  "AC-04",
+  "AC-14",
+  "AC-24",
+  "AC-39",
+  "AC-40",
+  "AC-41",
+  "AC-42",
+  "AC-43",
+  "AC-44",
+  "AC-45",
+  "AC-48",
+]);
+function coversBoundary(
+  id: string,
+  executions: VerificationExecution[],
+): boolean {
+  if (
+    browserCases.has(id) &&
+    !executions.some(
+      (item) =>
+        item.environment === "local-e2e" &&
+        Object.keys(item.browsers).length > 0,
+    )
+  )
+    return false;
+  if (
+    id === "AC-39" &&
+    !["chromium", "firefox", "webkit"].every((browser) =>
+      executions.some(
+        (item) => item.environment === "local-e2e" && !!item.browsers[browser],
+      ),
+    )
+  )
+    return false;
+  const required =
+    id === "AC-27" || id === "AC-28"
+      ? "postgresql"
+      : id === "AC-34"
+        ? "workflow-local"
+        : id === "AC-40"
+          ? "native-webmcp"
+          : undefined;
+  return (
+    !required ||
+    executions.some(
+      (item) =>
+        item.interfaces.includes(required) &&
+        (item.environment === "local-integration" ||
+          item.environment === "local-e2e"),
+    )
+  );
+}
 /** Results are derived from executed outcomes. Earlier failed attempts remain failures, not hidden retries. */
 export function deriveVerification(input: {
   commit: string;
@@ -233,6 +305,19 @@ export function deriveVerification(input: {
         return { ...base, status: "FAIL", reasonCode: "stale-evidence" };
       if (current.some((result) => result.exitCode !== 0))
         return { ...base, status: "FAIL", reasonCode: "command-failed" };
+      if (
+        current.some(
+          (result) =>
+            result.tests.passed === 0 ||
+            result.tests.failed > 0 ||
+            result.tests.skipped > 0,
+        )
+      )
+        return {
+          ...base,
+          status: "FAIL",
+          reasonCode: "missing-required-boundary",
+        };
       if (current.some((result) => !result.evidencePaths.length))
         return {
           ...base,
@@ -247,6 +332,12 @@ export function deriveVerification(input: {
           ...base,
           status: "FAIL",
           reasonCode: "missing-external-evidence",
+        };
+      if (!coversBoundary(id, current))
+        return {
+          ...base,
+          status: "FAIL",
+          reasonCode: "missing-required-boundary",
         };
       return {
         ...base,

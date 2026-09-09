@@ -8,6 +8,7 @@ import { createGitHubRuntime } from "../github-runtime.js";
 import type { TeachingRuntime } from "../teaching-runtime.js";
 import { hostedContinuation } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
+import { configuredKeyring } from "../persistence/maintenance.js";
 
 let instance: Promise<TeachingRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
@@ -61,13 +62,26 @@ export async function createHostedRuntime(
       ))
   )
     throw new Error("Exact production HTTPS origin is required");
+  let database: URL;
+  try {
+    database = new URL(c.database);
+  } catch {
+    throw new Error("Invalid hosted database configuration");
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(database.protocol) ||
+    (!testProfile &&
+      (database.searchParams.getAll("sslmode").length !== 1 ||
+        database.searchParams.get("sslmode") !== "verify-full"))
+  )
+    throw new Error("Production PostgreSQL requires verified TLS");
   const store = new PostgresCeremonyStore(
     { connectionString: c.database },
-    { current: c.keyId, keys: { [c.keyId]: Buffer.from(c.key, "hex") } },
+    configuredKeyring(env),
   );
-  await store.migrate();
   const environment = new AsyncCeremonyEnvironment(store);
   try {
+    await store.migrate();
     const identity = await createOidcIdentity(
       {
         origin: c.origin,

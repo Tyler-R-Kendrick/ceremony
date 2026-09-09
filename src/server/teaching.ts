@@ -1,4 +1,5 @@
 export * from "./persistence/index.js";
+export * from "./persistence/maintenance.js";
 export * from "./persistence/collections.js";
 export * from "./async-environment.js";
 export * from "./identity.js";

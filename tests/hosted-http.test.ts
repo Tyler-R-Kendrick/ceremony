@@ -15,6 +15,7 @@ import {
   type TeachingRuntime,
 } from "../src/server/teaching-runtime.js";
 import { OperationRegistry } from "../src/server/recipes/registry.js";
+import type { ActorContext } from "../src/core/operation-contracts.js";
 
 test("OPS-IDN: mounted hosted config and native JSON login/callback/logout use actual signed OIDC HTTP", async () => {
   const provider = await teachingIdentityFixture();
@@ -201,5 +202,115 @@ test("OPS-IDN: mounted hosted config and native JSON login/callback/logout use a
       new Promise<void>((resolve) => app.close(() => resolve())),
       provider.close(),
     ]);
+  }
+});
+
+test("OPS hosted private routes reject invalid fields, stale writes, agent actors and malformed host identity responses", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  const origin = "https://ceremony.example";
+  let actor: ActorContext = {
+    tenantId: "tenant",
+    subjectId: "subject",
+    sessionId: "session",
+    actorKind: "human",
+    capabilities: ["executor"],
+  };
+  let loginResponse = () => new Response(null, { status: 200 });
+  const identity = {
+    authenticate: async () => actor,
+    login: async () => loginResponse(),
+    callback: async () => new Response(null, { status: 303 }),
+    logout: async () => new Response(null, { status: 303 }),
+  };
+  const runtime = createTeachingRuntime({
+    store,
+    origin,
+    identity,
+    registry: new OperationRegistry(),
+    authorize: async () => true,
+    context: async () => ({
+      provider: "github",
+      profile: "github-app",
+      target: "fixture",
+      environment: "test",
+      origin,
+      configurationVersion: "v1",
+    }),
+  });
+  const call = (
+    path: string,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+  ) =>
+    hostedHttp(
+      new Request(`${origin}${path}`, {
+        method,
+        headers: { origin, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      runtime,
+      async () => {},
+    );
+  try {
+    assert.equal((await call("/api/workflows/github")).status, 200);
+    assert.equal(
+      (await call("/api/environment", undefined, "DELETE")).status,
+      400,
+    );
+    assert.equal(
+      (await call("/api/environment", { revision: 0, owner: "forged" })).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call("/api/environment", {
+          revision: 0,
+          values: { TEST_VALUE: "synthetic" },
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await call("/api/environment", {
+          revision: 0,
+          values: { TEST_VALUE: "changed" },
+        })
+      ).status,
+      409,
+    );
+    actor = { ...actor, actorKind: "agent" };
+    assert.equal((await call("/api/environment")).status, 403);
+    actor = { ...actor, actorKind: "human" };
+    assert.equal((await call("/api/auth/login", {})).status, 503);
+    loginResponse = () => new Response(null, { status: 303 });
+    assert.equal((await call("/api/auth/login", {})).status, 503);
+    const missing = createTeachingRuntime({
+      store,
+      origin,
+      identity: { authenticate: async () => actor },
+      registry: runtime.registry,
+      authorize: async () => true,
+      context: async () => ({
+        provider: "github",
+        profile: "github-app",
+        target: "fixture",
+        environment: "test",
+        origin,
+        configurationVersion: "v1",
+      }),
+    });
+    const denied = await hostedHttp(
+      new Request(`${origin}/api/auth/callback`),
+      missing,
+      async () => {},
+    );
+    assert.equal(denied.status, 503);
+    assert.deepEqual(await denied.json(), { error: "hosted-unavailable" });
+  } finally {
+    await store.close();
   }
 });

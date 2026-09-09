@@ -137,22 +137,26 @@ export async function hostedHttp(
     return await teachingHttp(request, runtime, startAgent);
   } catch (error) {
     const status =
-      error instanceof AuthorizationError
-        ? {
-            unauthenticated: 401,
-            denied: 403,
-            invalid_request: 400,
-            rate_limited: 429,
-          }[error.code]
-        : error instanceof PersistenceConflict
-          ? 409
-          : 503;
+      error instanceof z.ZodError
+        ? 400
+        : error instanceof AuthorizationError
+          ? {
+              unauthenticated: 401,
+              denied: 403,
+              invalid_request: 400,
+              rate_limited: 429,
+            }[error.code]
+          : error instanceof PersistenceConflict
+            ? 409
+            : 503;
     return Response.json(
       {
         error:
-          error instanceof AuthorizationError
-            ? error.code
-            : "hosted-unavailable",
+          error instanceof z.ZodError
+            ? "invalid_request"
+            : error instanceof AuthorizationError
+              ? error.code
+              : "hosted-unavailable",
       },
       {
         status,

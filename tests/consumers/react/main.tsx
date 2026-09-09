@@ -4,9 +4,14 @@ import React, {
   type ButtonHTMLAttributes,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { Ceremony, createHttpTransport } from "@ceremony/auth/react";
+import {
+  Ceremony,
+  TeachingConnection,
+  createHttpTransport,
+} from "@ceremony/auth/react";
 import { manifestSchema } from "@ceremony/auth";
 import "@ceremony/auth/styles.css";
+import "@ceremony/auth/teaching.css";
 
 const config = await fetch("/api/config").then((response) => response.json());
 const manifest = manifestSchema.parse(config.manifests[1]);
@@ -27,6 +32,18 @@ function HostButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
 }
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <section id="teaching-host">
+      <TeachingConnection
+        apiBase="/api/v1/teaching"
+        onRunChange={(run) => {
+          document.getElementById("teaching-host")!.dataset.run = run.id;
+        }}
+        webmcp={false}
+        autoFocus={false}
+        className="host-teaching"
+        style={{ borderRadius: "7px" }}
+      />
+    </section>
     <section id="light">
       <Ceremony
         manifest={manifest}

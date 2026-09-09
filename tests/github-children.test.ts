@@ -11,7 +11,11 @@ import {
   OperationRegistry,
   type OperationContext,
 } from "../src/server/recipes/registry.js";
-import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import {
+  SQLiteCeremonyStore,
+  PostgresCeremonyStore,
+} from "../src/server/persistence/index.js";
+import { postgresFixture } from "./fixtures/postgres.js";
 
 async function fixture(t: TestContext, configured = false) {
   const pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -159,6 +163,8 @@ async function fixture(t: TestContext, configured = false) {
     );
   }
   return {
+    store,
+    options,
     github,
     registry,
     context,
@@ -183,6 +189,197 @@ async function fixture(t: TestContext, configured = false) {
     },
   };
 }
+
+test("AC-32: independent PostgreSQL parents share scoped setup and cancellation preserves the other subscriber", async (t) => {
+  const f = await fixture(t);
+  const pg = await postgresFixture();
+  const keys = { current: "shared", keys: { shared: randomBytes(32) } };
+  const aStore = new PostgresCeremonyStore(pg.config, keys),
+    bStore = new PostgresCeremonyStore(pg.config, keys);
+  try {
+    await aStore.migrate();
+    const a = new AsyncGitHubChildren(aStore, f.options),
+      b = new AsyncGitHubChildren(bStore, f.options);
+    const first = { ...f.context, runId: "run:first" },
+      second = { ...f.context, runId: "run:second" };
+    const foreign = {
+      ...f.context,
+      runId: "run:foreign",
+      actor: { ...f.context.actor, subjectId: "foreign" },
+    };
+    const results = await Promise.all([
+      a.prepare(first),
+      b.prepare(second),
+      b.prepare(foreign),
+    ]);
+    assert.ok(results.every((r) => r.state === "awaiting-human"));
+    const firstHuman = await a.human(first),
+      secondHuman = await b.human(second),
+      foreignHuman = await b.human(foreign);
+    assert.equal(
+      new URL(firstHuman.url).searchParams.get("state"),
+      new URL(secondHuman.url).searchParams.get("state"),
+    );
+    assert.notEqual(
+      new URL(firstHuman.url).searchParams.get("state"),
+      new URL(foreignHuman.url).searchParams.get("state"),
+    );
+    const paused = f.pauseConversion();
+    const callback = b.callback(
+      second,
+      new URL(
+        `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(second.runId)}/callback?state=${new URL(secondHuman.url).searchParams.get("state")}&code=once`,
+      ),
+    );
+    await paused.waiting;
+    await a.cancel(first);
+    paused.release();
+    await callback;
+    assert.equal(f.counters.conversion, 1);
+    await assert.rejects(a.prepare(first), /cancelled/);
+    const prepared = await b.prepare(second);
+    assert.equal(prepared.state, "complete");
+    assert.equal((await b.prepare(foreign)).state, "awaiting-human");
+    assert.equal(
+      (await b.install(second, prepared.outputs.app)).state,
+      "awaiting-human",
+    );
+    assert.equal((await b.human(second)).method, "GET");
+    const nextFirst = {
+      ...first,
+      runId: "run:next-first",
+      configurationVersion: "v2",
+    };
+    const nextSecond = {
+      ...second,
+      runId: "run:next-second",
+      configurationVersion: "v2",
+    };
+    const nextA = new AsyncGitHubChildren(aStore, {
+      ...f.options,
+      configurationVersion: "v2",
+    });
+    const nextB = new AsyncGitHubChildren(bStore, {
+      ...f.options,
+      configurationVersion: "v2",
+    });
+    await nextA.prepare(nextFirst);
+    await nextB.prepare(nextSecond);
+    const originalHuman = await nextA.human(nextFirst);
+    const originalCallback = new URL(
+      `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(nextFirst.runId)}/callback?state=${new URL(originalHuman.url).searchParams.get("state")}&code=next-once`,
+    );
+    await nextA.cancel(nextFirst);
+    assert.equal(
+      await nextA.activeSetupSubscriber(nextFirst, originalCallback),
+      nextSecond.runId,
+    );
+    await assert.rejects(
+      nextA.activeSetupSubscriber(
+        { ...nextFirst, actor: foreign.actor },
+        originalCallback,
+      ),
+      /unavailable/,
+    );
+    const redirected = new URL(originalCallback);
+    redirected.pathname = `/api/v1/teaching/github/${encodeURIComponent(nextSecond.runId)}/callback`;
+    await nextB.callback(nextSecond, redirected);
+    assert.equal((await nextB.prepare(nextSecond)).state, "complete");
+    assert.equal(f.counters.conversion, 2);
+    await assert.rejects(
+      nextA.activeSetupSubscriber(nextFirst, originalCallback),
+      /unavailable/,
+    );
+    await nextB.cancel(nextSecond);
+    await assert.rejects(
+      nextA.activeSetupSubscriber(nextFirst, originalCallback),
+      /unavailable/,
+    );
+  } finally {
+    await aStore.close();
+    await bStore.close();
+    await pg.close();
+  }
+});
+
+test("AC-32: cancelling all parents before handoff allows fresh setup without reviving previous state", async (t) => {
+  const f = await fixture(t);
+  await f.github.prepare(f.context);
+  await f.github.cancel(f.context);
+  const fresh = { ...f.context, runId: "run:fresh" };
+  assert.equal((await f.github.prepare(fresh)).state, "awaiting-human");
+  await assert.rejects(f.github.human(f.context), /unavailable/);
+  await f.github.human(fresh);
+  await f.github.cancel(fresh);
+  await assert.rejects(
+    f.github.prepare({ ...fresh, runId: "run:unsafe-restart" }),
+    /reconciliation/,
+  );
+  assert.equal(f.counters.conversion, 0);
+});
+
+test("AC-26 AC-32: shared setup subscriber limits and revoked callback candidates fail without provider effects", async (t) => {
+  const f = await fixture(t);
+  for (let i = 0; i < 32; i++)
+    await f.github.prepare({ ...f.context, runId: `bounded:${i}` });
+  await assert.rejects(
+    f.github.prepare({ ...f.context, runId: "bounded:overflow" }),
+    /subscriber limit/,
+  );
+  const first = { ...f.context, runId: "bounded:0" };
+  const human = await f.github.human(first);
+  const callback = new URL(
+    `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(first.runId)}/callback?state=${new URL(human.url).searchParams.get("state")}&code=bounded`,
+  );
+  f.behavior.revoked = true;
+  await assert.rejects(
+    f.github.activeSetupSubscriber(first, callback),
+    /unavailable/,
+  );
+  assert.equal(f.counters.conversion, 0);
+});
+
+test("AC-18 AC-36: altered persisted setup scope and expired handoff cannot be reused", async (t) => {
+  const f = await fixture(t, true);
+  const context = f.context;
+  await f.store.transaction((tx) =>
+    tx.put(
+      {
+        tenant: context.actor.tenantId,
+        kind: "handoff",
+        id: `github:${context.runId}`,
+      },
+      { scope: "wrong", phase: "registration", nonce: "nonce", expires: 0 },
+      null,
+    ),
+  );
+  await assert.rejects(f.github.prepare(context), /context changed/);
+  await assert.rejects(f.github.human(context), /handoff unavailable/);
+  await assert.rejects(f.github.cancel(context), /handoff unavailable/);
+  await f.store.transaction((tx) =>
+    tx.delete(
+      {
+        tenant: context.actor.tenantId,
+        kind: "handoff",
+        id: `github:${context.runId}`,
+      },
+      1,
+    ),
+  );
+  const prepared = await f.github.prepare(context);
+  await f.github.install(context, prepared.outputs.app);
+  await f.store.transaction(async (tx) => {
+    const key = {
+      tenant: context.actor.tenantId,
+      kind: "handoff" as const,
+      id: `github:${context.runId}`,
+    };
+    const saved = await tx.get<Record<string, unknown>>(key);
+    await tx.put(key, { ...saved!.value, expires: 0 }, saved!.revision);
+  });
+  await assert.rejects(f.github.human(context), /expired/);
+  assert.equal(f.counters.conversion, 0);
+});
 
 test("PRV-07: three registered GitHub children execute real signed HTTP and reuse fresh-principal artifacts", async (t) => {
   const f = await fixture(t);

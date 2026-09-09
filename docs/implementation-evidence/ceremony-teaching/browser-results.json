@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": null,
+  "sourceState": "uncommitted-integrated-workspace",
+  "checkedAt": "2026-09-09T19:51:04Z",
+  "profile": "deterministic-local-browser",
+  "provenanceWarning": "These results describe the integrated workspace, not an exact committed release snapshot. A final clean-clone verification must replace or supplement this evidence. git rev-parse HEAD was unavailable while this report was prepared.",
+  "runtimeVersions": {
+    "node": "26.5.0",
+    "playwright": "1.63.0",
+    "react": "19.2.8",
+    "chromium": "153.0.8010.12",
+    "firefox": "155.0",
+    "webkit": "26.6"
+  },
+  "browserEnvironment": {
+    "ordinaryProjects": ["chromium", "firefox", "webkit"],
+    "nativeWebMCPProject": "native-webmcp",
+    "nativeWebMCPUsesActualBrowserAPI": true,
+    "database": "isolated local PostgreSQL",
+    "identity": "local signed OIDC fixture and explicit server-owned teaching fixture identities",
+    "provider": "local HTTP GitHub protocol fixture with signed app JWT verification; provider-owned approval pages are synthetic",
+    "webkitLauncher": "official WebKit binary with a test-only wrapper preserving rootless shared-library paths",
+    "capturePolicy": "trace/video/screenshots off; PLAYWRIGHT_NO_COPY_PROMPT=1 prevents automatic failure ARIA capture; assertion/source-only attachments are inspected and allowed"
+  },
+  "attempts": [
+    {
+      "session": "20359",
+      "command": "npm run test:e2e",
+      "exitCode": 1,
+      "counts": { "passed": 38, "failed": 3, "notRun": 1 },
+      "reasonCodes": [
+        "ENVIRONMENT_CONFIGURATION_NOT_USED",
+        "STALE_STUDIO_ASSERTION",
+        "PACKED_CONSUMER_WORKFLOW_DEPENDENCY_INSTALL_FAILURE"
+      ],
+      "resolution": "Environment runtime binding fixed; studio assertion migrated to outcome-first UI; hosted Workflow dependency made optional for consumers. All affected cases passed the subsequent full run."
+    },
+    {
+      "session": "67935",
+      "command": "npx playwright test tests/browser/diagnostics.spec.ts --project=chromium",
+      "exitCode": 1,
+      "counts": { "passed": 0, "failed": 1, "notRun": 0 },
+      "reasonCodes": ["OVERSTRICT_ZERO_ATTACHMENTS_EXPECTATION"],
+      "resolution": "Playwright still emits harmless assertion/source context. The corrected assertion inspects every attachment and rejects private canaries, DOM snapshots, screenshots, traces, video, and HAR. No post-capture deletion is used as the privacy control."
+    },
+    {
+      "session": "60114",
+      "command": "npx playwright test tests/browser/diagnostics.spec.ts --project=chromium",
+      "exitCode": 0,
+      "counts": { "passed": 1, "failed": 0, "notRun": 0 },
+      "expectedNegativeFixtureFailures": 1
+    },
+    {
+      "session": "13000",
+      "command": "npm run test:e2e",
+      "exitCode": 0,
+      "durationReported": "4.0m",
+      "counts": {
+        "passed": 52,
+        "failed": 0,
+        "notRun": 0,
+        "skipped": 0,
+        "retried": 0
+      },
+      "expectedNegativeFixtureFailures": 1,
+      "notes": [
+        "A tsconfig change triggered Vite reload during the passing Firefox composition test; this is not an exact immutable-commit run.",
+        "Packed React/Vue and SSR checks were included."
+      ]
+    },
+    {
+      "session": "82458",
+      "command": "npx playwright test tests/browser/teaching-identity.spec.ts",
+      "exitCode": 0,
+      "durationReported": "19.3s",
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "notRun": 0,
+        "skipped": 0,
+        "retried": 0
+      },
+      "notes": [
+        "Additional assertions after the full run verify same-session multi-tab logout propagation and absence of private cache/local-storage/session-storage remnants in all three engines."
+      ]
+    }
+  ],
+  "additionalPWAVerification": {
+    "command": "npx playwright test tests/browser/teaching-pwa.spec.ts",
+    "session": "17364",
+    "exitCode": 0,
+    "counts": { "passed": 3, "failed": 0, "skipped": 0, "retried": 0 },
+    "durationReported": "21.7s",
+    "assertions": [
+      "actual static worker update during provider wait",
+      "same parent and unchanged effects after update",
+      "different authenticated subject denied prior run read and advance",
+      "original subject resumes and verifies exactly one app and token",
+      "static cache contains only explicit public allowlist"
+    ],
+    "priorAttempts": [
+      {
+        "session": "94057",
+        "exitCode": 1,
+        "failed": 3,
+        "reasonCode": "FIXTURE_REQUIRED_PORT_ARGUMENT_OMITTED"
+      },
+      {
+        "session": "57926",
+        "exitCode": 130,
+        "failed": 1,
+        "interrupted": 1,
+        "notRun": 1,
+        "reasonCode": "FIXTURE_MISSING_NATIVE_MANIFEST_CONFIRMATION"
+      },
+      {
+        "session": "31352",
+        "exitCode": 130,
+        "interrupted": 1,
+        "reasonCode": "DIAGNOSTIC_INTERRUPT"
+      },
+      {
+        "session": "67710",
+        "exitCode": 130,
+        "interrupted": 1,
+        "reasonCode": "DIAGNOSTIC_INTERRUPT"
+      },
+      {
+        "session": "17821",
+        "exitCode": 130,
+        "interrupted": 1,
+        "reasonCode": "DIAGNOSTIC_INTERRUPT"
+      }
+    ]
+  },
+  "additionalNativeAndPopupVerification": [
+    {
+      "session": "43748",
+      "command": "npx playwright test tests/browser/teaching-popup.spec.ts tests/browser/webmcp.spec.ts --grep 'AC-40|AC-41'",
+      "exitCode": 0,
+      "counts": { "passed": 7, "failed": 0, "skipped": 0, "retried": 0 },
+      "durationReported": "27.2s",
+      "assertions": [
+        "real native duplicate-registration failure preserves independent owner",
+        "remount recovers registration",
+        "two actual TeachingConnection components register independent native tools",
+        "unmount abort removes only owned tools",
+        "same-tab ceremony succeeds with popup returning null or throwing in all engines"
+      ]
+    },
+    {
+      "session": "36888",
+      "command": "npx playwright test tests/browser/teaching-popup.spec.ts",
+      "exitCode": 0,
+      "counts": { "passed": 6, "failed": 0, "skipped": 0, "retried": 0 },
+      "durationReported": "24.6s",
+      "assertions": [
+        "strengthened cross-navigation Node-side popup-attempt counter remains zero for the entire provider ceremony"
+      ]
+    }
+  ],
+  "automaticManifestHandoffVerification": {
+    "session": "52707",
+    "command": "npx playwright test tests/browser/teaching-acceptance.spec.ts tests/browser/teaching-continuation.spec.ts tests/browser/teaching-popup.spec.ts tests/browser/teaching-pwa.spec.ts tests/browser/teaching-recovery.spec.ts tests/browser/teaching-handoff.spec.ts",
+    "exitCode": 0,
+    "counts": { "passed": 30, "failed": 0, "skipped": 0, "retried": 0 },
+    "durationReported": "2.3m",
+    "assertions": [
+      "primary handoff reaches provider approval directly without redundant local confirmation",
+      "nonce-CSP autoPOST works in Chromium Firefox and WebKit",
+      "actual JavaScript-disabled browser retains manual native form fallback",
+      "fallback preparation does not consume manifest code or grant access before provider approval",
+      "all affected teaching composition recovery PWA popup and continuation regressions pass"
+    ]
+  },
+  "latestFullSuite": {
+    "passed": 52,
+    "failed": 0,
+    "skipped": 0,
+    "retried": 0,
+    "exitCode": 0
+  },
+  "supportingChecks": {
+    "teachingReactComponentTests": { "passed": 10, "failed": 0 },
+    "typecheckExitCode": 0,
+    "buildExitCode": 0
+  },
+  "externalChecks": {
+    "realGitHubAccount": "NOT_REQUESTED",
+    "deployedVercelWorkflow": "NOT_REQUESTED",
+    "installedPWARealDevice": "NOT_REQUESTED",
+    "manualAssistiveTechnology": "NOT_REQUESTED"
+  },
+  "releaseCertification": "NOT_ESTABLISHED",
+  "acceptanceMapping": "acceptance-browser.md"
+}

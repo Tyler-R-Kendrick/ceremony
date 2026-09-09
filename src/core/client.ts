@@ -361,8 +361,15 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
               throw new Error("Action is not available in the current state.");
             if (
               (source === "webmcp" || source === "agent") &&
-              (parsed.secretRef || Object.keys(parsed.values ?? {}).some((name) =>
-                !prior.fields.some((field) => field.name === name && classifyField(field) === "public")))
+              (parsed.secretRef ||
+                Object.keys(parsed.values ?? {}).some(
+                  (name) =>
+                    !prior.fields.some(
+                      (field) =>
+                        field.name === name &&
+                        classifyField(field) === "public",
+                    ),
+                ))
             )
               throw new Error(
                 "Use private credential collection, not tool arguments.",

@@ -47,7 +47,7 @@ for (const outcome of [
           "https://broker.example/ceremony/private-collection",
         );
         assert.equal(init?.redirect, "error");
-        assert.equal(init?.credentials, "omit");
+        assert.equal(init?.credentials, "include");
         assert.equal(init?.referrerPolicy, "no-referrer");
         assert.deepEqual(JSON.parse(String(init?.body)), {
           token: "synthetic-secret",

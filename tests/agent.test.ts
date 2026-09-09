@@ -54,8 +54,14 @@ test("AGT AC-23 configured model routing is explicit and text ingress fails clos
     );
 });
 test("AGT AC-15 AC-17 AC-26 real AI SDK HTTP tools, unknown-tool budgets, outage, stop and safe context", async () => {
-  let mode: "valid" | "unknown" | "outage" | "malformed" | "flood" | "labels" =
-    "valid";
+  let mode:
+    | "valid"
+    | "unknown"
+    | "outage"
+    | "malformed"
+    | "flood"
+    | "labels"
+    | "broaden" = "valid";
   let calls = 0,
     effects = 0;
   const paths: string[] = [];
@@ -116,6 +122,13 @@ test("AGT AC-15 AC-17 AC-26 real AI SDK HTTP tools, unknown-tool budgets, outage
                     arguments: JSON.stringify({
                       nodeId: "verify",
                       expectedRevision: 1,
+                      ...(mode === "broaden"
+                        ? {
+                            permissions: "admin",
+                            verifier: "accept-without-provider",
+                            source: "ui",
+                          }
+                        : {}),
                     }),
                   },
                 }),
@@ -196,6 +209,52 @@ test("AGT AC-15 AC-17 AC-26 real AI SDK HTTP tools, unknown-tool budgets, outage
     );
     assert.equal((await agent.status(actor, "other-run", "unknown")).tools, 8);
     assert.equal(effects, 1);
+    mode = "outage";
+    mode = "broaden";
+    assert.equal(
+      await agent.turn(actor, "broaden-run", "injected"),
+      "awaiting-human",
+    );
+    assert.equal((await agent.status(actor, "broaden-run")).tools, 8);
+    assert.equal(effects, 1);
+    const rejecting = new AgentCoordinator(
+      store,
+      {
+        ...commands,
+        advance: async () => {
+          throw new Error("private-provider-error");
+        },
+      },
+      model,
+    );
+    mode = "valid";
+    assert.equal(
+      await rejecting.turn(actor, "denied-run", "denied"),
+      "awaiting-human",
+    );
+    assert.equal((await rejecting.status(actor, "denied-run")).tools, 8);
+    for (const state of ["verifying", "uncertain"] as const) {
+      const waiting = new AgentCoordinator(
+        store,
+        {
+          ...commands,
+          advance: async (_actor, runId, nodeId, revision, commandId) => ({
+            runId,
+            nodeId,
+            commandId,
+            revision,
+            state,
+            verified: false,
+          }),
+        },
+        model,
+      );
+      assert.equal(
+        await waiting.turn(actor, `${state}-run`, "wait"),
+        state === "verifying" ? "awaiting-human" : "uncertain",
+      );
+      assert.equal((await waiting.status(actor, `${state}-run`)).calls, 1);
+    }
     mode = "outage";
     assert.equal(
       await agent.turn(actor, "outage-run", "outage"),

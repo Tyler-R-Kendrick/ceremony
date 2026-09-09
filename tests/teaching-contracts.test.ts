@@ -90,6 +90,51 @@ const snapshot: CeremonySnapshot = {
   prerequisites: [{ id: "setup", label: "Setup", status: "succeeded" }],
 };
 
+test("AC-21: human optional protocol fields remain absent when unavailable and agent projection never inherits them", () => {
+  const {
+    authorizationUrl,
+    verificationUri,
+    userCode,
+    message,
+    outcome,
+    prerequisites,
+    ...minimal
+  } = snapshot;
+  const human = humanProjection(minimal);
+  for (const name of [
+    "authorizationUrl",
+    "verificationUri",
+    "userCode",
+    "message",
+    "outcome",
+    "prerequisites",
+  ])
+    assert.equal(Object.hasOwn(human, name), false);
+  assert.equal(agentProjection(minimal).ownership, null);
+  assert.deepEqual(agentProjection(minimal).prerequisites, []);
+  const projected = demonstrationProjection(
+    { ...event, publicBindings: { invalid: "wrong", object: null } },
+    {
+      missing: { classification: "public", schema: z.string() },
+      invalid: { classification: "public", schema: z.number() },
+      object: {
+        classification: "public",
+        schema: z.any().transform(() => ({ forbidden: "nested" })),
+      },
+    },
+  );
+  assert.deepEqual(projected.publicBindings, {});
+  assert.equal(
+    authorizationUrl !== undefined &&
+      verificationUri !== undefined &&
+      userCode !== undefined &&
+      message !== undefined &&
+      outcome !== undefined &&
+      prerequisites !== undefined,
+    true,
+  );
+});
+
 test("TYP-01 AC-22 legacy text is unclassified and credentials cannot downgrade", () => {
   for (const type of ["text", "email"] as const)
     assert.equal(

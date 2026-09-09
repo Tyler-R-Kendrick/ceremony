@@ -50,12 +50,26 @@ function execution(
     environment,
     runtime: "node-test",
     browsers: { chromium: "fixture-version" },
+    interfaces: [],
+    tests: { passed: 1, failed: 0, skipped: 0 },
     cases,
     evidencePaths: ["artifacts/test.json"],
   };
 }
 const all = () => [
-  execution(acceptanceIds),
+  {
+    ...execution(acceptanceIds, "local-e2e"),
+    browsers: {
+      chromium: "fixture-version",
+      firefox: "fixture-version",
+      webkit: "fixture-version",
+    },
+    interfaces: [
+      "postgresql",
+      "workflow-local",
+      "native-webmcp",
+    ] as VerificationExecution["interfaces"],
+  },
   ...liveIds.map((id) =>
     execution(
       [id],
@@ -75,11 +89,63 @@ test("OPS-05: absent local evidence fails; unavailable real credentials never be
   assert.equal(result.releaseVerdict, "FAIL");
   const localOnly = deriveVerification({
     ...base,
-    executions: [execution(acceptanceIds)],
+    executions: [all()[0]!],
   });
   assert.equal(localOnly.releaseVerdict, "BLOCKED_EXTERNAL");
   assert.equal(localOnly.counts.passed, 48);
   assert.equal(localOnly.counts.blocked, 5);
+});
+test("SEC: unit-only claims cannot certify browser, PostgreSQL, Workflow or native interfaces", () => {
+  for (const tests of [
+    { passed: 0, failed: 0, skipped: 0 },
+    { passed: 1, failed: 1, skipped: 0 },
+    { passed: 1, failed: 0, skipped: 1 },
+  ]) {
+    const executions = all();
+    executions[0]!.tests = tests;
+    assert.equal(
+      deriveVerification({ ...base, executions }).releaseVerdict,
+      "FAIL",
+    );
+  }
+  const { tests: _omitted, ...missingCounts } = execution(["AC-01"]);
+  assert.equal(
+    verificationExecutionSchema.safeParse(missingCounts).success,
+    false,
+  );
+  const result = deriveVerification({
+    ...base,
+    executions: [execution(acceptanceIds, "unit")],
+  });
+  for (const id of ["AC-01", "AC-27", "AC-28", "AC-34", "AC-39", "AC-40"]) {
+    assert.equal(
+      result.cases.find((item) => item.id === id)!.reasonCode,
+      "missing-required-boundary",
+    );
+  }
+  const chromiumOnly = all();
+  chromiumOnly[0]!.browsers = { chromium: "fixture-version" };
+  assert.equal(
+    deriveVerification({ ...base, executions: chromiumOnly }).cases.find(
+      (item) => item.id === "AC-39",
+    )!.status,
+    "FAIL",
+  );
+  const splitEngines = all();
+  splitEngines[0]!.browsers = { chromium: "fixture-version" };
+  splitEngines.push({
+    ...execution(["AC-39"], "local-e2e"),
+    browsers: { firefox: "fixture-version", webkit: "fixture-version" },
+  });
+  assert.equal(
+    deriveVerification({ ...base, executions: splitEngines }).releaseVerdict,
+    "PASS",
+  );
+  for (const id of ["AC-00", "AC-49", "LIVE-06"])
+    assert.equal(
+      verificationExecutionSchema.safeParse({ ...execution([id]) }).success,
+      false,
+    );
 });
 test("OPS-05: exact commit/config, explicit profile and actual outcomes determine release", () => {
   const report = deriveVerification({ ...base, executions: all() });

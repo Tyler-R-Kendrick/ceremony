@@ -10,9 +10,80 @@ interface RegisteredTool {
   name: string;
 }
 interface NativeModelContext {
+  registerTool(
+    tool: {
+      name: string;
+      description: string;
+      inputSchema: object;
+      execute(): string;
+    },
+    options: { signal: AbortSignal },
+  ): void;
   getTools(): Promise<RegisteredTool[]>;
   executeTool(tool: RegisteredTool, input: string): Promise<string | null>;
 }
+
+test("AC-40 real native registration collision recovers and abort only removes owned mounted tools", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    const lifetime = new AbortController();
+    document.modelContext.registerTool(
+      {
+        name: "ceremony_github_snapshot",
+        description: "Independent host registration collision fixture",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: () => "independent host",
+      },
+      { signal: lifetime.signal },
+    );
+    Object.defineProperty(window, "removeNativeCollision", {
+      value: () => lifetime.abort(),
+    });
+  });
+  await page.goto("/");
+  await expect(
+    page.getByText(
+      "Browser tools are unavailable. The normal connection controls still work.",
+    ),
+  ).toBeVisible();
+  expect(await names(page)).toEqual(["ceremony_github_snapshot"]);
+  await expect(
+    page.getByRole("button", { name: "Connect GitHub", exact: true }),
+  ).toBeEnabled();
+  await page.evaluate(() => Reflect.get(window, "removeNativeCollision")());
+  await page
+    .getByRole("button", { name: "Workflow studio", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect.poll(() => names(page)).toHaveLength(4);
+  await page.evaluate(
+    async (entry) => {
+      (await import(entry)).mountTeachingHarness("independent_teaching");
+    },
+    `/@fs${fileURLToPath(new URL("./webmcp-harness.tsx", import.meta.url))}`,
+  );
+  await expect.poll(() => names(page)).toHaveLength(8);
+  expect((await call(page, "snapshot", {}, "independent_teaching")).ok).toBe(
+    false,
+  );
+  await page
+    .getByRole("button", { name: "Unmount independent_teaching", exact: true })
+    .click();
+  await expect.poll(() => names(page)).toHaveLength(4);
+  expect(
+    (await names(page)).every((name) => name.startsWith("ceremony_github_")),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Workflow studio", exact: true })
+    .click();
+  await expect.poll(() => names(page)).toHaveLength(0);
+});
 declare global {
   interface Document {
     modelContext: NativeModelContext;

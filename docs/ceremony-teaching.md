@@ -20,6 +20,27 @@ Sharing a procedure does not share a password, app private key, browser session,
 
 Reviewed recipes execute without a model on their healthy path. Optional assistance can propose supported actions, but the same server command service validates current authority, expected revision and prerequisites. The assistant cannot skip provider evidence or complete a connection by saying it succeeded. After verification, the registered durable continuation resumes the original host task; applications must register a deduplicating continuation consumer.
 
+## Embedding in another application
+
+The same surface used by the example is exported as `TeachingConnection` from `@ceremony/auth/react`. Import `@ceremony/auth/teaching.css` only if you want the supplied styles; `className` and `style` remain host-owned. Core recipe contracts, projections and connection tools remain available without React or hosted SDK imports.
+
+```tsx
+import { TeachingConnection } from "@ceremony/auth/react";
+
+<TeachingConnection
+  apiBase="/api/v1/teaching"
+  resumeId={hostRunId}
+  onRunChange={(run) => setHostRunId(run.id)}
+  onSignIn={() => host.signIn()}
+  onSignedOut={() => host.showSignedOut()}
+  autoFocus={false}
+  webmcp={false}
+  className="my-connection"
+/>;
+```
+
+Supplying `onRunChange` leaves URL ownership with the host; no authorizing state is stored in browser storage. Use distinct WebMCP prefixes for simultaneously mounted instances, or disable registration and use the exported local tool definitions. The API base must route to the authenticated server handlers; changing presentation cannot replace server authorization. Framework-neutral hosts can render their own UI from those same HTTP contracts and tools. Own-browser handoffs still require exact server callback configuration.
+
 ## Different stopping controls
 
 - **Stop assistant** prevents additional agent work. It does not undo effects already completed by the provider.

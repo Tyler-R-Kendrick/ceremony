@@ -7,7 +7,7 @@ export async function agentStatusStream(
   coordinator: AgentCoordinator,
   actor: ActorContext,
   runId: string,
-  turnId: string,
+  turnId: string | undefined,
   authorize?: () => Promise<void>,
 ): Promise<Response> {
   await authorize?.();

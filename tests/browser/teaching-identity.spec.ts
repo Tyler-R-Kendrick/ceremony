@@ -56,6 +56,11 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
         };
       });
       expect(actorSummary).toEqual({ subjects: 1, sessions: 2 });
+      const sibling = await second.newPage();
+      await sibling.goto(fixture.origin);
+      await expect(
+        sibling.getByRole("button", { name: "Connect GitHub", exact: true }),
+      ).toBeVisible();
       await other
         .getByRole("button", { name: "Sign out", exact: true })
         .click();
@@ -67,6 +72,23 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
           await second.request.get(`${fixture.origin}/api/environment`)
         ).status(),
       ).toBe(401);
+      await expect(
+        sibling.getByRole("button", { name: "Sign in", exact: true }),
+      ).toBeVisible();
+      const privateRemnants = await sibling.evaluate(async () => {
+        const paths: string[] = [];
+        for (const name of await caches.keys()) {
+          for (const request of await (await caches.open(name)).keys())
+            paths.push(new URL(request.url).pathname);
+        }
+        return {
+          privateCache: paths.some(
+            (path) => path.startsWith("/api/") || path.startsWith("/auth/"),
+          ),
+          storedValues: localStorage.length + sessionStorage.length,
+        };
+      });
+      expect(privateRemnants).toEqual({ privateCache: false, storedValues: 0 });
       await page.reload();
       await expect(
         page.getByRole("button", { name: "Connect GitHub", exact: true }),

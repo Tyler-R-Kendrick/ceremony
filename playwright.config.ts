@@ -1,4 +1,9 @@
 import { defineConfig } from "@playwright/test";
+
+// Playwright otherwise records an ARIA DOM snapshot on failures even when
+// tracing, screenshots, and video are disabled. Auth diagnostics must opt out.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
+
 export default defineConfig({
   testDir: "./tests/browser",
   fullyParallel: false,

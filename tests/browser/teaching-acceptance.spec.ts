@@ -21,9 +21,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
     await page
       .getByRole("link", { name: "Continue with GitHub", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Continue with GitHub", exact: true })
-      .click();
+    await expect(
+      page.getByRole("link", { name: "Approve fixture app" }),
+    ).toBeVisible();
     await page.getByRole("link", { name: "Approve fixture app" }).click();
     await page
       .getByRole("link", { name: "Continue with GitHub", exact: true })

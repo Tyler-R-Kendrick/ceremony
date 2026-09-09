@@ -8,24 +8,44 @@ Build the existing frontend with `npm run build`, then `npm run build:hosted`. `
 
 Supply configuration through the host's protected environment, not through the browser Environment editor, recipe definitions or model tools:
 
-| Name                             | Purpose                                                                                               |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `CEREMONY_PUBLIC_ORIGIN`         | One exact HTTPS origin, with no path, query, credentials or fragment.                                 |
-| `CEREMONY_DATABASE_URL`          | Configured shared PostgreSQL connection; use the provider's verified TLS settings.                    |
-| `CEREMONY_VAULT_KEY`             | 32-byte encryption key encoded as 64 hexadecimal characters, stored outside the database and backups. |
-| `CEREMONY_VAULT_KEY_ID`          | Non-secret key identifier used by encrypted records.                                                  |
-| `CEREMONY_OIDC_ISSUER`           | Trusted end-user identity issuer. Deployment/workload OIDC is not a substitute.                       |
-| `CEREMONY_OIDC_CLIENT_ID`        | Registered hosted application client.                                                                 |
-| `CEREMONY_OIDC_CLIENT_SECRET`    | Server-only client secret when required by the identity provider.                                     |
-| `CEREMONY_TENANT_ID`             | Trusted deployment tenant mapping.                                                                    |
-| `CEREMONY_GITHUB_ACCOUNT`        | Authorized target account for this reference deployment.                                              |
-| `CEREMONY_CONFIGURATION_VERSION` | Change when authority-relevant provider/origin/permission configuration changes.                      |
+| Name                             | Purpose                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `CEREMONY_PUBLIC_ORIGIN`         | One exact HTTPS origin, with no path, query, credentials or fragment.                                  |
+| `CEREMONY_DATABASE_URL`          | Configured shared PostgreSQL connection with `sslmode=verify-full`; production rejects unverified TLS. |
+| `CEREMONY_VAULT_KEY`             | 32-byte encryption key encoded as 64 hexadecimal characters, stored outside the database and backups.  |
+| `CEREMONY_VAULT_KEY_ID`          | Non-secret key identifier used by encrypted records.                                                   |
+| `CEREMONY_OIDC_ISSUER`           | Trusted end-user identity issuer. Deployment/workload OIDC is not a substitute.                        |
+| `CEREMONY_OIDC_CLIENT_ID`        | Registered hosted application client.                                                                  |
+| `CEREMONY_OIDC_CLIENT_SECRET`    | Server-only client secret when required by the identity provider.                                      |
+| `CEREMONY_TENANT_ID`             | Trusted deployment tenant mapping.                                                                     |
+| `CEREMONY_GITHUB_ACCOUNT`        | Authorized target account for this reference deployment.                                               |
+| `CEREMONY_CONFIGURATION_VERSION` | Change when authority-relevant provider/origin/permission configuration changes.                       |
 
 The identity adapter validates the OIDC protocol response and maps signed `ceremony_roles` to explicit author, reviewer, publisher, executor and administrator capabilities. When absent, roles default to executor only. Give publication rights through the identity provider, not a browser flag. Login, logout and protected sessions use the shared store; the browser's resume hint does not authenticate the user. Production has no anonymous-owner fallback.
 
 The native Environment section uses authenticated `/api/environment`: GET returns variable names/revision only; POST accepts bounded JSON edits or an optional dotenv string and stores values encrypted. It is shared across connectors within the authenticated session, not across unrelated sessions. `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_OWNER` and `GITHUB_APP_PRIVATE_KEY` are consumed together by the trusted GitHub configuration resolver. Partial configuration blocks with a setup message. Changes bind a new configuration version and cannot silently replace an app during an in-progress callback.
 
 Cross-device identity restoration does not copy a session's private Environment. A session with no GitHub configuration edits uses the host configuration version so the same authenticated principal can reuse compatible verified host access after a new login. A protected GitHub-specific revision changes only when the four GitHub app variables change or are removed; editing an unrelated connector's variables does not invalidate GitHub. Once a session has edited GitHub configuration, even clearing it advances its session-bound version. Legacy records without this metadata conservatively retain their existing revision as a baseline. Returning from another authenticated session may therefore require explicit reconfiguration; no private values travel in a resume hint.
+
+### Database maintenance and recovery
+
+The hosted keyring accepts `CEREMONY_VAULT_KEY_ID` and `CEREMONY_VAULT_KEY` for new writes plus optional `CEREMONY_VAULT_PREVIOUS_KEYS`: a protected JSON object mapping at most four previous key IDs to 64-character hex keys. Duplicate current IDs, malformed keys, and oversized keyrings fail closed. Keep these values in the operator secret store, separate from the database and backups. Never paste them into a terminal command, issue, model prompt or evidence file.
+
+Run the repository's maintenance tool only with an explicitly configured `CEREMONY_DATABASE_URL`, keyring and `CEREMONY_MAINTENANCE_AUTHORIZED=true`. Stop application traffic and workers for backup, restore and rotation. These commands are operator tooling, not end-user ceremony steps:
+
+```sh
+npx tsx scripts/persistence-maintenance.ts backup /secure/operator/location/ceremony-backup.json
+npx tsx scripts/persistence-maintenance.ts restore /secure/operator/location/ceremony-backup.json
+npx tsx scripts/persistence-maintenance.ts rotate TENANT_ID
+npx tsx scripts/persistence-maintenance.ts purge-collections TENANT_ID
+npx tsx scripts/persistence-maintenance.ts delete-demonstration TENANT_ID DEMONSTRATION_ID
+```
+
+Backup uses an exclusive PostgreSQL snapshot of the actual encrypted record tables, not a decrypted application export. It refuses active leases, more than 10,000 records/claims, or over 16 MB of ciphertext; larger deployments need separately tested native database backup tooling. Files are created exclusively with mode 0600 and are never overwritten. Metadata includes tenant/record identifiers; treat the backup as confidential even though values are encrypted. The tool prints no records, keys or connection URLs.
+
+Restore requires migrated but completely empty destination tables, authenticates every encrypted record with configured keys before importing, and commits records/claims atomically. Historical worker generations are advanced and expired so pre-backup claims cannot commit. Invalid keys, tampering, duplicates, nonempty destinations and oversized snapshots fail without partial restoration. Isolate the former database and workers before bringing the restored application online: fencing a restored database cannot prevent an independently running old deployment from making upstream provider requests. Reconcile uncertain external effects before continuing work.
+
+For rotation, configure the new current key and retain previous keys, run `rotate` for every tenant, verify reads and a restore into a fresh database, then retire old keys only after all retained backups no longer require them. Rotation reads and rewrites each bounded page in one transaction and never stores keys in data or backup files. The explicit demonstration retention command refuses recording/paused demonstrations, removes the chosen demonstration's events and current pointer, and preserves published recipes and mandatory audit records. Collection purge sweeps cursor-based 100-record transactions until exhaustion. Tenant/ID selection must come from the operator's retention policy, not an untrusted browser request. No scheduler or paid infrastructure is enabled automatically.
 
 Local identity fixtures require both `NODE_ENV=test` and `CEREMONY_TEST_PROFILE=true`; this is not a deployment mode for preview URLs. Keep production callbacks fixed. Register the exact callback routes actually emitted by the trusted identity/GitHub adapters. Do not register every preview deployment as a production OAuth origin.
 
@@ -68,5 +88,7 @@ Store only bounded status/counter/correlation metrics. Do not attach request bod
 The checked-in profile is deliberately unconfigured and cannot certify a deployment. Copy it to an operator-controlled file and specify the actual public configuration. Missing local acceptance evidence is `FAIL`, not an external blocker. Missing attended/provider/device evidence is `BLOCKED_EXTERNAL`. Capabilities are excluded only by explicit disabled profile fields. There is no manual success override.
 
 For an explicitly authorized read-only GitHub smoke, set `CEREMONY_LIVE_AUTHORIZED=true`, `CEREMONY_LIVE_GITHUB_APP_ID` and `CEREMONY_LIVE_GITHUB_PRIVATE_KEY`. The script performs only a signed app GET, creates no app or grant, and never prints provider bodies or credentials. That smoke alone does not satisfy full GitHub registration/installation certification. Missing credentials return nonzero. Real account, deployed Workflow and installed-PWA evidence must be collected in their actual authorized environments.
+
+`npm run test:live:attended` additionally requires `CEREMONY_LIVE_ATTENDED=true`, a configured production `CEREMONY_RELEASE_PROFILE`, a clean checkout and a graphical Chromium environment. It opens a fresh browser for the operator to sign in and complete the normal connection; it never automates provider consent or supplies credentials. It inspects only the authenticated pure run snapshot and retains boolean verification plus version/configuration metadata. No browser profile, screenshots, trace, HAR, console or provider bodies are saved. Its supplementary connection result does not certify registration freshness, recovery, hosted durability or installed-PWA behavior, and cannot independently satisfy `LIVE-01`. Missing authorization/configuration or incomplete human interaction exits nonzero rather than skipping.
 
 The release verdict comes from [the evidence directory](implementation-evidence/ceremony-teaching/README.md), not this document. No production deployment or real-provider certification is implied by an implementation or a successful local build.

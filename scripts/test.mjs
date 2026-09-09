@@ -17,7 +17,7 @@ const all = discover("tests").filter(
 const patterns = {
   all: /.*/,
   integration:
-    /persistence|identity|commands|recipes|github-children|integration|teaching-http/,
+    /persistence|maintenance|collections|environment|identity|commands|recipes|github|hosted|integration|teaching-http/,
   security:
     /security|teaching-contracts|webmcp-unit|identity|commands|persistence/,
   agent: /agent/,

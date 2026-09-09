@@ -1,5 +1,9 @@
 import { createRoot } from "react-dom/client";
-import { Ceremony, createHttpTransport } from "../../src/react/index.js";
+import {
+  Ceremony,
+  TeachingConnection,
+  createHttpTransport,
+} from "../../src/react/index.js";
 import {
   manifestSchema,
   type ActionEvent,
@@ -45,6 +49,25 @@ export async function mountHarness(connectorId = "github") {
         record("failure", event);
         throw new Error("host observer threw");
       }}
+    />,
+  );
+}
+
+export function mountTeachingHarness(prefix: string) {
+  const host = document.createElement("section");
+  host.id = `${prefix}-host`;
+  const content = document.createElement("div");
+  const unmount = document.createElement("button");
+  unmount.textContent = `Unmount ${prefix}`;
+  host.append(content, unmount);
+  document.body.append(host);
+  const root = createRoot(content);
+  unmount.onclick = () => root.unmount();
+  root.render(
+    <TeachingConnection
+      webmcp={{ prefix }}
+      onRunChange={() => {}}
+      autoFocus={false}
     />,
   );
 }

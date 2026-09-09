@@ -38,6 +38,7 @@
       "import": "./dist/react/index.js"
     },
     "./styles.css": "./src/react/styles.css",
+    "./teaching.css": "./src/react/teaching.css",
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"
@@ -46,6 +47,7 @@
   "files": [
     "dist",
     "src/react/styles.css",
+    "src/react/teaching.css",
     "README.md",
     "docs",
     "!docs/implementation-evidence"
@@ -53,14 +55,16 @@
   "scripts": {
     "dev": "node --import tsx examples/server.ts",
     "check": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && vite build",
+    "build": "tsc -p tsconfig.build.json && vite build && node scripts/check-bundle.mjs",
     "test": "node scripts/test.mjs all",
     "test:integration": "node scripts/test.mjs integration",
     "test:security": "node scripts/test.mjs security",
     "test:agent": "node scripts/test.mjs agent",
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
     "verify:live": "node --import tsx scripts/verify-release.ts live",
+    "test:live:attended": "node --import tsx scripts/verify-attended.ts",
     "verify:release": "node --import tsx scripts/verify-release.ts release",
+    "maintenance:storage": "node --import tsx scripts/persistence-maintenance.ts",
     "build:hosted": "nitro build",
     "dev:hosted": "nitro dev",
     "test:pact": "node --import tsx --test tests/contracts/*.test.ts",
@@ -72,9 +76,9 @@
     "test:mutation": "stryker run",
     "test:security:mutation": "stryker run stryker.security.config.mjs",
     "test:e2e": "playwright test",
-    "format": "prettier --write src examples tests package.json tsconfig*.json *.config.ts README.md docs",
-    "format:check": "prettier --check src examples tests package.json tsconfig*.json *.config.ts README.md docs",
-    "verify": "npm run format:check && npm run check && npm run test:coverage && npm run test:workflow && npm run test:security:mutation && npm run build && npm run build:hosted && npm run test:e2e"
+    "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts README.md docs",
+    "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts README.md docs",
+    "verify": "node --import tsx scripts/verify-deterministic.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.45",

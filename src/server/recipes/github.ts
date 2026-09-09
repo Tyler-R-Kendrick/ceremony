@@ -2,7 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { request } from "@octokit/request";
 import { z } from "zod";
-import type { AsyncCeremonyStore, RecordKey } from "../persistence/index.js";
+import {
+  PersistenceConflict,
+  type AsyncCeremonyStore,
+  type RecordKey,
+} from "../persistence/index.js";
 import type { GitHubAppConfiguration } from "../github.js";
 import {
   OperationRegistry,
@@ -33,6 +37,10 @@ type State = {
   expires: number;
   app?: App;
   installation?: number;
+  sharedSetup?: string;
+  subscribers?: string[];
+  handoffIssued?: boolean;
+  restartable?: boolean;
 };
 type Artifact = {
   scope: string;
@@ -117,6 +125,13 @@ export class AsyncGitHubChildren {
       id: `github:${context.runId}`,
     };
   }
+  private setupKey(context: OperationContext): RecordKey {
+    return {
+      tenant: context.actor.tenantId,
+      kind: "handoff",
+      id: `github-setup:${this.scope(context)}`,
+    };
+  }
   private artifactKey(
     context: OperationContext,
     kind: Artifact["kind"],
@@ -131,9 +146,16 @@ export class AsyncGitHubChildren {
   }
   private async read(context: OperationContext) {
     await this.options.authorize(context);
-    const record = await this.store.transaction((tx) =>
-      tx.get<State>(this.key(context)),
-    );
+    const record = await this.store.transaction(async (tx) => {
+      const local = await tx.get<State>(this.key(context));
+      if (local?.value.sharedSetup && local.value.phase !== "cancelled") {
+        const shared = await tx.get<State>(this.setupKey(context));
+        if (!shared?.value.subscribers?.includes(context.runId))
+          throw new Error("GitHub subscription unavailable");
+        return shared;
+      }
+      return local;
+    });
     if (!record || record.value.scope !== this.scope(context))
       throw new Error("GitHub handoff unavailable");
     return record;
@@ -304,12 +326,18 @@ export class AsyncGitHubChildren {
         },
       });
   }
-  async prepare(context: OperationContext): Promise<OperationResult> {
+  async prepare(
+    context: OperationContext,
+    admissionAttempt = 0,
+  ): Promise<OperationResult> {
     await this.options.authorize(context);
     let app = (await this.artifact(context, "app"))?.app ?? this.options.app;
-    const previous = await this.store.transaction((tx) =>
-      tx.get<State>(this.key(context)),
-    );
+    const previous = await this.store.transaction(async (tx) => {
+      const local = await tx.get<State>(this.key(context));
+      return local?.value.sharedSetup && local.value.phase !== "cancelled"
+        ? await tx.get<State>(this.setupKey(context))
+        : local;
+    });
     if (previous && previous.value.scope !== this.scope(context))
       throw new Error("GitHub context changed");
     if (previous?.value.phase === "cancelled")
@@ -332,18 +360,50 @@ export class AsyncGitHubChildren {
           : "awaiting-human",
         outputs: {},
       };
-    await this.store.transaction(async (tx) => {
-      await tx.put(
-        this.key(context),
-        {
+    try {
+      await this.store.transaction(async (tx) => {
+        const existingLocal = await tx.get<State>(this.key(context));
+        if (existingLocal?.value.phase === "cancelled")
+          throw new Error("GitHub run cancelled");
+        const setupKey = this.setupKey(context);
+        const existing = await tx.get<State>(setupKey);
+        if (
+          existing?.value.phase === "cancelled" &&
+          !existing.value.restartable
+        )
+          throw new Error("GitHub setup requires reconciliation");
+        const subscribers = Array.from(
+          new Set([...(existing?.value.subscribers ?? []), context.runId]),
+        );
+        if (subscribers.length > 32)
+          throw new Error("GitHub setup subscriber limit");
+        const shared: State = (existing?.value.phase !== "cancelled"
+          ? existing?.value
+          : undefined) ?? {
           scope: this.scope(context),
           phase: "registration",
           nonce: randomBytes(32).toString("base64url"),
           expires: (await tx.now()) + 3600000,
-        },
-        null,
-      );
-    });
+        };
+        await tx.put(
+          setupKey,
+          { ...shared, subscribers },
+          existing?.revision ?? null,
+        );
+        await tx.put(
+          this.key(context),
+          {
+            ...shared,
+            sharedSetup: setupKey.id,
+          },
+          existingLocal?.revision ?? null,
+        );
+      });
+    } catch (error) {
+      if (error instanceof PersistenceConflict && admissionAttempt < 2)
+        return this.prepare(context, admissionAttempt + 1);
+      throw error;
+    }
     return { state: "awaiting-human", outputs: {} };
   }
   async install(
@@ -393,7 +453,27 @@ export class AsyncGitHubChildren {
     const { value: state } = await this.read(context);
     if (state.expires <= Date.now()) throw new Error("GitHub handoff expired");
     const callback = `${this.options.origin}/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback`;
-    if (state.phase === "registration")
+    if (state.phase === "registration") {
+      await this.store.transaction(async (tx) => {
+        const local = await tx.get<State>(this.key(context));
+        if (local?.value.phase === "cancelled")
+          throw new Error("GitHub run cancelled");
+        const key = local?.value.sharedSetup
+          ? this.setupKey(context)
+          : this.key(context);
+        const current = await tx.get<State>(key);
+        if (
+          !current ||
+          current.value.phase !== "registration" ||
+          current.value.nonce !== state.nonce
+        )
+          throw new Error("GitHub handoff unavailable");
+        await tx.put(
+          key,
+          { ...current.value, handoffIssued: true },
+          current.revision,
+        );
+      });
       return {
         method: "POST" as const,
         url: `https://github.com/settings/apps/new?state=${encodeURIComponent(state.nonce)}`,
@@ -408,12 +488,54 @@ export class AsyncGitHubChildren {
           default_events: [],
         },
       };
+    }
     if (state.phase === "installation" && state.app)
       return {
         method: "GET" as const,
         url: `https://github.com/apps/${state.app.slug}/installations/new?state=${encodeURIComponent(state.nonce)}`,
       };
     throw new Error("GitHub human action unavailable");
+  }
+  /** Server-only callback routing: a cancelled parent grants nothing; a surviving subscriber is authorized afresh. */
+  async activeSetupSubscriber(
+    context: OperationContext,
+    url: URL,
+  ): Promise<string> {
+    const setupKey = this.setupKey(context);
+    const candidates = await this.store.transaction(async (tx) => {
+      const local = await tx.get<State>(this.key(context));
+      const shared = await tx.get<State>(setupKey);
+      if (
+        local?.value.sharedSetup !== setupKey.id ||
+        local.value.scope !== this.scope(context) ||
+        !shared ||
+        shared.value.phase !== "registration" ||
+        shared.value.expires <= (await tx.now()) ||
+        shared.value.nonce !== url.searchParams.get("state") ||
+        url.origin !== this.options.origin ||
+        url.pathname !==
+          `/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback`
+      )
+        throw new Error("GitHub callback unavailable");
+      return shared.value.subscribers ?? [];
+    });
+    for (const runId of candidates) {
+      const next = { ...context, runId };
+      try {
+        await this.options.authorize(next);
+        const local = await this.store.transaction((tx) =>
+          tx.get<State>(this.key(next)),
+        );
+        if (
+          local?.value.phase !== "cancelled" &&
+          local?.value.sharedSetup === setupKey.id
+        )
+          return runId;
+      } catch {
+        /* A revoked subscriber cannot inherit the callback. */
+      }
+    }
+    throw new Error("GitHub callback unavailable");
   }
   async callback(context: OperationContext, url: URL): Promise<void> {
     const record = await this.read(context);
@@ -427,18 +549,24 @@ export class AsyncGitHubChildren {
     )
       throw new Error("GitHub callback unavailable");
     if (state.phase === "registration") {
+      const local = await this.store.transaction((tx) =>
+        tx.get<State>(this.key(context)),
+      );
+      const callbackKey = local?.value.sharedSetup
+        ? this.setupKey(context)
+        : this.key(context);
       const code = z
         .string()
         .regex(/^[a-zA-Z0-9_-]{1,200}$/)
         .parse(url.searchParams.get("code"));
       const admitted = await this.store.transaction(async (tx) => {
         const fence = await tx.claim(
-          this.key(context),
+          callbackKey,
           `callback-${randomBytes(16).toString("hex")}`,
           60000,
         );
         const revision = await tx.put(
-          this.key(context),
+          callbackKey,
           { ...state, phase: "converting", nonce: "consumed" },
           record.revision,
         );
@@ -454,30 +582,37 @@ export class AsyncGitHubChildren {
           ),
         );
         // Retain the one-shot conversion result before another external request.
-        const saved = await this.store.transaction(async (tx) => {
+        await this.store.transaction(async (tx) => {
           await tx.assertFence(admitted.fence);
+          const current = (await tx.get<State>(callbackKey))!;
           return tx.put(
-            this.key(context),
-            { ...state, phase: "converting", nonce: "consumed", app },
-            admitted.revision,
+            callbackKey,
+            { ...current.value, phase: "converting", nonce: "consumed", app },
+            current.revision,
           );
         });
         await this.verifyApp(context, app);
         await this.options.authorize(context);
         await this.store.transaction(async (tx) => {
           await tx.assertFence(admitted.fence);
+          const current = (await tx.get<State>(callbackKey))!;
           await tx.put(
-            this.key(context),
-            { ...state, phase: "app-ready", nonce: "consumed", app },
-            saved,
+            callbackKey,
+            { ...current.value, phase: "app-ready", nonce: "consumed", app },
+            current.revision,
           );
         });
       } catch {
         await this.store.transaction(async (tx) => {
-          const current = await tx.get<State>(this.key(context));
+          try {
+            await tx.assertFence(admitted.fence);
+          } catch {
+            return;
+          }
+          const current = await tx.get<State>(callbackKey);
           if (current && current.value.phase !== "cancelled")
             await tx.put(
-              this.key(context),
+              callbackKey,
               { ...current.value, phase: "uncertain", nonce: "consumed" },
               current.revision,
             );
@@ -513,6 +648,12 @@ export class AsyncGitHubChildren {
   /** Input is accepted only from a purpose-bound private collector, never from an agent tool. */
   async recover(context: OperationContext, input: unknown): Promise<void> {
     const record = await this.read(context);
+    const local = await this.store.transaction((tx) =>
+      tx.get<State>(this.key(context)),
+    );
+    const recoveryKey = local?.value.sharedSetup
+      ? this.setupKey(context)
+      : this.key(context);
     if (!["uncertain", "converting"].includes(record.value.phase))
       throw new Error("GitHub recovery unavailable");
     const values = z
@@ -540,9 +681,9 @@ export class AsyncGitHubChildren {
     await this.verifyApp(context, app);
     await this.options.authorize(context);
     await this.store.transaction(async (tx) => {
-      await tx.cancel(this.key(context));
+      await tx.cancel(recoveryKey);
       await tx.put(
-        this.key(context),
+        recoveryKey,
         { ...record.value, app, phase: "app-ready", nonce: "consumed" },
         record.revision,
       );
@@ -557,6 +698,33 @@ export class AsyncGitHubChildren {
       if (record && record.value.scope !== scope)
         throw new Error("GitHub handoff unavailable");
       await tx.cancel(this.key(context));
+      if (record?.value.sharedSetup) {
+        const sharedKey = this.setupKey(context);
+        const shared = await tx.get<State>(sharedKey);
+        if (shared) {
+          const subscribers = (shared.value.subscribers ?? []).filter(
+            (id) => id !== context.runId,
+          );
+          if (!subscribers.length) await tx.cancel(sharedKey);
+          await tx.put(
+            sharedKey,
+            {
+              ...shared.value,
+              subscribers,
+              ...(!subscribers.length
+                ? {
+                    phase: "cancelled",
+                    nonce: "cancelled",
+                    restartable:
+                      shared.value.phase === "registration" &&
+                      !shared.value.handoffIssued,
+                  }
+                : {}),
+            },
+            shared.revision,
+          );
+        }
+      }
       await tx.put(
         this.key(context),
         {

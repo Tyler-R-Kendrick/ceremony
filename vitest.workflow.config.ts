@@ -1,3 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { workflow } from "@workflow/vitest";
-export default defineConfig({plugins:[workflow()],test:{include:["tests/workflow/*.test.ts"],testTimeout:60_000}});
+export default defineConfig({
+  plugins: [workflow()],
+  test: { include: ["tests/workflow/*.test.ts"], testTimeout: 60_000 },
+});

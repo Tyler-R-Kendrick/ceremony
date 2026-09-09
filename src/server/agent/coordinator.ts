@@ -5,6 +5,7 @@ import type { ActorContext } from "../../core/operation-contracts.js";
 import type { ProtectedCommandService } from "../commands.js";
 import type { AsyncCeremonyStore } from "../persistence/index.js";
 import { requireCapability } from "../identity.js";
+import { validateAgentText } from "./model.js";
 
 export type AgentStatus =
   | "idle"
@@ -40,15 +41,20 @@ export class AgentCoordinator {
       id: `agent:${safeId.parse(runId)}`,
     };
   }
-  async status(actor: ActorContext, runId: string, turnId: string) {
-    await this.commands.snapshot(actor, runId);
+  async status(actor: ActorContext, runId: string, turnId?: string) {
+    const run = await this.commands.snapshot(actor, runId);
     const budget = await this.store.transaction((tx) =>
       tx.get<Budget>(this.key(actor, runId)),
     );
     return {
-      status: budget?.value.stopped
-        ? ("stopped" as const)
-        : (budget?.value.turns[turnId]?.status ?? ("idle" as const)),
+      status:
+        run.status === "cancelled" || budget?.value.stopped
+          ? ("stopped" as const)
+          : run.status === "complete"
+            ? ("complete" as const)
+            : (budget?.value.turns[
+                turnId ?? Object.keys(budget?.value.turns ?? {}).at(-1) ?? ""
+              ]?.status ?? ("idle" as const)),
       calls: budget?.value.calls ?? 0,
       tools: budget?.value.tools ?? 0,
     };
@@ -121,8 +127,10 @@ export class AgentCoordinator {
       initial.nodes.some((node) =>
         ["awaiting-human", "verifying", "uncertain"].includes(node.state),
       )
-    )
+    ) {
+      await this.update(actor, runId, turnId, 0, 0, "awaiting-human");
       return "awaiting-human";
+    }
     if (!this.model) return "unavailable";
     if (existing.status !== "idle")
       return existing.status === "running" ? "uncertain" : existing.status;
@@ -186,6 +194,18 @@ export class AgentCoordinator {
       prepareStep: async () => {
         await this.update(actor, runId, turnId, 1, 0);
         const snapshot = await this.commands.snapshot(actor, runId);
+        // Structural identifiers may originate in an imported recipe; public shape alone is not classification.
+        for (const value of [
+          snapshot.id,
+          snapshot.provider,
+          snapshot.profile,
+          ...snapshot.nodes.flatMap((node) => [
+            node.id,
+            node.operationId,
+            node.operationVersion,
+          ]),
+        ])
+          validateAgentText(value);
         return {
           messages: [
             { role: "user" as const, content: JSON.stringify(snapshot) },

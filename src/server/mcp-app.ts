@@ -23,6 +23,8 @@ export interface PrivateCollectorOptions {
   appHtml: string;
   /** Must derive from host authentication, not tool arguments or UI visibility. */
   owner(context: ServerContext): string | Promise<string>;
+  /** Authenticate the broker HTTP recipient independently of the one-use handle. Missing adapters fail closed. */
+  requestOwner?(request: Request): string | null | Promise<string | null>;
 }
 /** Register on an authenticated MCP server; mount handleRequest on the broker HTTPS origin. */
 export function registerPrivateCollector(
@@ -71,6 +73,7 @@ export function registerPrivateCollector(
         const owner = await options.owner(context);
         if (
           !owner ||
+          !options.requestOwner ||
           !getUiCapability(
             server.server.getClientCapabilities(),
           )?.mimeTypes?.includes(RESOURCE_MIME_TYPE)
@@ -178,6 +181,7 @@ export function registerPrivateCollector(
         return new Response("Forbidden", { status: 403 });
       const headers = {
         "access-control-allow-origin": appOrigin,
+        "access-control-allow-credentials": "true",
         "access-control-allow-methods": "POST",
         "access-control-allow-headers": "content-type,x-ceremony-collection",
         "cache-control": "no-store",
@@ -188,13 +192,29 @@ export function registerPrivateCollector(
         return new Response(null, { status: 204, headers });
       if (
         request.method !== "POST" ||
-        !request.headers.get("content-type")?.startsWith("application/json")
+        request.headers.get("content-type")?.split(";")[0]?.trim() !==
+          "application/json"
       )
         return new Response("{}", { status: 405, headers });
+      let recipient: string | null;
+      try {
+        recipient = (await options.requestOwner?.(request)) ?? null;
+      } catch {
+        return new Response("{}", { status: 403, headers });
+      }
+      if (typeof recipient !== "string" || !recipient)
+        return new Response("{}", { status: 403, headers });
       try {
         const handle = z
           .uuid()
           .parse(request.headers.get("x-ceremony-collection"));
+        const issued = db.get(`mcp-collection:${handle}`, grantSchema);
+        if (
+          !issued ||
+          issued.owner !== recipient ||
+          issued.expiresAt <= Date.now()
+        )
+          return new Response("{}", { status: 403, headers });
         // Bound the stream before JSON parsing; content-length is not trusted.
         const reader = request.body?.getReader();
         if (!reader) throw new Error("Missing body");
@@ -219,7 +239,11 @@ export function registerPrivateCollector(
           .parse(JSON.parse(Buffer.concat(chunks).toString()));
         const secretRef = db.transaction(() => {
           const grant = db.get(`mcp-collection:${handle}`, grantSchema);
-          if (!grant || grant.expiresAt <= Date.now())
+          if (
+            !grant ||
+            grant.owner !== recipient ||
+            grant.expiresAt <= Date.now()
+          )
             throw new Error("Expired collection");
           const ref = controller.collect(
             grant.owner,

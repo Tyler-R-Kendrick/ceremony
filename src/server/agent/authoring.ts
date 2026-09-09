@@ -7,6 +7,7 @@ import {
 } from "../../core/operation-contracts.js";
 import type { AsyncCeremonyStore } from "../persistence/index.js";
 import { requireCapability } from "../identity.js";
+import { validateAgentText } from "./model.js";
 
 const labels = z.strictObject({
   title: z.string().min(1).max(100),
@@ -29,6 +30,10 @@ export async function suggestRecipeLabels(
   requireCapability(actor, "author");
   identifierSchema.parse(draftId);
   const catalog = operationsSchema.parse(operations);
+  for (const operation of catalog) {
+    validateAgentText(operation.id);
+    validateAgentText(operation.version);
+  }
   if (!model) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const reserved = await store.transaction(async (tx) => {

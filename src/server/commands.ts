@@ -384,6 +384,84 @@ export class ProtectedCommandService {
       if (prior) {
         if (prior.value.digest !== intent)
           throw new AuthorizationError("denied");
+        if (prior.value.state === "running" && run.status === "active") {
+          // A retry may fence an expired worker, but cannot repeat its uncertain external effect.
+          const takeover = await tx
+            .claim(
+              key(actor, "run", run.id),
+              `reconcile-${randomUUID()}`,
+              60_000,
+            )
+            .catch((error) => {
+              if (error instanceof PersistenceConflict) return undefined;
+              throw error;
+            });
+          if (takeover) {
+            const effectKey = key(actor, "effect", prior.value.effectId);
+            const effect = await tx.get<Record<string, unknown>>(effectKey);
+            if (!effect) throw new AuthorizationError("denied");
+            const nodeKey = key(actor, "node", `${run.id}:${command.nodeId}`);
+            const previous = await tx.get<NodeRecord>(nodeKey);
+            await tx.put(
+              key(actor, "command", command.commandId),
+              { ...prior.value, state: "uncertain" },
+              prior.revision,
+            );
+            await tx.put(
+              effectKey,
+              { ...effect.value, status: "uncertain", verified: false },
+              effect.revision,
+            );
+            await tx.put(
+              nodeKey,
+              { state: "uncertain", verified: false, outputs: {} },
+              previous?.revision ?? null,
+            );
+            const revision = await tx.put(
+              key(actor, "run", run.id),
+              run,
+              saved.revision,
+            );
+            await appendSemanticTransition(
+              tx,
+              actor,
+              run.id,
+              {
+                nodeId: command.nodeId,
+                operationId: command.operationId,
+                operationVersion: command.operationVersion,
+                actorKind: "system",
+                kind: "transition",
+                beforeState: previous?.value.state ?? "pending",
+                afterState: "uncertain",
+                publicBindings: {},
+                verification: "pending",
+              },
+              {},
+            );
+            await tx.put(
+              key(actor, "outbox", `reconciliation:${command.commandId}`),
+              {
+                task: "reconciliation-required",
+                runId: run.id,
+                subjectId: run.subjectId,
+                status: "pending",
+              },
+              null,
+            );
+            await tx.cancel(key(actor, "run", run.id));
+            return {
+              existing: {
+                commandId: command.commandId,
+                runId: run.id,
+                nodeId: command.nodeId,
+                revision,
+                state: "uncertain",
+                verified: false,
+              } as CommandStatus,
+            };
+          }
+        }
         return {
           existing: {
             commandId: command.commandId,
@@ -406,6 +484,15 @@ export class ProtectedCommandService {
         node.operationId !== command.operationId ||
         node.operationVersion !== command.operationVersion ||
         digest(node.bindings) !== digest(command.bindings)
+      )
+        throw new AuthorizationError("denied");
+      const ownState = await tx.get<NodeRecord>(
+        key(actor, "node", `${run.id}:${node.id}`),
+      );
+      if (
+        ownState?.value.state === "uncertain" ||
+        ownState?.value.state === "complete" ||
+        ownState?.value.verified
       )
         throw new AuthorizationError("denied");
       const outputs = new Map<string, Record<string, unknown>>();

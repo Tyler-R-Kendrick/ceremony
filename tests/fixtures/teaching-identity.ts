@@ -5,7 +5,9 @@ import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { calculatePKCECodeChallenge } from "oauth4webapi";
 
 /** Local signed OIDC provider. No password, external identity, or production credential. */
-export async function teachingIdentityFixture() {
+export async function teachingIdentityFixture(
+  claims: Record<string, unknown> = {},
+) {
   const pair = await generateKeyPair("RS256");
   const jwk = {
     ...(await exportJWK(pair.publicKey)),
@@ -62,7 +64,7 @@ export async function teachingIdentityFixture() {
         return res.end("{}");
       }
       tokenCalls++;
-      const token = await new SignJWT({ nonce: grant.nonce })
+      const token = await new SignJWT({ ...claims, nonce: grant.nonce })
         .setProtectedHeader({ alg: "RS256", kid: "fixture" })
         .setIssuer(issuer)
         .setAudience("client")

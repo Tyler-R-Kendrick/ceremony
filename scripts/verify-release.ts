@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile, mkdir, realpath, stat } from "node:fs/promises";
 import { resolve, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createAppAuth } from "@octokit/auth-app";
 import { request } from "@octokit/request";
 import { z } from "zod";
@@ -21,6 +22,12 @@ const output = resolve(
   "docs/implementation-evidence/ceremony-teaching",
 );
 try {
+  if (
+    mode !== "audit" &&
+    (await realpath(fileURLToPath(import.meta.url))) !==
+      (await realpath(resolve(root, "scripts/verify-release.ts")))
+  )
+    throw new Error("Release verifier must execute from the evidence checkout");
   const commit = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: root,
     encoding: "utf8",
@@ -28,7 +35,7 @@ try {
   }).trim();
   const dirty = execFileSync(
     "git",
-    ["status", "--porcelain", "--untracked-files=no"],
+    ["status", "--porcelain", "--untracked-files=all"],
     { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
   ).trim();
   if (mode !== "audit" && dirty) throw new Error("Dirty verification checkout");

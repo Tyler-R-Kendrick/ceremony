@@ -516,7 +516,11 @@ export async function teachingHttp(
           await runtime.agent.status(
             actor,
             runId,
-            id.parse(new URL(request.url).searchParams.get("turnId")),
+            id
+              .optional()
+              .parse(
+                new URL(request.url).searchParams.get("turnId") ?? undefined,
+              ),
           ),
         );
       if (!post && agentRoute[2] === "stream")
@@ -524,7 +528,11 @@ export async function teachingHttp(
           runtime.agent,
           actor,
           runId,
-          id.parse(new URL(request.url).searchParams.get("turnId")),
+          id
+            .optional()
+            .parse(
+              new URL(request.url).searchParams.get("turnId") ?? undefined,
+            ),
           async () => {
             const current = await authenticatedActor(request, runtime.identity);
             if (

@@ -5,12 +5,21 @@ import { PostgresCeremonyStore } from "../../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../../src/server/github-runtime.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { postgresFixture } from "./postgres.js";
+import { mountTeachingHost } from "./teaching-hosted.js";
+import {
+  hostedContinuation,
+  dispatchHostedContinuations,
+} from "../../src/server/hosted/continuations.js";
 import type { BrowserContext } from "@playwright/test";
 
 /** Synthetic provider pages only; SDK requests cross real HTTP and app JWTs are verified. */
 export async function teachingGitHubFixture(
   port: number,
-  options: { loseConversionResponse?: boolean } = {},
+  options: {
+    loseConversionResponse?: boolean;
+    hostContinuation?: boolean;
+    loseContinuationAcknowledgment?: boolean;
+  } = {},
 ) {
   const database = await postgresFixture();
   const store = new PostgresCeremonyStore(database.config, {
@@ -27,11 +36,49 @@ export async function teachingGitHubFixture(
     tokens: 0,
     verifiedSignatures: 0,
     repositoryReads: 0,
+    continuationRequests: 0,
+    continuationEffects: 0,
   };
+  const continuationToken = randomBytes(32).toString("hex");
+  const workerToken = randomBytes(32).toString("hex");
+  const delivered = new Set<string>();
   const consumed = new Set<string>();
   const provider = createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, "http://fixture");
+      if (url.pathname === "/host/continue") {
+        if (
+          req.headers.authorization !== `Bearer ${continuationToken}` ||
+          req.method !== "POST"
+        )
+          throw new Error();
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        const input = JSON.parse(raw);
+        if (
+          typeof input.deliveryId !== "string" ||
+          req.headers["idempotency-key"] !== input.deliveryId
+        )
+          throw new Error();
+        effects.continuationRequests++;
+        if (!delivered.has(input.deliveryId)) {
+          delivered.add(input.deliveryId);
+          effects.continuationEffects++;
+        }
+        if (
+          options.loseContinuationAcknowledgment &&
+          effects.continuationRequests === 1
+        ) {
+          req.socket.destroy();
+          return;
+        }
+        res
+          .writeHead(200, { "content-type": "application/json" })
+          .end(
+            JSON.stringify({ deliveryId: input.deliveryId, completed: true }),
+          );
+        return;
+      }
       let body: unknown;
       if (/^\/app-manifests\/[^/]+\/conversions$/.test(url.pathname)) {
         if (consumed.has(url.pathname)) {
@@ -127,6 +174,27 @@ export async function teachingGitHubFixture(
       },
     },
     authorize: async () => true,
+    ...(options.hostContinuation
+      ? {
+          continuation: hostedContinuation(
+            {
+              CEREMONY_CONTINUATION_URL:
+                "https://continuation.fixture/host/continue",
+              CEREMONY_CONTINUATION_TOKEN: continuationToken,
+            },
+            async (input, init) => {
+              if (
+                String(input) !== "https://continuation.fixture/host/continue"
+              )
+                throw new Error("Unexpected continuation endpoint");
+              return fetch(
+                `http://127.0.0.1:${address.port}/host/continue`,
+                init,
+              );
+            },
+          )!,
+        }
+      : {}),
     github: {
       fetch: async (input, init) => {
         const requested = new URL(String(input));
@@ -139,13 +207,25 @@ export async function teachingGitHubFixture(
       },
     },
   });
-  let app: Awaited<ReturnType<typeof startReferenceApp>>;
+  let app: { close(): Promise<void> };
+  let staticRevision = 1;
   try {
-    app = await startReferenceApp({
-      port,
-      providerPort: port + 1,
-      teaching: runtime,
-    });
+    app = options.hostContinuation
+      ? await mountTeachingHost(
+          () => runtime,
+          {
+            secret: workerToken,
+            dispatch: () =>
+              dispatchHostedContinuations(runtime, "teaching-fixture"),
+          },
+          port,
+          () => staticRevision,
+        )
+      : await startReferenceApp({
+          port,
+          providerPort: port + 1,
+          teaching: runtime,
+        });
   } catch (error) {
     await new Promise<void>((resolve) => provider.close(() => resolve()));
     await store.close();
@@ -163,7 +243,11 @@ export async function teachingGitHubFixture(
     effects,
     runtime,
     privateRecovery: { appId: 42, pem },
+    workerAuthorization: `Bearer ${workerToken}`,
     sessionCookie,
+    updateStaticRelease() {
+      staticRevision++;
+    },
     async login(context: BrowserContext, subject: string) {
       const token = sessionCookie(subject).slice("teaching-fixture=".length);
       await context.addCookies([

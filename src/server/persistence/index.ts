@@ -3,6 +3,7 @@ import { chmodSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { Pool, type PoolConfig } from "pg";
+import { z } from "zod";
 
 export const recordKinds = [
   "run",
@@ -32,6 +33,39 @@ export type Keyring = {
   current: string;
   keys: Readonly<Record<string, Uint8Array>>;
 };
+const backupKey = z.string().regex(/^[a-zA-Z0-9_.:@/-]{1,200}$/);
+export const encryptedBackupSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  records: z
+    .array(
+      z.strictObject({
+        tenant: backupKey,
+        kind: z.enum(recordKinds),
+        id: backupKey,
+        revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        value: z
+          .string()
+          .max(2_000_000)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+      }),
+    )
+    .max(10000),
+  claims: z
+    .array(
+      z.strictObject({
+        tenant: backupKey,
+        kind: z.enum(recordKinds),
+        id: backupKey,
+        generation: z
+          .number()
+          .int()
+          .positive()
+          .max(Number.MAX_SAFE_INTEGER - 1),
+      }),
+    )
+    .max(10000),
+});
+export type EncryptedBackup = z.infer<typeof encryptedBackupSchema>;
 export class PersistenceConflict extends Error {
   constructor() {
     super("Persistence revision or fencing conflict");
@@ -385,6 +419,96 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       await this.pool.query(migration);
     } catch {
       throw new Error("Persistence migration unavailable");
+    }
+  }
+  /** Offline maintenance only: locks both tables and refuses outstanding live leases. Never exports plaintext. */
+  async encryptedBackup(): Promise<EncryptedBackup> {
+    return this.maintenance(async (client) => {
+      const active = await client.query(
+        "SELECT 1 FROM ceremony_claims WHERE expires > (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint LIMIT 1",
+      );
+      if (active.rowCount) throw new Error();
+      const size = await client.query(
+        "SELECT COUNT(*)::int AS count, COALESCE(SUM(octet_length(value)),0)::bigint AS bytes FROM ceremony_records",
+      );
+      if (size.rows[0].count > 10000 || Number(size.rows[0].bytes) > 16_000_000)
+        throw new Error();
+      const records = (
+        await client.query(
+          "SELECT tenant,kind,id,revision,value FROM ceremony_records ORDER BY tenant,kind,id LIMIT 10001",
+        )
+      ).rows.map((r) => ({
+        tenant: r.tenant,
+        kind: r.kind,
+        id: r.id,
+        revision: Number(r.revision),
+        value: r.value.toString("base64"),
+      }));
+      const claims = (
+        await client.query(
+          "SELECT tenant,kind,id,generation FROM ceremony_claims ORDER BY tenant,kind,id LIMIT 10001",
+        )
+      ).rows.map((r) => ({
+        tenant: r.tenant,
+        kind: r.kind,
+        id: r.id,
+        generation: Number(r.generation),
+      }));
+      return encryptedBackupSchema.parse({ schemaVersion: 1, records, claims });
+    });
+  }
+  /** Fresh, offline database only. Authenticate every envelope before importing; invalidate every historical worker generation. */
+  async restoreEncryptedBackup(input: unknown): Promise<void> {
+    let backup: EncryptedBackup;
+    try {
+      if (JSON.stringify(input).length > 24_000_000) throw new Error();
+      backup = encryptedBackupSchema.parse(input);
+      for (const r of backup.records)
+        open(r, r.revision, Buffer.from(r.value, "base64"), this.keyring);
+    } catch {
+      throw new Error(
+        "Encrypted backup is invalid or unavailable with configured keys",
+      );
+    }
+    await this.maintenance(async (client) => {
+      const existing = await client.query(
+        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims LIMIT 1",
+      );
+      if (existing.rowCount) throw new Error();
+      for (const r of backup.records)
+        await client.query(
+          "INSERT INTO ceremony_records(tenant,kind,id,revision,value) VALUES($1,$2,$3,$4,$5)",
+          [r.tenant, r.kind, r.id, r.revision, Buffer.from(r.value, "base64")],
+        );
+      for (const c of backup.claims)
+        await client.query(
+          "INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,$4,'restored',0)",
+          [c.tenant, c.kind, c.id, c.generation + 1],
+        );
+    });
+  }
+  private async maintenance<T>(
+    work: (client: import("pg").PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect().catch(() => {
+      throw new Error("Persistence maintenance unavailable");
+    });
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query(
+        "LOCK TABLE ceremony_records, ceremony_claims IN ACCESS EXCLUSIVE MODE",
+      );
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch {
+      await client.query("ROLLBACK").catch(() => {});
+      throw new Error(
+        "Persistence maintenance refused; require valid keys, quiescent source or empty destination",
+      );
+    } finally {
+      client.release();
     }
   }
   async transaction<T>(work: (tx: AsyncTransaction) => Promise<T>): Promise<T> {
