@@ -25,6 +25,109 @@ test.beforeEach(({ page }) => {
   page.on("pageerror", (error) => list.push(error.message));
 });
 test.afterEach(({ page }) => expect(errors.get(page)).toEqual([]));
+
+for (const surface of ["document", "navigator"] as const)
+  test(`DevTools discovers and invokes the actual page tools through ${surface}.modelContext`, async ({
+    page,
+    context,
+  }) => {
+    if (surface === "navigator")
+      await context.addInitScript(() => {
+        // Exercise the older entry point using Chrome's real registry, not a tool-registration mock.
+        const native = document.modelContext;
+        Object.defineProperty(navigator, "modelContext", {
+          value: native,
+          configurable: true,
+        });
+        Object.defineProperty(document, "modelContext", {
+          value: undefined,
+          configurable: true,
+        });
+      });
+    const cdp = await context.newCDPSession(page);
+    const registered = new Map<string, { name: string; frameId: string }>();
+    const responses: {
+      invocationId: string;
+      status: string;
+      output?: unknown;
+    }[] = [];
+    cdp.on("WebMCP.toolsAdded", ({ tools }) => {
+      for (const tool of tools) registered.set(tool.name, tool);
+    });
+    cdp.on("WebMCP.toolsRemoved", ({ tools }) => {
+      for (const tool of tools) registered.delete(tool.name);
+    });
+    cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
+    await cdp.send("WebMCP.enable");
+    await page.goto("/");
+    await expect.poll(() => registered.size).toBe(11);
+    // Opening DevTools after the page loaded must discover the existing tools too.
+    await cdp.send("WebMCP.disable");
+    registered.clear();
+    await cdp.send("WebMCP.enable");
+    await expect.poll(() => registered.size).toBe(11);
+    const tool = registered.get("ceremony_github_read")!;
+    expect(tool).toBeDefined();
+    const { invocationId } = await cdp.send("WebMCP.invokeTool", {
+      frameId: tool.frameId,
+      toolName: tool.name,
+      input: {},
+    });
+    await expect
+      .poll(
+        () =>
+          responses.find((response) => response.invocationId === invocationId)
+            ?.status,
+      )
+      .toBe("Completed");
+    const output = responses.find(
+      (response) => response.invocationId === invocationId,
+    )!.output;
+    expect(
+      typeof output === "string" ? JSON.parse(output) : output,
+    ).toMatchObject({ ok: true, connectorId: "github" });
+    await page.getByRole("button", { name: "Stripe API key" }).click();
+    await expect
+      .poll(() => [...registered.keys()].sort())
+      .toEqual(
+        [
+          "begin",
+          "cancel",
+          "claim",
+          "finish",
+          "navigate",
+          "read",
+          "request-human",
+          "request-input",
+          "retry",
+          "start",
+          "submit",
+        ]
+          .map((action) => `ceremony_stripe_${action}`)
+          .sort(),
+      );
+    await cdp.detach();
+  });
+
+test("unavailable browser support is visible instead of claiming WebMCP registration", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(document, "modelContext", {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "modelContext", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/");
+  await expect(
+    page.getByText(/WebMCP is unavailable in this browser/),
+  ).toBeVisible();
+});
 async function names(page: Page) {
   return page.evaluate(async () =>
     (await document.modelContext.getTools()).map((tool) => tool.name),
