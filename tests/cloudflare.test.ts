@@ -48,6 +48,10 @@ test("behavior: remote browser handoff uses a private cookie, isolates ownership
   });
   await service.request("alice", "run", "synthetic-cookie");
   await service.request("alice", "run", "synthetic-cookie");
+  await assert.rejects(
+    service.request("bob", "run", "other-cookie"),
+    /not found/,
+  );
   assert.equal(connects, 1);
   assert.deepEqual(commands, ["Cloudflare.getLiveView", "Cloudflare.handoff"]);
   const cookie = (

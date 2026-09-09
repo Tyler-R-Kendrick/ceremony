@@ -40,6 +40,8 @@ export class CloudflareHumanBrowser {
   async request(owner: string, id: string, cookie: string): Promise<void> {
     const key = `browser:${id}`;
     const existing = this.db.get(key, handoffSchema);
+    if (existing && existing.owner !== owner)
+      throw new CeremonyError("Browser handoff not found", 404);
     if (
       existing &&
       existing.owner === owner &&
