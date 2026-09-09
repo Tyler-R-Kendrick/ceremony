@@ -22,8 +22,8 @@ export async function cleanBuildOutputs(root, apply = false) {
       throw error;
     });
     if (!stat) continue;
-    if (stat.isSymbolicLink())
-      throw new Error("Symlinked build output refused");
+    if (!stat.isDirectory())
+      throw new Error("Unexpected build output kind refused");
     present.push(name);
   }
   if (apply)
@@ -54,7 +54,7 @@ if (
       );
   } catch {
     console.error(
-      "Cleanup refused or failed. Check the project root, output symlinks and permissions; state is never in scope.",
+      "Cleanup refused or failed. Check the project root, output types and permissions; state is never in scope.",
     );
     process.exitCode = 1;
   }

@@ -82,7 +82,7 @@ test("project cleanup previews by default and removes only rebuildable outputs w
   assert.match((await run("--apply")).stdout, /nothing/);
 });
 
-test("project cleanup refuses unknown arguments, another package, and symlinked outputs before removal", async (t) => {
+test("project cleanup refuses unknown arguments, another package, symlinks and non-directory outputs before removal", async (t) => {
   const { dir, run } = await fixture(t);
   const before = (await readdir(dir)).sort();
   await assert.rejects(run("--all"));
@@ -102,6 +102,13 @@ test("project cleanup refuses unknown arguments, another package, and symlinked 
       await readFile(join(dir, path, "retained.txt"), "utf8"),
       "fixture",
     );
+  await rm(join(dir, ".workflow-vitest"));
+  await writeFile(join(dir, ".workflow-vitest"), "unexpected-file");
+  await assert.rejects(run("--apply"));
+  assert.equal(
+    await readFile(join(dir, "dist", "retained.txt"), "utf8"),
+    "fixture",
+  );
 });
 
 test("project Node baseline and container CI agree without implicit credential environment forwarding", async () => {

@@ -5,7 +5,7 @@
 The repository root is the directory containing `package.json`. Use Node **24** (the `.nvmrc` and CI baseline) and npm. The library's existing supported engine range is unchanged; the development baseline is deliberately narrower.
 
 ```sh
-nvm use
+nvm install
 npm ci
 npm run setup:browsers
 npm run dev
@@ -51,7 +51,7 @@ npm run build
 npm run build:hosted
 ```
 
-Cleanup refuses unknown arguments and top-level symlinked output directories. It does not delete state, evidence, dependencies, branches or worktrees. Deleted build output is regenerated with the build commands; no cleanup command claims to reset provider grants or recover a lost vault key. Do not run it concurrently with a build, Workflow test or hosted server.
+Cleanup refuses unknown arguments, symlinked outputs and non-directory outputs before removing anything. It does not delete state, evidence, dependencies, branches or worktrees. Deleted build output is regenerated with the build commands; no cleanup command claims to reset provider grants or recover a lost vault key. Do not run it concurrently with a build, Workflow test or hosted server.
 
 ## Verification and troubleshooting
 

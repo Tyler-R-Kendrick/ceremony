@@ -13,7 +13,7 @@ npm run dev
 
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The separate local protocol fixture uses **4174**. Origins are exact: do not substitute `localhost`. Startup creates an encrypted local vault under `.ceremony/`; never delete its key independently of its database or use it as production identity.
 
-[Development setup](docs/development.md) covers the devcontainer, browser dependencies, configuration and safe cleanup. [.env.example](.env.example) documents configuration names; the app does not automatically load `.env`. Native **Environment** editing keeps values private and session-scoped across connectors.
+[Development setup](docs/development.md) covers the devcontainer, browser dependencies, configuration and safe cleanup. The repository's [.env.example](https://github.com/Tyler-R-Kendrick/ceremony/blob/main/.env.example) documents configuration names; the app does not automatically load `.env`. Native **Environment** editing keeps values private and session-scoped across connectors.
 
 ## Connect, teach, and reuse
 
