@@ -32,6 +32,8 @@ SPEC-11 additionally verifies that the agent requirements projection excludes pr
 
 ## Change procedure
 
+The default Stryker scope and CI matrix include `src/core/connector-contracts.ts` in addition to the existing critical modules. Structural drift tests supplement, but do not substitute for, explicit semantic and privacy assertions.
+
 1. Change the owning runtime schema and implementation together; retain legacy behavior or document an intentional migration.
 2. Add positive and negative conformance cases, including changed privacy/authority boundaries.
 3. Generate schemas with `npm run specs:generate`; inspect differences. Never weaken constraints to accept an unsupported protocol or model output.
