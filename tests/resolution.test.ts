@@ -182,4 +182,31 @@ test("manifest-only client entry advances preparation with hooks and delegates o
   await human.initialize();
   assert.deepEqual(calls, ["resolve"]);
   human.dispose();
+  calls.length = 0;
+  const pending = Promise.withResolvers<CeremonySnapshot>();
+  const started = Promise.withResolvers<void>();
+  const abort = new AbortController();
+  const cancelled = createCeremonyClient({
+    manifest,
+    delegation: "agent",
+    transport: {
+      ...transport,
+      connect: async () => {
+        started.resolve();
+        return pending.promise;
+      },
+    },
+  });
+  const execution = cancelled.execute(
+    { action: "start" },
+    "webmcp",
+    abort.signal,
+  );
+  await started.promise;
+  abort.abort();
+  pending.resolve(snapshot);
+  await assert.rejects(execution, /abort/i);
+  assert.deepEqual(calls, []);
+  assert.equal(cancelled.getState().snapshot, undefined);
+  cancelled.dispose();
 });
