@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import {
   actionsFor,
+  browserModelContext,
   defaultTemplate,
   fieldsFor,
   flowKinds,
@@ -573,7 +574,11 @@ function App() {
                                 "Choose a method"}
                             </dd>
                             <dt>Execution</dt>
-                            <dd>UI and WebMCP share the same actions</dd>
+                            <dd>
+                              {browserModelContext()
+                                ? "UI and WebMCP share the same actions"
+                                : "WebMCP is unavailable in this browser. Enable WebMCP in Chrome and reload; the UI remains available."}
+                            </dd>
                           </dl>
                           <h3>Requested permissions</h3>
                           {model.snapshot ? (

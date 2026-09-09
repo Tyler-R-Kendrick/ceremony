@@ -30,20 +30,24 @@ export interface CeremonyTool {
     consequentialHint: boolean;
     untrustedContentHint: boolean;
   };
-  execute(input: unknown, options: { signal: AbortSignal }): Promise<unknown>;
+  execute(input: unknown, options?: { signal: AbortSignal }): Promise<unknown>;
 }
-/** Current experimental document.modelContext registration surface. */
+/** Native registration surface; older Chrome versions expose it on navigator. */
 export interface CeremonyModelContext {
   registerTool(
     tool: CeremonyTool,
     options: { signal: AbortSignal },
-  ): Promise<void>;
+  ): Promise<void> | void;
 }
 export function browserModelContext(): CeremonyModelContext | undefined {
   return typeof document === "undefined"
     ? undefined
-    : (document as Document & { modelContext?: CeremonyModelContext })
-        .modelContext;
+    : ((document as Document & { modelContext?: CeremonyModelContext })
+        .modelContext ??
+        (typeof navigator === "undefined"
+          ? undefined
+          : (navigator as Navigator & { modelContext?: CeremonyModelContext })
+              .modelContext));
 }
 export function toolState(
   manifest: ConnectorManifest,
@@ -149,7 +153,7 @@ export async function registerCeremonyTools(
           consequentialHint: action !== "read",
           untrustedContentHint: true,
         },
-        execute: async (input, options) => {
+        execute: async (input, options = { signal }) => {
           try {
             if (
               !input ||

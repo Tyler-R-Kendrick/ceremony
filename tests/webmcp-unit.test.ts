@@ -9,6 +9,28 @@ import {
 import { actionNames, type CeremonySnapshot } from "../src/core/schema.js";
 import { manifests } from "../examples/manifests.js";
 
+test("browser discovery supports the navigator API and prefers the current document API", (t) => {
+  const legacy = { registerTool: async () => {} };
+  const current = { registerTool: async () => {} };
+  for (const [target, name, value] of [
+    [globalThis, "document", {}],
+    [globalThis.navigator, "modelContext", legacy],
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, name);
+    Object.defineProperty(target, name, { configurable: true, value });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(target, name, descriptor);
+      else Reflect.deleteProperty(target, name);
+    });
+  }
+  assert.equal(browserModelContext(), legacy);
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: { modelContext: current },
+  });
+  assert.equal(browserModelContext(), current);
+});
+
 test("atomic: WebMCP registration rejects invalid prefixes and stops when unmounted", async () => {
   assert.equal(browserModelContext(), undefined);
   const abort = new AbortController();
@@ -88,6 +110,8 @@ test("behavior: registered tools execute declared actions and reject secret or u
       assert.equal(Reflect.get(Object(result), "ok"), false);
     }
     await tool.execute({}, { signal });
+    assert.equal(calls.at(-1), action);
+    await tool.execute({}); // Older native callers omit execution options.
     assert.equal(calls.at(-1), action);
   }
 });
