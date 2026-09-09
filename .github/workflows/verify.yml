@@ -27,6 +27,7 @@ jobs:
             artifacts/verification/
             artifacts/bundle/size.json
             artifacts/browser/results.json
+            artifacts/workflow/results.json
   mutation:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

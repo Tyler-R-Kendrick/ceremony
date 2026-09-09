@@ -52,3 +52,4 @@ src/plugins/impeccable-live.client.ts
 .output/
 .nitro/
 .workflow-data/
+.workflow-vitest/

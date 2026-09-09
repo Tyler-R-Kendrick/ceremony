@@ -10,6 +10,7 @@ test.use({
 });
 async function tabTo(page: Page, control: Locator) {
   await expect(control).toBeVisible();
+  await expect(control).toBeEnabled();
   for (let count = 0; count < 30; count++) {
     if (await control.evaluate((element) => element === document.activeElement))
       return;
@@ -17,6 +18,21 @@ async function tabTo(page: Page, control: Locator) {
   }
   await expect(control).toBeFocused();
 }
+
+test("AC-44: keyboard traversal waits for an asynchronous disabled control", async ({
+  page,
+}) => {
+  await page.setContent("<button disabled>Ready after work</button>");
+  const control = page.getByRole("button", { name: "Ready after work" });
+  await expect(control).toBeDisabled();
+  await page.evaluate(() => {
+    setTimeout(() => {
+      document.querySelector("button")!.disabled = false;
+    }, 150);
+  });
+  await tabTo(page, control);
+  await expect(control).toBeFocused();
+});
 
 test("AC-44 AC-45: keyboard teaching controls, reduced motion, and expanded mobile text stay accessible", async ({
   page,
@@ -75,6 +91,7 @@ test("AC-44 AC-45: keyboard teaching controls, reduced motion, and expanded mobi
     await expect(resume).toBeVisible();
     await tabTo(page, resume);
     await page.keyboard.press("Enter");
+    await expect(pause).toBeVisible();
     const stop = page.getByRole("button", {
       name: "Stop teaching and review",
       exact: true,

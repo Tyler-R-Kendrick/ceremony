@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import { start } from "workflow/api";
-import { waitForHook } from "@workflow/vitest";
 import { ceremonyAgentWorkflow } from "../../src/server/agent/workflow.js";
 import { createHostedRuntime } from "../../src/server/hosted/runtime.js";
 import { postgresFixture } from "../fixtures/postgres.js";
@@ -9,6 +8,96 @@ import { once } from "node:events";
 import { randomBytes } from "node:crypto";
 import type { ActorContext } from "../../src/core/operation-contracts.js";
 import { dispatchAgentWakes } from "../../src/server/agent/workflow-api.js";
+import { fork, type ChildProcess } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+async function restartWorker(dataDir: string) {
+  const child = fork(
+    new URL("../fixtures/workflow-restart-worker.mjs", import.meta.url),
+    [],
+    {
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      env: {
+        ...process.env,
+        CEREMONY_RESTART_DATA: dataDir,
+        CEREMONY_RESTART_BUNDLES: resolve(".workflow-vitest"),
+      },
+    },
+  );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (success: boolean) => {
+        clearTimeout(timer);
+        child.off("message", ready);
+        child.off("exit", failed);
+        child.off("error", failed);
+        if (success) resolve();
+        else reject(new Error("Workflow worker startup failed"));
+      };
+      const ready = (message: unknown) =>
+        finish(
+          !!message &&
+            typeof message === "object" &&
+            Reflect.get(message, "ready") === true,
+        );
+      const failed = () => finish(false);
+      const timer = setTimeout(failed, 10000);
+      child.once("message", ready);
+      child.once("exit", failed);
+      child.once("error", failed);
+    });
+  } catch {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      const stopped = once(child, "exit");
+      child.kill("SIGKILL");
+      await stopped;
+    }
+    throw new Error("Workflow worker startup failed");
+  }
+  let sequence = 0;
+  return {
+    child,
+    invoke(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+      const id = ++sequence;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.off("message", receive);
+          child.off("exit", exited);
+          reject(new Error("Worker operation timed out"));
+        }, 30000);
+        const exited = () => {
+          clearTimeout(timer);
+          child.off("message", receive);
+          reject(new Error("Workflow worker exited during operation"));
+        };
+        const receive = (message: unknown) => {
+          if (
+            !message ||
+            typeof message !== "object" ||
+            Reflect.get(message, "id") !== id
+          )
+            return;
+          clearTimeout(timer);
+          child.off("message", receive);
+          child.off("exit", exited);
+          if (Reflect.get(message, "errorCode"))
+            reject(new Error("Workflow worker operation failed"));
+          else resolve(Reflect.get(message, "result"));
+        };
+        child.on("message", receive);
+        child.once("exit", exited);
+        child.send({ ...input, id }, (error) => {
+          if (error) {
+            child.off("exit", exited);
+            exited();
+          }
+        });
+      });
+    },
+  };
+}
 
 test("AGT Workflow compiled local carrier fails closed without configured hosted authority", async () => {
   const run = await start(ceremonyAgentWorkflow, [
@@ -18,7 +107,7 @@ test("AGT Workflow compiled local carrier fails closed without configured hosted
   expect(await run.returnValue).toBe("unavailable");
 });
 
-test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreSQL and resumes stopped without inference", async () => {
+test("AGT AC-34 actual Workflow worker SIGKILL and replacement resumes persisted human wait without replaying inference", async () => {
   const pg = await postgresFixture();
   let origin = "",
     calls = 0;
@@ -38,6 +127,9 @@ test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreS
         /* consume bounded synthetic SDK request */
       }
       calls++;
+      // Real transport latency intentionally exceeds Vitest's default 1s poll
+      // budget. The domain-state assertion must still wait for durable commit.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       return res.end(
         JSON.stringify({
           id: "fixture",
@@ -94,6 +186,8 @@ test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreS
   );
   Object.assign(process.env, config);
   const runtime = await createHostedRuntime(config);
+  const dataDir = await mkdtemp(join(tmpdir(), "ceremony-workflow-restart-"));
+  const workers: ChildProcess[] = [];
   try {
     const actor: ActorContext = {
       tenantId: "tenant",
@@ -104,16 +198,42 @@ test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreS
     };
     const connection = await runtime.connect(actor, "github");
     const session = await runtime.delegate(actor, connection.id);
-    const run = await start(ceremonyAgentWorkflow, [connection.id, session]);
-    await waitForHook(run, { token: `ceremony-agent:${connection.id}` });
+    const first = await restartWorker(dataDir);
+    workers.push(first.child);
+    const { workflowRunId } = await first.invoke({
+      action: "start",
+      workflowId: Reflect.get(ceremonyAgentWorkflow, "workflowId"),
+      runId: connection.id,
+      sessionId: session,
+    });
     // Hook is established before the turn; wait for its authoritative status commit.
     await expect
       .poll(
         async () =>
           (await runtime.commands.snapshot(actor, connection.id)).nodes[0]
             ?.state,
+        { timeout: 20000, interval: 100 },
       )
       .toBe("awaiting-human");
+    expect(calls).toBe(1);
+    await expect
+      .poll(
+        async () =>
+          (await first.invoke({ action: "checkpoint", workflowRunId }))
+            .completedSteps,
+        { timeout: 20000, interval: 100 },
+      )
+      .toBe(1);
+    const exit = once(first.child, "exit");
+    first.child.kill("SIGKILL");
+    expect((await exit)[1]).toBe("SIGKILL");
+    const second = await restartWorker(dataDir);
+    workers.push(second.child);
+    expect(second.child.pid).not.toBe(first.child.pid);
+    expect(
+      (await second.invoke({ action: "checkpoint", workflowRunId }))
+        .completedSteps,
+    ).toBe(1);
     expect(calls).toBe(1);
     await runtime.agent.stop(actor, connection.id);
     const wakeKey = {
@@ -133,7 +253,17 @@ test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreS
         null,
       ),
     );
-    await dispatchAgentWakes(runtime, actor.tenantId);
+    let returnValue: unknown;
+    await dispatchAgentWakes(runtime, actor.tenantId, async () => {
+      returnValue = (
+        await second.invoke({
+          action: "resume",
+          runId: connection.id,
+          workflowRunId,
+        })
+      ).value;
+      return true;
+    });
     expect(
       (
         await runtime.store.transaction((tx) =>
@@ -141,12 +271,36 @@ test("AGT AC-34 Workflow waits on actual GitHub preparation with shared PostgreS
         )
       )?.value.status,
     ).toBe("delivered");
-    expect(await run.returnValue).toBe("stopped");
+    expect(returnValue).toBe("stopped");
+    expect(
+      (await second.invoke({ action: "checkpoint", workflowRunId }))
+        .completedSteps,
+    ).toBe(2);
     expect(calls).toBe(1);
     expect((await runtime.commands.snapshot(actor, connection.id)).status).toBe(
       "active",
     );
+    const historyFiles = await readdir(dataDir, { recursive: true });
+    expect(historyFiles.some((file) => file.endsWith(".json"))).toBe(true);
+    for (const file of historyFiles.filter((file) =>
+      /\.(json|bin)$/.test(file),
+    )) {
+      const content = await readFile(join(dataDir, file));
+      expect(content.includes(Buffer.from(config.CEREMONY_VAULT_KEY))).toBe(
+        false,
+      );
+      expect(content.includes(Buffer.from(config.CEREMONY_DATABASE_URL))).toBe(
+        false,
+      );
+    }
   } finally {
+    for (const worker of workers)
+      if (worker.exitCode === null && worker.signalCode === null) {
+        const stopped = once(worker, "exit");
+        worker.kill("SIGKILL");
+        await stopped;
+      }
+    await rm(dataDir, { recursive: true, force: true });
     await runtime.store.close();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
