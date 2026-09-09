@@ -1,0 +1,40 @@
+name: Devcontainer
+on:
+  pull_request:
+    paths:
+      - .devcontainer/**
+      - .github/workflows/devcontainer.yml
+      - .nvmrc
+      - package.json
+      - package-lock.json
+      - scripts/clean.mjs
+      - tests/project-setup.test.ts
+  push:
+    branches: [main]
+    paths:
+      - .devcontainer/**
+      - .github/workflows/devcontainer.yml
+      - .nvmrc
+      - package.json
+      - package-lock.json
+      - scripts/clean.mjs
+      - tests/project-setup.test.ts
+permissions:
+  contents: read
+jobs:
+  devcontainer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
+        with:
+          push: never
+          inheritEnv: false
+          runCmd: |
+            set -eu
+            node --version
+            npm run check
+            npm run test:integration
+            npm run test:workflow
+            npm run build

@@ -10,9 +10,6 @@ playwright-report/
 *.pem
 *.key
 artifacts/
-.impeccable/config.local.json
-.impeccable/hook.cache.json
-.impeccable/live/sessions/
 
 # impeccable-live-ignore-start
 .impeccable/hook.cache.json

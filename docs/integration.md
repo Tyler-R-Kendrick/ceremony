@@ -2,7 +2,7 @@
 
 The package separates execution from presentation. Use the React/OpenUI view, replace it with your UI library, or use the same client from another framework. Nothing imports the demo shell or its global CSS.
 
-For the default session-aware flow, render `<Ceremony manifest={connector} />`. No method selection is required. The framework-neutral equivalent is `createCeremonyClient({ manifest: connector })` followed by `initialize()`. See [entry policy and delegation](../README.md#library-interfaces). Hosts register trusted adapters once; the client does not need provider configuration or secrets.
+For the default session-aware flow, render `<Ceremony manifest={connector} />`. No method selection is required. The framework-neutral equivalent is `createCeremonyClient({ manifest: connector })` followed by `initialize()`. See [entry policy and delegation](reference.md#library-interfaces). Hosts register trusted adapters once; the client does not need provider configuration or secrets.
 
 ## Install a local artifact
 

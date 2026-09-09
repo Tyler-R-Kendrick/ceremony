@@ -1,0 +1,24 @@
+# Documentation
+
+## Use and embed
+
+- [Teaching and reusable recipes](ceremony-teaching.md): whole/partial demonstrations, review, consent and composition.
+- [Embedding](integration.md): framework-neutral and React interfaces, host-owned styles/navigation and consumer examples.
+- [API and protocol reference](reference.md): detailed library examples, WebMCP hooks and presentation contracts.
+- [Live authentication](live-auth.md), [service support](service-examples.md), and [auth catalog](auth-catalog.md): real adapters versus simulations and unsupported profiles.
+- [Workflow studio](workflow-studio.md): reviewed recipes and existing Arazzo/presentation compatibility.
+
+## Develop and operate
+
+- [Development setup](development.md) and [contributing](../CONTRIBUTING.md): root layout, Node, devcontainer, local state and safe cleanup.
+- [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
+- [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
+- [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
+- [Host identity](host-identity.md), [production deployment](production-deployment.md), and [persistence migration](persistence-migration.md).
+- [Threat model](ceremony-teaching-threat-model.md): protected sources, prohibited sinks and residual risks.
+
+## Evidence and history
+
+[Implementation evidence](implementation-evidence/ceremony-teaching/README.md) contains dated, commit-bound results, including retained failed attempts. [The final implementation checkpoint](implementation-evidence/ceremony-teaching/final-local/README.md) is not a rolling certificate for future commits. The [orchestration design](ceremony-orchestration-design.md) and [Impeccable audit](impeccable-audit.md) retain earlier decisions and observations; current architecture and support documentation govern new work.
+
+Local protocol tests, browser tests, installed-PWA device checks and real-provider/deployed-platform certification are different evidence classes. Missing production configuration or external certification never means PASS.
