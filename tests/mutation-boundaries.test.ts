@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
+  actionsFor,
   defaultTemplate,
   fieldsFor,
   flowKinds,
@@ -15,6 +16,7 @@ import {
   snapshotSchema,
   steps,
   templateSchema,
+  validateInput,
   type AuthMethod,
 } from "../src/core/schema.js";
 import {
@@ -382,6 +384,18 @@ test("atomic: vault permissions, delivery limits and private-reference expiry ar
   });
   assert.equal(await db.deliverEvents(async () => {}, 1), 1);
   assert.equal(db.keys("event:").length, 1);
+  db.put("event:third", {
+    ...event,
+    eventId: "00000000-0000-4000-8000-000000000003",
+  });
+  assert.equal(
+    await db.deliverEvents(async (delivered) => {
+      assert.ok(delivered);
+      // A previously listed event can disappear before its turn (another delivery worker).
+      for (const key of db.keys("event:")) db.delete(key);
+    }),
+    1,
+  );
   let now = 1000;
   t.mock.method(Date, "now", () => now);
   const broker = new PrivateCredentialBroker(db);
@@ -443,4 +457,17 @@ test("atomic: closing a vault releases its database handle", () => {
   const db = new CeremonyDatabase(":memory:", randomBytes(32));
   db.close();
   assert.throws(() => db.keys("event:"), /not open/);
+});
+
+test("atomic: JavaScript callers get no actions for unknown states and empty optional nullish input", () => {
+  // Deliberately exercise runtime fallback paths outside the TypeScript input domain.
+  assert.deepEqual(Reflect.apply(actionsFor, undefined, ["unknown"]), []);
+  for (const value of [undefined, null])
+    assert.deepEqual(
+      Reflect.apply(validateInput, undefined, [
+        [{ ...field, required: false }],
+        { value },
+      ]),
+      { value: "" },
+    );
 });

@@ -27,7 +27,11 @@ for (const [name, value, valid] of [
 ] as const)
   test(`atomic: required input ${name}`, () => {
     if (valid) assert.deepEqual(validateInput([text], { value }), { value });
-    else assert.throws(() => validateInput([text], { value }));
+    else
+      assert.throws(
+        () => validateInput([text], { value }),
+        /Value is required/,
+      );
   });
 test("atomic: optional absent input becomes empty, inherited values are not accepted", () => {
   assert.deepEqual(validateInput([{ ...text, required: false }], {}), {
@@ -38,10 +42,12 @@ test("atomic: optional absent input becomes empty, inherited values are not acce
   );
 });
 test("atomic: email validation is independent of requiredness", () => {
-  assert.throws(() =>
-    validateInput([{ ...text, type: "email", required: false }], {
-      value: "invalid",
-    }),
+  assert.throws(
+    () =>
+      validateInput([{ ...text, type: "email", required: false }], {
+        value: "invalid",
+      }),
+    /Enter a valid email address/,
   );
   assert.deepEqual(
     validateInput([{ ...text, type: "email" }], {
