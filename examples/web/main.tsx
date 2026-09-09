@@ -442,9 +442,7 @@ function App() {
       <main>
         {loadError && <p role="alert">{loadError}</p>}
         {!config && !loadError && <p role="status">Loading your workspace…</p>}
-        {config && tab === "environment" && (
-          <Environment manifests={config.manifests} />
-        )}
+        {config && tab === "environment" && <Environment />}
         {config && tab === "studio" && (
           <Studio
             config={config}

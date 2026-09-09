@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 
-test("Environment imports, edits and removes connector-scoped private values and blocks unsafe writes", async ({
+test("Environment shares private session values across connectors and blocks unsafe writes", async ({
   page,
   context,
 }) => {
@@ -16,16 +16,14 @@ test("Environment imports, edits and removes connector-scoped private values and
     buffer: Buffer.from("GITHUB_APP_ID=42\nPRIVATE_TEST=sentinel-env-browser"),
   });
   await expect(page.getByRole("status")).toContainText("Environment saved");
-  const metadata = await (
-    await page.request.get("/api/environment/github")
-  ).json();
+  const metadata = await (await page.request.get("/api/environment")).json();
   expect(metadata.names).toContain("PRIVATE_TEST");
   expect(JSON.stringify(metadata)).not.toContain("sentinel-env-browser");
   await page.getByLabel("Variable name", { exact: true }).fill("PRIVATE_TEST");
   await page
     .getByLabel("New value", { exact: true })
     .fill("replacement-private");
-  await page.route("**/api/environment/github", (route) =>
+  await page.route("**/api/environment", (route) =>
     route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
   );
   await page
@@ -42,17 +40,16 @@ test("Environment imports, edits and removes connector-scoped private values and
     "type",
     "password",
   );
-  await page.unroute("**/api/environment/github");
+  await page.unroute("**/api/environment");
   await page
     .getByRole("button", { name: "Save variable", exact: true })
     .click();
   await expect(page.getByLabel("New value", { exact: true })).toHaveValue("");
   await expect(page.getByRole("status")).toContainText("Environment saved");
-  await page.getByLabel("Available to connector").selectOption("stripe");
-  await expect(
-    page.getByText("No variables saved. Environment setup is optional."),
-  ).toBeVisible();
-  await page.getByLabel("Available to connector").selectOption("github");
+  await expect(page.getByLabel("Available to connector")).toHaveCount(0);
+  expect(
+    (await (await page.request.get("/api/environment/stripe")).json()).names,
+  ).toContain("PRIVATE_TEST");
   await expect(
     page.getByRole("button", { name: "Remove PRIVATE_TEST", exact: true }),
   ).toBeVisible();
@@ -80,7 +77,7 @@ test("Environment imports, edits and removes connector-scoped private values and
   ).toHaveCount(0);
   expect(
     (
-      await page.request.post("/api/environment/github", {
+      await page.request.post("/api/environment", {
         headers: { origin: "https://evil.example" },
         data: { revision: 0, values: { KEY: "bad" } },
       })
@@ -88,14 +85,11 @@ test("Environment imports, edits and removes connector-scoped private values and
   ).toBe(403);
   // Stored configuration is actually consulted by the live adapter: incomplete app setup blocks begin.
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Prepare integration", exact: true })
-    .click();
   await expect(
     page.getByText(/Complete all four GitHub App variables/),
   ).toBeVisible();
   await context.clearCookies();
   expect(
-    (await (await page.request.get("/api/environment/github")).json()).names,
+    (await (await page.request.get("/api/environment")).json()).names,
   ).toEqual([]);
 });

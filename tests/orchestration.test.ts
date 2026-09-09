@@ -136,6 +136,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
   let github = new GitHubAppCeremonies(db, {
     origin: "http://127.0.0.1:4173",
     fetch: fetcher,
+    requestHuman: async () => {},
   });
   const controller = () =>
     new CeremonyController(
@@ -153,8 +154,23 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     );
   let runtime = controller();
   let snapshot = runtime.start("alice", "github", "github-app");
+  assert.ok(snapshot.actions.includes("request-human"));
   assert.equal(snapshot.prerequisites?.[1]?.status, "blocked");
   assert.equal(runtime.start("alice", "github", "github-app").id, snapshot.id);
+  db.put(`github:${snapshot.id}`, {
+    owner: "alice",
+    phase: "prepare",
+    nonce: "legacy",
+    expiresAt: Date.now() + 600_000,
+  });
+  db.put(`instance:${snapshot.id}`, {
+    owner: "alice",
+    snapshot: { ...snapshot, step: "intro", actions: ["begin", "cancel"] },
+  });
+  runtime = controller();
+  snapshot = runtime.start("alice", "github", "github-app");
+  assert.equal(snapshot.step, "redirect");
+  assert.ok(snapshot.actions.includes("request-human"));
   await assert.rejects(
     runtime.act("alice", snapshot.id, {
       action: "finish",
@@ -162,10 +178,8 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     }),
   );
   assert.equal(calls.length, 0);
-  snapshot = await runtime.act("alice", snapshot.id, {
-    action: "begin",
-    revision: snapshot.revision,
-  });
+  assert.equal(snapshot.step, "redirect");
+  assert.equal(snapshot.prerequisites?.[0]?.status, "awaiting-human");
   const registration = github.destination("alice", snapshot.id);
   assert.equal(registration.kind, "manifest");
   assert.throws(() => github.destination("bob", snapshot.id));
@@ -216,7 +230,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
   await assert.rejects(runtime.callback("alice", snapshot.id, callback));
   // A second principal gets an independent app ceremony and cannot consume Alice's app configuration.
   const other = runtime.start("bob", "github", "github-app");
-  assert.equal(other.prerequisites?.[0]?.status, "ready");
+  assert.equal(other.prerequisites?.[0]?.status, "awaiting-human");
   assert.notEqual(other.id, snapshot.id);
   const shared = new GitHubAppCeremonies(db, {
     origin: "http://127.0.0.1:4173",
@@ -243,7 +257,10 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     instanceId: "environment-run",
     method: githubAppManifest.methods[0]!,
   });
-  await configuredAdapter.begin();
+  assert.equal(
+    configuredAdapter.initial?.().prerequisites?.[0]?.status,
+    "succeeded",
+  );
   assert.equal(
     configured.destination("environment-owner", "environment-run").kind,
     "installation",
@@ -260,10 +277,7 @@ test("GitHub registration gates installation/signing, resumes across restart, ve
     ),
     /does not match/,
   );
-  let recovery = await runtime.act("bob", other.id, {
-    action: "begin",
-    revision: other.revision,
-  });
+  let recovery = other;
   const recoveryNonce = new URL(
     github.destination("bob", other.id).url,
   ).searchParams.get("state")!;

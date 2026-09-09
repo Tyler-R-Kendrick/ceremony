@@ -71,7 +71,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         origin,
         ...options.live?.github,
         resolveApp: (owner) => {
-          const values = environment.read(owner, "github");
+          const values = environment.read(owner);
           const names = [
             "GITHUB_APP_ID",
             "GITHUB_APP_SLUG",
@@ -302,15 +302,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           liveAvailable: Boolean(liveController),
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
-      const environmentRoute = /^\/api\/environment\/([a-z0-9-]+)$/.exec(
+      const environmentRoute = /^\/api\/environment(?:\/([a-z0-9-]+))?$/.exec(
         url.pathname,
       );
       if (environmentRoute) {
         const connector = environmentRoute[1]!;
-        if (!manifests.some((item) => item.id === connector))
+        if (connector && !manifests.some((item) => item.id === connector))
           throw new CeremonyError("Unknown connector", 404);
         if (request.method === "GET")
-          return json(response, environment.describe(owner, connector));
+          return json(response, environment.describe(owner));
         if (request.method === "POST") {
           let input: unknown;
           try {
@@ -318,7 +318,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           } catch {
             throw new CeremonyError("Invalid environment upload", 400);
           }
-          return json(response, environment.update(owner, connector, input));
+          return json(response, environment.update(owner, input));
         }
         throw new CeremonyError("Method not allowed", 405);
       }
@@ -410,14 +410,22 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           return;
         }
         const destination = github.destination(humanOwner, id);
+        if (destination.kind === "installation") {
+          response.writeHead(303, {
+            location: destination.url,
+            "cache-control": "no-store",
+          });
+          response.end();
+          return;
+        }
+        const scriptNonce = randomUUID();
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
-          "content-security-policy":
-            "default-src 'none'; style-src 'unsafe-inline'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'",
+          "content-security-policy": `default-src 'none'; script-src 'nonce-${scriptNonce}'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'`,
         });
         response.end(
-          `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue with GitHub</title><style>body{font:1rem system-ui;color:#17212d;background:#f4f6f8;max-width:36rem;margin:8vh auto;padding:24px}button,a{display:inline-block;padding:12px 18px;background:#1749c7;color:white;border:0;border-radius:6px;font:inherit}p{line-height:1.6}</style><main><h1>${destination.kind === "manifest" ? "Prepare your GitHub App" : "Approve repository access"}</h1><p>${destination.kind === "manifest" ? "GitHub will ask you to review this app and its read-only repository permissions. App credentials are returned directly to this server. Next, choose the repositories it can access." : "Your app is registered. GitHub will ask you to choose its installation account and repositories. We’ll verify access before completing the ceremony."}</p>${destination.kind === "manifest" ? `<form method="post" action="${escapeHtml(destination.url)}"><input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(destination.manifest))}"><button>Review app on GitHub</button></form>` : `<a href="${escapeHtml(destination.url)}" rel="noreferrer">Choose repositories on GitHub</a>`}</main></html>`,
+          `<!doctype html><html lang="en"><meta charset="utf-8"><title>Continuing to GitHub</title><main><p role="status">Continuing to GitHub for app registration…</p><form method="post" action="${escapeHtml(destination.url)}"><input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(destination.manifest))}"><noscript><button>Continue to GitHub</button></noscript></form></main><script nonce="${scriptNonce}">document.querySelector('form').submit()</script></html>`,
         );
         return;
       }

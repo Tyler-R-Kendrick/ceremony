@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import type { ConnectorManifest } from "../../src/core/index.js";
 
 const metadataSchema = z.object({
   revision: z.number().int(),
   names: z.array(z.string()),
 });
-function Variables({ connector }: { connector: ConnectorManifest }) {
+function Variables() {
   const [metadata, setMetadata] = useState<z.infer<typeof metadataSchema>>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
-  const endpoint = `/api/environment/${connector.id}`;
+  const endpoint = "/api/environment";
   useEffect(() => {
     let current = true;
     void fetch(endpoint)
@@ -69,31 +68,21 @@ function Variables({ connector }: { connector: ConnectorManifest }) {
     }
   }
   return (
-    <section
-      className="environment-editor"
-      aria-label={`${connector.name} environment`}
-    >
-      <h2>{connector.name} variables</h2>
+    <section className="environment-editor" aria-label="Session environment">
+      <h2>Session variables</h2>
       <p>
         Import a .env file or save individual values. Matching names are
         replaced; saved values stay private.
       </p>
-      {connector.id === "github" ? (
-        <details>
-          <summary>Supported GitHub App variables</summary>
-          <p>
-            Live GitHub App setup reads <code>GITHUB_APP_ID</code>,{" "}
-            <code>GITHUB_APP_SLUG</code>, <code>GITHUB_APP_OWNER</code> and{" "}
-            <code>GITHUB_APP_PRIVATE_KEY</code>. Supply all four to reuse an
-            app. Otherwise leave them unset for guided registration.
-          </p>
-        </details>
-      ) : (
+      <details>
+        <summary>Supported GitHub App variables</summary>
         <p>
-          Stored for this connector’s server adapter. The current local
-          simulation does not use these values or connect to the real service.
+          Live GitHub App setup reads <code>GITHUB_APP_ID</code>,{" "}
+          <code>GITHUB_APP_SLUG</code>, <code>GITHUB_APP_OWNER</code> and{" "}
+          <code>GITHUB_APP_PRIVATE_KEY</code>. Supply all four to reuse an app.
+          Otherwise leave them unset for guided registration.
         </p>
-      )}
+      </details>
       <label className="environment-upload">
         Import .env file
         <input
@@ -190,33 +179,17 @@ function Variables({ connector }: { connector: ConnectorManifest }) {
     </section>
   );
 }
-export function Environment({ manifests }: { manifests: ConnectorManifest[] }) {
-  const [selected, setSelected] = useState(manifests[0]!.id);
-  const connector = manifests.find((item) => item.id === selected)!;
+export function Environment() {
   return (
     <div className="environment-page">
       <div className="page-intro">
         <h1>Environment</h1>
         <p>
-          Private configuration for your connector ceremonies. Encrypted for
-          this session; never added to the server’s global environment or
-          assistant tools.
+          Shared by all connectors in your session. Encrypted and private; never
+          added to the server’s global environment or assistant tools.
         </p>
       </div>
-      <label className="environment-scope">
-        Available to connector
-        <select
-          value={selected}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          {manifests.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Variables key={selected} connector={connector} />
+      <Variables />
     </div>
   );
 }
