@@ -681,9 +681,6 @@ fieldset label:last-child input {
   }
 }
 @media (max-width: 760px) {
-  .connect-grid[data-live] .connector-list {
-    order: 2;
-  }
   .app-shell {
     padding-inline: 18px;
   }

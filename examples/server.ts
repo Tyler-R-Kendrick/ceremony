@@ -17,6 +17,7 @@ import {
   GitHubAppCeremonies,
   githubAppManifest,
   githubWorkflows,
+  serviceRegistrations,
   type GitHubOptions,
   CloudflareHumanBrowser,
   Agent2Human,
@@ -39,6 +40,7 @@ export interface ReferenceOptions {
     databasePath: string;
     vaultKey: Uint8Array;
     github?: Omit<GitHubOptions, "origin">;
+    services?: Parameters<typeof serviceRegistrations>[2];
     cloudflare?: { accountId: string; apiToken: string };
     a2h?: A2HOptions;
   };
@@ -161,6 +163,11 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
               createAdapter: (context) => github.createAdapter(context),
               resume: (owner) => github.resume(owner),
             },
+            ...serviceRegistrations(
+              liveDatabase,
+              environment,
+              options.live?.services,
+            ),
           ],
           new Map(),
           Date.now,
@@ -299,7 +306,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && url.pathname === "/api/config")
         return json(response, {
           manifests: controller.manifests(),
-          liveManifests: [githubAppManifest],
+          liveManifests: liveController?.manifests() ?? [githubAppManifest],
           liveAvailable: Boolean(liveController),
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
@@ -569,7 +576,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && callback?.[1]) {
         const snapshot = await controller.callback(owner, callback[1], url);
         response.writeHead(303, {
-          location: `/?connector=${encodeURIComponent(snapshot.connectorId)}&ceremony=${snapshot.id}`,
+          location: `/?mode=test&connector=${encodeURIComponent(snapshot.connectorId)}&ceremony=${snapshot.id}`,
           "cache-control": "no-store",
         });
         return response.end();

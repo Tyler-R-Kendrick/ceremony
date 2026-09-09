@@ -7,12 +7,14 @@ test("live GitHub exposes blocking prerequisites and a real manifest scenario, w
   page,
   context,
 }) => {
-  await page.goto("/?mode=live&connector=github");
+  await page.goto("/");
   const vaultDownload = await page.request.get(
     `/@fs${process.cwd()}/.ceremony/vault.key`,
   );
   expect(vaultDownload.status()).toBe(403);
-  await expect(page.getByText("Live GitHub", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Provider-backed", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Auth documentation" }),
   ).toHaveAttribute(
@@ -182,7 +184,7 @@ test("GitHub registration continues through installation and reuses the session 
         });
       },
     );
-    await page.goto(`${origin}/?mode=live&connector=github`);
+    await page.goto(`${origin}/`);
     const popupPromise = page.waitForEvent("popup");
     await page.getByRole("link", { name: /Continue to provider/ }).click();
     const popup = await popupPromise;

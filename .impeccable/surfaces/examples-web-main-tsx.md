@@ -19,6 +19,22 @@ FORM: Request workbench, third grounded candidate, seed 8302fddc. Other grounded
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
+## Unified connector collection — 2026-09-09
+
+This current contract supersedes the separate-live-experience and executable-Studio descriptions below, which the user explicitly rejected.
+
+THESIS: One collection starts real end-to-end connector ceremonies. No separate real-GitHub button, live-mode switch, or second authentication desk.
+
+OWN-WORLD: Preserve the daylight workbench and native controls. This is an Operate workflow correction, not a new brand.
+
+STORY: Choose GitHub, Stripe or Supabase. Reuse session state; collect missing prerequisites inline; complete only after provider verification. GitHub registration blocks installation when absent and is skipped when available. Simulations exist only at the explicit developer-test URL, outside ordinary navigation.
+
+FIRST VIEWPORT: The service collection leads into the selected ceremony, on desktop and mobile. Ordered GitHub prerequisites explain the next human approval. Missing Supabase project configuration joins the sign-in form. Session assistance stays in a disclosure. Studio is presentation tooling only. Signature interaction: returning to a connector resumes its existing ceremony instead of starting setup again.
+
+FORM: User-specified correction to the established workbench, seed 8302fddc; code-led, no new visual-world decision or comp.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
 ## Approved extension — 2026-09-08
 
 ## Workflow studio extension — 2026-09-09

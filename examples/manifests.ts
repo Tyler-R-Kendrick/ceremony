@@ -149,7 +149,7 @@ export const connectorDetails: Record<
   stripe: {
     summary: "API key",
     documentationUrl: "https://docs.stripe.com/api/authentication",
-    note: "Production key permissions are managed in Stripe. This example only validates local test credentials; it never creates a charge.",
+    note: "Stripe verifies a secret or restricted key by reading balance. Grant Balance read permission; no charges or payments are created.",
   },
   jira: {
     summary: "HTTP Basic",
@@ -161,7 +161,7 @@ export const connectorDetails: Record<
     summary: "Password sign-in",
     documentationUrl:
       "https://supabase.com/docs/reference/javascript/auth-signinwithpassword",
-    note: "Production sign-in needs a project URL and publishable key. Access follows that project's user and row-level security policies, not invented OAuth scopes.",
+    note: "Missing project URL and publishable key are collected inline and reused in your session after successful sign-in. Access follows the project's user and row-level security policies.",
   },
   neon: {
     summary: "Anonymous → claim",

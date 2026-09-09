@@ -59,7 +59,7 @@ for (const surface of ["document", "navigator"] as const)
     });
     cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
     await cdp.send("WebMCP.enable");
-    await page.goto("/");
+    await page.goto("/?mode=test");
     await expect.poll(() => registered.size).toBe(11);
     // Opening DevTools after the page loaded must discover the existing tools too.
     await cdp.send("WebMCP.disable");
@@ -123,7 +123,7 @@ test("unavailable browser support is visible instead of claiming WebMCP registra
       configurable: true,
     });
   });
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect(
     page.getByText(/WebMCP is unavailable in this browser/),
   ).toBeVisible();
@@ -152,7 +152,7 @@ async function call(
   return result ? JSON.parse(result) : null;
 }
 async function mount(page: Page, connectorId = "github") {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect.poll(() => names(page)).toContain("ceremony_github_read");
   await page.evaluate(
     async ({ entry, connectorId }) => {
@@ -304,7 +304,7 @@ test("native anonymous finish/claim/cancel and device navigation preserve provid
 test("native OAuth navigation resumes its instance after provider callback", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect.poll(() => names(page)).toContain("ceremony_github_navigate");
   await call(page, "start", { methodId: "oauth" }, "ceremony_github");
   expect((await call(page, "begin", {}, "ceremony_github")).step).toBe(
@@ -329,7 +329,7 @@ test("native OAuth navigation resumes its instance after provider callback", asy
 test("WebMCP requests a private human collector without accepting a secret argument", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?mode=test");
   await expect
     .poll(() => names(page))
     .toContain("ceremony_github_request-input");
