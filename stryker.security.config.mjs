@@ -2,18 +2,19 @@ import { readFileSync } from "node:fs";
 const base = JSON.parse(
   readFileSync(new URL("./stryker.config.json", import.meta.url), "utf8"),
 );
-function guard(file, marker, lines = 1) {
+function guard(file, marker, lines = 1, offset = 0) {
   const source = readFileSync(file, "utf8").split("\n");
   const matches = source.flatMap((line, index) =>
     line.includes(marker) ? [index + 1] : [],
   );
   if (matches.length !== 1)
     throw new Error("Security mutation guard must resolve exactly once");
-  return `${file}:${matches[0]}-${matches[0] + lines}`;
+  return `${file}:${matches[0] + offset}-${matches[0] + offset + lines}`;
 }
 export default {
   ...base,
   mutate: [
+    guard("src/core/schema.ts", 'field.type === "password" ||', 5, -2),
     guard(
       "src/server/commands.ts",
       "if (!run || run.value.subjectId !== actor.subjectId)",
@@ -34,6 +35,7 @@ export default {
     ...base.tap,
     testFiles: [
       "tests/commands.test.ts",
+      "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
       "tests/security/*.test.ts",
     ],

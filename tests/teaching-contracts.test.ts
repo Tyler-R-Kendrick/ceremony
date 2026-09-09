@@ -177,6 +177,32 @@ test("TYP-01 AC-22 legacy text is unclassified and credentials cannot downgrade"
       }).success,
       false,
     );
+  for (const credential of [
+    { name: "customSecret", type: "password" },
+    { name: "token", type: "text" },
+    { name: "password", type: "email" },
+  ]) {
+    const field = { ...credential, label: "Protected", required: true };
+    assert.equal(
+      fieldSchema.safeParse({ ...field, classification: "public" }).success,
+      false,
+    );
+    assert.equal(
+      fieldSchema.safeParse({ ...field, classification: "secret" }).success,
+      true,
+    );
+    assert.equal(fieldSchema.safeParse(field).success, true);
+  }
+  assert.equal(
+    fieldSchema.safeParse({
+      name: "region",
+      type: "text",
+      label: "Region",
+      required: true,
+      classification: "public",
+    }).success,
+    true,
+  );
 });
 
 test("TYP-02 AC-21 destination projections exclude canaries by construction", () => {
