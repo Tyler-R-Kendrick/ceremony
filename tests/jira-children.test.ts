@@ -399,6 +399,8 @@ test("Jira designated owner contributes shared setup through mounted routes with
   f.actor.capabilities.push("author");
   let actor = f.actor;
   let designatedOwner = "integration-owner";
+  const deliveries: string[] = [];
+  let failDelivery = false;
   const runtime = createGitHubRuntime({
     store: f.store,
     identity: { authenticate: async () => actor },
@@ -414,6 +416,18 @@ test("Jira designated owner contributes shared setup through mounted routes with
         siteUrl: f.config.siteUrl,
       }),
       setupOwner: async () => designatedOwner,
+      deliverOwnerSetup: async ({ owner, run, assignmentId }) => {
+        if (failDelivery) throw new Error("lost");
+        assert.equal(owner, designatedOwner);
+        assert.equal(run.provider, "jira");
+        assert.equal(
+          JSON.stringify({ owner, run, assignmentId }).includes(
+            f.config.clientSecret,
+          ),
+          false,
+        );
+        deliveries.push(assignmentId);
+      },
       fetch: f.fetch,
     },
   });
@@ -447,6 +461,8 @@ test("Jira designated owner contributes shared setup through mounted routes with
   const assigned = await request(assignPath, { revision: run.revision });
   assert.equal(assigned.status, 200);
   const assignment = await assigned.json();
+  assert.deepEqual(deliveries, [assignment.id]);
+  failDelivery = true;
   assert.deepEqual(await (await request(assignPath)).json(), {
     state: "pending",
     revision: run.revision,
@@ -456,6 +472,8 @@ test("Jira designated owner contributes shared setup through mounted routes with
     await (await request(assignPath, { revision: run.revision })).json(),
     assignment,
   );
+  assert.deepEqual(deliveries, [assignment.id]);
+  failDelivery = false;
   assert.equal(
     (await request(assignPath, { revision: run.revision, owner: "injected" }))
       .status,

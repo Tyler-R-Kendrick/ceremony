@@ -94,6 +94,12 @@ export interface GitHubRuntimeOptions {
       requester: ActorContext,
       target: string,
     ): Promise<string | undefined>;
+    /** Optional A2H/host notification. Never a substitute for the owner collector. */
+    deliverOwnerSetup?(input: {
+      owner: string;
+      run: RunRecord;
+      assignmentId: string;
+    }): Promise<void>;
   };
   authorize(
     actor: ActorContext,
@@ -232,6 +238,9 @@ export function createGitHubRuntime(
           if (!(await authorize(actor, run, "jira.prepare-app")))
             throw new AuthorizationError("denied");
         },
+        ...(options.jira.deliverOwnerSetup
+          ? { deliver: options.jira.deliverOwnerSetup }
+          : {}),
       })
     : undefined;
   const jira = options.jira

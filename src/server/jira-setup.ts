@@ -39,6 +39,12 @@ export type JiraSetupPolicy = {
   owner(requester: ActorContext, target: string): Promise<string | undefined>;
   authorize(requester: ActorContext, run: RunRecord): Promise<void>;
   scopes: JiraOAuthConfiguration["scopes"];
+  /** Optional owner notification. Failure must not revoke the assignment. */
+  deliver?(input: {
+    owner: string;
+    run: RunRecord;
+    assignmentId: string;
+  }): Promise<void>;
 };
 
 /** Protected shared app configuration only: never shares user tokens or marks access verified. */
@@ -129,7 +135,7 @@ export class JiraSetupAssignments {
     if (!node || run.revision !== revision)
       throw new AuthorizationError("denied");
     const id = randomUUID();
-    return this.store.transaction(async (tx) => {
+    const result = await this.store.transaction(async (tx) => {
       const assignment = assignmentSchema.parse({
         requester,
         owner,
@@ -176,6 +182,18 @@ export class JiraSetupAssignments {
       await tx.put(indexKey, { id }, index?.revision ?? null);
       return { id, revision: saved, state: assignment.state };
     });
+    if (result.state === "pending") {
+      try {
+        await this.policy.deliver?.({
+          owner,
+          run: run.value,
+          assignmentId: result.id,
+        });
+      } catch {
+        // Uncertain notification cannot revoke the assignment or imply owner action.
+      }
+    }
+    return result;
   }
   private async authorizedOwner(owner: ActorContext, id: string) {
     actorContextSchema.parse(owner);
