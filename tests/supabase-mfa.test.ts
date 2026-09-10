@@ -157,6 +157,11 @@ test("Supabase TOTP uses SDK HTTP, binds enrolled factors and verifies new aal2 
   await assert.rejects(client.challengeTotp(session, "../other"), denied);
   assert.equal(requests, 0);
   await assert.rejects(client.challengeTotp(session, randomUUID()), denied);
+  assert.equal(
+    requests,
+    1,
+    "A foreign factor must stop after user lookup, before any factor request",
+  );
   factorStatus = "unverified";
   await assert.rejects(client.challengeTotp(session, factorId), denied);
   factorStatus = "verified";
