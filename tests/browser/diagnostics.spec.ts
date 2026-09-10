@@ -1,7 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,21 +19,23 @@ test("AC-24 failed browser diagnostics exclude protected DOM and attachments", a
     await writeFile(
       join(directory, "playwright.config.ts"),
       `import config from '../playwright.config.ts';
-export default { ...config, testDir: '.', testMatch: 'intentional.spec.ts',
+export default { ...config, testDir: '.', testMatch: '**/intentional.spec.ts',
 webServer: undefined, retries: 0, outputDir: './results',
-reporter: [['json', { outputFile: './report.json' }]],
-projects: [{ name: 'privacy-negative-fixture', use: { browserName: 'chromium' } }] };
+reporter: [['json', { outputFile: './report.json' }], [${JSON.stringify(resolve("scripts/safe-browser-reporter.ts"))}]],
+projects: [{ name: 'chromium', use: { browserName: 'chromium' } }] };
 `,
     );
+    await mkdir(join(directory, "tests/browser"), { recursive: true });
     await writeFile(
-      join(directory, "intentional.spec.ts"),
+      join(directory, "tests/browser/intentional.spec.ts"),
       `import { test, expect } from '@playwright/test';
 test('intentional failure for diagnostic isolation', async ({ page }) => {
   await page.setContent('<main><h1>Private collector</h1><p></p><textarea></textarea></main>');
   await page.locator('p').evaluate((node, value) => { node.textContent = value; }, process.env.DIAGNOSTIC_CANARY);
   await page.locator('textarea').fill(process.env.DIAGNOSTIC_CANARY!);
   await page.evaluate((value) => { document.title = value!; document.body.dataset.private = value; }, process.env.DIAGNOSTIC_CANARY);
-  expect(true).toBe(false);
+  try { expect(true).toBe(false); }
+  finally { await test.step('cleanup', async () => { await page.title(); }); }
 });
 `,
     );
@@ -71,6 +80,14 @@ test('intentional failure for diagnostic isolation', async ({ page }) => {
     const result = report.suites[0].specs[0].tests[0].results[0];
     expect(result.status).toBe("failed");
     expect(result.error.message.includes("toBe")).toBe(true);
+    const safeText = await readFile(
+      join(directory, "artifacts/browser/results.json"),
+      "utf8",
+    );
+    expect(safeText.includes(canary)).toBe(false);
+    const safe = JSON.parse(safeText).cases[0];
+    expect(safe.firstFailureLine).toBe(7);
+    expect(safe.lastStepLine).toBe(8);
     // This version always attaches assertion/source context, but the opt-out
     // must prevent its automatic ARIA snapshot before it is collected.
     for (const attachment of result.attachments) {

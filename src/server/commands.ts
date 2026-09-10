@@ -47,6 +47,7 @@ type NodeRecord = {
   state: OperationResult["state"];
   verified: boolean;
   outputs: Record<string, unknown>;
+  diagnosticCode?: "verification-rejected";
 };
 type CommandRecord = {
   digest: string;
@@ -601,7 +602,14 @@ export class ProtectedCommandService {
       const prior = await tx.get<NodeRecord>(nodeKey);
       await tx.put(
         nodeKey,
-        { state: result.state, verified, outputs: result.outputs },
+        {
+          state: result.state,
+          verified,
+          outputs: result.outputs,
+          ...(result.diagnosticCode === "verification-rejected"
+            ? { diagnosticCode: "verification-rejected" as const }
+            : {}),
+        },
         prior?.revision ?? null,
       );
       const record = await tx.get<CommandRecord>(

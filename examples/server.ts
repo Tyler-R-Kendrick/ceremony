@@ -248,6 +248,14 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                 "v1",
               ),
           },
+          supabase: {
+            configuration: async (actor) =>
+              environment.supabaseConfiguration(
+                actor.subjectId,
+                actor.sessionId,
+                "v1",
+              ),
+          },
           identity: {
             authenticate: async (request) => {
               const owner =

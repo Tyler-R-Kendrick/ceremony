@@ -24,6 +24,18 @@ test("AC-24: browser diagnostics allow only static locations and bounded executi
     retry: 0,
     duration: 123,
   });
+  assert.deepEqual(safeBrowserResult({ ...fixture, lastStepLine: 42 }), {
+    ...safeBrowserResult(fixture),
+    lastStepLine: 42,
+  });
+  assert.deepEqual(
+    safeBrowserResult({ ...fixture, lastStepLine: 42, firstFailureLine: 20 }),
+    {
+      ...safeBrowserResult(fixture),
+      lastStepLine: 42,
+      firstFailureLine: 20,
+    },
+  );
   for (const change of [
     { file: resolve("private-canary.spec.ts") },
     { file: 42 },
@@ -32,6 +44,12 @@ test("AC-24: browser diagnostics allow only static locations and bounded executi
     { line: "private-canary" },
     { retry: -1 },
     { duration: Infinity },
+    { lastStepLine: "private-canary" },
+    { lastStepLine: 0 },
+    { lastStepLine: Infinity },
+    { firstFailureLine: "private-canary" },
+    { firstFailureLine: 0 },
+    { firstFailureLine: Infinity },
   ])
     assert.equal(safeBrowserResult({ ...fixture, ...change }), undefined);
 });

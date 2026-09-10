@@ -2,14 +2,16 @@ import { readFileSync } from "node:fs";
 const base = JSON.parse(
   readFileSync(new URL("./stryker.config.json", import.meta.url), "utf8"),
 );
-function guard(file, marker, lines = 1, offset = 0) {
+function guard(file, marker, lines = 1, offset = 0, expectedMatches = 1) {
   const source = readFileSync(file, "utf8").split("\n");
   const matches = source.flatMap((line, index) =>
     line.includes(marker) ? [index + 1] : [],
   );
-  if (matches.length !== 1)
-    throw new Error("Security mutation guard must resolve exactly once");
-  return `${file}:${matches[0] + offset}-${matches[0] + offset + lines}`;
+  if (matches.length !== expectedMatches)
+    throw new Error("Security mutation guard count changed");
+  return matches.map(
+    (line) => `${file}:${line + offset}-${line + offset + lines}`,
+  );
 }
 export default {
   ...base,
@@ -42,6 +44,15 @@ export default {
     guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
     guard("src/server/github-runtime.ts", 'connectorId !== "github" ||'),
     guard("src/server/services.ts", "user.id !== expectedUserId ||"),
+    guard("src/server/supabase-auth.ts", 'verified.claims.aal !== "aal2"'),
+    guard("src/server/supabase-auth.ts", "factor.id === factorId &&", 3),
+    guard(
+      "src/server/recipes/supabase.ts",
+      'context.actor.actorKind !== "human"',
+      1,
+      0,
+      2,
+    ),
     guard(
       "src/server/recipes/stripe.ts",
       'context.actor.actorKind !== "human"',
@@ -56,7 +67,7 @@ export default {
       'current.value.phase !== "uncertain"',
       3,
     ),
-  ],
+  ].flat(),
   tap: {
     ...base.tap,
     testFiles: [
@@ -67,6 +78,9 @@ export default {
       "tests/github-runtime-http.test.ts",
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",
+      "tests/supabase-auth.test.ts",
+      "tests/supabase-mfa.test.ts",
+      "tests/supabase-children.test.ts",
       "tests/security/*.test.ts",
     ],
   },

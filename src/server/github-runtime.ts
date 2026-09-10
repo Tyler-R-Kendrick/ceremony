@@ -30,6 +30,12 @@ import {
   stripeVocabulary,
 } from "./recipes/stripe.js";
 import { stripeHuman } from "./stripe-human.js";
+import {
+  AsyncSupabaseChildren,
+  supabaseConnectionRecipe,
+  supabaseVocabulary,
+} from "./recipes/supabase.js";
+import { supabaseHuman } from "./supabase-human.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -47,6 +53,15 @@ export interface GitHubRuntimeOptions {
       actor: ActorContext,
     ): Promise<{ version: string; token?: string }>;
     fetch?: typeof fetch;
+  };
+  supabase?: {
+    configuration(actor: ActorContext): Promise<{
+      version: string;
+      projectUrl?: string;
+      publishableKey?: string;
+    }>;
+    fetch?: typeof fetch;
+    requiredAssurance?: "aal1" | "aal2";
   };
   authorize(
     actor: ActorContext,
@@ -75,7 +90,11 @@ export function createGitHubRuntime(
   const { store, identity, origin } = options;
   const broker = new AsyncPrivateCollectionBroker(store);
   const registry = new OperationRegistry(
-    new Map([...githubVocabulary, ...(options.stripe ? stripeVocabulary : [])]),
+    new Map([
+      ...githubVocabulary,
+      ...(options.stripe ? stripeVocabulary : []),
+      ...(options.supabase ? supabaseVocabulary : []),
+    ]),
   );
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
@@ -96,7 +115,9 @@ export function createGitHubRuntime(
     (operationId === "continuation" ||
       (run.provider === "stripe"
         ? (await options.stripe?.configuration(actor))?.version
-        : (await configuration(actor)).configurationVersion) ===
+        : run.provider === "supabase"
+          ? (await options.supabase?.configuration(actor))?.version
+          : (await configuration(actor)).configurationVersion) ===
         run.configurationVersion) &&
     (await options.authorize(actor, run, operationId));
   const childOptions = {
@@ -133,6 +154,18 @@ export function createGitHubRuntime(
       })
     : undefined;
   stripe?.register(registry);
+  const supabase = options.supabase
+    ? new AsyncSupabaseChildren(store, {
+        configuration: (context) =>
+          options.supabase!.configuration(context.actor),
+        authorize: childOptions.authorize,
+        ...(options.supabase.fetch ? { fetch: options.supabase.fetch } : {}),
+        ...(options.supabase.requiredAssurance
+          ? { requiredAssurance: options.supabase.requiredAssurance }
+          : {}),
+      })
+    : undefined;
+  supabase?.register(registry);
   const childrenFor = async (context: OperationContext) => {
     const config = await configuration(context.actor);
     if (config.configurationVersion !== context.configurationVersion)
@@ -222,6 +255,18 @@ export function createGitHubRuntime(
             ] as const,
           ]
         : []),
+      ...(supabase
+        ? [
+            [
+              "supabase",
+              {
+                definition: supabaseConnectionRecipe,
+                outputContract: "supabase.connection",
+                revalidateOperation: "supabase.verify-access",
+              },
+            ] as const,
+          ]
+        : []),
     ]),
     ...(options.modelConfiguration
       ? { modelConfiguration: options.modelConfiguration }
@@ -255,7 +300,7 @@ export function createGitHubRuntime(
         record.value.status !== "cancelled"
       )
         throw new AuthorizationError("denied");
-      if (record.value.provider === "stripe") return;
+      if (record.value.provider !== "github") return;
       // Cancellation must still fence the old handoff after configuration rotation.
       const context = operationContext(actor, record.value);
       // The authoritative run fence above remains valid even when retired configuration cannot be loaded.
@@ -266,6 +311,16 @@ export function createGitHubRuntime(
         await (await childrenFor(context)).cancel(context);
     },
     context: async (actor, connectorId) => {
+      if (connectorId === "supabase" && options.supabase)
+        return {
+          provider: "supabase",
+          profile: "supabase-password",
+          target: "self",
+          origin,
+          environment: options.environment,
+          configurationVersion: (await options.supabase.configuration(actor))
+            .version,
+        };
       if (connectorId === "stripe" && options.stripe)
         return {
           provider: "stripe",
@@ -358,6 +413,25 @@ export function createGitHubRuntime(
       )
         throw new AuthorizationError("denied");
       const context = operationContext(actor, record.value);
+      if (record.value.provider === "supabase") {
+        if (
+          !supabase ||
+          decodeURIComponent(new URL(request.url).pathname) !==
+            `/api/v1/teaching/supabase/${runId}/human`
+        )
+          throw new AuthorizationError("denied");
+        const destination = new URL(returnUrl(runId));
+        destination.searchParams.set("connector", "supabase");
+        return supabaseHuman(
+          store,
+          supabase,
+          context,
+          record,
+          request,
+          destination.href,
+          () => advance(actor, runId),
+        );
+      }
       if (record.value.provider === "stripe") {
         if (
           !stripe ||
