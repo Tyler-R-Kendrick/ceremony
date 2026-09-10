@@ -51,6 +51,37 @@ test("studio starts blank and requires a verifier", () => {
   candidate.manifest.methods[0]!.contract!.completion.verifier = "";
   assert.equal(connectorProjectSchema.safeParse(candidate).success, false);
 });
+test("presentation IDs cannot cross authentication families", () => {
+  const p = project();
+  const other = structuredClone(p.manifest.methods[0]!);
+  other.id = "other";
+  other.kind = "device";
+  p.manifest.methods.push(other);
+  assert.equal(connectorProjectSchema.safeParse(p).success, false);
+});
+test("exports preserve distinct presentation IDs within the same auth family", () => {
+  const p = project();
+  const first = p.manifest.methods[0]!;
+  first.templateId = "personal-login";
+  p.manifest.methods.push({
+    ...structuredClone(first),
+    id: "organization",
+    templateId: "organization-login",
+  });
+  const defaults = exportConnectorFiles(
+    parseConnectorProject(JSON.stringify(p)),
+  );
+  assert.deepEqual(
+    defaults.templates.map((t) => t.id),
+    ["personal-login", "organization-login"],
+  );
+  p.templates = defaults.templates;
+  p.templates[1]!.screens.intro += "\n";
+  assert.deepEqual(
+    exportConnectorFiles(parseConnectorProject(JSON.stringify(p))).templates,
+    p.templates,
+  );
+});
 test("authored exports execute through existing Arazzo with explicit host bindings", async () => {
   const bundle = parseConnectorProject(JSON.stringify(project()));
   const files = exportConnectorFiles(bundle);

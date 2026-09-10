@@ -123,7 +123,12 @@ function validateReferences(
   }
   if (count > 32) fail("A connector project supports at most 32 steps");
   const referenced = new Set<string>();
+  const presentationKinds = new Map<string, string>();
   for (const method of project.manifest.methods) {
+    const kind = presentationKinds.get(method.templateId);
+    if (kind !== undefined && kind !== method.kind)
+      fail("Presentation ID cannot be shared across authentication families");
+    presentationKinds.set(method.templateId, method.kind);
     if (method.contract.workflows.length !== 1)
       fail("Studio methods require exactly one editable workflow");
     for (const ref of method.contract.workflows) {
@@ -358,10 +363,20 @@ export function exportConnectorFiles(project: ConnectorProject) {
       name: `${document}.arazzo.json`,
       definition,
     })),
-    templates: [...new Set(parsed.manifest.methods.map((m) => m.kind))].map(
-      (kind) =>
-        parsed.templates.find((template) => template.kind === kind) ??
-        defaultTemplate(kind),
-    ),
+    templates: parsed.manifest.methods
+      .filter(
+        (method, index, methods) =>
+          methods.findIndex((m) => m.templateId === method.templateId) ===
+          index,
+      )
+      .map(
+        (method) =>
+          parsed.templates.find(
+            (template) => template.id === method.templateId,
+          ) ?? {
+            ...defaultTemplate(method.kind),
+            id: method.templateId,
+          },
+      ),
   };
 }
