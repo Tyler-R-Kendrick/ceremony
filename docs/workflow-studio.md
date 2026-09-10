@@ -2,7 +2,7 @@
 
 Open [Workflow studio](http://127.0.0.1:4173/?section=studio) with the local app running.
 
-Studio **reviews and exports** connector drafts. It does not kick off provider setup, collect credentials, or replace the authoring agent. Ask the assistant to draft a provider ceremony with `ceremony_author_from_provider`. Connect runs existing connectors; Environment manages private session configuration.
+Studio is an **agent chat**. Talk to the authoring agent on the page; it registers `ceremony_author_*` WebMCP tools. There is no Create connector form, file picker, or field for connector name/ID/OpenAPI. Connect runs existing connectors; Environment manages private session configuration.
 
 ## Create a connector
 
@@ -13,7 +13,7 @@ There is no studio form for this. The human names a provider to the assistant. T
 3. Drafts generic family templates. Credentials are never tool arguments.
 4. Elicits a person only for provider consent (A2H) or private credentials (collector).
 
-Studio opens a saved project for review/export. Import never installs a connector or transfers publication status, credentials, access, or authority.
+The conversation drafts the connector. File pickers are not part of kickoff.
 
 ## Presentation
 

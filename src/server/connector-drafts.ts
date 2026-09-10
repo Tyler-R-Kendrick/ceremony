@@ -16,6 +16,7 @@ import type {
 } from "../core/authoring-tools.js";
 import { AuthorizationError, requireCapability } from "./identity.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
+import { validateAgentText } from "./agent/model.js";
 import {
   discoverProviderAuth,
   type ProviderSearch,
@@ -26,9 +27,48 @@ const recordSchema = z.strictObject({
   session: z.string().min(1).max(200),
   project: z.unknown(),
 });
+const chatSchema = z.strictObject({
+  author: z.string().min(1).max(200),
+  session: z.string().min(1).max(200),
+  messages: z
+    .array(
+      z.strictObject({
+        role: z.enum(["user", "assistant"]),
+        text: z.string().min(1).max(2000),
+      }),
+    )
+    .max(32),
+  pending: z.enum(["provider-name", "origin-url"]).optional(),
+  lastProvider: z.string().max(100).optional(),
+});
+export type AuthoringChat = {
+  conversationId: string;
+  messages: z.infer<typeof chatSchema>["messages"];
+  result?: AuthoringResult;
+};
 
 function key(actor: ActorContext, id: string) {
   return { tenant: actor.tenantId, kind: "draft" as const, id };
+}
+function chatKey(actor: ActorContext, id: string) {
+  return { tenant: actor.tenantId, kind: "draft" as const, id: `chat:${id}` };
+}
+function replyFrom(result: AuthoringResult) {
+  if (result.human?.mode === "elicit") return result.human.body;
+  if (result.human?.mode === "a2h-authorize")
+    return `${result.human.body} I'll use A2H. Do not send passwords in chat.`;
+  if (result.human?.mode === "private-collector")
+    return `${result.human.body} Use the private collector. Do not send passwords in chat.`;
+  const methods = result.draft?.methods.join(", ") ?? "none";
+  const corrected =
+    result.resolution &&
+    result.resolution.query.trim().toLowerCase() !== result.resolution.resolved
+      ? ` I used ${result.resolution.resolved} after correcting the name.`
+      : "";
+  const found = result.discovery?.documents.length
+    ? ` Discovery found ${result.discovery.documents.join(", ")}.`
+    : "";
+  return `Drafted ${result.draft?.provider ?? "the provider"} with ${methods}.${corrected}${found} This is a definition, not a live connection.`;
 }
 
 function humanFor(
@@ -238,5 +278,77 @@ export class ConnectorDrafts {
       throw new AuthorizationError("denied");
     const project = parseConnectorDraft(JSON.stringify(record.project));
     return summarize(draftId, current.revision, project, "draft");
+  }
+  async chat(
+    actor: ActorContext,
+    message: string,
+    conversationId?: string,
+  ): Promise<AuthoringChat> {
+    requireCapability(actor, "author");
+    let text: string;
+    try {
+      text = validateAgentText(message.trim());
+    } catch {
+      const id = conversationId ?? randomUUID();
+      return {
+        conversationId: id,
+        messages: [
+          { role: "user", text: "(rejected)" },
+          {
+            role: "assistant",
+            text: "Don't send credentials or secrets in chat. Name a provider, or complete A2H / private collection instead.",
+          },
+        ],
+      };
+    }
+    const id = conversationId ?? randomUUID();
+    if (conversationId) z.uuid().parse(conversationId);
+    const current = conversationId
+      ? await this.store.transaction((tx) => tx.get(chatKey(actor, id)))
+      : undefined;
+    const prior = current
+      ? chatSchema.parse(current.value)
+      : {
+          author: actor.subjectId,
+          session: actor.sessionId,
+          messages: [],
+        };
+    if (current && prior.author !== actor.subjectId)
+      throw new AuthorizationError("denied");
+    let result: AuthoringResult;
+    if (prior.pending === "origin-url")
+      result = await this.fromProvider(
+        actor,
+        prior.lastProvider ?? text,
+        undefined,
+        "draft",
+        text,
+      );
+    else result = await this.fromProvider(actor, text, undefined, "draft");
+    const pending =
+      result.human?.reason === "provider-name" ||
+      result.human?.reason === "origin-url"
+        ? result.human.reason
+        : undefined;
+    const messages = [
+      ...prior.messages,
+      { role: "user" as const, text },
+      { role: "assistant" as const, text: replyFrom(result) },
+    ].slice(-32);
+    const record = {
+      author: actor.subjectId,
+      session: actor.sessionId,
+      messages,
+      ...(pending ? { pending } : {}),
+      lastProvider: result.resolution?.resolved ?? prior.lastProvider ?? text,
+    };
+    await this.store.transaction((tx) =>
+      tx.put(chatKey(actor, id), record, current?.revision ?? null),
+    );
+    return {
+      conversationId: id,
+      messages,
+      result,
+    };
   }
 }

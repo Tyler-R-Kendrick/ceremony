@@ -853,8 +853,42 @@ fieldset label:last-child input {
   border: 1px solid var(--line, #dce2e9);
   border-radius: 12px;
 }
-.authoring-start p {
+.authoring-start p,
+.authoring-chat p {
   max-width: 65ch;
+}
+.authoring-chat {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #dce2e9);
+  border-radius: 12px;
+}
+.authoring-log {
+  display: grid;
+  gap: 12px;
+  min-height: 240px;
+  max-height: 50vh;
+  overflow: auto;
+}
+.authoring-turn {
+  margin: 0;
+}
+.authoring-turn span {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #526171);
+}
+.authoring-composer {
+  display: grid;
+  gap: 8px;
+}
+.authoring-composer textarea {
+  width: 100%;
+  resize: vertical;
 }
 .authoring-provider {
   display: grid;

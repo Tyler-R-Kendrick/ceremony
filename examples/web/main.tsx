@@ -140,9 +140,7 @@ function App() {
         {studioOpened && (
           <div hidden={tab !== "studio"}>
             <Suspense fallback={<p role="status">Loading authoring tools…</p>}>
-              <WorkflowStudio
-                generationAvailable={config?.generationAvailable ?? false}
-              />
+              <WorkflowStudio />
             </Suspense>
           </div>
         )}

@@ -114,6 +114,22 @@ export async function teachingHttp(
     const body = post ? await boundedJson(request) : undefined;
     if (path.startsWith("/authoring/")) {
       requireCapability(actor, "author");
+      if (path === "/authoring/chat") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            message: z.string().min(1).max(2000),
+            conversationId: z.uuid().optional(),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.chat(
+            actor,
+            input.message,
+            input.conversationId,
+          ),
+        );
+      }
       if (path === "/authoring/from-provider") {
         if (!post) return reply({ error: "unavailable" }, 405);
         const input = z

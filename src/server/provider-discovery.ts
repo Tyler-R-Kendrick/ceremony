@@ -97,9 +97,12 @@ async function crawlOrigin(
   const documents: string[] = [];
   const methods = new Set<FlowKind>();
   let openApiUrl: string | undefined;
-  for (const path of wellKnown) {
-    const url = `${origin}${path}`;
-    const response = await read(fetcher, url);
+  const responses = await Promise.all(
+    wellKnown.map(
+      async (path) => [path, await read(fetcher, `${origin}${path}`)] as const,
+    ),
+  );
+  for (const [path, response] of responses) {
     if (!response || response.status !== 200) continue;
     documents.push(path);
     if (
@@ -107,7 +110,7 @@ async function crawlOrigin(
       origin.startsWith("https:") &&
       response.body.includes('"openapi"')
     )
-      openApiUrl = url;
+      openApiUrl = `${origin}${path}`;
     for (const kind of methodsFromMetadata(response.body)) methods.add(kind);
   }
   return {

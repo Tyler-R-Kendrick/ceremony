@@ -103,6 +103,21 @@ test("authoring tools compose selected ceremonies without executing a provider",
   await store.close();
 });
 
+test("authoring chat drafts from a misspelled name without a form", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  const drafts = new ConnectorDrafts(store, {
+    fetch: async () => new Response("", { status: 404 }),
+  });
+  const reply = await drafts.chat(actor(), "githb");
+  assert.match(reply.messages.at(-1)!.text, /github/i);
+  assert.equal(reply.result?.human, null);
+  assert.equal(reply.result?.resolution?.resolved, "github");
+  await store.close();
+});
+
 test("mounted authoring HTTP drafts a provider without a human collector", async (t) => {
   const { teachingGitHubFixture } =
     await import("./fixtures/teaching-github.js");
