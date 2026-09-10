@@ -1,6 +1,20 @@
 # Jira 3LO protocol boundary checkpoint
 
-This is an internal server boundary under construction, not an available end-to-end page connector or a live certification. Durable callback admission, private integration-owner configuration and registered Arazzo/recipe children are implemented and locally tested. Fixed callback routing, owner handoff UI, environment configuration and browser mounting remain required. No Jira method is added to the normal service collection by this checkpoint.
+Jira is now mounted in the Connect collection and hosted runtime, with fixed callback routing, private owner configuration and registered Arazzo/recipe children. This remains an incomplete delivery, not live certification: cross-owner assignment and recovery gaps remain, and deterministic browser verification is failing. The chronological checkpoints below retain their original scope and failures.
+
+## Mounted Jira checkpoint
+
+Configured Jira connections use the existing parent run for provider consent, callback admission and site-bound access verification. Missing configuration exposes an administrator-only private setup form. That form configures the current session, not a tenant-shared app. Ordinary users cannot submit owner configuration; actual cross-owner A2H assignment is not yet implemented.
+
+The hosted runtime can instead use a server-configured shared client pair. A partial session pair never mixes with the host pair. The callback is fixed to `/api/v1/teaching/jira/authorization-return`; permissions remain host-owned. Configuration version and current site are checked again before callback advancement. Jira children and their manifest are exported through `@ceremony/auth/server/teaching`.
+
+Ten focused child/mounted-handler tests passed after a regression reproduced and corrected the manifest's `jira.site-access` mismatch with the registered `jira.current-user` verifier. These tests exercise real local provider HTTP and encrypted SQLite, not a real Atlassian account. They include wrong-session collector access and site changes during consent.
+
+Browser attempts are retained separately: [initial redirect routing failure](jira-browser-redirect-failure.json), [WebKit redirect-fulfillment failure](jira-browser-bridge-failure.json), and [subsequent timeouts](jira-browser-bridge-timeouts.json). The last of these has two passes and four timeouts. The fixture now serves its HTTP consent document at the intercepted native handoff because Playwright's WebKit implementation rejects fulfilled 3xx responses. Actual callback, token exchange and provider API checks remain real mounted code. The later timeouts are unresolved; focused passes do not clear them.
+
+No live Jira/GitHub/Stripe/Supabase account, deployed Vercel/Workflow, or installed-PWA platform certification ran in this checkpoint. Release verdict remains **FAIL**.
+
+The [native-return matrix](jira-native-return-matrix.json) subsequently finished with five passes and one failure, zero skips/retries: both Chromium paths, Firefox owner setup and both WebKit paths passed. Firefox configured failed at the initial Connect visibility assertion, before provider interaction. The [wire diagnostic](jira-browser-wire-diagnostic.json) established that removing the synthetic handoff interception before consent return restores native 303 handling; it does not explain the initial-render failure. No timeout was raised. The [independent UI review](jira-ui-review.md) remains **fix**, including unfinished cross-owner assignment. Its misleading session-setup title finding was resolved and the documenter recorded the incumbent design inheritance without changing global design files.
 
 ## Verified provider contract
 

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "project": "chromium",
+  "scenario": "jira-owner-setup",
+  "status": "failed",
+  "exitCode": 1,
+  "durationMs": 17217,
+  "firstFailureLine": 84,
+  "assertionDurationMs": 5028,
+  "reason": "Provider consent heading did not appear after private owner submission. Callback assertions were not reached. This attempt does not establish the submission status or root cause."
+}

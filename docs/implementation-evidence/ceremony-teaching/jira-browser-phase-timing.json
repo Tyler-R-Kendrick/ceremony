@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "profile": "local-diagnostic",
+  "project": "chromium",
+  "scenario": "jira-owner-setup",
+  "status": "timedOut",
+  "exitCode": 1,
+  "durationMs": 30060,
+  "steps": [
+    { "line": 91, "duration": 8099, "failed": true },
+    { "line": 88, "duration": 5387, "failed": false },
+    { "line": 84, "duration": 2787, "failed": false },
+    { "line": 16, "duration": 1950, "failed": false },
+    { "line": 51, "duration": 1222, "failed": false },
+    { "line": 21, "duration": 932, "failed": false }
+  ],
+  "interpretation": "Timed out while awaiting verified UI after provider consent. Source-line timings alone do not establish whether callback verification or rendering caused the failure. No private captures or timeout changes."
+}
