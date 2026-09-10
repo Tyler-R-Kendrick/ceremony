@@ -74,6 +74,10 @@ export interface AuthoringTransport {
     childIds: string[];
   }): Promise<AuthoringResult>;
   read(draftId: string): Promise<AuthoringResult>;
+  delete?(input: { connectorId: string; runId?: string }): Promise<{
+    ok: boolean;
+    human: null;
+  }>;
 }
 
 /** Same definitions for native WebMCP and HTTP agents. Credentials are never tool arguments. */
@@ -110,6 +114,15 @@ export function createAuthoringTools(
       schema: z.strictObject({ draftId: z.string().min(1).max(120) }),
       description: "Read an authored connector draft without executing it.",
     },
+    {
+      action: "delete",
+      schema: z.strictObject({
+        connectorId: z.string().min(1).max(64),
+        runId: z.string().min(1).max(120).optional(),
+      }),
+      description:
+        "Delete a local authored connection and stored credentials. Does not delete the person's provider account.",
+    },
   ] as const;
   return definitions.map((definition) => ({
     name: `${prefix}_${definition.action.replaceAll("-", "_")}`,
@@ -137,6 +150,16 @@ export function createAuthoringTools(
         if (definition.action === "compose") {
           const parsed = definition.schema.parse(input);
           return authoringResultSchema.parse(await transport.compose(parsed));
+        }
+        if (definition.action === "delete") {
+          const parsed = definition.schema.parse(input);
+          if (!transport.delete) throw new Error("denied-or-unavailable");
+          return authoringResultSchema.parse(
+            await transport.delete({
+              connectorId: parsed.connectorId,
+              ...(parsed.runId ? { runId: parsed.runId } : {}),
+            }),
+          );
         }
         const parsed = definition.schema.parse(input);
         return authoringResultSchema.parse(

@@ -263,6 +263,19 @@ function App() {
                   <TeachingConnection
                     key={connector.id}
                     connectorId={connector.id}
+                    onDeleted={() => {
+                      void fetch("/api/config")
+                        .then((response) => response.json())
+                        .then((value) => {
+                          const next = configSchema.parse(value);
+                          setConfig(next);
+                          const remaining =
+                            next.teachingConnectors.find(
+                              (id) => id !== connector.id,
+                            ) ?? next.liveManifests[0]?.id;
+                          if (remaining) selectConnector(remaining);
+                        });
+                    }}
                   />
                 ) : liveMode && !config.liveAvailable ? (
                   <div className="ceremony">

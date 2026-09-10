@@ -32,6 +32,8 @@ test("Studio chat stays put and links a working Bluesky connector", async ({
   await expect(
     page.getByRole("link", { name: "Continue with Bluesky" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Delete connection" }).click();
+  await expect(page.getByRole("heading", { name: /Bluesky/ })).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     expect(

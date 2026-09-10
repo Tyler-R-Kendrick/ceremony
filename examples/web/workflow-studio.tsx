@@ -42,6 +42,7 @@ export default function WorkflowStudio() {
         authoringRequest("/authoring/from-provider", input),
       compose: (input) => authoringRequest("/authoring/compose", input),
       read: (draftId) => authoringRequest(`/authoring/drafts/${draftId}`),
+      delete: (input) => authoringRequest("/authoring/delete", input),
     });
     void (async () => {
       try {

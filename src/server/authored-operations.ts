@@ -167,10 +167,11 @@ export function recipeFromProject(project: ConnectorDraft): RecipeDefinition {
   };
 }
 
-const sessionSchema = z.strictObject({
+const sessionSchema = z.object({
   handle: z.string().min(1).max(256),
   did: z.string().min(1).max(256),
   accessJwt: z.string().min(1).max(8000),
+  refreshJwt: z.string().min(1).max(8000).optional(),
 });
 function sessionKey(actor: ActorContext, runId: string) {
   return {
@@ -218,15 +219,47 @@ export async function saveAuthoredSession(
   if (!response.ok) return undefined;
   const session = sessionSchema.safeParse(await response.json());
   if (!session.success) return undefined;
+  const stored = {
+    handle: session.data.handle,
+    did: session.data.did,
+    accessJwt: session.data.accessJwt,
+    ...(session.data.refreshJwt ? { refreshJwt: session.data.refreshJwt } : {}),
+  };
   await store.transaction(async (tx) => {
     const prior = await tx.get(sessionKey(actor, runId));
-    await tx.put(
-      sessionKey(actor, runId),
-      session.data,
-      prior?.revision ?? null,
-    );
+    await tx.put(sessionKey(actor, runId), stored, prior?.revision ?? null);
   });
   return { handle: session.data.handle, did: session.data.did };
+}
+export async function deleteAuthoredSession(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  fetcher: typeof fetch = fetch,
+) {
+  const key = sessionKey(actor, runId);
+  const record = await store.transaction((tx) => tx.get(key));
+  const session = sessionSchema.safeParse(record?.value);
+  if (session.success && session.data.refreshJwt) {
+    try {
+      await fetcher(
+        "https://bsky.social/xrpc/com.atproto.server.deleteSession",
+        {
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(10_000),
+          headers: {
+            authorization: `Bearer ${session.data.refreshJwt}`,
+            accept: "application/json",
+          },
+        },
+      );
+    } catch {
+      /* Local deletion still proceeds. */
+    }
+  }
+  if (record) await store.transaction((tx) => tx.delete(key, record.revision));
+  return Boolean(record);
 }
 async function liveSession(
   store: AsyncCeremonyStore,

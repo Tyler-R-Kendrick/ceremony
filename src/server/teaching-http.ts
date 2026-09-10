@@ -19,7 +19,10 @@ import {
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
-import { publicAuthoredIdentity } from "./authored-operations.js";
+import {
+  deleteAuthoredSession,
+  publicAuthoredIdentity,
+} from "./authored-operations.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
@@ -135,6 +138,31 @@ export async function teachingHttp(
             input.conversationId,
           ),
         );
+      }
+      if (path === "/authoring/delete") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            connectorId: z.string().min(1).max(64),
+            runId: z.string().min(1).max(120).optional(),
+            revision: revision.optional(),
+          })
+          .parse(body);
+        requireCapability(actor, "executor");
+        if (input.runId) {
+          try {
+            if (input.revision)
+              await runtime.commands.cancel(actor, input.runId, input.revision);
+          } catch {
+            /* Already complete or cancelled. */
+          }
+          await deleteAuthoredSession(runtime.store, actor, input.runId);
+        }
+        const removed = await runtime.authoring.uninstall(
+          actor,
+          input.connectorId,
+        );
+        return reply({ ok: true, human: null, removed });
       }
       if (path === "/authoring/from-provider") {
         if (!post) return reply({ error: "unavailable" }, 405);
@@ -268,6 +296,9 @@ export async function teachingHttp(
         signOutAvailable:
           typeof Reflect.get(runtime.identity, "logout") === "function",
         connectors: await runtime.listConnectors(actor),
+        authoredConnectors: (await runtime.authoring.listManifests(actor)).map(
+          (item) => item.id,
+        ),
       });
     if (path === "/runs" && post) {
       const input = z

@@ -137,6 +137,7 @@ export interface TeachingConnectionProps {
   onSignIn?: () => void | Promise<void>;
   onSignOut?: () => void | Promise<void>;
   onSignedOut?: () => void;
+  onDeleted?: () => void;
   webmcp?: false | { prefix: string };
   className?: string;
   style?: CSSProperties;
@@ -151,6 +152,7 @@ export function TeachingConnection({
   onSignIn,
   onSignOut,
   onSignedOut,
+  onDeleted,
   webmcp,
   className,
   style,
@@ -184,6 +186,7 @@ export function TeachingConnection({
     modelAvailable: boolean;
     signOutAvailable?: boolean;
     connectors?: string[];
+    authoredConnectors?: string[];
   }>();
   const [run, setRun] = useState<Run>();
   const [demo, setDemo] = useState<Demo>();
@@ -395,6 +398,7 @@ export function TeachingConnection({
       fromProvider: (input) => request("/authoring/from-provider", input),
       compose: (input) => request("/authoring/compose", input),
       read: (draftId) => request(`/authoring/drafts/${draftId}`),
+      delete: (input) => request("/authoring/delete", input),
     });
     void (async () => {
       try {
@@ -696,6 +700,27 @@ export function TeachingConnection({
           </>
         )}
         <div className="teaching-actions">
+          {(run ||
+            (capabilities.authoredConnectors ?? []).includes(connectorId)) && (
+            <button
+              className="quiet"
+              disabled={busy || offline}
+              onClick={() =>
+                void act(async () => {
+                  await request("/authoring/delete", {
+                    connectorId,
+                    ...(run ? { runId: run.id, revision: run.revision } : {}),
+                  });
+                  setRun(undefined);
+                  currentRun.current = undefined;
+                  setDemo(undefined);
+                  onDeleted?.();
+                })
+              }
+            >
+              Delete connection
+            </button>
+          )}
           {!run && (
             <button
               className="primary"

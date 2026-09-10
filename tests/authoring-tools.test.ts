@@ -192,6 +192,23 @@ test("authored Bluesky connector is listed and can start a ceremony", async (t) 
     ),
   );
   assert.equal(run.identity, undefined);
+  const deleted = await fetch(
+    `${fixture.origin}/api/v1/teaching/authoring/delete`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        connectorId: "bluesky",
+        runId: run.id,
+        revision: run.revision,
+      }),
+    },
+  );
+  assert.equal(deleted.status, 200);
+  const after = await fetch(`${fixture.origin}/api/v1/teaching/capabilities`, {
+    headers: { cookie, origin: fixture.origin },
+  });
+  assert.equal((await after.json()).connectors.includes("bluesky"), false);
 });
 
 test("high-confidence misspellings resolve without elicitation", () => {

@@ -5,6 +5,7 @@ import {
   applyProviderProposal,
   composeAuthoredMethods,
   disambiguateProvider,
+  extractProviderName,
   newConnectorProject,
   parseConnectorDraft,
   providerCatalog,
@@ -303,6 +304,35 @@ export class ConnectorDrafts {
       definition: value.definition as RecipeDefinition,
     };
   }
+  async uninstall(actor: ActorContext, connectorId: string) {
+    if (
+      !actor.capabilities.includes("author") &&
+      !actor.capabilities.includes("executor") &&
+      !actor.capabilities.includes("admin")
+    )
+      throw new AuthorizationError("denied");
+    const recordKey = {
+      tenant: actor.tenantId,
+      kind: "artifact" as const,
+      id: `installed-connector:${connectorId}`,
+    };
+    const current = await this.store.transaction((tx) => tx.get(recordKey));
+    if (!current) return false;
+    const value = z
+      .strictObject({
+        author: z.string(),
+        session: z.string(),
+        manifest: z.unknown(),
+        definition: z.unknown(),
+      })
+      .parse(current.value);
+    if (value.author !== actor.subjectId)
+      throw new AuthorizationError("denied");
+    await this.store.transaction((tx) =>
+      tx.delete(recordKey, current.revision),
+    );
+    return true;
+  }
   async listManifests(actor: ActorContext): Promise<ConnectorManifest[]> {
     const manifests: ConnectorManifest[] = [];
     let after = "";
@@ -382,6 +412,41 @@ export class ConnectorDrafts {
         };
     if (current && prior.author !== actor.subjectId)
       throw new AuthorizationError("denied");
+    if (/^(delete|remove|uninstall)\b/i.test(text)) {
+      const target =
+        extractProviderName(
+          text.replace(
+            /^(delete|remove|uninstall)\s+(the\s+)?(connection|connector|ceremony)?\s*(for|to)?\s*/i,
+            "",
+          ),
+        ) || prior.lastProvider;
+      const connectorId = target
+        ? disambiguateProvider(target).resolved
+        : prior.lastProvider;
+      const removed = connectorId
+        ? await this.uninstall(actor, connectorId)
+        : false;
+      const reply = removed
+        ? `Deleted the local ${connectorId} connection and stored credentials. Your provider account was not deleted.`
+        : "No local connection to delete for that provider.";
+      const messages = [
+        ...prior.messages,
+        { role: "user" as const, text },
+        { role: "assistant" as const, text: reply },
+      ].slice(-32);
+      await this.store.transaction((tx) =>
+        tx.put(
+          chatKey(actor, id),
+          {
+            ...prior,
+            messages,
+            lastProvider: connectorId ?? prior.lastProvider,
+          },
+          current?.revision ?? null,
+        ),
+      );
+      return { conversationId: id, messages };
+    }
     let result: AuthoringResult;
     if (prior.pending === "origin-url")
       result = await this.fromProvider(
