@@ -111,10 +111,12 @@ test("authoring chat drafts from a misspelled name without a form", async () => 
   const drafts = new ConnectorDrafts(store, {
     fetch: async () => new Response("", { status: 404 }),
   });
-  const reply = await drafts.chat(actor(), "githb");
-  assert.match(reply.messages.at(-1)!.text, /github/i);
+  const reply = await drafts.chat(actor(), "create a ceremony for blusky");
   assert.equal(reply.result?.human, null);
-  assert.equal(reply.result?.resolution?.resolved, "github");
+  assert.equal(reply.result?.resolution?.resolved, "bluesky");
+  assert.ok(reply.result?.draft?.methods.includes("oauth-code"));
+  assert.match(reply.messages.at(-1)!.text, /Bluesky/);
+  assert.match(reply.messages.at(-1)!.text, /authorize-user/);
   await store.close();
 });
 
@@ -152,6 +154,9 @@ test("high-confidence misspellings resolve without elicitation", () => {
   const jira = disambiguateProvider("Jira Cloud");
   assert.equal(jira.resolved, "jira");
   assert.equal(jira.confidence, "high");
+  const bluesky = disambiguateProvider("create a ceremony for blusky");
+  assert.equal(bluesky.resolved, "bluesky");
+  assert.equal(bluesky.confidence, "high");
 });
 
 test("discovery crawl maps well-known OAuth metadata onto generic families", async () => {

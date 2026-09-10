@@ -34,6 +34,7 @@ const draftSummary = z.strictObject({
   provider: z.string().min(1).max(100),
   methods: z.array(z.enum(flowKinds)).max(12),
   executable: z.boolean(),
+  outline: z.array(z.string().max(200)).max(12).optional(),
 });
 export const authoringResultSchema = z.strictObject({
   ok: z.boolean(),

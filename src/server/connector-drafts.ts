@@ -54,21 +54,27 @@ function chatKey(actor: ActorContext, id: string) {
   return { tenant: actor.tenantId, kind: "draft" as const, id: `chat:${id}` };
 }
 function replyFrom(result: AuthoringResult) {
-  if (result.human?.mode === "elicit") return result.human.body;
   if (result.human?.mode === "a2h-authorize")
     return `${result.human.body} I'll use A2H. Do not send passwords in chat.`;
   if (result.human?.mode === "private-collector")
     return `${result.human.body} Use the private collector. Do not send passwords in chat.`;
-  const methods = result.draft?.methods.join(", ") ?? "none";
+  if (!result.draft) {
+    if (result.human?.mode === "elicit") return result.human.body;
+    return "I could not draft a ceremony from that.";
+  }
   const corrected =
     result.resolution &&
-    result.resolution.query.trim().toLowerCase() !== result.resolution.resolved
-      ? ` I used ${result.resolution.resolved} after correcting the name.`
+    result.resolution.resolved &&
+    !result.resolution.query.toLowerCase().includes(result.resolution.resolved)
+      ? ` I treated that as ${result.draft.provider}.`
       : "";
   const found = result.discovery?.documents.length
     ? ` Discovery found ${result.discovery.documents.join(", ")}.`
     : "";
-  return `Drafted ${result.draft?.provider ?? "the provider"} with ${methods}.${corrected}${found} This is a definition, not a live connection.`;
+  const outline = (result.draft.outline ?? [])
+    .map((line) => `\n- ${line}`)
+    .join("");
+  return `Drafted a ${result.draft.provider} ceremony.${corrected}${found}${outline}\nThis is a definition, not a live connection.`;
 }
 
 function humanFor(
@@ -132,9 +138,16 @@ function summarize(
     draft: {
       id,
       revision,
-      provider: project.manifest.id || project.manifest.name || "provider",
+      provider: project.manifest.name || project.manifest.id || "provider",
       methods: project.manifest.methods.map((method) => method.kind),
       executable: false,
+      outline: project.manifest.methods.map((method) => {
+        const steps =
+          project.workflows[0]?.workflows.find(
+            (workflow) => workflow.workflowId === method.id,
+          )?.steps ?? [];
+        return `${method.label}: ${steps.map((step) => step.stepId).join(" → ") || "no steps"}`;
+      }),
     },
     human,
   };
@@ -173,45 +186,12 @@ export class ConnectorDrafts {
       };
     const catalog = providerCatalog[resolution.resolved];
     const origins = [...(origin ? [origin] : []), ...(catalog?.origins ?? [])];
-    const discovery = origins.length
-      ? await discoverProviderAuth(origins, {
-          ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
-          ...(this.options.search ? { search: this.options.search } : {}),
-          query: resolution.resolved,
-          ...(this.options.allowLoopbackHttp
-            ? { allowLoopbackHttp: true }
-            : {}),
-        })
-      : {
-          origin: "",
-          documents: [] as string[],
-          methods:
-            [] as ConnectorDraft["manifest"]["methods"][number]["kind"][],
-          searchUsed: false,
-        };
-    if (
-      resolution.confidence === "low" &&
-      !origins.length &&
-      !discovery.documents.length
-    )
-      return {
-        ok: true,
-        resolution,
-        discovery: {
-          origin: "",
-          documents: [],
-          searchUsed: Boolean(this.options.search),
-        },
-        human: {
-          mode: "elicit",
-          reason: "origin-url",
-          title: "Provider origin",
-          body: "A public HTTPS origin is required to discover well-known auth documents. Do not send credentials.",
-          fields: [
-            { name: "origin", label: "Provider HTTPS origin", type: "url" },
-          ],
-        },
-      };
+    const discovery = await discoverProviderAuth(origins, {
+      ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
+      ...(this.options.search ? { search: this.options.search } : {}),
+      query: resolution.resolved,
+      ...(this.options.allowLoopbackHttp ? { allowLoopbackHttp: true } : {}),
+    });
     const project = newConnectorProject();
     applyProviderProposal(project, resolution.resolved, {
       ...(discovery.methods.length ? { methods: discovery.methods } : {}),

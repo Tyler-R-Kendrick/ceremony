@@ -467,6 +467,10 @@ test("provider proposals pick generic families without fetching", () => {
     "oauth-code",
   ]);
   assert.equal(proposeConnectorForProvider("githb").slug, "github");
+  assert.equal(
+    proposeConnectorForProvider("create a ceremony for blusky").slug,
+    "bluesky",
+  );
   const draft = newConnectorProject();
   applyProviderProposal(draft, "Stripe");
   assert.equal(draft.manifest.id, "stripe");

@@ -547,17 +547,46 @@ export const providerCatalog: Record<
     methods: ["oauth-code"],
     origins: ["https://accounts.google.com"],
   },
+  bluesky: {
+    name: "Bluesky",
+    description:
+      "Authorize a Bluesky account with AT Protocol OAuth, or an app password.",
+    methods: ["oauth-code", "api-key"],
+    origins: ["https://bsky.social", "https://bsky.app"],
+  },
 };
 
 const providerAliases: Record<string, string> = {
   gh: "github",
   ghe: "github",
   goog: "google",
+  bsky: "bluesky",
+  blusky: "bluesky",
+  "blue-sky": "bluesky",
 };
 
+/** Pull a provider token out of a chat utterance. */
+export function extractProviderName(utterance: string) {
+  let text = utterance.trim().replace(/["'`]/g, "");
+  text = text.replace(
+    /^(please\s+)?((can|could)\s+you\s+|i\s+(want|need)\s+(you\s+to\s+)?)/i,
+    "",
+  );
+  text = text.replace(
+    /^(create|draft|build|make|add|connect|author|set\s*up)\s+(me\s+)?(a |an |the )?/i,
+    "",
+  );
+  text = text.replace(
+    /^(ceremony|connector|provider|integration|auth(entication)?)\s+(for|to|with)\s+/i,
+    "",
+  );
+  text = text.replace(/^(for|to|with)\s+/i, "");
+  text = text.replace(/\s+(please|now|thanks!?)\.?$/i, "");
+  return (text.trim() || utterance.trim()).slice(0, 100);
+}
+
 function providerSlug(name: string) {
-  return name
-    .trim()
+  return extractProviderName(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
@@ -616,8 +645,14 @@ export function disambiguateProvider(name: string): ProviderResolution {
       confidence: "high",
       alternatives: [],
     };
-  const scored = Object.keys(providerCatalog)
-    .map((key) => ({ key, distance: editDistance(slug, key) }))
+  const scored = Object.entries(providerCatalog)
+    .map(([key, entry]) => ({
+      key,
+      distance: Math.min(
+        editDistance(slug, key),
+        editDistance(slug, providerSlug(entry.name)),
+      ),
+    }))
     .filter((item) => item.distance <= 2)
     .sort((left, right) => left.distance - right.distance);
   const best = scored[0];
