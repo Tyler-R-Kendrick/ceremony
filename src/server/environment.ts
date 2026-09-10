@@ -8,6 +8,8 @@ import {
   resolveStripeEnvironment,
   resolveSupabaseEnvironment,
   nextSupabaseEnvironmentRevision,
+  nextJiraEnvironmentRevision,
+  resolveJiraEnvironment,
 } from "./async-environment.js";
 import {
   environmentValuesSchema as valuesSchema,
@@ -18,6 +20,7 @@ const recordSchema = z.object({
   githubRevision: z.number().int().nonnegative().optional(),
   stripeRevision: z.number().int().nonnegative().optional(),
   supabaseRevision: z.number().int().nonnegative().optional(),
+  jiraRevision: z.number().int().nonnegative().optional(),
   values: valuesSchema,
 });
 
@@ -57,6 +60,7 @@ export class CeremonyEnvironment {
       githubRevision: 0,
       stripeRevision: 0,
       supabaseRevision: 0,
+      jiraRevision: 0,
       values,
     };
     this.db.put(this.key(owner), record);
@@ -105,6 +109,17 @@ export class CeremonyEnvironment {
       baseVersion,
     );
   }
+  jiraConfiguration(owner: string, sessionId: string, baseVersion: string) {
+    const record = this.record(owner);
+    return resolveJiraEnvironment(
+      {
+        revision: record.jiraRevision ?? record.revision,
+        values: record.values,
+        sessionId,
+      },
+      baseVersion,
+    );
+  }
   update(owner: string, input: unknown) {
     const checked = editSchema.safeParse(input);
     if (!checked.success)
@@ -142,6 +157,11 @@ export class CeremonyEnvironment {
         );
       this.db.put(this.key(owner), {
         revision: record.revision + 1,
+        jiraRevision: nextJiraEnvironmentRevision(
+          record.values,
+          values,
+          record.jiraRevision ?? record.revision,
+        ),
         supabaseRevision: nextSupabaseEnvironmentRevision(
           record.values,
           values,

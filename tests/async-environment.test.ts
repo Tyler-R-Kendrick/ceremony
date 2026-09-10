@@ -5,6 +5,7 @@ import {
   AsyncCeremonyEnvironment,
   resolveGitHubEnvironment,
   resolveSupabaseEnvironment,
+  resolveJiraEnvironment,
 } from "../src/server/async-environment.js";
 import { CeremonyEnvironment } from "../src/server/environment.js";
 import { CeremonyDatabase } from "../src/server/storage.js";
@@ -23,6 +24,113 @@ const actor: ActorContext = {
   capabilities: ["executor"],
 };
 const keys = { current: "test", keys: { test: randomBytes(32) } };
+test("Jira shared-session configuration tracks only its own fields and never hashes credential values", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", keys);
+  const asyncEnv = new AsyncCeremonyEnvironment(store);
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  const legacy = new CeremonyEnvironment(db);
+  const secret = randomBytes(32).toString("hex");
+  try {
+    for (const env of [
+      {
+        resolve: () => asyncEnv.resolveJira(actor, "v1"),
+        edit: (input: unknown) => asyncEnv.update(actor, input),
+      },
+      {
+        resolve: async () =>
+          legacy.jiraConfiguration("owner", actor.sessionId, "v1"),
+        edit: async (input: unknown) => legacy.update("owner", input),
+      },
+    ]) {
+      const initial = await env.resolve();
+      assert.equal(initial.clientSecret, undefined);
+      await env.edit({ revision: 0, values: { UNRELATED: "one" } });
+      assert.deepEqual(await env.resolve(), initial);
+      await env.edit({
+        revision: 1,
+        values: {
+          JIRA_CLIENT_ID: "fixture-client",
+          JIRA_CLIENT_SECRET: secret,
+          JIRA_SITE_URL: "https://fixture.atlassian.net",
+        },
+      });
+      const configured = await env.resolve();
+      assert.notEqual(configured.version, initial.version);
+      assert.equal(configured.clientId, "fixture-client");
+      assert.equal(configured.clientSecret === secret, true);
+      assert.equal(configured.siteUrl, "https://fixture.atlassian.net");
+      const unrelated = await env.edit({
+        revision: 2,
+        values: {
+          UNRELATED: "two",
+          JIRA_CALLBACK_URL: "https://untrusted.example",
+          JIRA_SCOPES: "admin",
+        },
+      });
+      assert.equal(JSON.stringify(unrelated).includes(secret), false);
+      assert.equal((await env.resolve()).version, configured.version);
+      assert.deepEqual(Object.keys(await env.resolve()).sort(), [
+        "clientId",
+        "clientSecret",
+        "siteUrl",
+        "version",
+      ]);
+      await env.edit({
+        revision: 3,
+        values: { JIRA_CLIENT_SECRET: `${secret}-rotated` },
+      });
+      const rotated = await env.resolve();
+      assert.notEqual(rotated.version, configured.version);
+      assert.equal(rotated.clientSecret === `${secret}-rotated`, true);
+      await assert.rejects(() =>
+        env.edit({ revision: 3, values: { JIRA_CLIENT_SECRET: secret } }),
+      );
+      assert.equal((await env.resolve()).version, rotated.version);
+      assert.equal(
+        (await env.resolve()).clientSecret === `${secret}-rotated`,
+        true,
+      );
+      let version = rotated.version;
+      for (const [index, name] of [
+        "JIRA_CLIENT_ID",
+        "JIRA_CLIENT_SECRET",
+        "JIRA_SITE_URL",
+      ].entries()) {
+        await env.edit({ revision: index + 4, remove: [name] });
+        const removed = await env.resolve();
+        assert.notEqual(removed.version, version);
+        version = removed.version;
+      }
+      assert.deepEqual(Object.keys(await env.resolve()), ["version"]);
+    }
+    const metadata = { revision: 4, sessionId: "session" };
+    const candidate = (values: Record<string, string>) =>
+      resolveJiraEnvironment({ ...metadata, values }, "v1");
+    assert.equal(
+      candidate({ JIRA_CLIENT_SECRET: secret }).version,
+      candidate({ JIRA_CLIENT_SECRET: "different" }).version,
+    );
+    for (const change of [{ revision: 5 }, { sessionId: "other" }])
+      assert.notEqual(
+        resolveJiraEnvironment({ ...metadata, ...change, values: {} }, "v1")
+          .version,
+        candidate({}).version,
+      );
+    assert.notEqual(
+      resolveJiraEnvironment({ ...metadata, values: {} }, "v2").version,
+      candidate({}).version,
+    );
+    const fresh = await asyncEnv.resolveJira(
+      { ...actor, sessionId: "other" },
+      "v1",
+    );
+    assert.deepEqual(Object.keys(fresh), ["version"]);
+    assert.equal((await asyncEnv.read(actor)).values.UNRELATED, "two");
+  } finally {
+    await store.close();
+    db.close();
+  }
+});
 test("Supabase project configuration versions track shared-session edits without hashing key values", async () => {
   const store = new SQLiteCeremonyStore(":memory:", keys);
   const asyncEnv = new AsyncCeremonyEnvironment(store);
