@@ -189,7 +189,7 @@ export async function teachingHttp(
         throw new AuthorizationError("invalid_request");
       if (input.target) {
         if (!runtime.selectTarget) throw new AuthorizationError("denied");
-        await runtime.selectTarget(actor, input.target);
+        await runtime.selectTarget(actor, input.target, input.connectorId);
       }
       let run = await runtime.connect(actor, input.connectorId);
       const demo = input.teach

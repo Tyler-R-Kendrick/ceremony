@@ -294,8 +294,9 @@ export function createGitHubRuntime(
         configurationVersion: config.configurationVersion,
       };
     },
-    selectTarget: async (actor, target) => {
+    selectTarget: async (actor, target, connectorId = "github") => {
       if (
+        connectorId !== "github" ||
         !/^[a-zA-Z0-9-]{1,100}$/.test(target) ||
         !options.allowTarget ||
         !(await options.allowTarget(actor, target))

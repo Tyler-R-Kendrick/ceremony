@@ -77,7 +77,11 @@ export interface TeachingRuntimeOptions {
     }
   >;
   context(actor: ActorContext, connectorId: string): Promise<RunContext>;
-  selectTarget?: (actor: ActorContext, target: string) => Promise<void>;
+  selectTarget?: (
+    actor: ActorContext,
+    target: string,
+    connectorId?: string,
+  ) => Promise<void>;
   authorize(
     actor: ActorContext,
     run: RunRecord,

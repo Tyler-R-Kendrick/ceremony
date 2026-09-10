@@ -40,6 +40,7 @@ export default {
       3,
     ),
     guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
+    guard("src/server/github-runtime.ts", 'connectorId !== "github" ||'),
     guard(
       "src/server/recipes/stripe.ts",
       'context.actor.actorKind !== "human"',
@@ -62,6 +63,7 @@ export default {
       "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
       "tests/github-children.test.ts",
+      "tests/github-runtime-http.test.ts",
       "tests/stripe-children.test.ts",
       "tests/security/*.test.ts",
     ],

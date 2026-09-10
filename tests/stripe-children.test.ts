@@ -108,6 +108,7 @@ async function fixture(t: TestContext, configured = false) {
     environment: context.environment,
     configurationVersion: "v1",
     stripe: { configuration: options.configuration, fetch: options.fetch },
+    allowTarget: async () => true,
     authorize: async (subject, run) => subject.subjectId === run.subjectId,
   });
   const advance = async (runId: string, nodeId: string) => {
@@ -277,6 +278,16 @@ test("mounted Stripe HTTP guides account signup before isolated collection and r
       ),
       f.runtime,
     );
+  assert.equal(
+    (await call("/runs", { connectorId: "stripe", target: "other-account" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list(f.actor.tenantId, "session")))
+      .length,
+    0,
+  );
   const started = await call("/runs", { connectorId: "stripe", teach: true });
   assert.equal(started.status, 200);
   const run = await started.json();
