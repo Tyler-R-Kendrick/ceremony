@@ -81,11 +81,11 @@ export async function teachingHttp(
     }
     if (
       (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
-        /^\/stripe\/[^/]+\/human$/.test(path)) &&
+        /^\/(stripe|supabase)\/[^/]+\/human$/.test(path)) &&
       runtime.human
     ) {
       const action = path.split("/")[3];
-      if (post && action !== "recovery" && !path.startsWith("/stripe/"))
+      if (post && action !== "recovery" && !/^\/(stripe|supabase)\//.test(path))
         return reply({ error: "unavailable" }, 405);
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
       requireCapability(actor, "executor");

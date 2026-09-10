@@ -1,6 +1,6 @@
 # Supabase MFA integration checkpoint
 
-This is draft-branch implementation evidence, not live certification or a completed browser feature. The account-first Supabase children are not yet mounted in the hosted/browser connection surface. The existing Supabase password adapter remains separate.
+This is draft-branch implementation evidence, not live certification. The original checkpoint below predates browser mounting; the subsequent integration results are recorded separately. The existing Supabase password adapter remains separate.
 
 ## Implemented boundary
 
@@ -29,4 +29,17 @@ Coverage command:
 npx c8 --include=src/server/supabase-auth.ts --include=src/server/recipes/supabase.ts --reporter=text --reporter=json-summary --reports-dir=artifacts/supabase-mfa-coverage node --import tsx --test tests/supabase-auth.test.ts tests/supabase-mfa.test.ts tests/supabase-children.test.ts
 ```
 
-Browser mounting, native factor selection/code entry, browser acceptance, remaining branch and mutation coverage, and live provider certification are unfinished. Full deterministic verification is recorded separately by the sanitized verification runner; focused success here does not replace that result. No real GitHub, hosted Vercel/Workflow deployment or installed-PWA certification was performed for this checkpoint.
+At that checkpoint, browser mounting and acceptance were unfinished. Full deterministic verification is recorded separately by the sanitized verification runner; focused success here does not replace that result. No real GitHub, hosted Vercel/Workflow deployment or installed-PWA certification was performed for this checkpoint.
+
+## Native browser integration
+
+The same registered children now mount through the authenticated local and hosted runtime, shared session configuration, and existing Connect surface. Private project setup, explicit project-user signup/sign-in, email confirmation and enrolled TOTP collection return to the same parent. Dashboard account setup remains a provider-owned handoff, distinct from project-user authentication.
+
+- Mounted HTTP/PostgreSQL and command tests: ten passed, no failures/skips. Both assurance profiles complete through actual SDK HTTP and signed fixture tokens. Negative assertions cover foreign subjects/origins/tickets, wrong stages, extra fields, ticket replay and no repeated MFA effect after a failed code.
+- Focused SDK/children/mounted HTTP coverage: 13 passed, no failures/skips; 99.06% lines, 87.27% branches, 100% functions. SDK branches: 94.4%; native collector: 80%; children: 85.22%. Collector/children remain below the requested 90% branch target.
+- Browser acceptance: six passed across Chromium, Firefox and WebKit, initially in 47.7 seconds and again in 38.5 seconds after review fixes. Wrong project key, wrong password and wrong MFA code recover in place. Only empty Connect screenshots were captured; private collectors have screenshots/video/traces disabled.
+- Earlier browser attempts failed: two initial timeouts; a bounded rerun exposed an assertion racing the confirmation reload; a subsequent two-case run exposed encoded run-ID comparison and an early provider-counter assertion. Tests now await navigation and verified completion and compare decoded identities. These failed attempts are retained, not reported as passing retries.
+- Impeccable finish review resolved three findings: missing rejected-input feedback, unnecessary invalid-project return/reopen detour, and missing negative/recovery browser assertions. The scoped verdict was `ship`; it does not certify provider accounts or private-page screenshots.
+- Deterministic attempt `artifacts/verification/2026-09-10T07-24-23-237Z/commands.json`: 342 Node tests, two Workflow tests and all 159 security mutants passed (zero surviving/timeouts), then build failed while browser integration was being edited. The discriminated-union type error was fixed and type checking passed. This attempt is not a passing full gate.
+
+No real Supabase account, deployed Vercel/Workflow runtime or installed-PWA platform was tested. Remaining coverage and complete final-tree verification are release gaps; local protocol evidence does not replace external certification.

@@ -92,6 +92,7 @@ type Material = {
   };
   session?: SupabasePrivateSession;
   mfa?: { factorId: string; code: string };
+  confirmationPending?: boolean;
   evidenceEffect?: string;
   verifiedUntil?: number;
 };
@@ -447,8 +448,15 @@ export class AsyncSupabaseChildren {
       throw error;
     }
     await this.authorize(context);
-    if (result.state !== "session")
+    if (result.state !== "session") {
+      await this.save(
+        context,
+        "input",
+        { credentials: input.credentials, confirmationPending: true },
+        Math.max(1, input.expires - Date.now()),
+      );
       return { state: "awaiting-human", outputs: {} };
+    }
     const output = await this.save(
       context,
       "session",
@@ -547,6 +555,71 @@ export class AsyncSupabaseChildren {
         Math.max(1, result.expiresAt - Date.now()),
       ),
     );
+  }
+  /** Native authenticated collector only; a confirmation click is permission to check, never completion evidence. */
+  async humanView(
+    context: OperationContext,
+  ): Promise<
+    | { mode: "project" }
+    | { mode: "credentials"; allowSignup: boolean }
+    | { mode: "confirmation" }
+    | { mode: "mfa"; factors: string[] }
+  > {
+    await this.authorize(context);
+    if (context.actor.actorKind !== "human")
+      throw new AuthorizationError("denied");
+    const node = await this.store.transaction(async (tx) => {
+      const run = await tx.get<RunRecord>({
+        tenant: context.actor.tenantId,
+        kind: "run",
+        id: context.runId,
+      });
+      const node = run?.value.nodes.find((item) => item.id === context.nodeId);
+      const state = await tx.get<{ state: string }>({
+        tenant: context.actor.tenantId,
+        kind: "node",
+        id: `${context.runId}:${context.nodeId}`,
+      });
+      if (
+        !node ||
+        !["awaiting-human", "uncertain"].includes(state?.value.state ?? "")
+      )
+        throw new AuthorizationError("denied");
+      return node;
+    });
+    if (node.operationId === "supabase.prepare-project")
+      return { mode: "project" };
+    if (node.operationId === "supabase.obtain-session") {
+      const input = await this.read(context, "input");
+      if (input?.confirmationPending) return { mode: "confirmation" };
+      const attempted = await this.store.transaction((tx) =>
+        tx.get(this.signupKey(context)),
+      );
+      return { mode: "credentials", allowSignup: !attempted };
+    }
+    if (node.operationId !== "supabase.verify-access")
+      throw new AuthorizationError("denied");
+    const material = await this.read(context, "session");
+    if (material?.project && material.session) {
+      const client = this.client(context, material.project);
+      try {
+        if (
+          (
+            await client.verify(
+              material.session,
+              this.options.requiredAssurance,
+            )
+          ).state === "mfa-required"
+        )
+          return {
+            mode: "mfa",
+            factors: await client.totpFactors(material.session),
+          };
+      } catch {
+        // Revoked or expired sessions require fresh private sign-in, never stale evidence.
+      }
+    }
+    return { mode: "credentials", allowSignup: false };
   }
   /** Native authenticated collector only; a confirmation click is permission to check, never completion evidence. */
   async humanInput(

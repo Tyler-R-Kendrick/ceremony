@@ -274,6 +274,12 @@ for (const loseSignup of [false, true])
       loseSignup ? "uncertain" : "awaiting-human",
     );
     assert.equal(f.state.signups, 1);
+    assert.deepEqual(
+      await f.children.humanView(f.inputContext(run.id, "session")),
+      loseSignup
+        ? { mode: "credentials", allowSignup: false }
+        : { mode: "confirmation" },
+    );
     await assert.rejects(f.advance(run.id, "access"), /denied/);
     await f.input(run.id, "session", { confirmed: true });
     assert.equal((await f.advance(run.id, "session")).state, "awaiting-human");

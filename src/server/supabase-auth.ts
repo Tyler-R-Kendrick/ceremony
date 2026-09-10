@@ -233,6 +233,22 @@ export function supabaseAuth(
       throw new SupabaseAuthFailure("verification-rejected");
   };
   return {
+    /** Private native collector only. Labels are supplied by the host UI, not arbitrary provider profile fields. */
+    async totpFactors(value: SupabasePrivateSession): Promise<string[]> {
+      try {
+        const { user } = await verifiedUser(session(value));
+        return (user.factors ?? [])
+          .filter(
+            (factor) =>
+              factor.factor_type === "totp" &&
+              factor.status === "verified" &&
+              z.uuid().safeParse(factor.id).success,
+          )
+          .map((factor) => factor.id);
+      } catch {
+        throw new SupabaseAuthFailure("verification-rejected");
+      }
+    },
     /** Caller must persist effect intent before requesting a challenge; no enrollment or automatic retries. */
     async challengeTotp(
       value: SupabasePrivateSession,

@@ -50,6 +50,9 @@ const operationLabels: Record<string, string> = {
   "stripe.prepare-account": "Open or create your Stripe account",
   "stripe.obtain-key": "Obtain a restricted Stripe key",
   "stripe.verify-access": "Verify Stripe access",
+  "supabase.prepare-project": "Set up your Supabase project",
+  "supabase.obtain-session": "Sign in or create a project account",
+  "supabase.verify-access": "Verify Supabase access",
 };
 const operationLabel = (id: string) =>
   operationLabels[id] ?? "Registered connection step";
@@ -147,7 +150,9 @@ export function TeachingConnection({
       ? "GitHub"
       : connectorId === "stripe"
         ? "Stripe"
-        : "service";
+        : connectorId === "supabase"
+          ? "Supabase"
+          : "service";
   const base = apiBase.replace(/\/$/, "");
   const request = useCallback(
     <T,>(path: string, body?: unknown, signal?: AbortSignal) =>
@@ -678,14 +683,16 @@ export function TeachingConnection({
               Teach this connection
             </button>
           )}
-          {active?.state === "awaiting-human" && run?.status === "active" && (
-            <a
-              className="button primary"
-              href={`${base}/${encodeURIComponent(connectorId)}/${encodeURIComponent(run.id)}/human`}
-            >
-              Continue with {serviceName}
-            </a>
-          )}
+          {(active?.state === "awaiting-human" ||
+            (connectorId === "supabase" && active?.state === "uncertain")) &&
+            run?.status === "active" && (
+              <a
+                className="button primary"
+                href={`${base}/${encodeURIComponent(connectorId)}/${encodeURIComponent(run.id)}/human`}
+              >
+                Continue with {serviceName}
+              </a>
+            )}
           {active?.state === "failed" && run?.status === "active" && (
             <button
               className="primary"
