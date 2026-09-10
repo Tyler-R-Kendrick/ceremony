@@ -21,6 +21,12 @@ import {
   discoverProviderAuth,
   type ProviderSearch,
 } from "./provider-discovery.js";
+import {
+  manifestFromProject,
+  recipeFromProject,
+} from "./authored-operations.js";
+import type { ConnectorManifest } from "../core/schema.js";
+import type { RecipeDefinition } from "../core/recipe-contracts.js";
 
 const recordSchema = z.strictObject({
   author: z.string().min(1).max(200),
@@ -74,7 +80,10 @@ function replyFrom(result: AuthoringResult) {
   const outline = (result.draft.outline ?? [])
     .map((line) => `\n- ${line}`)
     .join("");
-  return `Drafted a ${result.draft.provider} ceremony.${corrected}${found}${outline}\nThis is a definition, not a live connection.`;
+  const test = result.draft.connectorId
+    ? `\nOpen Connect to test ${result.draft.connectorId}. WebMCP: ceremony_${result.draft.connectorId.replaceAll("-", "_")}_connect.`
+    : "";
+  return `Drafted a ${result.draft.provider} ceremony.${corrected}${found}${outline}${test}`;
 }
 
 function humanFor(
@@ -140,7 +149,8 @@ function summarize(
       revision,
       provider: project.manifest.name || project.manifest.id || "provider",
       methods: project.manifest.methods.map((method) => method.kind),
-      executable: false,
+      executable: true,
+      connectorId: project.manifest.id || undefined,
       outline: project.manifest.methods.map((method) => {
         const steps =
           project.workflows[0]?.workflows.find(
@@ -200,6 +210,7 @@ export class ConnectorDrafts {
         : {}),
     });
     const saved = parseConnectorDraft(JSON.stringify(project));
+    await this.install(actor, saved);
     const id = randomUUID();
     const revision = await this.store.transaction((tx) =>
       tx.put(
@@ -245,6 +256,82 @@ export class ConnectorDrafts {
       );
       return summarize(draftId, next, saved, "draft");
     });
+  }
+  async install(actor: ActorContext, project: ConnectorDraft) {
+    const manifest = manifestFromProject(project);
+    const definition = recipeFromProject(project);
+    await this.store.transaction(async (tx) => {
+      const recordKey = {
+        tenant: actor.tenantId,
+        kind: "artifact" as const,
+        id: `installed-connector:${manifest.id}`,
+      };
+      const prior = await tx.get(recordKey);
+      await tx.put(
+        recordKey,
+        {
+          author: actor.subjectId,
+          session: actor.sessionId,
+          manifest,
+          definition,
+        },
+        prior?.revision ?? null,
+      );
+    });
+    return manifest.id;
+  }
+  async getInstalled(actor: ActorContext, connectorId: string) {
+    const record = await this.store.transaction((tx) =>
+      tx.get({
+        tenant: actor.tenantId,
+        kind: "artifact",
+        id: `installed-connector:${connectorId}`,
+      }),
+    );
+    if (!record) return undefined;
+    const value = z
+      .strictObject({
+        author: z.string(),
+        session: z.string(),
+        manifest: z.unknown(),
+        definition: z.unknown(),
+      })
+      .parse(record.value);
+    if (value.author !== actor.subjectId) return undefined;
+    return {
+      manifest: value.manifest as ConnectorManifest,
+      definition: value.definition as RecipeDefinition,
+    };
+  }
+  async listManifests(actor: ActorContext): Promise<ConnectorManifest[]> {
+    const manifests: ConnectorManifest[] = [];
+    let after = "";
+    for (;;) {
+      const page = await this.store.transaction((tx) =>
+        tx.list(actor.tenantId, "artifact", 100, after),
+      );
+      if (!page.length) break;
+      after = page.at(-1)!.id;
+      for (const record of page) {
+        if (!record.id.startsWith("installed-connector:")) continue;
+        const value = z
+          .strictObject({
+            author: z.string(),
+            session: z.string(),
+            manifest: z.unknown(),
+            definition: z.unknown(),
+          })
+          .safeParse(record.value);
+        if (!value.success || value.data.author !== actor.subjectId) continue;
+        const parsed = z
+          .custom<ConnectorManifest>((item) => item)
+          .safeParse(value.data.manifest);
+        if (parsed.success)
+          manifests.push(value.data.manifest as ConnectorManifest);
+      }
+      if (page.length < 100) break;
+    }
+    return manifests;
   }
   async read(actor: ActorContext, draftId: string): Promise<AuthoringResult> {
     requireCapability(actor, "author");

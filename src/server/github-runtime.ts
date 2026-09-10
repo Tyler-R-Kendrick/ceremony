@@ -17,6 +17,10 @@ import {
   resolveGitHubInstallationRun,
   type AsyncGitHubOptions,
 } from "./recipes/github.js";
+import {
+  authoredVocabulary,
+  registerAuthoredOperations,
+} from "./authored-operations.js";
 import { type AsyncCeremonyStore } from "./persistence/index.js";
 import {
   AuthorizationError,
@@ -131,11 +135,15 @@ export function createGitHubRuntime(
   const registry = new OperationRegistry(
     new Map([
       ...githubVocabulary,
+      ...authoredVocabulary,
       ...(options.stripe ? stripeVocabulary : []),
       ...(options.supabase ? supabaseVocabulary : []),
       ...(options.jira ? jiraVocabulary : []),
     ]),
   );
+  registerAuthoredOperations(registry, {
+    allowLoopbackHttp: origin.startsWith("http://127.0.0.1"),
+  });
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
@@ -171,16 +179,19 @@ export function createGitHubRuntime(
       } else if (!(await options.jira?.allowTarget?.(actor, run.target)))
         return false;
     }
+    const expected =
+      run.provider === "stripe"
+        ? (await options.stripe?.configuration(actor))?.version
+        : run.provider === "jira"
+          ? (await options.jira?.configuration(actor))?.version
+          : run.provider === "supabase"
+            ? (await options.supabase?.configuration(actor))?.version
+            : run.provider === "github"
+              ? (await configuration(actor)).configurationVersion
+              : run.configurationVersion;
     return (
       (operationId === "continuation" ||
-        (run.provider === "stripe"
-          ? (await options.stripe?.configuration(actor))?.version
-          : run.provider === "jira"
-            ? (await options.jira?.configuration(actor))?.version
-            : run.provider === "supabase"
-              ? (await options.supabase?.configuration(actor))?.version
-              : (await configuration(actor)).configurationVersion) ===
-          run.configurationVersion) &&
+        expected === run.configurationVersion) &&
       (await options.authorize(actor, run, operationId))
     );
   };
@@ -591,6 +602,22 @@ export function createGitHubRuntime(
           environment: options.environment,
           configurationVersion: (await options.stripe.configuration(actor))
             .version,
+        };
+      const authored = await store.transaction((tx) =>
+        tx.get({
+          tenant: actor.tenantId,
+          kind: "artifact",
+          id: `installed-connector:${connectorId}`,
+        }),
+      );
+      if (authored)
+        return {
+          provider: connectorId,
+          profile: "authored",
+          target: origin,
+          origin,
+          environment: options.environment,
+          configurationVersion: options.configurationVersion,
         };
       const config = await configuration(actor);
       const target =

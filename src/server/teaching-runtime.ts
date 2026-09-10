@@ -120,10 +120,16 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       ],
     ],
   );
-  function connection(connectorId: string) {
+  async function connection(actor: ActorContext, connectorId: string) {
     const registered = connections.get(connectorId);
-    if (!registered) throw new AuthorizationError("invalid_request");
-    return registered;
+    if (registered) return registered;
+    const installed = await authoring.getInstalled(actor, connectorId);
+    if (!installed) throw new AuthorizationError("invalid_request");
+    return {
+      definition: installed.definition,
+      outputContract: "authored.connection",
+      revalidateOperation: "authored.verify-access",
+    };
   }
   const commands = new ProtectedCommandService(
     store,
@@ -181,7 +187,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     inputs: Record<string, unknown>,
     connectorId: string,
   ) {
-    connection(connectorId);
+    await connection(actor, connectorId);
     const checked = await recipes.preview(actor, definition);
     if (checked.diagnostics.length)
       throw new AuthorizationError("invalid_request");
@@ -217,7 +223,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     fresh = true,
   ) {
     requireCapability(actor, "executor");
-    const registered = connection(connectorId);
+    const registered = await connection(actor, connectorId);
     const context = await options.context(actor, connectorId);
     // Reuse requires the entire authorization context, not just a connector name.
     const existing = await store.transaction(async (tx) => {
@@ -386,6 +392,10 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     identity,
     origin,
     connectors: Object.freeze([...connections.keys()]),
+    listConnectors: async (actor: ActorContext) => [
+      ...connections.keys(),
+      ...(await authoring.listManifests(actor)).map((item) => item.id),
+    ],
     commands,
     recipes,
     authoring,

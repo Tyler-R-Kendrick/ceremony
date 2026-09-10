@@ -72,6 +72,10 @@ export default function WorkflowStudio() {
       });
       setConversationId(reply.conversationId);
       setMessages(reply.messages);
+      const connectorId = reply.result?.draft?.connectorId;
+      if (connectorId) {
+        location.assign(`/?connector=${encodeURIComponent(connectorId)}`);
+      }
     } catch {
       setError(
         "The authoring agent could not continue. Don't send credentials here.",

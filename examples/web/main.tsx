@@ -176,13 +176,12 @@ function App() {
                       <span>
                         <strong>{item.name}</strong>
                         <small>
-                          {liveMode
-                            ? item.id === "github"
-                              ? "App setup · repository access"
-                              : item.id === "jira"
-                                ? "OAuth consent"
-                                : connectorDetails[item.id]?.summary
-                            : connectorDetails[item.id]?.summary}
+                          {item.id === "github" && liveMode
+                            ? "App setup · repository access"
+                            : item.id === "jira" && liveMode
+                              ? "OAuth consent"
+                              : (connectorDetails[item.id]?.summary ??
+                                item.description)}
                         </small>
                       </span>
                     </button>

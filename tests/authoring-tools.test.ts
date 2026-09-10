@@ -46,7 +46,7 @@ test("authoring tools draft a provider ceremony without human intervention", asy
   assert.equal(drafted.ok, true);
   assert.equal(drafted.human, null);
   assert.deepEqual(drafted.draft.methods, ["oauth-code"]);
-  assert.equal(drafted.draft.executable, false);
+  assert.equal(drafted.draft.executable, true);
   assert.equal(JSON.stringify(drafted).includes("clientSecret"), false);
   const complete = (await tools[0]!.execute({
     provider: "jira",
@@ -115,8 +115,10 @@ test("authoring chat drafts from a misspelled name without a form", async () => 
   assert.equal(reply.result?.human, null);
   assert.equal(reply.result?.resolution?.resolved, "bluesky");
   assert.ok(reply.result?.draft?.methods.includes("oauth-code"));
+  assert.equal(reply.result?.draft?.connectorId, "bluesky");
   assert.match(reply.messages.at(-1)!.text, /Bluesky/);
-  assert.match(reply.messages.at(-1)!.text, /authorize-user/);
+  const installed = await drafts.getInstalled(actor(), "bluesky");
+  assert.equal(installed?.manifest.id, "bluesky");
   await store.close();
 });
 
