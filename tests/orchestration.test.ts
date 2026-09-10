@@ -370,6 +370,11 @@ test("Agent2Human signs canonical intents, deduplicates delivery and rejects for
     interaction,
   );
   assert.equal(sends, 1);
+  await assert.rejects(
+    a2h.authorize("alice", "run", "https://ceremony.example/human/changed"),
+    /context changed/,
+  );
+  assert.equal(sends, 1);
   const payload = {
     type: "RESPONSE",
     message_id: "response-1",

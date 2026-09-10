@@ -15,6 +15,7 @@ import { createNeonAdapter } from "../../src/server/neon.js";
 import { manifests } from "../../examples/manifests.js";
 import { Agent2Human } from "../../src/server/a2h.js";
 import { CeremonyDatabase } from "../../src/server/storage.js";
+import { effectAuthorizationDigest } from "../../src/server/authorization.js";
 
 function contract(t: TestContext, provider: string) {
   const dir = mkdtempSync(join(tmpdir(), "ceremony-protocol-pact-"));
@@ -171,6 +172,120 @@ test("Pact: A2H gateway authentication failure cannot create a pending human req
       assert.equal(db.keys("a2h:").length, 0);
     });
 });
+for (const status of [200, 503]) {
+  test(`Pact: generic A2H delivery ${status} cannot accept an uncorrelated acknowledgement`, async (t) => {
+    const pact = contract(t, "a2h-gateway");
+    const db = new CeremonyDatabase(":memory:", randomBytes(32));
+    t.after(() => db.close());
+    const pair = await generateKeyPair("EdDSA");
+    const effect = {
+      tenantId: "tenant",
+      subjectId: "alice",
+      runId: "run",
+      operationId: "jira.prepare-app",
+      operationVersion: "1.0.0",
+      target: "https://workspace.atlassian.net",
+      configurationVersion: "v1",
+      scopes: ["read:jira-user"],
+      argumentsDigest: "a".repeat(64),
+    };
+    const headers = {
+      "x-a2h-api-key": "synthetic-key",
+      "content-type": "application/json",
+    };
+    pact
+      .given("the gateway supports signed email authorization")
+      .uponReceiving("discover generic ceremony authorization support")
+      .withRequest({ method: "GET", path: "/.well-known/a2h", headers })
+      .willRespondWith({
+        status: 200,
+        body: {
+          a2h_supported: ["1.0"],
+          channels: ["email"],
+          max_ttl_sec: 600,
+          auth: { methods: ["api_key"] },
+        },
+      });
+    pact
+      .given(
+        status === 503
+          ? "intent delivery is temporarily unavailable"
+          : "the gateway returns an unrelated acknowledgement",
+      )
+      .uponReceiving("authorize the exact Jira app registration effect")
+      .withRequest({
+        method: "POST",
+        path: "/v1/intent",
+        headers,
+        body: {
+          a2h_version: "1.0",
+          a2h_min_version: "1.0",
+          type: "AUTHORIZE",
+          agent_id: "agent",
+          principal_id: "alice",
+          ttl_sec: 600,
+          interaction_id: Matchers.uuid(),
+          message_id: Matchers.uuid(),
+          created_at: Matchers.iso8601DateTimeWithMillis(),
+          channel: {
+            type: "email",
+            address: "mailto:alice@example.test",
+            nonce: Matchers.regex("^[A-Za-z0-9_-]{32}$", "a".repeat(32)),
+            expires_at: Matchers.iso8601DateTimeWithMillis(),
+            render: {
+              title: "Jira needs your participation",
+              body: "Review the app registration step for Jira in your authenticated ceremony: https://ceremony.example/human/run. Approval here does not replace provider consent or access verification. Enter credentials only in the private collector, never in your reply.",
+            },
+          },
+          params: {
+            purpose: "app-registration",
+            connector_id: "jira",
+            connector_name: "Jira",
+            effect_digest: effectAuthorizationDigest(effect),
+          },
+          signature: Matchers.regex(
+            "^[A-Za-z0-9_-]+\\.\\.[A-Za-z0-9_-]+$",
+            "header..signature",
+          ),
+        },
+      })
+      .willRespondWith({
+        status,
+        ...(status === 200 ? { body: { interaction_id: "unrelated" } } : {}),
+      });
+    await pact.executeTest(async ({ url }) => {
+      const agent = new Agent2Human(db, {
+        gatewayOrigin: "https://gateway.example",
+        agentId: "agent",
+        keyId: "key",
+        privateKey: pair.privateKey,
+        gatewayKey: pair.publicKey,
+        apiKey: "synthetic-key",
+        recipient: () => ({
+          principalId: "alice",
+          type: "email",
+          address: "mailto:alice@example.test",
+        }),
+        fetch: (input, init) => {
+          const source = new URL(String(input));
+          assert.equal(source.origin, "https://gateway.example");
+          return fetch(`${url}${source.pathname}`, init);
+        },
+      });
+      await assert.rejects(
+        agent.authorize("alice", "run", "https://ceremony.example/human/run", {
+          connectorId: "jira",
+          connectorName: "Jira",
+          purpose: "app-registration",
+          effect,
+        }),
+        status === 200 ? /correlation failed/ : /delivery failed/,
+      );
+      assert.equal(db.keys("a2h-ceremony:").length, 1);
+      assert.equal(db.keys("a2h:").length, 0);
+    });
+  });
+}
 for (const kind of ["basic", "api-key", "form"] as const) {
   for (const status of [200, 401])
     test(`Pact: configured ${kind} backend returns ${status}`, async (t) => {
