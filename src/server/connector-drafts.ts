@@ -4,8 +4,10 @@ import type { ActorContext } from "../core/operation-contracts.js";
 import {
   applyProviderProposal,
   composeAuthoredMethods,
+  disambiguateProvider,
   newConnectorProject,
   parseConnectorDraft,
+  providerCatalog,
   type ConnectorDraft,
 } from "../core/connector-authoring.js";
 import type {
@@ -14,6 +16,10 @@ import type {
 } from "../core/authoring-tools.js";
 import { AuthorizationError, requireCapability } from "./identity.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
+import {
+  discoverProviderAuth,
+  type ProviderSearch,
+} from "./provider-discovery.js";
 
 const recordSchema = z.strictObject({
   author: z.string().min(1).max(200),
@@ -77,10 +83,12 @@ function summarize(
   revision: number,
   project: ConnectorDraft,
   intent: "draft" | "complete" | "run",
+  extra: Pick<AuthoringResult, "resolution" | "discovery"> = {},
 ): AuthoringResult {
   const human = humanFor(project, intent);
   return {
     ok: true,
+    ...extra,
     draft: {
       id,
       revision,
@@ -94,18 +102,83 @@ function summarize(
 
 /** Authenticated authoring of connector drafts. Never executes a provider or stores credentials. */
 export class ConnectorDrafts {
-  constructor(private readonly store: AsyncCeremonyStore) {}
+  constructor(
+    private readonly store: AsyncCeremonyStore,
+    private readonly options: {
+      fetch?: typeof fetch;
+      search?: ProviderSearch;
+      allowLoopbackHttp?: boolean;
+    } = {},
+  ) {}
   async fromProvider(
     actor: ActorContext,
     provider: string,
     openApiUrl?: string,
     intent: "draft" | "complete" | "run" = "draft",
+    origin?: string,
   ): Promise<AuthoringResult> {
     requireCapability(actor, "author");
+    const resolution = disambiguateProvider(provider);
+    if (resolution.confidence === "low" && resolution.alternatives.length)
+      return {
+        ok: true,
+        resolution,
+        human: {
+          mode: "elicit",
+          reason: "provider-name",
+          title: "Which provider?",
+          body: `Did you mean ${resolution.alternatives.join(", ")}? Confirm the provider name. Do not send credentials.`,
+          fields: [{ name: "provider", label: "Provider name", type: "text" }],
+        },
+      };
+    const catalog = providerCatalog[resolution.resolved];
+    const origins = [...(origin ? [origin] : []), ...(catalog?.origins ?? [])];
+    const discovery = origins.length
+      ? await discoverProviderAuth(origins, {
+          ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
+          ...(this.options.search ? { search: this.options.search } : {}),
+          query: resolution.resolved,
+          ...(this.options.allowLoopbackHttp
+            ? { allowLoopbackHttp: true }
+            : {}),
+        })
+      : {
+          origin: "",
+          documents: [] as string[],
+          methods:
+            [] as ConnectorDraft["manifest"]["methods"][number]["kind"][],
+          searchUsed: false,
+        };
+    if (
+      resolution.confidence === "low" &&
+      !origins.length &&
+      !discovery.documents.length
+    )
+      return {
+        ok: true,
+        resolution,
+        discovery: {
+          origin: "",
+          documents: [],
+          searchUsed: Boolean(this.options.search),
+        },
+        human: {
+          mode: "elicit",
+          reason: "origin-url",
+          title: "Provider origin",
+          body: "A public HTTPS origin is required to discover well-known auth documents. Do not send credentials.",
+          fields: [
+            { name: "origin", label: "Provider HTTPS origin", type: "url" },
+          ],
+        },
+      };
     const project = newConnectorProject();
-    applyProviderProposal(project, provider);
-    if (openApiUrl)
-      project.workflows[0]!.sourceDescriptions[0]!.url = openApiUrl;
+    applyProviderProposal(project, resolution.resolved, {
+      ...(discovery.methods.length ? { methods: discovery.methods } : {}),
+      ...(openApiUrl || discovery.openApiUrl
+        ? { openApiUrl: openApiUrl ?? discovery.openApiUrl }
+        : {}),
+    });
     const saved = parseConnectorDraft(JSON.stringify(project));
     const id = randomUUID();
     const revision = await this.store.transaction((tx) =>
@@ -115,7 +188,14 @@ export class ConnectorDrafts {
         null,
       ),
     );
-    return summarize(id, revision, saved, intent);
+    return summarize(id, revision, saved, intent, {
+      resolution,
+      discovery: {
+        origin: discovery.origin,
+        documents: discovery.documents,
+        searchUsed: discovery.searchUsed,
+      },
+    });
   }
   async compose(
     actor: ActorContext,

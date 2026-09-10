@@ -466,6 +466,7 @@ test("provider proposals pick generic families without fetching", () => {
   assert.deepEqual(proposeConnectorForProvider("Obscure SaaS").methods, [
     "oauth-code",
   ]);
+  assert.equal(proposeConnectorForProvider("githb").slug, "github");
   const draft = newConnectorProject();
   applyProviderProposal(draft, "Stripe");
   assert.equal(draft.manifest.id, "stripe");

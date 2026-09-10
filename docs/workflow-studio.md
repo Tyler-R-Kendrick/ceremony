@@ -6,7 +6,7 @@ Studio is an authoring tool for **new connectors and their ceremonies**. It does
 
 ## Create a connector
 
-1. Agents draft a connector with the `ceremony_author_from_provider` tool (provider name only). That uses generic auth-family templates and does not fetch the provider, collect credentials, or install an adapter. A human is elicited only when consent or private credentials are required to run. Studio remains the review/export editor.
+1. Agents draft a connector with `ceremony_author_from_provider`. The first step disambiguates the provider name and auto-corrects high-confidence misspellings; ambiguous names elicit a public confirmation. It then crawls well-known auth documents (OAuth/OIDC metadata, `auth.md`, OpenAPI) and may search only if those are unpublished. Credentials are never tool arguments: username/password use private collection, and provider consent uses A2H. Studio remains the review/export editor.
 2. Choose **Design ceremonies** to inspect or adjust methods. Each method starts from that family's generic Arazzo outline and OpenUI template. Agents compose with `ceremony_author_compose`; the editor can also compose selected ceremonies into a parent with prerequisites.
 3. Add and reorder steps. Describe each action and reference the provider operation that a trusted SDK handler will implement. Configure the appropriate human recipient; A2H return always leads to verification.
 4. Choose **Review connector**. Fix validation issues before exporting a manifest or Arazzo workflow. **Save connector project** also saves incomplete drafts so operation research can continue later.

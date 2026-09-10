@@ -487,80 +487,194 @@ export function attachGenericCeremony(
   return method;
 }
 
-const providerCatalog: Record<
+export const providerCatalog: Record<
   string,
-  { name: string; description: string; methods: FlowKind[] }
+  {
+    name: string;
+    description: string;
+    methods: FlowKind[];
+    origins: string[];
+  }
 > = {
   github: {
     name: "GitHub",
     description: "Connect a GitHub account or App.",
     methods: ["github-app", "oauth-code", "device", "api-key"],
+    origins: ["https://github.com", "https://api.github.com"],
   },
   stripe: {
     name: "Stripe",
     description: "Verify a Stripe secret or restricted key.",
     methods: ["api-key"],
+    origins: ["https://api.stripe.com"],
   },
   jira: {
     name: "Jira",
     description:
       "Authorize a Jira Cloud site through a shared OAuth app, then the user's consent.",
     methods: ["oauth-code"],
+    origins: ["https://developer.atlassian.com"],
   },
   atlassian: {
     name: "Atlassian",
     description:
       "Authorize an Atlassian Cloud site through a shared OAuth app, then the user's consent.",
     methods: ["oauth-code"],
+    origins: ["https://developer.atlassian.com"],
   },
   supabase: {
     name: "Supabase",
     description: "Sign in to a Supabase Auth project.",
     methods: ["form"],
+    origins: ["https://supabase.com"],
   },
   neon: {
     name: "Neon",
     description:
       "Start anonymous Neon access and claim the project when required.",
     methods: ["authmd-anonymous"],
+    origins: ["https://neon.com"],
   },
   slack: {
     name: "Slack",
     description: "Authorize a Slack workspace with OAuth.",
     methods: ["oauth-code"],
+    origins: ["https://slack.com"],
   },
   google: {
     name: "Google",
     description: "Authorize a Google account with OAuth.",
     methods: ["oauth-code"],
+    origins: ["https://accounts.google.com"],
   },
 };
 
-/** Conservative family selection from a provider name. Does not fetch or certify the provider. */
-export function proposeConnectorForProvider(name: string) {
-  const slug = name
+const providerAliases: Record<string, string> = {
+  gh: "github",
+  ghe: "github",
+  goog: "google",
+};
+
+function providerSlug(name: string) {
+  return name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 64);
-  const known = providerCatalog[slug] ?? providerCatalog[slug.split("-")[0]!];
-  if (known) return { slug: slug || known.name.toLowerCase(), ...known };
+}
+
+function editDistance(a: string, b: string) {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = i - 1;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j]!;
+      row[j] = Math.min(
+        row[j]! + 1,
+        row[j - 1]! + 1,
+        previous + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      previous = current;
+    }
+  }
+  return row[b.length]!;
+}
+
+export type ProviderResolution = {
+  query: string;
+  resolved: string;
+  confidence: "high" | "low";
+  alternatives: string[];
+};
+
+/** High-confidence catalog correction only. Ambiguous names stay unresolved. */
+export function disambiguateProvider(name: string): ProviderResolution {
+  const slug = providerSlug(name);
+  const aliased = providerAliases[slug];
+  if (aliased)
+    return {
+      query: name,
+      resolved: aliased,
+      confidence: "high",
+      alternatives: [],
+    };
+  if (providerCatalog[slug])
+    return {
+      query: name,
+      resolved: slug,
+      confidence: "high",
+      alternatives: [],
+    };
+  const first = slug.split("-")[0]!;
+  if (first && providerCatalog[first])
+    return {
+      query: name,
+      resolved: first,
+      confidence: "high",
+      alternatives: [],
+    };
+  const scored = Object.keys(providerCatalog)
+    .map((key) => ({ key, distance: editDistance(slug, key) }))
+    .filter((item) => item.distance <= 2)
+    .sort((left, right) => left.distance - right.distance);
+  const best = scored[0];
+  const next = scored[1];
+  if (
+    best &&
+    best.distance <= 1 &&
+    slug.length >= 4 &&
+    (next?.distance ?? 9) > best.distance
+  )
+    return {
+      query: name,
+      resolved: best.key,
+      confidence: "high",
+      alternatives: [],
+    };
+  return {
+    query: name,
+    resolved: slug || name.trim(),
+    confidence: "low",
+    alternatives: scored.slice(0, 3).map((item) => item.key),
+  };
+}
+
+/** Conservative family selection from a provider name. Does not fetch or certify the provider. */
+export function proposeConnectorForProvider(name: string) {
+  const resolution = disambiguateProvider(name);
+  const slug = resolution.resolved;
+  const known = providerCatalog[slug];
+  if (known && resolution.confidence === "high")
+    return { slug, ...known, resolution };
   const label = name.trim() || "Provider";
   return {
     slug: slug || "provider",
     name: label,
     description: `Connect ${label} with a generic OAuth ceremony. Review every step before export.`,
     methods: ["oauth-code"] as FlowKind[],
+    origins: [] as string[],
+    resolution,
   };
 }
 
-export function applyProviderProposal(project: ConnectorDraft, name: string) {
+export function applyProviderProposal(
+  project: ConnectorDraft,
+  name: string,
+  overrides?: { methods?: FlowKind[]; openApiUrl?: string },
+) {
   const proposal = proposeConnectorForProvider(name);
   if (!project.manifest.name) project.manifest.name = proposal.name;
   if (!project.manifest.id) project.manifest.id = proposal.slug;
   if (!project.manifest.description)
     project.manifest.description = proposal.description;
+  if (overrides?.openApiUrl)
+    project.workflows[0]!.sourceDescriptions[0]!.url = overrides.openApiUrl;
+  const kinds = overrides?.methods?.length
+    ? overrides.methods
+    : proposal.methods;
   const familyNames: Record<FlowKind, string> = {
     "api-key": "API key",
     basic: "Username and password (Basic)",
@@ -570,7 +684,7 @@ export function applyProviderProposal(project: ConnectorDraft, name: string) {
     "authmd-anonymous": "Anonymous access and claiming",
     "github-app": "GitHub App",
   };
-  for (const kind of proposal.methods)
+  for (const kind of kinds)
     attachGenericCeremony(project, kind, familyNames[kind]);
   return proposal;
 }

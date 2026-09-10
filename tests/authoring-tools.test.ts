@@ -5,6 +5,7 @@ import { createAuthoringTools } from "../src/core/authoring-tools.js";
 import { ConnectorDrafts } from "../src/server/connector-drafts.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
+import { disambiguateProvider } from "../src/core/connector-authoring.js";
 
 function actor(): ActorContext {
   return {
@@ -21,7 +22,9 @@ test("authoring tools draft a provider ceremony without human intervention", asy
     current: "test",
     keys: { test: randomBytes(32) },
   });
-  const drafts = new ConnectorDrafts(store);
+  const drafts = new ConnectorDrafts(store, {
+    fetch: async () => new Response("", { status: 404 }),
+  });
   const tools = createAuthoringTools("ceremony_author", {
     fromProvider: (input) =>
       drafts.fromProvider(
@@ -29,6 +32,7 @@ test("authoring tools draft a provider ceremony without human intervention", asy
         input.provider,
         input.openApiUrl,
         input.intent,
+        input.origin,
       ),
     compose: (input) =>
       drafts.compose(actor(), input.draftId, input.revision, input.childIds),
@@ -69,10 +73,18 @@ test("authoring tools compose selected ceremonies without executing a provider",
     current: "test",
     keys: { test: randomBytes(32) },
   });
-  const drafts = new ConnectorDrafts(store);
+  const drafts = new ConnectorDrafts(store, {
+    fetch: async () => new Response("", { status: 404 }),
+  });
   const tools = createAuthoringTools("ceremony_author", {
     fromProvider: (input) =>
-      drafts.fromProvider(actor(), input.provider, input.openApiUrl),
+      drafts.fromProvider(
+        actor(),
+        input.provider,
+        input.openApiUrl,
+        input.intent,
+        input.origin,
+      ),
     compose: (input) =>
       drafts.compose(actor(), input.draftId, input.revision, input.childIds),
     read: (id) => drafts.read(actor(), id),
@@ -106,13 +118,103 @@ test("mounted authoring HTTP drafts a provider without a human collector", async
         origin: fixture.origin,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ provider: "jira" }),
+      body: JSON.stringify({ provider: "gith" }),
     },
   );
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
-  assert.equal(body.human, null);
-  assert.deepEqual(body.draft.methods, ["oauth-code"]);
-  assert.equal(JSON.stringify(body).includes("clientSecret"), false);
+  assert.equal(body.human?.reason, "provider-name");
+  assert.equal(body.human?.mode, "elicit");
+  assert.ok(body.resolution.alternatives.includes("github"));
+  assert.equal(body.draft, undefined);
+});
+
+test("high-confidence misspellings resolve without elicitation", () => {
+  const github = disambiguateProvider("githb");
+  assert.equal(github.resolved, "github");
+  assert.equal(github.confidence, "high");
+  const jira = disambiguateProvider("Jira Cloud");
+  assert.equal(jira.resolved, "jira");
+  assert.equal(jira.confidence, "high");
+});
+
+test("discovery crawl maps well-known OAuth metadata onto generic families", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  const seen: string[] = [];
+  const drafts = new ConnectorDrafts(store, {
+    allowLoopbackHttp: true,
+    fetch: async (input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.endsWith("/.well-known/oauth-authorization-server"))
+        return Response.json({
+          authorization_endpoint: "https://auth.example/authorize",
+          grant_types_supported: [
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code",
+          ],
+          device_authorization_endpoint: "https://auth.example/device",
+        });
+      return new Response("", { status: 404 });
+    },
+  });
+  const result = await drafts.fromProvider(
+    actor(),
+    "unknown-saas",
+    undefined,
+    "draft",
+    "http://127.0.0.1:4179",
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.human, null);
+  assert.deepEqual(result.draft?.methods.sort(), ["device", "oauth-code"]);
+  assert.ok(
+    result.discovery?.documents.includes(
+      "/.well-known/oauth-authorization-server",
+    ),
+  );
+  assert.equal(result.discovery?.searchUsed, false);
+  assert.ok(seen.every((url) => !url.includes("client_secret")));
+  await store.close();
+});
+
+test("search fallback is used only after well-known documents are missing", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  let searched = 0;
+  const drafts = new ConnectorDrafts(store, {
+    allowLoopbackHttp: true,
+    fetch: async (input) => {
+      if (String(input).startsWith("http://127.0.0.1:4180"))
+        return new Response("", { status: 404 });
+      if (String(input).endsWith("/auth.md"))
+        return new Response("anonymous claim profile", {
+          status: 200,
+          headers: { "content-type": "text/markdown" },
+        });
+      return new Response("", { status: 404 });
+    },
+    search: async () => {
+      searched++;
+      return [{ title: "Vendor auth.md", url: "https://vendor.example/docs" }];
+    },
+  });
+  const result = await drafts.fromProvider(
+    actor(),
+    "unknown-saas",
+    undefined,
+    "draft",
+    "http://127.0.0.1:4180",
+  );
+  assert.equal(searched, 1);
+  assert.equal(result.discovery?.searchUsed, true);
+  assert.deepEqual(result.draft?.methods, ["authmd-anonymous"]);
+  assert.equal(result.human, null);
+  await store.close();
 });

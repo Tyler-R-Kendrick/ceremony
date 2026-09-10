@@ -119,6 +119,7 @@ export async function teachingHttp(
         const input = z
           .strictObject({
             provider: z.string().min(1).max(100),
+            origin: z.string().url().max(200).optional(),
             openApiUrl: z.string().url().max(500).optional(),
             intent: z.enum(["draft", "complete", "run"]).default("draft"),
           })
@@ -129,6 +130,7 @@ export async function teachingHttp(
             input.provider,
             input.openApiUrl,
             input.intent,
+            input.origin,
           ),
         );
       }

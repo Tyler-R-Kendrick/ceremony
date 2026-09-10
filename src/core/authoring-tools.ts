@@ -7,6 +7,8 @@ const humanSchema = z
     mode: z.enum(["elicit", "a2h-authorize", "private-collector"]),
     reason: z.enum([
       "openapi-url",
+      "provider-name",
+      "origin-url",
       "provider-consent",
       "private-credentials",
       "owner-setup",
@@ -35,6 +37,21 @@ const draftSummary = z.strictObject({
 });
 export const authoringResultSchema = z.strictObject({
   ok: z.boolean(),
+  resolution: z
+    .strictObject({
+      query: z.string().max(100),
+      resolved: z.string().max(100),
+      confidence: z.enum(["high", "low"]),
+      alternatives: z.array(z.string().max(64)).max(4),
+    })
+    .optional(),
+  discovery: z
+    .strictObject({
+      origin: z.string().max(200),
+      documents: z.array(z.string().max(120)).max(8),
+      searchUsed: z.boolean(),
+    })
+    .optional(),
   draft: draftSummary.optional(),
   human: humanSchema,
   error: z.string().max(200).optional(),
@@ -45,6 +62,7 @@ export type AuthoringHuman = z.infer<typeof humanSchema>;
 export interface AuthoringTransport {
   fromProvider(input: {
     provider: string;
+    origin?: string;
     openApiUrl?: string;
     intent?: "draft" | "complete" | "run";
   }): Promise<AuthoringResult>;
@@ -68,11 +86,12 @@ export function createAuthoringTools(
       action: "from-provider",
       schema: z.strictObject({
         provider: z.string().min(1).max(100),
+        origin: z.string().url().max(200).optional(),
         openApiUrl: z.string().url().max(500).optional(),
         intent: z.enum(["draft", "complete", "run"]).default("draft"),
       }),
       description:
-        "Draft a connector ceremony for a named provider using generic auth-family templates. Does not fetch the provider, collect credentials, or install an adapter. Human participation is returned only when consent or private credentials are required to run.",
+        "Draft a connector ceremony for a named provider. Corrects high-confidence misspellings, crawls well-known auth documents, and may search if official APIs are unpublished. Does not collect credentials. Human participation is elicitation or A2H only when a name/origin cannot be resolved or consent/private credentials are required.",
     },
     {
       action: "compose",
@@ -107,6 +126,7 @@ export function createAuthoringTools(
           return authoringResultSchema.parse(
             await transport.fromProvider({
               provider: parsed.provider,
+              ...(parsed.origin ? { origin: parsed.origin } : {}),
               ...(parsed.openApiUrl ? { openApiUrl: parsed.openApiUrl } : {}),
               intent: parsed.intent,
             }),

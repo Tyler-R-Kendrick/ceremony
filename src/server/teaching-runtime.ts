@@ -9,6 +9,7 @@ import {
 import { Demonstrations } from "./demonstrations.js";
 import { RecipeService, type OperationRegistry } from "./recipes/index.js";
 import { ConnectorDrafts } from "./connector-drafts.js";
+import type { ProviderSearch } from "./provider-discovery.js";
 import type {
   AsyncCeremonyStore,
   AsyncTransaction,
@@ -78,6 +79,7 @@ export interface TeachingRuntimeOptions {
     }
   >;
   context(actor: ActorContext, connectorId: string): Promise<RunContext>;
+  authoringSearch?: ProviderSearch;
   selectTarget?: (
     actor: ActorContext,
     target: string,
@@ -159,7 +161,13 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     },
   );
   const recipes = new RecipeService(store, registry);
-  const authoring = new ConnectorDrafts(store);
+  const authoring = new ConnectorDrafts(store, {
+    fetch,
+    ...(options.authoringSearch ? { search: options.authoringSearch } : {}),
+    ...(options.origin.startsWith("http://127.0.0.1")
+      ? { allowLoopbackHttp: true }
+      : {}),
+  });
   const demonstrations = new Demonstrations(store);
   const modelConfiguration = options.modelConfiguration ?? {};
   const agent = new AgentCoordinator(
