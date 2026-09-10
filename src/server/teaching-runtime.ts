@@ -94,6 +94,8 @@ export interface TeachingRuntimeOptions {
     request: Request,
   ) => Promise<Response>;
   humanReturn?: (actor: ActorContext, request: Request) => Promise<Response>;
+  /** Private, authenticated integration-owner contribution; never an agent tool. */
+  ownerSetup?: (actor: ActorContext, request: Request) => Promise<Response>;
   cancel?: (actor: ActorContext, runId: string) => Promise<void>;
   /** Trusted original host task, never selected by a browser/tool argument. Consumer deduplicates deliveryId. */
   continuation?: {
@@ -386,6 +388,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     agentActor,
     human: options.human,
     humanReturn: options.humanReturn,
+    ownerSetup: options.ownerSetup,
     cancel: options.cancel,
     selectTarget: options.selectTarget,
     flushContinuations,
