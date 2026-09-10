@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "state": "passed",
+      "file": "tests/workflow/agent.test.ts",
+      "declarationLine": 119
+    },
+    {
+      "state": "failed",
+      "file": "tests/workflow/agent.test.ts",
+      "declarationLine": 131,
+      "failureLocation": {
+        "file": "tests/workflow/agent.test.ts",
+        "line": 299,
+        "column": 8
+      }
+    }
+  ],
+  "counts": {
+    "passed": 1,
+    "failed": 1,
+    "skipped": 0
+  },
+  "unhandledErrors": 0
+}
