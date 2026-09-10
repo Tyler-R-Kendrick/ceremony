@@ -43,3 +43,12 @@ The same registered children now mount through the authenticated local and hoste
 - Deterministic attempt `artifacts/verification/2026-09-10T07-24-23-237Z/commands.json`: 342 Node tests, two Workflow tests and all 159 security mutants passed (zero surviving/timeouts), then build failed while browser integration was being edited. The discriminated-union type error was fixed and type checking passed. This attempt is not a passing full gate.
 
 No real Supabase account, deployed Vercel/Workflow runtime or installed-PWA platform was tested. Remaining coverage and complete final-tree verification are release gaps; local protocol evidence does not replace external certification.
+
+## Full-gate integration review
+
+- `2026-09-10T07-54-05-244Z`: formatting failed in `src/server/github-runtime.ts`; corrected with Prettier.
+- `2026-09-10T07-55-26-820Z`: formatting, types, 344 Node tests and two Workflow tests passed. Mutation configuration failed before producing results because the new human view introduced a second matching human-only guard. The selector now requires exactly two matches and mutates both; foreign-actor view denial has its own regression.
+- `2026-09-10T07-57-25-386Z`: formatting, types, 344 Node tests, two Workflow tests, all 164 security mutants and package/hosted/Vercel builds passed. Browser suite: 84 passed, one failed, zero skipped. The failed Chromium collection assertion still expected legacy inline Supabase fields, contrary to the new private setup handoff. It now asserts absent credential fields, the outcome-first Connect action, the setup blocker and the actual private route. Focused corrected test: one passed in 4.6 seconds. A complete post-correction rerun is still required.
+- Incremental implementation and guard regression were pushed to draft PR #21 at `b156150c16e0020255bfd4358030c8ba47c462b4`. Source-checkout verification has no Git commit binding because its managed Git metadata is unavailable; it is not exact-commit release evidence. Remote exact-head CI must be checked separately.
+
+These failures are part of the evidence history. No failing gate, focused passing rerun, or missing external certification is converted into a release pass.
