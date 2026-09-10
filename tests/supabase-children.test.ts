@@ -21,6 +21,7 @@ import type { RunRecord } from "../src/server/commands.js";
 async function fixture(
   t: TestContext,
   requiredAssurance: "aal1" | "aal2" = "aal1",
+  configuredProject = false,
 ) {
   const key = randomBytes(32);
   const token = await new SignJWT({ aal: "aal1" })
@@ -174,7 +175,10 @@ async function fixture(
   };
   const options = {
     requiredAssurance,
-    configuration: async () => ({ version: state.version }),
+    configuration: async () => ({
+      version: state.version,
+      ...(configuredProject ? project : {}),
+    }),
     authorize: async () => {},
     fetch: (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = new URL(String(input));
@@ -257,6 +261,73 @@ const credentials = {
   email: "user@example.com",
   password: "synthetic-password",
 };
+
+for (const expired of ["input", "session"] as const)
+  test(`Supabase configured setup is reused and expired ${expired} requires fresh sign-in`, async (t) => {
+    const f = await fixture(t, "aal2", true);
+    const run = await f.runtime.connect(f.actor, "supabase");
+    assert.equal((await f.advance(run.id, "project")).state, "complete");
+    assert.equal(f.state.signups + f.state.signins + f.state.verifications, 0);
+    await assert.rejects(
+      f.children.humanView(f.inputContext(run.id, "project")),
+      /denied/,
+    );
+    await f.advance(run.id, "session");
+    await f.input(run.id, "session", credentials);
+    await f.advance(run.id, "session");
+    if (expired === "session") {
+      f.state.confirmed = true;
+      await f.input(run.id, "session", { confirmed: true });
+      await f.advance(run.id, "session");
+      await f.advance(run.id, "access");
+    }
+    await f.store.transaction(async (tx) => {
+      const records = await tx.list<Record<string, unknown>>(
+        f.actor.tenantId,
+        "artifact",
+      );
+      const record = records.find((item) =>
+        item.id.startsWith(`supabase:${expired}:`),
+      );
+      assert.ok(record);
+      await tx.put(
+        { tenant: f.actor.tenantId, kind: "artifact", id: record.id },
+        { ...record.value, expires: await tx.now() },
+        record.revision,
+      );
+    });
+    const node = expired === "input" ? "session" : "access";
+    assert.deepEqual(await f.children.humanView(f.inputContext(run.id, node)), {
+      mode: "credentials",
+      allowSignup: false,
+    });
+    const calls = [f.state.signups, f.state.signins, f.state.challenges];
+    await assert.rejects(
+      f.input(
+        run.id,
+        node,
+        expired === "input"
+          ? { confirmed: true }
+          : { factorId: f.factorId, code: "123456" },
+      ),
+      /denied/,
+    );
+    assert.deepEqual(
+      [f.state.signups, f.state.signins, f.state.challenges],
+      calls,
+    );
+    await f.input(run.id, node, { ...credentials, action: "sign-in" });
+    f.state.confirmed = true;
+    assert.equal((await f.advance(run.id, "session")).state, "complete");
+    assert.equal((await f.advance(run.id, "access")).state, "awaiting-human");
+    await f.input(run.id, "access", { factorId: f.factorId, code: "123456" });
+    assert.equal((await f.advance(run.id, "access")).state, "complete");
+    assert.equal(f.state.signups, 1);
+    assert.equal(
+      (await f.runtime.commands.snapshot(f.actor, run.id)).status,
+      "complete",
+    );
+  });
 
 for (const loseSignup of [false, true])
   test(`Supabase children ${loseSignup ? "recover a lost signup response without repeating creation" : "compose setup, confirmed signup and verified access"}`, async (t) => {
