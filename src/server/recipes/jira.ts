@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { RecipeDefinition } from "../../core/recipe-contracts.js";
+import { manifestSchema } from "../../core/schema.js";
 import type { RunRecord } from "../commands.js";
 import { AuthorizationError } from "../identity.js";
 import { runArazzo, type ArazzoDocument } from "../arazzo.js";
@@ -40,6 +41,76 @@ const artifactSchema = z.strictObject({
 });
 type Artifact = z.infer<typeof artifactSchema>;
 type Kind = "app" | "session" | "connection";
+/** Live registered recipe, not a legacy API-token adapter or provider certification. */
+export const jiraManifest = manifestSchema.parse({
+  schemaVersion: 1,
+  support: "live-adapter",
+  id: "jira",
+  name: "Jira",
+  description:
+    "Shared app setup, Atlassian consent and verified access to your Jira site.",
+  methods: [
+    {
+      id: "oauth",
+      label: "Atlassian authorization",
+      kind: "oauth-code",
+      templateId: "oauth-code",
+      fields: [],
+      scopes: ["read:jira-user"],
+      contract: {
+        profile: "jira-3lo",
+        surfaces: ["browser", "headless"],
+        configuration: [
+          {
+            name: "JIRA_CLIENT_ID",
+            source: "session-environment",
+            classification: "secret",
+            required: false,
+          },
+          {
+            name: "JIRA_CLIENT_SECRET",
+            source: "session-environment",
+            classification: "secret",
+            required: false,
+          },
+          {
+            name: "JIRA_SITE_URL",
+            source: "session-environment",
+            classification: "personal",
+            required: false,
+          },
+        ],
+        configurationGroups: [],
+        prerequisites: [
+          {
+            id: "shared-app",
+            kind: "configuration",
+            reuse: "verified-context",
+            handoff: {
+              surface: "private-collector",
+              recipient: "authorized-owner",
+              delegation: "a2h-authorize",
+              resume: "verify",
+            },
+          },
+        ],
+        handoff: {
+          surface: "provider-browser",
+          recipient: "initiating-subject",
+          delegation: "a2h-authorize",
+          resume: "verify",
+        },
+        completion: {
+          verifier: "jira.current-user",
+          ownership: ["authenticated"],
+        },
+        workflows: [
+          { document: "jira", version: "1.0.0", workflowId: "verify-access" },
+        ],
+      },
+    },
+  ],
+});
 export const jiraVocabulary = new Map<string, VocabularyEntry>(
   (["app", "session", "connection"] as const).map((kind) => [
     `jira.${kind}`,

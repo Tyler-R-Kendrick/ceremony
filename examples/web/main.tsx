@@ -181,7 +181,9 @@ function App() {
                           {liveMode
                             ? item.id === "github"
                               ? "App setup · repository access"
-                              : connectorDetails[item.id]?.summary
+                              : item.id === "jira"
+                                ? "OAuth consent"
+                                : connectorDetails[item.id]?.summary
                             : connectorDetails[item.id]?.summary}
                         </small>
                       </span>

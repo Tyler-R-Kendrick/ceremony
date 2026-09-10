@@ -39,6 +39,14 @@ Migration: previously registered apps lacking a setup URL (or using a run-specif
 
 Expired registration that never issued a handoff can renew safely. Once the handoff was issued, an expired attempt enters uncertainty rather than automatically creating another app. Recover an existing app through the private collector, or explicitly authorize **Start a new registration** after checking GitHub. Restart requires a current authenticated recovery ticket/revision, refuses persisted app/installation evidence, fences the old attempt and invalidates its nonce. It never deletes an upstream app or fabricates successful access.
 
+### Jira shared app configuration
+
+The hosted reference accepts server-only `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET` as one shared OAuth app pair. Register the exact `${CEREMONY_PUBLIC_ORIGIN}/api/v1/teaching/jira/authorization-return` callback in that app. The runtime requests `read:jira-user`; browser input cannot change callback or permissions. Optional `JIRA_SITE_URL` fixes the HTTPS `*.atlassian.net` site origin; without it, the authenticated user selects a site and provider verification must confirm access to that exact site.
+
+Session Environment values override the host pair only as session candidates. A partial session pair does not borrow the missing value from the shared app. Change `CEREMONY_CONFIGURATION_VERSION` when rotating the host app or its permissions so waiting runs cannot silently adopt changed authority. Session Jira edits carry their own revision; unrelated connector edits do not invalidate Jira.
+
+Missing app configuration offers an administrator-only native private form within the same parent. It configures that session, not the whole tenant. Non-administrators cannot use it to register or replace the integration. Cross-owner A2H assignment is still unfinished; do not advertise unattended owner setup. Provider consent and a fresh site-bound current-user check are required independently of app configuration. Lost one-use-code responses remain uncertain, with explicit human recovery rather than blind exchange retry. See the [current Jira evidence and limitations](implementation-evidence/ceremony-teaching/jira-3lo.md).
+
 ### Database maintenance and recovery
 
 The hosted keyring accepts `CEREMONY_VAULT_KEY_ID` and `CEREMONY_VAULT_KEY` for new writes plus optional `CEREMONY_VAULT_PREVIOUS_KEYS`: a protected JSON object mapping at most four previous key IDs to 64-character hex keys. Duplicate current IDs, malformed keys, and oversized keyrings fail closed. Keep these values in the operator secret store, separate from the database and backups. Never paste them into a terminal command, issue, model prompt or evidence file.

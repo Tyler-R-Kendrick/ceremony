@@ -13,9 +13,12 @@ import {
 import {
   AsyncJiraChildren,
   jiraConnectionRecipe,
+  jiraManifest,
   jiraVocabulary,
-} from "../src/server/recipes/jira.js";
+} from "../src/server/teaching.js";
 import type { JiraOAuthConfiguration } from "../src/server/jira-auth.js";
+import { createGitHubRuntime } from "../src/server/github-runtime.js";
+import { teachingHttp } from "../src/server/teaching-http.js";
 
 async function fixture(t: TestContext) {
   const token = randomBytes(32).toString("hex");
@@ -232,8 +235,141 @@ async function fixture(t: TestContext) {
     behavior,
     token,
     config,
+    fetch: options.fetch,
   };
 }
+
+for (const configured of [true, false])
+  test(`Jira mounted handlers preserve the parent through ${configured ? "shared configuration" : "private owner setup"} and provider verification`, async (t) => {
+    const f = await fixture(t);
+    f.actor.capabilities.push("admin");
+    f.behavior.configured = configured;
+    let actor = f.actor;
+    const runtime = createGitHubRuntime({
+      store: f.store,
+      identity: { authenticate: async () => actor },
+      origin: "https://app.example",
+      environment: "test",
+      configurationVersion: "v1",
+      authorize: async (actor, run) => actor.subjectId === run.subjectId,
+      jira: {
+        configuration: async () => ({
+          version: f.behavior.version,
+          siteUrl: f.config.siteUrl,
+          ...(f.behavior.configured
+            ? {
+                clientId: f.config.clientId,
+                clientSecret: f.config.clientSecret,
+              }
+            : {}),
+        }),
+        fetch: f.fetch,
+      },
+    });
+    const request = (
+      path: string,
+      body?: unknown,
+      headers: Record<string, string> = {},
+    ) =>
+      teachingHttp(
+        new Request(`https://app.example/api/v1/teaching${path}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            origin: "https://app.example",
+            ...(body === undefined
+              ? {}
+              : { "content-type": "application/json" }),
+            ...headers,
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+        runtime,
+      );
+    const started = await request("/runs", { connectorId: "jira" });
+    assert.equal(started.status, 200);
+    const run = await started.json();
+    assert.equal(run.status, "active");
+    const path = `/jira/${run.id}/human`;
+    assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+    if (!configured) {
+      const page = await request(path);
+      assert.equal(page.status, 200);
+      assert.equal(page.headers.get("cache-control"), "no-store");
+      const html = await page.text();
+      assert.equal(html.includes("Configure Jira for this session"), true);
+      assert.equal(html.includes("Set up the shared Jira integration"), false);
+      assert.equal(html.includes(f.config.clientSecret), false);
+      actor = { ...f.actor, capabilities: ["executor"] };
+      const nonOwner = await request(path);
+      assert.equal(
+        (await nonOwner.text()).includes('name="clientSecret"'),
+        false,
+      );
+      actor = f.actor;
+      const admission = await (
+        await request(path, undefined, { accept: "application/json" })
+      ).json();
+      const body = {
+        ticket: admission.ticket,
+        values: {
+          clientId: f.config.clientId,
+          clientSecret: f.config.clientSecret,
+        },
+      };
+      actor = { ...f.actor, sessionId: "other-session" };
+      assert.equal((await request(path)).status, 403);
+      assert.equal((await request(path, body)).status, 403);
+      actor = f.actor;
+      assert.equal(
+        (
+          await request(path, {
+            ...body,
+            values: { ...body.values, scopes: ["admin"] },
+          })
+        ).status,
+        400,
+      );
+      const saved = await request(path, body);
+      assert.equal(saved.status, 200);
+      assert.equal((await request(path, body)).status, 403);
+      assert.equal(
+        (await runtime.commands.snapshot(actor, run.id)).nodes[0]!.verified,
+        true,
+      );
+      assert.equal(f.effects.exchanges, 0);
+    }
+    const handoff = await request(path);
+    assert.equal(handoff.status, 303);
+    const authorization = new URL(handoff.headers.get("location")!);
+    assert.equal(authorization.origin, "https://auth.atlassian.com");
+    assert.equal(
+      authorization.searchParams.get("redirect_uri"),
+      f.config.callbackUrl,
+    );
+    const callback = `/jira/authorization-return?state=${authorization.searchParams.get("state")}&code=${randomUUID()}`;
+    const site = f.config.siteUrl;
+    f.config.siteUrl = "https://other.atlassian.net";
+    assert.equal((await request(callback)).status, 403);
+    assert.equal(f.effects.exchanges, 0);
+    f.config.siteUrl = site;
+    actor = { ...f.actor, subjectId: "other" };
+    assert.equal((await request(callback)).status, 403);
+    assert.equal(f.effects.exchanges, 0);
+    actor = f.actor;
+    const returned = await request(callback);
+    assert.equal(returned.status, 303);
+    const destination = new URL(returned.headers.get("location")!);
+    assert.equal(destination.searchParams.get("teachingRun"), run.id);
+    assert.equal(destination.searchParams.get("connector"), "jira");
+    assert.equal(
+      (await runtime.commands.snapshot(actor, run.id)).status,
+      "complete",
+    );
+    assert.deepEqual(f.effects, { exchanges: 1, sites: 1, users: 1 });
+    assert.equal((await request(callback)).status, 403);
+    assert.equal((await request(path)).status, 403);
+    assert.equal(f.effects.exchanges, 1);
+  });
 
 test("Jira composes shared app, private OAuth receipt and fresh site-bound access through real HTTP", async (t) => {
   const f = await fixture(t);
@@ -251,6 +387,11 @@ test("Jira composes shared app, private OAuth receipt and fresh site-bound acces
   assert.equal((await f.commands.snapshot(f.actor, run.id)).status, "active");
   await f.advance(run.id, "access");
   assert.deepEqual(f.effects, { exchanges: 1, sites: 1, users: 1 });
+  assert.equal(
+    jiraManifest.methods[0]!.contract!.completion.verifier,
+    f.registry.require("jira.verify-access", "1.0.0").contract.verifier,
+    "The manifest must name the verifier that accepts current-user evidence",
+  );
   assert.equal((await f.commands.snapshot(f.actor, run.id)).status, "complete");
   await f.commands.snapshot(f.actor, run.id);
   assert.equal(f.effects.users, 1, "Pure snapshot must not poll the provider");

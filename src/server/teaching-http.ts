@@ -73,7 +73,12 @@ export async function teachingHttp(
     if (!["GET", "POST"].includes(request.method))
       return reply({ error: "unavailable" }, 405);
     const post = request.method === "POST";
-    if (path === "/github/installation-return" && runtime.humanReturn) {
+    if (
+      ["/github/installation-return", "/jira/authorization-return"].includes(
+        path,
+      ) &&
+      runtime.humanReturn
+    ) {
       if (post) return reply({ error: "unavailable" }, 405);
       requireCapability(actor, "executor");
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
@@ -81,11 +86,15 @@ export async function teachingHttp(
     }
     if (
       (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
-        /^\/(stripe|supabase)\/[^/]+\/human$/.test(path)) &&
+        /^\/(stripe|supabase|jira)\/[^/]+\/human$/.test(path)) &&
       runtime.human
     ) {
       const action = path.split("/")[3];
-      if (post && action !== "recovery" && !/^\/(stripe|supabase)\//.test(path))
+      if (
+        post &&
+        action !== "recovery" &&
+        !/^\/(stripe|supabase|jira)\//.test(path)
+      )
         return reply({ error: "unavailable" }, 405);
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
       requireCapability(actor, "executor");
@@ -179,11 +188,14 @@ export async function teachingHttp(
         .strictObject({
           connectorId: id,
           teach: z.boolean().optional(),
-          target: z
-            .string()
-            .regex(/^[a-zA-Z0-9-]{1,100}$/)
-            .optional(),
+          target: z.string().min(1).max(2048).optional(),
         })
+        .refine(
+          (input) =>
+            !input.target ||
+            input.connectorId === "jira" ||
+            /^[a-zA-Z0-9-]{1,100}$/.test(input.target),
+        )
         .parse(body);
       if (!runtime.connectors.includes(input.connectorId))
         throw new AuthorizationError("invalid_request");
@@ -557,6 +569,8 @@ export async function teachingHttp(
   } catch (error) {
     if (error instanceof Error && error.message === "account-required")
       return reply({ error: "account-required" }, 409);
+    if (error instanceof Error && error.message === "jira-site-required")
+      return reply({ error: "jira-site-required" }, 409);
     if (
       error instanceof Error &&
       error.message === "incomplete-github-configuration"
