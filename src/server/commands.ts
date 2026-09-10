@@ -553,6 +553,7 @@ export class ProtectedCommandService {
     const { run, node, values, fence, effectId } = admission;
     const context: OperationContext = {
       actor,
+      fence,
       runId: run.id,
       nodeId: node.id,
       commandId: command.commandId,
