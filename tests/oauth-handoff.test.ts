@@ -8,7 +8,10 @@ import {
   type RunRecord,
 } from "../src/server/commands.js";
 import { DurableAuthorizationCode } from "../src/server/oauth-handoff.js";
-import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import {
+  SQLiteCeremonyStore,
+  type AsyncCeremonyStore,
+} from "../src/server/persistence/index.js";
 import {
   OperationRegistry,
   type OperationContext,
@@ -33,6 +36,15 @@ async function fixture(t: TestContext, exchange?: () => Promise<Session>) {
     keys: { test: randomBytes(32) },
   });
   t.after(() => store.close());
+  let fixedTime: number | undefined;
+  // Keep real encrypted transactions; pin only the trusted expiry clock for exact-boundary assertions.
+  const carrierStore: AsyncCeremonyStore = {
+    transaction: (work) =>
+      store.transaction((tx) =>
+        work({ ...tx, now: async () => fixedTime ?? tx.now() }),
+      ),
+    close: () => store.close(),
+  };
   let effects = 0,
     authorized = true;
   let context: OperationContext | undefined;
@@ -70,7 +82,7 @@ async function fixture(t: TestContext, exchange?: () => Promise<Session>) {
     }),
     expiresAt: (session: Session) => session.expires,
   };
-  let carrier = new DurableAuthorizationCode(store, options);
+  let carrier = new DurableAuthorizationCode(carrierStore, options);
   const registry = new OperationRegistry();
   registry.register({
     contract: {
@@ -146,7 +158,10 @@ async function fixture(t: TestContext, exchange?: () => Promise<Session>) {
     advance,
     carrier: () => carrier,
     reload: () => {
-      carrier = new DurableAuthorizationCode(store, options);
+      carrier = new DurableAuthorizationCode(carrierStore, options);
+    },
+    freezeTime: (value: number) => {
+      fixedTime = value;
     },
     effects: () => effects,
     candidate: () => candidate,
@@ -339,18 +354,28 @@ test("OAuth rejects mismatched context and a running command reassigned to anoth
     kind: "command" as const,
     id: f.ctx.commandId,
   };
-  await f.store.transaction(async (tx) => {
-    const record = await tx.get<Record<string, unknown>>(key);
-    assert.ok(record);
-    // Deliberate durable-record fault injection: matching node/effect alone must not suffice.
-    await tx.put(
-      key,
-      { ...record.value, state: "running", runId: "another-run" },
-      record.revision,
-    );
-  });
-  await assert.rejects(f.carrier().prepare(f.ctx));
-  await assert.rejects(f.carrier().exchange(f.ctx));
+  const original = await f.store.transaction((tx) =>
+    tx.get<Record<string, unknown>>(key),
+  );
+  assert.ok(original);
+  for (const changed of [
+    { runId: "another-run" },
+    { nodeId: "another-node" },
+    { effectId: "another-effect" },
+  ]) {
+    await f.store.transaction(async (tx) => {
+      const record = await tx.get(key);
+      assert.ok(record);
+      // Deliberate durable-record fault injection: each command binding must be checked independently.
+      await tx.put(
+        key,
+        { ...original.value, state: "running", ...changed },
+        record.revision,
+      );
+    });
+    await assert.rejects(f.carrier().prepare(f.ctx));
+    await assert.rejects(f.carrier().exchange(f.ctx));
+  }
   assert.equal(f.effects(), 0);
 });
 
@@ -362,6 +387,8 @@ test("OAuth exact expiry requires explicit fresh consent and removes the old sta
       .carrier()
       .restart(f.ctx, (await f.commands.snapshot(actor, f.run.id)).revision),
   );
+  const boundary = await f.store.transaction((tx) => tx.now());
+  f.freezeTime(boundary);
   await f.store.transaction(async (tx) => {
     for (const record of await tx.list<Record<string, unknown>>(
       actor.tenantId,
@@ -369,7 +396,7 @@ test("OAuth exact expiry requires explicit fresh consent and removes the old sta
     ))
       await tx.put(
         { tenant: actor.tenantId, kind: "handoff", id: record.id },
-        { ...record.value, expires: await tx.now() },
+        { ...record.value, expires: boundary },
         record.revision,
       );
   });
