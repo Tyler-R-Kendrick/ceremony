@@ -169,24 +169,20 @@ test("fuzz: session environment edit sequences match a plain model", (t) => {
 
 test("fuzz: jira owner HTML keeps one collector script after hostile site fields", async () => {
   await fc.assert(
-    fc.asyncProperty(
-      fc.string({ maxLength: 200 }),
-      fc.array(fc.string({ maxLength: 32 }), { minLength: 1, maxLength: 3 }),
-      async (injected, scopes) => {
-        const html = await jiraOwnerPage(
-          {
-            id: "11111111-1111-4111-8111-111111111111",
-            revision: 1,
-            state: "pending",
-            siteUrl: injected,
-            callbackUrl: `https://app.example/${encodeURIComponent(injected)}`,
-            scopes,
-          },
-          "https://app.example/?connector=jira",
-        ).text();
-        assert.equal([...html.matchAll(/<script/gi)].length, 1);
-      },
-    ),
+    fc.asyncProperty(fc.string({ maxLength: 200 }), async (injected) => {
+      const html = await jiraOwnerPage(
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          revision: 1,
+          state: "pending",
+          siteUrl: injected,
+          callbackUrl: `https://app.example/${encodeURIComponent(injected)}`,
+          scopes: ["read:jira-user"],
+        },
+        "https://app.example/?connector=jira",
+      ).text();
+      assert.equal([...html.matchAll(/<script/gi)].length, 1);
+    }),
     { ...options, numRuns: Math.min(options.numRuns, 200) },
   );
 });

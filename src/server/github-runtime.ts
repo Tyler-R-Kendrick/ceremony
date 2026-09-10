@@ -99,6 +99,7 @@ export interface GitHubRuntimeOptions {
       owner: string;
       run: RunRecord;
       assignmentId: string;
+      tenantId: string;
     }): Promise<void>;
   };
   authorize(

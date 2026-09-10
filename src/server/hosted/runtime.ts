@@ -11,6 +11,7 @@ import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { configuredKeyring } from "../persistence/maintenance.js";
 import type { ActorContext } from "../identity.js";
 import { actorIdentifierSchema } from "../../core/operation-contracts.js";
+import { hostedJiraOwnerDelivery } from "./a2h.js";
 
 let instance: Promise<TeachingRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
@@ -136,6 +137,13 @@ export async function createHostedRuntime(
       },
       persistentIdentityStore(store),
     );
+    const deliverOwnerSetup = await hostedJiraOwnerDelivery(
+      env,
+      store,
+      c.origin,
+      c.tenant,
+      ["read:jira-user"],
+    );
     return createGitHubRuntime({
       store,
       identity,
@@ -150,6 +158,7 @@ export async function createHostedRuntime(
                 actor.tenantId === c.tenant ? c.jiraSetupOwner : undefined,
             }
           : {}),
+        ...(deliverOwnerSetup ? { deliverOwnerSetup } : {}),
         allowTarget: async (actor) =>
           actor.tenantId === c.tenant &&
           actor.capabilities.includes("executor"),

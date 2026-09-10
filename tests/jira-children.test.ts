@@ -4,7 +4,10 @@ import { createServer } from "node:http";
 import { test, type TestContext } from "node:test";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import { ProtectedCommandService } from "../src/server/commands.js";
-import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import {
+  SQLiteCeremonyStore,
+  type AsyncCeremonyStore,
+} from "../src/server/persistence/index.js";
 import {
   validateRecipe,
   OperationRegistry,
@@ -21,6 +24,7 @@ import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import {
   JiraSetupAssignments,
+  retainExpiredJiraSetup,
   type JiraSetupPolicy,
 } from "../src/server/jira-setup.js";
 import type { RunRecord } from "../src/server/commands.js";
@@ -811,6 +815,65 @@ test("Jira renews expired owner assignments without reviving old links or repeat
   assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
 });
 
+test("Jira expired assignment and shared-app records can be retained without deleting audit", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  const expiredStore = {
+    transaction: (work: Parameters<AsyncCeremonyStore["transaction"]>[0]) =>
+      f.store.transaction((tx) => work({ ...tx, now: async () => 1 })),
+    close: async () => {},
+  } as AsyncCeremonyStore;
+  const expiredSetup = new JiraSetupAssignments(expiredStore, {
+    scopes: ["read:jira-user"],
+    owner: async () => "owner",
+    authorize: async () => {},
+  });
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  const expiredRun = await f.create();
+  await f.advance(expiredRun.id, "app");
+  const expiredState = await f.commands.snapshot(f.actor, expiredRun.id);
+  const expired = await expiredSetup.request(
+    f.actor,
+    expiredRun.id,
+    expiredState.revision,
+  );
+  await expiredSetup.configure(owner, expired.id, expired.revision, {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  });
+  const liveRun = await f.create();
+  await f.advance(liveRun.id, "app");
+  const liveState = await f.commands.snapshot(f.actor, liveRun.id);
+  const liveSetup = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    owner: async () => "owner",
+    authorize: async () => {},
+  });
+  const kept = await liveSetup.request(f.actor, liveRun.id, liveState.revision);
+  const retained = await retainExpiredJiraSetup(
+    {
+      transaction: (work) =>
+        f.store.transaction((tx) =>
+          work({ ...tx, now: async () => 1 + 86_400_000 }),
+        ),
+      close: async () => {},
+    } as AsyncCeremonyStore,
+    f.actor.tenantId,
+  );
+  assert.equal(retained.assignments >= 1, true);
+  assert.equal(retained.apps, 1);
+  assert.equal((await liveSetup.status(f.actor, liveRun.id)).id, kept.id);
+  const audit = await f.store.transaction((tx) =>
+    tx.list(f.actor.tenantId, "audit"),
+  );
+  assert.equal(audit.length >= 1, true);
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
 test("Jira requester status denies a parent mutated during owner resolution", async (t) => {
   const f = await fixture(t);
   f.behavior.configured = false;
@@ -845,13 +908,25 @@ test("Jira requester status denies a parent mutated during owner resolution", as
     authorize: async () => {},
     owner: async () => {
       await f.store.transaction(async (tx) => {
-        const key = {
+        const runKey = {
           tenant: f.actor.tenantId,
           kind: "run" as const,
           id: run.id,
         };
-        const record = (await tx.get<RunRecord>(key))!;
-        await tx.put(key, record.value, record.revision);
+        const record = (await tx.get<RunRecord>(runKey))!;
+        const next = await tx.put(runKey, record.value, record.revision);
+        const assignmentKey = {
+          tenant: f.actor.tenantId,
+          kind: "handoff" as const,
+          id: `jira-setup:${assigned.id}`,
+        };
+        const assignment =
+          (await tx.get<Record<string, unknown>>(assignmentKey))!;
+        await tx.put(
+          assignmentKey,
+          { ...assignment.value, runRevision: next },
+          assignment.revision,
+        );
       });
       return "owner";
     },
