@@ -10,6 +10,7 @@ import { hostedContinuation } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { configuredKeyring } from "../persistence/maintenance.js";
 import type { ActorContext } from "../identity.js";
+import { actorIdentifierSchema } from "../../core/operation-contracts.js";
 
 let instance: Promise<TeachingRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
@@ -37,6 +38,7 @@ export async function createHostedRuntime(
       tenant: z.string().min(1).max(100),
       account: z.string().regex(/^[A-Za-z0-9-]{1,100}$/),
       configurationVersion: z.string().min(1).max(100),
+      jiraSetupOwner: actorIdentifierSchema.optional(),
     })
     .safeParse({
       origin: env.CEREMONY_PUBLIC_ORIGIN,
@@ -48,6 +50,9 @@ export async function createHostedRuntime(
       tenant: env.CEREMONY_TENANT_ID,
       account: env.CEREMONY_GITHUB_ACCOUNT,
       configurationVersion: env.CEREMONY_CONFIGURATION_VERSION,
+      ...(env.CEREMONY_JIRA_SETUP_OWNER_SUBJECT
+        ? { jiraSetupOwner: env.CEREMONY_JIRA_SETUP_OWNER_SUBJECT }
+        : {}),
     });
   if (!config.success)
     throw new Error("Missing or invalid hosted configuration");
@@ -139,6 +144,12 @@ export async function createHostedRuntime(
       configurationVersion: c.configurationVersion,
       jira: {
         configuration: jiraConfiguration,
+        ...(c.jiraSetupOwner
+          ? {
+              setupOwner: async (actor: ActorContext) =>
+                actor.tenantId === c.tenant ? c.jiraSetupOwner : undefined,
+            }
+          : {}),
         allowTarget: async (actor) =>
           actor.tenantId === c.tenant &&
           actor.capabilities.includes("executor"),

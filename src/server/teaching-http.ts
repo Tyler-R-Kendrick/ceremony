@@ -74,6 +74,14 @@ export async function teachingHttp(
       return reply({ error: "unavailable" }, 405);
     const post = request.method === "POST";
     if (
+      (/^\/jira\/[^/]+\/owner-setup$/.test(path) ||
+        /^\/jira\/owner-setup\/[^/]+$/.test(path)) &&
+      runtime.ownerSetup
+    ) {
+      if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+      return await runtime.ownerSetup(actor, request);
+    }
+    if (
       ["/github/installation-return", "/jira/authorization-return"].includes(
         path,
       ) &&

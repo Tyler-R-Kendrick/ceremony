@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "a308748",
+  "scope": "Mounted authenticated owner-contribution routes and shared Jira app resolution; browser assignment UX and A2H delivery remain unfinished",
+  "attempts": [
+    {
+      "command": "mounted designated-owner ceremony",
+      "exitCode": 1,
+      "reasonCode": "INVALID_STORAGE_WORKER_IDENTIFIER"
+    },
+    {
+      "command": "mounted designated-owner ceremony after worker identifier correction",
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "shared setup resolution race regression before revision guard",
+      "exitCode": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "reasonCode": "TARGET_CHANGED_DURING_OWNER_POLICY"
+    },
+    {
+      "command": "all Jira child tests after revision guard",
+      "exitCode": 0,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "hosted runtime and Jira tests",
+      "exitCode": 0,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "boundaries": [
+        "local-postgresql",
+        "signed-local-oidc",
+        "mounted-handlers",
+        "jira-sdk-http-fixture"
+      ]
+    },
+    {
+      "command": "hosted invalid-owner configuration assertion",
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    { "command": "npm run check", "exitCode": 0 }
+  ],
+  "priorHeadFullVerification": {
+    "commit": "a308748",
+    "startedAt": "2026-09-10T13:34:23.332Z",
+    "command": "npm run verify",
+    "exitCode": 1,
+    "nodeTestsPassed": 380,
+    "workflowTestsPassed": 2,
+    "mutantsKilled": 251,
+    "mutantsTimedOut": 1,
+    "timeout": {
+      "file": "src/server/recipes/jira.ts",
+      "line": 257,
+      "id": "187",
+      "replacement": "run.value.origin === context.origin"
+    },
+    "laterStages": "NOT_RUN"
+  },
+  "finalFocusedVerification": {
+    "command": "all Jira child tests with owner module coverage",
+    "exitCode": 0,
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0,
+    "coverage": {
+      "module": "src/server/jira-setup.ts",
+      "linesCovered": 336,
+      "linesTotal": 336,
+      "branchesCovered": 76,
+      "branchesTotal": 77,
+      "branchPercent": 98.7,
+      "functionsCovered": 14,
+      "functionsTotal": 14
+    },
+    "mutationAttempts": [
+      { "exitCode": 1, "killed": 29, "survived": 8, "timedOut": 0 },
+      { "exitCode": 0, "killed": 37, "survived": 0, "timedOut": 0 }
+    ],
+    "fixes": [
+      "CAPTURE_PERMISSION_SCOPE_BEFORE_AWAITED_POLICY",
+      "REJECT_OLD_ASSIGNMENT_TAKEOVER",
+      "EXACT_EXPIRATION_BOUNDARY",
+      "DISTINCT_REVISION_AND_SCOPE_RACES",
+      "COMPLETED_STATE_REPLAY_GUARD"
+    ],
+    "teaching": "Consented semantic handoff is recorded atomically without private app values"
+  },
+  "ownerAssignmentRecovery": {
+    "baseCommit": "ddf4ca7dc9dce369444260d0eda9c846286936cc",
+    "regressionBeforeFix": { "exitCode": 1, "passed": 0, "failed": 1 },
+    "finalJiraSuite": {
+      "exitCode": 0,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    "mutation": { "exitCode": 0, "killed": 46, "survived": 0, "timedOut": 0 },
+    "coverage": {
+      "linesCovered": 338,
+      "linesTotal": 338,
+      "branchesCovered": 85,
+      "branchesTotal": 86,
+      "branchPercent": 98.83
+    },
+    "invariants": [
+      "EXACT_EXPIRY_RENEWS_PENDING_ONLY",
+      "CONCURRENT_RENEWAL_DEDUPLICATION",
+      "OLD_LINK_REMAINS_INVALID",
+      "NO_PROVIDER_EFFECT_ON_RENEWAL"
+    ],
+    "fullVerification": "NOT_RUN_AT_RECOVERY_HEAD"
+  },
+  "baseFullVerification": {
+    "observedStartingCommit": "ddf4ca7dc9dce369444260d0eda9c846286936cc",
+    "resultPath": "jira-owner-full-verification.json",
+    "exitCode": 0,
+    "commitBinding": "INVALIDATED_BY_UNIGNORED_VERCEL_BUILD_OUTPUT",
+    "releaseEligible": false,
+    "note": "Original final result is retained unchanged with commit null; generated output ignore is fixed prospectively, not by rewriting evidence."
+  },
+  "releaseVerdict": "FAIL",
+  "externalChecks": {
+    "liveJira": "NOT_REQUESTED",
+    "liveGitHub": "NOT_REQUESTED",
+    "deployedWorkflow": "NOT_REQUESTED",
+    "installedPwa": "NOT_REQUESTED"
+  }
+}

@@ -50,6 +50,13 @@ test("OPS-02 hosted factory fails closed before infrastructure on missing or uns
     CEREMONY_GITHUB_ACCOUNT: "fixture",
     CEREMONY_CONFIGURATION_VERSION: "v1",
   };
+  await assert.rejects(
+    createHostedRuntime({
+      ...config,
+      CEREMONY_JIRA_SETUP_OWNER_SUBJECT: "owner\nforged",
+    }),
+    /Missing or invalid/,
+  );
   for (const origin of [
     "http://remote.example",
     "https://app.example/path",
@@ -207,7 +214,10 @@ test("OPS-IDN production factory uses actual PostgreSQL and signed OIDC, no anon
       CEREMONY_MODEL_KEY: "fixture-only",
       CEREMONY_CONTINUATION_URL: "https://task.example/continue",
       CEREMONY_CONTINUATION_TOKEN: "fixture-".repeat(8),
+      CEREMONY_JIRA_SETUP_OWNER_SUBJECT: "designated-owner",
     });
+    assert.equal(typeof optional.ownerSetup, "function");
+    assert.equal(runtime.ownerSetup, undefined);
     await optional.store.close();
     const gateway = await createHostedRuntime({
       ...env,

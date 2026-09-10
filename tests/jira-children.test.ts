@@ -19,6 +19,11 @@ import {
 import type { JiraOAuthConfiguration } from "../src/server/jira-auth.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
+import {
+  JiraSetupAssignments,
+  type JiraSetupPolicy,
+} from "../src/server/jira-setup.js";
+import type { RunRecord } from "../src/server/commands.js";
 
 async function fixture(t: TestContext) {
   const token = randomBytes(32).toString("hex");
@@ -388,6 +393,544 @@ for (const configured of [true, false])
       "complete",
     );
   });
+
+test("Jira designated owner contributes shared setup through mounted routes without acquiring the requester's consent", async (t) => {
+  const f = await fixture(t);
+  f.actor.capabilities.push("author");
+  let actor = f.actor;
+  let designatedOwner = "integration-owner";
+  const deliveries: string[] = [];
+  let failDelivery = false;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "v1",
+    authorize: async (requester, run) =>
+      requester.subjectId === run.subjectId &&
+      run.configurationVersion === f.behavior.version,
+    jira: {
+      configuration: async () => ({
+        version: f.behavior.version,
+        siteUrl: f.config.siteUrl,
+      }),
+      setupOwner: async () => designatedOwner,
+      deliverOwnerSetup: async ({ owner, run, assignmentId }) => {
+        if (failDelivery) throw new Error("lost");
+        assert.equal(owner, designatedOwner);
+        assert.equal(run.provider, "jira");
+        assert.equal(
+          JSON.stringify({ owner, run, assignmentId }).includes(
+            f.config.clientSecret,
+          ),
+          false,
+        );
+        deliveries.push(assignmentId);
+      },
+      fetch: f.fetch,
+    },
+  });
+  const request = (path: string, body?: unknown) =>
+    teachingHttp(
+      new Request(`https://app.example/api/v1/teaching${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          origin: "https://app.example",
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      runtime,
+    );
+  const start = await request("/runs", { connectorId: "jira", teach: true });
+  assert.equal(start.status, 200);
+  const run = await start.json();
+  const assignPath = `/jira/${run.id}/owner-setup`;
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "none",
+    revision: run.revision,
+  });
+  assert.equal(
+    (await request(assignPath, { revision: run.revision, action: "continue" }))
+      .status,
+    403,
+  );
+  const requesterPage = await request(`/jira/${run.id}/human`);
+  assert.match(await requesterPage.text(), /Request owner setup/);
+  const assigned = await request(assignPath, { revision: run.revision });
+  assert.equal(assigned.status, 200);
+  const assignment = await assigned.json();
+  assert.deepEqual(deliveries, [assignment.id]);
+  failDelivery = true;
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "pending",
+    revision: run.revision,
+    id: assignment.id,
+  });
+  assert.deepEqual(
+    await (await request(assignPath, { revision: run.revision })).json(),
+    assignment,
+  );
+  assert.deepEqual(deliveries, [assignment.id]);
+  failDelivery = false;
+  assert.equal(
+    (await request(assignPath, { revision: run.revision, owner: "injected" }))
+      .status,
+    400,
+  );
+  const ownerPath = `/jira/owner-setup/${assignment.id}`;
+  assert.equal((await request(ownerPath)).status, 403);
+  actor = { ...f.actor, subjectId: "other-admin", capabilities: ["admin"] };
+  assert.equal((await request(ownerPath)).status, 403);
+  assert.equal((await request(assignPath)).status, 403);
+  actor = {
+    ...f.actor,
+    subjectId: designatedOwner,
+    sessionId: "owner-session",
+    capabilities: ["admin"],
+  };
+  const view = await request(ownerPath);
+  assert.equal(view.status, 200);
+  assert.equal(view.headers.get("cache-control"), "no-store");
+  const instructions = await view.json();
+  const ownerHtml = await teachingHttp(
+    new Request(`https://app.example/api/v1/teaching${ownerPath}`, {
+      headers: { accept: "text/html" },
+    }),
+    runtime,
+  );
+  assert.equal(ownerHtml.status, 200);
+  assert.equal(ownerHtml.headers.get("cache-control"), "no-store");
+  const rendered = await ownerHtml.text();
+  assert.match(rendered, /Save shared app/);
+  assert.equal(rendered.includes(f.config.clientSecret), false);
+  assert.deepEqual(instructions.scopes, ["read:jira-user"]);
+  assert.equal(instructions.callbackUrl, f.config.callbackUrl);
+  assert.equal("requester" in instructions, false);
+  const values = {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  };
+  const body = { revision: assignment.revision, values };
+  assert.equal(
+    (
+      await request(ownerPath, {
+        ...body,
+        values: { ...values, scopes: ["admin"] },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await request(ownerPath, { ...body, revision: assignment.revision + 1 }))
+      .status,
+    403,
+  );
+  designatedOwner = "new-owner";
+  assert.equal((await request(ownerPath, body)).status, 403);
+  designatedOwner = actor.subjectId;
+  const configured = await request(ownerPath, body);
+  assert.equal(configured.status, 200);
+  assert.deepEqual(await configured.json(), {
+    state: "configured",
+    verification: "pending",
+  });
+  assert.equal((await request(ownerPath, body)).status, 403);
+  assert.equal((await (await request(ownerPath)).json()).state, "configured");
+  assert.equal((await request(`/runs/${run.id}`)).status, 403);
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+  actor = f.actor;
+  const demo = await (await request(`/runs/${run.id}/demonstration`)).json();
+  assert.ok(
+    demo.demonstration.events.some(
+      (event: { kind: string; verification: string }) =>
+        event.kind === "handoff" && event.verification === "pending",
+    ),
+  );
+  assert.equal(JSON.stringify(demo).includes(f.config.clientSecret), false);
+  let current = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(current.nodes[0]!.verified, false);
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "configured",
+    revision: current.revision,
+  });
+  assert.equal(
+    (await request(assignPath, { revision: run.revision, action: "continue" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(assignPath, {
+        revision: current.revision,
+        action: "continue",
+      })
+    ).status,
+    200,
+  );
+  const handoff = await request(`/jira/${run.id}/human`);
+  assert.equal(handoff.status, 303);
+  const authorization = new URL(handoff.headers.get("location")!);
+  const callback = `/jira/authorization-return?state=${authorization.searchParams.get("state")}&code=${randomUUID()}`;
+  actor = {
+    ...f.actor,
+    subjectId: designatedOwner,
+    sessionId: "owner-session",
+    capabilities: ["admin", "executor"],
+  };
+  assert.equal((await request(callback)).status, 403);
+  assert.equal(f.effects.exchanges, 0);
+  actor = f.actor;
+  assert.equal((await request(callback)).status, 303);
+  assert.equal(
+    (await runtime.commands.snapshot(actor, run.id)).status,
+    "complete",
+  );
+  assert.deepEqual(f.effects, { exchanges: 1, sites: 1, users: 1 });
+  actor = { ...f.actor, subjectId: "second-user", sessionId: "second-session" };
+  const second = await request("/runs", { connectorId: "jira" });
+  assert.equal(second.status, 200);
+  const secondRun = await second.json();
+  assert.equal(secondRun.nodes[0].verified, true);
+  assert.equal(secondRun.nodes[1].state, "awaiting-human");
+  assert.equal(f.effects.exchanges, 1);
+  const raced = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    authorize: async () => {},
+    owner: async () => {
+      await f.store.transaction(async (tx) => {
+        const key = {
+          tenant: actor.tenantId,
+          kind: "run" as const,
+          id: secondRun.id,
+        };
+        const current = (await tx.get<RunRecord>(key))!;
+        await tx.put(key, current.value, current.revision);
+      });
+      return designatedOwner;
+    },
+  });
+  await assert.rejects(raced.resolve(actor, secondRun.id), /denied/);
+  const policy: JiraSetupPolicy = {
+    scopes: ["read:jira-user"],
+    authorize: async () => {},
+    owner: async () => {
+      policy.scopes = ["read:jira-user", "read:jira-work"];
+      return designatedOwner;
+    },
+  };
+  await assert.rejects(
+    new JiraSetupAssignments(f.store, policy).resolve(actor, secondRun.id),
+    /denied/,
+  );
+  const ledger = await f.store.transaction(async (tx) => ({
+    audit: await tx.list("tenant", "audit"),
+    events: await tx.list("tenant", "event"),
+  }));
+  assert.equal(JSON.stringify(ledger).includes(f.config.clientSecret), false);
+});
+
+test("Jira owner assignment rejects cancellation, expiry, stale source sessions and revoked policy before storing setup", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  let allowed = true;
+  const setup = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    owner: async () => "owner",
+    authorize: async () => {
+      if (!allowed) throw new Error("revoked");
+    },
+  });
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  for (const mutation of [
+    "cancel",
+    "expire",
+    "session",
+    "revision",
+    "revoke",
+  ] as const) {
+    const run = await f.create();
+    await f.advance(run.id, "app");
+    const current = await f.commands.snapshot(f.actor, run.id);
+    const assignment = await setup.request(f.actor, run.id, current.revision);
+    if (mutation === "revoke") allowed = false;
+    else
+      await f.store.transaction(async (tx) => {
+        if (mutation === "expire") {
+          const key = {
+            tenant: f.actor.tenantId,
+            kind: "handoff" as const,
+            id: `jira-setup:${assignment.id}`,
+          };
+          const record = (await tx.get<Record<string, unknown>>(key))!;
+          await tx.put(key, { ...record.value, expires: 1 }, record.revision);
+        } else {
+          const key = {
+            tenant: f.actor.tenantId,
+            kind: "run" as const,
+            id: run.id,
+          };
+          const record = (await tx.get<RunRecord>(key))!;
+          await tx.put(
+            key,
+            mutation === "cancel"
+              ? { ...record.value, status: "cancelled" }
+              : mutation === "session"
+                ? { ...record.value, sessionId: "replaced" }
+                : record.value,
+            record.revision,
+          );
+        }
+      });
+    await assert.rejects(
+      setup.configure(owner, assignment.id, assignment.revision, {
+        clientId: f.config.clientId,
+        clientSecret: f.config.clientSecret,
+      }),
+    );
+    allowed = true;
+  }
+  const records = await f.store.transaction((tx) =>
+    tx.list("tenant", "artifact"),
+  );
+  assert.equal(
+    records.some((record) => record.id.startsWith("jira-shared-app:")),
+    false,
+  );
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
+test("Jira renews expired owner assignments without reviving old links or repeating setup", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  const setup = new JiraSetupAssignments(
+    {
+      transaction: (work) =>
+        f.store.transaction((tx) => work({ ...tx, now: async () => 1 })),
+      close: async () => {},
+    },
+    {
+      scopes: ["read:jira-user"],
+      owner: async () => "owner",
+      authorize: async () => {},
+    },
+  );
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  const old = await setup.request(f.actor, run.id, current.revision);
+  await f.store.transaction(async (tx) => {
+    const key = {
+      tenant: f.actor.tenantId,
+      kind: "handoff" as const,
+      id: `jira-setup:${old.id}`,
+    };
+    const record = (await tx.get<Record<string, unknown>>(key))!;
+    await tx.put(
+      key,
+      { ...record.value, expires: 1, state: "configured" },
+      record.revision,
+    );
+  });
+  await assert.rejects(
+    setup.request(f.actor, run.id, current.revision),
+    /denied/,
+  );
+  await f.store.transaction(async (tx) => {
+    const key = {
+      tenant: f.actor.tenantId,
+      kind: "handoff" as const,
+      id: `jira-setup:${old.id}`,
+    };
+    const record = (await tx.get<Record<string, unknown>>(key))!;
+    await tx.put(key, { ...record.value, state: "pending" }, record.revision);
+  });
+  const [renewed, competing] = await Promise.all([
+    setup.request(f.actor, run.id, current.revision),
+    setup.request(f.actor, run.id, current.revision),
+  ]);
+  assert.deepEqual(
+    competing,
+    renewed,
+    "Concurrent renewal has one current request",
+  );
+  assert.notEqual(renewed.id, old.id);
+  assert.deepEqual(
+    await setup.request(f.actor, run.id, current.revision),
+    renewed,
+    "A retry reuses the renewed assignment",
+  );
+  await assert.rejects(setup.view(owner, old.id), /denied/);
+  const values = {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  };
+  await assert.rejects(
+    setup.configure(owner, old.id, old.revision, values),
+    /denied/,
+  );
+  assert.equal((await setup.view(owner, renewed.id)).state, "pending");
+  await setup.configure(owner, renewed.id, renewed.revision, values);
+  assert.equal((await setup.view(owner, renewed.id)).state, "configured");
+  assert.equal(
+    (await setup.resolve(f.actor, run.id))?.clientSecret ===
+      values.clientSecret,
+    true,
+  );
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
+test("Jira shared setup rejects missing owner policy, wrong recipients and replacement without a configuration version", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  let designated: string | undefined = undefined;
+  const policy: JiraSetupPolicy = {
+    scopes: ["read:jira-user"],
+    owner: async () => designated,
+    authorize: async () => {},
+  };
+  const setup = new JiraSetupAssignments(f.store, policy);
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  await assert.rejects(setup.request(f.actor, run.id, current.revision));
+  assert.equal(await setup.resolve(f.actor, run.id), undefined);
+  designated = "owner";
+  assert.equal(await setup.resolve(f.actor, run.id), undefined);
+  const assigned = await setup.request(f.actor, run.id, current.revision);
+  designated = "changed-owner";
+  await assert.rejects(setup.request(f.actor, run.id, current.revision));
+  await assert.rejects(
+    setup.view({ ...owner, subjectId: designated }, assigned.id),
+    /denied/,
+  );
+  designated = "owner";
+  await assert.rejects(setup.view(owner, "invalid-id"));
+  for (const actor of [
+    { ...owner, actorKind: "agent" as const },
+    { ...owner, capabilities: [] },
+    { ...owner, tenantId: "foreign" },
+  ])
+    await assert.rejects(setup.view(actor, assigned.id), /denied/);
+  const values = {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  };
+  policy.scopes = ["read:jira-user", "read:jira-work"];
+  await assert.rejects(
+    setup.configure(owner, assigned.id, assigned.revision, values),
+    /denied/,
+  );
+  policy.scopes = ["read:jira-user"];
+  const assignmentKey = {
+    tenant: "tenant",
+    kind: "handoff" as const,
+    id: `jira-setup:${assigned.id}`,
+  };
+  const pending = (await f.store.transaction((tx) =>
+    tx.get<Record<string, unknown>>(assignmentKey),
+  ))!;
+  const completedRevision = await f.store.transaction((tx) =>
+    tx.put(
+      assignmentKey,
+      { ...pending.value, state: "configured" },
+      pending.revision,
+    ),
+  );
+  await assert.rejects(
+    setup.configure(owner, assigned.id, completedRevision, values),
+    /denied/,
+  );
+  assigned.revision = await f.store.transaction((tx) =>
+    tx.put(assignmentKey, pending.value, completedRevision),
+  );
+  await assert.rejects(
+    setup.configure(owner, assigned.id, assigned.revision, {
+      ...values,
+      extra: "injected",
+    }),
+  );
+  await setup.configure(owner, assigned.id, assigned.revision, values);
+  assert.equal(
+    (await setup.resolve(f.actor, run.id))?.clientSecret ===
+      f.config.clientSecret,
+    true,
+  );
+  designated = "changed-owner";
+  assert.equal(await setup.resolve(f.actor, run.id), undefined);
+  designated = "owner";
+  const other = await f.create();
+  await f.advance(other.id, "app");
+  const otherState = await f.commands.snapshot(f.actor, other.id);
+  const replacement = await setup.request(
+    f.actor,
+    other.id,
+    otherState.revision,
+  );
+  await assert.rejects(
+    setup.configure(owner, replacement.id, replacement.revision, values),
+  );
+  for (const changes of [
+    { target: "https://other.atlassian.net" },
+    { origin: "https://other.example" },
+    { environment: "production" },
+    { configurationVersion: "v2" },
+  ]) {
+    const key = { tenant: "tenant", kind: "run" as const, id: other.id };
+    const original = (await f.store.transaction((tx) =>
+      tx.get<RunRecord>(key),
+    ))!;
+    await f.store.transaction((tx) =>
+      tx.put(key, { ...original.value, ...changes }, original.revision),
+    );
+    assert.equal(await setup.resolve(f.actor, other.id), undefined);
+    await f.store.transaction(async (tx) => {
+      const changed = (await tx.get(key))!;
+      await tx.put(key, original.value, changed.revision);
+    });
+  }
+  assert.equal(
+    (await setup.resolve(f.actor, run.id))?.clientSecret ===
+      f.config.clientSecret,
+    true,
+  );
+  await f.store.transaction(async (tx) => {
+    const shared = (
+      await tx.list<Record<string, unknown>>("tenant", "artifact")
+    ).find((record) => record.id.startsWith("jira-shared-app:"))!;
+    await tx.put(
+      { tenant: "tenant", kind: "artifact", id: shared.id },
+      { ...shared.value, expires: 1 },
+      shared.revision,
+    );
+  });
+  assert.equal(await setup.resolve(f.actor, run.id), undefined);
+  const exactExpiry = new JiraSetupAssignments(
+    {
+      transaction: (work) =>
+        f.store.transaction((tx) => work({ ...tx, now: async () => 1 })),
+      close: async () => {},
+    },
+    policy,
+  );
+  assert.equal(await exactExpiry.resolve(f.actor, run.id), undefined);
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
 
 test("Jira composes shared app, private OAuth receipt and fresh site-bound access through real HTTP", async (t) => {
   const f = await fixture(t);

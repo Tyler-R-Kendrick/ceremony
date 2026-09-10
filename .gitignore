@@ -47,6 +47,7 @@ src/plugins/impeccable-live.client.ts
 /.swc
 # Local hosted build and durable Workflow development state (never package evidence).
 .output/
+/.vercel/output/
 .nitro/
 .workflow-data/
 .workflow-vitest/
