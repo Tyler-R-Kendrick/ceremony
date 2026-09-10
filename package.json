@@ -76,6 +76,7 @@
     "verify:release": "node --import tsx scripts/verify-release.ts release",
     "maintenance:storage": "node --import tsx scripts/persistence-maintenance.ts",
     "build:hosted": "nitro build",
+    "build:vercel": "npm run build && nitro build --preset vercel && node scripts/check-hosted-build.mjs",
     "dev:hosted": "nitro dev",
     "test:pact": "node --import tsx --test tests/contracts/*.test.ts",
     "test:snapshots": "node --import tsx --test tests/characterization.test.ts",

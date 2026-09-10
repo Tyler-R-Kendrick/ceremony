@@ -78,6 +78,7 @@ test("OPS: deterministic stages preserve required gates and fail closed on empty
     "test:security:mutation",
     "build",
     "build:hosted",
+    "build:vercel",
     "test:e2e",
   ]);
   for (const stage of [

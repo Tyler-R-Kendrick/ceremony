@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "scope": "src/core/connector-authoring.ts",
+  "sourceDigest": "f6b026543a1f1c1139f83c2ff2c4873802c3c3413124edf1bc1e68df77686c01",
+  "testDigest": "209979c1c39d6fe6cdeef7e2d0dffb2e4714f08341978f4a9795e66531e531e8",
+  "command": "npm run test:mutation -- /tmp/ceremony-studio-mutation.mjs",
+  "configuration": {
+    "extends": "stryker.config.json",
+    "mutate": ["src/core/connector-authoring.ts"],
+    "tapTestFiles": ["tests/connector-authoring.test.ts"],
+    "concurrency": 2
+  },
+  "attempts": [
+    {
+      "exitCode": 1,
+      "counts": {
+        "Killed": 212,
+        "Survived": 57,
+        "NoCoverage": 3,
+        "Timeout": 0,
+        "Errors": 0
+      }
+    },
+    {
+      "exitCode": 0,
+      "counts": {
+        "Killed": 270,
+        "Survived": 2,
+        "NoCoverage": 0,
+        "Timeout": 0,
+        "Errors": 0
+      }
+    }
+  ],
+  "threshold": 80
+}

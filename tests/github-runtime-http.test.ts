@@ -198,3 +198,103 @@ test("AC-14 AC-20: configured app and trusted continuation remain server-owned w
     await store.close();
   }
 });
+
+test("expired issued setup requires a ticket-bound human restart; no registration effect is replayed automatically", async (t) => {
+  const f = await teachingGitHubFixture(4497);
+  t.after(() => f.close());
+  const cookie = f.sessionCookie("restart-owner");
+  const request = (path: string, body?: unknown, selectedCookie = cookie) =>
+    fetch(`${f.origin}/api/v1/teaching${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      redirect: "manual",
+      headers: {
+        cookie: selectedCookie,
+        origin: f.origin,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  const run = await (await request("/runs", { connectorId: "github" })).json();
+  await request(`/runs/${run.id}/advance`, {
+    nodeId: "app",
+    revision: run.revision,
+    commandId: "prepare-restart",
+  });
+  const original = await request(`/github/${run.id}/human`);
+  const { document } = parseHTML(await original.text());
+  const originalState = new URL(
+    document.querySelector("form")!.getAttribute("action")!,
+  ).searchParams.get("state");
+  await f.store.transaction(async (tx) => {
+    for (const row of await tx.list<{ phase?: string; expires?: number }>(
+      "teaching-fixture",
+      "handoff",
+    ))
+      if (row.value.phase === "registration")
+        await tx.put(
+          { tenant: "teaching-fixture", kind: "handoff", id: row.id },
+          { ...row.value, expires: 0 },
+          row.revision,
+        );
+  });
+  const expired = await request(`/github/${run.id}/human`);
+  assert.equal(expired.status, 409);
+  assert.match(await expired.text(), /Return to connection/);
+  assert.equal(
+    (await (await request(`/runs/${run.id}`)).json()).nodes[0].state,
+    "uncertain",
+  );
+  const recovery = await request(`/github/${run.id}/recovery`);
+  const html = await recovery.text();
+  assert.match(html, /Start a new registration/);
+  const ticket = /ticket:"([a-f0-9-]{36})"/.exec(html)?.[1];
+  assert.ok(ticket);
+  assert.equal(
+    (await request(`/github/${run.id}/recovery`, { ticket, restart: false }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(
+        `/github/${run.id}/recovery`,
+        { ticket, restart: true },
+        f.sessionCookie("foreign"),
+      )
+    ).status,
+    403,
+  );
+  const restarted = await request(`/github/${run.id}/recovery`, {
+    ticket,
+    restart: true,
+  });
+  assert.equal(restarted.status, 200);
+  assert.equal(f.effects.conversions, 0);
+  assert.equal(
+    (await (await request(`/runs/${run.id}`)).json()).nodes[0].state,
+    "awaiting-human",
+  );
+  assert.equal(
+    (await request(`/github/${run.id}/recovery`, { ticket, restart: true }))
+      .status,
+    403,
+  );
+  const next = parseHTML(
+    await (await request(`/github/${run.id}/human`)).text(),
+  );
+  assert.notEqual(
+    new URL(
+      next.document.querySelector("form")!.getAttribute("action")!,
+    ).searchParams.get("state"),
+    originalState,
+  );
+  assert.equal(
+    (
+      await request(
+        `/github/${run.id}/callback?state=${originalState}&code=obsolete`,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(f.effects.conversions, 0);
+});

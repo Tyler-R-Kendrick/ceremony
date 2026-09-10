@@ -44,9 +44,16 @@ export async function teachingGitHubFixture(
   const workerToken = randomBytes(32).toString("hex");
   const delivered = new Set<string>();
   const consumed = new Set<string>();
+  let registeredSetupUrl = "";
   const provider = createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, "http://fixture");
+      if (url.pathname === "/users/fixture-owner") {
+        res
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ login: "fixture-owner", type: "User" }));
+        return;
+      }
       if (url.pathname === "/host/continue") {
         if (
           req.headers.authorization !== `Bearer ${continuationToken}` ||
@@ -263,7 +270,6 @@ export async function teachingGitHubFixture(
       ]);
     },
     async providerPages(context: BrowserContext) {
-      let callback = "";
       await context.route(
         `${origin}/api/v1/teaching/github/*/human`,
         async (route) => {
@@ -278,13 +284,11 @@ export async function teachingGitHubFixture(
             location.pathname !== "/apps/teaching-fixture/installations/new"
           )
             throw new Error("Unexpected handoff");
-          callback = route
-            .request()
-            .url()
-            .replace(/\/human$/, "/callback");
+          if (!registeredSetupUrl)
+            throw new Error("App has no registered setup URL");
           await route.fulfill({
             contentType: "text/html",
-            body: `<a href="${callback}?state=${location.searchParams.get("state")}&installation_id=7">Approve fixture installation</a>`,
+            body: `<a href="${registeredSetupUrl}?state=${location.searchParams.get("state")}&installation_id=7">Approve fixture installation</a>`,
           });
         },
       );
@@ -299,13 +303,13 @@ export async function teachingGitHubFixture(
             manifest.default_permissions.contents !== "read"
           )
             throw new Error("Invalid manifest");
-          callback = manifest.redirect_url;
+          registeredSetupUrl = manifest.setup_url ?? "";
           const state = new URL(route.request().url()).searchParams.get(
             "state",
           )!;
           await route.fulfill({
             contentType: "text/html",
-            body: `<a href="${callback}?state=${state}&code=${randomBytes(12).toString("hex")}">Approve fixture app</a>`,
+            body: `<a href="${manifest.redirect_url}?state=${state}&code=${randomBytes(12).toString("hex")}">Approve fixture app</a>`,
           });
         },
       );
@@ -316,9 +320,11 @@ export async function teachingGitHubFixture(
           const state = new URL(route.request().url()).searchParams.get(
             "state",
           )!;
+          if (!registeredSetupUrl)
+            throw new Error("App has no registered setup URL");
           await route.fulfill({
             contentType: "text/html",
-            body: `<a href="${callback}?state=${state}&installation_id=7">Approve fixture installation</a>`,
+            body: `<a href="${registeredSetupUrl}?state=${state}&installation_id=7">Approve fixture installation</a>`,
           });
         },
       );

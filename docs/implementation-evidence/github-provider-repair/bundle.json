@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "commit": "77e9b5492bd520f6567a887f070f76db0af6bc79",
+    "raw": 451231,
+    "gzip": 140120
+  },
+  "files": [
+    {
+      "name": "index-B_SsjPmk.js",
+      "raw": 440374,
+      "gzip": 136456
+    },
+    {
+      "name": "index-DZRyvnzT.js",
+      "raw": 5704,
+      "gzip": 2174
+    },
+    {
+      "name": "workflow-studio-C8BKKKQW.js",
+      "raw": 26551,
+      "gzip": 8231
+    }
+  ],
+  "totals": {
+    "raw": 472629,
+    "gzip": 146861
+  },
+  "budget": {
+    "raw": 485000,
+    "gzip": 150000
+  },
+  "passed": true
+}

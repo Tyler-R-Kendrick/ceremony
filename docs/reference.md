@@ -105,4 +105,4 @@ Then restart `npm run dev`. The app does not automatically load `.env` files. Ne
 
 Generation sends the component contract, selected auth kind, connector display name/description, and author-entered presentation instructions. It sends no live ceremony state, credentials, claim tokens, or connection references. Generated output must pass the same validator as imported templates. Nothing is automatically published.
 
-Use **Export template** to save a reviewed artifact. **Use on Connect page** activates it in the current app session; exported artifacts are the durable handoff. With no model configured, editing, importing, previewing, exporting, and all runtime auth flows still work.
+In Workflow studio, presentation editing belongs to the newly authored connector. **Save presentation to project** retains it in that project; **Export template** saves a separate artifact. Neither modifies the Connect page. With no model configured, editing, importing, previewing, exporting, and runtime auth flows still work. See [Workflow studio](workflow-studio.md) for connector creation and host integration.

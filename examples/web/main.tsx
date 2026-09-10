@@ -1,33 +1,18 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
+import { browserModelContext, manifestSchema } from "../../src/core/index.js";
 import {
-  actionsFor,
-  browserModelContext,
-  defaultTemplate,
-  fieldsFor,
-  flowKinds,
-  manifestSchema,
-  steps,
-  type CeremonySnapshot,
-  type CeremonyTemplate,
-  type ConnectorManifest,
-  type FlowKind,
-  type Step,
-} from "../../src/core/index.js";
-import {
-  authoringPrompt,
-  BoundCeremony,
   Ceremony,
   CeremonyView,
   createHttpTransport,
-  validateTemplate,
 } from "../../src/react/index.js";
 import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
 import { TeachingConnection } from "./teaching.js";
 import { usePwaInstall } from "./pwa.js";
+const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
 // Simulated providers are an explicit test harness, never the default product.
 const liveMode = new URLSearchParams(location.search).get("mode") !== "test";
@@ -42,304 +27,6 @@ const configSchema = z.object({
   teachingAvailable: z.boolean().default(false),
 });
 type Config = z.infer<typeof configSchema>;
-function download(name: string, value: string, type = "application/json") {
-  const url = URL.createObjectURL(new Blob([value], { type }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-function preview(
-  manifest: ConnectorManifest,
-  kind: FlowKind,
-  step: Step,
-): CeremonySnapshot {
-  const method = manifest.methods.find((value) => value.kind === kind);
-  if (!method) throw new Error("No preview method");
-  return {
-    id: "preview",
-    revision: 0,
-    connectorId: manifest.id,
-    connectorName: manifest.name,
-    description: manifest.description,
-    method,
-    step,
-    fields: fieldsFor(step, method),
-    actions: actionsFor(step, kind === "authmd-anonymous"),
-    expiresAt: 2_000_000_000_000,
-    authorizationUrl: "#preview-only",
-    verificationUri: "#preview-only",
-    userCode: "482913",
-    ...(["anonymous", "complete"].includes(step)
-      ? {
-          outcome: {
-            connectionRef: "preview-only",
-            ownership:
-              step === "anonymous"
-                ? ("anonymous" as const)
-                : kind === "authmd-anonymous"
-                  ? ("claimed" as const)
-                  : ("authenticated" as const),
-            scopes: method.scopes,
-          },
-        }
-      : {}),
-    ...(["error", "expired"].includes(step)
-      ? { message: "Example: the provider did not approve this attempt." }
-      : {}),
-  };
-}
-function Studio({
-  config,
-  apply,
-}: {
-  config: Config;
-  apply(template: CeremonyTemplate): void;
-}) {
-  const [kind, setKind] = useState<FlowKind>("oauth-code");
-  const [source, setSource] = useState(
-    JSON.stringify(defaultTemplate("oauth-code"), null, 2),
-  );
-  const [step, setStep] = useState<Step>("intro");
-  const [instruction, setInstruction] = useState(
-    "Calm, concise copy with a clear next action.",
-  );
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source);
-  } catch {
-    parsed = null;
-  }
-  const checked = validateTemplate(parsed);
-  const valid =
-    checked.template?.kind === kind && checked.template.id === kind
-      ? checked.template
-      : undefined;
-  const manifest = [...config.manifests, ...config.liveManifests].find((item) =>
-    item.methods.some((method) => method.kind === kind),
-  )!;
-  const generate = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, connectorId: manifest.id, instruction }),
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(
-          typeof result.error === "string" ? result.error : "Generation failed",
-        );
-      const generated = validateTemplate(result);
-      if (!generated.template) throw new Error(generated.errors.join("; "));
-      setSource(JSON.stringify(generated.template, null, 2));
-      setMessage(
-        "Generated and validated. Review the preview, then export or use it.",
-      );
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Generation failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <div className="page-heading">
-        <div>
-          <h2>Presentation templates</h2>
-          <p>
-            Customize copy and layout. This isolated preview does not execute
-            authentication.
-          </p>
-        </div>
-        <span className="pill">Authoring studio</span>
-      </div>
-      <div className="studio-grid">
-        <section className="editor-card">
-          <div className="card-top">
-            <h2>Template</h2>
-            <span className={`validation ${valid ? "valid" : "invalid"}`}>
-              {valid ? "✓ Validated" : "Needs attention"}
-            </span>
-          </div>
-          <label htmlFor="flow-kind">Auth family</label>
-          <select
-            id="flow-kind"
-            value={kind}
-            onChange={(event) => {
-              const next = flowKinds.find(
-                (value) => value === event.target.value,
-              );
-              if (next) {
-                setKind(next);
-                setSource(JSON.stringify(defaultTemplate(next), null, 2));
-                setMessage("");
-              }
-            }}
-          >
-            {flowKinds.map((flow) => (
-              <option key={flow}>{flow}</option>
-            ))}
-          </select>
-          <label htmlFor="instruction">Presentation direction</label>
-          <textarea
-            id="instruction"
-            value={instruction}
-            maxLength={2000}
-            rows={2}
-            onChange={(event) => setInstruction(event.target.value)}
-          />
-          <div className="toolbar">
-            <button
-              className="primary"
-              disabled={!config.generationAvailable || busy}
-              onClick={() => void generate()}
-            >
-              {busy ? "Generating…" : "Generate template"}
-            </button>
-            <button
-              onClick={() =>
-                download(
-                  "ceremony-prompt.txt",
-                  `${authoringPrompt()}\nGenerate kind: ${kind}, id: ${kind}`,
-                  "text/plain",
-                )
-              }
-            >
-              Export prompt
-            </button>
-          </div>
-          {!config.generationAvailable && (
-            <p className="muted small">
-              Generation is not configured. Edit a template here, or export the
-              prompt and import model output.
-            </p>
-          )}
-          <label htmlFor="template-source">
-            Template source · JSON / OpenUI
-          </label>
-          <textarea
-            id="template-source"
-            className="code-editor"
-            spellCheck={false}
-            value={source}
-            maxLength={220000}
-            onChange={(event) => setSource(event.target.value)}
-          />
-          {!valid && (
-            <div className="diagnostics" role="alert">
-              {checked.errors.length ? (
-                checked.errors
-                  .slice(0, 5)
-                  .map((error) => <p key={error}>{error}</p>)
-              ) : (
-                <p>Template ID and kind must match the selected auth family.</p>
-              )}
-            </div>
-          )}
-          <div className="toolbar">
-            <label className="button import-button">
-              Import
-              <input
-                type="file"
-                accept="application/json,.json"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) {
-                    if (file.size > 220000)
-                      setMessage("Template file is too large.");
-                    else void file.text().then(setSource);
-                  }
-                  event.target.value = "";
-                }}
-              />
-            </label>
-            <button
-              disabled={!valid}
-              onClick={() =>
-                valid &&
-                download(
-                  `${valid.id}.ceremony.json`,
-                  JSON.stringify(valid, null, 2),
-                )
-              }
-            >
-              Export template
-            </button>
-            <button
-              className="primary"
-              disabled={!valid}
-              onClick={() => {
-                if (valid) {
-                  apply(valid);
-                  setMessage(
-                    "Template is active on the Connect page for this session. Export it to keep a copy.",
-                  );
-                }
-              }}
-            >
-              Use on Connect page
-            </button>
-          </div>
-          <p role="status" className="small">
-            {message}
-          </p>
-        </section>
-        <section className="preview-column">
-          <div className="card-top">
-            <h2>Presentation preview</h2>
-            <span className="pill">Isolated sample data</span>
-          </div>
-          <label htmlFor="preview-state">Ceremony state</label>
-          <select
-            id="preview-state"
-            value={step}
-            onChange={(event) => {
-              const next = steps.find((value) => value === event.target.value);
-              if (next) setStep(next);
-            }}
-          >
-            {steps.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-          <div
-            className="preview-card"
-            onClickCapture={(event) => {
-              if (
-                event.target instanceof Element &&
-                event.target.closest("a,button")
-              )
-                event.preventDefault();
-            }}
-          >
-            {valid ? (
-              <BoundCeremony
-                snapshot={preview(manifest, kind, step)}
-                template={valid}
-                busy={false}
-                act={() => {}}
-              />
-            ) : (
-              <div className="empty-preview">
-                <p>Fix the template to see its preview.</p>
-              </div>
-            )}
-          </div>
-          <p className="muted small">
-            Preview actions never contact a provider. Runtime values stay
-            outside the template.
-          </p>
-        </section>
-      </div>
-    </>
-  );
-}
 function App() {
   const install = usePwaInstall();
   const [config, setConfig] = useState<Config>();
@@ -357,7 +44,7 @@ function App() {
   const [resumeId, setResumeId] = useState(
     new URLSearchParams(location.search).get("ceremony") ?? undefined,
   );
-  const [templates, setTemplates] = useState<CeremonyTemplate[]>([]);
+  const [studioOpened, setStudioOpened] = useState(tab === "studio");
   const [delegation, setDelegation] = useState(false);
   useEffect(() => {
     void fetch("/api/config")
@@ -412,7 +99,10 @@ function App() {
           </button>
           <button
             aria-current={tab === "studio" ? "page" : undefined}
-            onClick={() => setTab("studio")}
+            onClick={() => {
+              setStudioOpened(true);
+              setTab("studio");
+            }}
           >
             Workflow studio
           </button>
@@ -441,41 +131,19 @@ function App() {
         </span>
       </header>
       <main>
-        {loadError && <p role="alert">{loadError}</p>}
-        {!config && !loadError && <p role="status">Loading your workspace…</p>}
+        {tab !== "studio" && loadError && <p role="alert">{loadError}</p>}
+        {tab !== "studio" && !config && !loadError && (
+          <p role="status">Loading your workspace…</p>
+        )}
         {config && tab === "environment" && <Environment />}
-        {config && tab === "studio" && (
-          <>
-            <div className="page-heading">
-              <div>
-                <h1>Workflow studio</h1>
-                <p>
-                  Demonstrate a connection, review reusable steps, or customize
-                  their presentation.
-                </p>
-              </div>
-            </div>
-            {config.teachingAvailable && <TeachingConnection mode="studio" />}
-            <details className="presentation-tools">
-              <summary>Advanced: customize presentation templates</summary>
-              <Studio
-                config={config}
-                apply={(template) =>
-                  setTemplates((previous) => [
-                    ...previous.filter((value) => value.id !== template.id),
-                    template,
-                  ])
-                }
+        {studioOpened && (
+          <div hidden={tab !== "studio"}>
+            <Suspense fallback={<p role="status">Loading authoring tools…</p>}>
+              <WorkflowStudio
+                generationAvailable={config?.generationAvailable ?? false}
               />
-            </details>
-            <p>
-              Trusted server adapters execute provider operations. OpenUI
-              templates control presentation, never authentication logic.
-            </p>
-            <a href="/api/workflows/github" download="github.arazzo.json">
-              Export GitHub Arazzo operations
-            </a>
-          </>
+            </Suspense>
+          </div>
         )}
         {config && connector && tab === "connect" && (
           <>
@@ -608,7 +276,6 @@ function App() {
                     manifest={connector}
                     transport={transport}
                     {...(delegation ? { delegation: "agent" as const } : {})}
-                    templates={templates}
                     {...(resumeId ? { resumeId } : {})}
                     onInstance={(id) => {
                       setResumeId(id);
@@ -621,7 +288,7 @@ function App() {
                   >
                     {(model) => (
                       <div className="ceremony-workspace">
-                        <CeremonyView model={model} templates={templates} />
+                        <CeremonyView model={model} />
                         <aside
                           className="runtime-context"
                           aria-label="Connection context"

@@ -1,25 +1,47 @@
-# Executable workflow studio
+# Workflow studio
 
-Open `http://127.0.0.1:4173/?section=studio`. The default is a live GitHub App ceremony, not a preview. Existing session configuration is reused; missing app registration blocks installation, and provider verification blocks completion. Other services remain explicitly labelled local simulations until a live adapter is implemented.
+Open [Workflow studio](http://127.0.0.1:4173/?section=studio) with the local app running.
 
-The advanced OpenUI editor changes presentation only. It cannot execute code, supply credentials, bypass prerequisites or redefine provider operations.
+Studio is an authoring tool for **new connectors and their ceremonies**. It does not start GitHub, inspect an active connection, or read Environment. Connect runs existing connectors; Environment manages private session configuration. Teaching an existing connection stays contextual on Connect.
 
-## Execution boundary
+## Create a connector
 
-The server exports `githubWorkflows` and `runArazzo` from `@ceremony/auth/server`. The GitHub adapter runs the actual document's ordered operations against the official `@octokit/request` and `@octokit/auth-app` SDKs. Registration exchanges the one-shot manifest code and verifies app identity. Access verification requests a read-only installation token and checks repository access before storing a connection reference.
+1. Choose **Create connector**, name the service and describe its purpose. Set its stable ID and public OpenAPI document URL.
+2. Choose **Design ceremonies**, then add the service's supported auth methods. Each method has its own workflow. Define requested permissions, a host verifier, configuration names and prerequisites.
+3. Add and reorder steps. Describe each action and reference the provider operation that a trusted SDK handler will implement. Configure the appropriate human recipient; A2H return always leads to verification.
+4. Choose **Review connector**. Fix validation issues before exporting a manifest or Arazzo workflow. **Save connector project** also saves incomplete drafts so operation research can continue later.
+5. Use **Open project** to resume a saved file. Import never installs a connector or transfers publication status, credentials, access, or authority.
 
-This is a **bound sequential Arazzo 1.0.1 profile**, not a general-purpose Arazzo interpreter. Operation inputs and authentication are bound by trusted server handlers to the validated session/callback state. Human approval, crash recovery and private collection remain the responsibility of the ceremony runtime. The exported document describes the automatic operation sequences; it is not a standalone end-to-end workflow for an arbitrary third-party runner. Unsupported fields, duplicate IDs and unbound operations are rejected before effects. No external source loading, evaluation, automatic retries, generic HTTP proxy or browser-auth scripting is enabled by an imported document.
+The editor works without a model or a provider account. It keeps work in component memory across navigation tabs, not local/session storage. Download a project before closing or reloading the page; unfinished edits trigger the browser's leave warning where supported. Importing over edits requires an explicit replace choice. Do not enter credentials or signed URLs into project metadata.
 
-Provider effects are never retried blindly: registration credentials are persisted before verification; interrupted token issuance enters the existing recovery path. Success/failure observers receive operation and step identifiers only, never tokens, request bodies, responses or provider errors. `GitHubOptions.onWorkflowStep` observes server execution. UI and WebMCP continue to invoke the same ceremony client actions and its existing `onActionSuccess` / `onActionFailure` hooks.
+## Presentation
 
-## Reuse and composition
+The review stage has **Customize ceremony presentation**. Its OpenUI preview uses the authored connector and synthetic state, not another service's session. Edit/import/export templates or optionally generate presentation copy with the configured server model. **Save presentation to project** changes only the project. Saved templates reopen for editing; no action applies them to Connect.
 
-Embed `Ceremony` from `@ceremony/auth/react`, or use `createCeremonyClient` from `@ceremony/auth` with your own React/Vue/other framework view. Pass your manifest and server transport; the host owns styling, navigation and credential storage. No Studio dependency is needed in an embedding app.
+Generation accepts a bounded authored connector name rather than requiring a built-in connector ID. Existing API callers using `connectorId` remain supported. Model credentials stay server-side. Free-form author instructions and names are user-provided text; never enter secrets there.
 
-To compose a trusted automatic sequence, provide an `ArazzoDocument` and a `Map` of operation IDs to SDK-backed async handlers, then call `runArazzo(document, workflowId, operations, onStep)`. Handlers must validate inputs and provider evidence and keep private results in their server-owned context. All bindings are checked before execution; a failed handler stops the sequence. A successful observer cannot change authentication, and an observer failure cannot replay a provider operation.
+## Portable contract
 
-## Verification and sources
+The version-1 project envelope carries a formal manifest, optional reviewed templates, and named Arazzo documents. It is an authoring container, not another workflow language. Core exports `connectorProjectSchema`, `connectorProjectDraftSchema`, `parseConnectorProject`, `parseConnectorDraft`, and `exportConnectorFiles`.
 
-`tests/arazzo.test.ts` checks ordering, binding preflight, failure short-circuiting and redacted hooks. Existing GitHub Pact tests now exercise the SDK-backed workflow consumer over HTTP, including rejected credentials and a deliberately incompatible permission request. Browser tests cover the working Studio, presentation separation and mobile accessibility. These checks do not constitute live GitHub provider certification or authorize creating an app in a real account.
+Draft validation permits empty form fields while retaining structural limits and graph linkage. Completed-definition validation additionally requires method details, operation IDs, verifier IDs and valid references. Both reject unknown keys and imported publication/owner/connection fields. Import is capped at 256 KiB. Projects allow up to 12 methods and 32 total executable steps. This editor profile supports one sequential workflow per method, with explicit document/version references; it does not author branching expressions or arbitrary code.
 
-[Arazzo 1.0.1](https://spec.openapis.org/arazzo/v1.0.1.html) defines ordered operation steps and default failure termination. [Octokit app authentication](https://github.com/octokit/auth-app.js) implements app JWT authentication; [GitHub's installation authentication guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) documents the SDK-backed installation flow.
+The generated [project schema](specifications/schemas/connector-project-v1.schema.json) and [draft schema](specifications/schemas/connector-project-draft-v1.schema.json) are structural descriptions. Runtime cross-reference and presentation validation still apply.
+
+## Host integration and trust boundary
+
+A valid exported definition is **not** a deployed or provider-certified connector. The default `live-adapter` manifest metadata describes the intended integration, not proof that its adapter exists.
+
+The host must register trusted SDK handlers, completion verifiers, origin policy, prerequisite gates and authorization. Supply exported manifest/templates to the existing framework-neutral client or React view with the host's transport. Register exported Arazzo documents in the server's trusted catalog. `runArazzo(document, workflowId, operations, onStep)` preflights all operation bindings before running them and stops on failure. It does not fetch a source URL, execute author code, infer authentication inputs, retry one-shot effects or approve a human request.
+
+Human approval, protected input, verified artifact reuse, durable effects and continuation remain domain-runtime responsibilities. A2H describes how to request necessary participation; it never grants access by itself. Shared definitions never contain an author's credentials or session. GitHub, Stripe and Supabase SDK paths remain separate registered integrations, not automatic support for a newly named provider.
+
+## Compatibility and verification
+
+The old Studio-as-GitHub-session screen and **Use on Connect page** behavior were intentionally removed. Existing embedded `TeachingConnection` APIs remain available; the example's teaching controls now live on Connect.
+
+`tests/connector-authoring.test.ts` covers draft/completed boundaries, unsafe imports, references, limits, conservative auth-family defaults and execution through the existing Arazzo runner. `tests/browser/workflow-studio.spec.ts` covers creation, ordering, export/reopen, malformed imports, draft preservation, no connection/environment requests, and desktop/mobile accessibility in Chromium, Firefox and WebKit. Presentation-generation regression tests use the actual local model HTTP boundary, not a forged completed connection.
+
+The prior merged build (`77e9b54`) measured 451,231 raw / 140,120 gzip JavaScript bytes. The initial standalone Studio implementation measured 472,127 / 146,751, including its separately loaded authoring chunk. The total-download regression ceiling is now 485,000 / 150,000 to cover this concrete editor; it remains a build gate. Core consumers do not acquire React, model SDKs or server SDKs from the authoring contracts. Build output records current exact measurements in `artifacts/bundle/size.json`.
+
+These are local implementation checks, not live-provider certification. This change does not provision resources, publish connectors or execute a new real-provider flow.

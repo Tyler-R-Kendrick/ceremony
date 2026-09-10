@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "format": { "type": "string", "const": "ceremony-connector" },
+    "version": { "type": "number", "const": 1 },
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "type": "number", "const": 1 },
+        "support": { "type": "string", "enum": ["fixture", "live-adapter"] },
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "methods": {
+          "maxItems": 12,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+              "label": { "type": "string", "maxLength": 100 },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "api-key",
+                  "basic",
+                  "form",
+                  "oauth-code",
+                  "device",
+                  "authmd-anonymous",
+                  "github-app"
+                ]
+              },
+              "fields": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": ["text", "email", "password"]
+                    },
+                    "required": { "type": "boolean" },
+                    "classification": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "personal",
+                        "secret",
+                        "artifact",
+                        "unclassified"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "label",
+                    "type",
+                    "required",
+                    "classification"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "claimFields": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-zA-Z0-9_]{0,63}$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": ["text", "email", "password"]
+                    },
+                    "required": { "type": "boolean" },
+                    "classification": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "personal",
+                        "secret",
+                        "artifact",
+                        "unclassified"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "label",
+                    "type",
+                    "required",
+                    "classification"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "scopes": {
+                "maxItems": 30,
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+              },
+              "templateId": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "contract": {
+                "type": "object",
+                "properties": {
+                  "profile": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                  },
+                  "surfaces": {
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["browser", "headless"]
+                    }
+                  },
+                  "configuration": {
+                    "maxItems": 24,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "maxLength": 96 },
+                        "source": {
+                          "type": "string",
+                          "enum": ["session-environment", "host"]
+                        },
+                        "classification": {
+                          "type": "string",
+                          "enum": ["public", "personal", "secret"]
+                        },
+                        "required": { "type": "boolean" }
+                      },
+                      "required": [
+                        "name",
+                        "source",
+                        "classification",
+                        "required"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "configurationGroups": {
+                    "maxItems": 12,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "rule": {
+                          "type": "string",
+                          "enum": ["all-or-none", "at-least-one"]
+                        },
+                        "names": {
+                          "minItems": 2,
+                          "maxItems": 24,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]{0,95}$"
+                          }
+                        }
+                      },
+                      "required": ["id", "rule", "names"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "prerequisites": {
+                    "maxItems": 12,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string", "maxLength": 120 },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "configuration",
+                            "provider-registration",
+                            "provider-consent"
+                          ]
+                        },
+                        "reuse": {
+                          "type": "string",
+                          "const": "verified-context"
+                        },
+                        "handoff": {
+                          "type": "object",
+                          "properties": {
+                            "surface": {
+                              "type": "string",
+                              "enum": ["provider-browser", "private-collector"]
+                            },
+                            "recipient": {
+                              "type": "string",
+                              "enum": ["initiating-subject", "authorized-owner"]
+                            },
+                            "delegation": {
+                              "type": "string",
+                              "const": "a2h-authorize"
+                            },
+                            "resume": { "type": "string", "const": "verify" }
+                          },
+                          "required": [
+                            "surface",
+                            "recipient",
+                            "delegation",
+                            "resume"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["id", "kind", "reuse", "handoff"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "handoff": {
+                    "type": "object",
+                    "properties": {
+                      "surface": {
+                        "type": "string",
+                        "enum": ["provider-browser", "private-collector"]
+                      },
+                      "recipient": {
+                        "type": "string",
+                        "enum": ["initiating-subject", "authorized-owner"]
+                      },
+                      "delegation": {
+                        "type": "string",
+                        "const": "a2h-authorize"
+                      },
+                      "resume": { "type": "string", "const": "verify" }
+                    },
+                    "required": [
+                      "surface",
+                      "recipient",
+                      "delegation",
+                      "resume"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "completion": {
+                    "type": "object",
+                    "properties": {
+                      "verifier": { "type": "string", "maxLength": 120 },
+                      "ownership": {
+                        "minItems": 1,
+                        "maxItems": 3,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": ["authenticated", "anonymous", "claimed"]
+                        }
+                      }
+                    },
+                    "required": ["verifier", "ownership"],
+                    "additionalProperties": false
+                  },
+                  "workflows": {
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "document": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+                        },
+                        "workflowId": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        }
+                      },
+                      "required": ["document", "version", "workflowId"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "profile",
+                  "surfaces",
+                  "configuration",
+                  "configurationGroups",
+                  "prerequisites",
+                  "handoff",
+                  "completion",
+                  "workflows"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "kind",
+              "fields",
+              "scopes",
+              "templateId",
+              "contract"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "support",
+        "id",
+        "name",
+        "description",
+        "methods"
+      ],
+      "additionalProperties": false
+    },
+    "templates": {
+      "default": [],
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "number", "const": 1 },
+          "id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "api-key",
+              "basic",
+              "form",
+              "oauth-code",
+              "device",
+              "authmd-anonymous",
+              "github-app"
+            ]
+          },
+          "screens": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "enum": [
+                "intro",
+                "input",
+                "redirect",
+                "waiting",
+                "anonymous",
+                "claim",
+                "complete",
+                "error",
+                "cancelled",
+                "expired"
+              ]
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            },
+            "required": [
+              "intro",
+              "input",
+              "redirect",
+              "waiting",
+              "anonymous",
+              "claim",
+              "complete",
+              "error",
+              "cancelled",
+              "expired"
+            ]
+          }
+        },
+        "required": ["version", "id", "kind", "screens"],
+        "additionalProperties": false
+      }
+    },
+    "workflows": {
+      "minItems": 1,
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "document": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
+          "arazzo": { "type": "string", "const": "1.0.1" },
+          "info": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "version": { "type": "string", "const": "1.0.0" }
+            },
+            "required": ["title", "version"],
+            "additionalProperties": false
+          },
+          "sourceDescriptions": {
+            "minItems": 1,
+            "maxItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "const": "provider" },
+                "url": {
+                  "anyOf": [
+                    { "type": "string", "maxLength": 500, "format": "uri" },
+                    { "type": "string", "const": "" }
+                  ]
+                },
+                "type": { "type": "string", "const": "openapi" }
+              },
+              "required": ["name", "url", "type"],
+              "additionalProperties": false
+            }
+          },
+          "workflows": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "workflowId": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]{1,64}$"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "steps": {
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "stepId": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9-]{1,64}$"
+                      },
+                      "description": { "type": "string", "maxLength": 500 },
+                      "operationId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9._/-]{0,119}$"
+                          },
+                          { "type": "string", "const": "" }
+                        ]
+                      }
+                    },
+                    "required": ["stepId", "description", "operationId"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["workflowId", "summary", "steps"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "document",
+          "arazzo",
+          "info",
+          "sourceDescriptions",
+          "workflows"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["format", "version", "manifest", "workflows"],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:connector-project-draft-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

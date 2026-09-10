@@ -355,14 +355,35 @@ test("switching methods cancels prior attempt; API rejects other sessions and cr
   expect(badOrigin.status()).toBe(403);
   await stranger.close();
 });
-test("studio previews every state, rejects malformed imports, and fits a mobile viewport", async ({
+async function openAuthoredPresentation(page: Page) {
+  await page
+    .getByRole("button", { name: "Workflow studio", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Create connector", exact: true })
+    .click();
+  await page.getByLabel("Connector name", { exact: true }).fill("Acme");
+  await page
+    .getByLabel("Provider OpenAPI document")
+    .fill("https://example.com/openapi.json");
+  await page.getByRole("button", { name: "Design ceremonies" }).click();
+  for (const kind of ["oauth-code", "basic", "api-key"]) {
+    await page
+      .getByLabel("Authentication method", { exact: true })
+      .selectOption(kind);
+    await page.getByRole("button", { name: "Add method", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Review connector" }).click();
+  await page
+    .getByText("Customize ceremony presentation", { exact: true })
+    .click();
+}
+
+test("studio previews authored presentation states, rejects malformed imports, and fits mobile", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Workflow studio" }).click();
-  await page
-    .getByText("Advanced: customize presentation templates", { exact: true })
-    .click();
+  await openAuthoredPresentation(page);
   await expect(page.getByText("✓ Validated", { exact: true })).toBeVisible();
   for (const step of [
     "intro",
@@ -400,7 +421,7 @@ test("studio previews every state, rejects malformed imports, and fits a mobile 
     ),
   ).toBe(true);
 });
-test("generate, export, import and run an authored template after the model is offline", async ({
+test("generate, export and import an authored presentation without applying it to Connect", async ({
   page,
 }) => {
   let captured = "";
@@ -432,15 +453,12 @@ test("generate, export, import and run an authored template after the model is o
   });
   try {
     await page.goto(`${app.origin}/?mode=test`);
-    await page.getByRole("button", { name: "Workflow studio" }).click();
-    await page
-      .getByText("Advanced: customize presentation templates", { exact: true })
-      .click();
+    await openAuthoredPresentation(page);
     await page.getByLabel("Auth family").selectOption("api-key");
     await page
       .getByRole("button", { name: "Generate template", exact: true })
       .click();
-    await expect(page.locator(".preview-card")).toContainText("GitHub");
+    await expect(page.locator(".preview-card")).toContainText("Acme");
     await expect(page.locator(".editor-card [role=status]")).toContainText(
       "Generated and validated",
     );
@@ -453,22 +471,28 @@ test("generate, export, import and run an authored template after the model is o
     expect(path).toBeTruthy();
     const bytes = await readFile(path!);
     await page.getByLabel("Template source · JSON / OpenUI").fill("{}");
-    await page.locator("input[type=file]").setInputFiles({
+    await page.locator(".presentation-tools input[type=file]").setInputFiles({
       name: "exported.json",
       mimeType: "application/json",
       buffer: bytes,
     });
     await expect(page.getByText("✓ Validated", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Use on Connect page" }).click();
+    await page
+      .getByRole("button", { name: "Save presentation to project" })
+      .click();
     model.closeAllConnections();
     await new Promise<void>((done) => model.close(() => done()));
+    await page.getByLabel("Ceremony state").selectOption("input");
+    await expect(page.locator(".preview-card")).toContainText(
+      "A calmer connection",
+    );
     await page
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })
       .click();
     await page.getByRole("button", { name: /Stripe/ }).click();
     await expect(
-      page.getByRole("heading", { name: "A calmer connection" }),
+      page.getByRole("heading", { name: "Enter your credentials" }),
     ).toBeVisible();
     await page.getByLabel("Stripe secret key").fill("demo-api-key");
     await page.getByRole("button", { name: "Continue", exact: true }).click();

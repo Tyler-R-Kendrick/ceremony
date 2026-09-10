@@ -73,6 +73,12 @@ export async function teachingHttp(
     if (!["GET", "POST"].includes(request.method))
       return reply({ error: "unavailable" }, 405);
     const post = request.method === "POST";
+    if (path === "/github/installation-return" && runtime.humanReturn) {
+      if (post) return reply({ error: "unavailable" }, 405);
+      requireCapability(actor, "executor");
+      if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+      return await runtime.humanReturn(actor, request);
+    }
     if (
       /^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) &&
       runtime.human

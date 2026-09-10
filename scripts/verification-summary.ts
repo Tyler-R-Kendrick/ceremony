@@ -7,6 +7,7 @@ export const requiredStages = [
   "test:security:mutation",
   "build",
   "build:hosted",
+  "build:vercel",
   "test:e2e",
 ] as const;
 export type VerificationStage = (typeof requiredStages)[number];

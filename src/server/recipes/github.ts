@@ -2,9 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { request } from "@octokit/request";
 import { z } from "zod";
+import type { ActorContext } from "../../core/operation-contracts.js";
 import {
   PersistenceConflict,
   type AsyncCeremonyStore,
+  type AsyncTransaction,
   type RecordKey,
 } from "../persistence/index.js";
 import type { GitHubAppConfiguration } from "../github.js";
@@ -50,6 +52,51 @@ type Artifact = {
   installation?: number;
   token?: string;
 };
+const installationReturnPath = "/api/v1/teaching/github/installation-return";
+const returnKey = (tenant: string, nonce: string): RecordKey => ({
+  tenant,
+  kind: "handoff",
+  // This is a high-entropy protocol nonce, never a credential-derived hash.
+  id: `github-return:${createHash("sha256").update(nonce).digest("hex")}`,
+});
+type InstallationReturn = {
+  subject: string;
+  runId: string;
+  origin: string;
+  expires: number;
+};
+
+/** Routing only, not approval. The run handler must still authorize and verify the installation. */
+export async function resolveGitHubInstallationRun(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  origin: string,
+  url: URL,
+): Promise<string> {
+  const nonce = url.searchParams.get("state");
+  if (
+    actor.actorKind !== "human" ||
+    url.origin !== origin ||
+    url.pathname !== installationReturnPath ||
+    !nonce ||
+    !/^[A-Za-z0-9_-]{43}$/.test(nonce) ||
+    url.searchParams.getAll("state").length !== 1
+  )
+    throw new Error("GitHub return unavailable");
+  return store.transaction(async (tx) => {
+    const record = await tx.get<InstallationReturn>(
+      returnKey(actor.tenantId, nonce),
+    );
+    if (
+      !record ||
+      record.value.subject !== actor.subjectId ||
+      record.value.origin !== origin ||
+      record.value.expires <= (await tx.now())
+    )
+      throw new Error("GitHub return unavailable");
+    return record.value.runId;
+  });
+}
 const slot = (contract: string) => ({ contract, required: true });
 export const githubVocabulary = new Map<string, VocabularyEntry>(
   ["app", "installation", "connection"].map((kind) => [
@@ -353,6 +400,26 @@ export class AsyncGitHubChildren {
       });
       return this.result("app", id);
     }
+    if (
+      previous?.value.phase === "registration" &&
+      previous.value.expires <= (await this.store.transaction((tx) => tx.now()))
+    ) {
+      await this.store.transaction(async (tx) => {
+        const local = await tx.get<State>(this.key(context));
+        const key = local?.value.sharedSetup
+          ? this.setupKey(context)
+          : this.key(context);
+        const next: State = previous.value.handoffIssued
+          ? { ...previous.value, phase: "uncertain", nonce: "consumed" }
+          : {
+              ...previous.value,
+              nonce: randomBytes(32).toString("base64url"),
+              expires: (await tx.now()) + 3600000,
+            };
+        await tx.put(key, next, previous.revision);
+      });
+      return this.prepare(context, admissionAttempt);
+    }
     if (previous)
       return {
         state: ["converting", "uncertain"].includes(previous.value.phase)
@@ -404,7 +471,7 @@ export class AsyncGitHubChildren {
         return this.prepare(context, admissionAttempt + 1);
       throw error;
     }
-    return { state: "awaiting-human", outputs: {} };
+    return this.prepare(context, admissionAttempt);
   }
   async install(
     context: OperationContext,
@@ -434,16 +501,28 @@ export class AsyncGitHubChildren {
         previous.value.expires > (await tx.now())
       )
         return;
+      const nonce = randomBytes(32).toString("base64url");
+      const expires = (await tx.now()) + 3600000;
       await tx.put(
         this.key(context),
         {
           scope: this.scope(context),
           phase: "installation",
           app: app.app,
-          nonce: randomBytes(32).toString("base64url"),
-          expires: (await tx.now()) + 3600000,
+          nonce,
+          expires,
         },
         previous?.revision ?? null,
+      );
+      await tx.put(
+        returnKey(context.actor.tenantId, nonce),
+        {
+          subject: context.actor.subjectId,
+          runId: context.runId,
+          origin: this.options.origin,
+          expires,
+        } satisfies InstallationReturn,
+        null,
       );
     });
     return { state: "awaiting-human", outputs: {} };
@@ -454,6 +533,16 @@ export class AsyncGitHubChildren {
     if (state.expires <= Date.now()) throw new Error("GitHub handoff expired");
     const callback = `${this.options.origin}/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback`;
     if (state.phase === "registration") {
+      const account = z
+        .object({ login: z.string(), type: z.enum(["User", "Organization"]) })
+        .parse(
+          await this.api(
+            context,
+            `/users/${encodeURIComponent(context.target)}`,
+          ),
+        );
+      if (account.login.toLowerCase() !== context.target.toLowerCase())
+        throw new Error("GitHub target unavailable");
       await this.store.transaction(async (tx) => {
         const local = await tx.get<State>(this.key(context));
         if (local?.value.phase === "cancelled")
@@ -476,12 +565,13 @@ export class AsyncGitHubChildren {
       });
       return {
         method: "POST" as const,
-        url: `https://github.com/settings/apps/new?state=${encodeURIComponent(state.nonce)}`,
+        url: `https://github.com${account.type === "Organization" ? `/organizations/${encodeURIComponent(context.target)}` : ""}/settings/apps/new?state=${encodeURIComponent(state.nonce)}`,
         manifest: {
-          name: "Ceremony connection",
+          name: `Ceremony connection ${createHash("sha256").update(state.nonce).digest("hex").slice(0, 12)}`,
           url: this.options.origin,
           redirect_url: callback,
-          callback_urls: [callback],
+          setup_url: `${this.options.origin}${installationReturnPath}`,
+          setup_on_update: true,
           public: false,
           hook_attributes: { url: this.options.origin, active: false },
           default_permissions: { contents: "read" },
@@ -545,6 +635,7 @@ export class AsyncGitHubChildren {
       url.pathname !==
         `/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback` ||
       url.searchParams.get("state") !== state.nonce ||
+      url.searchParams.getAll("state").length !== 1 ||
       state.expires <= Date.now()
     )
       throw new Error("GitHub callback unavailable");
@@ -623,6 +714,7 @@ export class AsyncGitHubChildren {
     }
     if (state.phase !== "installation" || !state.app)
       throw new Error("GitHub callback already consumed");
+    const app = state.app;
     const installation = z.coerce
       .number()
       .int()
@@ -630,21 +722,77 @@ export class AsyncGitHubChildren {
       .parse(url.searchParams.get("installation_id"));
     await this.checkInstallation(context, state.app, installation);
     await this.options.authorize(context);
-    await this.store.transaction((tx) =>
-      tx.put(
+    await this.store.transaction(async (tx) => {
+      await tx.put(
         this.key(context),
         { ...state, phase: "installed", nonce: "consumed", installation },
         record.revision,
-      ),
-    );
-    await this.saveArtifact(context, {
-      scope: this.scope(context),
-      kind: "installation",
-      app: state.app,
-      installation,
-      expires: Date.now() + 3600000,
+      );
+      const key = this.artifactKey(context, "installation");
+      const old = await tx.get(key);
+      await tx.put(
+        key,
+        {
+          scope: this.scope(context),
+          kind: "installation",
+          app,
+          installation,
+          expires: (await tx.now()) + 3600000,
+        } satisfies Artifact,
+        old?.revision ?? null,
+      );
+      const routingKey = returnKey(context.actor.tenantId, state.nonce);
+      const routing = await tx.get(routingKey);
+      if (routing) await tx.delete(routingKey, routing.revision);
     });
   }
+  async registrationRestartAvailable(
+    context: OperationContext,
+  ): Promise<boolean> {
+    const { value } = await this.read(context);
+    return value.phase === "uncertain" && !value.app && !value.installation;
+  }
+
+  /** Native, explicitly confirmed recovery only; never an automatic retry. */
+  async restartRegistration(
+    context: OperationContext,
+    tx: AsyncTransaction,
+  ): Promise<void> {
+    // The authenticated recovery handler owns the ticket/revision/authorization
+    // checks in this same transaction. No provider request runs here.
+    const local = await tx.get<State>(this.key(context));
+    const key = local?.value.sharedSetup
+      ? this.setupKey(context)
+      : this.key(context);
+    const current = await tx.get<State>(key);
+    if (
+      !current ||
+      current.value.scope !== this.scope(context) ||
+      current.value.phase !== "uncertain" ||
+      current.value.app ||
+      current.value.installation
+    )
+      throw new Error("GitHub registration restart unavailable");
+    const fence = await tx.claim(
+      key,
+      `restart-${randomBytes(16).toString("hex")}`,
+      30000,
+    );
+    await tx.put(
+      key,
+      {
+        ...current.value,
+        phase: "registration",
+        handoffIssued: false,
+        nonce: randomBytes(32).toString("base64url"),
+        expires: (await tx.now()) + 3600000,
+      } satisfies State,
+      current.revision,
+    );
+    await tx.assertFence(fence);
+    await tx.cancel(key);
+  }
+
   /** Input is accepted only from a purpose-bound private collector, never from an agent tool. */
   async recover(context: OperationContext, input: unknown): Promise<void> {
     const record = await this.read(context);

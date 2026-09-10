@@ -36,6 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: connector-authoring
+            file: src/core/connector-authoring.ts
           - target: connector-contracts
             file: src/core/connector-contracts.ts
           - target: resolution
