@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "failed",
+      "retry": 0,
+      "duration": 13052,
+      "lastStepLine": 142,
+      "firstFailureLine": 94
+    }
+  ]
+}
