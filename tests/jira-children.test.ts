@@ -755,6 +755,11 @@ test("Jira renews expired owner assignments without reviving old links or repeat
     const record = (await tx.get<Record<string, unknown>>(key))!;
     await tx.put(key, { ...record.value, state: "pending" }, record.revision);
   });
+  assert.deepEqual(await setup.status(f.actor, run.id), {
+    state: "expired",
+    revision: current.revision,
+    id: old.id,
+  });
   const [renewed, competing] = await Promise.all([
     setup.request(f.actor, run.id, current.revision),
     setup.request(f.actor, run.id, current.revision),
@@ -782,11 +787,54 @@ test("Jira renews expired owner assignments without reviving old links or repeat
   assert.equal((await setup.view(owner, renewed.id)).state, "pending");
   await setup.configure(owner, renewed.id, renewed.revision, values);
   assert.equal((await setup.view(owner, renewed.id)).state, "configured");
+  assert.equal((await setup.status(f.actor, run.id)).state, "configured");
+  const later = new JiraSetupAssignments(
+    {
+      transaction: (work) =>
+        f.store.transaction((tx) =>
+          work({ ...tx, now: async () => 1 + 86_400_001 }),
+        ),
+      close: async () => {},
+    },
+    {
+      scopes: ["read:jira-user"],
+      owner: async () => "owner",
+      authorize: async () => {},
+    },
+  );
+  assert.equal((await later.status(f.actor, run.id)).state, "unavailable");
   assert.equal(
     (await setup.resolve(f.actor, run.id))?.clientSecret ===
       values.clientSecret,
     true,
   );
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
+test("chaos: Jira owner notification disconnect cannot revoke a stored assignment", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  let calls = 0;
+  const setup = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    owner: async () => "owner",
+    authorize: async () => {},
+    deliver: async () => {
+      calls++;
+      throw new TypeError("synthetic secret network error");
+    },
+  });
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  const assigned = await setup.request(f.actor, run.id, current.revision);
+  assert.equal(assigned.state, "pending");
+  assert.equal(calls, 1);
+  assert.deepEqual(await setup.status(f.actor, run.id), {
+    state: "pending",
+    revision: current.revision,
+    id: assigned.id,
+  });
   assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
 });
 
