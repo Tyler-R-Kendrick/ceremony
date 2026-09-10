@@ -908,13 +908,25 @@ test("Jira requester status denies a parent mutated during owner resolution", as
     authorize: async () => {},
     owner: async () => {
       await f.store.transaction(async (tx) => {
-        const key = {
+        const runKey = {
           tenant: f.actor.tenantId,
           kind: "run" as const,
           id: run.id,
         };
-        const record = (await tx.get<RunRecord>(key))!;
-        await tx.put(key, record.value, record.revision);
+        const record = (await tx.get<RunRecord>(runKey))!;
+        const next = await tx.put(runKey, record.value, record.revision);
+        const assignmentKey = {
+          tenant: f.actor.tenantId,
+          kind: "handoff" as const,
+          id: `jira-setup:${assigned.id}`,
+        };
+        const assignment =
+          (await tx.get<Record<string, unknown>>(assignmentKey))!;
+        await tx.put(
+          assignmentKey,
+          { ...assignment.value, runRevision: next },
+          assignment.revision,
+        );
       });
       return "owner";
     },
