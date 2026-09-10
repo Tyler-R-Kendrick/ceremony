@@ -78,13 +78,26 @@ export default {
       "run.revision !== assignment.runRevision ||",
     ),
     guard("src/server/jira-setup.ts", "current.revision !== revision ||"),
-    guard("src/server/jira-setup.ts", "current.revision !== run.revision ||"),
+    guard(
+      "src/server/jira-setup.ts",
+      "current.revision !== run.revision ||",
+      1,
+      0,
+      2,
+    ),
     guard("src/server/jira-setup.ts", "if (value.expires > (await tx.now()))"),
     guard("src/server/jira-setup.ts", 'if (value.state !== "pending")'),
     guard(
       "src/server/jira-setup.ts",
       "return shared.owner === owner && shared.expires >",
     ),
+    guard(
+      "src/server/jira-setup.ts",
+      "if (assignment.owner !== owner || assignment.scope !== scope)",
+    ),
+    guard("src/server/jira-setup.ts", "shared.data.expires > now"),
+    guard("src/server/jira-setup.ts", "assignment.expires <= now"),
+    guard("src/server/github-runtime.ts", 'state.state !== "configured"'),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
     guard(
       "src/server/recipes/jira.ts",
