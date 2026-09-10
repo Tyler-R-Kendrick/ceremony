@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "commit": null,
+  "startedAt": "2026-09-10T10:29:48.637Z",
+  "runtime": "v26.5.0",
+  "profile": "local",
+  "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
+  "results": [
+    {
+      "command": "npm run format:check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T10:29:48.646Z",
+      "checkedAt": "2026-09-10T10:29:53.237Z",
+      "browsers": {},
+      "durationMs": 4591
+    },
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T10:29:53.238Z",
+      "checkedAt": "2026-09-10T10:29:57.423Z",
+      "browsers": {},
+      "durationMs": 4185
+    },
+    {
+      "command": "npm run test:coverage",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 366,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T10:29:57.423Z",
+      "checkedAt": "2026-09-10T10:30:22.561Z",
+      "browsers": {},
+      "durationMs": 25138
+    },
+    {
+      "command": "npm run test:workflow",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T10:30:22.563Z",
+      "checkedAt": "2026-09-10T10:30:29.788Z",
+      "browsers": {},
+      "durationMs": 7225
+    }
+  ],
+  "verdict": "INCOMPLETE"
+}
