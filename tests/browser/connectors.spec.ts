@@ -49,7 +49,18 @@ test("the service collection starts real ceremonies with inline prerequisites", 
   await services.getByRole("button", { name: /Stripe/ }).click();
   await expect(
     page.getByLabel("Stripe secret key", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Connect Stripe", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Connection and reusable steps" }),
+  ).toContainText(
+    "Open or create your Stripe account — your participation is needed",
+  );
+  await expect(
+    page.getByRole("link", { name: "Continue with Stripe" }),
+  ).toHaveAttribute("href", /\/api\/v1\/teaching\/stripe\/[^/]+\/human$/);
   await services.getByRole("button", { name: /Supabase/ }).click();
   await expect(
     page.getByLabel("Supabase project URL", { exact: true }),

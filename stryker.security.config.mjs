@@ -40,6 +40,14 @@ export default {
       3,
     ),
     guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
+    guard(
+      "src/server/recipes/stripe.ts",
+      'context.actor.actorKind !== "human"',
+    ),
+    guard(
+      "src/server/recipes/stripe.ts",
+      'balance.livemode !== token.includes("_live_")',
+    ),
     guard("src/server/recipes/github.ts", "setup_url:"),
     guard(
       "src/server/recipes/github.ts",
@@ -54,6 +62,7 @@ export default {
       "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
       "tests/github-children.test.ts",
+      "tests/stripe-children.test.ts",
       "tests/security/*.test.ts",
     ],
   },

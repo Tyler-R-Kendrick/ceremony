@@ -272,6 +272,29 @@ test("explicit host resume restores same run without creating an effect", async 
   }
 });
 
+test("a resume hint for another provider cannot replace the selected connector", async () => {
+  const runs: TeachingRun[] = [];
+  const view = await mount(
+    { resumeId: waiting.id, onRunChange: (run) => runs.push(run) },
+    200,
+    {},
+    { ...waiting, provider: "stripe", profile: "stripe-api-key" },
+  );
+  try {
+    assert.equal(runs.length, 0);
+    assert.equal(view.document.querySelector('a[href$="/human"]'), null);
+    assert.equal(view.streams.length, 0);
+    assert.ok(view.document.body.textContent?.includes("Connect GitHub"));
+    assert.ok(view.calls.every((call) => call.body === undefined));
+    assert.equal(
+      view.calls.some((call) => call.path.endsWith("/demonstration")),
+      false,
+    );
+  } finally {
+    await view.close();
+  }
+});
+
 test("assistant status transport closes on terminal and unmount without implicit stop", async () => {
   const view = await mount({ resumeId: waiting.id, onRunChange() {} });
   try {
@@ -401,7 +424,7 @@ test("unavailable host and unsupported connector are truthful and do not execute
       assert.match(
         view.document.body.textContent!,
         props.connectorId
-          ? /currently supports GitHub/
+          ? /has not registered a working ceremony/
           : /unavailable in this host/,
       );
     } finally {

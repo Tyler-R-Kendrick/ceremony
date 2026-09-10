@@ -25,6 +25,7 @@ const configSchema = z.object({
   liveManifests: z.array(manifestSchema).default([]),
   liveAvailable: z.boolean().default(false),
   teachingAvailable: z.boolean().default(false),
+  teachingConnectors: z.array(z.string()).default(["github"]),
 });
 type Config = z.infer<typeof configSchema>;
 function App() {
@@ -259,8 +260,11 @@ function App() {
                 </div>
                 {liveMode &&
                 config.teachingAvailable &&
-                connector.id === "github" ? (
-                  <TeachingConnection connectorId={connector.id} />
+                config.teachingConnectors.includes(connector.id) ? (
+                  <TeachingConnection
+                    key={connector.id}
+                    connectorId={connector.id}
+                  />
                 ) : liveMode && !config.liveAvailable ? (
                   <div className="ceremony">
                     <h3>Configure the connection server</h3>

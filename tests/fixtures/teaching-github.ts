@@ -20,6 +20,7 @@ export async function teachingGitHubFixture(
     hostContinuation?: boolean;
     loseContinuationAcknowledgment?: boolean;
     returnPath?: string;
+    stripe?: boolean;
   } = {},
 ) {
   const database = await postgresFixture();
@@ -39,7 +40,9 @@ export async function teachingGitHubFixture(
     repositoryReads: 0,
     continuationRequests: 0,
     continuationEffects: 0,
+    stripeReads: 0,
   };
+  const stripeKey = `rk_test_${randomBytes(24).toString("hex")}`;
   const continuationToken = randomBytes(32).toString("hex");
   const workerToken = randomBytes(32).toString("hex");
   const delivered = new Set<string>();
@@ -48,6 +51,23 @@ export async function teachingGitHubFixture(
   const provider = createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, "http://fixture");
+      if (options.stripe && url.pathname === "/v1/balance") {
+        if (
+          req.method !== "GET" ||
+          req.headers.authorization !== `Bearer ${stripeKey}`
+        )
+          throw new Error("Invalid Stripe fixture request");
+        effects.stripeReads++;
+        res.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            object: "balance",
+            livemode: false,
+            available: [],
+            pending: [],
+          }),
+        );
+        return;
+      }
       if (url.pathname === "/users/fixture-owner") {
         res
           .writeHead(200, { "content-type": "application/json" })
@@ -163,6 +183,25 @@ export async function teachingGitHubFixture(
     origin,
     environment: "local-e2e",
     configurationVersion: "fixture-v1",
+    ...(options.stripe
+      ? {
+          stripe: {
+            configuration: async () => ({ version: "fixture-v1" }),
+            fetch: async (
+              input: Parameters<typeof fetch>[0],
+              init?: RequestInit,
+            ) => {
+              const requested = new URL(String(input));
+              if (requested.origin !== "https://api.stripe.com")
+                throw new Error("Unexpected Stripe fixture origin");
+              return fetch(
+                `http://127.0.0.1:${address.port}${requested.pathname}${requested.search}`,
+                init,
+              );
+            },
+          },
+        }
+      : {}),
     ...(options.returnPath ? { returnPath: options.returnPath } : {}),
     expectedAccount: "fixture-owner",
     identity: {
@@ -252,6 +291,7 @@ export async function teachingGitHubFixture(
     effects,
     runtime,
     privateRecovery: { appId: 42, pem },
+    stripeKey,
     workerAuthorization: `Bearer ${workerToken}`,
     sessionCookie,
     updateStaticRelease() {

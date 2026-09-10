@@ -5,6 +5,7 @@ import { CeremonyError } from "./controller.js";
 import {
   nextGitHubEnvironmentRevision,
   resolveGitHubEnvironment,
+  resolveStripeEnvironment,
 } from "./async-environment.js";
 import {
   environmentValuesSchema as valuesSchema,
@@ -13,6 +14,7 @@ import {
 const recordSchema = z.object({
   revision: z.number().int().nonnegative(),
   githubRevision: z.number().int().nonnegative().optional(),
+  stripeRevision: z.number().int().nonnegative().optional(),
   values: valuesSchema,
 });
 
@@ -47,7 +49,12 @@ export class CeremonyEnvironment {
         "Legacy environment exceeds session limits. Reconcile before migration.",
         409,
       );
-    const record = { revision: 0, githubRevision: 0, values };
+    const record = {
+      revision: 0,
+      githubRevision: 0,
+      stripeRevision: 0,
+      values,
+    };
     this.db.put(this.key(owner), record);
     return record;
   }
@@ -71,6 +78,17 @@ export class CeremonyEnvironment {
       revision: record.revision,
       names: Object.keys(record.values).sort(),
     };
+  }
+  stripeConfiguration(owner: string, sessionId: string, baseVersion: string) {
+    const record = this.record(owner);
+    return resolveStripeEnvironment(
+      {
+        revision: record.stripeRevision ?? record.revision,
+        values: record.values,
+        sessionId,
+      },
+      baseVersion,
+    );
   }
   update(owner: string, input: unknown) {
     const checked = editSchema.safeParse(input);
@@ -114,6 +132,11 @@ export class CeremonyEnvironment {
           values,
           record.githubRevision ?? record.revision,
         ),
+        stripeRevision:
+          (record.stripeRevision ?? record.revision) +
+          (record.values.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
+            ? 1
+            : 0),
         values,
       });
       return this.describe(owner);

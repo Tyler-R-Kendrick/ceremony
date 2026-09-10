@@ -5,7 +5,7 @@ exports[`characterization: live service manifests, workflows and missing-setup p
     "support": "live-adapter",
     "id": "stripe",
     "name": "Stripe",
-    "description": "Verify API access without creating a payment.",
+    "description": "Account setup, restricted key, verified read access.",
     "methods": [
       {
         "id": "api-key",
@@ -37,7 +37,19 @@ exports[`characterization: live service manifests, workflows and missing-setup p
             }
           ],
           "configurationGroups": [],
-          "prerequisites": [],
+          "prerequisites": [
+            {
+              "id": "stripe-account",
+              "kind": "provider-registration",
+              "reuse": "verified-context",
+              "handoff": {
+                "surface": "provider-browser",
+                "recipient": "initiating-subject",
+                "delegation": "a2h-authorize",
+                "resume": "verify"
+              }
+            }
+          ],
           "handoff": {
             "surface": "private-collector",
             "recipient": "initiating-subject",

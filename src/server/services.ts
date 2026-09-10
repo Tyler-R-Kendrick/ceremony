@@ -27,7 +27,7 @@ export const serviceManifests = [
     support: "live-adapter",
     id: "stripe",
     name: "Stripe",
-    description: "Verify API access without creating a payment.",
+    description: "Account setup, restricted key, verified read access.",
     methods: [
       {
         id: "api-key",
@@ -46,7 +46,19 @@ export const serviceManifests = [
               required: false,
             },
           ],
-          prerequisites: [],
+          prerequisites: [
+            {
+              id: "stripe-account",
+              kind: "provider-registration",
+              reuse: "verified-context",
+              handoff: {
+                surface: "provider-browser",
+                recipient: "initiating-subject",
+                delegation: "a2h-authorize",
+                resume: "verify",
+              },
+            },
+          ],
           configurationGroups: [],
           handoff: {
             surface: "private-collector",
