@@ -79,6 +79,8 @@ export default {
     ),
     guard("src/server/jira-setup.ts", "current.revision !== revision ||"),
     guard("src/server/jira-setup.ts", "current.revision !== run.revision ||"),
+    guard("src/server/jira-setup.ts", "if (value.expires > (await tx.now()))"),
+    guard("src/server/jira-setup.ts", 'if (value.state !== "pending")'),
     guard(
       "src/server/jira-setup.ts",
       "return shared.owner === owner && shared.expires >",

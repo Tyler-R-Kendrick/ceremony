@@ -156,22 +156,24 @@ export class JiraSetupAssignments {
         if (
           value.owner !== owner ||
           value.scope !== assignment.scope ||
-          value.runRevision !== revision ||
-          value.expires <= (await tx.now())
+          value.runRevision !== revision
         )
           throw new AuthorizationError("denied");
-        return {
-          id: index.value.id,
-          revision: existing!.revision,
-          state: value.state,
-        };
+        if (value.expires > (await tx.now()))
+          return {
+            id: index.value.id,
+            revision: existing!.revision,
+            state: value.state,
+          };
+        if (value.state !== "pending") throw new AuthorizationError("denied");
+        // Renew the assignment, never its expired link or completed provider effects.
       }
       const saved = await tx.put(
         this.requestKey(requester, id),
         assignment,
         null,
       );
-      await tx.put(indexKey, { id }, null);
+      await tx.put(indexKey, { id }, index?.revision ?? null);
       return { id, revision: saved, state: assignment.state };
     });
   }
