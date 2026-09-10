@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "commit": "73f8b4d1235c6fbe2d3e41ab02ed388be0ba9301",
+  "startedAt": "2026-09-10T11:25:40.226Z",
+  "runtime": "v26.5.0",
+  "profile": "local",
+  "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
+  "results": [
+    {
+      "command": "npm run format:check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T11:25:40.286Z",
+      "checkedAt": "2026-09-10T11:26:02.271Z",
+      "browsers": {},
+      "durationMs": 21985
+    },
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T11:26:02.274Z",
+      "checkedAt": "2026-09-10T11:26:34.134Z",
+      "browsers": {},
+      "durationMs": 31860
+    },
+    {
+      "command": "npm run test:coverage",
+      "exitCode": 1,
+      "processExitCode": 1,
+      "tests": {
+        "passed": 367,
+        "failed": 1,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T11:26:34.141Z",
+      "checkedAt": "2026-09-10T11:28:31.133Z",
+      "browsers": {},
+      "durationMs": 116992
+    }
+  ],
+  "verdict": "FAIL"
+}

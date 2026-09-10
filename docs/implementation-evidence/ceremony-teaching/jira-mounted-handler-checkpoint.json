@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "profile": "local-focused",
+  "commit": null,
+  "commands": [
+    {
+      "command": "node --import tsx --test --experimental-test-isolation=none --test-name-pattern='Jira composes shared app' tests/jira-children.test.ts",
+      "exitCode": 1,
+      "passed": 0,
+      "failed": 1,
+      "reasonCode": "manifest-verifier-mismatch"
+    },
+    {
+      "command": "node --import tsx --test --experimental-test-isolation=none tests/jira-children.test.ts",
+      "exitCode": 0,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 11043
+    },
+    { "command": "npm run check", "exitCode": 0 },
+    {
+      "command": "node --import tsx --test --experimental-test-isolation=none tests/jira-children.test.ts",
+      "exitCode": 0,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 1431,
+      "phase": "after-reviewed-copy-fix"
+    },
+    { "command": "npm run check", "exitCode": 0, "phase": "final-checkpoint" }
+  ],
+  "scope": "Real local HTTP provider and encrypted SQLite; includes mounted teaching handlers, wrong-session collector rejection, site rotation during consent, verifier registry/manifest parity and server teaching exports. This precedes the later copy assertion and browser-only diagnostics, not a complete release gate.",
+  "releaseVerdict": "FAIL"
+}

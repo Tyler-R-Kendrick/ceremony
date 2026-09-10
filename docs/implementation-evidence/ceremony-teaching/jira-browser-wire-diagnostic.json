@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "profile": "local-diagnostic",
+  "attempts": [
+    { "exitCode": 1, "durationMs": 2964, "browserCallbackStatus": 200 },
+    {
+      "exitCode": 1,
+      "durationMs": 4363,
+      "browserCallbackStatus": 200,
+      "handlerStatus": 303,
+      "consents": 1,
+      "exchanges": 1,
+      "verificationReads": 1
+    },
+    {
+      "exitCode": 1,
+      "durationMs": 13957,
+      "browserCallbackStatus": 200,
+      "handlerStatus": 303,
+      "nodeWireStatus": 303,
+      "consents": 1,
+      "exchanges": 1,
+      "verificationReads": 1
+    }
+  ],
+  "minimalRedirectProbe": { "exitCode": 0, "statuses": [303, 200] },
+  "minimalUnmatchedRouteProbe": { "statuses": [303, 200] },
+  "unroutedReturnProbe": {
+    "exitCode": 0,
+    "durationMs": 14244,
+    "browserCallbackStatus": 303,
+    "handlerStatus": 303,
+    "consents": 1,
+    "exchanges": 1,
+    "verificationReads": 1
+  },
+  "interpretation": "Handler and Node transport returned 303 while the Jira browser test observed 200 with the handoff interception still registered. Removing that interception after rendering the synthetic consent document allowed native callback navigation and passed the same 303, verification, parent return and reuse assertions. This focused result does not clear every historical timeout or certify the full browser matrix. Temporary numeric server instrumentation was removed. No private response bodies or URLs were retained."
+}

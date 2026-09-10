@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 4177,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 5037,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 7424,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "firefox",
+      "status": "passed",
+      "retry": 0,
+      "duration": 7276,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "webkit",
+      "status": "failed",
+      "retry": 0,
+      "duration": 4142,
+      "lastStepLine": 4,
+      "firstFailureLine": 84
+    },
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "webkit",
+      "status": "failed",
+      "retry": 0,
+      "duration": 5195,
+      "lastStepLine": 4,
+      "firstFailureLine": 84
+    }
+  ]
+}
