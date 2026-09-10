@@ -74,7 +74,7 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
           token_type: mode === "badtype" ? "invalid" : "Bearer",
           expires_in: mode === "badexpiry" ? 0 : 3600,
           scope:
-            mode === "broader"
+            mode === "broader" || mode === "allscopes"
               ? "read:jira-user read:jira-work"
               : "read:jira-user",
         }),
@@ -100,6 +100,7 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
           mode === "missing-scope"
             ? "read:confluence-content.all"
             : "read:jira-user",
+          ...(mode === "allscopes" ? ["read:jira-work"] : []),
         ],
         name: "private-canary",
         avatarUrl: "https://private.example",
@@ -148,7 +149,7 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
   assert.ok(address && typeof address !== "string");
   const controller = new AbortController();
   let now = Date.now();
-  const client = jiraAuth(configuration, {
+  const options: Parameters<typeof jiraAuth>[1] = {
     signal: controller.signal,
     now: () => now,
     fetch: (input, init) => {
@@ -161,7 +162,8 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
       assert.equal(init?.redirect, "error");
       return fetch(`http://127.0.0.1:${address.port}${url.pathname}`, init);
     },
-  });
+  };
+  const client = jiraAuth(configuration, options);
   const authorization = new URL(client.authorizationUrl(state));
   assert.equal(authorization.origin, "https://auth.atlassian.com");
   assert.equal(authorization.searchParams.get("audience"), "api.atlassian.com");
@@ -193,6 +195,24 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
   assert.equal(JSON.stringify(verified).includes("private-canary"), false);
   assert.equal(reads, 1);
   assert.equal(users, 1);
+  assert.deepEqual(await client.verify(session), verified);
+  const twoScopes = jiraAuth(
+    { ...configuration, scopes: ["read:jira-user", "read:jira-work"] },
+    options,
+  );
+  const beforePartial: number = users;
+  await assert.rejects(
+    twoScopes.verify({
+      ...session,
+      scopes: ["read:jira-user", "read:jira-work"],
+    }),
+    rejected,
+  );
+  assert.equal(users, beforePartial);
+  mode = "allscopes";
+  const fullSession = await twoScopes.exchange(`${callback}-allscopes`, state);
+  assert.equal((await twoScopes.verify(fullSession)).accountId, "fixture-user");
+  mode = "valid";
   for (mode of ["wrong-site", "missing-scope", "ambiguous"]) {
     const before: number = users;
     await assert.rejects(client.verify(session), rejected);

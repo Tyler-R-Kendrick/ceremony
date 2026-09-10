@@ -19,3 +19,9 @@ Verification first checks accessible resources against the host-bound site and r
 - Type checking initially exposed an inferred test-counter type cycle; explicit numeric counter snapshots corrected it. Type checking then passed.
 
 Full verification, new-guard mutation evidence, mounted browser execution and live-provider certification are not established by this checkpoint. The Supabase timeout and coverage findings remain tracked separately; this new boundary does not clear them. No accounts, apps, cloud resources or paid services were provisioned.
+
+## Mutation review
+
+Full attempt `artifacts/verification/2026-09-10T08-50-44-118Z/commands.json` passed formatting, types, 351 Node tests and two Workflow tests, then failed the security mutation gate: 191 killed and two surviving mutants, zero skips. Both survivors were in the Jira tests' coverage, not provider failures: replacing the required-scope `every` check with `some` was indistinguishable with one requested scope; forcing the optional expected-account comparison always on was not detected by a successful first-time identity-discovery case.
+
+The tests now request two scopes, reject a partially granted set before calling the user endpoint, accept the complete set, and verify successful identity discovery without a prior account ID. No production guard or mutation threshold changed. The corrected protocol tests and type check passed. A focused run of all 29 Jira security mutants killed all 29, with zero timeouts, survivors, uncovered mutants or errors in nine seconds. This focused result does not replace a complete 193-mutant or full deterministic rerun. All 24 Pact tests passed before these additional assertions; mounted Jira execution remains unfinished.
