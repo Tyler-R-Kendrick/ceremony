@@ -439,3 +439,21 @@ test("Stripe rejects changed execution context and aborted work before transport
   await assert.rejects(f.children.verifyAccess(context, undefined), /denied/);
   assert.equal(f.reads(), 0);
 });
+
+test("GitHub target syntax remains enforced when host target policy is permissive", async (t) => {
+  const f = await fixture(t);
+  for (const target of ["!allowed", "allowed!", "a".repeat(101), ""])
+    await assert.rejects(f.runtime.selectTarget!(f.actor, target), /denied/);
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list(f.actor.tenantId, "session")))
+      .length,
+    0,
+  );
+  await f.runtime.selectTarget!(f.actor, "allowed");
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list(f.actor.tenantId, "session")))
+      .length,
+    1,
+  );
+  assert.equal(f.reads(), 0);
+});
