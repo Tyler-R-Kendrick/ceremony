@@ -1,6 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import type { Reporter, TestCase, TestResult } from "@playwright/test/reporter";
+import type {
+  Reporter,
+  TestCase,
+  TestResult,
+  TestStep,
+} from "@playwright/test/reporter";
 
 const projects = new Set(["chromium", "firefox", "webkit", "native-webmcp"]);
 const statuses = new Set([
@@ -20,6 +25,7 @@ export function safeBrowserResult(
     status: unknown;
     retry: unknown;
     duration: unknown;
+    lastStepLine?: unknown;
   },
   root = process.cwd(),
 ) {
@@ -33,6 +39,13 @@ export function safeBrowserResult(
   for (const value of [input.line, input.retry, input.duration])
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
       return undefined;
+  if (
+    input.lastStepLine !== undefined &&
+    (typeof input.lastStepLine !== "number" ||
+      !Number.isSafeInteger(input.lastStepLine) ||
+      input.lastStepLine < 1)
+  )
+    return undefined;
   return {
     file,
     line: input.line,
@@ -40,14 +53,23 @@ export function safeBrowserResult(
     status: input.status,
     retry: input.retry,
     duration: input.duration,
+    ...(input.lastStepLine === undefined
+      ? {}
+      : { lastStepLine: input.lastStepLine }),
   };
 }
 
 export default class SafeBrowserReporter implements Reporter {
   private results: NonNullable<ReturnType<typeof safeBrowserResult>>[] = [];
+  private lastSteps = new WeakMap<TestResult, number>();
   onBegin() {
     this.results = [];
+    this.lastSteps = new WeakMap();
     this.save();
+  }
+  onStepBegin(test: TestCase, result: TestResult, step: TestStep) {
+    if (step.location?.file === test.location.file)
+      this.lastSteps.set(result, step.location.line);
   }
   onTestEnd(test: TestCase, result: TestResult) {
     const safe = safeBrowserResult({
@@ -57,6 +79,7 @@ export default class SafeBrowserReporter implements Reporter {
       status: result.status,
       retry: result.retry,
       duration: result.duration,
+      lastStepLine: this.lastSteps.get(result),
     });
     if (safe) this.results.push(safe);
     this.save();

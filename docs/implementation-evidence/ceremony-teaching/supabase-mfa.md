@@ -52,3 +52,11 @@ No real Supabase account, deployed Vercel/Workflow runtime or installed-PWA plat
 - Incremental implementation and guard regression were pushed to draft PR #21 at `b156150c16e0020255bfd4358030c8ba47c462b4`. Source-checkout verification has no Git commit binding because its managed Git metadata is unavailable; it is not exact-commit release evidence. Remote exact-head CI must be checked separately.
 
 These failures are part of the evidence history. No failing gate, focused passing rerun, or missing external certification is converted into a release pass.
+
+## Persisted handoff attacks and Firefox investigation
+
+Commit `0c49d06` adds actual stored-ticket expiration and subject/session/run/node/revision tampering checks, missing/non-waiting human-view denial, and revoked-session recovery assertions. The eight focused HTTP/child tests passed. Full Node coverage measured SDK branches at 94.4%, native collector at 82.35%, children at 88.15%, and the shared command service at 92.7%; collector and children remain below the requested 90% branch target.
+
+Full attempt `artifacts/verification/2026-09-10T08-11-34-761Z/commands.json` passed formatting, types, 344 Node tests, two Workflow tests, 164 guard mutants and all three builds. Browser results were 84 passed and one timed out (Firefox Supabase `aal2`, 30,004 ms, retry zero). The corrected collection test passed on its first attempt. This is a failing full gate, not a green run.
+
+A diagnostic-only Firefox `aal2` run passed in 16,617 ms without a retry. That does not diagnose or clear the original timeout. Raw errors, provider bodies and DOM content were not retained; the diagnostic output allowed only status, duration and source locations. The safe reporter now includes an optional validated source line for the last step, restricted to the current static test file; it still excludes titles, errors, attachments and captured output. Its allowlist unit test and type check passed. Both Firefox Supabase cases then passed with the actual reporter in 27.6 seconds, emitting numeric source lines only. This is focused instrumentation evidence, not a replacement full run or a root-cause fix. The full-suite timeout remains unresolved.
