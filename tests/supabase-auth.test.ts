@@ -137,6 +137,7 @@ test("Supabase SDK signup waits for confirmation and verifies an actual issued J
     state: "verified",
     userId: "fixture-user",
     assurance: "aal1",
+    expiresAt: (now + 3600) * 1000,
   });
   assert.deepEqual(await client.verify(issued.session, "aal2"), {
     state: "mfa-required",
@@ -242,6 +243,7 @@ test("Supabase SDK distinguishes pending, issued, rejected and insufficient-assu
     state: "verified",
     userId: "fixture-user",
     assurance: "aal2",
+    expiresAt: now + 3_600_000,
   });
   for (const changes of [
     { sub: "other" },
