@@ -9,6 +9,8 @@ import type {
   OperationResult,
   VocabularyEntry,
 } from "./recipes/registry.js";
+import type { ActorContext } from "../core/operation-contracts.js";
+import type { AsyncCeremonyStore } from "./persistence/index.js";
 
 const slot = (contract: string) => ({ contract, required: true });
 const artifact = (kind: string) =>
@@ -165,9 +167,105 @@ export function recipeFromProject(project: ConnectorDraft): RecipeDefinition {
   };
 }
 
+const sessionSchema = z.strictObject({
+  handle: z.string().min(1).max(256),
+  did: z.string().min(1).max(256),
+  accessJwt: z.string().min(1).max(8000),
+});
+function sessionKey(actor: ActorContext, runId: string) {
+  return {
+    tenant: actor.tenantId,
+    kind: "artifact" as const,
+    id: `authored-session:${createHash("sha256").update(runId).digest("hex").slice(0, 24)}`,
+  };
+}
+export async function publicAuthoredIdentity(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+) {
+  const record = await store.transaction((tx) =>
+    tx.get(sessionKey(actor, runId)),
+  );
+  const parsed = sessionSchema.safeParse(record?.value);
+  return parsed.success
+    ? { handle: parsed.data.handle, did: parsed.data.did }
+    : undefined;
+}
+export async function saveAuthoredSession(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  credentials: { identifier: string; password: string },
+  fetcher: typeof fetch,
+) {
+  const response = await fetcher(
+    "https://bsky.social/xrpc/com.atproto.server.createSession",
+    {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        identifier: credentials.identifier,
+        password: credentials.password,
+      }),
+    },
+  );
+  if (!response.ok) return undefined;
+  const session = sessionSchema.safeParse(await response.json());
+  if (!session.success) return undefined;
+  await store.transaction(async (tx) => {
+    const prior = await tx.get(sessionKey(actor, runId));
+    await tx.put(
+      sessionKey(actor, runId),
+      session.data,
+      prior?.revision ?? null,
+    );
+  });
+  return { handle: session.data.handle, did: session.data.did };
+}
+async function liveSession(
+  store: AsyncCeremonyStore,
+  context: OperationContext,
+  fetcher: typeof fetch,
+) {
+  const record = await store.transaction((tx) =>
+    tx.get(sessionKey(context.actor, context.runId)),
+  );
+  const session = sessionSchema.safeParse(record?.value);
+  if (!session.success) return undefined;
+  const response = await fetcher(
+    "https://bsky.social/xrpc/com.atproto.server.getSession",
+    {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${session.data.accessJwt}`,
+      },
+    },
+  );
+  if (!response.ok) return undefined;
+  const live = sessionSchema
+    .pick({ handle: true, did: true })
+    .safeParse(await response.json());
+  if (
+    !live.success ||
+    live.data.did !== session.data.did ||
+    live.data.handle !== session.data.handle
+  )
+    return undefined;
+  return session.data;
+}
+
 export function registerAuthoredOperations(
   registry: OperationRegistry,
-  options: { allowLoopbackHttp?: boolean },
+  options: { store: AsyncCeremonyStore; fetch?: typeof fetch },
 ): void {
   const complete = (outputs: Record<string, string>): OperationResult => ({
     state: "complete",
@@ -187,7 +285,12 @@ export function registerAuthoredOperations(
       inputs: { app: slot("authored.app") },
       outputs: { session: slot("authored.session") },
       handler: async (context: OperationContext) => {
-        if (!options.allowLoopbackHttp && !context.origin.startsWith("https:"))
+        const session = await publicAuthoredIdentity(
+          options.store,
+          context.actor,
+          context.runId,
+        );
+        if (!session)
           return {
             state: "awaiting-human" as const,
             outputs: {},
@@ -212,7 +315,20 @@ export function registerAuthoredOperations(
       effect: "authored.verify-access",
       inputs: { session: slot("authored.session") },
       outputs: { connection: slot("authored.connection") },
-      handler: async () => complete({ connection: artifact("connection") }),
+      handler: async (context: OperationContext) => {
+        const session = await liveSession(
+          options.store,
+          context,
+          options.fetch ?? fetch,
+        );
+        if (!session)
+          return {
+            state: "awaiting-human" as const,
+            outputs: {},
+            diagnosticCode: "awaiting-human" as const,
+          };
+        return complete({ connection: artifact("connection") });
+      },
     },
   ];
   for (const operation of operations)
@@ -245,6 +361,16 @@ export function registerAuthoredOperations(
       classifications: {},
       fixtures: ["tests/authoring-tools.test.ts"],
       handler: operation.handler,
-      verify: async (_context, result) => result.state === "complete",
+      verify: async (context, result) => {
+        if (result.state !== "complete") return false;
+        if (operation.id === "authored.prepare-app") return true;
+        return Boolean(
+          await publicAuthoredIdentity(
+            options.store,
+            context.actor,
+            context.runId,
+          ),
+        );
+      },
     });
 }

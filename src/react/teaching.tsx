@@ -22,6 +22,7 @@ export type TeachingRun = {
   provider: string;
   profile: string;
   status: "active" | "cancelled" | "complete";
+  identity?: { handle: string; did: string };
   nodes: Array<{
     id: string;
     operationId: string;
@@ -642,11 +643,13 @@ export function TeachingConnection({
             ? "Offline. Reconnect to read current status; authorization actions are not queued."
             : run?.status === "cancelled"
               ? "Connection cancelled. Completed provider changes have not been revoked."
-              : complete
-                ? "Verified access is ready for the original task."
-                : active
-                  ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "failed" ? "verification needs attention" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
-                  : "Existing setup is reused. We’ll ask only for what’s missing."}
+              : complete && run.identity
+                ? `Verified ${serviceName} account ${run.identity.handle} (${run.identity.did}). The app password is not shown.`
+                : complete
+                  ? "Verified access is ready for the original task."
+                  : active
+                    ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "failed" ? "verification needs attention" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
+                    : "Existing setup is reused. We’ll ask only for what’s missing."}
         </p>
         {error && (
           <p role="alert" className="teaching-error">

@@ -38,6 +38,7 @@ import {
   stripeVocabulary,
 } from "./recipes/stripe.js";
 import { stripeHuman } from "./stripe-human.js";
+import { authoredHuman } from "./authored-human.js";
 import {
   AsyncSupabaseChildren,
   supabaseConnectionRecipe,
@@ -141,9 +142,7 @@ export function createGitHubRuntime(
       ...(options.jira ? jiraVocabulary : []),
     ]),
   );
-  registerAuthoredOperations(registry, {
-    allowLoopbackHttp: origin.startsWith("http://127.0.0.1"),
-  });
+  registerAuthoredOperations(registry, { store });
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
@@ -756,6 +755,25 @@ export function createGitHubRuntime(
           request,
           destination.href,
           () => advance(actor, runId),
+        );
+      }
+      if (record.value.profile === "authored") {
+        const destination = new URL(returnUrl(runId));
+        destination.searchParams.set("connector", record.value.target);
+        return authoredHuman(
+          store,
+          context,
+          record,
+          request,
+          destination.href,
+          () => advance(actor, runId),
+          {
+            connectorId: record.value.target,
+            name:
+              record.value.target === "bluesky"
+                ? "Bluesky"
+                : record.value.target,
+          },
         );
       }
       if (record.value.provider === "stripe") {

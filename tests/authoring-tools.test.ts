@@ -184,7 +184,14 @@ test("authored Bluesky connector is listed and can start a ceremony", async (t) 
   const run = JSON.parse(startedBody);
   assert.equal(run.provider, "bluesky");
   assert.ok(Array.isArray(run.nodes) && run.nodes.length >= 1);
-  assert.ok(run.nodes.some((node: { verified?: boolean }) => node.verified));
+  assert.ok(
+    run.nodes.some(
+      (node: { state?: string; operationId?: string }) =>
+        node.operationId === "authored.authorize-user" &&
+        node.state === "awaiting-human",
+    ),
+  );
+  assert.equal(run.identity, undefined);
 });
 
 test("high-confidence misspellings resolve without elicitation", () => {

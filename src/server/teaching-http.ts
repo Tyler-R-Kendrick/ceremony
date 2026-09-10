@@ -19,12 +19,21 @@ import {
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
+import { publicAuthoredIdentity } from "./authored-operations.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
 import { configuredModel } from "./agent/model.js";
 
 const revision = z.number().int().positive();
+async function presentRun(
+  runtime: TeachingRuntime,
+  actor: Parameters<TeachingRuntime["commands"]["snapshot"]>[0],
+  run: Awaited<ReturnType<TeachingRuntime["commands"]["snapshot"]>>,
+) {
+  const identity = await publicAuthoredIdentity(runtime.store, actor, run.id);
+  return identity ? { ...run, identity } : run;
+}
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
 const review = z.strictObject({
   revision,
@@ -94,15 +103,12 @@ export async function teachingHttp(
     }
     if (
       (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
-        /^\/(stripe|supabase|jira)\/[^/]+\/human$/.test(path)) &&
+        /^\/[a-z0-9-]{1,64}\/[^/]+\/human$/.test(path)) &&
       runtime.human
     ) {
+      const connector = path.split("/")[1]!;
       const action = path.split("/")[3];
-      if (
-        post &&
-        action !== "recovery" &&
-        !/^\/(stripe|supabase|jira)\//.test(path)
-      )
+      if (post && connector === "github" && action !== "recovery")
         return reply({ error: "unavailable" }, 405);
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
       requireCapability(actor, "executor");
@@ -200,11 +206,17 @@ export async function teachingHttp(
           run = await runtime.commands.snapshot(delegated.actor, run.id);
           if (result.state !== "complete") break;
         }
-        return reply(run);
+        return reply(await presentRun(runtime, actor, run));
       }
       if (path === "/tools/snapshot") {
         const input = z.strictObject({ runId: id }).parse(body);
-        return reply(await runtime.commands.snapshot(actor, input.runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, input.runId),
+          ),
+        );
       }
       const input =
         path === "/tools/advance"
@@ -293,7 +305,10 @@ export async function teachingHttp(
         run = await runtime.commands.snapshot(actor, run.id);
         if (result.state !== "complete") break;
       }
-      return reply({ ...run, ...(demo ? { demonstration: demo } : {}) });
+      return reply({
+        ...(await presentRun(runtime, actor, run)),
+        ...(demo ? { demonstration: demo } : {}),
+      });
     }
     const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
     const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
@@ -322,7 +337,13 @@ export async function teachingHttp(
     if (runRoute) {
       const runId = id.parse(decodeURIComponent(runRoute[1]!));
       if (!post && !runRoute[2])
-        return reply(await runtime.commands.snapshot(actor, runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, runId),
+          ),
+        );
       if (post && runRoute[2] === "cancel") {
         const result = await runtime.commands.cancel(
           actor,
@@ -343,7 +364,13 @@ export async function teachingHttp(
           input.revision,
           input.commandId,
         );
-        return reply(await runtime.commands.snapshot(actor, runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, runId),
+          ),
+        );
       }
     }
     if (path === "/demonstrations" && post) {
