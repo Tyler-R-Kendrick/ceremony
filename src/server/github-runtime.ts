@@ -18,7 +18,11 @@ import {
   type AsyncGitHubOptions,
 } from "./recipes/github.js";
 import { type AsyncCeremonyStore } from "./persistence/index.js";
-import { AuthorizationError, type HostIdentityAdapter } from "./identity.js";
+import {
+  AuthorizationError,
+  requireCapability,
+  type HostIdentityAdapter,
+} from "./identity.js";
 import type { RunRecord } from "./commands.js";
 import type { ModelConfiguration } from "./agent/model.js";
 import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
@@ -46,6 +50,7 @@ import {
   type JiraOAuthConfiguration,
 } from "./jira-auth.js";
 import { jiraHuman } from "./jira-human.js";
+import { JiraSetupAssignments } from "./jira-setup.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -84,6 +89,11 @@ export interface GitHubRuntimeOptions {
     allowTarget?(actor: ActorContext, target: string): Promise<boolean>;
     fetch?: typeof fetch;
     allowLoopbackHttp?: boolean;
+    /** Explicit tenant sharing policy; resolve only a host-authorized integration owner. */
+    setupOwner?(
+      requester: ActorContext,
+      target: string,
+    ): Promise<string | undefined>;
   };
   authorize(
     actor: ActorContext,
@@ -214,12 +224,27 @@ export function createGitHubRuntime(
     : undefined;
   supabase?.register(registry);
   const jiraScopes = options.jira?.scopes ?? ["read:jira-user"];
+  const jiraSetup = options.jira?.setupOwner
+    ? new JiraSetupAssignments(store, {
+        owner: options.jira.setupOwner,
+        scopes: jiraScopes,
+        authorize: async (actor, run) => {
+          if (!(await authorize(actor, run, "jira.prepare-app")))
+            throw new AuthorizationError("denied");
+        },
+      })
+    : undefined;
   const jira = options.jira
     ? new AsyncJiraChildren(store, {
         configuration: async (context) => {
           const config = await options.jira!.configuration(context.actor);
+          const shared =
+            !config.clientId && !config.clientSecret
+              ? await jiraSetup?.resolve(context.actor, context.runId)
+              : undefined;
           return {
             version: config.version,
+            ...(shared ? { app: shared } : {}),
             ...(config.clientId && config.clientSecret
               ? {
                   app: jiraOAuthConfigurationSchema.parse({
@@ -359,6 +384,65 @@ export function createGitHubRuntime(
       : {}),
     ...(options.continuation ? { continuation: options.continuation } : {}),
     authorize,
+    ...(jiraSetup
+      ? {
+          ownerSetup: async (actor: ActorContext, request: Request) => {
+            assertRequestBoundary(request, { origin });
+            if (actor.actorKind !== "human")
+              throw new AuthorizationError("denied");
+            const path = new URL(request.url).pathname.split("/");
+            const headers = {
+              "cache-control": "no-store",
+              "referrer-policy": "no-referrer",
+              "x-content-type-options": "nosniff",
+            };
+            if (path[5] === "owner-setup") {
+              const id = z.uuid().parse(decodeURIComponent(path[6]!));
+              if (request.method === "GET")
+                return Response.json(await jiraSetup.view(actor, id), {
+                  headers,
+                });
+              if (request.method !== "POST")
+                throw new AuthorizationError("denied");
+              const body = z
+                .strictObject({
+                  revision: z.number().int().positive(),
+                  values: z.strictObject({
+                    clientId: z.string().min(1).max(16384),
+                    clientSecret: z.string().min(1).max(16384),
+                  }),
+                })
+                .parse(await boundedJson(request, 40000));
+              try {
+                await jiraSetup.configure(
+                  actor,
+                  id,
+                  body.revision,
+                  body.values,
+                );
+              } finally {
+                body.values.clientId = "";
+                body.values.clientSecret = "";
+              }
+              return Response.json(
+                { state: "configured", verification: "pending" },
+                { headers },
+              );
+            }
+            if (request.method !== "POST" || path[6] !== "owner-setup")
+              throw new AuthorizationError("denied");
+            requireCapability(actor, "executor");
+            const runId = decodeURIComponent(path[5]!);
+            const body = z
+              .strictObject({ revision: z.number().int().positive() })
+              .parse(await boundedJson(request, 1024));
+            return Response.json(
+              await jiraSetup.request(actor, runId, body.revision),
+              { headers },
+            );
+          },
+        }
+      : {}),
     humanReturn: async (actor, request) => {
       const url = new URL(request.url);
       if (url.pathname === "/api/v1/teaching/jira/authorization-return") {

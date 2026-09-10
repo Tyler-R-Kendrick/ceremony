@@ -71,6 +71,18 @@ export default {
     guard("src/server/jira-auth.ts", "parsed.data.expiresAt <= now() ||"),
     guard("src/server/jira-auth.ts", "resource.scopes.includes(scope)"),
     guard("src/server/jira-auth.ts", "if (ids.size !== 1)"),
+    guard("src/server/jira-setup.ts", 'owner.actorKind !== "human"'),
+    guard("src/server/jira-setup.ts", "parsed.data.owner !== owner.subjectId"),
+    guard(
+      "src/server/jira-setup.ts",
+      "run.revision !== assignment.runRevision ||",
+    ),
+    guard("src/server/jira-setup.ts", "current.revision !== revision ||"),
+    guard("src/server/jira-setup.ts", "current.revision !== run.revision ||"),
+    guard(
+      "src/server/jira-setup.ts",
+      "return shared.owner === owner && shared.expires >",
+    ),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
     guard(
       "src/server/recipes/jira.ts",
