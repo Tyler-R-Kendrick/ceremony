@@ -36,7 +36,22 @@ type EnvironmentRecord = {
   githubRevision?: number;
   stripeRevision?: number;
   supabaseRevision?: number;
+  jiraRevision?: number;
 };
+const jiraNames = [
+  "JIRA_CLIENT_ID",
+  "JIRA_CLIENT_SECRET",
+  "JIRA_SITE_URL",
+] as const;
+export function nextJiraEnvironmentRevision(
+  previous: Record<string, string>,
+  values: Record<string, string>,
+  revision: number,
+) {
+  return jiraNames.some((name) => previous[name] !== values[name])
+    ? revision + 1
+    : revision;
+}
 export function nextSupabaseEnvironmentRevision(
   previous: Record<string, string>,
   values: Record<string, string>,
@@ -66,6 +81,7 @@ export class AsyncCeremonyEnvironment {
     githubRevision: number;
     stripeRevision: number;
     supabaseRevision: number;
+    jiraRevision: number;
     values: Record<string, string>;
   }> {
     requireCapability(actor, "executor");
@@ -77,6 +93,7 @@ export class AsyncCeremonyEnvironment {
       githubRevision: record?.value.githubRevision ?? record?.revision ?? 0,
       stripeRevision: record?.value.stripeRevision ?? record?.revision ?? 0,
       supabaseRevision: record?.value.supabaseRevision ?? record?.revision ?? 0,
+      jiraRevision: record?.value.jiraRevision ?? record?.revision ?? 0,
       values: record?.value.values ?? {},
     };
   }
@@ -124,6 +141,11 @@ export class AsyncCeremonyEnvironment {
         {
           values,
           githubRevision,
+          jiraRevision: nextJiraEnvironmentRevision(
+            record?.value.values ?? {},
+            values,
+            record?.value.jiraRevision ?? record?.revision ?? 0,
+          ),
           supabaseRevision: nextSupabaseEnvironmentRevision(
             record?.value.values ?? {},
             values,
@@ -176,6 +198,47 @@ export class AsyncCeremonyEnvironment {
       baseVersion,
     );
   }
+  async resolveJira(actor: ActorContext, baseVersion: string) {
+    const record = await this.read(actor);
+    return resolveJiraEnvironment(
+      {
+        revision: record.jiraRevision,
+        values: record.values,
+        sessionId: actor.sessionId,
+      },
+      baseVersion,
+    );
+  }
+}
+
+/** Private configuration candidate only. The runtime binds target/callback/scopes and the provider adapter validates before effects. */
+export function resolveJiraEnvironment(
+  record: {
+    revision: number;
+    values: Record<string, string>;
+    sessionId: string;
+  },
+  baseVersion: string,
+): {
+  version: string;
+  clientId?: string;
+  clientSecret?: string;
+  siteUrl?: string;
+} {
+  return {
+    version: createHash("sha256")
+      .update(JSON.stringify([baseVersion, record.sessionId, record.revision]))
+      .digest("hex"),
+    ...(record.values.JIRA_CLIENT_ID
+      ? { clientId: record.values.JIRA_CLIENT_ID }
+      : {}),
+    ...(record.values.JIRA_CLIENT_SECRET
+      ? { clientSecret: record.values.JIRA_CLIENT_SECRET }
+      : {}),
+    ...(record.values.JIRA_SITE_URL
+      ? { siteUrl: record.values.JIRA_SITE_URL }
+      : {}),
+  };
 }
 
 /** A configuration candidate, not verification or permission to provision a project. */

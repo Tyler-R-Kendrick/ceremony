@@ -36,6 +36,16 @@ import {
   supabaseVocabulary,
 } from "./recipes/supabase.js";
 import { supabaseHuman } from "./supabase-human.js";
+import {
+  AsyncJiraChildren,
+  jiraConnectionRecipe,
+  jiraVocabulary,
+} from "./recipes/jira.js";
+import {
+  jiraOAuthConfigurationSchema,
+  type JiraOAuthConfiguration,
+} from "./jira-auth.js";
+import { jiraHuman } from "./jira-human.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -62,6 +72,18 @@ export interface GitHubRuntimeOptions {
     }>;
     fetch?: typeof fetch;
     requiredAssurance?: "aal1" | "aal2";
+  };
+  jira?: {
+    configuration(actor: ActorContext): Promise<{
+      version: string;
+      clientId?: string;
+      clientSecret?: string;
+      siteUrl?: string;
+    }>;
+    scopes?: JiraOAuthConfiguration["scopes"];
+    allowTarget?(actor: ActorContext, target: string): Promise<boolean>;
+    fetch?: typeof fetch;
+    allowLoopbackHttp?: boolean;
   };
   authorize(
     actor: ActorContext,
@@ -94,12 +116,20 @@ export function createGitHubRuntime(
       ...githubVocabulary,
       ...(options.stripe ? stripeVocabulary : []),
       ...(options.supabase ? supabaseVocabulary : []),
+      ...(options.jira ? jiraVocabulary : []),
     ]),
   );
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
     id: `target:${createHash("sha256").update(actor.subjectId).digest("hex")}`,
+  });
+  const jiraTargetKey = (actor: ActorContext) => ({
+    tenant: actor.tenantId,
+    kind: "session" as const,
+    id: `jira-target:${createHash("sha256")
+      .update(JSON.stringify([actor.subjectId, actor.sessionId]))
+      .digest("hex")}`,
   });
   const configuration = (actor: ActorContext) =>
     options.configuration?.(actor) ??
@@ -111,15 +141,32 @@ export function createGitHubRuntime(
     actor: ActorContext,
     run: RunRecord,
     operationId: string,
-  ) =>
-    (operationId === "continuation" ||
-      (run.provider === "stripe"
-        ? (await options.stripe?.configuration(actor))?.version
-        : run.provider === "supabase"
-          ? (await options.supabase?.configuration(actor))?.version
-          : (await configuration(actor)).configurationVersion) ===
-        run.configurationVersion) &&
-    (await options.authorize(actor, run, operationId));
+  ) => {
+    if (run.provider === "jira" && operationId !== "continuation") {
+      const config = await options.jira?.configuration(actor);
+      if (!config || config.version !== run.configurationVersion) return false;
+      if (config.siteUrl) {
+        const site = jiraOAuthConfigurationSchema.shape.siteUrl.safeParse(
+          config.siteUrl,
+        );
+        if (!site.success || new URL(site.data).origin !== run.target)
+          return false;
+      } else if (!(await options.jira?.allowTarget?.(actor, run.target)))
+        return false;
+    }
+    return (
+      (operationId === "continuation" ||
+        (run.provider === "stripe"
+          ? (await options.stripe?.configuration(actor))?.version
+          : run.provider === "jira"
+            ? (await options.jira?.configuration(actor))?.version
+            : run.provider === "supabase"
+              ? (await options.supabase?.configuration(actor))?.version
+              : (await configuration(actor)).configurationVersion) ===
+          run.configurationVersion) &&
+      (await options.authorize(actor, run, operationId))
+    );
+  };
   const childOptions = {
     origin,
     environment: options.environment,
@@ -166,6 +213,33 @@ export function createGitHubRuntime(
       })
     : undefined;
   supabase?.register(registry);
+  const jiraScopes = options.jira?.scopes ?? ["read:jira-user"];
+  const jira = options.jira
+    ? new AsyncJiraChildren(store, {
+        configuration: async (context) => {
+          const config = await options.jira!.configuration(context.actor);
+          return {
+            version: config.version,
+            ...(config.clientId && config.clientSecret
+              ? {
+                  app: jiraOAuthConfigurationSchema.parse({
+                    clientId: config.clientId,
+                    clientSecret: config.clientSecret,
+                    siteUrl: context.target,
+                    callbackUrl: `${origin}/api/v1/teaching/jira/authorization-return`,
+                    scopes: jiraScopes,
+                  }),
+                }
+              : {}),
+          };
+        },
+        authorize: childOptions.authorize,
+        registrationScopes: jiraScopes,
+        ...(options.jira.fetch ? { fetch: options.jira.fetch } : {}),
+        ...(options.jira.allowLoopbackHttp ? { allowLoopbackHttp: true } : {}),
+      })
+    : undefined;
+  jira?.register(registry);
   const childrenFor = async (context: OperationContext) => {
     const config = await configuration(context.actor);
     if (config.configurationVersion !== context.configurationVersion)
@@ -243,6 +317,18 @@ export function createGitHubRuntime(
           revalidateOperation: "github.verify-access",
         },
       ],
+      ...(jira
+        ? [
+            [
+              "jira",
+              {
+                definition: jiraConnectionRecipe,
+                outputContract: "jira.connection",
+                revalidateOperation: "jira.verify-access",
+              },
+            ] as const,
+          ]
+        : []),
       ...(stripe
         ? [
             [
@@ -275,6 +361,34 @@ export function createGitHubRuntime(
     authorize,
     humanReturn: async (actor, request) => {
       const url = new URL(request.url);
+      if (url.pathname === "/api/v1/teaching/jira/authorization-return") {
+        if (!jira) throw new AuthorizationError("denied");
+        const binding = await jira.authorization.resolve(actor, url);
+        const record = await store.transaction((tx) =>
+          tx.get<RunRecord>({
+            tenant: actor.tenantId,
+            kind: "run",
+            id: binding.runId,
+          }),
+        );
+        if (
+          !record ||
+          record.value.provider !== "jira" ||
+          !(await authorize(actor, record.value, "jira.authorize-user"))
+        )
+          throw new AuthorizationError("denied");
+        await jira.authorization.acceptCallback(
+          { ...operationContext(actor, record.value), nodeId: binding.nodeId },
+          url,
+        );
+        await advance(actor, binding.runId);
+        const destination = new URL(returnUrl(binding.runId));
+        destination.searchParams.set("connector", "jira");
+        return new Response(null, {
+          status: 303,
+          headers: { ...headers, location: destination.href },
+        });
+      }
       const runId = await resolveGitHubInstallationRun(
         store,
         actor,
@@ -311,6 +425,33 @@ export function createGitHubRuntime(
         await (await childrenFor(context)).cancel(context);
     },
     context: async (actor, connectorId) => {
+      if (connectorId === "jira" && options.jira) {
+        const config = await options.jira.configuration(actor);
+        const selected =
+          config.siteUrl ??
+          (
+            await store.transaction((tx) =>
+              tx.get<{ target: string }>(jiraTargetKey(actor)),
+            )
+          )?.value.target;
+        if (!selected) throw new Error("jira-site-required");
+        const target = new URL(
+          jiraOAuthConfigurationSchema.shape.siteUrl.parse(selected),
+        ).origin;
+        if (
+          !config.siteUrl &&
+          !(await options.jira.allowTarget?.(actor, target))
+        )
+          throw new AuthorizationError("denied");
+        return {
+          provider: "jira",
+          profile: "jira-3lo",
+          target,
+          origin,
+          environment: options.environment,
+          configurationVersion: config.version,
+        };
+      }
       if (connectorId === "supabase" && options.supabase)
         return {
           provider: "supabase",
@@ -350,6 +491,23 @@ export function createGitHubRuntime(
       };
     },
     selectTarget: async (actor, target, connectorId = "github") => {
+      if (connectorId === "jira" && options.jira) {
+        const checked =
+          jiraOAuthConfigurationSchema.shape.siteUrl.safeParse(target);
+        if (!checked.success) throw new AuthorizationError("denied");
+        const canonical = new URL(checked.data).origin;
+        if (!(await options.jira.allowTarget?.(actor, canonical)))
+          throw new AuthorizationError("denied");
+        await store.transaction(async (tx) => {
+          const prior = await tx.get(jiraTargetKey(actor));
+          await tx.put(
+            jiraTargetKey(actor),
+            { target: canonical },
+            prior?.revision ?? null,
+          );
+        });
+        return;
+      }
       if (
         connectorId !== "github" ||
         !/^[a-zA-Z0-9-]{1,100}$/.test(target) ||
@@ -413,6 +571,26 @@ export function createGitHubRuntime(
       )
         throw new AuthorizationError("denied");
       const context = operationContext(actor, record.value);
+      if (record.value.provider === "jira") {
+        if (
+          !jira ||
+          decodeURIComponent(new URL(request.url).pathname) !==
+            `/api/v1/teaching/jira/${runId}/human`
+        )
+          throw new AuthorizationError("denied");
+        const destination = new URL(returnUrl(runId));
+        destination.searchParams.set("connector", "jira");
+        return jiraHuman(
+          store,
+          jira,
+          context,
+          record,
+          request,
+          destination.href,
+          () => advance(actor, runId),
+          jiraScopes,
+        );
+      }
       if (record.value.provider === "supabase") {
         if (
           !supabase ||

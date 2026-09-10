@@ -274,21 +274,19 @@ test("AGT AC-34 actual Workflow worker SIGKILL and replacement resumes persisted
         null,
       ),
     );
-    let returnValue: unknown;
+    expect((await second.invoke({ action: "pause-steps" })).paused).toBe(true);
     // Worker startup does not guarantee that its recovered hook can accept a
     // wake yet. Retry the same durable outbox entry, as the hosted dispatcher does.
     await expect
       .poll(
         async () => {
           await dispatchAgentWakes(runtime, actor.tenantId, async () => {
-            returnValue = (
-              await second.invoke({
-                action: "resume",
-                runId: connection.id,
-                workflowRunId,
-              })
-            ).value;
-            return true;
+            const acknowledgment = await second.invoke({
+              action: "resume",
+              runId: connection.id,
+              workflowRunId,
+            });
+            return acknowledgment.accepted === true;
           });
           return (
             await runtime.store.transaction((tx) =>
@@ -299,7 +297,17 @@ test("AGT AC-34 actual Workflow worker SIGKILL and replacement resumes persisted
         { timeout: 20000, interval: 100 },
       )
       .toBe("delivered");
-    expect(returnValue).toBe("stopped");
+    // Delivery is hook acceptance, not completion of the blocked real step.
+    expect(
+      (await second.invoke({ action: "checkpoint", workflowRunId }))
+        .completedSteps,
+    ).toBe(1);
+    expect((await second.invoke({ action: "release-steps" })).released).toBe(
+      true,
+    );
+    expect(
+      (await second.invoke({ action: "result", workflowRunId })).value,
+    ).toBe("stopped");
     expect(
       (await second.invoke({ action: "checkpoint", workflowRunId }))
         .completedSteps,

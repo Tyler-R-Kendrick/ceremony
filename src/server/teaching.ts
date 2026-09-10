@@ -9,6 +9,7 @@ export * from "./recipes/index.js";
 export * from "./recipes/github.js";
 export * from "./recipes/stripe.js";
 export * from "./recipes/supabase.js";
+export * from "./recipes/jira.js";
 export * from "./commands.js";
 export * from "./demonstrations.js";
 export * from "./teaching-runtime.js";

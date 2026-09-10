@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "commit": "370d3ea0c10c6fde94a19d5fb0ac76c6fe3f52f2",
+  "startedAt": "2026-09-10T11:22:05.298Z",
+  "runtime": "v26.5.0",
+  "profile": "local",
+  "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
+  "results": [
+    {
+      "command": "npm run format:check",
+      "exitCode": 1,
+      "processExitCode": 1,
+      "tests": null,
+      "startedAt": "2026-09-10T11:22:05.345Z",
+      "checkedAt": "2026-09-10T11:22:21.464Z",
+      "browsers": {},
+      "durationMs": 16119
+    }
+  ],
+  "verdict": "FAIL"
+}

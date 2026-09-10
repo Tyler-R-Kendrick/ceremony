@@ -44,6 +44,42 @@ export default {
     guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
     guard("src/server/github-runtime.ts", 'connectorId !== "github" ||'),
     guard("src/server/services.ts", "user.id !== expectedUserId ||"),
+    guard("src/server/jira-auth.ts", "url.origin !== callback.origin ||"),
+    guard("src/server/jira-auth.ts", "parsed.data.expiresAt <= now() ||"),
+    guard("src/server/jira-auth.ts", "resource.scopes.includes(scope)"),
+    guard("src/server/jira-auth.ts", "if (ids.size !== 1)"),
+    guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
+    guard(
+      "src/server/recipes/jira.ts",
+      "run.value.target !== context.target ||",
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      "return artifact.scope === this.scope(context) &&",
+      2,
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      "if (!artifact.accountId || !artifact.cloudId) return false;",
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      '!context.actor.capabilities.includes("admin")',
+    ),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "record.value.runId !== context.runId ||",
+    ),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "index.subjectId !== actor.subjectId ||",
+      2,
+    ),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "const session = this.options.sessionSchema.parse(",
+      5,
+    ),
     guard("src/server/supabase-auth.ts", 'verified.claims.aal !== "aal2"'),
     guard("src/server/supabase-auth.ts", "factor.id === factorId &&", 3),
     guard(
@@ -78,6 +114,9 @@ export default {
       "tests/github-runtime-http.test.ts",
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",
+      "tests/jira-auth.test.ts",
+      "tests/jira-children.test.ts",
+      "tests/oauth-handoff.test.ts",
       "tests/supabase-auth.test.ts",
       "tests/supabase-mfa.test.ts",
       "tests/supabase-children.test.ts",

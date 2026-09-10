@@ -9,6 +9,7 @@ import type { TeachingRuntime } from "../teaching-runtime.js";
 import { hostedContinuation } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { configuredKeyring } from "../persistence/maintenance.js";
+import type { ActorContext } from "../identity.js";
 
 let instance: Promise<TeachingRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
@@ -80,6 +81,29 @@ export async function createHostedRuntime(
     configuredKeyring(env),
   );
   const environment = new AsyncCeremonyEnvironment(store);
+  const jiraConfiguration = async (actor: ActorContext) => {
+    const session = await environment.resolveJira(
+      actor,
+      c.configurationVersion,
+    );
+    // A partial session pair needs owner setup; never mix credentials from two different apps.
+    const credentials =
+      session.clientId || session.clientSecret
+        ? {}
+        : {
+            ...(env.JIRA_CLIENT_ID ? { clientId: env.JIRA_CLIENT_ID } : {}),
+            ...(env.JIRA_CLIENT_SECRET
+              ? { clientSecret: env.JIRA_CLIENT_SECRET }
+              : {}),
+          };
+    return {
+      ...session,
+      ...credentials,
+      ...(!session.siteUrl && env.JIRA_SITE_URL
+        ? { siteUrl: env.JIRA_SITE_URL }
+        : {}),
+    };
+  };
   try {
     await store.migrate();
     const identity = await createOidcIdentity(
@@ -113,6 +137,13 @@ export async function createHostedRuntime(
       origin: c.origin,
       environment: "production",
       configurationVersion: c.configurationVersion,
+      jira: {
+        configuration: jiraConfiguration,
+        allowTarget: async (actor) =>
+          actor.tenantId === c.tenant &&
+          actor.capabilities.includes("executor"),
+        ...(testProfile ? { allowLoopbackHttp: true } : {}),
+      },
       stripe: {
         configuration: (actor) =>
           environment.resolveStripe(actor, c.configurationVersion),
@@ -140,23 +171,26 @@ export async function createHostedRuntime(
             (run.provider === "stripe"
               ? (await environment.resolveStripe(actor, c.configurationVersion))
                   .version
-              : run.provider === "supabase"
-                ? (
-                    await environment.resolveSupabase(
-                      actor,
-                      c.configurationVersion,
-                    )
-                  ).version
-                : (
-                    await environment.resolveGitHub(
-                      actor,
-                      c.configurationVersion,
-                    )
-                  ).configurationVersion)) &&
+              : run.provider === "jira"
+                ? (await jiraConfiguration(actor)).version
+                : run.provider === "supabase"
+                  ? (
+                      await environment.resolveSupabase(
+                        actor,
+                        c.configurationVersion,
+                      )
+                    ).version
+                  : (
+                      await environment.resolveGitHub(
+                        actor,
+                        c.configurationVersion,
+                      )
+                    ).configurationVersion)) &&
         run.origin === c.origin &&
         (run.provider === "stripe" || run.provider === "supabase"
           ? run.target === "self"
-          : run.provider === "github" && run.target === c.account),
+          : run.provider === "jira" ||
+            (run.provider === "github" && run.target === c.account)),
     });
   } catch {
     await store.close();

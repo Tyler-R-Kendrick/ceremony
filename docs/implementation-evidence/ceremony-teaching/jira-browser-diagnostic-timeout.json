@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "webkit",
+      "status": "timedOut",
+      "retry": 0,
+      "duration": 30010,
+      "lastStepLine": 4
+    }
+  ]
+}
