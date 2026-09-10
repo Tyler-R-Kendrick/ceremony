@@ -92,7 +92,9 @@ for (const assurance of ["aal1", "aal2"] as const)
             response.url() === privateUrl &&
             response.request().method() === "POST",
         ),
-        page.getByRole("button", { name: "Continue with this account" }).click(),
+        page
+          .getByRole("button", { name: "Continue with this account" })
+          .click(),
       ]);
       expect(signupResponse.status()).toBe(200);
       expect(fixture.effects.supabaseSignups).toBe(1);
