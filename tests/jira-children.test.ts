@@ -792,7 +792,7 @@ test("Jira renews expired owner assignments without reviving old links or repeat
     {
       transaction: (work) =>
         f.store.transaction((tx) =>
-          work({ ...tx, now: async () => 1 + 86_400_001 }),
+          work({ ...tx, now: async () => 1 + 86_400_000 }),
         ),
       close: async () => {},
     },
@@ -809,6 +809,54 @@ test("Jira renews expired owner assignments without reviving old links or repeat
     true,
   );
   assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
+test("Jira requester status denies a parent mutated during owner resolution", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  const setup = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    authorize: async () => {},
+    owner: async () => "owner",
+  });
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  const assigned = await setup.request(f.actor, run.id, current.revision);
+  assert.deepEqual(await setup.status(f.actor, run.id), {
+    state: "pending",
+    revision: current.revision,
+    id: assigned.id,
+  });
+  const policy: JiraSetupPolicy = {
+    scopes: ["read:jira-user"],
+    authorize: async () => {},
+    owner: async () => {
+      policy.scopes = ["read:jira-user", "read:jira-work"];
+      return "owner";
+    },
+  };
+  await assert.rejects(
+    new JiraSetupAssignments(f.store, policy).status(f.actor, run.id),
+    /denied/,
+  );
+  const raced = new JiraSetupAssignments(f.store, {
+    scopes: ["read:jira-user"],
+    authorize: async () => {},
+    owner: async () => {
+      await f.store.transaction(async (tx) => {
+        const key = {
+          tenant: f.actor.tenantId,
+          kind: "run" as const,
+          id: run.id,
+        };
+        const record = (await tx.get<RunRecord>(key))!;
+        await tx.put(key, record.value, record.revision);
+      });
+      return "owner";
+    },
+  });
+  await assert.rejects(raced.status(f.actor, run.id), /denied/);
 });
 
 test("chaos: Jira owner notification disconnect cannot revoke a stored assignment", async (t) => {
@@ -863,6 +911,7 @@ test("Jira shared setup rejects missing owner policy, wrong recipients and repla
   const assigned = await setup.request(f.actor, run.id, current.revision);
   designated = "changed-owner";
   await assert.rejects(setup.request(f.actor, run.id, current.revision));
+  await assert.rejects(setup.status(f.actor, run.id), /denied/);
   await assert.rejects(
     setup.view({ ...owner, subjectId: designated }, assigned.id),
     /denied/,
@@ -880,6 +929,7 @@ test("Jira shared setup rejects missing owner policy, wrong recipients and repla
     clientSecret: f.config.clientSecret,
   };
   policy.scopes = ["read:jira-user", "read:jira-work"];
+  await assert.rejects(setup.status(f.actor, run.id), /denied/);
   await assert.rejects(
     setup.configure(owner, assigned.id, assigned.revision, values),
     /denied/,
