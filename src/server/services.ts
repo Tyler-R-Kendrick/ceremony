@@ -436,7 +436,7 @@ export function serviceRegistrations(
                       .object({ id: z.string().min(1) })
                       .parse(data.user);
                     if (user.id !== expectedUserId || expiresAt <= Date.now())
-                      throw new Error("Invalid session evidence");
+                      throw new Error();
                   },
                 ],
               ]),
