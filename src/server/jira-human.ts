@@ -6,6 +6,7 @@ import type { AsyncCeremonyStore, StoredRecord } from "./persistence/index.js";
 import type { RunRecord } from "./commands.js";
 import type { OperationContext } from "./recipes/registry.js";
 import type { AsyncJiraChildren } from "./recipes/jira.js";
+import type { JiraSetupAssignments } from "./jira-setup.js";
 
 const escape = (value: string) =>
   value.replace(
@@ -35,6 +36,7 @@ export async function jiraHuman(
   returnUrl: string,
   advance: () => Promise<void>,
   scopes: readonly string[],
+  ownerSetup = false,
 ): Promise<Response> {
   if (
     context.actor.actorKind !== "human" ||
@@ -89,6 +91,11 @@ export async function jiraHuman(
     }
   }
   const owner = context.actor.capabilities.includes("admin");
+  if (mode === "app" && ownerSetup && request.method === "GET")
+    return jiraRequesterPage(
+      `/api/v1/teaching/jira/${encodeURIComponent(context.runId)}/owner-setup`,
+      returnUrl,
+    );
   const key = (ticket: string) => ({
     tenant: context.actor.tenantId,
     kind: "handoff" as const,
@@ -183,7 +190,6 @@ export async function jiraHuman(
   );
   if (request.headers.get("accept") === "application/json")
     return Response.json({ ticket, mode }, { headers });
-  const nonce = randomUUID();
   const title =
     mode === "app"
       ? "Configure Jira for this session"
@@ -192,8 +198,57 @@ export async function jiraHuman(
     mode === "app"
       ? `<p>Only the integration owner needs app setup. This private form configures the current session; a hosted integration should supply its shared app through trusted host configuration.</p><ol><li><a href="https://developer.atlassian.com/console/myapps/" target="_blank" rel="noopener noreferrer">Open the Atlassian developer console (new tab)</a>. Sign in or create your Atlassian account, then create or select an OAuth 2.0 integration.</li><li>Enable OAuth 2.0 (3LO) authorization with this exact callback: <code>${escape(`${context.origin}/api/v1/teaching/jira/authorization-return`)}</code>.</li><li>Add the Jira API permissions: <code>${escape(scopes.join(", "))}</code>. For other people to use the integration, configure its distribution in Atlassian.</li><li>Copy the client ID and secret from the app settings into this private form.</li></ol><form id="private"><label for="clientId">Client ID</label><input id="clientId" name="clientId" required maxlength="16384" autocomplete="off" spellcheck="false"><label for="clientSecret">Client secret</label><input id="clientSecret" name="clientSecret" type="password" required maxlength="16384" autocomplete="off"><button>Save app and continue</button></form><p>App configuration does not prove access. Atlassian will ask for any required login and consent next.</p>`
       : `<p>The authorization attempt expired or its result is uncertain. Starting again invalidates the old return link and asks Atlassian for fresh consent. It does not revoke an existing grant or repeat a consumed code.</p><form id="private"><label><input type="checkbox" required>I authorize a new consent attempt.</label><button>Restart authorization</button></form>`;
+  return jiraPrivatePage(
+    title,
+    content,
+    returnUrl,
+    `const form=document.getElementById('private');form.addEventListener('submit',async event=>{event.preventDefault();const values=${mode === "app" ? "Object.fromEntries(new FormData(form))" : "{restart:true}"};form.reset();const button=form.querySelector('button');button.disabled=true;try{const admission=await fetch(location.pathname,{headers:{accept:'application/json'},credentials:'same-origin',cache:'no-store'});if(!admission.ok)throw new Error();const fresh=await admission.json();if(fresh.mode!==${JSON.stringify(mode)})throw new Error();const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',cache:'no-store',body:JSON.stringify({ticket:fresh.ticket,values})});if(!response.ok)throw new Error();location.assign((await response.json()).returnUrl)}catch{document.getElementById('status').textContent='This step could not finish. Check the current connection status before trying again.';button.disabled=false}finally{for(const key of Object.keys(values))delete values[key]}});addEventListener('pagehide',()=>form.reset());`,
+  );
+}
+
+export function jiraOwnerPage(
+  view: Awaited<ReturnType<JiraSetupAssignments["view"]>>,
+  returnUrl: string,
+): Response {
+  const content =
+    view.state === "configured"
+      ? `<p>App setup is available to the requester. They still need their own Atlassian authorization; this does not give you their access.</p>`
+      : `<p>You are configuring the shared integration for <code>${escape(view.siteUrl)}</code>. You are not signing in as the requester.</p><ol><li><a href="https://developer.atlassian.com/console/myapps/" target="_blank" rel="noopener noreferrer">Open the Atlassian developer console (new tab)</a>. Sign in or create your account, then create or select an OAuth 2.0 integration.</li><li>Enable OAuth 2.0 (3LO) with this exact callback: <code>${escape(view.callbackUrl)}</code>.</li><li>Add Jira API permissions: <code>${escape(view.scopes.join(", "))}</code>. Configure distribution so the requester can use the integration.</li><li>Enter the app credentials privately below.</li></ol><form id="private"><label for="clientId">Client ID</label><input id="clientId" name="clientId" required maxlength="16384" autocomplete="off" spellcheck="false"><label for="clientSecret">Client secret</label><input id="clientSecret" name="clientSecret" type="password" required maxlength="16384" autocomplete="off"><button>Save shared app</button></form>`;
+  return jiraPrivatePage(
+    view.state === "configured"
+      ? "Jira app setup saved"
+      : "Set up the shared Jira app",
+    content,
+    returnUrl,
+    view.state === "configured"
+      ? ""
+      : `const form=document.getElementById('private');form.addEventListener('submit',async event=>{event.preventDefault();const values=Object.fromEntries(new FormData(form));form.reset();const button=form.querySelector('button');button.disabled=true;try{const admission=await fetch(location.pathname,{headers:{accept:'application/json'},credentials:'same-origin',cache:'no-store'});if(!admission.ok)throw new Error();const fresh=await admission.json();if(fresh.state!=='pending')throw new Error();const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',cache:'no-store',body:JSON.stringify({revision:fresh.revision,values})});if(!response.ok)throw new Error();location.reload()}catch{document.getElementById('status').textContent='Setup could not be saved. Reopen the owner link to check its status before trying again.';button.disabled=false}finally{for(const key of Object.keys(values))delete values[key]}});addEventListener('pagehide',()=>form.reset());`,
+  );
+}
+
+function jiraRequesterPage(endpoint: string, returnUrl: string): Response {
+  return jiraPrivatePage(
+    "Your Jira integration needs owner setup",
+    `<p>Your designated integration owner can supply the shared app. You will keep this connection and authorize your own Jira access afterward.</p><p id="progress" role="status" aria-live="polite">Checking setup…</p><p><a id="owner-link" hidden>Open owner setup (owner sign-in required)</a></p><button id="request" disabled>Request owner setup</button><p>The owner link does not grant access. Share it with your integration owner; delivery is not automatic.</p>`,
+    returnUrl,
+    `const endpoint=${JSON.stringify(endpoint)};const button=document.getElementById('request');const progress=document.getElementById('progress');const link=document.getElementById('owner-link');let revision;let timer;let stopped=false;const controller=new AbortController();async function post(action){const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',cache:'no-store',signal:controller.signal,body:JSON.stringify({revision,action})});if(!response.ok)throw new Error();return response.json()}async function check(){clearTimeout(timer);try{const response=await fetch(endpoint,{headers:{accept:'application/json'},credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error();const state=await response.json();if(stopped)return;revision=state.revision;link.hidden=true;button.disabled=false;if(state.state==='configured'){progress.textContent='App setup is ready. Continuing to your authorization…';button.disabled=true;const next=await post('continue');if(!stopped)location.assign(next.returnUrl);return}if(state.state==='unavailable'){progress.textContent='The shared app is no longer available. Your integration owner needs to update host configuration.';button.hidden=true;return}button.hidden=state.state==='pending';button.textContent=state.state==='expired'?'Renew owner request':'Request owner setup';progress.textContent=state.state==='pending'?'Waiting for your integration owner. This page checks automatically.':state.state==='expired'?'The owner request expired. Renew it to get a new link.':'Request setup to get a link for your designated owner.';if(state.state==='pending'){link.href='/api/v1/teaching/jira/owner-setup/'+encodeURIComponent(state.id);link.hidden=false;timer=setTimeout(check,5000)}}catch{if(stopped)return;progress.textContent='Setup status is unavailable. Check again or return to your connection.';button.hidden=false;button.disabled=false;button.textContent='Check again';revision=undefined}}button.addEventListener('click',async()=>{button.disabled=true;try{if(revision!==undefined)await post('request');await check()}catch{progress.textContent='The request could not finish. Check again.';revision=undefined;button.textContent='Check again';button.disabled=false}});addEventListener('pagehide',()=>{stopped=true;clearTimeout(timer);controller.abort()});check();`,
+  );
+}
+
+function jiraPrivatePage(
+  title: string,
+  content: string,
+  returnUrl: string,
+  script: string,
+): Response {
+  const nonce = randomUUID();
+  const headers = {
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+  };
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style nonce="${nonce}">:root{color-scheme:light;font:16px/1.5 system-ui,sans-serif;color:#17212d;background:#f4f6f8;accent-color:#1749c7;scrollbar-color:#94a3b4 #f4f6f8}body{margin:0}main{box-sizing:border-box;max-width:680px;margin:40px auto;padding:24px;background:#fff}h1{font-size:28px;line-height:1.2;letter-spacing:-.02em;text-wrap:balance}p,li{max-width:65ch;overflow-wrap:anywhere}li+li{margin-top:12px}a{color:#1749c7;text-underline-offset:3px}form{margin-block:24px}label{display:block;font-weight:600}input:not([type=checkbox]){box-sizing:border-box;display:block;width:100%;margin-block:8px 16px;min-height:44px;border:1px solid #aebdce;border-radius:6px;padding:10px 12px;font:inherit;background:#fff;color:#17212d;caret-color:#1749c7}button{min-height:44px;border:0;border-radius:6px;background:#1749c7;color:#fff;padding:10px 16px;font:600 16px/1.5 system-ui;cursor:pointer}button:hover{background:#103aa5}button:disabled{opacity:.55;cursor:wait}:focus-visible{outline:2px solid #1749c7;outline-offset:3px}::selection{background:#d9e5ff;color:#152f70}#status{color:#a03620}@media(max-width:720px){main{margin:0;padding:24px 20px;min-height:100dvh}}</style></head><body><main><h1>${title}</h1>${content}<p>Private inputs go only to the broker and provider, never the assistant or demonstration.</p><p id="status" role="status" aria-live="polite"></p><a href="${escape(returnUrl)}">Return to connection</a></main><script nonce="${nonce}">const form=document.getElementById('private');form.addEventListener('submit',async event=>{event.preventDefault();const values=${mode === "app" ? "Object.fromEntries(new FormData(form))" : "{restart:true}"};form.reset();const button=form.querySelector('button');button.disabled=true;try{const admission=await fetch(location.pathname,{headers:{accept:'application/json'},credentials:'same-origin',cache:'no-store'});if(!admission.ok)throw new Error();const fresh=await admission.json();if(fresh.mode!==${JSON.stringify(mode)})throw new Error();const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',cache:'no-store',body:JSON.stringify({ticket:fresh.ticket,values})});if(!response.ok)throw new Error();location.assign((await response.json()).returnUrl)}catch{document.getElementById('status').textContent='This step could not finish. Check the current connection status before trying again.';button.disabled=false}finally{for(const key of Object.keys(values))delete values[key]}});addEventListener('pagehide',()=>form.reset());</script></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style nonce="${nonce}">:root{color-scheme:light;font:16px/1.5 system-ui,sans-serif;color:#17212d;background:#f4f6f8;accent-color:#1749c7;scrollbar-color:#94a3b4 #f4f6f8}body{margin:0}main{box-sizing:border-box;max-width:680px;margin:40px auto;padding:24px;background:#fff}h1{font-size:28px;line-height:1.2;letter-spacing:-.02em;text-wrap:balance}p,li{max-width:65ch;overflow-wrap:anywhere}li+li{margin-top:12px}a{color:#1749c7;text-underline-offset:3px}form{margin-block:24px}label{display:block;font-weight:600}input:not([type=checkbox]){box-sizing:border-box;display:block;width:100%;margin-block:8px 16px;min-height:44px;border:1px solid #aebdce;border-radius:6px;padding:10px 12px;font:inherit;background:#fff;color:#17212d;caret-color:#1749c7}button{min-height:44px;border:0;border-radius:6px;background:#1749c7;color:#fff;padding:10px 16px;font:600 16px/1.5 system-ui;cursor:pointer}button:hover{background:#103aa5}button:disabled{opacity:.55;cursor:wait}:focus-visible{outline:2px solid #1749c7;outline-offset:3px}::selection{background:#d9e5ff;color:#152f70}#status{color:#a03620}@media(max-width:720px){main{margin:0;padding:24px 20px;min-height:100dvh}}</style></head><body><main><h1>${title}</h1>${content}<p>Private inputs go only to the broker and provider, never the assistant or demonstration.</p><p id="status" role="status" aria-live="polite"></p><a href="${escape(returnUrl)}">Return to connection</a></main><script nonce="${nonce}">${script}</script></body></html>`,
     {
       headers: {
         ...headers,

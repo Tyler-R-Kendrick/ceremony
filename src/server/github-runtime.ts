@@ -49,7 +49,7 @@ import {
   jiraOAuthConfigurationSchema,
   type JiraOAuthConfiguration,
 } from "./jira-auth.js";
-import { jiraHuman } from "./jira-human.js";
+import { jiraHuman, jiraOwnerPage } from "./jira-human.js";
 import { JiraSetupAssignments } from "./jira-setup.js";
 
 export interface GitHubRuntimeOptions {
@@ -398,10 +398,12 @@ export function createGitHubRuntime(
             };
             if (path[5] === "owner-setup") {
               const id = z.uuid().parse(decodeURIComponent(path[6]!));
-              if (request.method === "GET")
-                return Response.json(await jiraSetup.view(actor, id), {
-                  headers,
-                });
+              if (request.method === "GET") {
+                const view = await jiraSetup.view(actor, id);
+                return request.headers.get("accept")?.includes("text/html")
+                  ? jiraOwnerPage(view, `${origin}/`)
+                  : Response.json(view, { headers });
+              }
               if (request.method !== "POST")
                 throw new AuthorizationError("denied");
               const body = z
@@ -429,13 +431,37 @@ export function createGitHubRuntime(
                 { headers },
               );
             }
-            if (request.method !== "POST" || path[6] !== "owner-setup")
+            if (path[6] !== "owner-setup")
               throw new AuthorizationError("denied");
             requireCapability(actor, "executor");
             const runId = decodeURIComponent(path[5]!);
+            if (request.method === "GET")
+              return Response.json(await jiraSetup.status(actor, runId), {
+                headers,
+              });
+            if (request.method !== "POST")
+              throw new AuthorizationError("denied");
             const body = z
-              .strictObject({ revision: z.number().int().positive() })
+              .strictObject({
+                revision: z.number().int().positive(),
+                action: z.enum(["request", "continue"]).default("request"),
+              })
               .parse(await boundedJson(request, 1024));
+            if (body.action === "continue") {
+              const state = await jiraSetup.status(actor, runId);
+              if (
+                state.revision !== body.revision ||
+                state.state !== "configured"
+              )
+                throw new AuthorizationError("denied");
+              await advance(actor, runId);
+              return Response.json(
+                {
+                  returnUrl: `${origin}/api/v1/teaching/jira/${encodeURIComponent(runId)}/human`,
+                },
+                { headers },
+              );
+            }
             return Response.json(
               await jiraSetup.request(actor, runId, body.revision),
               { headers },
@@ -673,6 +699,7 @@ export function createGitHubRuntime(
           destination.href,
           () => advance(actor, runId),
           jiraScopes,
+          Boolean(jiraSetup),
         );
       }
       if (record.value.provider === "supabase") {
