@@ -51,6 +51,7 @@ type NodeRecord = {
 };
 type CommandRecord = {
   digest: string;
+  runId: string;
   state:
     | "admitted"
     | "running"
@@ -535,6 +536,7 @@ export class ProtectedCommandService {
       const effectId = `effect:${randomUUID()}`;
       const record: CommandRecord = {
         digest: intent,
+        runId: run.id,
         state: "running",
         effectId,
         nodeId: node.id,

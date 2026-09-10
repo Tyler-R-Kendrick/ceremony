@@ -123,7 +123,36 @@ export function jiraAuth(
       throw new JiraAuthFailure("verification-rejected");
     return parsed.data;
   };
+  const validateCallback = (returnedUrl: string, expectedState: string) => {
+    try {
+      if (returnedUrl.length > 8192) throw new Error();
+      const url = new URL(returnedUrl);
+      if (
+        url.origin !== callback.origin ||
+        url.pathname !== callback.pathname ||
+        url.hash ||
+        url.username ||
+        url.password ||
+        !/^[A-Za-z0-9_-]{32,128}$/.test(expectedState)
+      )
+        throw new Error();
+      const parameters = oauth.validateAuthResponse(
+        as,
+        client,
+        url,
+        expectedState,
+      );
+      if (!secret.safeParse(parameters.get("code")).success) throw new Error();
+      return parameters;
+    } catch {
+      throw new JiraAuthFailure("verification-rejected");
+    }
+  };
   return {
+    /** Validate before durable callback admission; this never contacts the provider. */
+    validateCallback(returnedUrl: string, expectedState: string): void {
+      validateCallback(returnedUrl, expectedState);
+    },
     /** State and resulting authorization URL are private human-handoff material, never agent context. */
     authorizationUrl(state: string) {
       if (!/^[A-Za-z0-9_-]{32,128}$/.test(state))
@@ -145,25 +174,7 @@ export function jiraAuth(
       returnedUrl: string,
       expectedState: string,
     ): Promise<JiraPrivateSession> {
-      let parameters: URLSearchParams;
-      try {
-        if (returnedUrl.length > 8192) throw new Error();
-        const url = new URL(returnedUrl);
-        if (
-          url.origin !== callback.origin ||
-          url.pathname !== callback.pathname ||
-          url.hash ||
-          url.username ||
-          url.password ||
-          !/^[A-Za-z0-9_-]{32,128}$/.test(expectedState)
-        )
-          throw new Error();
-        parameters = oauth.validateAuthResponse(as, client, url, expectedState);
-        if (!secret.safeParse(parameters.get("code")).success)
-          throw new Error();
-      } catch {
-        throw new JiraAuthFailure("verification-rejected");
-      }
+      const parameters = validateCallback(returnedUrl, expectedState);
       try {
         const response = await oauth.authorizationCodeGrantRequest(
           as,
