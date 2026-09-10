@@ -4,7 +4,10 @@ import { test } from "node:test";
 import {
   AsyncCeremonyEnvironment,
   resolveGitHubEnvironment,
+  resolveSupabaseEnvironment,
 } from "../src/server/async-environment.js";
+import { CeremonyEnvironment } from "../src/server/environment.js";
+import { CeremonyDatabase } from "../src/server/storage.js";
 import {
   SQLiteCeremonyStore,
   PostgresCeremonyStore,
@@ -20,6 +23,91 @@ const actor: ActorContext = {
   capabilities: ["executor"],
 };
 const keys = { current: "test", keys: { test: randomBytes(32) } };
+test("Supabase project configuration versions track shared-session edits without hashing key values", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", keys);
+  const asyncEnv = new AsyncCeremonyEnvironment(store);
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  const legacy = new CeremonyEnvironment(db);
+  try {
+    const adapters = [
+      {
+        resolve: () => asyncEnv.resolveSupabase(actor, "v1"),
+        edit: (value: unknown) => asyncEnv.update(actor, value),
+      },
+      {
+        resolve: async () =>
+          legacy.supabaseConfiguration("owner", actor.sessionId, "v1"),
+        edit: async (value: unknown) => legacy.update("owner", value),
+      },
+    ];
+    for (const env of adapters) {
+      const empty = await env.resolve();
+      await env.edit({ revision: 0, values: { UNRELATED: "one" } });
+      assert.deepEqual(await env.resolve(), empty);
+      await env.edit({
+        revision: 1,
+        values: {
+          SUPABASE_URL: "https://synthetic.supabase.co",
+          SUPABASE_ANON_KEY: "synthetic-legacy",
+        },
+      });
+      const project = await env.resolve();
+      assert.notEqual(project.version, empty.version);
+      assert.equal(project.projectUrl, "https://synthetic.supabase.co");
+      assert.equal(project.publishableKey === "synthetic-legacy", true);
+      await env.edit({ revision: 2, values: { UNRELATED: "two" } });
+      assert.deepEqual(await env.resolve(), project);
+      await env.edit({
+        revision: 3,
+        values: { SUPABASE_PUBLISHABLE_KEY: "synthetic-publishable" },
+      });
+      const rotated = await env.resolve();
+      assert.notEqual(rotated.version, project.version);
+      assert.equal(rotated.publishableKey === "synthetic-publishable", true);
+      await env.edit({
+        revision: 4,
+        remove: [
+          "SUPABASE_PUBLISHABLE_KEY",
+          "SUPABASE_ANON_KEY",
+          "SUPABASE_URL",
+        ],
+      });
+      const removed = await env.resolve();
+      assert.notEqual(removed.version, rotated.version);
+      assert.equal(removed.projectUrl, undefined);
+      assert.equal(removed.publishableKey, undefined);
+    }
+    const metadata = { sessionId: "session", revision: 3 };
+    const first = resolveSupabaseEnvironment(
+      {
+        ...metadata,
+        values: { SUPABASE_PUBLISHABLE_KEY: "first-private-key" },
+      },
+      "v1",
+    );
+    const second = resolveSupabaseEnvironment(
+      {
+        ...metadata,
+        values: { SUPABASE_PUBLISHABLE_KEY: "second-private-key" },
+      },
+      "v1",
+    );
+    assert.equal(first.version, second.version);
+    for (const change of [{ sessionId: "other" }, { revision: 4 }])
+      assert.notEqual(
+        resolveSupabaseEnvironment({ ...metadata, ...change, values: {} }, "v1")
+          .version,
+        first.version,
+      );
+    assert.notEqual(
+      resolveSupabaseEnvironment({ ...metadata, values: {} }, "v2").version,
+      first.version,
+    );
+  } finally {
+    await store.close();
+    db.close();
+  }
+});
 test("Stripe configuration revision changes only for its key and never includes a key-derived digest", async () => {
   const store = new SQLiteCeremonyStore(":memory:", keys);
   const env = new AsyncCeremonyEnvironment(store);

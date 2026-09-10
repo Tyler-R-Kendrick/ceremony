@@ -35,7 +35,19 @@ type EnvironmentRecord = {
   values: Record<string, string>;
   githubRevision?: number;
   stripeRevision?: number;
+  supabaseRevision?: number;
 };
+export function nextSupabaseEnvironmentRevision(
+  previous: Record<string, string>,
+  values: Record<string, string>,
+  revision: number,
+) {
+  return ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"].some(
+    (name) => previous[name] !== values[name],
+  )
+    ? revision + 1
+    : revision;
+}
 
 /** Native user-session environment shared by every connector; read is a trusted server-only operation. */
 export class AsyncCeremonyEnvironment {
@@ -53,6 +65,7 @@ export class AsyncCeremonyEnvironment {
     revision: number;
     githubRevision: number;
     stripeRevision: number;
+    supabaseRevision: number;
     values: Record<string, string>;
   }> {
     requireCapability(actor, "executor");
@@ -63,6 +76,7 @@ export class AsyncCeremonyEnvironment {
       revision: record?.revision ?? 0,
       githubRevision: record?.value.githubRevision ?? record?.revision ?? 0,
       stripeRevision: record?.value.stripeRevision ?? record?.revision ?? 0,
+      supabaseRevision: record?.value.supabaseRevision ?? record?.revision ?? 0,
       values: record?.value.values ?? {},
     };
   }
@@ -110,6 +124,11 @@ export class AsyncCeremonyEnvironment {
         {
           values,
           githubRevision,
+          supabaseRevision: nextSupabaseEnvironmentRevision(
+            record?.value.values ?? {},
+            values,
+            record?.value.supabaseRevision ?? record?.revision ?? 0,
+          ),
           stripeRevision:
             (record?.value.stripeRevision ?? record?.revision ?? 0) +
             (record?.value.values.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
@@ -146,6 +165,39 @@ export class AsyncCeremonyEnvironment {
       baseVersion,
     );
   }
+  async resolveSupabase(actor: ActorContext, baseVersion: string) {
+    const record = await this.read(actor);
+    return resolveSupabaseEnvironment(
+      {
+        revision: record.supabaseRevision,
+        values: record.values,
+        sessionId: actor.sessionId,
+      },
+      baseVersion,
+    );
+  }
+}
+
+/** A configuration candidate, not verification or permission to provision a project. */
+export function resolveSupabaseEnvironment(
+  record: {
+    revision: number;
+    values: Record<string, string>;
+    sessionId: string;
+  },
+  baseVersion: string,
+): { version: string; projectUrl?: string; publishableKey?: string } {
+  const publishableKey =
+    record.values.SUPABASE_PUBLISHABLE_KEY || record.values.SUPABASE_ANON_KEY;
+  return {
+    version: createHash("sha256")
+      .update(JSON.stringify([baseVersion, record.sessionId, record.revision]))
+      .digest("hex"),
+    ...(record.values.SUPABASE_URL
+      ? { projectUrl: record.values.SUPABASE_URL }
+      : {}),
+    ...(publishableKey ? { publishableKey } : {}),
+  };
 }
 
 export function resolveStripeEnvironment(
