@@ -307,7 +307,22 @@ export function newAuthoredMethod(kind: FlowKind, id: string): AuthMethod {
       surfaces: ["browser"],
       configuration: [],
       configurationGroups: [],
-      prerequisites: [],
+      prerequisites:
+        kind === "oauth-code" || kind === "github-app"
+          ? [
+              {
+                id: "shared-app",
+                kind: "provider-registration" as const,
+                reuse: "verified-context" as const,
+                handoff: {
+                  surface: "private-collector" as const,
+                  recipient: "authorized-owner" as const,
+                  delegation: "a2h-authorize" as const,
+                  resume: "verify" as const,
+                },
+              },
+            ]
+          : [],
       handoff: {
         surface: privateInput ? "private-collector" : "provider-browser",
         recipient: "initiating-subject",
@@ -323,6 +338,281 @@ export function newAuthoredMethod(kind: FlowKind, id: string): AuthMethod {
       workflows: [{ document: "ceremonies", version: "1.0.0", workflowId: id }],
     },
   };
+}
+
+/** Generic Arazzo outline for an auth family. Authors still bind host SDK handlers. */
+export function defaultWorkflowSteps(kind: FlowKind) {
+  const steps: Record<
+    FlowKind,
+    Array<{ stepId: string; description: string; operationId: string }>
+  > = {
+    "api-key": [
+      {
+        stepId: "collect-credential",
+        description: "Collect the API key through the private collector",
+        operationId: "provider.collect-credential",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify the key against the provider",
+        operationId: "provider.verify-access",
+      },
+    ],
+    basic: [
+      {
+        stepId: "collect-credentials",
+        description:
+          "Collect username and password through the private collector",
+        operationId: "provider.collect-credentials",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify Basic access",
+        operationId: "provider.verify-access",
+      },
+    ],
+    form: [
+      {
+        stepId: "collect-credentials",
+        description: "Collect sign-in fields through the private collector",
+        operationId: "provider.collect-credentials",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify the signed-in session",
+        operationId: "provider.verify-access",
+      },
+    ],
+    "oauth-code": [
+      {
+        stepId: "prepare-app",
+        description: "Prepare the shared OAuth app when the host has none",
+        operationId: "provider.prepare-app",
+      },
+      {
+        stepId: "authorize-user",
+        description: "Authorize the user at the provider",
+        operationId: "provider.authorize-user",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify provider access",
+        operationId: "provider.verify-access",
+      },
+    ],
+    device: [
+      {
+        stepId: "request-device",
+        description: "Request a device code",
+        operationId: "provider.request-device",
+      },
+      {
+        stepId: "wait-approval",
+        description: "Wait for the user to approve the device",
+        operationId: "provider.wait-approval",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify provider access",
+        operationId: "provider.verify-access",
+      },
+    ],
+    "authmd-anonymous": [
+      {
+        stepId: "register-anonymous",
+        description: "Register an anonymous identity",
+        operationId: "provider.register-anonymous",
+      },
+      {
+        stepId: "verify-anonymous",
+        description: "Verify anonymous access",
+        operationId: "provider.verify-anonymous",
+      },
+      {
+        stepId: "claim-ownership",
+        description: "Claim the identity when the provider requires it",
+        operationId: "provider.claim-ownership",
+      },
+    ],
+    "github-app": [
+      {
+        stepId: "register-app",
+        description: "Register the GitHub App",
+        operationId: "github.register-app",
+      },
+      {
+        stepId: "install-app",
+        description: "Install the GitHub App",
+        operationId: "github.install-app",
+      },
+      {
+        stepId: "verify-access",
+        description: "Verify installation access",
+        operationId: "github.verify-access",
+      },
+    ],
+  };
+  return steps[kind].map((step) => ({ ...step }));
+}
+
+export type ConnectorDraft = ReturnType<typeof newConnectorProject>;
+
+function nextMethodId(project: ConnectorDraft) {
+  let i = project.manifest.methods.length + 1;
+  while (project.manifest.methods.some((method) => method.id === `method-${i}`))
+    i++;
+  return `method-${i}`;
+}
+
+/** Attach a generic family ceremony, including its OpenUI template. */
+export function attachGenericCeremony(
+  project: ConnectorDraft,
+  kind: FlowKind,
+  label: string,
+) {
+  if (project.manifest.methods.length >= 12) throw new Error("method limit");
+  const id = nextMethodId(project);
+  const method = newAuthoredMethod(kind, id);
+  method.label = label;
+  method.contract!.workflows[0]!.document = project.workflows[0]!.document;
+  method.contract!.completion.verifier = `${id}.verify-access`;
+  project.manifest.methods.push(method);
+  project.workflows[0]!.workflows.push({
+    workflowId: id,
+    summary: label,
+    steps: defaultWorkflowSteps(kind),
+  });
+  if (!project.templates.some((template) => template.id === method.templateId))
+    project.templates.push(defaultTemplate(kind));
+  return method;
+}
+
+const providerCatalog: Record<
+  string,
+  { name: string; description: string; methods: FlowKind[] }
+> = {
+  github: {
+    name: "GitHub",
+    description: "Connect a GitHub account or App.",
+    methods: ["github-app", "oauth-code", "device", "api-key"],
+  },
+  stripe: {
+    name: "Stripe",
+    description: "Verify a Stripe secret or restricted key.",
+    methods: ["api-key"],
+  },
+  jira: {
+    name: "Jira",
+    description:
+      "Authorize a Jira Cloud site through a shared OAuth app, then the user's consent.",
+    methods: ["oauth-code"],
+  },
+  atlassian: {
+    name: "Atlassian",
+    description:
+      "Authorize an Atlassian Cloud site through a shared OAuth app, then the user's consent.",
+    methods: ["oauth-code"],
+  },
+  supabase: {
+    name: "Supabase",
+    description: "Sign in to a Supabase Auth project.",
+    methods: ["form"],
+  },
+  neon: {
+    name: "Neon",
+    description:
+      "Start anonymous Neon access and claim the project when required.",
+    methods: ["authmd-anonymous"],
+  },
+  slack: {
+    name: "Slack",
+    description: "Authorize a Slack workspace with OAuth.",
+    methods: ["oauth-code"],
+  },
+  google: {
+    name: "Google",
+    description: "Authorize a Google account with OAuth.",
+    methods: ["oauth-code"],
+  },
+};
+
+/** Conservative family selection from a provider name. Does not fetch or certify the provider. */
+export function proposeConnectorForProvider(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64);
+  const known = providerCatalog[slug] ?? providerCatalog[slug.split("-")[0]!];
+  if (known) return { slug: slug || known.name.toLowerCase(), ...known };
+  const label = name.trim() || "Provider";
+  return {
+    slug: slug || "provider",
+    name: label,
+    description: `Connect ${label} with a generic OAuth ceremony. Review every step before export.`,
+    methods: ["oauth-code"] as FlowKind[],
+  };
+}
+
+export function applyProviderProposal(project: ConnectorDraft, name: string) {
+  const proposal = proposeConnectorForProvider(name);
+  if (!project.manifest.name) project.manifest.name = proposal.name;
+  if (!project.manifest.id) project.manifest.id = proposal.slug;
+  if (!project.manifest.description)
+    project.manifest.description = proposal.description;
+  const familyNames: Record<FlowKind, string> = {
+    "api-key": "API key",
+    basic: "Username and password (Basic)",
+    form: "Sign-in form",
+    "oauth-code": "Browser authorization (OAuth)",
+    device: "Device authorization",
+    "authmd-anonymous": "Anonymous access and claiming",
+    "github-app": "GitHub App",
+  };
+  for (const kind of proposal.methods)
+    attachGenericCeremony(project, kind, familyNames[kind]);
+  return proposal;
+}
+
+/** Parent ceremony that reuses selected child ceremonies as prerequisites. */
+export function composeAuthoredMethods(
+  project: ConnectorDraft,
+  childIds: string[],
+) {
+  const children = childIds.map((id) => {
+    const method = project.manifest.methods.find((item) => item.id === id);
+    if (!method) throw new Error("unknown method");
+    return method;
+  });
+  if (children.length < 2) throw new Error("compose requires two ceremonies");
+  const parent = attachGenericCeremony(
+    project,
+    children[0]!.kind,
+    "Composed ceremony",
+  );
+  parent.contract!.prerequisites = children.map((child) => ({
+    id: child.id,
+    kind:
+      child.kind === "oauth-code" || child.kind === "github-app"
+        ? ("provider-registration" as const)
+        : ("provider-consent" as const),
+    reuse: "verified-context" as const,
+    handoff: child.contract!.handoff,
+  }));
+  parent.contract!.completion.verifier = `${parent.id}.verify-access`;
+  const workflow = project.workflows[0]!.workflows.find(
+    (item) => item.workflowId === parent.id,
+  )!;
+  workflow.summary = "Complete after the composed ceremonies";
+  workflow.steps = [
+    {
+      stepId: "verify-composed",
+      description: "Verify access after the selected ceremonies succeed",
+      operationId: "provider.verify-composed",
+    },
+  ];
+  return parent;
 }
 
 export function newConnectorProject(): Omit<ConnectorProject, "manifest"> & {

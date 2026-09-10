@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  applyProviderProposal,
+  attachGenericCeremony,
+  composeAuthoredMethods,
+  proposeConnectorForProvider,
   connectorProjectSchema,
   exportConnectorFiles,
-  newAuthoredMethod,
   newConnectorProject,
   parseConnectorDraft,
 } from "../../src/core/connector-authoring.js";
@@ -49,6 +52,8 @@ export default function WorkflowStudio({
     "details",
   );
   const [family, setFamily] = useState<FlowKind>("oauth-code");
+  const [provider, setProvider] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [dirty, setDirty] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -118,14 +123,6 @@ export default function WorkflowStudio({
       />
     </label>
   );
-  const nextMethodId = () => {
-    let i = project.manifest.methods.length + 1;
-    while (
-      project.manifest.methods.some((method) => method.id === `method-${i}`)
-    )
-      i++;
-    return `method-${i}`;
-  };
   return (
     <section className="connector-authoring" aria-label="Connector authoring">
       <div className="page-heading">
@@ -152,9 +149,39 @@ export default function WorkflowStudio({
             </button>
             {importControl}
           </div>
+          <form
+            className="authoring-provider"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const proposal = proposeConnectorForProvider(provider);
+              change((next) => {
+                applyProviderProposal(next, provider);
+              });
+              setStarted(true);
+              setStage("ceremonies");
+              setMessage(
+                `Drafted ${proposal.name} from generic ceremony templates. Review every step; nothing was executed or certified.`,
+              );
+            }}
+          >
+            <label>
+              Provider to build a ceremony for
+              <input
+                value={provider}
+                maxLength={100}
+                placeholder="e.g. Jira, Slack, GitHub"
+                onChange={(event) => setProvider(event.target.value)}
+              />
+            </label>
+            <button className="primary" disabled={!provider.trim()}>
+              Build from this provider
+            </button>
+          </form>
           <p className="muted small">
             No account connection or credentials needed. Your work stays
-            separate from Connect and Environment.
+            separate from Connect and Environment. Provider drafts use generic
+            workflow templates; they do not fetch the provider or install an
+            adapter.
           </p>
         </section>
       ) : (
@@ -291,23 +318,7 @@ export default function WorkflowStudio({
                   disabled={project.manifest.methods.length >= 12}
                   onClick={() =>
                     change((p) => {
-                      const id = nextMethodId();
-                      const method = newAuthoredMethod(family, id);
-                      method.contract!.workflows[0]!.document =
-                        p.workflows[0]!.document;
-                      method.label = familyNames[family];
-                      p.manifest.methods.push(method);
-                      p.workflows[0]!.workflows.push({
-                        workflowId: id,
-                        summary: method.label,
-                        steps: [
-                          {
-                            stepId: "step-1",
-                            description: "Verify provider access",
-                            operationId: "",
-                          },
-                        ],
-                      });
+                      attachGenericCeremony(p, family, familyNames[family]);
                     })
                   }
                 >
@@ -340,6 +351,20 @@ export default function WorkflowStudio({
                   >
                     <div className="card-top">
                       <h3>{method.label}</h3>
+                      <label className="authoring-select">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(method.id)}
+                          onChange={(event) =>
+                            setSelected(
+                              event.target.checked
+                                ? [...selected, method.id]
+                                : selected.filter((id) => id !== method.id),
+                            )
+                          }
+                        />
+                        Include in composition
+                      </label>
                       <button
                         onClick={() =>
                           change((p) => {
@@ -753,6 +778,20 @@ export default function WorkflowStudio({
                 );
               })}
               <div className="toolbar">
+                <button
+                  disabled={selected.length < 2}
+                  onClick={() => {
+                    change((p) => {
+                      composeAuthoredMethods(p, selected);
+                    });
+                    setSelected([]);
+                    setMessage(
+                      "Composed a parent ceremony from the selected methods. Child ceremonies stay available on their own.",
+                    );
+                  }}
+                >
+                  Compose selected ceremonies
+                </button>
                 <button onClick={() => setStage("details")}>
                   Back to connector
                 </button>

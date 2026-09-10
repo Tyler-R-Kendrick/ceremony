@@ -856,6 +856,25 @@ fieldset label:last-child input {
 .authoring-start p {
   max-width: 65ch;
 }
+.authoring-provider {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+.authoring-provider .primary {
+  justify-self: start;
+}
+.authoring-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted, #526171);
+}
+.authoring-select input {
+  width: auto;
+}
 .authoring-stages {
   display: flex;
   gap: 12px;

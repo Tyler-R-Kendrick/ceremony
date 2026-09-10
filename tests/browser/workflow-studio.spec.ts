@@ -52,16 +52,19 @@ test("Studio authors a new connector without running Connect or reading Environm
   await page.getByRole("button", { name: "Design ceremonies" }).click();
   await page.getByRole("button", { name: "Add method", exact: true }).click();
   await page.getByLabel("Completion verifier").fill("acme.verify-access");
-  await page.getByLabel("SDK operation ID").fill("accounts/get-current");
+  await page
+    .getByLabel("SDK operation ID")
+    .first()
+    .fill("accounts/get-current");
   await page.getByRole("button", { name: "Add step", exact: true }).click();
   await page
     .getByLabel("What happens?")
-    .nth(1)
+    .last()
     .fill("Check workspace membership");
-  await page.getByLabel("SDK operation ID").nth(1).fill("memberships/check");
+  await page.getByLabel("SDK operation ID").last().fill("memberships/check");
   await page
     .getByRole("button", { name: "Move up", exact: true })
-    .nth(1)
+    .last()
     .click();
   await page
     .getByText("Prerequisites and human fallback", { exact: true })
@@ -93,7 +96,12 @@ test("Studio authors a new connector without running Connect or reading Environm
   );
   expect(
     project.workflows[0]!.workflows[0]!.steps.map((step) => step.operationId),
-  ).toEqual(["memberships/check", "accounts/get-current"]);
+  ).toEqual([
+    "accounts/get-current",
+    "provider.authorize-user",
+    "memberships/check",
+    "provider.verify-access",
+  ]);
   expect(effects).toEqual([]);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -150,6 +158,45 @@ test("Studio authors a new connector without running Connect or reading Environm
     .click();
   await expect(page.getByLabel("Connector name", { exact: true })).toHaveValue(
     "Unfinished changes",
+  );
+});
+
+test("Studio drafts a provider from generic templates and composes ceremonies", async ({
+  page,
+}) => {
+  await page.goto("/?section=studio");
+  await page.getByLabel("Provider to build a ceremony for").fill("Jira");
+  await page
+    .getByRole("button", { name: "Build from this provider", exact: true })
+    .click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Drafted Jira" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Browser authorization (OAuth)",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel("What happens?").first()).toHaveValue(
+    "Prepare the shared OAuth app when the host has none",
+  );
+  await page.getByLabel("Authentication method").selectOption("device");
+  await page.getByRole("button", { name: "Add method", exact: true }).click();
+  await page.getByLabel("Include in composition").first().check();
+  await page.getByLabel("Include in composition").nth(1).check();
+  await page
+    .getByRole("button", { name: "Compose selected ceremonies", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Composed ceremony", exact: true }),
+  ).toBeVisible();
+  await page.getByText("Prerequisites and human fallback").last().click();
+  await expect(page.getByLabel("Prerequisite ID").nth(1)).toHaveValue(
+    "method-1",
+  );
+  await expect(page.getByLabel("Prerequisite ID").nth(2)).toHaveValue(
+    "method-2",
   );
 });
 
@@ -238,7 +285,8 @@ test("imported document names and saved presentations remain editable when metho
   expect(result.manifest.methods[0]!.contract.workflows[0]!.document).toBe(
     "first-api",
   );
-  expect(result.templates).toEqual([]);
+  expect(result.templates.map((template) => template.id)).toEqual(["api-key"]);
+  expect(result.templates[0]!.kind).toBe("api-key");
 });
 
 test("incomplete ceremonies stay editable without a false validation pass", async ({
