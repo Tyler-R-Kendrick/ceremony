@@ -169,7 +169,9 @@ test("behavior: server Supabase exchanges do not read browser storage or URL and
     });
   }
   let requests = 0;
-  const { adapter } = fixture(t, async () => {
+  const { adapter } = fixture(t, async (input) => {
+    if (new URL(String(input)).pathname === "/auth/v1/user")
+      return Response.json({ id: `synthetic-user-${requests}` });
     requests++;
     return Response.json({
       access_token: `synthetic-access-${requests}`,
@@ -281,6 +283,65 @@ test("chaos: malformed and expired Supabase success cannot persist credentials o
   }
 });
 
+test("security: Supabase requires fresh matching user evidence before persisting access", async (t) => {
+  // Auth-js rounds expires_in to whole seconds; exercise an exact trusted-clock boundary.
+  let now = 2_000_000_000_000;
+  t.mock.method(Date, "now", () => now);
+  let expireDuringLookup = false;
+  let userResponse: unknown = { id: "different-user" };
+  let status = 200;
+  let lookups = 0;
+  const { adapter, db, env } = fixture(t, async (input, init) => {
+    if (new URL(String(input)).pathname === "/auth/v1/user") {
+      lookups++;
+      if (expireDuringLookup) now += 3_600_000;
+      assert.equal(
+        new Headers(init?.headers).get("authorization") ===
+          "Bearer synthetic-access",
+        true,
+      );
+      return Response.json(userResponse, { status });
+    }
+    return Response.json({
+      access_token: "synthetic-access",
+      refresh_token: "synthetic-refresh",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: { id: "synthetic-user" },
+    });
+  });
+  const values = {
+    projectUrl: "https://synthetic.supabase.co",
+    publishableKey: "synthetic-key",
+    email: "alice@example.com",
+    password: "synthetic-password",
+  };
+  for (const response of [{ id: "different-user" }, {}, { id: 123 }]) {
+    userResponse = response;
+    await assert.rejects(adapter(1).submit(values, false), /Supabase/);
+    assert.deepEqual(db.keys("connection:"), []);
+    assert.deepEqual(env.read("alice"), {});
+  }
+  status = 401;
+  userResponse = { message: "synthetic private provider error" };
+  await assert.rejects(
+    adapter(1).submit(values, false),
+    (error: unknown) =>
+      error instanceof Error && !error.message.includes("private provider"),
+  );
+  assert.deepEqual(db.keys("connection:"), []);
+  assert.equal(lookups, 4);
+  status = 200;
+  userResponse = { id: "synthetic-user" };
+  expireDuringLookup = true;
+  await assert.rejects(adapter(1).submit(values, false), /Supabase/);
+  assert.deepEqual(db.keys("connection:"), []);
+  assert.deepEqual(env.read("alice"), {});
+  expireDuringLookup = false;
+  assert.equal((await adapter(1).submit(values, false)).step, "complete");
+  assert.equal(lookups, 6);
+});
+
 test("behavior: verified Stripe credentials stay private and outcomes do not invent scopes", async (t) => {
   let requests = 0;
   const { adapter, db } = fixture(t, async () => {
@@ -315,14 +376,18 @@ test("behavior: Supabase session exchange does not start a background refresh lo
     },
   );
   t.after(() => timers.forEach(clearInterval));
-  const { adapter, env } = fixture(t, async () =>
-    Response.json({
-      access_token: "synthetic-access",
-      refresh_token: "synthetic-refresh",
-      expires_in: 3600,
-      token_type: "bearer",
-      user: { id: "synthetic-user" },
-    }),
+  const { adapter, env } = fixture(t, async (input) =>
+    Response.json(
+      new URL(String(input)).pathname === "/auth/v1/user"
+        ? { id: "synthetic-user" }
+        : {
+            access_token: "synthetic-access",
+            refresh_token: "synthetic-refresh",
+            expires_in: 3600,
+            token_type: "bearer",
+            user: { id: "synthetic-user" },
+          },
+    ),
   );
   env.update("alice", {
     revision: 0,

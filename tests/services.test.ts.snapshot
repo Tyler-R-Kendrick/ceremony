@@ -228,6 +228,11 @@ exports[`characterization: live service manifests, workflows and missing-setup p
             "stepId": "authenticate",
             "description": "Exchange email and password for a project session",
             "operationPath": "{$sourceDescriptions.auth.url}#/paths/~1token/post"
+          },
+          {
+            "stepId": "verify-user",
+            "description": "Verify the issued session with a fresh Auth user lookup",
+            "operationPath": "{$sourceDescriptions.auth.url}#/paths/~1user/get"
           }
         ]
       }

@@ -228,6 +228,12 @@ export const serviceWorkflows: Record<string, ArazzoDocument> = {
             description: "Exchange email and password for a project session",
             operationPath: "{$sourceDescriptions.auth.url}#/paths/~1token/post",
           },
+          {
+            stepId: "verify-user",
+            description:
+              "Verify the issued session with a fresh Auth user lookup",
+            operationPath: "{$sourceDescriptions.auth.url}#/paths/~1user/get",
+          },
         ],
       },
     ],
@@ -330,6 +336,7 @@ export function serviceRegistrations(
       ): Promise<AdapterUpdate> => {
         const env = configured();
         let secret: Record<string, unknown> = {};
+        let expectedUserId: string | undefined;
         let expiresAt = Date.now() + 3_600_000;
         try {
           if (manifest.id === "stripe") {
@@ -404,16 +411,32 @@ export function serviceRegistrations(
                         access_token: z.string().min(1),
                         refresh_token: z.string().min(1),
                         expires_at: z.number().positive(),
+                        user: z.object({ id: z.string().min(1) }),
                       })
                       .parse(data.session);
                     expiresAt = session.expires_at * 1000;
                     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
                       throw new Error("Expired session");
+                    expectedUserId = session.user.id;
                     secret = {
                       projectUrl: projectUrl.origin,
                       access_token: session.access_token,
                       refresh_token: session.refresh_token,
                     };
+                  },
+                ],
+                [
+                  "{$sourceDescriptions.auth.url}#/paths/~1user/get",
+                  async () => {
+                    const { data, error } = await supabase.auth.getUser(
+                      z.string().min(1).parse(secret.access_token),
+                    );
+                    if (error) throw error;
+                    const user = z
+                      .object({ id: z.string().min(1) })
+                      .parse(data.user);
+                    if (user.id !== expectedUserId || expiresAt <= Date.now())
+                      throw new Error("Invalid session evidence");
                   },
                 ],
               ]),

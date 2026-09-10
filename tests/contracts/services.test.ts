@@ -55,6 +55,86 @@ function fixture(t: TestContext, provider: string) {
     });
   return { pact, db, env, consumer, events };
 }
+for (const status of [200, 401]) {
+  test(`Pact: Supabase rejects ${status === 200 ? "mismatched" : "revoked"} issued session evidence`, async (t) => {
+    const { pact, db, env, consumer, events } = fixture(t, "supabase-auth");
+    pact
+      .given("the project user has valid credentials")
+      .uponReceiving("password grant before fresh user verification")
+      .withRequest({
+        method: "POST",
+        path: "/auth/v1/token",
+        query: { grant_type: "password" },
+        headers: { apikey: "sb_publishable_synthetic" },
+        body: {
+          email: "alice@example.com",
+          password: "synthetic-password",
+          gotrue_meta_security: {},
+        },
+      })
+      .willRespondWith({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: {
+          access_token: "synthetic-access",
+          refresh_token: "synthetic-refresh",
+          token_type: "bearer",
+          expires_in: 3600,
+          user: { id: "synthetic-user" },
+        },
+      });
+    pact
+      .given(
+        status === 200
+          ? "the issued session identifies a different user"
+          : "the issued session has been revoked",
+      )
+      .uponReceiving("fresh verification rejects the issued project session")
+      .withRequest({
+        method: "GET",
+        path: "/auth/v1/user",
+        headers: {
+          apikey: "sb_publishable_synthetic",
+          authorization: "Bearer synthetic-access",
+        },
+      })
+      .willRespondWith({
+        status,
+        headers: { "content-type": "application/json" },
+        body:
+          status === 200
+            ? { id: "different-user" }
+            : { message: "synthetic private provider detail" },
+      });
+    await pact.executeTest(async ({ url }) => {
+      const registration = consumer(url, "https://synthetic.supabase.co")[1]!;
+      const adapter = registration.createAdapter({
+        owner: "alice",
+        instanceId: "verification-failure",
+        method: registration.manifest.methods[0]!,
+      });
+      await assert.rejects(
+        adapter.submit(
+          {
+            projectUrl: "https://synthetic.supabase.co",
+            publishableKey: "sb_publishable_synthetic",
+            email: "alice@example.com",
+            password: "synthetic-password",
+          },
+          false,
+        ),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message.startsWith("Supabase") &&
+          !error.message.includes("private provider"),
+      );
+      assert.deepEqual(db.keys("connection:"), []);
+      assert.deepEqual(db.keys("service-result:"), []);
+      assert.deepEqual(env.read("alice"), {});
+      assert.deepEqual(events, ["success", "failure"]);
+    });
+  });
+}
 for (const accepted of [true, false]) {
   test(`Pact: Stripe SDK ${accepted ? "verifies and resumes private access" : "rejects invalid credentials"}`, async (t) => {
     const { pact, db, env, consumer, events } = fixture(t, "stripe-rest");
@@ -159,6 +239,23 @@ for (const accepted of [true, false]) {
               msg: "synthetic private provider detail",
             },
       });
+    if (accepted)
+      pact
+        .given("the issued session identifies the project user")
+        .uponReceiving("fresh verification of the issued project session")
+        .withRequest({
+          method: "GET",
+          path: "/auth/v1/user",
+          headers: {
+            apikey: "sb_publishable_synthetic",
+            authorization: "Bearer synthetic-access",
+          },
+        })
+        .willRespondWith({
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: { id: "synthetic-user", email: "alice@example.com" },
+        });
     await pact.executeTest(async ({ url }) => {
       const registration = consumer(url, "https://synthetic.supabase.co")[1]!;
       const context = {
@@ -221,7 +318,7 @@ for (const accepted of [true, false]) {
         assert.deepEqual(env.read("alice"), {});
         assert.equal(db.keys("connection:").length, 0);
       }
-      assert.deepEqual(events, [accepted ? "success" : "failure"]);
+      assert.deepEqual(events, accepted ? ["success", "success"] : ["failure"]);
     });
   });
 }
