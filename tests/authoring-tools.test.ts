@@ -182,6 +182,7 @@ test("authored Bluesky connector is listed and can start a ceremony", async (t) 
   const startedBody = await started.text();
   assert.equal(started.status, 200, startedBody);
   const run = JSON.parse(startedBody);
+  assert.equal(run.provider, "bluesky");
   assert.ok(Array.isArray(run.nodes) && run.nodes.length >= 1);
   assert.ok(run.nodes.some((node: { verified?: boolean }) => node.verified));
 });

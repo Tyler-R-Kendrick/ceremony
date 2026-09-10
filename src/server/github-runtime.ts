@@ -612,7 +612,7 @@ export function createGitHubRuntime(
       );
       if (authored)
         return {
-          provider: "authored",
+          provider: connectorId,
           profile: "authored",
           target: connectorId,
           origin,
