@@ -91,6 +91,7 @@ type Material = {
     password: string;
   };
   session?: SupabasePrivateSession;
+  mfa?: { factorId: string; code: string };
   evidenceEffect?: string;
   verifiedUntil?: number;
 };
@@ -468,10 +469,67 @@ export class AsyncSupabaseChildren {
     const material = await this.read(context, "session", reference);
     if (!material?.project || !material.session)
       throw new AuthorizationError("denied");
-    const result = await this.client(context, material.project).verify(
+    const client = this.client(context, material.project);
+    let result = await client.verify(
       material.session,
       this.options.requiredAssurance,
     );
+    if (result.state === "mfa-required") {
+      // Consume into the admitted command before either external MFA effect. A lost outcome requires fresh human input, never code replay.
+      const input = await this.store.transaction(async (tx) => {
+        const command = await tx.get<{ state: string; effectId: string }>({
+          tenant: context.actor.tenantId,
+          kind: "command",
+          id: context.commandId,
+        });
+        if (
+          command?.value.state !== "running" ||
+          command.value.effectId !== context.effectId
+        )
+          throw new AuthorizationError("denied");
+        const key = this.key(context, "input"),
+          record = await tx.get<Material>(key);
+        if (!record?.value.mfa || record.value.expires <= (await tx.now()))
+          return undefined;
+        await tx.delete(key, record.revision);
+        return record.value.mfa;
+      });
+      if (!input) return { state: "awaiting-human", outputs: {} };
+      await this.authorize(context);
+      try {
+        const challenge = await client.challengeTotp(
+          material.session,
+          input.factorId,
+        );
+        await this.authorize(context);
+        material.session = await client.verifyTotp(
+          material.session,
+          challenge,
+          input.code,
+        );
+        await this.save(
+          context,
+          "session",
+          { project: material.project, session: material.session },
+          Math.max(1, material.session.expires_at * 1000 - Date.now()),
+        );
+        result = await client.verify(
+          material.session,
+          this.options.requiredAssurance,
+        );
+      } catch (error) {
+        if (
+          error instanceof SupabaseAuthFailure &&
+          error.code === "provider-unavailable"
+        )
+          return {
+            state: "uncertain",
+            outputs: {},
+            diagnosticCode: "uncertain",
+          };
+        throw error;
+      }
+    }
     await this.authorize(context);
     if (result.state !== "verified")
       return { state: "awaiting-human", outputs: {} };
@@ -508,15 +566,21 @@ export class AsyncSupabaseChildren {
       email: z.email().max(254),
       password: z.string().min(1).max(1024),
     });
+    const mfa = z.strictObject({
+      factorId: z.uuid(),
+      code: z.string().regex(/^\d{6}$/),
+    });
     const parsed = z
       .union([
         project,
         credentials,
+        mfa,
         z.strictObject({ confirmed: z.literal(true) }),
       ])
       .safeParse(input);
     if (!parsed.success) throw new AuthorizationError("invalid_request");
     const collectingProject = "projectUrl" in parsed.data,
+      collectingMfa = "factorId" in parsed.data,
       confirming = "confirmed" in parsed.data;
     const planned = await this.store.transaction(async (tx) =>
       (
@@ -538,13 +602,20 @@ export class AsyncSupabaseChildren {
       throw new AuthorizationError("denied");
     const operationId = planned.operationId;
     const recovering = operationId === "supabase.verify-access";
+    if (collectingMfa && !recovering) throw new AuthorizationError("denied");
     if (recovering && confirming) throw new AuthorizationError("denied");
     if (collectingProject) this.client(context, project.parse(parsed.data));
     const fields = collectingProject
       ? ["projectUrl", "publishableKey"]
-      : ["action", "email", "password"];
+      : collectingMfa
+        ? ["factorId", "code"]
+        : ["action", "email", "password"];
     const binding = {
-      purpose: collectingProject ? "supabase-project" : "supabase-user",
+      purpose: collectingProject
+        ? "supabase-project"
+        : collectingMfa
+          ? "supabase-mfa"
+          : "supabase-user",
       provider: "supabase",
       operationId,
       operationVersion: "1.0.0",
@@ -611,7 +682,21 @@ export class AsyncSupabaseChildren {
             { project: project.parse(values) },
             86400000,
           );
-        else {
+        else if (collectingMfa) {
+          const session = await tx.get<Material>(this.key(context, "session"));
+          if (
+            !session?.value.session ||
+            session.value.expires <= (await tx.now())
+          )
+            throw new AuthorizationError("denied");
+          await this.write(
+            tx,
+            context,
+            "input",
+            { mfa: mfa.parse(values) },
+            300000,
+          );
+        } else {
           const value = credentials.parse(values);
           if (
             value.action === "sign-up" &&
@@ -648,6 +733,23 @@ export class AsyncSupabaseChildren {
               sessionKey,
               { state: "awaiting-human", verified: false, outputs: {} },
               prior.revision,
+            );
+            await appendSemanticTransition(
+              tx,
+              context.actor,
+              context.runId,
+              {
+                nodeId: producer.id,
+                operationId: producer.operationId,
+                operationVersion: producer.operationVersion,
+                actorKind: "human",
+                kind: "transition",
+                beforeState: "complete",
+                afterState: "awaiting-human",
+                publicBindings: {},
+                verification: "pending",
+              },
+              {},
             );
             for (const kind of ["session", "connection"] as const) {
               const key = this.key(context, kind),

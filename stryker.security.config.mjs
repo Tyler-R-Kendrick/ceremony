@@ -42,6 +42,12 @@ export default {
     guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
     guard("src/server/github-runtime.ts", 'connectorId !== "github" ||'),
     guard("src/server/services.ts", "user.id !== expectedUserId ||"),
+    guard("src/server/supabase-auth.ts", 'verified.claims.aal !== "aal2"'),
+    guard("src/server/supabase-auth.ts", "factor.id === factorId &&", 3),
+    guard(
+      "src/server/recipes/supabase.ts",
+      'context.actor.actorKind !== "human"',
+    ),
     guard(
       "src/server/recipes/stripe.ts",
       'context.actor.actorKind !== "human"',
@@ -67,6 +73,9 @@ export default {
       "tests/github-runtime-http.test.ts",
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",
+      "tests/supabase-auth.test.ts",
+      "tests/supabase-mfa.test.ts",
+      "tests/supabase-children.test.ts",
       "tests/security/*.test.ts",
     ],
   },

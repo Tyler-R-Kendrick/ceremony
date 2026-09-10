@@ -18,13 +18,23 @@ import { createTeachingRuntime } from "../src/server/teaching-runtime.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RunRecord } from "../src/server/commands.js";
 
-async function fixture(t: TestContext) {
+async function fixture(
+  t: TestContext,
+  requiredAssurance: "aal1" | "aal2" = "aal1",
+) {
   const key = randomBytes(32);
   const token = await new SignJWT({ aal: "aal1" })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject("fixture-user")
     .setExpirationTime("1h")
     .sign(key);
+  const elevated = await new SignJWT({ aal: "aal2" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject("fixture-user")
+    .setExpirationTime("1h")
+    .sign(key);
+  const factorId = randomUUID(),
+    challengeId = randomUUID();
   const state = {
     confirmed: false,
     loseSignup: false,
@@ -33,6 +43,9 @@ async function fixture(t: TestContext) {
     signins: 0,
     verifications: 0,
     version: "v1",
+    challenges: 0,
+    mfaVerifications: 0,
+    loseMfa: false,
   };
   const server = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
@@ -44,7 +57,12 @@ async function fixture(t: TestContext) {
         JSON.stringify(
           state.revoked
             ? { message: "private-provider-error" }
-            : { id: "fixture-user" },
+            : {
+                id: "fixture-user",
+                factors: [
+                  { id: factorId, factor_type: "totp", status: "verified" },
+                ],
+              },
         ),
       );
       return;
@@ -53,6 +71,41 @@ async function fixture(t: TestContext) {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (req.url === `/auth/v1/factors/${factorId}/challenge`) {
+      await jwtVerify(req.headers.authorization!.slice(7), key);
+      state.challenges++;
+      res.end(
+        JSON.stringify({
+          id: challengeId,
+          type: "totp",
+          expires_at: Math.floor(Date.now() / 1000) + 300,
+        }),
+      );
+      return;
+    }
+    if (req.url === `/auth/v1/factors/${factorId}/verify`) {
+      await jwtVerify(req.headers.authorization!.slice(7), key);
+      state.mfaVerifications++;
+      assert.equal(body.challenge_id, challengeId);
+      if (state.loseMfa) {
+        res.destroy();
+        return;
+      }
+      if (body.code !== "123456") {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ message: "private-provider-error" }));
+      } else
+        res.end(
+          JSON.stringify({
+            access_token: elevated,
+            refresh_token: "synthetic-refresh",
+            expires_in: 3600,
+            token_type: "bearer",
+            user: { id: "fixture-user" },
+          }),
+        );
+      return;
+    }
     assert.equal(
       body.email === "user@example.com" &&
         body.password === "synthetic-password",
@@ -120,6 +173,7 @@ async function fixture(t: TestContext) {
     configurationVersion: "v1",
   };
   const options = {
+    requiredAssurance,
     configuration: async () => ({ version: state.version }),
     authorize: async () => {},
     fetch: (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -191,6 +245,7 @@ async function fixture(t: TestContext) {
     input,
     inputContext,
     token,
+    factorId,
   };
 }
 const project = {
@@ -287,6 +342,64 @@ test("Supabase children reject foreign actors, source impersonation, wrong stage
   assert.equal(f.state.signups, 0);
   assert.equal(f.state.signins, 0);
 });
+
+for (const loseMfa of [false, true])
+  test(`Supabase durable MFA ${loseMfa ? "does not replay a code after a lost response" : "resumes the same parent after private authenticator input"}`, async (t) => {
+    const f = await fixture(t, "aal2");
+    f.state.confirmed = true;
+    const run = await f.runtime.connect(f.actor, "supabase");
+    await f.advance(run.id, "project");
+    await f.input(run.id, "project", project);
+    await f.advance(run.id, "project");
+    await f.advance(run.id, "session");
+    await assert.rejects(
+      f.input(run.id, "session", { factorId: f.factorId, code: "123456" }),
+      /denied/,
+    );
+    await f.input(run.id, "session", { ...credentials, action: "sign-in" });
+    await f.advance(run.id, "session");
+    assert.equal((await f.advance(run.id, "access")).state, "awaiting-human");
+    assert.equal(f.state.challenges, 0);
+    const before = await f.runtime.commands.snapshot(f.actor, run.id);
+    await assert.rejects(
+      f.children.humanInput(
+        {
+          ...f.inputContext(run.id, "access"),
+          actor: { ...f.actor, actorKind: "agent" },
+        },
+        before.revision,
+        { factorId: f.factorId, code: "123456" },
+      ),
+      /denied/,
+    );
+    await f.input(run.id, "access", { factorId: f.factorId, code: "654321" });
+    assert.equal((await f.advance(run.id, "access")).state, "awaiting-human");
+    assert.equal(f.state.mfaVerifications, 1);
+    assert.equal((await f.advance(run.id, "access")).state, "awaiting-human");
+    assert.equal(f.state.mfaVerifications, 1);
+    f.state.loseMfa = loseMfa;
+    await f.input(run.id, "access", { factorId: f.factorId, code: "123456" });
+    assert.equal(
+      (await f.advance(run.id, "access")).state,
+      loseMfa ? "uncertain" : "complete",
+    );
+    if (loseMfa) {
+      await assert.rejects(f.advance(run.id, "access"), /denied/);
+      assert.equal(f.state.mfaVerifications, 2);
+      f.state.loseMfa = false;
+      await f.input(run.id, "access", { factorId: f.factorId, code: "123456" });
+      assert.equal((await f.advance(run.id, "access")).state, "complete");
+    }
+    const done = await f.runtime.commands.snapshot(f.actor, run.id);
+    assert.equal(done.status, "complete");
+    assert.equal(
+      /123456|654321|synthetic-refresh|factorId/.test(JSON.stringify(done)),
+      false,
+    );
+    assert.equal(f.state.signups, 0);
+    assert.equal(f.state.signins, 1);
+    assert.equal((await f.runtime.connect(f.actor, "supabase")).id, run.id);
+  });
 
 test("Parallel Supabase parents cannot replace a shared project binding before another parent's credential exchange", async (t) => {
   const f = await fixture(t),
