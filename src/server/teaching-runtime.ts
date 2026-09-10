@@ -220,6 +220,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
         const match = page.find(
           (r) =>
             r.value.subjectId === actor.subjectId &&
+            r.value.sessionId === actor.sessionId &&
             r.value.continuation === options.continuation?.id &&
             r.value.status !== "cancelled" &&
             Object.entries(context).every(

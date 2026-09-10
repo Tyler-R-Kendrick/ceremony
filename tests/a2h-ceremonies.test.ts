@@ -8,6 +8,7 @@ import {
   a2hCeremonySchema,
   canonicalJson,
   type A2HCeremony,
+  type A2HOptions,
 } from "../src/server/a2h.js";
 import { effectAuthorizationDigest } from "../src/server/authorization.js";
 import { CeremonyDatabase } from "../src/server/storage.js";
@@ -42,7 +43,7 @@ async function fixture(t: TestContext) {
   };
   const intents: Record<string, z.infer<ReturnType<typeof z.json>>>[] = [];
   let loseReply = false;
-  const agent = new Agent2Human(db, {
+  const options: A2HOptions = {
     gatewayOrigin: "https://gateway.example",
     agentId: "did:web:ceremony.example",
     keyId: "agent",
@@ -68,12 +69,16 @@ async function fixture(t: TestContext) {
       }
       return Response.json({ interaction_id: intent.interaction_id });
     },
-  });
+  };
+  const agent = new Agent2Human(db, options);
   return {
     agent,
     db,
     intents,
     agentKey,
+    changeAgent: (agentId: string) => {
+      options.agentId = agentId;
+    },
     changeRecipient: (change: Partial<typeof recipient>) => {
       recipient = { ...recipient, ...change };
     },
@@ -184,6 +189,23 @@ test("A2H recipient remapping during a human wait invalidates the response", asy
   }
 });
 
+test("A2H agent identity rotation cannot reuse or consume another agent's request", async (t) => {
+  const f = await fixture(t);
+  await f.agent.authorize("alice", "run", humanUrl, ceremony);
+  const response = await f.response();
+  f.changeAgent("did:web:other.example");
+  await assert.rejects(
+    f.agent.authorize("alice", "run", humanUrl, ceremony),
+    /context changed/,
+  );
+  await assert.rejects(
+    f.agent.receive("run", response, ceremony),
+    /context changed/,
+  );
+  assert.equal(f.intents.length, 1);
+  f.changeAgent("did:web:ceremony.example");
+  assert.equal(await f.agent.receive("run", response, ceremony), "verify");
+});
 test("A2H uncertain generic delivery retries the same signed intent and rejects changed context", async (t) => {
   const f = await fixture(t);
   f.loseReply();
