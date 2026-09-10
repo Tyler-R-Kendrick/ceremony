@@ -226,7 +226,10 @@ export function jiraOwnerPage(
   );
 }
 
-function jiraRequesterPage(endpoint: string, returnUrl: string): Response {
+export function jiraRequesterPage(
+  endpoint: string,
+  returnUrl: string,
+): Response {
   return jiraPrivatePage(
     "Your Jira integration needs owner setup",
     `<p>Your designated integration owner can supply the shared app. You will keep this connection and authorize your own Jira access afterward.</p><p id="progress" role="status" aria-live="polite">Checking setup…</p><p><a id="owner-link" hidden>Open owner setup (owner sign-in required)</a></p><button id="request" disabled>Request owner setup</button><p>The owner link does not grant access. Share it with your integration owner; host notification, if configured, does not replace this link.</p>`,
