@@ -81,7 +81,7 @@ export function assertRequestBoundary(
 }
 /** Reads with an actual byte ceiling; Content-Length alone is not trustworthy. */
 export async function boundedJson(
-  request: Request,
+  request: Pick<Request, "body">,
   maxBytes = 262144,
 ): Promise<unknown> {
   const reader = request.body?.getReader();
