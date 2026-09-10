@@ -164,7 +164,9 @@ export function TeachingConnection({
           ? "Supabase"
           : connectorId === "jira"
             ? "Jira"
-            : "service";
+            : connectorId === "bluesky"
+              ? "Bluesky"
+              : connectorId.replace(/-/g, " ");
   const base = apiBase.replace(/\/$/, "");
   const request = useCallback(
     <T,>(path: string, body?: unknown, signal?: AbortSignal) =>

@@ -149,6 +149,43 @@ test("mounted authoring HTTP drafts a provider without a human collector", async
   assert.equal(body.draft, undefined);
 });
 
+test("authored Bluesky connector is listed and can start a ceremony", async (t) => {
+  const { teachingGitHubFixture } =
+    await import("./fixtures/teaching-github.js");
+  const fixture = await teachingGitHubFixture(4492);
+  t.after(() => fixture.close());
+  const cookie = fixture.sessionCookie("http-author");
+  const headers = {
+    cookie,
+    origin: fixture.origin,
+    "content-type": "application/json",
+  };
+  const chat = await fetch(`${fixture.origin}/api/v1/teaching/authoring/chat`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message: "create a ceremony for blusky" }),
+  });
+  assert.equal(chat.status, 200);
+  const drafted = await chat.json();
+  assert.equal(drafted.result.draft.connectorId, "bluesky");
+  assert.match(drafted.messages.at(-1).text, /\/\?connector=bluesky/);
+  const capabilities = await fetch(
+    `${fixture.origin}/api/v1/teaching/capabilities`,
+    { headers: { cookie, origin: fixture.origin } },
+  );
+  assert.ok((await capabilities.json()).connectors.includes("bluesky"));
+  const started = await fetch(`${fixture.origin}/api/v1/teaching/runs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ connectorId: "bluesky" }),
+  });
+  const startedBody = await started.text();
+  assert.equal(started.status, 200, startedBody);
+  const run = JSON.parse(startedBody);
+  assert.ok(Array.isArray(run.nodes) && run.nodes.length >= 1);
+  assert.ok(run.nodes.some((node: { verified?: boolean }) => node.verified));
+});
+
 test("high-confidence misspellings resolve without elicitation", () => {
   const github = disambiguateProvider("githb");
   assert.equal(github.resolved, "github");

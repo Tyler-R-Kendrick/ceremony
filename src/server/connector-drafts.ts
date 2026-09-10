@@ -81,7 +81,7 @@ function replyFrom(result: AuthoringResult) {
     .map((line) => `\n- ${line}`)
     .join("");
   const test = result.draft.connectorId
-    ? `\nOpen Connect to test ${result.draft.connectorId}. WebMCP: ceremony_${result.draft.connectorId.replaceAll("-", "_")}_connect.`
+    ? `\nTest it here: /?connector=${result.draft.connectorId}`
     : "";
   return `Drafted a ${result.draft.provider} ceremony.${corrected}${found}${outline}${test}`;
 }

@@ -255,7 +255,7 @@ export async function teachingHttp(
         modelAvailable: Boolean(runtime.modelConfiguration.model),
         signOutAvailable:
           typeof Reflect.get(runtime.identity, "logout") === "function",
-        connectors: runtime.connectors,
+        connectors: await runtime.listConnectors(actor),
       });
     if (path === "/runs" && post) {
       const input = z
@@ -271,7 +271,7 @@ export async function teachingHttp(
             /^[a-zA-Z0-9-]{1,100}$/.test(input.target),
         )
         .parse(body);
-      if (!runtime.connectors.includes(input.connectorId))
+      if (!(await runtime.listConnectors(actor)).includes(input.connectorId))
         throw new AuthorizationError("invalid_request");
       if (input.target) {
         if (!runtime.selectTarget) throw new AuthorizationError("denied");

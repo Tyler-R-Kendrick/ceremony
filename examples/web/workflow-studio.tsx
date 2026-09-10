@@ -72,10 +72,6 @@ export default function WorkflowStudio() {
       });
       setConversationId(reply.conversationId);
       setMessages(reply.messages);
-      const connectorId = reply.result?.draft?.connectorId;
-      if (connectorId) {
-        location.assign(`/?connector=${encodeURIComponent(connectorId)}`);
-      }
     } catch {
       setError(
         "The authoring agent could not continue. Don't send credentials here.",
@@ -104,7 +100,17 @@ export default function WorkflowStudio() {
               className="authoring-turn"
             >
               <span>{message.role === "assistant" ? "Agent" : "You"}</span>
-              {message.text}
+              {message.text
+                .split(/(\/\?connector=[a-z0-9-]+)/)
+                .map((part, partIndex) =>
+                  part.startsWith("/?connector=") ? (
+                    <a key={partIndex} href={part}>
+                      {part}
+                    </a>
+                  ) : (
+                    part
+                  ),
+                )}
             </p>
           ))}
           {busy && (
