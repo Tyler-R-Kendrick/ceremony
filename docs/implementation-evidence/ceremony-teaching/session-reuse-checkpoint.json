@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "d0ed75c19dac7bae18625574aaee0b5815a9139c",
+  "scope": "Session-bound parent selection; shared setup assignment remains unfinished",
+  "attempts": [
+    {
+      "command": "generic session regression before guard",
+      "exitCode": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    {
+      "command": "mounted Jira session regressions before guard",
+      "exitCode": 1,
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0
+    },
+    {
+      "command": "runtime boundary and Jira child tests after guard",
+      "exitCode": 0,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    { "command": "npm run check", "exitCode": 0 },
+    {
+      "command": "three-browser Jira matrix with fresh-login assertions",
+      "exitCode": 1,
+      "passed": 3,
+      "failed": 3,
+      "skipped": 0,
+      "retries": 0,
+      "cases": [
+        {
+          "project": "chromium",
+          "setup": "configured",
+          "status": "timedOut",
+          "durationMs": 30006,
+          "lastStepLine": 4
+        },
+        {
+          "project": "chromium",
+          "setup": "owner-setup",
+          "status": "timedOut",
+          "durationMs": 30002,
+          "lastStepLine": 4
+        },
+        {
+          "project": "firefox",
+          "setup": "configured",
+          "status": "passed",
+          "durationMs": 27745
+        },
+        {
+          "project": "firefox",
+          "setup": "owner-setup",
+          "status": "passed",
+          "durationMs": 24895
+        },
+        {
+          "project": "webkit",
+          "setup": "configured",
+          "status": "passed",
+          "durationMs": 23824
+        },
+        {
+          "project": "webkit",
+          "setup": "owner-setup",
+          "status": "timedOut",
+          "durationMs": 30001,
+          "lastStepLine": 4
+        }
+      ]
+    }
+  ],
+  "priorHeadVerification": {
+    "commit": "d0ed75c19dac7bae18625574aaee0b5815a9139c",
+    "startedAt": "2026-09-10T13:16:13.814Z",
+    "command": "npm run verify",
+    "exitCode": 1,
+    "passed": 375,
+    "failed": 2,
+    "skipped": 0,
+    "laterStages": "NOT_RUN",
+    "diagnosticAttempt": {
+      "command": "npm run test:coverage with location-only output filter",
+      "exitCode": 0,
+      "passed": 377,
+      "failed": 0,
+      "skipped": 0
+    },
+    "reasonCode": "EARLIER_FAILURES_NOT_REPRODUCED_OR_DIAGNOSED"
+  },
+  "followupAttempts": [
+    {
+      "command": "focused session and A2H source mutation",
+      "processExitCode": 0,
+      "verdict": "FAIL",
+      "killed": 21,
+      "survived": 4,
+      "timedOut": 0,
+      "reasonCode": "MISSING_AGENT_ID_AND_CONTINUATION_ASSERTIONS"
+    },
+    {
+      "command": "A2H and runtime boundary tests after survivor regression assertions",
+      "exitCode": 0,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "focused session and A2H source mutation after assertions",
+      "processExitCode": 0,
+      "verdict": "PASS",
+      "killed": 25,
+      "survived": 0,
+      "timedOut": 0
+    },
+    {
+      "command": "isolated Chromium launch, context and page probe",
+      "exitCode": 0,
+      "status": "PASS",
+      "timing": "INVALID_WALL_CLOCK_MOVED_BACKWARD",
+      "reasonCode": "NOT_A_ROOT_CAUSE_PROOF"
+    },
+    {
+      "command": "Chromium configured Jira with explicit fixture/context phase markers",
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "durationMs": 24200,
+      "reasonCode": "EARLIER_TIMEOUT_NOT_REPRODUCED"
+    }
+  ],
+  "releaseVerdict": "FAIL"
+}

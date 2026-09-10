@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type BrowserContext } from "@playwright/test";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -7,9 +7,12 @@ for (const setup of ["configured", "owner-setup"] as const)
   test(`Jira ${setup} connects through provider consent and returns to its verified parent`, async ({
     browser,
   }, testInfo) => {
-    const fixture = await teachingGitHubFixture(4427, { jira: setup });
-    const context = await browser.newContext();
+    const fixture = await test.step("Start isolated Jira fixture", () =>
+      teachingGitHubFixture(4427, { jira: setup }));
+    let context: BrowserContext | undefined;
     try {
+      context = await test.step("Create ceremony browser context", () =>
+        browser.newContext());
       await fixture.login(context, "jira-owner");
       await fixture.jiraProviderPages(context);
       const page = await context.newPage();
@@ -132,8 +135,51 @@ for (const setup of ["configured", "owner-setup"] as const)
       expect(fixture.effects.jiraConsents).toBe(1);
       expect(fixture.effects.jiraExchanges).toBe(1);
       expect(fixture.effects.jiraReads).toBeGreaterThan(1);
+      // Authenticate the same subject in a different browser session. Shared app
+      // configuration may be reused, but its previous private consent must not be.
+      const freshContext = await browser.newContext();
+      try {
+        await fixture.login(freshContext, "jira-owner");
+        await fixture.jiraProviderPages(freshContext);
+        const freshPage = await freshContext.newPage();
+        await freshPage.goto(`${fixture.origin}/?connector=jira`);
+        const freshConnect = freshPage.getByRole("button", {
+          name: "Connect Jira",
+          exact: true,
+        });
+        await freshConnect.click();
+        if (setup === "owner-setup") {
+          await freshPage
+            .getByLabel("Jira site URL")
+            .fill("https://synthetic.atlassian.net");
+          await freshConnect.click();
+        }
+        const handoff = freshPage.getByRole("link", {
+          name: "Continue with Jira",
+          exact: true,
+        });
+        await expect(handoff).toBeVisible();
+        const freshParent = new URL(freshPage.url()).searchParams.get(
+          "teachingRun",
+        );
+        expect(freshParent).toBeTruthy();
+        expect(freshParent).not.toBe(parent);
+        await handoff.click();
+        await expect(
+          freshPage.getByRole("heading", {
+            name:
+              setup === "configured"
+                ? "Authorize the fixture Jira site"
+                : "Configure Jira for this session",
+          }),
+        ).toBeVisible();
+        expect(fixture.effects.jiraConsents).toBe(1);
+        expect(fixture.effects.jiraExchanges).toBe(1);
+      } finally {
+        await freshContext.close();
+      }
     } finally {
-      await context.close();
+      await context?.close();
       await fixture.close();
     }
   });
