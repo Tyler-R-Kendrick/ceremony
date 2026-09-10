@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "commit": null,
+  "startedAt": "2026-09-10T00:45:19.323Z",
+  "runtime": "v26.5.0",
+  "profile": "local",
+  "configurationDigest": "10aca22b4a97a4afef0ba97d00a60cdc0d599aa8ad7553fde98044f6da88b2b3",
+  "results": [
+    {
+      "command": "npm run format:check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T00:45:19.332Z",
+      "checkedAt": "2026-09-10T00:45:23.627Z",
+      "browsers": {},
+      "durationMs": 4295
+    },
+    {
+      "command": "npm run check",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T00:45:23.628Z",
+      "checkedAt": "2026-09-10T00:45:30.188Z",
+      "browsers": {},
+      "durationMs": 6560
+    },
+    {
+      "command": "npm run test:coverage",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 309,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T00:45:30.189Z",
+      "checkedAt": "2026-09-10T00:46:08.494Z",
+      "browsers": {},
+      "durationMs": 38305
+    },
+    {
+      "command": "npm run test:workflow",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T00:46:08.495Z",
+      "checkedAt": "2026-09-10T00:46:17.031Z",
+      "browsers": {},
+      "durationMs": 8536
+    },
+    {
+      "command": "npm run test:security:mutation",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 62,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T00:46:17.032Z",
+      "checkedAt": "2026-09-10T00:46:41.284Z",
+      "browsers": {},
+      "durationMs": 24252
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T00:46:41.285Z",
+      "checkedAt": "2026-09-10T00:46:48.164Z",
+      "browsers": {},
+      "durationMs": 6879
+    },
+    {
+      "command": "npm run build:hosted",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": null,
+      "startedAt": "2026-09-10T00:46:48.165Z",
+      "checkedAt": "2026-09-10T00:46:50.939Z",
+      "browsers": {},
+      "durationMs": 2774
+    },
+    {
+      "command": "npm run test:e2e",
+      "exitCode": 0,
+      "processExitCode": 0,
+      "tests": {
+        "passed": 76,
+        "failed": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-10T00:46:50.961Z",
+      "checkedAt": "2026-09-10T00:51:28.531Z",
+      "browsers": {
+        "chromium": "153.0.8010.12",
+        "firefox": "155.0",
+        "webkit": "26.6"
+      },
+      "durationMs": 277570
+    }
+  ],
+  "verdict": "PASS"
+}

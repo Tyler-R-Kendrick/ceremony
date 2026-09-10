@@ -13,6 +13,7 @@ import {
 import {
   AsyncGitHubChildren,
   githubVocabulary,
+  resolveGitHubInstallationRun,
   type AsyncGitHubOptions,
 } from "./recipes/github.js";
 import { type AsyncCeremonyStore } from "./persistence/index.js";
@@ -179,6 +180,23 @@ export function createGitHubRuntime(
       : {}),
     ...(options.continuation ? { continuation: options.continuation } : {}),
     authorize,
+    humanReturn: async (actor, request) => {
+      const url = new URL(request.url);
+      const runId = await resolveGitHubInstallationRun(
+        store,
+        actor,
+        origin,
+        url,
+      ).catch(() => {
+        throw new AuthorizationError("denied");
+      });
+      url.pathname = `/api/v1/teaching/github/${encodeURIComponent(runId)}/callback`;
+      return runtime.human!(
+        actor,
+        runId,
+        new Request(url, { headers: request.headers }),
+      );
+    },
     cancel: async (actor, runId) => {
       const record = await store.transaction((tx) =>
         tx.get<RunRecord>({ tenant: actor.tenantId, kind: "run", id: runId }),
@@ -308,11 +326,14 @@ export function createGitHubRuntime(
         if (request.method === "POST") {
           assertRequestBoundary(request, { origin, maxBytes: 65536 });
           const input = z
-            .strictObject({
-              ticket: z.uuid(),
-              appId: z.string().regex(/^[1-9][0-9]{0,15}$/),
-              pem: z.string().min(1).max(30000),
-            })
+            .union([
+              z.strictObject({
+                ticket: z.uuid(),
+                appId: z.string().regex(/^[1-9][0-9]{0,15}$/),
+                pem: z.string().min(1).max(30000),
+              }),
+              z.strictObject({ ticket: z.uuid(), restart: z.literal(true) }),
+            ])
             .parse(await boundedJson(request, 65536));
           const key = {
             tenant: actor.tenantId,
@@ -333,47 +354,59 @@ export function createGitHubRuntime(
             prior.value.expires <= (await store.transaction((tx) => tx.now()))
           )
             throw new AuthorizationError("denied");
-          const reference =
-            prior.value.reference ??
-            (await broker.collect(actor, binding, {
-              appId: input.appId,
-              pem: input.pem,
-            }));
-          const commandId = `recovery:${input.ticket}`;
-          const material = await store.transaction(async (tx) => {
-            const ticket = await tx.get<Ticket>(key);
-            const current = await tx.get<RunRecord>({
-              tenant: actor.tenantId,
-              kind: "run",
-              id: runId,
+          let reference: string | undefined;
+          const restarting = "restart" in input;
+          if (!restarting) {
+            reference =
+              prior.value.reference ??
+              (await broker.collect(actor, binding, {
+                appId: input.appId,
+                pem: input.pem,
+              }));
+            const commandId = `recovery:${input.ticket}`;
+            const boundReference = reference;
+            const material = await store.transaction(async (tx) => {
+              const ticket = await tx.get<Ticket>(key);
+              const current = await tx.get<RunRecord>({
+                tenant: actor.tenantId,
+                kind: "run",
+                id: runId,
+              });
+              if (
+                !ticket ||
+                ticket.value.expires <= (await tx.now()) ||
+                ticket.value.complete ||
+                !current ||
+                current.revision !== binding.revision ||
+                current.value.status !== "active"
+              )
+                throw new AuthorizationError("denied");
+              if (
+                ticket.value.reference &&
+                ticket.value.reference !== boundReference
+              )
+                throw new AuthorizationError("denied");
+              const values = await broker.consumeIn(
+                tx,
+                actor,
+                binding,
+                boundReference,
+                commandId,
+              );
+              if (values.appId !== input.appId || values.pem !== input.pem)
+                throw new AuthorizationError("denied");
+              await tx.put(
+                key,
+                { ...ticket.value, reference: boundReference },
+                ticket.revision,
+              );
+              return values;
             });
-            if (
-              !ticket ||
-              ticket.value.expires <= (await tx.now()) ||
-              ticket.value.complete ||
-              !current ||
-              current.revision !== binding.revision ||
-              current.value.status !== "active"
-            )
-              throw new AuthorizationError("denied");
-            if (ticket.value.reference && ticket.value.reference !== reference)
-              throw new AuthorizationError("denied");
-            const values = await broker.consumeIn(
-              tx,
-              actor,
-              binding,
-              reference,
-              commandId,
+            await children.recover(
+              { ...context, commandId, effectId: commandId },
+              { appId: Number(material.appId), pem: material.pem },
             );
-            if (values.appId !== input.appId || values.pem !== input.pem)
-              throw new AuthorizationError("denied");
-            await tx.put(key, { ...ticket.value, reference }, ticket.revision);
-            return values;
-          });
-          await children.recover(
-            { ...context, commandId, effectId: commandId },
-            { appId: Number(material.appId), pem: material.pem },
-          );
+          }
           if (!(await authorize(actor, record.value, "github.prepare-app")))
             throw new AuthorizationError("denied");
           await store.transaction(async (tx) => {
@@ -389,7 +422,12 @@ export function createGitHubRuntime(
               id: `${runId}:${node.id}`,
             };
             const pending = await tx.get<{ state: string }>(nodeKey);
+            const ticket = await tx.get<Ticket>(key);
             if (
+              !ticket ||
+              ticket.value.complete ||
+              ticket.value.expires <= (await tx.now()) ||
+              (restarting && ticket.value.reference !== undefined) ||
               !current ||
               current.value.status !== "active" ||
               current.revision !== binding.revision ||
@@ -401,6 +439,7 @@ export function createGitHubRuntime(
               `recovery-${randomUUID()}`,
               30000,
             );
+            if (restarting) await children.restartRegistration(context, tx);
             await tx.put(
               nodeKey,
               { state: "verifying", verified: false, outputs: {} },
@@ -435,14 +474,13 @@ export function createGitHubRuntime(
                 id: `recovery:${runId}:${revision}`,
               },
               {
-                task: "recovery-verified",
+                task: restarting ? "recovery-restarted" : "recovery-verified",
                 runId,
                 subjectId: actor.subjectId,
                 status: "pending",
               },
               null,
             );
-            const ticket = await tx.get<Ticket>(key);
             if (ticket)
               await tx.put(
                 key,
@@ -452,7 +490,13 @@ export function createGitHubRuntime(
             await tx.assertFence(fence);
             await tx.cancel(runKey);
           });
-          await broker.complete(actor, binding, reference, commandId);
+          if (reference)
+            await broker.complete(
+              actor,
+              binding,
+              reference,
+              `recovery:${input.ticket}`,
+            );
           await advance(actor, runId);
           return Response.json({ returnUrl: returnUrl(runId) }, { headers });
         }
@@ -475,8 +519,15 @@ export function createGitHubRuntime(
           ),
         );
         const nonce = randomUUID();
+        const restartAvailable =
+          await children.registrationRestartAvailable(context);
         return new Response(
-          `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Recover GitHub setup</title><main><h1>Recover your existing GitHub App</h1><p>The registration response was interrupted. Enter the existing app ID and private key from GitHub settings. These go directly to the private broker, never the assistant or demonstration.</p><form id="private"><label>App ID<input name="appId" inputmode="numeric" required autocomplete="off"></label><label>Private key<textarea name="pem" required autocomplete="off" spellcheck="false"></textarea></label><button>Verify existing app</button></form><p id="status" role="status"></p><a href="${escape(returnUrl(runId))}">Return to connection</a></main><script nonce="${nonce}">const form=document.getElementById('private');form.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(form);const body=JSON.stringify({ticket:${JSON.stringify(ticket)},appId:data.get('appId'),pem:data.get('pem')});form.reset();try{const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body,cache:'no-store',credentials:'same-origin'});if(!response.ok)throw new Error();const result=await response.json();location.assign(result.returnUrl);}catch{document.getElementById('status').textContent='Recovery could not be verified. Return to the connection to retry.'}});addEventListener('pagehide',()=>form.reset());</script></html>`,
+          `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Recover GitHub setup</title><main><h1>Recover your existing GitHub App</h1><p>The registration response was interrupted or expired. Check your GitHub App settings first. If an app exists, enter its ID and private key here. These go directly to the private broker, never the assistant or demonstration.</p><form id="private"><label>App ID<input name="appId" inputmode="numeric" required autocomplete="off"></label><label>Private key<textarea name="pem" required autocomplete="off" spellcheck="false"></textarea></label><button>Verify existing app</button></form>
+          ${restartAvailable ? `<details><summary>No app was created?</summary><p>Starting again invalidates the old return link. Any app already created on GitHub remains there; this does not delete or revoke it. Check GitHub before authorizing a new registration.</p><form id="restart"><label><input type="checkbox" required>I checked GitHub and authorize a new app registration.</label><button>Start a new registration</button></form></details>` : ""}
+          <p id="status" role="status"></p><a href="${escape(returnUrl(runId))}">Return to connection</a></main><script nonce="${nonce}">
+          async function submit(body){try{const response=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),cache:'no-store',credentials:'same-origin'});if(!response.ok)throw new Error();const result=await response.json();location.assign(result.returnUrl);}catch{document.getElementById('status').textContent='Recovery could not finish. Return to the connection to check its current status.'}}
+          const form=document.getElementById('private');form.addEventListener('submit',event=>{event.preventDefault();const data=new FormData(form);const body={ticket:${JSON.stringify(ticket)},appId:data.get('appId'),pem:data.get('pem')};form.reset();void submit(body)});
+          document.getElementById('restart')?.addEventListener('submit',event=>{event.preventDefault();void submit({ticket:${JSON.stringify(ticket)},restart:true})});addEventListener('pagehide',()=>form.reset());</script></html>`,
           {
             headers: {
               ...headers,
@@ -514,7 +565,23 @@ export function createGitHubRuntime(
           },
         });
       }
-      const handoff = await children.human(context);
+      const handoff = await children.human(context).catch(async () => {
+        await advance(actor, runId);
+        return undefined;
+      });
+      if (!handoff)
+        return new Response(
+          `<!doctype html><html lang="en"><meta charset="utf-8"><title>GitHub needs attention</title><main><h1>GitHub setup needs attention</h1><p>The handoff expired or GitHub could not verify the selected account. Your completed steps are preserved. Return to check the account or recover this registration.</p><a href="${escape(returnUrl(runId))}">Return to connection</a></main></html>`,
+          {
+            status: 409,
+            headers: {
+              ...headers,
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy":
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            },
+          },
+        );
       if (handoff.method === "GET")
         return new Response(null, {
           status: 303,

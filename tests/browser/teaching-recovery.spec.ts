@@ -18,9 +18,9 @@ test("AC-20 AC-30: private recovery verifies an existing app after a lost one-sh
   try {
     await fixture.login(context, "recovery-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?section=studio`);
+    await page.goto(`${fixture.origin}/`);
     await page
-      .getByRole("button", { name: "Create from demonstration", exact: true })
+      .getByRole("button", { name: "Teach this connection", exact: true })
       .click();
     await page
       .getByRole("link", { name: "Continue with GitHub", exact: true })

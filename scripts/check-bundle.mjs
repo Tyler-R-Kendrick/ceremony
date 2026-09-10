@@ -13,7 +13,9 @@ const totals = files.reduce(
   (sum, file) => ({ raw: sum.raw + file.raw, gzip: sum.gzip + file.gzip }),
   { raw: 0, gzip: 0 },
 );
-const budget = { raw: 465000, gzip: 145000 };
+// Studio authoring adds a separately loaded editor; see docs/workflow-studio.md.
+// Keep a total-download ceiling as well as the measured previous-release baseline.
+const budget = { raw: 485000, gzip: 150000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(
@@ -22,9 +24,9 @@ writeFileSync(
     {
       schemaVersion: 1,
       baseline: {
-        commit: "db46b2d06f62b72316d8e46c4a87cc22967590ad",
-        raw: 422659,
-        gzip: 132056,
+        commit: "77e9b5492bd520f6567a887f070f76db0af6bc79",
+        raw: 451231,
+        gzip: 140120,
       },
       files,
       totals,

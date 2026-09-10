@@ -30,6 +30,19 @@ export default {
       "src/server/persistence/index.ts",
       "Number(row.generation) !== fence.generation ||",
     ),
+    guard("src/server/recipes/github.ts", 'actor.actorKind !== "human"', 7),
+    guard(
+      "src/server/recipes/github.ts",
+      "record.value.subject !== actor.subjectId",
+      3,
+    ),
+    guard("src/server/recipes/github.ts", 'account.type === "Organization"'),
+    guard("src/server/recipes/github.ts", "setup_url:"),
+    guard(
+      "src/server/recipes/github.ts",
+      'current.value.phase !== "uncertain"',
+      3,
+    ),
   ],
   tap: {
     ...base.tap,
@@ -37,6 +50,7 @@ export default {
       "tests/commands.test.ts",
       "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
+      "tests/github-children.test.ts",
       "tests/security/*.test.ts",
     ],
   },

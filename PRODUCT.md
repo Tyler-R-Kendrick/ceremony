@@ -28,7 +28,7 @@ Provide reusable, composable ceremonies selected from a connector's declared aut
 
 ## Operating Context
 
-Embedded app components and connector hubs. The repository includes a local Connect page, template authoring studio, and a separate test protocol provider. Provider consent remains provider-owned.
+Embedded app components and connector hubs. Connect runs existing connectors. Workflow studio authors new connectors and ceremonies independently of Connect and Environment; it is not a connection desk or a session recording screen. It includes method/workflow design, draft save/reopen, validation/export, and isolated presentation customization. Provider consent remains provider-owned.
 
 ## Evidence on Hand
 

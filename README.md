@@ -18,7 +18,8 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The separate local protocol
 ## Connect, teach, and reuse
 
 - **Connect GitHub** keeps app registration, installation and access verification in one parent ceremony; compatible setup is reused.
-- **Teach this step** and studio **Create from demonstration** capture permitted semantic transitions, not provider DOM or secret input.
+- **Workflow studio** creates new connector definitions, authentication methods, Arazzo workflows and A2H fallbacks, with draft save/reopen and isolated OpenUI presentation authoring. It does not run Connect or access Environment.
+- **Teach this connection / Teach this step** on Connect capture permitted semantic transitions, not provider DOM or secret input.
 - Review a whole ceremony or a contiguous fragment and save a reusable recipe. Compatible published recipes compose with fresh principal/environment bindings; sharing procedure does not share access.
 - Reviewed recipes execute without a model. Optional AI SDK assistance and Workflow continuation use the same protected command service and explicit human fallbacks.
 

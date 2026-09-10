@@ -14,11 +14,15 @@
   },
   "coverageAnalysis": "perTest",
   "mutate": [
-    "src/core/{connector-contracts,resolution,execution,schema}.ts",
+    "src/core/{connector-authoring,connector-contracts,resolution,execution,schema}.ts",
     "src/server/{environment,storage,arazzo,services}.ts"
   ],
   "ignorePatterns": [
     ".ceremony",
+    ".vercel",
+    ".output",
+    ".nitro",
+    ".workflow-data",
     ".env*",
     "artifacts",
     "dist",

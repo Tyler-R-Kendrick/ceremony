@@ -840,3 +840,114 @@ fieldset label:last-child input {
     flex-wrap: wrap;
   }
 }
+/* Standalone authoring surface: no live ceremony layout or environment styles. */
+.connector-authoring {
+  max-width: 980px;
+  margin-inline: auto;
+}
+.authoring-start,
+.authoring-form,
+.authoring-review {
+  padding: 28px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #dce2e9);
+  border-radius: 12px;
+}
+.authoring-start p {
+  max-width: 65ch;
+}
+.authoring-stages {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.authoring-stages [aria-current="step"] {
+  color: #173d98;
+  background: #e2eaff;
+  border-color: #c5d4f7;
+}
+.connector-authoring label {
+  display: grid;
+  gap: 6px;
+  margin-block: 16px;
+}
+.connector-authoring input,
+.connector-authoring select,
+.connector-authoring textarea {
+  width: 100%;
+  min-width: 0;
+}
+.connector-authoring h3 {
+  margin-block: 24px 12px;
+}
+.connector-authoring h4 {
+  margin-block: 24px 8px;
+}
+.authoring-method {
+  border-top: 1px solid #dce2e9;
+  margin-block: 24px;
+  padding-block: 12px;
+}
+.authoring-method .card-top {
+  padding: 0;
+}
+.authoring-method .card-top h3 {
+  margin: 0;
+}
+.authoring-step {
+  border: 1px solid #dce2e9;
+  border-radius: 6px;
+  margin-block: 16px;
+  padding: 16px;
+  min-width: 0;
+}
+.authoring-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.authoring-row label {
+  flex: 1;
+  min-width: 160px;
+}
+.authoring-add {
+  align-items: end;
+}
+.authoring-add label {
+  margin-bottom: 0;
+  flex: 1;
+}
+.authoring-empty,
+.authoring-boundary {
+  background: #f8fafd;
+  padding: 20px;
+  margin-block: 24px;
+}
+.connector-authoring pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 16px;
+  background: #f8fafd;
+}
+.connector-authoring li,
+.connector-authoring code {
+  overflow-wrap: anywhere;
+}
+.connector-authoring details {
+  margin-block: 20px;
+}
+@media (max-width: 760px) {
+  .authoring-start,
+  .authoring-form,
+  .authoring-review {
+    padding: 20px;
+  }
+  .authoring-stages {
+    gap: 8px;
+  }
+  .authoring-stages button {
+    flex: 1 1 130px;
+  }
+}

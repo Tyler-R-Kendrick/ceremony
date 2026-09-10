@@ -4,6 +4,10 @@ Tests must fail on regressions, not just exist under a category name. Consumer P
 
 ## Commands
 
+GitHub browser fixtures must follow the `redirect_url` and `setup_url` actually registered by the app. They must not invent a callback from the current page or handoff URL. Unit/integration assertions cover personal and organization registration destinations, fresh-parent reuse of the same setup URL, replay/subject checks, expired handoff recovery, and atomic installation persistence. These are deterministic protocol checks, not a real-account certification claim.
+
+`npm run build:vercel` builds the Vite app and Nitro Vercel functions together, checks emitted Workflow routes, and starts the built API handler over HTTP in a credential-free child process. It is included in `npm run verify`. The check proves the artifact loads and fails closed without configuration; it does not claim that an unconfigured deployment can authenticate users.
+
 - `npm test`: atomic, characterization and behavior tests using Node's existing test runner.
 - `npm run test:snapshots`: compare committed, human-reviewable baselines for all seven flow templates, state actions and WebMCP tool contracts.
 - `npm run test:snapshots:update`: explicitly regenerate baselines; inspect the diff and commit only intentional changes. Never run this in CI or to hide a regression.

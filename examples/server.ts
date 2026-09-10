@@ -697,7 +697,8 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         const input = z
           .object({
             kind: flowKindSchema,
-            connectorId: z.string(),
+            connectorId: z.string().optional(),
+            connectorName: z.string().min(1).max(100).optional(),
             instruction: z.string().max(2000).default(""),
           })
           .strict()
@@ -705,7 +706,8 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         const manifest = manifests.find(
           (value) => value.id === input.connectorId,
         );
-        if (!manifest) throw new CeremonyError("Unknown connector");
+        if (!manifest && !input.connectorName)
+          throw new CeremonyError("Unknown connector");
         session.generating = true;
         session.lastGeneration = Date.now();
         try {
@@ -741,8 +743,10 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                     kind: input.kind,
                     id: input.kind,
                     connector: {
-                      name: manifest.name,
-                      description: manifest.description,
+                      name: input.connectorName ?? manifest!.name,
+                      description: input.connectorName
+                        ? "Authored connector presentation"
+                        : manifest!.description,
                     },
                     presentation: input.instruction,
                   }),
@@ -834,12 +838,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       instance.once("error", reject);
       instance.listen(listenPort, "127.0.0.1", done);
     });
-  await listen(provider, providerPort);
   try {
+    await listen(provider, providerPort);
     await listen(server, port);
   } catch (error) {
-    provider.close();
+    if (provider.listening) provider.close();
     await vite.close();
+    demoDatabase.close();
+    liveDatabase?.close();
+    await teachingStore?.close();
     throw error;
   }
   return {

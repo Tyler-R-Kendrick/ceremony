@@ -1,6 +1,6 @@
 ---
 name: Ceremony
-description: The implemented local authentication workbench and template studio.
+description: The implemented local authentication workbench and connector authoring studio.
 colors:
   primary: "#1749c7"
   primary-hover: "#103aa5"
@@ -159,7 +159,7 @@ components:
 
 ## Overview
 
-The implemented replacement uses a cool daylight workspace, ink text, cobalt controls, white working surfaces and compact system typography. Borders and restrained tonal differences organize authentication and template authoring without decorative imagery.
+The implemented replacement uses a cool daylight workspace, ink text, cobalt controls, white working surfaces and compact system typography. Borders and restrained tonal differences organize authentication, connector authoring and presentation customization without decorative imagery.
 
 This documents the code-led replacement in the local example, following the user's request to replace the former design. The workbench direction was proposed during implementation; it is not an explicitly approved comp or a new brand metaphor. Host applications retain control of their own visual identity.
 
@@ -192,9 +192,9 @@ Native input text stays at 16px. Code uses the explicit monospace stack; the edi
 
 ## Layout
 
-The example shell is centered at a maximum width of 1600px with 40px horizontal padding. Desktop Connect uses a 224px service rail and flexible work area separated by 32px. The working card pairs its ceremony with a 224px context column. Studio uses two equal flexible columns separated by 28px.
+The example shell is centered at a maximum width of 1600px with 40px horizontal padding. Desktop Connect uses a 224px service rail and flexible work area separated by 32px. The working card pairs its ceremony with a 224px context column. Connector authoring uses a centered column capped at 980px, with wrapping stage navigation. Its optional presentation editor uses two equal flexible columns separated by 28px.
 
-At 1100px, shell padding becomes 24px, the service rail becomes 200px, and context moves below the ceremony. At 760px, shell padding becomes 18px and the main grids stack; service tiles wrap with a 150px minimum width. The studio preview appears before the editor. Header and footer wrap, and the small local-workspace header note is hidden.
+At 1100px, shell padding becomes 24px, the service rail becomes 200px, and context moves below the ceremony. At 760px, shell padding becomes 18px and the main grids stack; service tiles wrap with a 150px minimum width. Authoring stages retain their order and wrap; authoring cards reduce padding from 28px to 20px. Within presentation customization, the preview appears before the editor. Header and footer wrap, and the small local-workspace header note is hidden.
 
 Use 24–32px working-region spacing and 8–12px control gaps. Buttons and native input/select controls have a 44px minimum height; buttons also have a 44px minimum width. Mobile ceremony padding is 24px vertically and 20px horizontally.
 
@@ -216,7 +216,7 @@ Fields use white surfaces, a distinct input border, compact labels and visible k
 
 Navigation uses pale blue for the current page. Connector tiles combine a 36px letter mark, service name and auth-method summary, with a selected border and surface. The local-simulation pill is noninteractive outlined metadata. Provider prerequisites sit in a native disclosure beside a link to official authentication documentation.
 
-Cards separate service identity, working content and explanatory footer. The context region shows state, authentication and requested permissions from the current runtime snapshot. Long runtime strings wrap. Studio previews reuse the same ceremony presentation on isolated sample data.
+Cards separate service identity, working content and explanatory footer. The context region shows state, authentication and requested permissions from the current runtime snapshot. Long runtime strings wrap. Studio’s optional presentation customization reuses ceremony presentation on isolated sample data.
 
 These are reference-app patterns. The reusable library's optional styling and host theme boundary remain independent of this example palette.
 

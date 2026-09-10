@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { test, type TestContext } from "node:test";
 import { jwtVerify } from "jose";
 import {
   AsyncGitHubChildren,
   githubVocabulary,
+  resolveGitHubInstallationRun,
 } from "../src/server/recipes/github.js";
 import {
   OperationRegistry,
@@ -28,6 +29,7 @@ async function fixture(t: TestContext, configured = false) {
   const counters = { conversion: 0, token: 0, verification: 0 };
   let conversionGate: (() => Promise<void>) | undefined;
   const behavior = {
+    accountType: "User",
     lostConversion: false,
     wrongAccount: false,
     suspended: false,
@@ -38,6 +40,10 @@ async function fixture(t: TestContext, configured = false) {
     res.setHeader("content-type", "application/json");
     try {
       const path = new URL(req.url!, "http://fixture").pathname;
+      if (path === "/users/alice") {
+        res.end(JSON.stringify({ login: "alice", type: behavior.accountType }));
+        return;
+      }
       if (path.startsWith("/app-manifests/")) {
         counters.conversion++;
         await conversionGate?.();
@@ -300,6 +306,227 @@ test("AC-32: independent PostgreSQL parents share scoped setup and cancellation 
     await bStore.close();
     await pg.close();
   }
+});
+
+test("real GitHub registration selects the account type endpoint and registers an installation setup URL", async (t) => {
+  const f = await fixture(t);
+  await f.github.prepare(f.context);
+  const personal = await f.github.human(f.context);
+  assert.equal(new URL(personal.url).pathname, "/settings/apps/new");
+  assert.equal(personal.method, "POST");
+  if (personal.method !== "POST") throw new Error("registration required");
+  assert.equal(
+    personal.manifest.setup_url,
+    `${f.options.origin}/api/v1/teaching/github/installation-return`,
+  );
+  assert.equal(personal.manifest.url, f.options.origin);
+  assert.equal(personal.manifest.setup_on_update, true);
+  assert.equal(
+    "callback_urls" in personal.manifest,
+    false,
+    "App OAuth is not the installation handshake",
+  );
+  f.behavior.accountType = "Organization";
+  const organization = await f.github.human(f.context);
+  assert.equal(
+    new URL(organization.url).pathname,
+    "/organizations/alice/settings/apps/new",
+  );
+  f.behavior.accountType = "Bot";
+  await assert.rejects(f.github.human(f.context));
+  assert.equal(f.counters.conversion, 0);
+});
+
+test("expired unissued registration renews safely; issued registration enters recoverable uncertainty", async (t) => {
+  const f = await fixture(t);
+  await f.github.prepare(f.context);
+  await assert.rejects(
+    f.store.transaction((tx) => f.github.restartRegistration(f.context, tx)),
+    /restart unavailable/,
+  );
+  const expire = () =>
+    f.store.transaction(async (tx) => {
+      const local = await tx.get<{ sharedSetup: string }>({
+        tenant: "tenant",
+        kind: "handoff",
+        id: `github:${f.context.runId}`,
+      });
+      const key = {
+        tenant: "tenant",
+        kind: "handoff" as const,
+        id: local!.value.sharedSetup,
+      };
+      const state = await tx.get<Record<string, unknown>>(key);
+      await tx.put(key, { ...state!.value, expires: 0 }, state!.revision);
+    });
+  await expire();
+  assert.equal((await f.github.prepare(f.context)).state, "awaiting-human");
+  await f.github.human(f.context);
+  await expire();
+  assert.equal((await f.github.prepare(f.context)).state, "uncertain");
+  assert.equal(
+    (await f.github.prepare({ ...f.context, runId: "new-parent" })).state,
+    "uncertain",
+  );
+  assert.equal(
+    f.counters.conversion,
+    0,
+    "never repeat a possibly completed registration",
+  );
+  assert.equal(await f.github.registrationRestartAvailable(f.context), true);
+  await f.store.transaction((tx) =>
+    f.github.restartRegistration(f.context, tx),
+  );
+  assert.equal(await f.github.registrationRestartAvailable(f.context), false);
+  assert.equal((await f.github.prepare(f.context)).state, "awaiting-human");
+  await f.github.human(f.context);
+  await expire();
+  assert.equal((await f.github.prepare(f.context)).state, "uncertain");
+  await f.github.recover(f.context, { appId: f.app.id, pem: f.app.pem });
+  assert.equal((await f.github.prepare(f.context)).state, "complete");
+});
+
+test("installation return routing independently rejects forged actor, origin, state syntax, binding and expiry", async (t) => {
+  const f = await fixture(t);
+  const nonce = "a".repeat(43);
+  const actor = f.context.actor;
+  const origin = f.options.origin;
+  const fixedNow = Date.now();
+  const store = {
+    close: async () => {},
+    transaction: <T>(
+      work: (
+        tx: import("../src/server/persistence/index.js").AsyncTransaction,
+      ) => Promise<T>,
+    ) =>
+      f.store.transaction((tx) => work({ ...tx, now: async () => fixedNow })),
+  };
+  const url = (state = nonce) =>
+    new URL(
+      `${origin}/api/v1/teaching/github/installation-return?state=${encodeURIComponent(state)}`,
+    );
+  const save = (state = nonce, changes = {}) =>
+    f.store.transaction(async (tx) => {
+      const key = {
+        tenant: actor.tenantId,
+        kind: "handoff" as const,
+        id: `github-return:${createHash("sha256").update(state).digest("hex")}`,
+      };
+      const prior = await tx.get(key);
+      await tx.put(
+        key,
+        {
+          subject: actor.subjectId,
+          runId: "authorized-parent",
+          origin,
+          expires: fixedNow + 1,
+          ...changes,
+        },
+        prior?.revision ?? null,
+      );
+    });
+  await save();
+  assert.equal(
+    await resolveGitHubInstallationRun(store, actor, origin, url()),
+    "authorized-parent",
+  );
+  for (const changed of [
+    { actorKind: "agent" as const },
+    { actorKind: "system" as const },
+    { subjectId: "foreign" },
+    { tenantId: "foreign" },
+  ])
+    await assert.rejects(
+      resolveGitHubInstallationRun(
+        store,
+        { ...actor, ...changed },
+        origin,
+        url(),
+      ),
+      /return unavailable/,
+    );
+  for (const target of [
+    new URL(url().href.replace(origin, "https://foreign.example")),
+    new URL(`${origin}/other?state=${nonce}`),
+    new URL(`${url()}&state=${nonce}`),
+    new URL(`${origin}/api/v1/teaching/github/installation-return`),
+  ])
+    await assert.rejects(
+      resolveGitHubInstallationRun(store, actor, origin, target),
+      /return unavailable/,
+    );
+  // Seed invalid tokens deliberately: otherwise a lookup miss masks a removed syntax guard.
+  for (const invalid of [
+    `!${nonce}`,
+    `${nonce}!`,
+    "a".repeat(42),
+    "a".repeat(44),
+  ]) {
+    await save(invalid);
+    await assert.rejects(
+      resolveGitHubInstallationRun(store, actor, origin, url(invalid)),
+      /return unavailable/,
+    );
+  }
+  for (const change of [
+    { origin: "https://foreign.example" },
+    { subject: "foreign" },
+    { expires: fixedNow },
+    { expires: fixedNow - 1 },
+  ]) {
+    await save(nonce, change);
+    await assert.rejects(
+      resolveGitHubInstallationRun(store, actor, origin, url()),
+      /return unavailable/,
+    );
+  }
+});
+
+test("installation callback and protected artifact commit atomically across storage failure", async (t) => {
+  const f = await fixture(t, true);
+  let fail = true;
+  const child = new AsyncGitHubChildren(
+    {
+      close: async () => {},
+      transaction: (work) =>
+        f.store.transaction((tx) =>
+          work({
+            ...tx,
+            put: async (key, value, revision) => {
+              if (
+                fail &&
+                key.kind === "artifact" &&
+                (value as { kind?: string }).kind === "installation"
+              )
+                throw new Error("injected artifact write failure");
+              return tx.put(key, value, revision);
+            },
+          }),
+        ),
+    },
+    f.options,
+  );
+  const app = await child.prepare(f.context);
+  await child.install(f.context, app.outputs.app);
+  const handoff = await child.human(f.context);
+  const url = new URL(
+    `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(f.context.runId)}/callback?state=${new URL(handoff.url).searchParams.get("state")}&installation_id=7`,
+  );
+  await assert.rejects(child.callback(f.context, url), /injected/);
+  assert.equal(
+    (await child.human(f.context)).url,
+    handoff.url,
+    "rollback keeps the same recoverable attempt",
+  );
+  fail = false;
+  await child.callback(f.context, url);
+  const installed = await child.install(f.context, app.outputs.app);
+  assert.equal(installed.state, "complete");
+  assert.equal(
+    (await child.verifyAccess(f.context, installed.outputs.installation)).state,
+    "complete",
+  );
+  assert.equal(f.counters.token, 1);
 });
 
 test("AC-32: cancelling all parents before handoff allows fresh setup without reviving previous state", async (t) => {

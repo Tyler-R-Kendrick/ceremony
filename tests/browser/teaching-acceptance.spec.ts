@@ -45,9 +45,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
   }) => {
     await fixture.login(context, "whole-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?section=studio`);
+    await page.goto(`${fixture.origin}/`);
     await page
-      .getByRole("button", { name: "Create from demonstration", exact: true })
+      .getByRole("button", { name: "Teach this connection", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "Teaching this connection" }),
@@ -160,10 +160,10 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
         await fixture.login(context, subject!);
         await fixture.providerPages(context);
         const page = await context.newPage();
-        await page.goto(`${fixture.origin}/?section=studio`);
+        await page.goto(`${fixture.origin}/`);
         await page
           .getByRole("button", {
-            name: "Create from demonstration",
+            name: "Teach this connection",
             exact: true,
           })
           .click();
@@ -286,14 +286,14 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
   }) => {
     await fixture.login(context, "consent-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?section=studio`);
+    await page.goto(`${fixture.origin}/`);
     const started = page.waitForResponse(
       (response) =>
         response.url().endsWith("/runs") &&
         response.request().method() === "POST",
     );
     await page
-      .getByRole("button", { name: "Create from demonstration", exact: true })
+      .getByRole("button", { name: "Teach this connection", exact: true })
       .click();
     const initial = await (await started).json();
     const demoId = initial.demonstration.id as string;

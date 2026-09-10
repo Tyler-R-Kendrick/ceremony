@@ -1,0 +1,8 @@
+{
+  "status": "AWAITING_HUMAN",
+  "scope": "real-github-handoff-only",
+  "providerEffectsVerified": false,
+  "githubOriginReached": true,
+  "loginRequired": true,
+  "signupRequired": false
+}

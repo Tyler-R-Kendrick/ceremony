@@ -12,10 +12,14 @@ import {
   commandEnvelopeSchema,
   demonstrationEventSchema,
   methodSelectionSchema,
+  connectorProjectSchema,
+  connectorProjectDraftSchema,
 } from "../src/core/index.js";
 import { arazzoSchema } from "../src/server/arazzo.js";
 
 export const specificationSchemas = {
+  "connector-project-v1": connectorProjectSchema,
+  "connector-project-draft-v1": connectorProjectDraftSchema,
   "connector-manifest-v1": connectorManifestV1Schema,
   "method-contract-v1": methodContractSchema,
   "human-handoff-v1": humanHandoffContractSchema,

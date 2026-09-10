@@ -592,23 +592,47 @@ export function TeachingConnection({
         )}
         {notice && <p role="status">{notice}</p>}
         {accountRequired && !run && (
-          <label>
-            GitHub account or organization
-            <input
-              name="github-account"
-              value={target}
-              onChange={(event) => setTarget(event.target.value)}
-              maxLength={100}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <span className="teaching-note">
-              Enter its public GitHub login. GitHub will verify that the app and
-              installation belong to this account.
-            </span>
-          </label>
+          <>
+            <label>
+              GitHub account or organization
+              <input
+                name="github-account"
+                value={target}
+                onChange={(event) => setTarget(event.target.value)}
+                maxLength={100}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="teaching-note">
+                Enter its public GitHub login. GitHub will verify that the app
+                and installation belong to this account.
+              </span>
+            </label>
+            <p className="teaching-note">
+              No GitHub account yet?{" "}
+              <a
+                href="https://github.com/signup"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Create your GitHub account (opens a new tab)
+              </a>
+              . Complete GitHub’s email verification and required checks, then
+              enter your new login here. This connection stays open; signup
+              alone does not grant repository access.
+            </p>
+          </>
         )}
         <div className="teaching-actions">
+          {!run && mode === "connect" && (
+            <button
+              className="quiet"
+              disabled={busy || offline}
+              onClick={() => void act(() => teach())}
+            >
+              Teach this connection
+            </button>
+          )}
           {!run && (
             <button
               className="primary"

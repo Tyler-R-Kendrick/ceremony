@@ -80,6 +80,7 @@ export interface TeachingRuntimeOptions {
     runId: string,
     request: Request,
   ) => Promise<Response>;
+  humanReturn?: (actor: ActorContext, request: Request) => Promise<Response>;
   cancel?: (actor: ActorContext, runId: string) => Promise<void>;
   /** Trusted original host task, never selected by a browser/tool argument. Consumer deduplicates deliveryId. */
   continuation?: {
@@ -348,6 +349,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     delegate,
     agentActor,
     human: options.human,
+    humanReturn: options.humanReturn,
     cancel: options.cancel,
     selectTarget: options.selectTarget,
     flushContinuations,

@@ -1,0 +1,26 @@
+{
+  "lines": {
+    "total": 15692,
+    "covered": 14718,
+    "skipped": 0,
+    "pct": 93.79
+  },
+  "statements": {
+    "total": 15692,
+    "covered": 14718,
+    "skipped": 0,
+    "pct": 93.79
+  },
+  "branches": {
+    "total": 4038,
+    "covered": 3692,
+    "skipped": 0,
+    "pct": 91.43
+  },
+  "functions": {
+    "total": 438,
+    "covered": 401,
+    "skipped": 0,
+    "pct": 91.55
+  }
+}

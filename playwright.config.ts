@@ -23,12 +23,12 @@ export default defineConfig({
     },
     {
       name: "firefox",
-      testMatch: ["**/teaching-*.spec.ts"],
+      testMatch: ["**/teaching-*.spec.ts", "**/workflow-studio.spec.ts"],
       use: { browserName: "firefox" },
     },
     {
       name: "webkit",
-      testMatch: ["**/teaching-*.spec.ts"],
+      testMatch: ["**/teaching-*.spec.ts", "**/workflow-studio.spec.ts"],
       use: {
         browserName: "webkit",
         ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH

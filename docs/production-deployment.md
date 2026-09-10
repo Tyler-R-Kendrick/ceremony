@@ -6,6 +6,8 @@ Build the existing frontend with `npm run build`, then `npm run build:hosted`. `
 
 ## Required hosted configuration
 
+For Vercel, the checked-in `vercel.json` selects `npm run build:vercel`, which builds the frontend **and** the Nitro Vercel preset. It verifies the emitted static app, API function and Workflow functions, and executes the built API over HTTP without credentials to prove missing configuration fails closed. `npm run verify` includes this gate. A static Vite build alone is not a deployable authentication server. Build on the deployment platform's target architecture; do not upload an ARM-native dependency bundle to a different runtime architecture.
+
 Supply configuration through the host's protected environment, not through the browser Environment editor, recipe definitions or model tools:
 
 | Name                             | Purpose                                                                                                |
@@ -26,6 +28,16 @@ The identity adapter validates the OIDC protocol response and maps signed `cerem
 The native Environment section uses authenticated `/api/environment`: GET returns variable names/revision only; POST accepts bounded JSON edits or an optional dotenv string and stores values encrypted. It is shared across connectors within the authenticated session, not across unrelated sessions. `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_OWNER` and `GITHUB_APP_PRIVATE_KEY` are consumed together by the trusted GitHub configuration resolver. Partial configuration blocks with a setup message. Changes bind a new configuration version and cannot silently replace an app during an in-progress callback.
 
 Cross-device identity restoration does not copy a session's private Environment. A session with no GitHub configuration edits uses the host configuration version so the same authenticated principal can reuse compatible verified host access after a new login. A protected GitHub-specific revision changes only when the four GitHub app variables change or are removed; editing an unrelated connector's variables does not invalidate GitHub. Once a session has edited GitHub configuration, even clearing it advances its session-bound version. Legacy records without this metadata conservatively retain their existing revision as a baseline. Returning from another authenticated session may therefore require explicit reconfiguration; no private values travel in a resume hint.
+
+### GitHub registration and installation returns
+
+No pre-existing GitHub App ID or private key is required for guided registration. The manifest handshake creates the app; the server converts its one-use code, verifies the app's signed identity, then requests installation and verifies scoped API access. Public account lookup selects GitHub's personal or organization registration endpoint. A GitHub **personal account** is different: use the signup handoff to create it on GitHub, finish email verification and required challenges, then return to the same connection page. Signup never proves repository access. See [GitHub account creation](https://docs.github.com/en/account-and-profile/how-tos/account-management/creating-an-account-on-github).
+
+New app manifests register `${CEREMONY_PUBLIC_ORIGIN}/api/v1/teaching/github/installation-return` as their **setup URL**, not an OAuth callback URL. Installation state resolves an encrypted, expiring, subject-bound routing record, followed by current run authorization and signed installation verification. A reused app returns to the current parent, not its original app-registration run. Unknown, duplicate, expired, foreign-subject and consumed state cannot grant access. Installation evidence and callback consumption commit together.
+
+Migration: previously registered apps lacking a setup URL (or using a run-specific setup URL) need that setup URL updated in GitHub App settings by an authorized app owner. Do not create another app to repair routing. Existing per-run callback handlers remain for compatibility. [GitHub distinguishes setup and OAuth callback URLs](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-setup-url).
+
+Expired registration that never issued a handoff can renew safely. Once the handoff was issued, an expired attempt enters uncertainty rather than automatically creating another app. Recover an existing app through the private collector, or explicitly authorize **Start a new registration** after checking GitHub. Restart requires a current authenticated recovery ticket/revision, refuses persisted app/installation evidence, fences the old attempt and invalidates its nonce. It never deletes an upstream app or fabricates successful access.
 
 ### Database maintenance and recovery
 
@@ -73,7 +85,7 @@ Configure an authorized scheduler on a supported deployment plan to invoke this 
 
 See [persistence migration](persistence-migration.md) for the exact async transaction API, encryption/key rotation, backup rules, private collection lifetime and worker generations. Commit admission before issuing an external effect. Never put network requests or human/model waits inside database transactions. The legacy synchronous SQLite API is retained for compatibility; it is not the production hosted authority store.
 
-Rotate keys using a keyring containing both old and new keys until all record pages and retained backups have migrated. The hosted reference currently accepts one configured key; hosts performing online rotation must construct `PostgresCeremonyStore` with the multi-key keyring during migration and then switch the active deployment. Do not discard the old key merely because new writes decrypt successfully.
+Rotate keys using a keyring containing both old and new keys until all record pages and retained backups have migrated. The hosted reference accepts previous keys through `CEREMONY_VAULT_PREVIOUS_KEYS`; switch the active key while retaining the old decryption keys during migration. Do not discard the old key merely because new writes decrypt successfully.
 
 After a one-use GitHub manifest conversion with a lost response, the run is uncertain. Do not retry registration. Recover the existing app through the private collector and signed app verification. Cancelling locally does not revoke the upstream app or installation. A continuation consumer must deduplicate its stable delivery identity and reconcile acknowledgments lost after an external effect.
 

@@ -21,6 +21,21 @@ test("the service collection starts real ceremonies with inline prerequisites", 
   await page
     .getByRole("button", { name: "Connect GitHub", exact: true })
     .click();
+  const signup = page.getByRole("link", {
+    name: "Create your GitHub account (opens a new tab)",
+  });
+  await expect(signup).toHaveAttribute("href", "https://github.com/signup");
+  await expect(signup).toHaveAttribute("target", "_blank");
+  await expect(signup).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(
+    page.getByText("signup alone does not", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "GitHub connection verified",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await page.getByLabel("GitHub account or organization").fill("fixture-owner");
   await page
     .getByRole("button", { name: "Connect GitHub", exact: true })
