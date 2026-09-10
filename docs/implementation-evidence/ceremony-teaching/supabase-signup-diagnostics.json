@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 16947,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 20454,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 20941,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 24319,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 21636,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 20340,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 11908,
+      "lastStepLine": 149
+    },
+    {
+      "file": "tests/browser/teaching-supabase.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 20065,
+      "lastStepLine": 149
+    }
+  ]
+}
