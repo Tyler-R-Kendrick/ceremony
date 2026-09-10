@@ -329,11 +329,13 @@ test("Supabase children reject foreign actors, source impersonation, wrong stage
     { ...f.actor, subjectId: "other" },
     { ...f.actor, sessionId: "other" },
     { ...f.actor, tenantId: "other" },
-  ])
+  ]) {
+    await assert.rejects(f.children.humanView({ ...context, actor }), /denied/);
     await assert.rejects(
       f.children.humanInput({ ...context, actor }, snapshot.revision, project),
       /denied/,
     );
+  }
   await assert.rejects(f.input(run.id, "project", credentials), /denied/);
   await assert.rejects(
     f.children.humanInput(context, snapshot.revision + 1, project),
