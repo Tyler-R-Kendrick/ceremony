@@ -433,9 +433,25 @@ test("Jira designated owner contributes shared setup through mounted routes with
   assert.equal(start.status, 200);
   const run = await start.json();
   const assignPath = `/jira/${run.id}/owner-setup`;
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "none",
+    revision: run.revision,
+  });
+  assert.equal(
+    (await request(assignPath, { revision: run.revision, action: "continue" }))
+      .status,
+    403,
+  );
+  const requesterPage = await request(`/jira/${run.id}/human`);
+  assert.match(await requesterPage.text(), /Request owner setup/);
   const assigned = await request(assignPath, { revision: run.revision });
   assert.equal(assigned.status, 200);
   const assignment = await assigned.json();
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "pending",
+    revision: run.revision,
+    id: assignment.id,
+  });
   assert.deepEqual(
     await (await request(assignPath, { revision: run.revision })).json(),
     assignment,
@@ -449,6 +465,7 @@ test("Jira designated owner contributes shared setup through mounted routes with
   assert.equal((await request(ownerPath)).status, 403);
   actor = { ...f.actor, subjectId: "other-admin", capabilities: ["admin"] };
   assert.equal((await request(ownerPath)).status, 403);
+  assert.equal((await request(assignPath)).status, 403);
   actor = {
     ...f.actor,
     subjectId: designatedOwner,
@@ -459,6 +476,17 @@ test("Jira designated owner contributes shared setup through mounted routes with
   assert.equal(view.status, 200);
   assert.equal(view.headers.get("cache-control"), "no-store");
   const instructions = await view.json();
+  const ownerHtml = await teachingHttp(
+    new Request(`https://app.example/api/v1/teaching${ownerPath}`, {
+      headers: { accept: "text/html" },
+    }),
+    runtime,
+  );
+  assert.equal(ownerHtml.status, 200);
+  assert.equal(ownerHtml.headers.get("cache-control"), "no-store");
+  const rendered = await ownerHtml.text();
+  assert.match(rendered, /Save shared app/);
+  assert.equal(rendered.includes(f.config.clientSecret), false);
   assert.deepEqual(instructions.scopes, ["read:jira-user"]);
   assert.equal(instructions.callbackUrl, f.config.callbackUrl);
   assert.equal("requester" in instructions, false);
@@ -505,20 +533,23 @@ test("Jira designated owner contributes shared setup through mounted routes with
   assert.equal(JSON.stringify(demo).includes(f.config.clientSecret), false);
   let current = await runtime.commands.snapshot(actor, run.id);
   assert.equal(current.nodes[0]!.verified, false);
-  await runtime.commands.advance(
-    actor,
-    run.id,
-    "app",
-    current.revision,
-    `owner-return:${randomUUID()}`,
+  assert.deepEqual(await (await request(assignPath)).json(), {
+    state: "configured",
+    revision: current.revision,
+  });
+  assert.equal(
+    (await request(assignPath, { revision: run.revision, action: "continue" }))
+      .status,
+    403,
   );
-  current = await runtime.commands.snapshot(actor, run.id);
-  await runtime.commands.advance(
-    actor,
-    run.id,
-    "session",
-    current.revision,
-    `consent:${randomUUID()}`,
+  assert.equal(
+    (
+      await request(assignPath, {
+        revision: current.revision,
+        action: "continue",
+      })
+    ).status,
+    200,
   );
   const handoff = await request(`/jira/${run.id}/human`);
   assert.equal(handoff.status, 303);

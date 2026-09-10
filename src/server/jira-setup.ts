@@ -206,6 +206,59 @@ export class JiraSetupAssignments {
       throw new AuthorizationError("denied");
     return { request: request!, assignment: parsed.data, run };
   }
+  /** Read-only requester status; never advances provider state or returns app values. */
+  async status(requester: ActorContext, runId: string) {
+    actorContextSchema.parse(requester);
+    const run = await this.store.transaction((tx) =>
+      this.run(tx, requester, runId),
+    );
+    const scope = this.scope(run.value);
+    await this.policy.authorize(requester, run.value);
+    const owner = await this.policy.owner(requester, run.value.target);
+    if (!owner) throw new AuthorizationError("denied");
+    return this.store.transaction(async (tx) => {
+      const current = await this.run(tx, requester, runId);
+      if (
+        current.revision !== run.revision ||
+        this.scope(current.value) !== scope
+      )
+        throw new AuthorizationError("denied");
+      const index = await tx.get<{ id: string }>({
+        tenant: requester.tenantId,
+        kind: "handoff",
+        id: `jira-setup-index:${runId}`,
+      });
+      if (!index) return { state: "none" as const, revision: current.revision };
+      const record = await tx.get(this.requestKey(requester, index.value.id));
+      const assignment = assignmentSchema.parse(record?.value);
+      if (assignment.owner !== owner || assignment.scope !== scope)
+        throw new AuthorizationError("denied");
+      const now = await tx.now();
+      if (assignment.state === "configured") {
+        const app = await tx.get(this.appKey(requester, scope));
+        const shared = sharedSchema.safeParse(app?.value);
+        return {
+          state:
+            shared.success &&
+            shared.data.owner === owner &&
+            shared.data.expires > now
+              ? ("configured" as const)
+              : ("unavailable" as const),
+          revision: current.revision,
+        };
+      }
+      if (assignment.runRevision !== current.revision)
+        throw new AuthorizationError("denied");
+      return {
+        state:
+          assignment.expires <= now
+            ? ("expired" as const)
+            : ("pending" as const),
+        revision: current.revision,
+        id: index.value.id,
+      };
+    });
+  }
   /** Private human projection. No requester session, app secret or credential handle is returned. */
   async view(owner: ActorContext, id: string) {
     const { request, assignment, run } = await this.authorizedOwner(owner, id);
