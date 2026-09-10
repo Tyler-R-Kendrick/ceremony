@@ -1,6 +1,6 @@
 # Jira 3LO protocol boundary checkpoint
 
-This is an internal server boundary under construction, not an available end-to-end connector or a live certification. Durable callback admission/reconciliation, integration-owner setup, actor-bound handoff, Arazzo/recipe composition, environment configuration and browser mounting remain required. No Jira method is added to the normal service collection by this checkpoint.
+This is an internal server boundary under construction, not an available end-to-end page connector or a live certification. Durable callback admission, private integration-owner configuration and registered Arazzo/recipe children are implemented and locally tested. Fixed callback routing, owner handoff UI, environment configuration and browser mounting remain required. No Jira method is added to the normal service collection by this checkpoint.
 
 ## Verified provider contract
 
@@ -48,4 +48,22 @@ Investigation reproduced a diagnostic defect: cleanup overwrote the last source 
 
 Stripe passed one focused diagnostic and then [five recorded repetitions](oauth-handoff-stripe-diagnostics.json). Those passes do **not** diagnose or clear the original failure. Full verification remains **FAIL**, not a passing rerun or a production claim. The earlier Supabase Firefox timeout also remains unresolved. The reporter fix is isolated on the base Supabase PR; the OAuth carrier and its guard tests remain on the stacked Jira PR.
 
-Jira's registered children, fixed callback routing, owner setup, mounted browser flow, private-handoff retention and issued-session reconciliation still need integration. No real Jira account, deployed Workflow or installed-PWA checks were executed for this checkpoint. No resources were provisioned.
+At that checkpoint Jira's registered children, fixed callback routing, owner setup, mounted browser flow, private-handoff retention and issued-session reconciliation still needed integration. No real Jira account, deployed Workflow or installed-PWA checks were executed. No resources were provisioned.
+
+## Registered composition and fenced artifacts
+
+Commit `270feaf` adds three registered children: shared app preparation, private OAuth receipt and site-bound API verification. They use the existing deterministic recipe engine, private broker, encrypted store and OAuth SDK; the access child runs the registered Arazzo verification operation. Token receipt cannot complete the parent. Compatible setup/session reuse still requires a fresh current-user API check. An authenticated integration owner can privately supply app configuration for the same parent; this is not evidence that an account or app was created. Target, callback and permissions remain host-bound, not collector/model choices.
+
+Eight child tests exercise real local provider HTTP and encrypted SQLite through protected commands. They cover prerequisites, fresh-parent reuse, cross-principal isolation, private owner configuration, wrong site/account, revoked access, configuration rotation, expired/missing artifacts, lost code responses and stale workers. Initial test authoring had three failures from command IDs beginning with a digit; IDs now use the existing required alphabetic prefix. The expanded Jira/OAuth/command suite passes 26 assertions-based tests, with zero skips.
+
+Self-review reproduced a stale-worker bug: after its lease was superseded, a worker could save a reusable connection artifact even though the final command commit failed. The command service now supplies its admitted fence as server-only operation context. Jira checks that fence inside the artifact-write transaction and before leaf execution. The failing regression now passes; no late connection artifact remains. Pure verification and native collection do not receive an execution lease; native configuration uses its own transactional claim.
+
+Mutation history is retained honestly: an incorrectly repeated CLI flag selected only one error-code mutant, which survived. Tests now assert the structured denial code. The correctly selected 23-mutant run killed 21 and exposed two remaining test gaps: target and callback-origin mismatch were being rejected by later checks, not the owner-setup authority guard. Direct owner-setup attacks now isolate those guards; all 23 selected mutants were then killed, with zero timeouts or errors. This focused run preceded the additional worker-fence fix and is not a complete current-tree mutation gate.
+
+The first full attempt was deliberately [interrupted](jira-children-interrupted-verification.json) to investigate and fix the reproduced worker issue. Its four completed stages passed: format, types, 366 Node tests and two Workflow tests. Exit 143 from stopping that runner is not a passing result.
+
+The [post-fix full attempt](jira-children-local-verification.json) remains **FAIL**: formatting, types and all 367 Node tests passed; Workflow had one pass and one failure, zero skips. The [safe failure location](jira-children-workflow-failure.json) is `tests/workflow/agent.test.ts:301`, the durable wake-delivery assertion. The fixture currently waits for workflow completion before acknowledging delivery, unlike production's hook-acceptance behavior; that mismatch is an investigation lead, not an established cause or verified fix. Mutation, build and browser stages were not reached in this attempt. Earlier Stripe and Supabase browser failures remain unresolved.
+
+Post-fix coverage: Jira children 100% lines/functions and 92.08% branches; commands 99.62% lines, 100% functions and 92.73% branches. All-source coverage is 94.79% lines, 92.75% functions and 91.49% branches. Source Git metadata remains unavailable, so full-run evidence records `commit: null`; delivery-file equality is checked separately, not misrepresented as commit-bound certification.
+
+The normal Jira page flow, cross-owner assignment, callback mounting, private-handoff retention and issued-session reconciliation are unfinished. The new worker-fence invariant also needs sibling-provider review before claiming a production-wide artifact guarantee. No live provider, deployed Vercel/Workflow or installed-PWA certification was executed. No production resources were provisioned.
