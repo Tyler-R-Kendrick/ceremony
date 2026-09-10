@@ -656,6 +656,91 @@ test("Jira owner assignment rejects cancellation, expiry, stale source sessions 
   assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
 });
 
+test("Jira renews expired owner assignments without reviving old links or repeating setup", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  const setup = new JiraSetupAssignments(
+    {
+      transaction: (work) =>
+        f.store.transaction((tx) => work({ ...tx, now: async () => 1 })),
+      close: async () => {},
+    },
+    {
+      scopes: ["read:jira-user"],
+      owner: async () => "owner",
+      authorize: async () => {},
+    },
+  );
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  const old = await setup.request(f.actor, run.id, current.revision);
+  await f.store.transaction(async (tx) => {
+    const key = {
+      tenant: f.actor.tenantId,
+      kind: "handoff" as const,
+      id: `jira-setup:${old.id}`,
+    };
+    const record = (await tx.get<Record<string, unknown>>(key))!;
+    await tx.put(
+      key,
+      { ...record.value, expires: 1, state: "configured" },
+      record.revision,
+    );
+  });
+  await assert.rejects(
+    setup.request(f.actor, run.id, current.revision),
+    /denied/,
+  );
+  await f.store.transaction(async (tx) => {
+    const key = {
+      tenant: f.actor.tenantId,
+      kind: "handoff" as const,
+      id: `jira-setup:${old.id}`,
+    };
+    const record = (await tx.get<Record<string, unknown>>(key))!;
+    await tx.put(key, { ...record.value, state: "pending" }, record.revision);
+  });
+  const [renewed, competing] = await Promise.all([
+    setup.request(f.actor, run.id, current.revision),
+    setup.request(f.actor, run.id, current.revision),
+  ]);
+  assert.deepEqual(
+    competing,
+    renewed,
+    "Concurrent renewal has one current request",
+  );
+  assert.notEqual(renewed.id, old.id);
+  assert.deepEqual(
+    await setup.request(f.actor, run.id, current.revision),
+    renewed,
+    "A retry reuses the renewed assignment",
+  );
+  await assert.rejects(setup.view(owner, old.id), /denied/);
+  const values = {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  };
+  await assert.rejects(
+    setup.configure(owner, old.id, old.revision, values),
+    /denied/,
+  );
+  assert.equal((await setup.view(owner, renewed.id)).state, "pending");
+  await setup.configure(owner, renewed.id, renewed.revision, values);
+  assert.equal((await setup.view(owner, renewed.id)).state, "configured");
+  assert.equal(
+    (await setup.resolve(f.actor, run.id))?.clientSecret ===
+      values.clientSecret,
+    true,
+  );
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
 test("Jira shared setup rejects missing owner policy, wrong recipients and replacement without a configuration version", async (t) => {
   const f = await fixture(t);
   f.behavior.configured = false;

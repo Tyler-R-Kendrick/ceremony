@@ -98,6 +98,39 @@
     ],
     "teaching": "Consented semantic handoff is recorded atomically without private app values"
   },
+  "ownerAssignmentRecovery": {
+    "baseCommit": "ddf4ca7dc9dce369444260d0eda9c846286936cc",
+    "regressionBeforeFix": { "exitCode": 1, "passed": 0, "failed": 1 },
+    "finalJiraSuite": {
+      "exitCode": 0,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    "mutation": { "exitCode": 0, "killed": 46, "survived": 0, "timedOut": 0 },
+    "coverage": {
+      "linesCovered": 338,
+      "linesTotal": 338,
+      "branchesCovered": 85,
+      "branchesTotal": 86,
+      "branchPercent": 98.83
+    },
+    "invariants": [
+      "EXACT_EXPIRY_RENEWS_PENDING_ONLY",
+      "CONCURRENT_RENEWAL_DEDUPLICATION",
+      "OLD_LINK_REMAINS_INVALID",
+      "NO_PROVIDER_EFFECT_ON_RENEWAL"
+    ],
+    "fullVerification": "NOT_RUN_AT_RECOVERY_HEAD"
+  },
+  "baseFullVerification": {
+    "observedStartingCommit": "ddf4ca7dc9dce369444260d0eda9c846286936cc",
+    "resultPath": "jira-owner-full-verification.json",
+    "exitCode": 0,
+    "commitBinding": "INVALIDATED_BY_UNIGNORED_VERCEL_BUILD_OUTPUT",
+    "releaseEligible": false,
+    "note": "Original final result is retained unchanged with commit null; generated output ignore is fixed prospectively, not by rewriting evidence."
+  },
   "releaseVerdict": "FAIL",
   "externalChecks": {
     "liveJira": "NOT_REQUESTED",
