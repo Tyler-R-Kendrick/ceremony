@@ -80,11 +80,12 @@ export async function teachingHttp(
       return await runtime.humanReturn(actor, request);
     }
     if (
-      /^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) &&
+      (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
+        /^\/stripe\/[^/]+\/human$/.test(path)) &&
       runtime.human
     ) {
       const action = path.split("/")[3];
-      if (post && action !== "recovery")
+      if (post && action !== "recovery" && !path.startsWith("/stripe/"))
         return reply({ error: "unavailable" }, 405);
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
       requireCapability(actor, "executor");
@@ -98,9 +99,7 @@ export async function teachingHttp(
       requireCapability(actor, "executor");
       if (!post) return reply({ error: "unavailable" }, 405);
       if (path === "/tools/connect") {
-        const input = z
-          .strictObject({ connectorId: z.literal("github") })
-          .parse(body);
+        const input = z.strictObject({ connectorId: id }).parse(body);
         const delegated = await runtime.connectForAgent(
           actor,
           input.connectorId,
@@ -173,12 +172,12 @@ export async function teachingHttp(
         modelAvailable: Boolean(runtime.modelConfiguration.model),
         signOutAvailable:
           typeof Reflect.get(runtime.identity, "logout") === "function",
-        connectors: ["github"],
+        connectors: runtime.connectors,
       });
     if (path === "/runs" && post) {
       const input = z
         .strictObject({
-          connectorId: z.literal("github"),
+          connectorId: id,
           teach: z.boolean().optional(),
           target: z
             .string()
@@ -186,9 +185,11 @@ export async function teachingHttp(
             .optional(),
         })
         .parse(body);
+      if (!runtime.connectors.includes(input.connectorId))
+        throw new AuthorizationError("invalid_request");
       if (input.target) {
         if (!runtime.selectTarget) throw new AuthorizationError("denied");
-        await runtime.selectTarget(actor, input.target);
+        await runtime.selectTarget(actor, input.target, input.connectorId);
       }
       let run = await runtime.connect(actor, input.connectorId);
       const demo = input.teach
@@ -464,6 +465,7 @@ export async function teachingHttp(
     if (path === "/recipes/execute" && post) {
       const input = z
         .strictObject({
+          connectorId: id.default("github"),
           id,
           version: z.string(),
           digest: z.string(),
@@ -489,7 +491,7 @@ export async function teachingHttp(
           actor,
           published.definition,
           input.inputs,
-          "github",
+          input.connectorId,
         ),
       );
     }

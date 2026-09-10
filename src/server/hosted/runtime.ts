@@ -113,6 +113,10 @@ export async function createHostedRuntime(
       origin: c.origin,
       environment: "production",
       configurationVersion: c.configurationVersion,
+      stripe: {
+        configuration: (actor) =>
+          environment.resolveStripe(actor, c.configurationVersion),
+      },
       configuration: (actor) =>
         environment.resolveGitHub(actor, c.configurationVersion),
       expectedAccount: c.account,
@@ -129,10 +133,15 @@ export async function createHostedRuntime(
         actor.capabilities.includes("executor") &&
         (operationId === "continuation" ||
           run.configurationVersion ===
-            (await environment.resolveGitHub(actor, c.configurationVersion))
-              .configurationVersion) &&
+            (run.provider === "stripe"
+              ? (await environment.resolveStripe(actor, c.configurationVersion))
+                  .version
+              : (await environment.resolveGitHub(actor, c.configurationVersion))
+                  .configurationVersion)) &&
         run.origin === c.origin &&
-        run.target === c.account,
+        (run.provider === "stripe"
+          ? run.target === "self"
+          : run.provider === "github" && run.target === c.account),
     });
   } catch {
     await store.close();

@@ -34,6 +34,7 @@ export function nextGitHubEnvironmentRevision(
 type EnvironmentRecord = {
   values: Record<string, string>;
   githubRevision?: number;
+  stripeRevision?: number;
 };
 
 /** Native user-session environment shared by every connector; read is a trusted server-only operation. */
@@ -51,6 +52,7 @@ export class AsyncCeremonyEnvironment {
   async read(actor: ActorContext): Promise<{
     revision: number;
     githubRevision: number;
+    stripeRevision: number;
     values: Record<string, string>;
   }> {
     requireCapability(actor, "executor");
@@ -60,6 +62,7 @@ export class AsyncCeremonyEnvironment {
     return {
       revision: record?.revision ?? 0,
       githubRevision: record?.value.githubRevision ?? record?.revision ?? 0,
+      stripeRevision: record?.value.stripeRevision ?? record?.revision ?? 0,
       values: record?.value.values ?? {},
     };
   }
@@ -104,7 +107,15 @@ export class AsyncCeremonyEnvironment {
       );
       const revision = await tx.put(
         key,
-        { values, githubRevision },
+        {
+          values,
+          githubRevision,
+          stripeRevision:
+            (record?.value.stripeRevision ?? record?.revision ?? 0) +
+            (record?.value.values.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
+              ? 1
+              : 0),
+        },
         record?.revision ?? null,
       );
       return { revision, names: Object.keys(values).sort() };
@@ -124,6 +135,35 @@ export class AsyncCeremonyEnvironment {
       baseVersion,
     );
   }
+  async resolveStripe(actor: ActorContext, baseVersion: string) {
+    const record = await this.read(actor);
+    return resolveStripeEnvironment(
+      {
+        revision: record.stripeRevision,
+        values: record.values,
+        sessionId: actor.sessionId,
+      },
+      baseVersion,
+    );
+  }
+}
+
+export function resolveStripeEnvironment(
+  record: {
+    revision: number;
+    values: Record<string, string>;
+    sessionId: string;
+  },
+  baseVersion: string,
+): { version: string; token?: string } {
+  return {
+    version: createHash("sha256")
+      .update(JSON.stringify([baseVersion, record.sessionId, record.revision]))
+      .digest("hex"),
+    ...(record.values.STRIPE_SECRET_KEY
+      ? { token: record.values.STRIPE_SECRET_KEY }
+      : {}),
+  };
 }
 
 /** Shared by async hosted and legacy local adapters. Only session/revision metadata enters the version digest. */

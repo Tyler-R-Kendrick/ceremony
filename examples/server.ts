@@ -20,6 +20,7 @@ import {
   githubAppManifest,
   githubWorkflows,
   serviceRegistrations,
+  serviceManifests,
   type GitHubOptions,
   CloudflareHumanBrowser,
   Agent2Human,
@@ -239,6 +240,14 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           origin,
           environment: "development",
           configurationVersion: "v1",
+          stripe: {
+            configuration: async (actor) =>
+              environment.stripeConfiguration(
+                actor.subjectId,
+                actor.sessionId,
+                "v1",
+              ),
+          },
           identity: {
             authenticate: async (request) => {
               const owner =
@@ -407,9 +416,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && url.pathname === "/api/config")
         return json(response, {
           manifests: controller.manifests(),
-          liveManifests: liveController?.manifests() ?? [githubAppManifest],
+          liveManifests: liveController?.manifests() ?? [
+            githubAppManifest,
+            ...serviceManifests.filter((manifest) =>
+              teaching?.connectors.includes(manifest.id),
+            ),
+          ],
           liveAvailable: Boolean(liveController),
           teachingAvailable: Boolean(teaching),
+          teachingConnectors: teaching?.connectors ?? [],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
       if (request.method === "GET" && url.pathname === "/api/workflows/github")

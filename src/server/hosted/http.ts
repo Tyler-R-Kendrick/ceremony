@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { githubAppManifest, githubWorkflows } from "../github.js";
+import { serviceManifests } from "../services.js";
 import { AuthorizationError, type HostIdentityAdapter } from "../identity.js";
 import {
   assertRequestBoundary,
@@ -81,9 +82,12 @@ export async function hostedHttp(
       return Response.json(
         {
           manifests: [githubAppManifest],
-          liveManifests: [githubAppManifest],
+          liveManifests: [githubAppManifest, ...serviceManifests].filter(
+            (manifest) => runtime.connectors.includes(manifest.id),
+          ),
           liveAvailable: true,
           teachingAvailable: true,
+          teachingConnectors: runtime.connectors,
           generationAvailable: false,
         },
         { headers: { "cache-control": "no-store" } },

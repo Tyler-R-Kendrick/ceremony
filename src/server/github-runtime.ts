@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
   createTeachingRuntime,
+  githubConnectionRecipe,
   type TeachingRuntime,
   type TeachingRuntimeOptions,
 } from "./teaching-runtime.js";
@@ -23,6 +24,12 @@ import type { ModelConfiguration } from "./agent/model.js";
 import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
 import { boundedJson, assertRequestBoundary } from "./authorization.js";
 import { appendSemanticTransition } from "./demonstrations.js";
+import {
+  AsyncStripeChildren,
+  stripeConnectionRecipe,
+  stripeVocabulary,
+} from "./recipes/stripe.js";
+import { stripeHuman } from "./stripe-human.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -35,6 +42,12 @@ export interface GitHubRuntimeOptions {
   expectedAccount?: string;
   modelConfiguration?: ModelConfiguration;
   github?: Partial<Pick<AsyncGitHubOptions, "app" | "fetch">>;
+  stripe?: {
+    configuration(
+      actor: ActorContext,
+    ): Promise<{ version: string; token?: string }>;
+    fetch?: typeof fetch;
+  };
   authorize(
     actor: ActorContext,
     run: RunRecord,
@@ -61,7 +74,9 @@ export function createGitHubRuntime(
 ): TeachingRuntime {
   const { store, identity, origin } = options;
   const broker = new AsyncPrivateCollectionBroker(store);
-  const registry = new OperationRegistry(githubVocabulary);
+  const registry = new OperationRegistry(
+    new Map([...githubVocabulary, ...(options.stripe ? stripeVocabulary : [])]),
+  );
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
@@ -79,7 +94,9 @@ export function createGitHubRuntime(
     operationId: string,
   ) =>
     (operationId === "continuation" ||
-      (await configuration(actor)).configurationVersion ===
+      (run.provider === "stripe"
+        ? (await options.stripe?.configuration(actor))?.version
+        : (await configuration(actor)).configurationVersion) ===
         run.configurationVersion) &&
     (await options.authorize(actor, run, operationId));
   const childOptions = {
@@ -102,11 +119,20 @@ export function createGitHubRuntime(
         !run ||
         run.value.subjectId !== context.actor.subjectId ||
         run.value.status === "cancelled" ||
-        !(await authorize(context.actor, run.value, "github"))
+        !(await authorize(context.actor, run.value, run.value.provider))
       )
         throw new AuthorizationError("denied");
     },
   } satisfies AsyncGitHubOptions;
+  const stripe = options.stripe
+    ? new AsyncStripeChildren(store, {
+        configuration: (context) =>
+          options.stripe!.configuration(context.actor),
+        authorize: childOptions.authorize,
+        ...(options.stripe.fetch ? { fetch: options.stripe.fetch } : {}),
+      })
+    : undefined;
+  stripe?.register(registry);
   const childrenFor = async (context: OperationContext) => {
     const config = await configuration(context.actor);
     if (config.configurationVersion !== context.configurationVersion)
@@ -175,6 +201,28 @@ export function createGitHubRuntime(
     identity,
     registry,
     origin,
+    connections: new Map([
+      [
+        "github",
+        {
+          definition: githubConnectionRecipe,
+          outputContract: "github.connection",
+          revalidateOperation: "github.verify-access",
+        },
+      ],
+      ...(stripe
+        ? [
+            [
+              "stripe",
+              {
+                definition: stripeConnectionRecipe,
+                outputContract: "stripe.connection",
+                revalidateOperation: "stripe.verify-access",
+              },
+            ] as const,
+          ]
+        : []),
+    ]),
     ...(options.modelConfiguration
       ? { modelConfiguration: options.modelConfiguration }
       : {}),
@@ -207,6 +255,7 @@ export function createGitHubRuntime(
         record.value.status !== "cancelled"
       )
         throw new AuthorizationError("denied");
+      if (record.value.provider === "stripe") return;
       // Cancellation must still fence the old handoff after configuration rotation.
       const context = operationContext(actor, record.value);
       // The authoritative run fence above remains valid even when retired configuration cannot be loaded.
@@ -216,7 +265,17 @@ export function createGitHubRuntime(
       )
         await (await childrenFor(context)).cancel(context);
     },
-    context: async (actor) => {
+    context: async (actor, connectorId) => {
+      if (connectorId === "stripe" && options.stripe)
+        return {
+          provider: "stripe",
+          profile: "stripe-api-key",
+          target: "self",
+          origin,
+          environment: options.environment,
+          configurationVersion: (await options.stripe.configuration(actor))
+            .version,
+        };
       const config = await configuration(actor);
       const target =
         options.expectedAccount ??
@@ -235,8 +294,9 @@ export function createGitHubRuntime(
         configurationVersion: config.configurationVersion,
       };
     },
-    selectTarget: async (actor, target) => {
+    selectTarget: async (actor, target, connectorId = "github") => {
       if (
+        connectorId !== "github" ||
         !/^[a-zA-Z0-9-]{1,100}$/.test(target) ||
         !options.allowTarget ||
         !(await options.allowTarget(actor, target))
@@ -252,6 +312,11 @@ export function createGitHubRuntime(
         tx.get<RunRecord>({ tenant: actor.tenantId, kind: "run", id: runId }),
       );
       let callbackUrl = new URL(request.url);
+      if (
+        !record ||
+        callbackUrl.pathname.split("/")[4] !== record.value.provider
+      )
+        throw new AuthorizationError("denied");
       if (
         record?.value.subjectId === actor.subjectId &&
         record.value.status === "cancelled" &&
@@ -285,10 +350,33 @@ export function createGitHubRuntime(
         throw new AuthorizationError("denied");
       if (
         actor.actorKind !== "human" ||
-        !(await authorize(actor, record.value, "github.human"))
+        !(await authorize(
+          actor,
+          record.value,
+          `${record.value.provider}.human`,
+        ))
       )
         throw new AuthorizationError("denied");
       const context = operationContext(actor, record.value);
+      if (record.value.provider === "stripe") {
+        if (
+          !stripe ||
+          decodeURIComponent(new URL(request.url).pathname) !==
+            `/api/v1/teaching/stripe/${runId}/human`
+        )
+          throw new AuthorizationError("denied");
+        const stripeReturn = new URL(returnUrl(runId));
+        stripeReturn.searchParams.set("connector", "stripe");
+        return stripeHuman(
+          store,
+          stripe,
+          context,
+          record,
+          request,
+          stripeReturn.href,
+          () => advance(actor, runId),
+        );
+      }
       const children = await childrenFor(context);
       if (new URL(request.url).pathname.endsWith("/recovery")) {
         const node = record.value.nodes.find(

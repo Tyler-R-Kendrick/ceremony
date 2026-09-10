@@ -31,7 +31,9 @@ jobs:
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The full schema scope took 28 minutes on the successful baseline.
+    # Keep every mutant and threshold; allow bounded runner/test-growth headroom.
+    timeout-minutes: ${{ matrix.target == 'schema' && 45 || 30 }}
     strategy:
       fail-fast: false
       matrix:

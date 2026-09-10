@@ -8,6 +8,7 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
 import type { RunRecord } from "../src/server/commands.js";
+import { teachingHttp } from "../src/server/teaching-http.js";
 
 const actor: ActorContext = {
   tenantId: "tenant",
@@ -40,7 +41,10 @@ const recipe: RecipeDefinition = {
   ],
   outputs: {},
 };
-function fixture() {
+function fixture(connectorId?: string) {
+  const runContext = connectorId
+    ? { ...context, provider: "fixture-provider", profile: "fixture-key" }
+    : context;
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -62,8 +66,8 @@ function fixture() {
     contract: {
       id: "verify",
       version: "1.0.0",
-      provider: "github",
-      profile: "github-app",
+      provider: runContext.provider,
+      profile: runContext.profile,
       inputs: { target: { contract: "target", required: true } },
       outputs: {},
       effects: ["verify"],
@@ -87,7 +91,32 @@ function fixture() {
     registry,
     identity: { authenticate: async () => actor },
     origin: context.origin,
-    context: async () => context,
+    ...(connectorId
+      ? {
+          connections: new Map([
+            [
+              connectorId,
+              {
+                definition: {
+                  ...recipe,
+                  inputs: {},
+                  invocations: [
+                    {
+                      ...recipe.invocations[0]!,
+                      bindings: {
+                        target: { from: "literal", value: "account" },
+                      },
+                    },
+                  ],
+                },
+                outputContract: "fixture.connection",
+                revalidateOperation: "verify",
+              },
+            ],
+          ]),
+        }
+      : {}),
+    context: async () => runContext,
     authorize: async (_, __, operation) => {
       await onAuthorize?.(operation);
       return operation !== denied;
@@ -112,6 +141,76 @@ function fixture() {
     },
   };
 }
+test("host-registered connectors use the shared HTTP runtime and unknown connectors cannot create runs", async () => {
+  const f = fixture("custom");
+  try {
+    const call = (path: string, body?: unknown) =>
+      teachingHttp(
+        new Request(
+          `https://app.example/api/v1/teaching${path}`,
+          body === undefined
+            ? {}
+            : {
+                method: "POST",
+                headers: {
+                  origin: context.origin,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify(body),
+              },
+        ),
+        f.runtime,
+      );
+    const capabilities = await call("/capabilities");
+    assert.equal(capabilities.status, 200);
+    assert.deepEqual((await capabilities.json()).connectors, ["custom"]);
+    for (const connectorId of ["github", "unknown", "__proto__"]) {
+      await assert.rejects(
+        f.runtime.connect(actor, connectorId),
+        /invalid_request/,
+      );
+      await assert.rejects(
+        f.runtime.executeRecipe(
+          actor,
+          recipe,
+          { target: "account" },
+          connectorId,
+        ),
+        /invalid_request/,
+      );
+      assert.notEqual((await call("/runs", { connectorId })).status, 200);
+    }
+    assert.equal(
+      (await f.store.transaction((tx) => tx.list("tenant", "run"))).length,
+      0,
+    );
+    const connected = await call("/runs", { connectorId: "custom" });
+    assert.equal(connected.status, 200);
+    assert.equal(f.effects(), 1);
+    const run = await f.runtime.connect(actor, "custom");
+    assert.equal(run.status, "complete");
+    const stored = await f.store.transaction((tx) =>
+      tx.get<RunRecord>({
+        tenant: actor.tenantId,
+        kind: "run",
+        id: run.id,
+      }),
+    );
+    assert.equal(stored?.value.provider, "fixture-provider");
+    assert.equal(stored?.value.profile, "fixture-key");
+    assert.equal(f.effects(), 1);
+    assert.equal(
+      (await f.store.transaction((tx) => tx.list("tenant", "run"))).length,
+      1,
+    );
+    f.deny("verify");
+    const denied = await call("/tools/connect", { connectorId: "custom" });
+    assert.notEqual(denied.status, 200);
+    assert.equal(f.effects(), 1);
+  } finally {
+    await f.store.close();
+  }
+});
 test("AC-16 AC-26: recipe execution rejects unsupported and invalid public bindings before run admission", async () => {
   const f = fixture();
   try {

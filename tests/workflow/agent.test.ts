@@ -275,23 +275,30 @@ test("AGT AC-34 actual Workflow worker SIGKILL and replacement resumes persisted
       ),
     );
     let returnValue: unknown;
-    await dispatchAgentWakes(runtime, actor.tenantId, async () => {
-      returnValue = (
-        await second.invoke({
-          action: "resume",
-          runId: connection.id,
-          workflowRunId,
-        })
-      ).value;
-      return true;
-    });
-    expect(
-      (
-        await runtime.store.transaction((tx) =>
-          tx.get<{ status: string }>(wakeKey),
-        )
-      )?.value.status,
-    ).toBe("delivered");
+    // Worker startup does not guarantee that its recovered hook can accept a
+    // wake yet. Retry the same durable outbox entry, as the hosted dispatcher does.
+    await expect
+      .poll(
+        async () => {
+          await dispatchAgentWakes(runtime, actor.tenantId, async () => {
+            returnValue = (
+              await second.invoke({
+                action: "resume",
+                runId: connection.id,
+                workflowRunId,
+              })
+            ).value;
+            return true;
+          });
+          return (
+            await runtime.store.transaction((tx) =>
+              tx.get<{ status: string }>(wakeKey),
+            )
+          )?.value.status;
+        },
+        { timeout: 20000, interval: 100 },
+      )
+      .toBe("delivered");
     expect(returnValue).toBe("stopped");
     expect(
       (await second.invoke({ action: "checkpoint", workflowRunId }))

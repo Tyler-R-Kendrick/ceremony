@@ -20,6 +20,34 @@ const actor: ActorContext = {
   capabilities: ["executor"],
 };
 const keys = { current: "test", keys: { test: randomBytes(32) } };
+test("Stripe configuration revision changes only for its key and never includes a key-derived digest", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", keys);
+  const env = new AsyncCeremonyEnvironment(store);
+  try {
+    const initial = await env.resolveStripe(actor, "v1");
+    await env.update(actor, { revision: 0, values: { UNRELATED: "value" } });
+    assert.deepEqual(await env.resolveStripe(actor, "v1"), initial);
+    await env.update(actor, {
+      revision: 1,
+      values: { STRIPE_SECRET_KEY: "synthetic-key" },
+    });
+    const configured = await env.resolveStripe(actor, "v1");
+    assert.notEqual(configured.version, initial.version);
+    assert.equal(configured.token, "synthetic-key");
+    await env.update(actor, { revision: 2, values: { UNRELATED: "changed" } });
+    assert.deepEqual(await env.resolveStripe(actor, "v1"), configured);
+    await env.update(actor, { revision: 3, remove: ["STRIPE_SECRET_KEY"] });
+    const removed = await env.resolveStripe(actor, "v1");
+    assert.notEqual(removed.version, configured.version);
+    assert.equal(removed.token, undefined);
+    assert.notEqual(
+      (await env.resolveStripe({ ...actor, sessionId: "other" }, "v1")).version,
+      initial.version,
+    );
+  } finally {
+    await store.close();
+  }
+});
 test("AC-20: asynchronous native Environment is session-scoped, encrypted and names-only", async () => {
   const store = new SQLiteCeremonyStore(":memory:", keys);
   const env = new AsyncCeremonyEnvironment(store);

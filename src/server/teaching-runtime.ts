@@ -67,8 +67,21 @@ export interface TeachingRuntimeOptions {
   registry: OperationRegistry;
   origin: string;
   modelConfiguration?: ModelConfiguration;
+  /** Trusted host registrations, never supplied by a tool or imported recipe. */
+  connections?: ReadonlyMap<
+    string,
+    {
+      definition: RecipeDefinition;
+      outputContract: string;
+      revalidateOperation: string;
+    }
+  >;
   context(actor: ActorContext, connectorId: string): Promise<RunContext>;
-  selectTarget?: (actor: ActorContext, target: string) => Promise<void>;
+  selectTarget?: (
+    actor: ActorContext,
+    target: string,
+    connectorId?: string,
+  ) => Promise<void>;
   authorize(
     actor: ActorContext,
     run: RunRecord,
@@ -90,6 +103,23 @@ export interface TeachingRuntimeOptions {
 }
 export function createTeachingRuntime(options: TeachingRuntimeOptions) {
   const { store, registry, identity, origin } = options;
+  const connections = new Map(
+    options.connections ?? [
+      [
+        "github",
+        {
+          definition: githubConnectionRecipe,
+          outputContract: "github.connection",
+          revalidateOperation: "github.verify-access",
+        },
+      ],
+    ],
+  );
+  function connection(connectorId: string) {
+    const registered = connections.get(connectorId);
+    if (!registered) throw new AuthorizationError("invalid_request");
+    return registered;
+  }
   const commands = new ProtectedCommandService(
     store,
     registry,
@@ -139,6 +169,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     inputs: Record<string, unknown>,
     connectorId: string,
   ) {
+    connection(connectorId);
     const checked = await recipes.preview(actor, definition);
     if (checked.diagnostics.length)
       throw new AuthorizationError("invalid_request");
@@ -174,8 +205,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     fresh = true,
   ) {
     requireCapability(actor, "executor");
-    if (connectorId !== "github")
-      throw new AuthorizationError("invalid_request");
+    const registered = connection(connectorId);
     const context = await options.context(actor, connectorId);
     // Reuse requires the entire authorization context, not just a connector name.
     const existing = await store.transaction(async (tx) => {
@@ -202,7 +232,11 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     });
     if (
       existing &&
-      (await options.authorize(actor, existing.value, "github.verify-access"))
+      (await options.authorize(
+        actor,
+        existing.value,
+        registered.revalidateOperation,
+      ))
     )
       return fresh
         ? commands.revalidate(actor, existing.id)
@@ -210,11 +244,11 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     const selected = await recipes.selectConnection(actor, {
       provider: context.provider,
       profile: context.profile,
-      outputContract: "github.connection",
+      outputContract: registered.outputContract,
     });
     return executeRecipe(
       actor,
-      selected ?? githubConnectionRecipe,
+      selected ?? registered.definition,
       {},
       connectorId,
     );
@@ -338,6 +372,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     registry,
     identity,
     origin,
+    connectors: Object.freeze([...connections.keys()]),
     commands,
     recipes,
     demonstrations,

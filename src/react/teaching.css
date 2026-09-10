@@ -111,7 +111,7 @@
 @media (max-width: 760px) {
   .teaching-current,
   .teaching-review {
-    padding: 24px 20px;
+    padding: 20px;
   }
   .teaching-range {
     grid-template-columns: minmax(0, 1fr);

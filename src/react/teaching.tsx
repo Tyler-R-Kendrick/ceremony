@@ -47,6 +47,9 @@ const operationLabels: Record<string, string> = {
   "github.prepare-app": "Prepare GitHub App",
   "github.authorize-installation": "Authorize installation",
   "github.verify-access": "Verify GitHub access",
+  "stripe.prepare-account": "Open or create your Stripe account",
+  "stripe.obtain-key": "Obtain a restricted Stripe key",
+  "stripe.verify-access": "Verify Stripe access",
 };
 const operationLabel = (id: string) =>
   operationLabels[id] ?? "Registered connection step";
@@ -139,6 +142,12 @@ export function TeachingConnection({
   style,
   autoFocus = true,
 }: TeachingConnectionProps) {
+  const serviceName =
+    connectorId === "github"
+      ? "GitHub"
+      : connectorId === "stripe"
+        ? "Stripe"
+        : "service";
   const base = apiBase.replace(/\/$/, "");
   const request = useCallback(
     <T,>(path: string, body?: unknown, signal?: AbortSignal) =>
@@ -154,6 +163,7 @@ export function TeachingConnection({
     authenticated: boolean;
     modelAvailable: boolean;
     signOutAvailable?: boolean;
+    connectors?: string[];
   }>();
   const [run, setRun] = useState<Run>();
   const [demo, setDemo] = useState<Demo>();
@@ -203,24 +213,34 @@ export function TeachingConnection({
       if (mounted.current) setBusy(false);
     }
   }, []);
-  const remember = useCallback((value: Run) => {
-    if (!mounted.current) return;
-    setRun(value);
-    currentRun.current = value;
-    if (host.current.onRunChange) {
-      // Host observers cannot turn a committed server result into a failed command.
-      try {
-        host.current.onRunChange(value);
-      } catch {
-        /* Observer owns its error handling. */
+  const remember = useCallback(
+    (value: Run) => {
+      if (!mounted.current) return;
+      if (value.provider !== connectorId) {
+        setError(
+          "This saved connection belongs to another service. Start a connection for the selected service.",
+        );
+        return false;
       }
-      return;
-    }
-    // Non-authorizing resume hint only; server authentication is required on every read.
-    const url = new URL(location.href);
-    url.searchParams.set("teachingRun", value.id);
-    history.replaceState(null, "", url);
-  }, []);
+      setRun(value);
+      currentRun.current = value;
+      if (host.current.onRunChange) {
+        // Host observers cannot turn a committed server result into a failed command.
+        try {
+          host.current.onRunChange(value);
+        } catch {
+          /* Observer owns its error handling. */
+        }
+        return true;
+      }
+      // Non-authorizing resume hint only; server authentication is required on every read.
+      const url = new URL(location.href);
+      url.searchParams.set("teachingRun", value.id);
+      history.replaceState(null, "", url);
+      return true;
+    },
+    [connectorId],
+  );
   const refresh = useCallback(async () => {
     if (run)
       remember(await request<Run>(`/runs/${encodeURIComponent(run.id)}`));
@@ -355,6 +375,7 @@ export function TeachingConnection({
       authenticated: boolean;
       modelAvailable: boolean;
       signOutAvailable?: boolean;
+      connectors?: string[];
     }>("/capabilities", undefined, abort.signal)
       .then(async (value) => {
         if (abort.signal.aborted) return;
@@ -366,14 +387,17 @@ export function TeachingConnection({
           (host.current.onRunChange
             ? null
             : new URL(location.href).searchParams.get("teachingRun"));
-        if (hint)
-          remember(
+        if (
+          hint &&
+          !remember(
             await request<Run>(
               `/runs/${encodeURIComponent(hint)}`,
               undefined,
               abort.signal,
             ),
-          );
+          )
+        )
+          return;
         if (hint)
           setDemo(
             (
@@ -550,11 +574,10 @@ export function TeachingConnection({
         {error && <span role="alert">{error}</span>}
       </p>
     );
-  if (connectorId !== "github")
+  if (!(capabilities.connectors ?? ["github"]).includes(connectorId))
     return (
       <p className="teaching-note">
-        Reusable teaching currently supports GitHub App ceremonies. Use this
-        connector’s normal connection flow.
+        This host has not registered a working ceremony for this connector.
       </p>
     );
 
@@ -567,12 +590,12 @@ export function TeachingConnection({
       <div className="teaching-current">
         <h2 ref={status} tabIndex={-1}>
           {offline
-            ? "Reconnect to check GitHub"
+            ? `Reconnect to check ${serviceName}`
             : complete
-              ? "GitHub connection verified"
+              ? `${serviceName} connection verified`
               : mode === "studio" && !run
                 ? "Create from demonstration"
-                : "Connect GitHub"}
+                : `Connect ${serviceName}`}
         </h2>
         <p role="status" aria-live="polite">
           {offline
@@ -582,8 +605,8 @@ export function TeachingConnection({
               : complete
                 ? "Verified access is ready for the original task."
                 : active
-                  ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
-                  : "We reuse compatible setup and ask only for the provider interaction that is needed."}
+                  ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "failed" ? "verification needs attention" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
+                  : "Existing setup is reused. We’ll ask only for what’s missing."}
         </p>
         {error && (
           <p role="alert" className="teaching-error">
@@ -624,15 +647,6 @@ export function TeachingConnection({
           </>
         )}
         <div className="teaching-actions">
-          {!run && mode === "connect" && (
-            <button
-              className="quiet"
-              disabled={busy || offline}
-              onClick={() => void act(() => teach())}
-            >
-              Teach this connection
-            </button>
-          )}
           {!run && (
             <button
               className="primary"
@@ -652,16 +666,43 @@ export function TeachingConnection({
             >
               {mode === "studio"
                 ? "Create from demonstration"
-                : "Connect GitHub"}
+                : `Connect ${serviceName}`}
+            </button>
+          )}
+          {!run && mode === "connect" && (
+            <button
+              className="quiet"
+              disabled={busy || offline}
+              onClick={() => void act(() => teach())}
+            >
+              Teach this connection
             </button>
           )}
           {active?.state === "awaiting-human" && run?.status === "active" && (
             <a
               className="button primary"
-              href={`${base}/github/${encodeURIComponent(run.id)}/human`}
+              href={`${base}/${encodeURIComponent(connectorId)}/${encodeURIComponent(run.id)}/human`}
             >
-              Continue with GitHub
+              Continue with {serviceName}
             </a>
+          )}
+          {active?.state === "failed" && run?.status === "active" && (
+            <button
+              className="primary"
+              disabled={busy || offline}
+              onClick={() =>
+                void act(async () => {
+                  await request(`/runs/${encodeURIComponent(run.id)}/advance`, {
+                    nodeId: active.id,
+                    revision: run.revision,
+                    commandId: `command-${crypto.randomUUID()}`,
+                  });
+                  await refresh();
+                })
+              }
+            >
+              Retry this step
+            </button>
           )}
           {active?.state === "uncertain" &&
             active.operationId === "github.prepare-app" &&
@@ -1076,16 +1117,17 @@ export function TeachingConnection({
                   <button
                     disabled={busy || offline}
                     onClick={() =>
-                      void act(async () =>
+                      void act(async () => {
                         remember(
                           await request<Run>("/recipes/execute", {
+                            connectorId,
                             id: item.definition.id,
                             version: item.version,
                             digest: item.digest,
                             inputs: {},
                           }),
-                        ),
-                      )
+                        );
+                      })
                     }
                   >
                     Use step
