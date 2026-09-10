@@ -50,6 +50,23 @@ export default {
     guard("src/server/jira-auth.ts", "if (ids.size !== 1)"),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
     guard(
+      "src/server/recipes/jira.ts",
+      "run.value.target !== context.target ||",
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      "return artifact.scope === this.scope(context) &&",
+      2,
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      "if (!artifact.accountId || !artifact.cloudId) return false;",
+    ),
+    guard(
+      "src/server/recipes/jira.ts",
+      '!context.actor.capabilities.includes("admin")',
+    ),
+    guard(
       "src/server/oauth-handoff.ts",
       "record.value.runId !== context.runId ||",
     ),
@@ -98,6 +115,7 @@ export default {
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",
       "tests/jira-auth.test.ts",
+      "tests/jira-children.test.ts",
       "tests/oauth-handoff.test.ts",
       "tests/supabase-auth.test.ts",
       "tests/supabase-mfa.test.ts",

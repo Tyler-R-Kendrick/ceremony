@@ -7,6 +7,7 @@ import {
 } from "../../core/operation-contracts.js";
 import type { PublicBindingPolicy } from "../../core/projections.js";
 import type { diagnosticCodeSchema } from "../../core/teaching-contracts.js";
+import type { Fence } from "../persistence/index.js";
 
 export type OperationContext = {
   actor: ActorContext;
@@ -19,6 +20,8 @@ export type OperationContext = {
   origin: string;
   environment: string;
   signal: AbortSignal;
+  /** Server-issued execution lease; absent during pure verification and human collection. Never a tool argument. */
+  fence?: Fence;
 };
 export type OperationResult = {
   state: "complete" | "awaiting-human" | "verifying" | "uncertain" | "failed";

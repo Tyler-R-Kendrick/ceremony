@@ -41,11 +41,14 @@ const configurationSchema = z.strictObject({
   scopes,
 });
 export type JiraOAuthConfiguration = z.infer<typeof configurationSchema>;
+export const jiraOAuthConfigurationSchema = configurationSchema;
 const sessionSchema = z.strictObject({
   accessToken: secret,
   expiresAt: z.number().int().positive(),
   scopes,
 });
+/** Private server storage contract; never an agent or portable recipe output. */
+export const jiraPrivateSessionSchema = sessionSchema;
 export type JiraPrivateSession = z.infer<typeof sessionSchema>;
 const as = {
   issuer: "https://auth.atlassian.com",
