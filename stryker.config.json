@@ -15,7 +15,8 @@
   "coverageAnalysis": "perTest",
   "mutate": [
     "src/core/{connector-authoring,connector-contracts,resolution,execution,schema}.ts",
-    "src/server/{environment,storage,arazzo,services}.ts"
+    "src/server/{environment,storage,arazzo,services,a2h,jira-setup,jira-auth}.ts",
+    "src/server/hosted/a2h.ts"
   ],
   "ignorePatterns": [
     ".ceremony",

@@ -44,6 +44,7 @@ export type JiraSetupPolicy = {
     owner: string;
     run: RunRecord;
     assignmentId: string;
+    tenantId: string;
   }): Promise<void>;
 };
 
@@ -188,6 +189,7 @@ export class JiraSetupAssignments {
           owner,
           run: run.value,
           assignmentId: result.id,
+          tenantId: requester.tenantId,
         });
       } catch {
         // Uncertain notification cannot revoke the assignment or imply owner action.
@@ -406,4 +408,99 @@ export class JiraSetupAssignments {
         : undefined;
     });
   }
+}
+
+/** Operator retention: remove expired pending assignments and expired shared apps. Audit stays. */
+export async function retainExpiredJiraSetup(
+  store: AsyncCeremonyStore,
+  tenant: string,
+) {
+  z.string().min(1).max(200).parse(tenant);
+  const counts = { assignments: 0, apps: 0, indexes: 0 };
+  const sweep = async (
+    kind: "handoff" | "artifact",
+    prefix: string,
+    expired: (value: unknown, now: number) => boolean,
+  ) => {
+    let after = "";
+    let removed = 0;
+    for (;;) {
+      const page = await store.transaction((tx) =>
+        tx.list(tenant, kind, 100, after),
+      );
+      if (!page.length) break;
+      after = page.at(-1)!.id;
+      for (const record of page) {
+        if (
+          !record.id.startsWith(prefix) ||
+          (prefix === "jira-setup:" &&
+            record.id.startsWith("jira-setup-index:"))
+        )
+          continue;
+        const deleted = await store.transaction(async (tx) => {
+          const current = await tx.get({
+            tenant,
+            kind,
+            id: record.id,
+          });
+          if (!current) return false;
+          if (!expired(current.value, await tx.now())) return false;
+          await tx.delete({ tenant, kind, id: record.id }, current.revision);
+          return true;
+        });
+        if (deleted) removed++;
+      }
+      if (page.length < 100) break;
+    }
+    return removed;
+  };
+  counts.assignments = await sweep("handoff", "jira-setup:", (value, now) => {
+    const assignment = assignmentSchema.safeParse(value);
+    return assignment.success && assignment.data.expires <= now;
+  });
+  counts.apps = await sweep("artifact", "jira-shared-app:", (value, now) => {
+    const shared = sharedSchema.safeParse(value);
+    return shared.success && shared.data.expires <= now;
+  });
+  let after = "";
+  for (;;) {
+    const page = await store.transaction((tx) =>
+      tx.list<{ id: string }>(tenant, "handoff", 100, after),
+    );
+    if (!page.length) break;
+    after = page.at(-1)!.id;
+    for (const record of page) {
+      if (!record.id.startsWith("jira-setup-index:")) continue;
+      const deleted = await store.transaction(async (tx) => {
+        const current = await tx.get<{ id: string }>({
+          tenant,
+          kind: "handoff",
+          id: record.id,
+        });
+        if (!current) return false;
+        const index = z.strictObject({ id: z.uuid() }).safeParse(current.value);
+        if (!index.success) {
+          await tx.delete(
+            { tenant, kind: "handoff", id: record.id },
+            current.revision,
+          );
+          return true;
+        }
+        const assignment = await tx.get({
+          tenant,
+          kind: "handoff",
+          id: `jira-setup:${index.data.id}`,
+        });
+        if (assignment) return false;
+        await tx.delete(
+          { tenant, kind: "handoff", id: record.id },
+          current.revision,
+        );
+        return true;
+      });
+      if (deleted) counts.indexes++;
+    }
+    if (page.length < 100) break;
+  }
+  return counts;
 }

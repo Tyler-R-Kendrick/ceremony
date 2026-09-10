@@ -81,15 +81,42 @@ export interface A2HOptions {
     address: string;
   };
   fetch?: typeof fetch;
+  /** Optional durable store. Hosted PostgreSQL must supply this instead of process memory. */
+  records?: A2HRecordStore;
+}
+export type A2HRecordStore = {
+  lock<T>(id: string, work: () => Promise<T>): Promise<T>;
+  get<T>(id: string, schema: z.ZodType<T>): Promise<T | undefined>;
+  put(id: string, value: unknown): Promise<void>;
+};
+export function ceremonyA2HRecords(db: CeremonyDatabase): A2HRecordStore {
+  return {
+    async lock(id, work) {
+      const token = db.acquire(id);
+      try {
+        return await work();
+      } finally {
+        db.release(id, token);
+      }
+    },
+    async get(id, schema) {
+      return db.get(id, schema);
+    },
+    async put(id, value) {
+      db.put(id, value);
+    },
+  };
 }
 /** Agent2Human 1.0 AUTHORIZE transport. Approval is evidence to verify, never a connection grant. */
 export class Agent2Human {
   private readonly origin: string;
   private readonly fetcher: typeof fetch;
+  private readonly records: A2HRecordStore;
   constructor(
-    private readonly db: CeremonyDatabase,
+    db: CeremonyDatabase,
     private readonly options: A2HOptions,
   ) {
+    this.records = options.records ?? ceremonyA2HRecords(db);
     const origin = new URL(options.gatewayOrigin);
     if (
       origin.protocol !== "https:" ||
@@ -170,9 +197,8 @@ export class Agent2Human {
         };
     // Older binaries cannot consume a generic request as an unbound GitHub approval.
     const key = `${bound ? "a2h-ceremony" : "a2h"}:${instanceId}`;
-    const lease = this.db.acquire(key);
-    try {
-      let record = this.db.get(key, recordSchema);
+    return this.records.lock(key, async () => {
+      let record = await this.records.get(key, recordSchema);
       if (record && record.owner !== owner)
         throw new CeremonyError("Human request not found", 404);
       const recipient = this.options.recipient(owner);
@@ -260,7 +286,7 @@ export class Agent2Human {
             params,
           }),
         };
-        this.db.put(key, record); // Same signed message_id is retried after uncertain delivery.
+        await this.records.put(key, record); // Same signed message_id is retried after uncertain delivery.
       }
       if (record.expiresAt <= Date.now())
         throw new CeremonyError("Human request expired", 409);
@@ -270,11 +296,9 @@ export class Agent2Human {
       if (acknowledgement.interaction_id !== record.message.interaction_id)
         throw new CeremonyError("A2H acknowledgement correlation failed", 502);
       record.state = "waiting";
-      this.db.put(key, record);
+      await this.records.put(key, record);
       return acknowledgement.interaction_id;
-    } finally {
-      this.db.release(key, lease);
-    }
+    });
   }
   async receive(
     instanceId: string,
@@ -309,9 +333,9 @@ export class Agent2Human {
       this.options.gatewayKey,
       { algorithms: ["EdDSA"] },
     );
-    return this.db.transaction(() => {
-      const key = `${bound ? "a2h-ceremony" : "a2h"}:${instanceId}`;
-      const record = this.db.get(key, recordSchema);
+    const key = `${bound ? "a2h-ceremony" : "a2h"}:${instanceId}`;
+    return this.records.lock(key, async () => {
+      const record = await this.records.get(key, recordSchema);
       if (record) {
         const recipient = this.options.recipient(record.owner);
         const channel = z
@@ -344,12 +368,15 @@ export class Agent2Human {
         Date.parse(response.decided_at) > Date.now() + 30_000 ||
         Date.parse(response.decided_at) <
           Date.parse(String(record.message.created_at)) ||
-        this.db.get(`a2h-response:${response.message_id}`, z.boolean())
+        (await this.records.get(
+          `a2h-response:${response.message_id}`,
+          z.boolean(),
+        ))
       )
         throw new CeremonyError("Stale or mismatched A2H response", 409);
       record.state = response.decision === "APPROVE" ? "answered" : "denied";
-      this.db.put(key, record);
-      this.db.put(`a2h-response:${response.message_id}`, true);
+      await this.records.put(key, record);
+      await this.records.put(`a2h-response:${response.message_id}`, true);
       return response.decision === "APPROVE" ? "verify" : "deny";
     });
   }

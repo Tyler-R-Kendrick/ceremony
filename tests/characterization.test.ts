@@ -53,7 +53,7 @@ test("characterization: jira owner collector pages exclude secrets", async (t) =
     siteUrl: "https://fixture.atlassian.net",
     callbackUrl:
       "https://app.example/api/v1/teaching/jira/authorization-return",
-    scopes: ["read:jira-user"],
+    scopes: ["read:jira-user" as const],
   };
   const returnUrl = "https://app.example/?connector=jira";
   const pages = [

@@ -5,6 +5,7 @@ import {
   rotateTenant,
   retainWithoutDemonstration,
 } from "../src/server/persistence/maintenance.js";
+import { retainExpiredJiraSetup } from "../src/server/jira-setup.js";
 import { AsyncPrivateCollectionBroker } from "../src/server/persistence/collections.js";
 
 async function main() {
@@ -22,6 +23,7 @@ async function main() {
       "rotate",
       "purge-collections",
       "delete-demonstration",
+      "purge-jira-setup",
     ].includes(action ?? "")
   )
     throw new Error();
@@ -57,6 +59,8 @@ async function main() {
       if (!id) throw new Error();
       await retainWithoutDemonstration(store, pathOrTenant, id);
     }
+    if (action === "purge-jira-setup")
+      await retainExpiredJiraSetup(store, pathOrTenant);
     process.stdout.write("Persistence maintenance completed\n");
   } finally {
     await store.close();
