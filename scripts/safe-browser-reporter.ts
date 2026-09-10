@@ -26,6 +26,7 @@ export function safeBrowserResult(
     retry: unknown;
     duration: unknown;
     lastStepLine?: unknown;
+    firstFailureLine?: unknown;
   },
   root = process.cwd(),
 ) {
@@ -39,13 +40,12 @@ export function safeBrowserResult(
   for (const value of [input.line, input.retry, input.duration])
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
       return undefined;
-  if (
-    input.lastStepLine !== undefined &&
-    (typeof input.lastStepLine !== "number" ||
-      !Number.isSafeInteger(input.lastStepLine) ||
-      input.lastStepLine < 1)
-  )
-    return undefined;
+  for (const line of [input.lastStepLine, input.firstFailureLine])
+    if (
+      line !== undefined &&
+      (typeof line !== "number" || !Number.isSafeInteger(line) || line < 1)
+    )
+      return undefined;
   return {
     file,
     line: input.line,
@@ -56,20 +56,33 @@ export function safeBrowserResult(
     ...(input.lastStepLine === undefined
       ? {}
       : { lastStepLine: input.lastStepLine }),
+    ...(input.firstFailureLine === undefined
+      ? {}
+      : { firstFailureLine: input.firstFailureLine }),
   };
 }
 
 export default class SafeBrowserReporter implements Reporter {
   private results: NonNullable<ReturnType<typeof safeBrowserResult>>[] = [];
   private lastSteps = new WeakMap<TestResult, number>();
+  private failures = new WeakMap<TestResult, number>();
   onBegin() {
     this.results = [];
     this.lastSteps = new WeakMap();
+    this.failures = new WeakMap();
     this.save();
   }
   onStepBegin(test: TestCase, result: TestResult, step: TestStep) {
     if (step.location?.file === test.location.file)
       this.lastSteps.set(result, step.location.line);
+  }
+  onStepEnd(test: TestCase, result: TestResult, step: TestStep) {
+    if (
+      step.error &&
+      step.location?.file === test.location.file &&
+      !this.failures.has(result)
+    )
+      this.failures.set(result, step.location.line);
   }
   onTestEnd(test: TestCase, result: TestResult) {
     const safe = safeBrowserResult({
@@ -80,6 +93,7 @@ export default class SafeBrowserReporter implements Reporter {
       retry: result.retry,
       duration: result.duration,
       lastStepLine: this.lastSteps.get(result),
+      firstFailureLine: this.failures.get(result),
     });
     if (safe) this.results.push(safe);
     this.save();
