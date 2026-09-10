@@ -439,9 +439,26 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           !request.headers["content-type"]?.startsWith("application/json"))
       )
         throw new CeremonyError("Invalid request origin or content type", 403);
-      if (request.method === "GET" && url.pathname === "/api/config")
+      if (request.method === "GET" && url.pathname === "/api/config") {
+        let authored: Awaited<
+          ReturnType<TeachingRuntime["authoring"]["listManifests"]>
+        > = [];
+        if (teaching && "authoring" in teaching && owner) {
+          try {
+            const actor = await teaching.identity.authenticate(
+              new Request(url, {
+                headers: { cookie: `ceremony-session=${owner}` },
+              }),
+            );
+            if (actor)
+              authored = await teaching.authoring.listManifests(actor);
+          } catch {
+            authored = [];
+          }
+        }
+        const authoredIds = authored.map((item) => item.id);
         return json(response, {
-          manifests: controller.manifests(),
+          manifests: [...controller.manifests(), ...authored],
           liveManifests: [
             ...(liveController?.manifests() ?? [
               githubAppManifest,
@@ -450,12 +467,14 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
               ),
             ]),
             ...(teaching?.connectors.includes("jira") ? [jiraManifest] : []),
+            ...authored,
           ],
           liveAvailable: Boolean(liveController),
           teachingAvailable: Boolean(teaching),
-          teachingConnectors: teaching?.connectors ?? [],
+          teachingConnectors: [...(teaching?.connectors ?? []), ...authoredIds],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
         });
+      }
       if (request.method === "GET" && url.pathname === "/api/workflows/github")
         return json(response, githubWorkflows);
       const environmentRoute = /^\/api\/environment(?:\/([a-z0-9-]+))?$/.exec(

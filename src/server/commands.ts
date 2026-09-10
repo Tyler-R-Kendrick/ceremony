@@ -124,9 +124,14 @@ export class ProtectedCommandService {
         node.operationId,
         node.operationVersion,
       );
+      const authored =
+        operation.contract.provider === "authored" &&
+        operation.contract.profile === "authored" &&
+        context.profile === "authored";
       if (
-        operation.contract.provider !== context.provider ||
-        operation.contract.profile !== context.profile ||
+        (!authored &&
+          (operation.contract.provider !== context.provider ||
+            operation.contract.profile !== context.profile)) ||
         node.dependsOn.some((id) => !prior.has(id))
       )
         throw new AuthorizationError("denied");

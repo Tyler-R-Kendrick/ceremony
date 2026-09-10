@@ -8,6 +8,8 @@ import {
 } from "./commands.js";
 import { Demonstrations } from "./demonstrations.js";
 import { RecipeService, type OperationRegistry } from "./recipes/index.js";
+import { ConnectorDrafts } from "./connector-drafts.js";
+import type { ProviderSearch } from "./provider-discovery.js";
 import type {
   AsyncCeremonyStore,
   AsyncTransaction,
@@ -77,6 +79,7 @@ export interface TeachingRuntimeOptions {
     }
   >;
   context(actor: ActorContext, connectorId: string): Promise<RunContext>;
+  authoringSearch?: ProviderSearch;
   selectTarget?: (
     actor: ActorContext,
     target: string,
@@ -117,10 +120,16 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       ],
     ],
   );
-  function connection(connectorId: string) {
+  async function connection(actor: ActorContext, connectorId: string) {
     const registered = connections.get(connectorId);
-    if (!registered) throw new AuthorizationError("invalid_request");
-    return registered;
+    if (registered) return registered;
+    const installed = await authoring.getInstalled(actor, connectorId);
+    if (!installed) throw new AuthorizationError("invalid_request");
+    return {
+      definition: installed.definition,
+      outputContract: "authored.connection",
+      revalidateOperation: "authored.verify-access",
+    };
   }
   const commands = new ProtectedCommandService(
     store,
@@ -158,6 +167,13 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     },
   );
   const recipes = new RecipeService(store, registry);
+  const authoring = new ConnectorDrafts(store, {
+    fetch,
+    ...(options.authoringSearch ? { search: options.authoringSearch } : {}),
+    ...(options.origin.startsWith("http://127.0.0.1")
+      ? { allowLoopbackHttp: true }
+      : {}),
+  });
   const demonstrations = new Demonstrations(store);
   const modelConfiguration = options.modelConfiguration ?? {};
   const agent = new AgentCoordinator(
@@ -171,7 +187,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     inputs: Record<string, unknown>,
     connectorId: string,
   ) {
-    connection(connectorId);
+    await connection(actor, connectorId);
     const checked = await recipes.preview(actor, definition);
     if (checked.diagnostics.length)
       throw new AuthorizationError("invalid_request");
@@ -207,7 +223,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     fresh = true,
   ) {
     requireCapability(actor, "executor");
-    const registered = connection(connectorId);
+    const registered = await connection(actor, connectorId);
     const context = await options.context(actor, connectorId);
     // Reuse requires the entire authorization context, not just a connector name.
     const existing = await store.transaction(async (tx) => {
@@ -376,8 +392,13 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     identity,
     origin,
     connectors: Object.freeze([...connections.keys()]),
+    listConnectors: async (actor: ActorContext) => [
+      ...connections.keys(),
+      ...(await authoring.listManifests(actor)).map((item) => item.id),
+    ],
     commands,
     recipes,
+    authoring,
     demonstrations,
     agent,
     modelConfiguration,

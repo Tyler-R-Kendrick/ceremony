@@ -13,6 +13,7 @@ import {
   createConnectionTools,
   type ConnectionState,
 } from "../core/connection-tools.js";
+import { createAuthoringTools } from "../core/authoring-tools.js";
 import { browserModelContext } from "../core/webmcp.js";
 
 export type TeachingRun = {
@@ -21,6 +22,7 @@ export type TeachingRun = {
   provider: string;
   profile: string;
   status: "active" | "cancelled" | "complete";
+  identity?: { handle: string; did: string };
   nodes: Array<{
     id: string;
     operationId: string;
@@ -135,6 +137,7 @@ export interface TeachingConnectionProps {
   onSignIn?: () => void | Promise<void>;
   onSignOut?: () => void | Promise<void>;
   onSignedOut?: () => void;
+  onDeleted?: () => void;
   webmcp?: false | { prefix: string };
   className?: string;
   style?: CSSProperties;
@@ -149,6 +152,7 @@ export function TeachingConnection({
   onSignIn,
   onSignOut,
   onSignedOut,
+  onDeleted,
   webmcp,
   className,
   style,
@@ -163,7 +167,9 @@ export function TeachingConnection({
           ? "Supabase"
           : connectorId === "jira"
             ? "Jira"
-            : "service";
+            : connectorId === "bluesky"
+              ? "Bluesky"
+              : connectorId.replace(/-/g, " ");
   const base = apiBase.replace(/\/$/, "");
   const request = useCallback(
     <T,>(path: string, body?: unknown, signal?: AbortSignal) =>
@@ -180,6 +186,7 @@ export function TeachingConnection({
     modelAvailable: boolean;
     signOutAvailable?: boolean;
     connectors?: string[];
+    authoredConnectors?: string[];
   }>();
   const [run, setRun] = useState<Run>();
   const [demo, setDemo] = useState<Demo>();
@@ -383,6 +390,28 @@ export function TeachingConnection({
     })();
     return () => lifetime.abort();
   }, [connectorId, mode, remember, request, toolPrefix]);
+  useEffect(() => {
+    const context = browserModelContext();
+    if (!context || mode !== "connect") return;
+    const lifetime = new AbortController();
+    const tools = createAuthoringTools("ceremony_author", {
+      fromProvider: (input) => request("/authoring/from-provider", input),
+      compose: (input) => request("/authoring/compose", input),
+      read: (draftId) => request(`/authoring/drafts/${draftId}`),
+      delete: (input) => request("/authoring/delete", input),
+    });
+    void (async () => {
+      try {
+        for (const tool of tools) {
+          if (lifetime.signal.aborted) return;
+          await context.registerTool(tool, { signal: lifetime.signal });
+        }
+      } catch {
+        lifetime.abort();
+      }
+    })();
+    return () => lifetime.abort();
+  }, [mode, request]);
   useEffect(() => {
     mounted.current = true;
     const abort = new AbortController();
@@ -618,11 +647,13 @@ export function TeachingConnection({
             ? "Offline. Reconnect to read current status; authorization actions are not queued."
             : run?.status === "cancelled"
               ? "Connection cancelled. Completed provider changes have not been revoked."
-              : complete
-                ? "Verified access is ready for the original task."
-                : active
-                  ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "failed" ? "verification needs attention" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
-                  : "Existing setup is reused. We’ll ask only for what’s missing."}
+              : complete && run.identity
+                ? `Verified ${serviceName} account ${run.identity.handle} (${run.identity.did}). The app password is not shown.`
+                : complete
+                  ? "Verified access is ready for the original task."
+                  : active
+                    ? `${operationLabel(active.operationId)} — ${active.state === "awaiting-human" ? "your participation is needed" : active.state === "uncertain" ? "the provider outcome needs reconciliation" : active.state === "failed" ? "verification needs attention" : active.state === "verifying" ? "checking provider evidence" : "preparing the next step"}.`
+                    : "Existing setup is reused. We’ll ask only for what’s missing."}
         </p>
         {error && (
           <p role="alert" className="teaching-error">
@@ -669,6 +700,27 @@ export function TeachingConnection({
           </>
         )}
         <div className="teaching-actions">
+          {(run ||
+            (capabilities.authoredConnectors ?? []).includes(connectorId)) && (
+            <button
+              className="quiet"
+              disabled={busy || offline}
+              onClick={() =>
+                void act(async () => {
+                  await request("/authoring/delete", {
+                    connectorId,
+                    ...(run ? { runId: run.id, revision: run.revision } : {}),
+                  });
+                  setRun(undefined);
+                  currentRun.current = undefined;
+                  setDemo(undefined);
+                  onDeleted?.();
+                })
+              }
+            >
+              Delete connection
+            </button>
+          )}
           {!run && (
             <button
               className="primary"

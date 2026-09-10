@@ -17,6 +17,10 @@ import {
   resolveGitHubInstallationRun,
   type AsyncGitHubOptions,
 } from "./recipes/github.js";
+import {
+  authoredVocabulary,
+  registerAuthoredOperations,
+} from "./authored-operations.js";
 import { type AsyncCeremonyStore } from "./persistence/index.js";
 import {
   AuthorizationError,
@@ -34,6 +38,7 @@ import {
   stripeVocabulary,
 } from "./recipes/stripe.js";
 import { stripeHuman } from "./stripe-human.js";
+import { authoredHuman } from "./authored-human.js";
 import {
   AsyncSupabaseChildren,
   supabaseConnectionRecipe,
@@ -131,11 +136,13 @@ export function createGitHubRuntime(
   const registry = new OperationRegistry(
     new Map([
       ...githubVocabulary,
+      ...authoredVocabulary,
       ...(options.stripe ? stripeVocabulary : []),
       ...(options.supabase ? supabaseVocabulary : []),
       ...(options.jira ? jiraVocabulary : []),
     ]),
   );
+  registerAuthoredOperations(registry, { store });
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
@@ -171,16 +178,19 @@ export function createGitHubRuntime(
       } else if (!(await options.jira?.allowTarget?.(actor, run.target)))
         return false;
     }
+    const expected =
+      run.provider === "stripe"
+        ? (await options.stripe?.configuration(actor))?.version
+        : run.provider === "jira"
+          ? (await options.jira?.configuration(actor))?.version
+          : run.provider === "supabase"
+            ? (await options.supabase?.configuration(actor))?.version
+            : run.provider === "github"
+              ? (await configuration(actor)).configurationVersion
+              : run.configurationVersion;
     return (
       (operationId === "continuation" ||
-        (run.provider === "stripe"
-          ? (await options.stripe?.configuration(actor))?.version
-          : run.provider === "jira"
-            ? (await options.jira?.configuration(actor))?.version
-            : run.provider === "supabase"
-              ? (await options.supabase?.configuration(actor))?.version
-              : (await configuration(actor)).configurationVersion) ===
-          run.configurationVersion) &&
+        expected === run.configurationVersion) &&
       (await options.authorize(actor, run, operationId))
     );
   };
@@ -592,6 +602,22 @@ export function createGitHubRuntime(
           configurationVersion: (await options.stripe.configuration(actor))
             .version,
         };
+      const authored = await store.transaction((tx) =>
+        tx.get({
+          tenant: actor.tenantId,
+          kind: "artifact",
+          id: `installed-connector:${connectorId}`,
+        }),
+      );
+      if (authored)
+        return {
+          provider: connectorId,
+          profile: "authored",
+          target: connectorId,
+          origin,
+          environment: options.environment,
+          configurationVersion: options.configurationVersion,
+        };
       const config = await configuration(actor);
       const target =
         options.expectedAccount ??
@@ -729,6 +755,25 @@ export function createGitHubRuntime(
           request,
           destination.href,
           () => advance(actor, runId),
+        );
+      }
+      if (record.value.profile === "authored") {
+        const destination = new URL(returnUrl(runId));
+        destination.searchParams.set("connector", record.value.target);
+        return authoredHuman(
+          store,
+          context,
+          record,
+          request,
+          destination.href,
+          () => advance(actor, runId),
+          {
+            connectorId: record.value.target,
+            name:
+              record.value.target === "bluesky"
+                ? "Bluesky"
+                : record.value.target,
+          },
         );
       }
       if (record.value.provider === "stripe") {

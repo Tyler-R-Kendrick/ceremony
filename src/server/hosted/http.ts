@@ -79,7 +79,20 @@ export async function hostedHttp(
         { headers: { "cache-control": "no-store" } },
       );
     }
-    if (path === "/api/config" && request.method === "GET")
+    if (path === "/api/config" && request.method === "GET") {
+      let authored: Awaited<
+        ReturnType<TeachingRuntime["authoring"]["listManifests"]>
+      > = [];
+      try {
+        const actor = await authenticatedActor(request, runtime.identity);
+        authored = await runtime.authoring.listManifests(actor);
+      } catch {
+        authored = [];
+      }
+      const connectors = [
+        ...runtime.connectors,
+        ...authored.map((item) => item.id),
+      ];
       return Response.json(
         {
           manifests: [githubAppManifest],
@@ -87,14 +100,16 @@ export async function hostedHttp(
             githubAppManifest,
             ...serviceManifests,
             jiraManifest,
-          ].filter((manifest) => runtime.connectors.includes(manifest.id)),
+            ...authored,
+          ].filter((manifest) => connectors.includes(manifest.id)),
           liveAvailable: true,
           teachingAvailable: true,
-          teachingConnectors: runtime.connectors,
+          teachingConnectors: connectors,
           generationAvailable: false,
         },
         { headers: { "cache-control": "no-store" } },
       );
+    }
     if (path === "/api/workflows/github" && request.method === "GET")
       return Response.json(githubWorkflows, {
         headers: { "cache-control": "no-store" },

@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyProviderProposal,
+  attachGenericCeremony,
+  composeAuthoredMethods,
   connectorProjectSchema,
+  defaultWorkflowSteps,
   newConnectorProject,
   newAuthoredMethod,
   parseConnectorProject,
   exportConnectorFiles,
   parseConnectorDraft,
+  proposeConnectorForProvider,
 } from "../src/core/connector-authoring.js";
 import { flowKinds } from "../src/core/schema.js";
 import { runArazzo, arazzoSchema } from "../src/server/arazzo.js";
@@ -429,5 +434,69 @@ test("draft configuration, prerequisites and default ownership remain conservati
     assert.deepEqual(method.contract!.completion.ownership, [
       kind === "authmd-anonymous" ? "anonymous" : "authenticated",
     ]);
+    assert.ok(defaultWorkflowSteps(kind).length >= 2);
   }
+});
+
+test("generic templates attach OpenUI and family workflows", () => {
+  const draft = newConnectorProject();
+  attachGenericCeremony(draft, "oauth-code", "Browser authorization (OAuth)");
+  assert.equal(draft.manifest.methods[0]!.kind, "oauth-code");
+  assert.equal(draft.templates[0]!.kind, "oauth-code");
+  assert.deepEqual(
+    draft.workflows[0]!.workflows[0]!.steps.map((step) => step.stepId),
+    ["prepare-app", "authorize-user", "verify-access"],
+  );
+  assert.equal(
+    draft.manifest.methods[0]!.contract!.prerequisites[0]!.handoff.recipient,
+    "authorized-owner",
+  );
+});
+
+test("provider proposals pick generic families without fetching", () => {
+  assert.deepEqual(proposeConnectorForProvider("GitHub").methods, [
+    "github-app",
+    "oauth-code",
+    "device",
+    "api-key",
+  ]);
+  assert.deepEqual(proposeConnectorForProvider("jira cloud").methods, [
+    "oauth-code",
+  ]);
+  assert.deepEqual(proposeConnectorForProvider("Obscure SaaS").methods, [
+    "oauth-code",
+  ]);
+  assert.equal(proposeConnectorForProvider("githb").slug, "github");
+  assert.equal(
+    proposeConnectorForProvider("create a ceremony for blusky").slug,
+    "bluesky",
+  );
+  const draft = newConnectorProject();
+  applyProviderProposal(draft, "Stripe");
+  assert.equal(draft.manifest.id, "stripe");
+  assert.equal(draft.manifest.methods[0]!.kind, "api-key");
+  assert.equal(draft.templates[0]!.kind, "api-key");
+  draft.workflows[0]!.sourceDescriptions[0]!.url =
+    "https://api.example.com/openapi.json";
+  assert.equal(connectorProjectSchema.safeParse(draft).success, true);
+});
+
+test("studio composes selected ceremonies as prerequisites", () => {
+  const draft = newConnectorProject();
+  applyProviderProposal(draft, "GitHub");
+  const childIds = draft.manifest.methods.map((method) => method.id);
+  const parent = composeAuthoredMethods(draft, childIds.slice(0, 2));
+  assert.equal(parent.contract!.prerequisites.length, 2);
+  assert.deepEqual(
+    parent.contract!.prerequisites.map((item) => item.id),
+    childIds.slice(0, 2),
+  );
+  assert.equal(
+    draft.workflows[0]!.workflows.find((item) => item.workflowId === parent.id)
+      ?.steps.length,
+    1,
+  );
+  draft.workflows[0]!.sourceDescriptions[0]!.url =
+    "https://api.example.com/openapi.json";
+  assert.equal(connectorProjectSchema.safeParse(draft).success, true);
 });

@@ -19,12 +19,24 @@ import {
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
+import {
+  deleteAuthoredSession,
+  publicAuthoredIdentity,
+} from "./authored-operations.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
 import { configuredModel } from "./agent/model.js";
 
 const revision = z.number().int().positive();
+async function presentRun(
+  runtime: TeachingRuntime,
+  actor: Parameters<TeachingRuntime["commands"]["snapshot"]>[0],
+  run: Awaited<ReturnType<TeachingRuntime["commands"]["snapshot"]>>,
+) {
+  const identity = await publicAuthoredIdentity(runtime.store, actor, run.id);
+  return identity ? { ...run, identity } : run;
+}
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
 const review = z.strictObject({
   revision,
@@ -94,15 +106,12 @@ export async function teachingHttp(
     }
     if (
       (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
-        /^\/(stripe|supabase|jira)\/[^/]+\/human$/.test(path)) &&
+        /^\/[a-z0-9-]{1,64}\/[^/]+\/human$/.test(path)) &&
       runtime.human
     ) {
+      const connector = path.split("/")[1]!;
       const action = path.split("/")[3];
-      if (
-        post &&
-        action !== "recovery" &&
-        !/^\/(stripe|supabase|jira)\//.test(path)
-      )
+      if (post && connector === "github" && action !== "recovery")
         return reply({ error: "unavailable" }, 405);
       if (actor.actorKind !== "human") throw new AuthorizationError("denied");
       requireCapability(actor, "executor");
@@ -112,6 +121,97 @@ export async function teachingHttp(
       return await runtime.human(actor, runId, request);
     }
     const body = post ? await boundedJson(request) : undefined;
+    if (path.startsWith("/authoring/")) {
+      requireCapability(actor, "author");
+      if (path === "/authoring/chat") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            message: z.string().min(1).max(2000),
+            conversationId: z.uuid().optional(),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.chat(
+            actor,
+            input.message,
+            input.conversationId,
+          ),
+        );
+      }
+      if (path === "/authoring/delete") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            connectorId: z.string().min(1).max(64),
+            runId: z.string().min(1).max(120).optional(),
+            revision: revision.optional(),
+          })
+          .parse(body);
+        requireCapability(actor, "executor");
+        if (input.runId) {
+          try {
+            if (input.revision)
+              await runtime.commands.cancel(actor, input.runId, input.revision);
+          } catch {
+            /* Already complete or cancelled. */
+          }
+          await deleteAuthoredSession(runtime.store, actor, input.runId);
+        }
+        const removed = await runtime.authoring.uninstall(
+          actor,
+          input.connectorId,
+        );
+        return reply({ ok: true, human: null, removed });
+      }
+      if (path === "/authoring/from-provider") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            provider: z.string().min(1).max(100),
+            origin: z.string().url().max(200).optional(),
+            openApiUrl: z.string().url().max(500).optional(),
+            intent: z.enum(["draft", "complete", "run"]).default("draft"),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.fromProvider(
+            actor,
+            input.provider,
+            input.openApiUrl,
+            input.intent,
+            input.origin,
+          ),
+        );
+      }
+      if (path === "/authoring/compose") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            draftId: z.uuid(),
+            revision: revision,
+            childIds: z.array(z.string().min(1).max(64)).min(2).max(12),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.compose(
+            actor,
+            input.draftId,
+            input.revision,
+            input.childIds,
+          ),
+        );
+      }
+      const draft = /^\/authoring\/drafts\/([^/]+)$/.exec(path);
+      if (draft && !post)
+        return reply(
+          await runtime.authoring.read(
+            actor,
+            z.uuid().parse(decodeURIComponent(draft[1]!)),
+          ),
+        );
+      return reply({ error: "unavailable" }, 404);
+    }
     if (path.startsWith("/tools/")) {
       requireCapability(actor, "executor");
       if (!post) return reply({ error: "unavailable" }, 405);
@@ -134,11 +234,17 @@ export async function teachingHttp(
           run = await runtime.commands.snapshot(delegated.actor, run.id);
           if (result.state !== "complete") break;
         }
-        return reply(run);
+        return reply(await presentRun(runtime, actor, run));
       }
       if (path === "/tools/snapshot") {
         const input = z.strictObject({ runId: id }).parse(body);
-        return reply(await runtime.commands.snapshot(actor, input.runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, input.runId),
+          ),
+        );
       }
       const input =
         path === "/tools/advance"
@@ -189,7 +295,10 @@ export async function teachingHttp(
         modelAvailable: Boolean(runtime.modelConfiguration.model),
         signOutAvailable:
           typeof Reflect.get(runtime.identity, "logout") === "function",
-        connectors: runtime.connectors,
+        connectors: await runtime.listConnectors(actor),
+        authoredConnectors: (await runtime.authoring.listManifests(actor)).map(
+          (item) => item.id,
+        ),
       });
     if (path === "/runs" && post) {
       const input = z
@@ -205,7 +314,7 @@ export async function teachingHttp(
             /^[a-zA-Z0-9-]{1,100}$/.test(input.target),
         )
         .parse(body);
-      if (!runtime.connectors.includes(input.connectorId))
+      if (!(await runtime.listConnectors(actor)).includes(input.connectorId))
         throw new AuthorizationError("invalid_request");
       if (input.target) {
         if (!runtime.selectTarget) throw new AuthorizationError("denied");
@@ -227,7 +336,10 @@ export async function teachingHttp(
         run = await runtime.commands.snapshot(actor, run.id);
         if (result.state !== "complete") break;
       }
-      return reply({ ...run, ...(demo ? { demonstration: demo } : {}) });
+      return reply({
+        ...(await presentRun(runtime, actor, run)),
+        ...(demo ? { demonstration: demo } : {}),
+      });
     }
     const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
     const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
@@ -256,7 +368,13 @@ export async function teachingHttp(
     if (runRoute) {
       const runId = id.parse(decodeURIComponent(runRoute[1]!));
       if (!post && !runRoute[2])
-        return reply(await runtime.commands.snapshot(actor, runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, runId),
+          ),
+        );
       if (post && runRoute[2] === "cancel") {
         const result = await runtime.commands.cancel(
           actor,
@@ -277,7 +395,13 @@ export async function teachingHttp(
           input.revision,
           input.commandId,
         );
-        return reply(await runtime.commands.snapshot(actor, runId));
+        return reply(
+          await presentRun(
+            runtime,
+            actor,
+            await runtime.commands.snapshot(actor, runId),
+          ),
+        );
       }
     }
     if (path === "/demonstrations" && post) {
