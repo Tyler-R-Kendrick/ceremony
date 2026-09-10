@@ -108,6 +108,16 @@ test("collection completes real SDK ceremonies through private collection and re
               livemode: false,
             });
           }
+          if (url === "https://synthetic.supabase.co/auth/v1/user") {
+            expect(
+              new Headers(init?.headers).get("authorization") ===
+                "Bearer synthetic-access",
+            ).toBe(true);
+            return Response.json({
+              id: "synthetic-user",
+              email: "alice@example.com",
+            });
+          }
           expect(url).toBe(
             "https://synthetic.supabase.co/auth/v1/token?grant_type=password",
           );
@@ -183,6 +193,7 @@ test("collection completes real SDK ceremonies through private collection and re
     expect(calls).toEqual([
       "https://api.stripe.com/v1/balance",
       "https://synthetic.supabase.co/auth/v1/token?grant_type=password",
+      "https://synthetic.supabase.co/auth/v1/user",
     ]);
     expect(actionBodies.some((body) => body.includes("secretRef"))).toBe(true);
     expect(
