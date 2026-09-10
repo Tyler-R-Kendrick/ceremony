@@ -573,7 +573,8 @@ export class AsyncGitHubChildren {
           setup_url: `${this.options.origin}${installationReturnPath}`,
           setup_on_update: true,
           public: false,
-          hook_attributes: { url: this.options.origin, active: false },
+          // No webhook receiver: omit the optional hook object entirely.
+          // GitHub validates supplied hook URLs even when active is false.
           default_permissions: { contents: "read" },
           default_events: [],
         },

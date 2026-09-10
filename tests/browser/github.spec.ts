@@ -77,10 +77,7 @@ test("legacy live GitHub adapter exposes blocking prerequisites and a real manif
     expect(sent.redirect_url).toBe(
       `${app.origin}/api/live/github/${id}/callback`,
     );
-    expect(sent.hook_attributes).toEqual({
-      url: app.origin,
-      active: false,
-    });
+    expect(sent).not.toHaveProperty("hook_attributes");
     expect(sent.default_events).toEqual([]);
     await expect(popup).toHaveTitle("Manifest received");
     await popup.close();

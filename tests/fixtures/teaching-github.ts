@@ -300,6 +300,7 @@ export async function teachingGitHubFixture(
           );
           if (
             manifest.url !== origin ||
+            "hook_attributes" in manifest ||
             manifest.default_permissions.contents !== "read"
           )
             throw new Error("Invalid manifest");
