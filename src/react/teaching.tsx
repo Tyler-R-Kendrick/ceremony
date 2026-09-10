@@ -53,6 +53,9 @@ const operationLabels: Record<string, string> = {
   "supabase.prepare-project": "Set up your Supabase project",
   "supabase.obtain-session": "Sign in or create a project account",
   "supabase.verify-access": "Verify Supabase access",
+  "jira.prepare-app": "Prepare the shared Jira integration",
+  "jira.authorize-user": "Authorize your Atlassian account",
+  "jira.verify-access": "Verify access to your Jira site",
 };
 const operationLabel = (id: string) =>
   operationLabels[id] ?? "Registered connection step";
@@ -95,6 +98,12 @@ async function requestAt<T>(
         Reflect.get(result, "error") === "account-required"
       )
         throw new AccountRequired("Choose the GitHub account to connect.");
+      if (
+        result &&
+        typeof result === "object" &&
+        Reflect.get(result, "error") === "jira-site-required"
+      )
+        throw new AccountRequired("Choose the Jira site to connect.");
       if (
         result &&
         typeof result === "object" &&
@@ -152,7 +161,9 @@ export function TeachingConnection({
         ? "Stripe"
         : connectorId === "supabase"
           ? "Supabase"
-          : "service";
+          : connectorId === "jira"
+            ? "Jira"
+            : "service";
   const base = apiBase.replace(/\/$/, "");
   const request = useCallback(
     <T,>(path: string, body?: unknown, signal?: AbortSignal) =>
@@ -622,33 +633,39 @@ export function TeachingConnection({
         {accountRequired && !run && (
           <>
             <label>
-              GitHub account or organization
+              {connectorId === "jira"
+                ? "Jira site URL"
+                : "GitHub account or organization"}
               <input
-                name="github-account"
+                name={connectorId === "jira" ? "jira-site" : "github-account"}
+                type={connectorId === "jira" ? "url" : "text"}
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
-                maxLength={100}
+                maxLength={connectorId === "jira" ? 2048 : 100}
                 autoComplete="off"
                 spellCheck={false}
               />
               <span className="teaching-note">
-                Enter its public GitHub login. GitHub will verify that the app
-                and installation belong to this account.
+                {connectorId === "jira"
+                  ? "Enter the HTTPS address of your atlassian.net site. Authorization must grant access to this exact site."
+                  : "Enter its public GitHub login. GitHub will verify that the app and installation belong to this account."}
               </span>
             </label>
-            <p className="teaching-note">
-              No GitHub account yet?{" "}
-              <a
-                href="https://github.com/signup"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Create your GitHub account (opens a new tab)
-              </a>
-              . Complete GitHub’s email verification and required checks, then
-              enter your new login here. This connection stays open; signup
-              alone does not grant repository access.
-            </p>
+            {connectorId === "github" && (
+              <p className="teaching-note">
+                No GitHub account yet?{" "}
+                <a
+                  href="https://github.com/signup"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Create your GitHub account (opens a new tab)
+                </a>
+                . Complete GitHub’s email verification and required checks, then
+                enter your new login here. This connection stays open; signup
+                alone does not grant repository access.
+              </p>
+            )}
           </>
         )}
         <div className="teaching-actions">
@@ -684,7 +701,8 @@ export function TeachingConnection({
             </button>
           )}
           {(active?.state === "awaiting-human" ||
-            (connectorId === "supabase" && active?.state === "uncertain")) &&
+            (["supabase", "jira"].includes(connectorId) &&
+              active?.state === "uncertain")) &&
             run?.status === "active" && (
               <a
                 className="button primary"
