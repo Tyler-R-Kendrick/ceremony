@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$" },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+    },
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+    },
+    "inputs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "contract": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "required": { "type": "boolean" }
+        },
+        "required": ["contract", "required"],
+        "additionalProperties": false
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "contract": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "required": { "type": "boolean" }
+        },
+        "required": ["contract", "required"],
+        "additionalProperties": false
+      }
+    },
+    "effects": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+      }
+    },
+    "verifier": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+    },
+    "humanFallback": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "provider",
+    "profile",
+    "inputs",
+    "outputs",
+    "effects",
+    "verifier",
+    "humanFallback"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:operation-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

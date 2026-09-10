@@ -14,7 +14,7 @@
   },
   "coverageAnalysis": "perTest",
   "mutate": [
-    "src/core/{resolution,execution,schema}.ts",
+    "src/core/{connector-contracts,resolution,execution,schema}.ts",
     "src/server/{environment,storage,arazzo,services}.ts"
   ],
   "ignorePatterns": [

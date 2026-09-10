@@ -8,3 +8,4 @@ export * from "./recipe-contracts.js";
 export * from "./teaching-contracts.js";
 export * from "./projections.js";
 export * from "./connection-tools.js";
+export * from "./connector-contracts.js";

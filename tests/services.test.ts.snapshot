@@ -1,6 +1,8 @@
 exports[`characterization: live service manifests, workflows and missing-setup presentation 1`] = `
 [
   {
+    "schemaVersion": 1,
+    "support": "live-adapter",
     "id": "stripe",
     "name": "Stripe",
     "description": "Verify API access without creating a payment.",
@@ -14,15 +16,54 @@ exports[`characterization: live service manifests, workflows and missing-setup p
             "name": "token",
             "label": "Stripe secret key",
             "type": "password",
-            "required": true
+            "required": true,
+            "classification": "secret"
           }
         ],
         "scopes": [],
-        "templateId": "api-key"
+        "templateId": "api-key",
+        "contract": {
+          "profile": "stripe-api-key",
+          "surfaces": [
+            "browser",
+            "headless"
+          ],
+          "configuration": [
+            {
+              "name": "STRIPE_SECRET_KEY",
+              "source": "session-environment",
+              "classification": "secret",
+              "required": false
+            }
+          ],
+          "configurationGroups": [],
+          "prerequisites": [],
+          "handoff": {
+            "surface": "private-collector",
+            "recipient": "initiating-subject",
+            "delegation": "a2h-authorize",
+            "resume": "verify"
+          },
+          "completion": {
+            "verifier": "stripe.balance-read",
+            "ownership": [
+              "authenticated"
+            ]
+          },
+          "workflows": [
+            {
+              "document": "stripe",
+              "version": "1.0.0",
+              "workflowId": "verify-access"
+            }
+          ]
+        }
       }
     ]
   },
   {
+    "schemaVersion": 1,
+    "support": "live-adapter",
     "id": "supabase",
     "name": "Supabase",
     "description": "Sign in to your Supabase project, with missing project setup included.",
@@ -36,17 +77,88 @@ exports[`characterization: live service manifests, workflows and missing-setup p
             "name": "email",
             "label": "Email",
             "type": "email",
-            "required": true
+            "required": true,
+            "classification": "personal"
           },
           {
             "name": "password",
             "label": "Password",
             "type": "password",
-            "required": true
+            "required": true,
+            "classification": "secret"
           }
         ],
         "scopes": [],
-        "templateId": "form"
+        "templateId": "form",
+        "contract": {
+          "profile": "supabase-password",
+          "surfaces": [
+            "browser",
+            "headless"
+          ],
+          "configuration": [
+            {
+              "name": "SUPABASE_URL",
+              "source": "session-environment",
+              "classification": "public",
+              "required": true
+            },
+            {
+              "name": "SUPABASE_PUBLISHABLE_KEY",
+              "source": "session-environment",
+              "classification": "public",
+              "required": false
+            },
+            {
+              "name": "SUPABASE_ANON_KEY",
+              "source": "session-environment",
+              "classification": "public",
+              "required": false
+            }
+          ],
+          "configurationGroups": [
+            {
+              "id": "project-key",
+              "rule": "at-least-one",
+              "names": [
+                "SUPABASE_PUBLISHABLE_KEY",
+                "SUPABASE_ANON_KEY"
+              ]
+            }
+          ],
+          "prerequisites": [
+            {
+              "id": "project-configuration",
+              "kind": "configuration",
+              "reuse": "verified-context",
+              "handoff": {
+                "surface": "private-collector",
+                "recipient": "authorized-owner",
+                "delegation": "a2h-authorize",
+                "resume": "verify"
+              }
+            }
+          ],
+          "handoff": {
+            "surface": "private-collector",
+            "recipient": "initiating-subject",
+            "delegation": "a2h-authorize",
+            "resume": "verify"
+          },
+          "completion": {
+            "verifier": "supabase.auth-session",
+            "ownership": [
+              "authenticated"
+            ]
+          },
+          "workflows": [
+            {
+              "document": "supabase",
+              "version": "1.0.0",
+              "workflowId": "sign-in"
+            }
+          ]
+        }
       }
     ]
   }
@@ -121,7 +233,8 @@ exports[`characterization: live service manifests, workflows and missing-setup p
         "name": "token",
         "label": "Stripe secret key",
         "type": "password",
-        "required": true
+        "required": true,
+        "classification": "secret"
       }
     ],
     "message": "Use a restricted key with Balance read permission. Existing session keys are reused. No payments will be made."
@@ -145,13 +258,15 @@ exports[`characterization: live service manifests, workflows and missing-setup p
         "name": "email",
         "label": "Email",
         "type": "email",
-        "required": true
+        "required": true,
+        "classification": "personal"
       },
       {
         "name": "password",
         "label": "Password",
         "type": "password",
-        "required": true
+        "required": true,
+        "classification": "secret"
       }
     ],
     "message": "Project settings are reused from your session. Supply only what’s missing, then sign in as an existing project user—not a dashboard account."

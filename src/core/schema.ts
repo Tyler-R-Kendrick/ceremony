@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fieldClassificationSchema } from "./operation-contracts.js";
+import { methodContractSchema } from "./connector-contracts.js";
 
 export const flowKinds = [
   "api-key",
@@ -41,6 +42,7 @@ export const methodSchema = z
     claimFields: z.array(fieldSchema).max(12).optional(),
     scopes: z.array(z.string().min(1).max(100)).max(30),
     templateId: z.string().regex(/^[a-z0-9-]{1,64}$/),
+    contract: methodContractSchema.optional(),
   })
   .strict()
   .superRefine((method, ctx) => {
@@ -57,6 +59,26 @@ export const methodSchema = z
       });
     if (new Set(names).size !== names.length)
       ctx.addIssue({ code: "custom", message: "Duplicate field names" });
+    if (
+      method.contract &&
+      method.kind !== "authmd-anonymous" &&
+      method.contract.completion.ownership.some(
+        (ownership) => ownership !== "authenticated",
+      )
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "This method requires authenticated completion",
+      });
+    if (
+      method.contract &&
+      ["basic", "api-key", "form"].includes(method.kind) &&
+      method.contract.handoff.surface !== "private-collector"
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Credential methods require private collection",
+      });
     const expected =
       method.kind === "basic"
         ? ["username", "password"]
@@ -95,6 +117,8 @@ export const methodSchema = z
 export type AuthMethod = z.infer<typeof methodSchema>;
 export const manifestSchema = z
   .object({
+    schemaVersion: z.literal(1).optional(),
+    support: z.enum(["fixture", "live-adapter"]).optional(),
     id: z.string().regex(/^[a-z0-9-]{1,64}$/),
     name: z.string().min(1).max(100),
     description: z.string().max(500),
@@ -103,12 +127,53 @@ export const manifestSchema = z
   .strict()
   .superRefine((value, ctx) => {
     if (
+      value.schemaVersion === 1 &&
+      (!value.support ||
+        value.methods.some(
+          (method) =>
+            !method.contract ||
+            [...method.fields, ...(method.claimFields ?? [])].some(
+              (field) => !field.classification,
+            ),
+        ))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Version 1 requires support, method contracts and explicit field classifications",
+      });
+    if (
       new Set(value.methods.map((method) => method.id)).size !==
       value.methods.length
     )
       ctx.addIssue({ code: "custom", message: "Duplicate method IDs" });
   });
 export type ConnectorManifest = z.infer<typeof manifestSchema>;
+
+const classifiedFieldSchema = fieldSchema.safeExtend({
+  classification: fieldClassificationSchema,
+});
+/** Formal authoring profile. Legacy manifestSchema remains supported for existing hosts. */
+export const connectorManifestV1Schema = manifestSchema.safeExtend({
+  schemaVersion: z.literal(1),
+  support: z.enum(["fixture", "live-adapter"]),
+  methods: z
+    .array(
+      methodSchema.safeExtend({
+        contract: methodContractSchema,
+        fields: z.array(classifiedFieldSchema).max(12),
+        claimFields: z.array(classifiedFieldSchema).max(12).optional(),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+
+export function parseConnectorManifest(text: string): ConnectorManifest {
+  if (new TextEncoder().encode(text).byteLength > 256 * 1024)
+    throw new Error("Connector manifest exceeds import limit");
+  return manifestSchema.parse(JSON.parse(text));
+}
 
 export const steps = [
   "intro",

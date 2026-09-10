@@ -1,10 +1,42 @@
-import { manifestSchema, type ConnectorManifest } from "../src/core/index.js";
+import {
+  manifestSchema,
+  methodContractSchema,
+  type ConnectorManifest,
+} from "../src/core/index.js";
+
+// This helper describes only our deterministic fixtures, never inferred live support.
+function fixtureContract(
+  profile: string,
+  privateInput = false,
+  anonymous = false,
+) {
+  return methodContractSchema.parse({
+    profile,
+    surfaces: ["browser", "headless"],
+    configuration: [],
+    configurationGroups: [],
+    prerequisites: [],
+    handoff: {
+      surface: privateInput ? "private-collector" : "provider-browser",
+      recipient: "initiating-subject",
+      delegation: "a2h-authorize",
+      resume: "verify",
+    },
+    completion: {
+      verifier: "fixture.adapter",
+      ownership: anonymous ? ["anonymous", "claimed"] : ["authenticated"],
+    },
+    workflows: [],
+  });
+}
 
 // Real service method inventories; the example app executes against local providers.
 // This is a curated subset of each service's methods, not an exhaustive inventory.
 export const manifests: ConnectorManifest[] = [
   manifestSchema.parse({
     id: "github",
+    schemaVersion: 1,
+    support: "fixture",
     name: "GitHub",
     description: "Connect repositories and your developer identity.",
     methods: [
@@ -15,6 +47,7 @@ export const manifests: ConnectorManifest[] = [
         fields: [],
         scopes: ["read:user"],
         templateId: "oauth-code",
+        contract: fixtureContract("oauth-code-pkce"),
       },
       {
         id: "device",
@@ -23,6 +56,7 @@ export const manifests: ConnectorManifest[] = [
         fields: [],
         scopes: ["read:user"],
         templateId: "device",
+        contract: fixtureContract("device"),
       },
       {
         id: "api-key",
@@ -34,15 +68,19 @@ export const manifests: ConnectorManifest[] = [
             label: "GitHub personal access token",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
         scopes: [],
         templateId: "api-key",
+        contract: fixtureContract("personal-access-token", true),
       },
     ],
   }),
   manifestSchema.parse({
     id: "stripe",
+    schemaVersion: 1,
+    support: "fixture",
     name: "Stripe",
     description:
       "Authenticate to the Stripe API with a secret or restricted key. No payments are performed.",
@@ -57,15 +95,19 @@ export const manifests: ConnectorManifest[] = [
             label: "Stripe secret key",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
         scopes: [],
         templateId: "api-key",
+        contract: fixtureContract("api-key", true),
       },
     ],
   }),
   manifestSchema.parse({
     id: "jira",
+    schemaVersion: 1,
+    support: "fixture",
     name: "Jira",
     description:
       "Connect Jira Cloud using your Atlassian email and API token—not your account password.",
@@ -80,21 +122,26 @@ export const manifests: ConnectorManifest[] = [
             label: "Atlassian email",
             type: "email",
             required: true,
+            classification: "personal",
           },
           {
             name: "password",
             label: "Atlassian API token",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
         scopes: [],
         templateId: "basic",
+        contract: fixtureContract("basic-api-token", true),
       },
     ],
   }),
   manifestSchema.parse({
     id: "supabase",
+    schemaVersion: 1,
+    support: "fixture",
     name: "Supabase",
     description:
       "Sign in as a user of a Supabase Auth project. This is not a Supabase dashboard login.",
@@ -104,21 +151,31 @@ export const manifests: ConnectorManifest[] = [
         label: "Email & password",
         kind: "form",
         fields: [
-          { name: "email", label: "Email", type: "email", required: true },
+          {
+            name: "email",
+            label: "Email",
+            type: "email",
+            required: true,
+            classification: "personal",
+          },
           {
             name: "password",
             label: "Password",
             type: "password",
             required: true,
+            classification: "secret",
           },
         ],
         scopes: [],
         templateId: "form",
+        contract: fixtureContract("password", true),
       },
     ],
   }),
   manifestSchema.parse({
     id: "neon",
+    schemaVersion: 1,
+    support: "fixture",
     name: "Neon",
     description:
       "Start with an anonymous project, then transfer ownership to a Neon organization when you are ready.",
@@ -131,6 +188,7 @@ export const manifests: ConnectorManifest[] = [
         claimFields: [],
         scopes: [],
         templateId: "authmd-anonymous",
+        contract: fixtureContract("anonymous-claim", false, true),
       },
     ],
   }),

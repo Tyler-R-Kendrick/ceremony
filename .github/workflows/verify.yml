@@ -36,6 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: connector-contracts
+            file: src/core/connector-contracts.ts
           - target: resolution
             file: src/core/resolution.ts
           - target: execution
