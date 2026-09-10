@@ -161,23 +161,20 @@ test("Studio authors a new connector without running Connect or reading Environm
   );
 });
 
-test("Studio drafts a provider from generic templates and composes ceremonies", async ({
+test("Studio composes generic family ceremonies without a provider form", async ({
   page,
 }) => {
   await page.goto("/?section=studio");
-  await page.getByLabel("Provider to build a ceremony for").fill("Jira");
+  await expect(
+    page.getByRole("button", { name: "Build from this provider" }),
+  ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Build from this provider", exact: true })
+    .getByRole("button", { name: "Create connector", exact: true })
     .click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Drafted Jira" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", {
-      name: "Browser authorization (OAuth)",
-      exact: true,
-    }),
-  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Design ceremonies", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add method", exact: true }).click();
   await expect(page.getByLabel("What happens?").first()).toHaveValue(
     "Prepare the shared OAuth app when the host has none",
   );
@@ -191,13 +188,6 @@ test("Studio drafts a provider from generic templates and composes ceremonies", 
   await expect(
     page.getByRole("heading", { name: "Composed ceremony", exact: true }),
   ).toBeVisible();
-  await page.getByText("Prerequisites and human fallback").last().click();
-  await expect(page.getByLabel("Prerequisite ID").nth(1)).toHaveValue(
-    "method-1",
-  );
-  await expect(page.getByLabel("Prerequisite ID").nth(2)).toHaveValue(
-    "method-2",
-  );
 });
 
 test("imported document names and saved presentations remain editable when methods change", async ({

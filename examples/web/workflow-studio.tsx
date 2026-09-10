@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  applyProviderProposal,
   attachGenericCeremony,
   composeAuthoredMethods,
-  proposeConnectorForProvider,
   connectorProjectSchema,
   exportConnectorFiles,
   newConnectorProject,
@@ -52,7 +50,6 @@ export default function WorkflowStudio({
     "details",
   );
   const [family, setFamily] = useState<FlowKind>("oauth-code");
-  const [provider, setProvider] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -149,39 +146,11 @@ export default function WorkflowStudio({
             </button>
             {importControl}
           </div>
-          <form
-            className="authoring-provider"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const proposal = proposeConnectorForProvider(provider);
-              change((next) => {
-                applyProviderProposal(next, provider);
-              });
-              setStarted(true);
-              setStage("ceremonies");
-              setMessage(
-                `Drafted ${proposal.name} from generic ceremony templates. Review every step; nothing was executed or certified.`,
-              );
-            }}
-          >
-            <label>
-              Provider to build a ceremony for
-              <input
-                value={provider}
-                maxLength={100}
-                placeholder="e.g. Jira, Slack, GitHub"
-                onChange={(event) => setProvider(event.target.value)}
-              />
-            </label>
-            <button className="primary" disabled={!provider.trim()}>
-              Build from this provider
-            </button>
-          </form>
           <p className="muted small">
-            No account connection or credentials needed. Your work stays
-            separate from Connect and Environment. Provider drafts use generic
-            workflow templates; they do not fetch the provider or install an
-            adapter.
+            No account connection or credentials needed. Agents draft a provider
+            ceremony with the authoring tools; a person is elicited only for
+            provider consent or private credentials. This editor reviews and
+            exports those drafts.
           </p>
         </section>
       ) : (

@@ -6,8 +6,8 @@ Studio is an authoring tool for **new connectors and their ceremonies**. It does
 
 ## Create a connector
 
-1. Choose **Create connector**, name the service and describe its purpose. Set its stable ID and public OpenAPI document URL. Or enter a provider name and choose **Build from this provider** to start from generic ceremony templates (OAuth, device, API key, and so on). Studio does not fetch the provider or certify an adapter.
-2. Choose **Design ceremonies**, then add the service's supported auth methods. Each method starts from that family's generic Arazzo outline and OpenUI template. Select two or more methods and **Compose selected ceremonies** to add a parent that reuses them as prerequisites. Define requested permissions, a host verifier, configuration names and additional prerequisites.
+1. Agents draft a connector with the `ceremony_author_from_provider` tool (provider name only). That uses generic auth-family templates and does not fetch the provider, collect credentials, or install an adapter. A human is elicited only when consent or private credentials are required to run. Studio remains the review/export editor.
+2. Choose **Design ceremonies** to inspect or adjust methods. Each method starts from that family's generic Arazzo outline and OpenUI template. Agents compose with `ceremony_author_compose`; the editor can also compose selected ceremonies into a parent with prerequisites.
 3. Add and reorder steps. Describe each action and reference the provider operation that a trusted SDK handler will implement. Configure the appropriate human recipient; A2H return always leads to verification.
 4. Choose **Review connector**. Fix validation issues before exporting a manifest or Arazzo workflow. **Save connector project** also saves incomplete drafts so operation research can continue later.
 5. Use **Open project** to resume a saved file. Import never installs a connector or transfers publication status, credentials, access, or authority.

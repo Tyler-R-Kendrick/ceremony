@@ -13,6 +13,7 @@ import {
   createConnectionTools,
   type ConnectionState,
 } from "../core/connection-tools.js";
+import { createAuthoringTools } from "../core/authoring-tools.js";
 import { browserModelContext } from "../core/webmcp.js";
 
 export type TeachingRun = {
@@ -383,6 +384,27 @@ export function TeachingConnection({
     })();
     return () => lifetime.abort();
   }, [connectorId, mode, remember, request, toolPrefix]);
+  useEffect(() => {
+    const context = browserModelContext();
+    if (!context || mode !== "connect") return;
+    const lifetime = new AbortController();
+    const tools = createAuthoringTools("ceremony_author", {
+      fromProvider: (input) => request("/authoring/from-provider", input),
+      compose: (input) => request("/authoring/compose", input),
+      read: (draftId) => request(`/authoring/drafts/${draftId}`),
+    });
+    void (async () => {
+      try {
+        for (const tool of tools) {
+          if (lifetime.signal.aborted) return;
+          await context.registerTool(tool, { signal: lifetime.signal });
+        }
+      } catch {
+        lifetime.abort();
+      }
+    })();
+    return () => lifetime.abort();
+  }, [mode, request]);
   useEffect(() => {
     mounted.current = true;
     const abort = new AbortController();

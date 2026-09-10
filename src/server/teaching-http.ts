@@ -112,6 +112,54 @@ export async function teachingHttp(
       return await runtime.human(actor, runId, request);
     }
     const body = post ? await boundedJson(request) : undefined;
+    if (path.startsWith("/authoring/")) {
+      requireCapability(actor, "author");
+      if (path === "/authoring/from-provider") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            provider: z.string().min(1).max(100),
+            openApiUrl: z.string().url().max(500).optional(),
+            intent: z.enum(["draft", "complete", "run"]).default("draft"),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.fromProvider(
+            actor,
+            input.provider,
+            input.openApiUrl,
+            input.intent,
+          ),
+        );
+      }
+      if (path === "/authoring/compose") {
+        if (!post) return reply({ error: "unavailable" }, 405);
+        const input = z
+          .strictObject({
+            draftId: z.uuid(),
+            revision: revision,
+            childIds: z.array(z.string().min(1).max(64)).min(2).max(12),
+          })
+          .parse(body);
+        return reply(
+          await runtime.authoring.compose(
+            actor,
+            input.draftId,
+            input.revision,
+            input.childIds,
+          ),
+        );
+      }
+      const draft = /^\/authoring\/drafts\/([^/]+)$/.exec(path);
+      if (draft && !post)
+        return reply(
+          await runtime.authoring.read(
+            actor,
+            z.uuid().parse(decodeURIComponent(draft[1]!)),
+          ),
+        );
+      return reply({ error: "unavailable" }, 404);
+    }
     if (path.startsWith("/tools/")) {
       requireCapability(actor, "executor");
       if (!post) return reply({ error: "unavailable" }, 405);

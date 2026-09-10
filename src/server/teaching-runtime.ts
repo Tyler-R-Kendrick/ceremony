@@ -8,6 +8,7 @@ import {
 } from "./commands.js";
 import { Demonstrations } from "./demonstrations.js";
 import { RecipeService, type OperationRegistry } from "./recipes/index.js";
+import { ConnectorDrafts } from "./connector-drafts.js";
 import type {
   AsyncCeremonyStore,
   AsyncTransaction,
@@ -158,6 +159,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     },
   );
   const recipes = new RecipeService(store, registry);
+  const authoring = new ConnectorDrafts(store);
   const demonstrations = new Demonstrations(store);
   const modelConfiguration = options.modelConfiguration ?? {};
   const agent = new AgentCoordinator(
@@ -378,6 +380,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     connectors: Object.freeze([...connections.keys()]),
     commands,
     recipes,
+    authoring,
     demonstrations,
     agent,
     modelConfiguration,
