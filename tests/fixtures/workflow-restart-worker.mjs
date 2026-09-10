@@ -10,12 +10,16 @@ const world = createLocalWorld({
   dataDir: process.env.CEREMONY_RESTART_DATA,
   recoverActiveRuns: true,
 });
+// Test-only scheduling fault: hold actual compiled step handlers, not their results.
+let stepGate = Promise.resolve();
+let releaseSteps;
 for (const [prefix, file] of [
   ["__wkf_workflow_", "workflows.mjs"],
   ["__wkf_step_", "steps.mjs"],
 ]) {
   let handler;
   world.registerHandler(prefix, async (request) => {
+    if (prefix === "__wkf_step_") await stepGate;
     handler ??= (
       await import(
         pathToFileURL(join(process.env.CEREMONY_RESTART_BUNDLES, file)).href
@@ -49,6 +53,16 @@ process.on("message", async (message) => {
       };
     } else if (message.action === "resume") {
       await resumeHook(`ceremony-agent:${message.runId}`, { wake: true });
+      result = { accepted: true };
+    } else if (message.action === "pause-steps") {
+      stepGate = new Promise((resolve) => {
+        releaseSteps = resolve;
+      });
+      result = { paused: true };
+    } else if (message.action === "release-steps") {
+      releaseSteps?.();
+      result = { released: true };
+    } else if (message.action === "result") {
       result = { value: await getRun(message.workflowRunId).returnValue };
     } else if (message.action === "close") {
       await world.close();
