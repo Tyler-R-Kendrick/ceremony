@@ -369,6 +369,24 @@ for (const configured of [true, false])
     assert.equal((await request(callback)).status, 403);
     assert.equal((await request(path)).status, 403);
     assert.equal(f.effects.exchanges, 1);
+    // A restored subject in a new login must not inherit a prior session's private setup or consent.
+    actor = { ...f.actor, sessionId: "fresh-login" };
+    const fresh = await request("/runs", { connectorId: "jira" });
+    assert.equal(fresh.status, 200);
+    const freshRun = await fresh.json();
+    assert.notEqual(freshRun.id, run.id);
+    assert.equal(freshRun.status, "active");
+    assert.equal(freshRun.nodes[configured ? 1 : 0].state, "awaiting-human");
+    assert.equal(
+      (await request(`/jira/${freshRun.id}/human`)).status,
+      configured ? 303 : 200,
+    );
+    assert.equal(f.effects.exchanges, 1);
+    actor = f.actor;
+    assert.equal(
+      (await runtime.commands.snapshot(actor, run.id)).status,
+      "complete",
+    );
   });
 
 test("Jira composes shared app, private OAuth receipt and fresh site-bound access through real HTTP", async (t) => {

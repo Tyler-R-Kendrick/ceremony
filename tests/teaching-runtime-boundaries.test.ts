@@ -41,7 +41,7 @@ const recipe: RecipeDefinition = {
   ],
   outputs: {},
 };
-function fixture(connectorId?: string) {
+function fixture(connectorId?: string, continuation = true) {
   const runContext = connectorId
     ? { ...context, provider: "fixture-provider", profile: "fixture-key" }
     : context;
@@ -121,12 +121,16 @@ function fixture(connectorId?: string) {
       await onAuthorize?.(operation);
       return operation !== denied;
     },
-    continuation: {
-      id: "task",
-      handler: async () => {
-        deliveries++;
-      },
-    },
+    ...(continuation
+      ? {
+          continuation: {
+            id: "task",
+            handler: async () => {
+              deliveries++;
+            },
+          },
+        }
+      : {}),
   });
   return {
     store,
@@ -209,6 +213,68 @@ test("host-registered connectors use the shared HTTP runtime and unknown connect
     assert.equal(f.effects(), 1);
   } finally {
     await f.store.close();
+  }
+});
+test("Connect reuses only the current authenticated session without destroying another session's parent", async () => {
+  const f = fixture("custom");
+  try {
+    const first = await f.runtime.connect(actor, "custom", false);
+    const otherSession = { ...actor, sessionId: "another-session" };
+    const second = await f.runtime.connect(otherSession, "custom", false);
+    assert.notEqual(second.id, first.id);
+    assert.equal(
+      (await f.runtime.connect(actor, "custom", false)).id,
+      first.id,
+    );
+    assert.equal(
+      (await f.runtime.connect(otherSession, "custom", false)).id,
+      second.id,
+    );
+    assert.equal(
+      (await f.runtime.commands.snapshot(actor, first.id)).status,
+      "active",
+    );
+    assert.equal(f.effects(), 0);
+    const records = await f.store.transaction((tx) =>
+      tx.list<RunRecord>(actor.tenantId, "run"),
+    );
+    assert.deepEqual(records.map((r) => r.value.sessionId).sort(), [
+      "another-session",
+      "session",
+    ]);
+  } finally {
+    await f.store.close();
+  }
+});
+test("Connect binds reuse to the original host task, including hosts without continuations", async () => {
+  for (const continuation of [true, false]) {
+    const f = fixture("custom", continuation);
+    try {
+      const first = await f.runtime.connect(actor, "custom", false);
+      assert.equal(
+        (await f.runtime.connect(actor, "custom", false)).id,
+        first.id,
+      );
+      await f.store.transaction(async (tx) => {
+        const key = {
+          tenant: actor.tenantId,
+          kind: "run" as const,
+          id: first.id,
+        };
+        const prior = (await tx.get<RunRecord>(key))!;
+        await tx.put(
+          key,
+          { ...prior.value, continuation: "other-host-task" },
+          prior.revision,
+        );
+      });
+      const next = await f.runtime.connect(actor, "custom", false);
+      assert.notEqual(next.id, first.id);
+      assert.equal(f.effects(), 0);
+      assert.equal(f.deliveries(), 0);
+    } finally {
+      await f.store.close();
+    }
   }
 });
 test("AC-16 AC-26: recipe execution rejects unsupported and invalid public bindings before run admission", async () => {

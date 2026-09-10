@@ -25,6 +25,29 @@ export default {
       "if (!run || run.value.subjectId !== actor.subjectId)",
     ),
     guard("src/server/commands.ts", "if (prior.value.digest !== intent)"),
+    guard(
+      "src/server/teaching-runtime.ts",
+      "r.value.sessionId === actor.sessionId &&",
+    ),
+    guard(
+      "src/server/a2h.ts",
+      "record.principalId !== recipient.principalId ||",
+    ),
+    guard(
+      "src/server/a2h.ts",
+      "recipient.principalId !== record.principalId ||",
+    ),
+    guard(
+      "src/server/a2h.ts",
+      "canonicalJson(record.message.params ?? null) !==",
+      1,
+      0,
+      2,
+    ),
+    guard(
+      "src/server/a2h.ts",
+      "canonicalJson(channel.data) !== canonicalJson(expectedChannel)",
+    ),
     guard("src/server/commands.ts", 'ownState?.value.state === "uncertain"', 2),
     guard(
       "src/server/commands.ts",
@@ -108,6 +131,9 @@ export default {
     ...base.tap,
     testFiles: [
       "tests/commands.test.ts",
+      "tests/a2h-ceremonies.test.ts",
+      "tests/orchestration.test.ts",
+      "tests/teaching-runtime-boundaries.test.ts",
       "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
       "tests/github-children.test.ts",
