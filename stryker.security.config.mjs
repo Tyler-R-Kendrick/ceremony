@@ -49,6 +49,20 @@ export default {
     guard("src/server/jira-auth.ts", "resource.scopes.includes(scope)"),
     guard("src/server/jira-auth.ts", "if (ids.size !== 1)"),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "record.value.runId !== context.runId ||",
+    ),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "index.subjectId !== actor.subjectId ||",
+      2,
+    ),
+    guard(
+      "src/server/oauth-handoff.ts",
+      "const session = this.options.sessionSchema.parse(",
+      5,
+    ),
     guard("src/server/supabase-auth.ts", 'verified.claims.aal !== "aal2"'),
     guard("src/server/supabase-auth.ts", "factor.id === factorId &&", 3),
     guard(
@@ -84,6 +98,7 @@ export default {
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",
       "tests/jira-auth.test.ts",
+      "tests/oauth-handoff.test.ts",
       "tests/supabase-auth.test.ts",
       "tests/supabase-mfa.test.ts",
       "tests/supabase-children.test.ts",

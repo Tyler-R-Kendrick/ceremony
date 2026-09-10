@@ -180,8 +180,11 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
     `${callback}&padding=${"x".repeat(8192)}`,
     callback.replace("one-use-code", "invalid%0Acode"),
     `${configuration.callbackUrl}?state=${state}&error=access_denied`,
-  ])
+  ]) {
+    assert.throws(() => client.validateCallback(url, state), rejected);
     await assert.rejects(client.exchange(url, state), rejected);
+  }
+  client.validateCallback(callback, state);
   assert.equal(exchanges, 0);
   const session = await client.exchange(callback, state);
   assert.equal(exchanges, 1);
