@@ -41,6 +41,38 @@ for (const assurance of ["aal1", "aal2"] as const)
       projectUrl: "https://synthetic.supabase.co",
       publishableKey: "sb_publishable_synthetic",
     };
+    const ticketKey = {
+      tenant: "teaching-fixture",
+      kind: "handoff" as const,
+      id: `supabase-collector:${ticket}`,
+    };
+    // Exercise persisted binding tampering, not merely a guessed nonexistent ID.
+    const original = await f.store.transaction((tx) =>
+      tx.get<Record<string, unknown>>(ticketKey),
+    );
+    assert.ok(original);
+    for (const change of [
+      { expires: 0 },
+      { subject: "other" },
+      { session: "another-session" },
+      { runId: "another-run" },
+      { nodeId: "session" },
+      { revision: -1 },
+    ]) {
+      await f.store.transaction(async (tx) => {
+        const current = await tx.get(ticketKey);
+        await tx.put(
+          ticketKey,
+          { ...original.value, ...change },
+          current!.revision,
+        );
+      });
+      assert.equal((await send(path, { ticket, values: project })).status, 403);
+    }
+    await f.store.transaction(async (tx) => {
+      const current = await tx.get(ticketKey);
+      await tx.put(ticketKey, original.value, current!.revision);
+    });
     for (const [body, identity, origin] of [
       [{ ticket, values: project }, other, f.origin],
       [{ ticket, values: project }, cookie, "https://foreign.example"],

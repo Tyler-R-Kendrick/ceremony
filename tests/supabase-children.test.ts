@@ -311,6 +311,10 @@ for (const loseSignup of [false, true])
       "active",
     );
     assert.equal((await f.advance(run.id, "access")).state, "awaiting-human");
+    assert.deepEqual(
+      await f.children.humanView(f.inputContext(run.id, "access")),
+      { mode: "credentials", allowSignup: false },
+    );
     await f.input(run.id, "access", { ...credentials, action: "sign-in" });
     f.state.revoked = false;
     assert.equal((await f.advance(run.id, "session")).state, "complete");
@@ -324,6 +328,11 @@ test("Supabase children reject foreign actors, source impersonation, wrong stage
   await f.advance(run.id, "project");
   const snapshot = await f.runtime.commands.snapshot(f.actor, run.id),
     context = f.inputContext(run.id, "project");
+  for (const nodeId of ["missing", "session", "access"])
+    await assert.rejects(
+      f.children.humanView({ ...context, nodeId }),
+      /denied/,
+    );
   for (const actor of [
     { ...f.actor, actorKind: "agent" as const },
     { ...f.actor, subjectId: "other" },
