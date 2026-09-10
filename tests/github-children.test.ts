@@ -320,6 +320,7 @@ test("real GitHub registration selects the account type endpoint and registers a
     `${f.options.origin}/api/v1/teaching/github/installation-return`,
   );
   assert.equal(personal.manifest.url, f.options.origin);
+  assert.equal("hook_attributes" in personal.manifest, false);
   assert.equal(personal.manifest.setup_on_update, true);
   assert.equal(
     "callback_urls" in personal.manifest,

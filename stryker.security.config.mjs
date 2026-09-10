@@ -13,6 +13,9 @@ function guard(file, marker, lines = 1, offset = 0) {
 }
 export default {
   ...base,
+  // Isolate mutation workers to avoid timeout-only results under CPU contention.
+  // The tests still exercise independent database workers concurrently.
+  concurrency: 1,
   mutate: [
     guard("src/core/schema.ts", 'field.type === "password" ||', 5, -2),
     guard(
