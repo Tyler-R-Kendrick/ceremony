@@ -104,7 +104,7 @@ export async function boundedJson(
     throw new AuthorizationError("invalid_request");
   }
 }
-const effectSchema = z.strictObject({
+export const authorizedEffectSchema = z.strictObject({
   tenantId: z.string().min(1).max(200),
   subjectId: z.string().min(1).max(200),
   runId: z.string().min(1).max(200),
@@ -115,9 +115,9 @@ const effectSchema = z.strictObject({
   scopes: z.array(z.string().max(100)).max(64),
   argumentsDigest: z.string().regex(/^[a-f0-9]{64}$/),
 });
-export type AuthorizedEffect = z.infer<typeof effectSchema>;
+export type AuthorizedEffect = z.infer<typeof authorizedEffectSchema>;
 export function effectAuthorizationDigest(effect: AuthorizedEffect): string {
-  const e = effectSchema.parse(effect);
+  const e = authorizedEffectSchema.parse(effect);
   return createHash("sha256")
     .update(
       JSON.stringify([

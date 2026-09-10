@@ -3,6 +3,37 @@ import { CompactSign, compactVerify, type CryptoKey } from "jose";
 import { z } from "zod";
 import { CeremonyDatabase } from "./storage.js";
 import { CeremonyError } from "./controller.js";
+import {
+  authorizedEffectSchema,
+  effectAuthorizationDigest,
+} from "./authorization.js";
+
+/** Trusted host configuration, never model-authored copy or an authorization grant. */
+export const a2hCeremonySchema = z.strictObject({
+  connectorId: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/),
+  connectorName: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[^<>\u0000-\u001f\u007f]+$/),
+  purpose: z.enum([
+    "account-registration",
+    "app-registration",
+    "credential-collection",
+    "provider-authorization",
+  ]),
+  effect: authorizedEffectSchema,
+});
+export type A2HCeremony = z.infer<typeof a2hCeremonySchema>;
+
+function ceremonyParams(ceremony: A2HCeremony): Record<string, Json> {
+  return {
+    purpose: ceremony.purpose,
+    connector_id: ceremony.connectorId,
+    connector_name: ceremony.connectorName,
+    effect_digest: effectAuthorizationDigest(ceremony.effect),
+  };
+}
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 /** RFC 8785 for I-JSON values. Reject unsupported/non-finite values rather than coerce them. */
@@ -105,7 +136,15 @@ export class Agent2Human {
     owner: string,
     instanceId: string,
     humanUrl: string,
+    ceremony?: A2HCeremony,
   ): Promise<string> {
+    const bound =
+      ceremony === undefined ? undefined : a2hCeremonySchema.parse(ceremony);
+    if (
+      bound &&
+      (bound.effect.runId !== instanceId || bound.effect.subjectId !== owner)
+    )
+      throw new CeremonyError("Human request context changed", 409);
     const url = new URL(humanUrl);
     if (
       url.protocol !== "https:" ||
@@ -117,12 +156,59 @@ export class Agent2Human {
       throw new Error(
         "A2H requires an authenticated, non-secret HTTPS human route",
       );
-    const key = `a2h:${instanceId}`;
+    const params = bound
+      ? ceremonyParams(bound)
+      : { purpose: "github-app-installation" };
+    const render = bound
+      ? {
+          title: `${bound.connectorName} needs your participation`,
+          body: `Review the ${bound.purpose.replaceAll("-", " ")} step for ${bound.connectorName} in your authenticated ceremony: ${url.href}. Approval here does not replace provider consent or access verification. Enter credentials only in the private collector, never in your reply.`,
+        }
+      : {
+          title: "GitHub access needs your approval",
+          body: `Review the requested GitHub app and repository access in your authenticated ceremony: ${url.href}. Approval here does not replace GitHub consent.`,
+        };
+    // Older binaries cannot consume a generic request as an unbound GitHub approval.
+    const key = `${bound ? "a2h-ceremony" : "a2h"}:${instanceId}`;
     const lease = this.db.acquire(key);
     try {
       let record = this.db.get(key, recordSchema);
       if (record && record.owner !== owner)
         throw new CeremonyError("Human request not found", 404);
+      const recipient = this.options.recipient(owner);
+      if (
+        !(
+          recipient.type === "email"
+            ? /^mailto:[^\s]+@[^\s]+$/
+            : /^tel:\+[0-9]{6,15}$/
+        ).test(recipient.address) ||
+        !recipient.principalId ||
+        recipient.principalId.includes("@")
+      )
+        throw new Error("Invalid authenticated human recipient");
+      const expectedChannel = {
+        type: recipient.type,
+        address: recipient.address,
+        render,
+      };
+      if (record) {
+        const channel = z
+          .object({
+            type: z.string(),
+            address: z.string(),
+            render: z.record(z.string(), z.json()),
+          })
+          .safeParse(record.message.channel);
+        if (
+          record.principalId !== recipient.principalId ||
+          record.message.agent_id !== this.options.agentId ||
+          canonicalJson(record.message.params ?? null) !==
+            canonicalJson(params) ||
+          !channel.success ||
+          canonicalJson(channel.data) !== canonicalJson(expectedChannel)
+        )
+          throw new CeremonyError("Human request context changed", 409);
+      }
       if (record?.state === "waiting" && record.expiresAt > Date.now())
         return String(record.message.interaction_id);
       if (record && record.state !== "pending")
@@ -130,7 +216,6 @@ export class Agent2Human {
           "The human request is no longer pending. Do not repeatedly prompt a declined or expired request.",
           409,
         );
-      const recipient = this.options.recipient(owner);
       const discovery = z
         .object({
           a2h_supported: z.array(z.string()),
@@ -149,16 +234,6 @@ export class Agent2Human {
           503,
         );
       if (!record) {
-        if (
-          !(
-            recipient.type === "email"
-              ? /^mailto:[^\s]+@[^\s]+$/
-              : /^tel:\+[0-9]{6,15}$/
-          ).test(recipient.address) ||
-          !recipient.principalId ||
-          recipient.principalId.includes("@")
-        )
-          throw new Error("Invalid authenticated human recipient");
         const ttl = Math.min(600, discovery.max_ttl_sec);
         const expiresAt = Date.now() + ttl * 1000;
         record = {
@@ -178,16 +253,11 @@ export class Agent2Human {
             created_at: new Date().toISOString(),
             ttl_sec: ttl,
             channel: {
-              type: recipient.type,
-              address: recipient.address,
+              ...expectedChannel,
               nonce: randomBytes(24).toString("base64url"),
               expires_at: new Date(expiresAt).toISOString(),
-              render: {
-                title: "GitHub access needs your approval",
-                body: `Review the requested GitHub app and repository access in your authenticated ceremony: ${url.href}. Approval here does not replace GitHub consent.`,
-              },
             },
-            params: { purpose: "github-app-installation" },
+            params,
           }),
         };
         this.db.put(key, record); // Same signed message_id is retried after uncertain delivery.
@@ -209,7 +279,12 @@ export class Agent2Human {
   async receive(
     instanceId: string,
     input: unknown,
+    ceremony?: A2HCeremony,
   ): Promise<"verify" | "deny"> {
+    const bound =
+      ceremony === undefined ? undefined : a2hCeremonySchema.parse(ceremony);
+    if (bound && bound.effect.runId !== instanceId)
+      throw new CeremonyError("Human request context changed", 409);
     const response = z
       .object({
         type: z.literal("RESPONSE"),
@@ -235,8 +310,30 @@ export class Agent2Human {
       { algorithms: ["EdDSA"] },
     );
     return this.db.transaction(() => {
-      const key = `a2h:${instanceId}`;
+      const key = `${bound ? "a2h-ceremony" : "a2h"}:${instanceId}`;
       const record = this.db.get(key, recordSchema);
+      if (record) {
+        const recipient = this.options.recipient(record.owner);
+        const channel = z
+          .object({ type: z.string(), address: z.string() })
+          .safeParse(record.message.channel);
+        if (
+          recipient.principalId !== record.principalId ||
+          record.message.agent_id !== this.options.agentId ||
+          !channel.success ||
+          channel.data.type !== recipient.type ||
+          channel.data.address !== recipient.address
+        )
+          throw new CeremonyError("Human request context changed", 409);
+      }
+      if (
+        bound &&
+        record &&
+        (record.owner !== bound.effect.subjectId ||
+          canonicalJson(record.message.params ?? null) !==
+            canonicalJson(ceremonyParams(bound)))
+      )
+        throw new CeremonyError("Human request context changed", 409);
       if (
         !record ||
         record.state !== "waiting" ||
