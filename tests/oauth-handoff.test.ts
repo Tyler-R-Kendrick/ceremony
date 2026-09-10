@@ -251,7 +251,7 @@ test("OAuth handoff rejects invalid driver output before persisting or returning
   }));
   await f.carrier().acceptCallback(f.ctx, await f.callback());
   await f.advance();
-  assert.equal(f.candidate(), undefined);
+  assert.equal(f.candidate() === undefined, true);
   assert.equal(
     (await f.commands.snapshot(actor, f.run.id)).nodes[0]!.state,
     "uncertain",
@@ -325,7 +325,7 @@ for (const action of ["cancel", "revoke"] as const)
       }
       await rejected;
       assert.equal(f.effects(), 1);
-      assert.equal(f.candidate(), undefined);
+      assert.equal(f.candidate() === undefined, true);
       const records = await f.store.transaction((tx) =>
         tx.list(actor.tenantId, "handoff"),
       );
