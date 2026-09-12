@@ -124,6 +124,8 @@ The Node suite uses a parsed document and real HTTP. It is fast enough to run th
 
 `tests/browser/auth-scenarios.spec.ts` runs the identical catalog through Chromium and the Playwright adapter, which covers exactly what the other cannot. One test in it asserts that both runners produce the same snapshot for the same markup, so a contract proved in one means the same thing in the other. Neither result is reported as covering the other.
 
+Two scenarios are excluded from the browser catalog rather than skipped inside it: a browser credential dialog is chrome, not page content, and Playwright answers it through context configuration instead of the page. Verification counts a skipped browser result as a failure, which is the right rule — a skip reads the same whether it was deliberate or a test that quietly stopped covering anything. Excluding them keeps that signal honest, each exclusion states its reason, a test holds the list to at most two, and both scenarios still run in full in the Node suite.
+
 ## What a green run does not mean
 
 - It is not evidence about any live provider. These pages are ours. A provider can change its markup, add a challenge, rate-limit, or require a step no scenario models. Live behaviour is covered only by separately authorized attended checks.

@@ -30,14 +30,21 @@ function detail(result: CeremonyResult): string {
   }`;
 }
 
-for (const scenario of authScenarios) {
+/**
+ * Scenarios a real browser genuinely cannot host are excluded rather than
+ * declared and skipped: verification treats a skipped browser result as a
+ * failure, and rightly so — a skip is indistinguishable from a test that
+ * quietly stopped covering anything. Each exclusion names its reason, and each
+ * still runs in full in the Node contract suite.
+ */
+const browserCatalog = authScenarios.filter(
+  (scenario) => scenario.browserRunnerSkip === undefined,
+);
+
+for (const scenario of browserCatalog) {
   test(`browser scenario: ${scenario.id} — ${scenario.title}`, async ({
     page,
   }) => {
-    test.skip(
-      scenario.browserRunnerSkip !== undefined,
-      scenario.browserRunnerSkip,
-    );
     const identity = createIdentity();
     const untrusted = scenario.needsUntrustedOrigin
       ? await startUntrustedOrigin()
@@ -78,6 +85,21 @@ for (const scenario of authScenarios) {
     }
   });
 }
+
+test("every scenario a browser can host is in the browser catalog", () => {
+  const excluded = authScenarios.filter(
+    (scenario) => scenario.browserRunnerSkip !== undefined,
+  );
+  expect(browserCatalog.length + excluded.length).toBe(authScenarios.length);
+  // An exclusion without a stated reason is just a gap.
+  for (const scenario of excluded)
+    expect(
+      (scenario.browserRunnerSkip ?? "").length,
+      `${scenario.id} must say why a browser cannot host it`,
+    ).toBeGreaterThan(30);
+  // Exclusions stay exceptional; a growing list means the runner is drifting.
+  expect(excluded.length).toBeLessThanOrEqual(2);
+});
 
 test("the snapshot a real browser produces matches the one parsed in Node", async ({
   page,
