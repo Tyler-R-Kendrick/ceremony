@@ -244,6 +244,28 @@ test("the in-chat collector stays unmounted on a plain-HTTP origin", async () =>
   }
 });
 
+test("the in-chat collector mounts when both origins are HTTPS", async () => {
+  const f = fixture();
+  try {
+    const secure = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: "https://tunnel.example/mcp",
+      issuer: "https://tunnel.example",
+      authenticate: () => actor,
+      privateCollector: {
+        brokerOrigin: "https://tunnel.example",
+        appOrigin: "https://tunnel.example",
+        appHtml: "<p>collector</p>",
+        controller: undefined as never,
+        db: undefined as never,
+        requestOwner: () => actor.subjectId,
+      },
+    });
+    assert.equal(secure.collectorAvailable, true);
+  } finally {
+    await f.store.close();
+  }
+});
+
 test("another subject cannot touch a run at all", async () => {
   const f = fixture();
   try {

@@ -18,6 +18,7 @@
 - [Ceremony discovery](ceremony-discovery.md): reading a provider to work out what getting in requires, without submitting anything, and writing it down as a shareable plan.
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [MCP endpoint](mcp-endpoint.md): driving ceremonies from a chat client, and why no credential crosses MCP.
+- [Local MCP](mcp-local.md): pointing a chat client at the reference application through a tunnel.
 - [Host identity](host-identity.md), [production deployment](production-deployment.md), and [persistence migration](persistence-migration.md).
 - [Threat model](ceremony-teaching-threat-model.md): protected sources, prohibited sinks and residual risks.
 
