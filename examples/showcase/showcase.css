@@ -1,0 +1,415 @@
+/*
+ * Chrome for the showcase — deliberately not part of the component library.
+ *
+ * Everything here dresses the page around the components so the two surfaces
+ * read as a host application and a chat client. The components themselves are
+ * styled only by src/react/styles.css, which is the thing being demonstrated.
+ */
+
+:root {
+  --page-ground: #eef1f6;
+  --page-surface: #ffffff;
+  --page-ink: #0e1621;
+  --page-muted: #5a6679;
+  --page-line: #dde3ec;
+  --page-accent: #2540d9;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-ground: #070a10;
+    --page-surface: #0f151d;
+    --page-ink: #e7ecf4;
+    --page-muted: #93a0b4;
+    --page-line: #1e2632;
+    --page-accent: #8296ff;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-ground: #070a10;
+  --page-surface: #0f151d;
+  --page-ink: #e7ecf4;
+  --page-muted: #93a0b4;
+  --page-line: #1e2632;
+  --page-accent: #8296ff;
+}
+
+body {
+  margin: 0;
+  background: var(--page-ground);
+  color: var(--page-ink);
+  font-family:
+    "Instrument Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+.stand-in-row code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
+
+.page {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-inline: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+  margin: 0;
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.masthead-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 46rem;
+}
+
+.masthead h1 {
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  text-wrap: balance;
+  margin: 0;
+}
+
+.lede {
+  margin: 0;
+  color: var(--page-muted);
+  max-width: 58ch;
+  text-wrap: pretty;
+}
+
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.theme-picker > div {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--page-line);
+  border-radius: 999px;
+  background: var(--page-surface);
+}
+
+.theme-picker button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.375rem 0.875rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--page-muted);
+  cursor: pointer;
+}
+
+.theme-picker button.active {
+  background: var(--page-ink);
+  color: var(--page-surface);
+}
+
+.theme-picker .hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+/* ------------------------------------------------------------------ surfaces
+ * Two framed windows. The frame says which world you are looking at; what is
+ * inside each is the same component library.
+ */
+
+.surfaces {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.surface {
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+  overflow: hidden;
+}
+
+.surface-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--page-line);
+  background: color-mix(in srgb, var(--page-ground) 55%, var(--page-surface));
+}
+
+.surface-tab {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.surface-url {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.6875rem;
+  color: var(--page-muted);
+  margin-inline-start: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surface-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.125rem;
+}
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.section-head p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+}
+
+button.link {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  cursor: pointer;
+}
+
+button.link:hover {
+  color: var(--page-ink);
+}
+
+.demo-note {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--page-ground) 70%, var(--page-surface));
+  color: var(--page-muted);
+  font-size: 0.8125rem;
+}
+
+.demo-note code {
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------- stand-in */
+
+.stand-in {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px dashed color-mix(in srgb, var(--page-muted) 40%, transparent);
+  border-radius: 10px;
+}
+
+.stand-in-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.stand-in-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.stand-in-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.stand-in-actions button {
+  border: 1px solid var(--page-line);
+  border-radius: 6px;
+  padding: 0.3125rem 0.625rem;
+  font: inherit;
+  font-size: 0.75rem;
+  background: var(--page-surface);
+  color: var(--page-ink);
+  cursor: pointer;
+}
+
+.stand-in-actions button:first-child {
+  background: var(--page-ink);
+  border-color: var(--page-ink);
+  color: var(--page-surface);
+}
+
+/* -------------------------------------------------------------------- chat */
+
+.chat {
+  gap: 0.75rem;
+}
+
+.bubble {
+  border-radius: 12px;
+  padding: 0.75rem 0.875rem;
+  font-size: 0.875rem;
+  max-width: 100%;
+}
+
+.bubble.person {
+  align-self: flex-end;
+  background: var(--page-ink);
+  color: var(--page-surface);
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.agent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: color-mix(in srgb, var(--page-ground) 65%, var(--page-surface));
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.agent p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* The embed sits on the page ground, so the card reads as a mounted app
+ * rather than as another paragraph of the assistant's message. */
+.chat-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.625rem;
+  border-radius: 10px;
+  background: var(--page-surface);
+  border: 1px solid var(--page-line);
+}
+
+.chat-foot {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------ legend */
+
+.legend {
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.legend h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.legend-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1.25rem;
+}
+
+.legend-rows > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.legend-rows p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.colophon {
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.25rem;
+}
+
+.colophon p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  max-width: 78ch;
+  text-wrap: pretty;
+}
+
+.colophon strong {
+  color: var(--page-ink);
+  font-weight: 600;
+}
+
+@media (max-width: 62rem) {
+  .surfaces {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
