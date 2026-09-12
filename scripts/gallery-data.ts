@@ -91,7 +91,7 @@ export const journeys: Record<FlowKind, readonly Step[]> = {
 /** Where an attempt stops instead of finishing. Shared by every flow. */
 export const walls: readonly Step[] = ["error", "cancelled", "expired"];
 
-const everyManifest: readonly ConnectorManifest[] = [
+export const everyManifest: readonly ConnectorManifest[] = [
   ...manifests,
   githubAppManifest,
 ];
@@ -175,6 +175,97 @@ export function specimen(kind: FlowKind, step: Step): CeremonySnapshot {
       ? { message: `${manifest.name} refused the request.` }
       : {}),
   });
+}
+
+/** Every scope some method of some connector in this project really declares. */
+export function scopeVocabulary(): string[] {
+  return [
+    ...new Set(
+      everyManifest.flatMap((manifest) =>
+        manifest.methods.flatMap((method) => method.scopes),
+      ),
+    ),
+  ].sort();
+}
+
+/**
+ * What a host might declare the integration has to be able to do.
+ *
+ * The labels are copy, and copy belongs to the host — on this page the page is
+ * the host, so it writes them. The scopes are not copy: each one is declared by
+ * a method some connector here really ships, which is what makes the filtering
+ * they drive a real result rather than a demonstration arranged to come out
+ * well. `permissionScopesAreReal` is the assertion, and a test holds it.
+ */
+export const permissionChoices: readonly {
+  id: string;
+  label: string;
+  scopes: readonly string[];
+}[] = [
+  { id: "profile", label: "Read your GitHub profile", scopes: ["read:user"] },
+  {
+    id: "contents",
+    label: "Read repository contents",
+    scopes: ["contents:read"],
+  },
+];
+
+export function permissionScopesAreReal(): boolean {
+  const vocabulary = new Set(scopeVocabulary());
+  return permissionChoices.every((permission) =>
+    permission.scopes.every((scope) => vocabulary.has(scope)),
+  );
+}
+
+/**
+ * What the page hands to the resolver running in the reader's browser.
+ *
+ * Manifests travel as data and are re-parsed by the production schema on the
+ * other side, so the page cannot ship a connector the project would refuse.
+ */
+export function galleryPayload(): {
+  connectors: { key: string; manifest: ConnectorManifest }[];
+  permissions: typeof permissionChoices;
+} {
+  return {
+    // Two connectors here are both named GitHub and both carry the id
+    // `github` — one is the OAuth connector, one the App installation — so the
+    // key is positional rather than the id it would collide on.
+    connectors: everyManifest.map((manifest, index) => ({
+      key: `connector-${index}`,
+      manifest,
+    })),
+    permissions: permissionChoices,
+  };
+}
+
+/**
+ * A specimen is looked at, not operated.
+ *
+ * A published page reaches no network, so no control inside a rendered screen
+ * can do the thing it names. Wiring one to a handler that quietly does nothing
+ * is the worst of the options: it looks pressable, it invites a press, and the
+ * press fails silently. So every control is taken out of the tab order here,
+ * out of pointer events by the stylesheet, and the case it sits in says so
+ * before anybody reaches for it.
+ *
+ * What it is not is `disabled`: that dims the control, and a catalogue that
+ * shows a greyed Connect is showing a button the product never renders.
+ */
+export function asSpecimen(html: string): string {
+  // `\b` keeps `<a` from matching `<article`, which is the element the card
+  // itself is, and which carries no tab stop to remove.
+  return html.replace(
+    /<(button|a|input|select|textarea)\b/g,
+    '<$1 tabindex="-1"',
+  );
+}
+
+/** Controls a browser would put in the tab order, as a count. */
+export function tabStops(html: string): number {
+  return (
+    html.match(/<(?:button|a|input|select|textarea)\b(?![^>]*tabindex)/g) ?? []
+  ).length;
 }
 
 /** The template the product would pick for this kind. */

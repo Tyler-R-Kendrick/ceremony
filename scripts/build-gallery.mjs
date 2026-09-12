@@ -1,14 +1,19 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { ConnectorCard, CeremonyView } from "../src/react/index.js";
 import { manifests } from "../examples/manifests.js";
+import { resolverMountId, resolverPayloadId } from "./gallery-ids.js";
 import {
+  asSpecimen,
   carrierFor,
   catalogue,
   flowKinds,
+  galleryPayload,
   journeys,
+  permissionChoices,
   specimen,
   templateFor,
   walls,
@@ -38,6 +43,11 @@ const escape = (value) =>
         "'": "&#39;",
       })[character],
   );
+
+const frame = (html) => `<div class="screen">
+          <p class="specimen-tag">specimen · nothing here can be used</p>
+          ${asSpecimen(html)}
+        </div>`;
 
 /** A screen, rendered by the real component from a schema-valid specimen. */
 function screen(kind, step) {
@@ -95,14 +105,18 @@ const cards = () =>
       return `
       <li>
         <div class="screen-label"><span>${escape(note)}</span></div>
-        <div class="screen">${renderToString(
-          createElement(ConnectorCard, {
-            manifest,
-            status,
-            onConnect: () => {},
-            ...(intent ? { intent } : {}),
-          }),
-        )}</div>
+        ${frame(
+          renderToString(
+            createElement(ConnectorCard, {
+              manifest,
+              status,
+              // Never pressed: the specimen is inoperable by construction, and
+              // a page with no network has nothing honest to do on a press.
+              onConnect: () => {},
+              ...(intent ? { intent } : {}),
+            }),
+          ),
+        )}
       </li>`;
     })
     .join("");
@@ -132,6 +146,25 @@ const stepNotes = {
   cancelled: "stopped deliberately",
   expired: "the window closed before anyone acted",
 };
+
+/**
+ * The resolver, compiled for the browser.
+ *
+ * A separate file rather than an inline script: the page would otherwise have
+ * to escape whatever the minifier happened to emit, and a bundle that contains
+ * the wrong six characters would end the script tag early and take the section
+ * with it. It also keeps the document itself readable at its own size.
+ */
+const resolverBundle = await build({
+  entryPoints: [fileURLToPath(new URL("scripts/gallery-client.ts", root))],
+  bundle: true,
+  format: "iife",
+  minify: true,
+  target: "es2022",
+  write: false,
+  logLevel: "silent",
+});
+const resolverSource = resolverBundle.outputFiles[0].text;
 
 const entries = catalogue();
 const goals = [...new Set(entries.map((entry) => entry.goal))];
@@ -197,12 +230,119 @@ const flowPanel = (kind) => `
             <code>${escape(step)}</code>
             <span>${escape(stepNotes[step])}</span>
           </div>
-          <div class="screen">${screen(kind, step)}</div>
+          ${frame(screen(kind, step))}
         </li>`,
         )
         .join("")}
     </ol>
   </article>`;
+
+/**
+ * The live resolver's controls.
+ *
+ * Every one of them is a thing a host can state about its own integration, and
+ * not one of them is a protocol. That is the whole argument: a person cannot
+ * answer "PKCE or device code?", and never has to, because everything needed to
+ * decide it is something the host already knew.
+ */
+const declarations = [
+  {
+    name: "surface",
+    legend: "Where does this run?",
+    options: [
+      { value: "browser", label: "In a browser" },
+      { value: "headless", label: "Headless — a server, a job, an agent" },
+    ],
+    note: "somebody is here, at a browser",
+  },
+  {
+    name: "identity",
+    legend: "Whose access is this?",
+    options: [
+      { value: "either", label: "Either" },
+      { value: "personal", label: "A person's" },
+      { value: "anonymous", label: "Nobody's, for now" },
+    ],
+    note: "no opinion — whatever works",
+  },
+  {
+    name: "interruptions",
+    legend: "How much attention may it cost?",
+    options: [
+      { value: "any", label: "As much as it takes" },
+      { value: "at-most-one", label: "At most one stop" },
+      { value: "none", label: "Interrupt nobody" },
+    ],
+    note: "stop a person as often as the route needs",
+  },
+];
+
+const choiceGroup = ({ name, legend, options, note }) => `
+        <fieldset>
+          <legend>${escape(legend)}</legend>
+          <div class="choices">${options
+            .map(
+              ({ value, label }, index) => `
+            <label>
+              <input type="radio" name="${escape(name)}" value="${escape(value)}"${
+                index === 0 ? " checked" : ""
+              } />
+              <span>${escape(label)}</span>
+            </label>`,
+            )
+            .join("")}
+          </div>
+          <p class="note" data-note="${escape(name)}">${escape(note)}</p>
+        </fieldset>`;
+
+const permissionGroup = () => `
+        <fieldset>
+          <legend>What must it be able to do?</legend>
+          <div class="choices">${permissionChoices
+            .map(
+              (permission) => `
+            <label>
+              <input type="checkbox" name="permission" value="${escape(permission.id)}" />
+              <span>${escape(permission.label)} ${permission.scopes
+                .map((scope) => `<code>${escape(scope)}</code>`)
+                .join(" ")}</span>
+            </label>`,
+            )
+            .join("")}
+          </div>
+          <p class="note">the words are the host's; every scope is one a connector here really declares</p>
+        </fieldset>`;
+
+const resolver = `
+  <section class="movement" aria-labelledby="resolve-heading">
+    <div class="movement-head">
+      <h2 id="resolve-heading">Resolve it yourself</h2>
+      <p>
+        The part of this page that runs. Nobody is asked to choose between PKCE
+        and a device code, because a person cannot answer that and should not
+        have to — everything needed to decide it is something the host already
+        knew. State it here and every connector re-decides: which route, what it
+        costs somebody, and what was ruled out and why.
+      </p>
+    </div>
+    <div class="resolver" id="${resolverMountId}">
+      <form class="declaration">
+        ${declarations.map(choiceGroup).join("")}
+        ${permissionGroup()}
+        <div class="source-wrap">
+          <p class="source-label">What that declares</p>
+          <pre class="source" data-declaration></pre>
+        </div>
+      </form>
+      <div class="results">
+        <p class="tally" data-tally aria-live="polite">
+          The resolver runs in your browser. With scripting off this section
+          stays empty; nothing else on the page depends on it.
+        </p>
+        <div class="resolutions" data-resolutions></div>
+      </div>
+    </div>
+  </section>`;
 
 const page = `<title>Ceremony Auth Catalogue</title>
 <link
@@ -225,11 +365,16 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
       the product ships, from a snapshot the production schema accepted.
     </p>
     <p class="honesty">
-      <strong>What this is:</strong> the project's own scenario catalogue, and
-      specimens of the real screens. <strong>What it is not:</strong> a live
-      session. A published page makes no network requests, so no provider is
-      contacted here and no credential is handled. Live connections run in the
-      reference application against the connection server.
+      <strong>What this is:</strong> the project's own scenario catalogue,
+      specimens of the real screens, and a resolver that really runs.
+      <strong>What it is not:</strong> a live session. A published page makes no
+      network request at all, so no provider is contacted here and no credential
+      is handled — which is why nothing inside a specimen can be pressed. A
+      button wired to do nothing would be the dishonest option. Resolution needs
+      no provider, so <a href="#${resolverMountId}">the resolver below</a> is the real one,
+      compiled into this page and deciding against the real manifests as you
+      change the declaration. Live connections run in the reference application,
+      against the connection server.
     </p>
   </header>
 
@@ -241,11 +386,15 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
         integration will be able to do in the host's own words, and how many
         times the route will stop to ask a person. That last number is the one
         the resolver minimises, so a card cannot advertise a cost the chosen
-        route was not chosen for.
+        route was not chosen for. These three are specimens, so their buttons
+        do not respond — pressing Connect needs a provider, and this page
+        reaches none. The part that needs no provider is
+        <a href="#${resolverMountId}">directly below</a>, and it runs.
       </p>
     </div>
     <ol class="screens">${cards()}</ol>
   </section>
+${resolver}
 
   <section class="movement" aria-labelledby="flows-heading">
     <div class="movement-head">
@@ -276,7 +425,7 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
             <code>${escape(step)}</code>
             <span>${escape(stepNotes[step])}</span>
           </div>
-          <div class="screen">${screen("form", step)}</div>
+          ${frame(screen("form", step))}
         </li>`,
         )
         .join("")}
@@ -358,13 +507,22 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
         );
     });
 </script>
+
+<script type="application/json" id="${resolverPayloadId}">
+${JSON.stringify(galleryPayload()).replace(/</g, "\\u003c")}
+</script>
+<script src="resolver.js"></script>
 `;
 
 mkdirSync(fileURLToPath(out), { recursive: true });
 writeFileSync(fileURLToPath(new URL("index.html", out)), page);
+writeFileSync(fileURLToPath(new URL("resolver.js", out)), resolverSource);
 console.log(
   `Auth catalogue: ${entries.length} scenarios, ${flowKinds.length} flows, ${
     flowKinds.reduce((total, kind) => total + journeys[kind].length, 0) +
     walls.length
   } screens -> artifacts/gallery/index.html`,
+);
+console.log(
+  `Resolver: ${(resolverSource.length / 1024).toFixed(0)} kB -> artifacts/gallery/resolver.js`,
 );

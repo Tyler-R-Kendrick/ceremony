@@ -1,11 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { flowKinds, snapshotSchema } from "../src/core/schema.js";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import {
+  flowKinds,
+  manifestSchema,
+  snapshotSchema,
+} from "../src/core/schema.js";
+import { CeremonyView } from "../src/react/index.js";
+import { ConnectorCard } from "../src/react/connectors.js";
+import { createCeremonyClient } from "../src/core/client.js";
+import { manifests } from "../examples/manifests.js";
+import {
+  asSpecimen,
   carrierFor,
   catalogue,
+  everyManifest,
+  galleryPayload,
   journeys,
+  permissionChoices,
+  permissionScopesAreReal,
+  scopeVocabulary,
   specimen,
+  tabStops,
+  templateFor,
   walls,
 } from "../scripts/gallery-data.js";
 import { authScenarios } from "./doubles/auth-provider/scenarios.js";
@@ -104,4 +122,108 @@ test("the registration variants the catalogue documents are all published", () =
   // A variant nobody can act on is not a variant.
   for (const entry of registration)
     assert.ok(entry.provides.length, `${entry.id} asks for nothing`);
+});
+
+test("every scope the page offers is one a connector here really declares", () => {
+  // The labels are the host's copy and the page writes them. The scopes are
+  // not copy: a permission naming a scope no method grants would filter
+  // nothing, and the resolver demonstration would come out well because the
+  // question was rigged rather than because the policy works.
+  assert.ok(
+    permissionScopesAreReal(),
+    `offered scopes should all appear in ${JSON.stringify(scopeVocabulary())}`,
+  );
+  assert.ok(permissionChoices.length, "the page should offer some permission");
+});
+
+test("the resolver in the page runs against the manifests this project ships", () => {
+  const payload = galleryPayload();
+  assert.equal(payload.connectors.length, everyManifest.length);
+  // Keys, not ids: two connectors here are both `github`, and a page keyed on
+  // the id would silently show one of them twice.
+  assert.equal(
+    new Set(payload.connectors.map((entry) => entry.key)).size,
+    payload.connectors.length,
+  );
+  for (const entry of payload.connectors) {
+    // The browser re-parses what travels to it, so what travels has to survive
+    // the trip: JSON is the wire, and the production schema is the gate.
+    const shipped = manifestSchema.parse(
+      JSON.parse(JSON.stringify(entry.manifest)),
+    );
+    assert.deepEqual(shipped, entry.manifest);
+  }
+});
+
+test("every flow kind the page resolves to is one the page also shows", () => {
+  // The resolver can only choose a method some connector declares, and the
+  // catalogue shows a journey per flow kind. A kind reachable by resolution
+  // but absent from the journeys would be a route with nowhere to look it up.
+  const reachable = new Set(
+    everyManifest.flatMap((manifest) =>
+      manifest.methods.map((method) => method.kind),
+    ),
+  );
+  for (const kind of reachable)
+    assert.ok(journeys[kind]?.length, `${kind} resolves but has no journey`);
+});
+
+test("nothing inside a rendered specimen is left in the tab order", () => {
+  // The claim the page makes about itself, checked against what the real
+  // components actually render rather than against a hand-written sample. A
+  // control that kept its tab stop is a control somebody can reach, press, and
+  // watch do nothing.
+  const rendered = [
+    renderToString(
+      createElement(ConnectorCard, {
+        manifest: manifests[0]!,
+        status: "available",
+        onConnect: () => {},
+      }),
+    ),
+    ...flowKinds.flatMap((kind) =>
+      journeys[kind].map((step) => {
+        const { manifest } = carrierFor(kind);
+        return renderToString(
+          createElement(CeremonyView, {
+            model: {
+              snapshot: specimen(kind, step),
+              busy: false,
+              refreshing: false,
+              error: "",
+              manifest,
+              execute: async () => undefined,
+              // Constructing a client performs no I/O, so this is the real
+              // one the view would be handed rather than a shape resembling it.
+              client: createCeremonyClient({ manifest }),
+            },
+            autoFocus: false,
+            templates: [templateFor(kind)],
+          }),
+        );
+      }),
+    ),
+  ];
+  // A specimen with no control at all would pass the assertion below without
+  // exercising it.
+  assert.ok(
+    rendered.reduce((total, html) => total + tabStops(html), 0) > 10,
+    "the specimens should render controls worth neutralising",
+  );
+  for (const html of rendered)
+    assert.equal(tabStops(asSpecimen(html)), 0, html.slice(0, 200));
+});
+
+test("neutralising a specimen neither dims a control nor mangles an element", () => {
+  // `disabled` and `aria-disabled` both grey the control out, and a catalogue
+  // showing a greyed Connect is showing a button the product never renders.
+  const html = asSpecimen(
+    '<article data-ceremony-card=""><a href="/x">go</a><button type="button" class="primary">Connect</button></article>',
+  );
+  assert.ok(!html.includes("disabled"), html);
+  // `<article` starts with an `a`, and a neutraliser that rewrote it would
+  // produce an element no browser has heard of.
+  assert.ok(html.includes('<article data-ceremony-card=""'), html);
+  assert.equal(tabStops(html), 0);
+  assert.equal((html.match(/tabindex="-1"/g) ?? []).length, 2);
 });
