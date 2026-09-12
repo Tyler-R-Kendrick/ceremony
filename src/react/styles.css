@@ -144,6 +144,21 @@
   text-align: start;
 }
 
+/* A route the declared intent rules out. Shown, not hidden: a reader learns
+ * more from a service that says it cannot be used here than from one that
+ * quietly disappears, and far more than from a button that fails when pressed. */
+:where([data-ceremony-card][data-status="unavailable"]) {
+  border-style: dashed;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-ceremony-card] .connector-blocked) {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--_ceremony-muted);
+  text-wrap: pretty;
+}
+
 :where([data-ceremony-card][data-status="connected"]) {
   border-color: color-mix(
     in srgb,
@@ -534,6 +549,19 @@
 :where([data-ceremony] input::placeholder) {
   color: var(--_ceremony-muted);
   opacity: 1;
+}
+
+/* What the integration will be able to do, in the host's words. Listed rather
+ * than chipped: this is the thing a person should actually read before they
+ * approve anything, so it gets the room to be read. */
+:where([data-ceremony] .intent-permissions) {
+  margin: 0;
+  padding-inline-start: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--_ceremony-fg);
 }
 
 :where([data-ceremony] .method-picker) {

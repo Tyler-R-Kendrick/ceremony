@@ -1,54 +1,62 @@
 "use client";
-import type { CSSProperties, ReactNode } from "react";
-import type { AuthMethod, ConnectorManifest } from "../core/schema.js";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
+import type { ConnectorManifest } from "../core/schema.js";
+import {
+  humanHandoffs,
+  resolveConnection,
+  type ConnectionRoute,
+  type EntryContext,
+  type ResolvedConnection,
+} from "../core/resolution.js";
 
 /**
  * The kickoff surface: one card per service, before any ceremony starts.
  *
- * A card answers three questions in the order somebody actually asks them —
- * what is this, how would I connect, and what will it cost me. The third is the
- * one a list of logos never answers, and it is the only thing on the card that
- * this project knows and a directory of integrations does not.
+ * A card answers the three questions somebody actually asks — what is this,
+ * what will it be able to do, and what will it cost me. It never asks a fourth
+ * one. "OAuth · PKCE or device code?" is a question about a protocol, and the
+ * person reading the card is trying to connect a service; the host already
+ * declared everything needed to answer it, so the route is resolved here and
+ * described in terms of what is about to happen to them.
  *
- * Nothing here fetches, stores or decides. A card renders a manifest and calls
- * `onConnect`; the host owns what happens next.
+ * Nothing here fetches, stores or decides. A card renders a manifest against a
+ * declared intent and calls `onConnect`; the host owns what happens next.
  */
 
 export type ConnectorStatus = "available" | "connected" | "attention";
 
-/** How many points a route hands off to a person, as its contract declares. */
-export function declaredHandoffs(method: AuthMethod): number {
-  // The schema requires a handoff on the method and on every prerequisite, so
-  // this counts what is written down rather than estimating from the kind.
-  return method.contract ? 1 + method.contract.prerequisites.length : 1;
-}
+export {
+  declaredHandoffs,
+  humanHandoffs,
+  routeFor,
+  startsWithoutAPerson,
+} from "../core/resolution.js";
 
 /**
- * Anonymous access is reachable without anyone being asked for anything.
+ * The route for this manifest under this intent, or nothing when the intent
+ * rules every route out.
  *
- * Completion decides this, not the kind. The manifest schema already refuses
- * non-authenticated completion on every kind except authmd-anonymous, so the
- * kind alone adds nothing — and it would be wrong in the one case it differs,
- * calling an authmd-anonymous method that completes authenticated free when it
- * is not. The kind is the fallback only for a manifest carrying no contract.
+ * A card must render either way: a service the host cannot currently use is
+ * worth showing as unavailable, and is much worse as a button that fails after
+ * it is pressed.
  */
-export function startsWithoutAPerson(method: AuthMethod): boolean {
-  return method.contract
-    ? method.contract.completion.ownership.includes("anonymous")
-    : method.kind === "authmd-anonymous";
+export function resolveQuietly(
+  manifest: ConnectorManifest,
+  intent?: EntryContext,
+): ResolvedConnection | undefined {
+  try {
+    return resolveConnection(manifest, intent ?? {});
+  } catch {
+    return undefined;
+  }
 }
 
-/**
- * The route a person would pick: fewest interruptions, then fewest fields.
- * Same rule `preferredPath` applies to a discovered plan, for the same reason.
- */
-export function cheapestMethod(manifest: ConnectorManifest): AuthMethod {
-  return [...manifest.methods].sort(
-    (a, b) =>
-      declaredHandoffs(a) - declaredHandoffs(b) ||
-      a.fields.length - b.fields.length,
-  )[0]!;
-}
+const routeLabels: Record<ConnectionRoute, string> = {
+  "provider-approval": "Approve at the provider",
+  "second-device": "Code on another device",
+  "supplied-credential": "Credential you hold",
+  "no-account": "No account needed",
+};
 
 function initials(name: string): string {
   const words = name.split(/[\s-]+/).filter(Boolean);
@@ -88,7 +96,9 @@ export interface HandoffMeterProps {
 
 /**
  * The meter is the one loud thing on an otherwise quiet card, because it is the
- * fact that decides whether somebody starts this now or later.
+ * fact that decides whether somebody starts this now or later. It is also the
+ * number the resolver minimises, so the card cannot advertise a cost that the
+ * route was not chosen for.
  */
 export function HandoffMeter({ count, of = 3 }: HandoffMeterProps) {
   const total = Math.max(of, count);
@@ -142,6 +152,12 @@ export function StatusChip({
 
 export interface ConnectorCardProps {
   manifest: ConnectorManifest;
+  /**
+   * What this integration needs: the permissions it will use, whose account it
+   * is for, how much attention it may spend, and which app keys the host holds.
+   * The route follows from it. Nobody is asked to choose one.
+   */
+  intent?: EntryContext;
   status?: ConnectorStatus;
   logo?: ReactNode;
   tint?: string;
@@ -153,6 +169,7 @@ export interface ConnectorCardProps {
 
 export function ConnectorCard({
   manifest,
+  intent,
   status = "available",
   logo,
   tint,
@@ -160,11 +177,16 @@ export function ConnectorCard({
   actionLabel,
   onConnect,
 }: ConnectorCardProps) {
-  const route = cheapestMethod(manifest);
-  const cost = declaredHandoffs(route);
-  const anonymous = startsWithoutAPerson(route);
+  const resolved = useMemo(
+    () => resolveQuietly(manifest, intent),
+    [manifest, intent],
+  );
+  const permissions = resolved?.permissions ?? [];
   return (
-    <article data-ceremony-card="" data-status={status}>
+    <article
+      data-ceremony-card=""
+      data-status={resolved ? status : "unavailable"}
+    >
       <ProviderMark
         name={manifest.name}
         {...(logo ? { logo } : {})}
@@ -174,29 +196,47 @@ export function ConnectorCard({
         <h3 className="connector-name">{manifest.name}</h3>
         <StatusChip status={status} />
       </div>
-      <p className="connector-summary">{manifest.description}</p>
+      <p className="connector-summary">
+        {resolved
+          ? manifest.description
+          : "Not available for this integration."}
+      </p>
       <div className="connector-foot">
-        <ul
-          className="connector-methods"
-          aria-label={`${manifest.name} methods`}
-        >
-          {manifest.methods.slice(0, 3).map((method) => (
-            <li key={method.id}>
-              <span className="chip">{method.label}</span>
-            </li>
-          ))}
-          {manifest.methods.length > 3 && (
-            <li>
-              <span className="chip">+{manifest.methods.length - 3}</span>
-            </li>
-          )}
-        </ul>
+        {resolved ? (
+          <ul
+            className="connector-methods"
+            aria-label={`What ${manifest.name} will be able to do`}
+          >
+            {permissions.length ? (
+              <>
+                {permissions.slice(0, 3).map((permission) => (
+                  <li key={permission}>
+                    <span className="chip">{permission}</span>
+                  </li>
+                ))}
+                {permissions.length > 3 && (
+                  <li>
+                    <span className="chip">+{permissions.length - 3}</span>
+                  </li>
+                )}
+              </>
+            ) : (
+              <li>
+                <span className="chip">{routeLabels[resolved.route]}</span>
+              </li>
+            )}
+          </ul>
+        ) : (
+          <p className="connector-blocked">
+            No route satisfies what this integration asks for.
+          </p>
+        )}
         <div className="connector-foot-end">
-          <HandoffMeter count={anonymous ? 0 : cost} />
+          <HandoffMeter count={resolved?.handoffs ?? 0} />
           <button
             type="button"
             className="primary"
-            disabled={busy}
+            disabled={busy || !resolved}
             onClick={() => onConnect(manifest)}
           >
             {busy
@@ -212,6 +252,8 @@ export function ConnectorCard({
 
 export interface ConnectorGridProps {
   manifests: readonly ConnectorManifest[];
+  /** Applied to every card; a connector needing its own is given one by `present`. */
+  intent?: EntryContext;
   /** Per-connector presentation the manifest deliberately does not carry. */
   present?(manifest: ConnectorManifest): {
     status?: ConnectorStatus;
@@ -219,6 +261,7 @@ export interface ConnectorGridProps {
     tint?: string;
     busy?: boolean;
     actionLabel?: string;
+    intent?: EntryContext;
   };
   onConnect(manifest: ConnectorManifest): void;
   "aria-label"?: string;
@@ -226,6 +269,7 @@ export interface ConnectorGridProps {
 
 export function ConnectorGrid({
   manifests,
+  intent,
   present,
   onConnect,
   ...rest
@@ -241,10 +285,28 @@ export function ConnectorGrid({
           <ConnectorCard
             manifest={manifest}
             onConnect={onConnect}
+            {...(intent ? { intent } : {})}
             {...(present?.(manifest) ?? {})}
           />
         </div>
       ))}
     </div>
   );
+}
+
+/** The route a person would get, without rendering anything. Useful for copy. */
+export function routeOf(
+  manifest: ConnectorManifest,
+  intent?: EntryContext,
+): ConnectionRoute | undefined {
+  return resolveQuietly(manifest, intent)?.route;
+}
+
+/** Interruptions the resolved route costs, or zero when nothing is available. */
+export function costOf(
+  manifest: ConnectorManifest,
+  intent?: EntryContext,
+): number {
+  const resolved = resolveQuietly(manifest, intent);
+  return resolved ? humanHandoffs(resolved.method) : 0;
 }

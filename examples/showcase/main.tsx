@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ConnectorManifest } from "../../src/core/index.js";
+import type { EntryContext } from "../../src/core/resolution.js";
 import {
   Ceremony,
   CeremonyView,
@@ -63,6 +64,46 @@ const statuses: Record<string, ConnectorStatus> = {
   jira: "attention",
 };
 
+/**
+ * What a host declares it needs. Everything a person is shown follows from it,
+ * and nothing in it names a protocol — because the question "PKCE or device
+ * code?" is one no person has ever wanted to answer.
+ */
+const declarations = {
+  assistant: {
+    label: "Coding assistant",
+    hint: "Acts as the person, and may interrupt them as often as it takes.",
+    intent: {
+      permissions: [
+        { label: "Read your repositories", scopes: ["read:user"] },
+        { label: "Open pull requests for you", scopes: ["read:user"] },
+      ],
+      identity: "personal",
+    },
+  },
+  kiosk: {
+    label: "Unattended job",
+    hint: "Nobody is watching, so nothing may stop and ask.",
+    intent: {
+      permissions: [{ label: "Read public data", scopes: ["read:user"] }],
+      interruptions: "none",
+    },
+  },
+  onboarding: {
+    label: "First-run setup",
+    hint: "One stop at most: a new user who is still deciding.",
+    intent: {
+      permissions: [{ label: "Set up your workspace", scopes: ["read:user"] }],
+      interruptions: "at-most-one",
+    },
+  },
+} as const satisfies Record<
+  string,
+  { label: string; hint: string; intent: EntryContext }
+>;
+
+type DeclarationName = keyof typeof declarations;
+
 function ProviderQueue({
   waiting,
   provider,
@@ -101,10 +142,12 @@ function ProviderQueue({
 function ConnectFlow({
   manifest,
   transport,
+  intent,
   onClose,
 }: {
   manifest: ConnectorManifest;
   transport: ReturnType<typeof createShowcaseTransport>["transport"];
+  intent: EntryContext;
   onClose(): void;
 }) {
   const [opened, setOpened] = useState("");
@@ -113,6 +156,7 @@ function ConnectFlow({
       <Ceremony
         manifest={manifest}
         transport={transport}
+        context={intent}
         navigate={(url) => setOpened(url)}
       >
         {(model) => <CeremonyView model={model} />}
@@ -136,6 +180,8 @@ function App() {
     createShowcaseTransport(manifests, setWaiting),
   );
   const [theme, setTheme] = useState<ThemeName>("default");
+  const [declaration, setDeclaration] = useState<DeclarationName>("assistant");
+  const intent = declarations[declaration].intent as EntryContext;
   const [chosen, setChosen] = useState<ConnectorManifest>();
   const [chatChosen, setChatChosen] = useState(false);
   const github = manifests.find((entry) => entry.id === "github")!;
@@ -156,6 +202,27 @@ function App() {
             declares what the route will cost in human attention before anyone
             commits to it — the one thing a directory of logos never tells you.
           </p>
+        </div>
+        <div
+          className="theme-picker"
+          role="group"
+          aria-label="What the integration needs"
+        >
+          <span className="eyebrow">What the integration needs</span>
+          <div>
+            {(Object.keys(declarations) as DeclarationName[]).map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={name === declaration}
+                className={name === declaration ? "active" : ""}
+                onClick={() => setDeclaration(name)}
+              >
+                {declarations[name].label}
+              </button>
+            ))}
+          </div>
+          <p className="hint">{declarations[declaration].hint}</p>
         </div>
         <div className="theme-picker" role="group" aria-label="Host theme">
           <span className="eyebrow">Host theme</span>
@@ -191,6 +258,7 @@ function App() {
               <ConnectFlow
                 manifest={chosen}
                 transport={transport}
+                intent={intent}
                 onClose={() => setChosen(undefined)}
               />
             ) : (
@@ -208,6 +276,7 @@ function App() {
                 </div>
                 <ConnectorGrid
                   manifests={manifests}
+                  intent={intent}
                   present={present}
                   onConnect={setChosen}
                 />
@@ -236,6 +305,7 @@ function App() {
                   <ConnectFlow
                     manifest={github}
                     transport={transport}
+                    intent={intent}
                     onClose={() => setChatChosen(false)}
                   />
                 </div>
@@ -243,6 +313,7 @@ function App() {
                 <div className="chat-embed">
                   <ConnectorCard
                     manifest={github}
+                    intent={intent}
                     tint={tints.github!}
                     onConnect={() => setChatChosen(true)}
                   />
@@ -258,7 +329,16 @@ function App() {
         </section>
       </div>
 
-      <section className="legend" aria-label="Reading a card">
+      <section className="legend" aria-label="How a route is chosen">
+        <h2>Nobody picks a protocol</h2>
+        <p className="lede">
+          The declaration above is the whole input: what the integration must be
+          able to do, whose account it is for, and how much of somebody's
+          attention it may spend. The route follows from it — approve at the
+          provider, a code on another device, a credential you already hold, or
+          nothing at all — and the same resolver answers for the component and
+          for the assistant, because both read the same declaration.
+        </p>
         <h2>What the meter means</h2>
         <div className="legend-rows">
           <div>

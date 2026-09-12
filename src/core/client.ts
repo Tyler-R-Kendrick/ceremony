@@ -445,6 +445,14 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
   }
   return {
     manifest,
+    /** What the host declared it needs. The view describes the route from it. */
+    context,
+    /**
+     * Manual selection exists for authoring and gallery surfaces, which are
+     * looking at methods on purpose. A connecting person is not, so the default
+     * resolves a route instead of offering a list of protocols.
+     */
+    selection: options.selection ?? "automatic",
     getState: () => state,
     getServerState: () => initial,
     subscribe(listener: () => void) {

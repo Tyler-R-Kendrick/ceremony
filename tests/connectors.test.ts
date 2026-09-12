@@ -5,14 +5,12 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { manifestSchema, type ConnectorManifest } from "../src/core/index.js";
+import type { EntryContext } from "../src/core/resolution.js";
 import {
-  cheapestMethod,
   ConnectorCard,
   ConnectorGrid,
-  declaredHandoffs,
   HandoffMeter,
   ProviderMark,
-  startsWithoutAPerson,
   StatusChip,
 } from "../src/react/connectors.js";
 import { manifests } from "../examples/manifests.js";
@@ -64,6 +62,7 @@ function build(
     fields?: number;
     prerequisites?: number;
     anonymous?: boolean;
+    scopes?: string[];
     contract?: boolean;
   }>,
 ): ConnectorManifest {
@@ -78,7 +77,7 @@ function build(
         label: `Method ${method.id}`,
         kind: method.kind,
         templateId: method.kind,
-        scopes: ["read"],
+        scopes: method.scopes ?? ["read"],
         fields: fieldsFor(method.kind, method.fields ?? 1),
         ...(method.contract === false
           ? {}
@@ -118,51 +117,17 @@ function build(
 const render = (element: Parameters<typeof renderToString>[0]) =>
   renderToString(element).replaceAll("<!-- -->", "");
 
-test("a handoff count is read from the contract, not guessed from the kind", () => {
-  const manifest = build([
-    { id: "plain", kind: "oauth-code" },
-    { id: "staged", kind: "oauth-code", prerequisites: 2 },
-    { id: "bare", kind: "device", contract: false },
-  ]);
-  const [plain, staged, bare] = manifest.methods;
-  // The schema requires a handoff on the method and one on each prerequisite.
-  assert.equal(declaredHandoffs(plain!), 1);
-  assert.equal(declaredHandoffs(staged!), 3);
-  // No contract to read: one handoff is the floor, never zero.
-  assert.equal(declaredHandoffs(bare!), 1);
-});
-
-test("anonymous access is the only route that starts without anyone", () => {
-  // Only authmd-anonymous may declare non-authenticated completion, and even
-  // it may decline to — which is why completion decides rather than the kind.
-  const manifest = build([
-    { id: "anon", kind: "authmd-anonymous", anonymous: true },
-    { id: "named", kind: "authmd-anonymous" },
-    { id: "normal", kind: "device" },
-    { id: "contractless", kind: "authmd-anonymous", contract: false },
-  ]);
-  const [anon, named, normal, contractless] = manifest.methods;
-  assert.equal(startsWithoutAPerson(anon!), true);
-  assert.equal(startsWithoutAPerson(named!), false);
-  assert.equal(startsWithoutAPerson(normal!), false);
-  assert.equal(startsWithoutAPerson(contractless!), true);
-});
-
-test("the route shown is the cheapest: fewest handoffs, then fewest fields", () => {
-  const manifest = build([
-    { id: "expensive", kind: "oauth-code", prerequisites: 2 },
-    { id: "wordy", kind: "form", fields: 4 },
-    { id: "brief", kind: "form", fields: 1 },
-  ]);
-  assert.equal(cheapestMethod(manifest).id, "brief");
-});
+const card = (
+  manifest: ConnectorManifest,
+  props: Record<string, unknown> = {},
+) =>
+  render(
+    createElement(ConnectorCard, { manifest, onConnect: () => {}, ...props }),
+  );
 
 test("a card names the service, its status and what the route will cost", () => {
-  const manifest = build([
-    { id: "only", kind: "oauth-code", prerequisites: 1 },
-  ]);
-  const html = render(
-    createElement(ConnectorCard, { manifest, onConnect: () => {} }),
+  const html = card(
+    build([{ id: "only", kind: "oauth-code", prerequisites: 1 }]),
   );
   assert.match(html, /Fixture Co/);
   assert.match(html, /Not connected/);
@@ -170,59 +135,101 @@ test("a card names the service, its status and what the route will cost", () => 
   assert.match(html, /Connect/);
 });
 
-test("a connected card offers management rather than another connection", () => {
-  const manifest = build([{ id: "only", kind: "device" }]);
-  const html = render(
-    createElement(ConnectorCard, {
-      manifest,
-      status: "connected",
-      onConnect: () => {},
-    }),
+test("a card never names the mechanism it resolved to", () => {
+  // The manifest's own method labels are "Method oauth" and so on; a card that
+  // leaked them would be asking a person to choose between protocols again.
+  for (const kind of ["oauth-code", "device", "api-key"]) {
+    const html = card(build([{ id: "only", kind }]));
+    assert.doesNotMatch(html, /Method only/);
+    for (const word of ["PKCE", "OAuth", "API key", "Device approval"])
+      assert.doesNotMatch(html, new RegExp(word, "i"));
+  }
+});
+
+test("with nothing declared, a card says what will happen rather than nothing", () => {
+  assert.match(
+    card(build([{ id: "only", kind: "oauth-code" }])),
+    /Approve at the provider/,
   );
+  assert.match(
+    card(build([{ id: "only", kind: "device" }])),
+    /Code on another device/,
+  );
+  assert.match(
+    card(build([{ id: "only", kind: "api-key" }])),
+    /Credential you hold/,
+  );
+  assert.match(
+    card(build([{ id: "only", kind: "authmd-anonymous", anonymous: true }])),
+    /No account needed/,
+  );
+});
+
+test("a declared permission is what the card shows, in the host's words", () => {
+  const intent: EntryContext = {
+    permissions: [{ label: "Open pull requests for you", scopes: ["repo"] }],
+  };
+  const html = card(
+    build([{ id: "only", kind: "oauth-code", scopes: ["repo"] }]),
+    {
+      intent,
+    },
+  );
+  assert.match(html, /Open pull requests for you/);
+  assert.match(html, /What Fixture Co will be able to do/);
+  // The route label is the fallback for a host that declared nothing, not an
+  // extra chip competing with what the host actually said.
+  assert.doesNotMatch(html, /Approve at the provider/);
+});
+
+test("more permissions than fit are counted rather than dropped", () => {
+  const html = card(build([{ id: "only", kind: "oauth-code" }]), {
+    intent: {
+      permissions: [
+        { label: "Read your profile" },
+        { label: "List your repositories" },
+        { label: "Open pull requests" },
+        { label: "Read your teams" },
+        { label: "Write checks" },
+      ],
+    } satisfies EntryContext,
+  });
+  assert.match(html, /\+2/);
+});
+
+test("a connector no declared intent can use is shown as unusable, not offered", () => {
+  const html = card(
+    build([{ id: "only", kind: "oauth-code", scopes: ["read"] }]),
+    { intent: { requiredScopes: ["admin"] } satisfies EntryContext },
+  );
+  assert.match(html, /Not available for this integration/);
+  assert.match(html, /No route satisfies/);
+  assert.match(html, /data-status="unavailable"/);
+  assert.match(html, /disabled/);
+});
+
+test("a connected card offers management rather than another connection", () => {
+  const html = card(build([{ id: "only", kind: "device" }]), {
+    status: "connected",
+  });
   assert.match(html, /Connected/);
   assert.match(html, /Manage/);
   assert.doesNotMatch(html, /Not connected/);
 });
 
 test("a card needing attention says so, and a caller may name the action", () => {
-  const manifest = build([{ id: "only", kind: "device" }]);
-  const html = render(
-    createElement(ConnectorCard, {
-      manifest,
-      status: "attention",
-      actionLabel: "Reconnect",
-      onConnect: () => {},
-    }),
-  );
+  const html = card(build([{ id: "only", kind: "device" }]), {
+    status: "attention",
+    actionLabel: "Reconnect",
+  });
   assert.match(html, /Needs attention/);
   assert.match(html, /Reconnect/);
 });
 
 test("a busy card cannot be started twice", () => {
-  const manifest = build([{ id: "only", kind: "device" }]);
-  const html = render(
-    createElement(ConnectorCard, {
-      manifest,
-      busy: true,
-      onConnect: () => {},
-    }),
-  );
+  const html = card(build([{ id: "only", kind: "device" }]), { busy: true });
   assert.match(html, /Opening/);
   assert.match(html, /disabled/);
-});
-
-test("more methods than fit are counted rather than dropped", () => {
-  const manifest = build([
-    { id: "a", kind: "device" },
-    { id: "b", kind: "oauth-code" },
-    { id: "c", kind: "form" },
-    { id: "d", kind: "basic" },
-    { id: "e", kind: "api-key" },
-  ]);
-  const html = render(
-    createElement(ConnectorCard, { manifest, onConnect: () => {} }),
-  );
-  assert.match(html, /\+2/);
 });
 
 test("a route that interrupts nobody says so instead of showing a count", () => {
@@ -271,11 +278,12 @@ test("a status chip can be relabelled without losing its tone", () => {
   );
 });
 
-test("a grid renders every manifest and applies per-connector presentation", () => {
+test("a grid applies one intent to every card and per-connector presentation", () => {
   const html = render(
     createElement(ConnectorGrid, {
       manifests,
       onConnect: () => {},
+      intent: { permissions: [{ label: "Act on your behalf" }] },
       present: (manifest) =>
         manifest.id === "stripe" ? { status: "connected" } : {},
     }),
@@ -284,6 +292,27 @@ test("a grid renders every manifest and applies per-connector presentation", () 
     assert.match(html, new RegExp(manifest.name));
   assert.match(html, /Connected/);
   assert.match(html, /aria-label="Available connections"/);
+  // One declaration reached every card.
+  assert.equal(
+    (html.match(/Act on your behalf/g) ?? []).length,
+    manifests.length,
+  );
+});
+
+test("a card may override the grid's intent for one connector", () => {
+  const html = render(
+    createElement(ConnectorGrid, {
+      manifests,
+      onConnect: () => {},
+      intent: { permissions: [{ label: "Shared" }] },
+      present: (manifest) =>
+        manifest.id === "stripe"
+          ? { intent: { permissions: [{ label: "Charge cards" }] } }
+          : {},
+    }),
+  );
+  assert.match(html, /Charge cards/);
+  assert.equal((html.match(/Shared/g) ?? []).length, manifests.length - 1);
 });
 
 test("choosing a connector hands the whole manifest back to the host", async () => {
