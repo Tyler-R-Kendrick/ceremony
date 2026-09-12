@@ -1,6 +1,5 @@
 import {
-  snapshotDocument,
-  snapshotSelectors,
+  snapshotPageSource,
   type PageSnapshot,
   type SnapshotElement,
 } from "../core/browser-contracts.js";
@@ -30,22 +29,6 @@ export interface PlaywrightPageLike {
 
 const indexAttribute = "data-ceremony-index";
 
-/**
- * Snapshot source evaluated inside the page. The shared traversal is shipped in
- * as text so a real browser and a parsed document in Node produce identical
- * snapshots, and each captured element is stamped with its index so a later
- * action addresses exactly the element the interpreter saw.
- */
-function snapshotSource(): string {
-  return `(() => {
-    for (const stale of document.querySelectorAll('[${indexAttribute}]'))
-      stale.removeAttribute('${indexAttribute}');
-    const snapshot = ${snapshotDocument.toString()};
-    return snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) =>
-      element.setAttribute('${indexAttribute}', String(index)));
-  })()`;
-}
-
 function selectorFor(element: SnapshotElement): string {
   return `[${indexAttribute}="${element.index}"]`;
 }
@@ -66,7 +49,7 @@ export function createPlaywrightCeremonyPage(
       await page.goto(target, { waitUntil: "domcontentloaded" });
     },
     snapshot: async () =>
-      (await page.evaluate(snapshotSource())) as PageSnapshot,
+      (await page.evaluate(snapshotPageSource(indexAttribute))) as PageSnapshot,
     fill: async (element, value) => {
       if (element.kind === "select")
         await page.selectOption(selectorFor(element), value);

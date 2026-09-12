@@ -322,3 +322,25 @@ export const snapshotSelectors = {
   challenge: challengeSelector,
   passkey: passkeySelector,
 } as const;
+
+/**
+ * Source that evaluates {@link snapshotDocument} inside a live page and stamps
+ * each captured element with its index, so a later action addresses exactly the
+ * element the interpreter saw.
+ *
+ * The function is shipped as text, which means it arrives compiled. A compiler
+ * that preserves function names — esbuild's `keepNames`, which tsx turns on —
+ * emits calls to a `__name` helper that exists in the bundle but not in the
+ * page, so the shim is supplied alongside it. Without that, whether the
+ * snapshot works at all depends on which tool compiled the caller.
+ */
+export function snapshotPageSource(indexAttribute: string): string {
+  return `(() => {
+    const __name = (value) => value;
+    for (const stale of document.querySelectorAll('[${indexAttribute}]'))
+      stale.removeAttribute('${indexAttribute}');
+    const snapshot = ${snapshotDocument.toString()};
+    return snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) =>
+      element.setAttribute('${indexAttribute}', String(index)));
+  })()`;
+}
