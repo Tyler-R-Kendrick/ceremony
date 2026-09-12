@@ -76,10 +76,19 @@ for (const scenario of runnable) {
       `${JSON.stringify(
         {
           scenario: scenario.id,
+          title: scenario.title,
           flowKind: scenario.flowKind,
           family: scenario.family,
           expected: scenario.expect,
           status: result.status,
+          // The reason and the callback are both asserted below, so the
+          // evidence has to carry them: a file that says only "blocked"
+          // cannot be read back to see whether it blocked for the right
+          // reason.
+          ...(result.status === "blocked" ? { reason: result.reason } : {}),
+          ...(result.status === "completed" && result.callback
+            ? { callback: true }
+            : {}),
           steps: result.steps,
           handoffs: result.handoffs,
           transcript: result.transcript,

@@ -45,6 +45,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:flows
+      # Built even when a flow fails: a reviewer wants the page most when
+      # something did not do what the catalog says it does.
+      - run: npm run flows:gallery
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with:
