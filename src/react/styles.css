@@ -507,7 +507,7 @@
 :where([data-ceremony] input, [data-ceremony] select) {
   font: inherit;
   font-size: 0.9375rem;
-  min-block-size: 2.625rem;
+  min-block-size: 2.75rem;
   min-inline-size: 0;
   inline-size: 100%;
   max-inline-size: 100%;
@@ -556,9 +556,10 @@
   align-items: center;
   justify-content: center;
   gap: 0.4375rem;
-  min-block-size: 2.375rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
   max-inline-size: 100%;
-  padding: 0.5rem 0.875rem;
+  padding: 0.5rem 1rem;
   font: inherit;
   font-size: 0.875rem;
   font-weight: 550;
