@@ -28,6 +28,28 @@ jobs:
             artifacts/bundle/size.json
             artifacts/browser/results.json
             artifacts/workflow/results.json
+  flows:
+    # Every auth scenario driven through a real browser by the agent-browser
+    # CLI, recorded. The recordings and console logs are of our own doubles,
+    # so nothing provider-owned is retained and the deterministic verification
+    # policy is unchanged. Evidence uploads even when a flow fails, which is
+    # the point of running it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:flows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auth-flows
+          path: artifacts/flows/
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
