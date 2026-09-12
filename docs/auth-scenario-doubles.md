@@ -98,11 +98,37 @@ Every scenario additionally asserts the invariants, so they hold across the whol
 - **A step needing a person never reaches the interpreter.** Not the challenge, not the passkey prompt, not the dialog. Asserted directly, so an interpreter that happens to recognise one cannot be what saves the run.
 - **Roles are a capability, not a suggestion.** An action naming a role the caller never supplied is discarded before any resolution is attempted.
 
+## A third runner, for evidence
+
+`npm run test:flows` drives the same catalog through a real browser using
+[Vercel's `agent-browser` CLI](https://github.com/vercel-labs/agent-browser), and
+records it. Each scenario leaves `artifacts/flows/<id>/` containing the ceremony
+as video, a value-free transcript, and the page's console and error logs, so a
+broken auth flow leaves something a person can watch instead of a status word.
+Evidence is written before the assertion, so a failing flow keeps its recording.
+CI runs it as its own job and uploads the directory whether or not it passed.
+
+Capturing any of this is only safe because **these pages are ours**. Recording a
+live provider would retain exactly what verification is forbidden to keep, so
+this runner is never pointed at one. Two further consequences are worth stating:
+the CLI takes values as process arguments, which are visible in the process list
+while a command runs, and the doubles are seeded with synthetic values — another
+reason real credentials stay out of it.
+
+The snapshot still comes from the shared `snapshotDocument`, shipped into the
+page with `eval`, so a contract proved here means what it means in the other two
+runners. Driving a third engine immediately found two defects the first two had
+not: a helper the compiler emits into the shipped snapshot source (which had
+made the Playwright adapter depend on which tool compiled its caller), and a
+date control that silently refuses a typed value, which the driver correctly
+reported as a stall rather than a completed ceremony.
+
 ## Running them
 
 ```sh
 npm run test:scenarios     # the Node suite: catalog, invariants and driver boundaries
 npm run test:e2e           # includes the same catalog through a real Chromium
+npm run test:flows         # the same catalog again, recorded, via agent-browser
 ```
 
 Both run under `npm run verify`. The Node suite is discovered by `npm test` and by `npm run test:pact`.
