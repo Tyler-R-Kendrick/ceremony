@@ -66,6 +66,19 @@ export type ProviderBehavior = {
   openidConnect?: boolean;
   /** Accept RFC 7591 dynamic client registration before authorization. */
   dynamicRegistration?: boolean;
+  /**
+   * Honour `requested_actor` and `actor_token` as
+   * draft-oauth-ai-agents-on-behalf-of-user-02 describes them: the consent
+   * screen names the agent as well as the client, the token request must
+   * authenticate that agent, and the issued access token carries `act`.
+   */
+  delegation?: boolean;
+  /**
+   * Actor identifiers this authorization server understands. The draft
+   * requires the identifier be understood, so an unlisted one is refused
+   * rather than silently accepted.
+   */
+  knownActors?: readonly string[];
   clientId?: string;
   redirectUri?: string;
 };
@@ -93,6 +106,8 @@ export type ProviderDouble = {
     scope?: string;
     clientId?: string;
     resource?: string;
+    /** Agent to request delegated access for (`requested_actor`). */
+    actor?: string;
   }): {
     url: string;
     verifier: string;
@@ -112,7 +127,20 @@ export type ProviderDouble = {
   exchange(
     code: string,
     verifier: string,
+    options?: { actorToken?: string },
   ): Promise<{ status: number; body: Record<string, unknown> }>;
+  /**
+   * Mint a token authenticating an agent, as the agent's own issuer would.
+   * Pass `issuer: "wrong"` to get one this authorization server will refuse.
+   */
+  actorToken(
+    actor: string,
+    options?: { issuer?: "agent" | "wrong" },
+  ): Promise<string>;
+  /** Read an issued access token the way a resource server would. */
+  readAccessToken(
+    token: string,
+  ): Promise<{ sub: string; act?: { sub: string } } | undefined>;
   /** Provider-side proof that a session exists for this account. */
   verifyAccess(email: string): Promise<boolean>;
   /** Access tokens the provider displayed. Never something an agent may hold. */
@@ -145,6 +173,8 @@ type AuthorizationRequest = {
   scope: string;
   nonce: string;
   resource: string;
+  /** The agent the user is being asked to delegate to, or "". */
+  actor: string;
 };
 
 function cookies(request: IncomingMessage): Record<string, string> {
@@ -191,6 +221,7 @@ export async function startAuthProvider(
       nonce: string;
       resource: string;
       clientId: string;
+      actor: string;
     }
   >();
   const devices = new Map<string, { approved: boolean; email?: string }>();
@@ -201,6 +232,8 @@ export async function startAuthProvider(
   const assertions = new Set<string>();
   const basicAccounts = new Set<string>();
   const idTokenKey = randomBytes(32);
+  const actorKey = randomBytes(32);
+  const knownActors = new Set(behavior.knownActors ?? []);
   let closed = false;
   const clients = new Map<string, string>();
   const tokens = new Map<string, string>();
@@ -223,6 +256,25 @@ export async function startAuthProvider(
   const sessionOf = (request: IncomingMessage) => {
     const id = cookies(request)["sid"];
     return id ? sessions.get(id) : undefined;
+  };
+  /**
+   * The agent's own issuer, kept separate from the authorization server so an
+   * actor token is a real second credential rather than a restatement of the
+   * first. Returns the agent it authenticates, or nothing.
+   */
+  const actorIssuer = `${origin}/agent-issuer`;
+  const actorSubject = async (token: string): Promise<string | undefined> => {
+    if (!token) return undefined;
+    try {
+      const { payload } = await jwtVerify(token, actorKey, {
+        issuer: actorIssuer,
+        audience: origin,
+      });
+      const subject = String(payload.sub ?? "");
+      return subject || undefined;
+    } catch {
+      return undefined;
+    }
   };
 
   const deliver = (to: string, code: string, token: string) => {
@@ -642,6 +694,17 @@ export async function startAuthProvider(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
       if (blocked("consent")) return challengePage();
+      const actor = url.searchParams.get("requested_actor") ?? "";
+      // The draft requires the identifier be one the server understands. An
+      // unrecognised agent is refused at the redirect, so the client learns the
+      // delegation was rejected rather than silently receiving a plain grant.
+      if (behavior.delegation && actor && !knownActors.has(actor)) {
+        const refusal = new URL(url.searchParams.get("redirect_uri") ?? origin);
+        refusal.searchParams.set("error", "invalid_request");
+        const sent = url.searchParams.get("state");
+        if (sent) refusal.searchParams.set("state", sent);
+        return redirect(refusal.href);
+      }
       const requestId = randomBytes(8).toString("hex");
       requests.set(requestId, {
         clientId: url.searchParams.get("client_id") ?? "",
@@ -651,13 +714,21 @@ export async function startAuthProvider(
         scope: url.searchParams.get("scope") ?? "",
         nonce: url.searchParams.get("nonce") ?? "",
         resource: url.searchParams.get("resource") ?? "",
+        actor: behavior.delegation ? actor : "",
       });
+      // Delegation is a different question from access, so the page asks it
+      // out loud: this names the agent, not just the client asking.
+      const delegation =
+        behavior.delegation && actor
+          ? `<p>${markup.escape(actor)} will act on your behalf.</p>`
+          : "";
       return send(
         200,
         markup.page(
           "Authorize",
           `<h1>${markup.headings.consent}</h1>
            <p>${markup.escape(clientId)} is requesting ${markup.escape(url.searchParams.get("scope") ?? "access")}.</p>
+           ${delegation}
            <form method="post" action="/consent">
              <input type="hidden" name="r" value="${requestId}">
              <button type="submit" name="decision" value="allow">${markup.captions.approve}</button>
@@ -686,6 +757,7 @@ export async function startAuthProvider(
         nonce: pendingRequest.nonce,
         resource: pendingRequest.resource,
         clientId: pendingRequest.clientId,
+        actor: pendingRequest.actor,
       });
       target.searchParams.set("code", code);
       if (pendingRequest.state)
@@ -704,9 +776,28 @@ export async function startAuthProvider(
         body.get("redirect_uri") !== grant.redirectUri
       )
         return json(400, { error: "invalid_grant" });
+      // Delegation is only real if the agent authenticates too: a code alone
+      // must not buy a token that claims someone acts for the user.
+      let acting: string | undefined;
+      if (grant.actor) {
+        const presented = body.get("actor_token") ?? "";
+        const subject = await actorSubject(presented);
+        if (!subject || subject !== grant.actor)
+          return json(400, { error: "invalid_grant" });
+        acting = subject;
+      }
       grants.delete(code);
       const issued: Record<string, unknown> = {
-        access_token: `at_${randomBytes(16).toString("hex")}`,
+        access_token: acting
+          ? await new SignJWT({ act: { sub: acting } })
+              .setProtectedHeader({ alg: "HS256" })
+              .setIssuer(origin)
+              .setAudience(grant.clientId || clientId)
+              .setSubject(grant.email)
+              .setIssuedAt()
+              .setExpirationTime("5m")
+              .sign(idTokenKey)
+          : `at_${randomBytes(16).toString("hex")}`,
         token_type: "Bearer",
         expires_in: 3600,
         scope: "openid",
@@ -1117,6 +1208,8 @@ export async function startAuthProvider(
       target.searchParams.set("scope", options.scope ?? "openid profile");
       target.searchParams.set("state", state);
       target.searchParams.set("nonce", nonce);
+      if (options.actor)
+        target.searchParams.set("requested_actor", options.actor);
       return { url: target.href, verifier, state, nonce, clientId: client };
     },
     deviceUrl: (userCode) => `${origin}/device?user_code=${userCode}`,
@@ -1142,7 +1235,7 @@ export async function startAuthProvider(
         }
       },
     },
-    exchange: async (code, verifier) => {
+    exchange: async (code, verifier, options = {}) => {
       const result = await fetch(`${origin}/token`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -1152,12 +1245,36 @@ export async function startAuthProvider(
           code_verifier: verifier,
           redirect_uri: redirectUri,
           client_id: clientId,
+          ...(options.actorToken ? { actor_token: options.actorToken } : {}),
         }),
       });
       return {
         status: result.status,
         body: (await result.json()) as Record<string, unknown>,
       };
+    },
+    actorToken: (actor, options = {}) =>
+      new SignJWT({})
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer(options.issuer === "wrong" ? origin : actorIssuer)
+        .setAudience(origin)
+        .setSubject(actor)
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(actorKey),
+    readAccessToken: async (token) => {
+      try {
+        const { payload } = await jwtVerify(token, idTokenKey, {
+          issuer: origin,
+        });
+        const act = payload["act"] as { sub?: string } | undefined;
+        return {
+          sub: String(payload.sub ?? ""),
+          ...(act?.sub ? { act: { sub: act.sub } } : {}),
+        };
+      } catch {
+        return undefined;
+      }
     },
     issuedTokens: () => [...tokens.keys()],
     installed: () => [...installations],

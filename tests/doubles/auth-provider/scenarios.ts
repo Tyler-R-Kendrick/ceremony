@@ -43,6 +43,22 @@ export type ScenarioPrecondition =
   | "mailbox-readable"
   | "registered-client";
 
+/**
+ * A specification that is still a draft.
+ *
+ * A scenario carrying this tracks behaviour that official bodies have proposed
+ * but not ratified, so a reader can tell it apart from a settled flow and knows
+ * which revision was read. Drafts move; the revision is what makes a later
+ * mismatch visible instead of silent.
+ */
+export type ProposedSpec = {
+  /** Internet-Draft name, without the revision suffix. */
+  draft: string;
+  /** The revision this scenario was written against, e.g. "02". */
+  revision: string;
+  title: string;
+};
+
 export type ScenarioExpectation = { handoffs?: number } & (
   | { status: "completed"; callback?: boolean }
   | { status: "blocked"; reason: BlockedReason }
@@ -99,6 +115,11 @@ export type AuthScenario = {
    */
   flowKind: FlowKind;
   goal: CeremonyGoal;
+  /**
+   * Set when the scenario tracks an unratified draft rather than a settled
+   * specification. Nothing here claims a provider implements it.
+   */
+  proposed?: ProposedSpec;
   preconditions: readonly ScenarioPrecondition[];
   /** Roles the caller must be able to supply for this ceremony to be possible. */
   provides: readonly string[];
@@ -181,6 +202,15 @@ const existing = (identity: ScenarioContext["identity"], verified = true) => [
     verified,
   },
 ];
+
+/** The agent these delegated-authorization scenarios act as. */
+const agentId = "urn:ceremony:agent:filing-assistant";
+
+const onBehalfOfUser: ProposedSpec = {
+  draft: "draft-oauth-ai-agents-on-behalf-of-user",
+  revision: "02",
+  title: "OAuth 2.0 Extension: On-Behalf-Of User Authorization for AI Agents",
+};
 
 export const authScenarios: readonly AuthScenario[] = [
   {
@@ -1160,6 +1190,151 @@ export const authScenarios: readonly AuthScenario[] = [
     confirm: async ({ provider }) => {
       if (provider.accounts().length !== 0)
         throw new Error("A public resource must not create an account");
+    },
+  },
+  {
+    id: "delegated-authorization",
+    title: "consent names the agent, and the token says who is acting",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 87,
+      delegation: true,
+      knownActors: [agentId],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    expect: { status: "completed", callback: true },
+    confirm: async ({ provider }, result, state) => {
+      if (result.status !== "completed" || !result.callback)
+        throw new Error("A delegated authorization must return a code");
+      const redeemed = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId) },
+      );
+      if (redeemed.status !== 200)
+        throw new Error("An authenticated agent must be able to redeem");
+      const token = await provider.readAccessToken(
+        String(redeemed.body["access_token"] ?? ""),
+      );
+      // The point of the draft: the token records that the agent acted, and
+      // for whom. A token without `act` is an ordinary user token.
+      if (token?.act?.sub !== agentId)
+        throw new Error("The issued token must name the acting agent");
+      if (!token.sub)
+        throw new Error("The issued token must still name the user");
+    },
+  },
+  {
+    id: "delegated-authorization-needs-the-agent-to-authenticate",
+    title: "an approved code alone does not buy a delegated token",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 88,
+      delegation: true,
+      knownActors: [agentId],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    // The ceremony genuinely completes: a person approved and a code came
+    // back. Whether the agent may use it is a separate question, answered at
+    // the token endpoint, and the two must not be conflated.
+    expect: { status: "completed", callback: true },
+    confirm: async ({ provider }, result, state) => {
+      if (result.status !== "completed" || !result.callback)
+        throw new Error("A delegated authorization must return a code");
+      const bare = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+      );
+      if (bare.status === 200)
+        throw new Error("A code for an actor must not redeem unauthenticated");
+      const impostor = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken("urn:ceremony:agent:other") },
+      );
+      if (impostor.status === 200)
+        throw new Error("A different agent must not redeem this code");
+      const forged = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId, { issuer: "wrong" }) },
+      );
+      if (forged.status === 200)
+        throw new Error("A self-signed actor token must not be accepted");
+      // The refusals must not have spent the code: the real agent still works.
+      const genuine = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId) },
+      );
+      if (genuine.status !== 200)
+        throw new Error("A refused attempt must not consume the grant");
+    },
+  },
+  {
+    id: "delegated-authorization-unknown-agent",
+    title: "an agent the provider does not know is refused before consent",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 89,
+      delegation: true,
+      knownActors: ["urn:ceremony:agent:someone-else"],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    // Not a denied consent: nobody was asked. The provider rejected the
+    // request, and reporting that as a refusal would misplace the blame.
+    expect: { status: "blocked", reason: "provider-error" },
+    confirm: async ({ provider }) => {
+      if (provider.issuedTokens().length !== 0)
+        throw new Error("A refused delegation must issue nothing");
     },
   },
 ];

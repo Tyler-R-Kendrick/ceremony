@@ -462,6 +462,32 @@ test("ceremonies survive page shapes the catalog never fixed", async (t) => {
   }
 });
 
+test("a scenario that tracks a draft says which draft, and the catalog agrees", () => {
+  // Proposed behaviour must never read as settled. A family marked proposed
+  // has to name the Internet-Draft and the revision it was written against,
+  // and the published catalog has to cite the same revision, so a reader can
+  // tell whether the draft has moved on since these pages were written.
+  const doc = readFileSync(
+    new URL("../../docs/auth-scenario-doubles.md", import.meta.url),
+    "utf8",
+  );
+  for (const scenario of authScenarios) {
+    const family = scenario.family.endsWith("(proposed)");
+    assert.equal(
+      scenario.proposed !== undefined,
+      family,
+      `${scenario.id}: a proposed family and a declared draft must agree`,
+    );
+    if (!scenario.proposed) continue;
+    assert.match(scenario.proposed.draft, /^draft-[a-z0-9-]+$/);
+    assert.match(scenario.proposed.revision, /^\d{2}$/);
+    assert.ok(
+      doc.includes(`${scenario.proposed.draft}-${scenario.proposed.revision}`),
+      `${scenario.id} cites a draft revision the catalog does not`,
+    );
+  }
+});
+
 test("the documented catalog matches the one that runs", () => {
   // A table nobody checks drifts. This keeps the published list of scenarios,
   // preconditions and required roles tied to the entries actually executed.
