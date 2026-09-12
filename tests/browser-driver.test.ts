@@ -147,6 +147,79 @@ test("a captured callback keeps its state and is never re-read from the page", a
   });
 });
 
+test("a path that merely starts like the callback is not the callback", async () => {
+  // `/callbackx` shares a prefix with `/callback` and is a different endpoint.
+  // Accepting it would let a code the ceremony never nominated finish the run.
+  const result = await runCeremony({
+    page: inertPage("https://host.example/callbackx?code=not-ours"),
+    interpreter: async () => ({
+      action: "blocked",
+      reason: "unsupported-page",
+    }),
+    goal: "authorize",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://host.example"],
+    redirectUri: "https://host.example/callback",
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+
+  // A different origin with the same path is equally not the callback.
+  const elsewhere = await runCeremony({
+    page: inertPage("https://evil.example/callback?code=not-ours"),
+    interpreter: async () => ({ action: "wait" }),
+    goal: "authorize",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://host.example"],
+    redirectUri: "https://host.example/callback",
+  });
+  assert.equal(elsewhere.status, "blocked");
+  assert.equal(
+    elsewhere.status === "blocked" && elsewhere.reason,
+    "untrusted-origin",
+  );
+});
+
+test("waiting that moves the page is progress, not a stall", async () => {
+  // The action path resets the stall counter when the page changes; waiting
+  // must too. Otherwise a ceremony that alternates — a wait that changes
+  // nothing, then one that does — accumulates its way to a false `stalled`
+  // while it is in fact moving.
+  let turn = 0;
+  const page: CeremonyPage = {
+    url: async () => "https://provider.example/pending",
+    goto: async () => {},
+    // Every other settle genuinely advances the page. The change has to be in
+    // something `fingerprint` reads — it ignores headings by design, so a page
+    // whose heading alone moves is correctly considered unchanged.
+    snapshot: async () =>
+      snapshot({
+        path: "https://provider.example/pending",
+        alerts: [`Working, step ${Math.floor(turn / 2)}`],
+        elements: [],
+      }),
+    fill: async () => {},
+    click: async () => {},
+    check: async () => {},
+    settle: async () => {
+      turn++;
+    },
+  };
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({ action: "wait" }),
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    maxSteps: 12,
+  });
+  // It runs out of steps rather than being called stalled: progress was real.
+  assert.equal(result.status, "exhausted");
+});
+
 test("an action naming an element that is not on the page is discarded", async () => {
   const page = inertPage();
   const result = await runCeremony({

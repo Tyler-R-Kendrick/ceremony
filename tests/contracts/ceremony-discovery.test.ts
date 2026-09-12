@@ -194,6 +194,65 @@ test("a code field is attributed to the step that delivers it", async () => {
   );
 });
 
+test("two pages asking for a code get two deliveries, not one shared", async () => {
+  // A confirmation code and a second-factor code are different codes, sent
+  // separately. Sharing one datum would leave whichever path does not run the
+  // surviving delivery citing a step it never reaches.
+  const origin = "https://provider.test";
+  const signin = page(
+    `${origin}/signin`,
+    [
+      { index: 0, kind: "input", type: "text", label: "Confirmation code" },
+      { index: 1, kind: "link", text: "Use a passkey instead" },
+    ],
+    { headings: ["Enter the code we sent"] },
+  );
+  const { plan } = await discoverCeremony({
+    page: scriptedPage(
+      {
+        [`${origin}/signin`]: {
+          snapshot: signin,
+          links: { 1: `${origin}/mfa` },
+        },
+        [`${origin}/mfa`]: {
+          snapshot: page(
+            `${origin}/mfa`,
+            [
+              {
+                index: 0,
+                kind: "input",
+                type: "text",
+                label: "Confirmation code",
+              },
+            ],
+            { headings: ["Enter your second factor"] },
+          ),
+        },
+      },
+      `${origin}/signin`,
+    ),
+    entryUrl: `${origin}/signin`,
+    goal: "sign-in",
+    allowedOrigins: [origin],
+  });
+
+  // Every path must be self-contained: each datum it uses is produced by a
+  // step on that same path, before the step that consumes it.
+  for (const path of plan.paths)
+    for (const id of path.steps) {
+      const step = plan.steps.find((entry) => entry.id === id)!;
+      for (const key of step.uses) {
+        const source = plan.data[key]!.source;
+        if (source.from !== "step") continue;
+        const at = path.steps.indexOf(source.step);
+        assert.ok(
+          at >= 0 && at < path.steps.indexOf(id),
+          `${path.id} uses ${key} but does not run ${source.step} first`,
+        );
+      }
+    }
+});
+
 test("discovery refuses to act, even when a page invites it", async () => {
   // The scripted page throws if a field is filled or a box checked. Reaching
   // the end of discovery at all is the assertion.

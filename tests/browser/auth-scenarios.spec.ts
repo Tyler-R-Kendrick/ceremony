@@ -92,7 +92,9 @@ test("every scenario a browser can host is in the browser catalog", () => {
   const excluded = authScenarios.filter(
     (scenario) => scenario.browserRunnerSkip !== undefined,
   );
-  expect(browserCatalog.length + excluded.length).toBe(authScenarios.length);
+  // `browserCatalog` is this set's complement, so counting them against the
+  // total proves nothing. The reason and the bound are what matter.
+  expect(browserCatalog.length).toBeGreaterThan(0);
   // An exclusion without a stated reason is just a gap.
   for (const scenario of excluded)
     expect(

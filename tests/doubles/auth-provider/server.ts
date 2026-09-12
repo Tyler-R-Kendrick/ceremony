@@ -861,7 +861,7 @@ export async function startAuthProvider(
         })
           .setProtectedHeader({ alg: "HS256" })
           .setIssuer(origin)
-          .setAudience(grant.verifier ? clientId : clientId)
+          .setAudience(grant.clientId || clientId)
           .setSubject(grant.email)
           .setIssuedAt()
           .setExpirationTime("5m")

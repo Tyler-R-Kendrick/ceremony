@@ -208,9 +208,11 @@ function identifierFor(path: string, taken: Set<string>): string {
       .join("-")
       .replace(/[^a-zA-Z0-9_.:-]/g, "") || "entry";
   const base = /^[a-zA-Z]/.test(tail) ? tail : `page-${tail}`;
-  let id = base.slice(0, 90);
+  // Leave room for the longest suffix anything derives from this id, so a long
+  // provider path costs a truncated name rather than the whole plan.
+  let id = base.slice(0, 80);
   let n = 2;
-  while (taken.has(id)) id = `${base.slice(0, 86)}-${n++}`;
+  while (taken.has(id)) id = `${base.slice(0, 76)}-${n++}`;
   taken.add(id);
   return id;
 }
@@ -364,6 +366,20 @@ function buildPlan(
     for (const [role, key] of roles) {
       if (!outOfBandRoles.includes(role)) continue;
       const producerId = `${observed.id}-delivery`;
+      const claimed = data[key]?.source;
+      if (claimed?.from === "step" && claimed.step !== producerId) {
+        // Another page already owns this key with a different delivery. Give
+        // this page its own datum, because a caller on one path must never be
+        // pointed at a step that only runs on the other.
+        const own = `${key}-${observed.id}`.slice(0, 96);
+        data[own] = {
+          ...data[key]!,
+          source: { from: "step", step: producerId },
+        };
+        uses[uses.indexOf(key)] = own;
+        roles.set(role, own);
+      }
+      const target = roles.get(role)!;
       if (!steps.some((step) => step.id === producerId)) {
         steps.push({
           id: producerId,
@@ -371,14 +387,14 @@ function buildPlan(
           label: `Read the ${role.replace(/-/g, " ")} the provider sent`,
           needs: [],
           uses: [],
-          produces: [key],
+          produces: [target],
         });
         uncertain.push(
           `The ${role.replace(/-/g, " ")} on ${new URL(snapshot.path).pathname} arrives out of band; discovery did not trigger a send, so how it is delivered is not confirmed.`,
         );
       }
-      data[key] = {
-        ...data[key]!,
+      data[target] = {
+        ...data[target]!,
         source: { from: "step", step: producerId },
       };
       chain.push(producerId);

@@ -61,6 +61,13 @@ function read(directory) {
   };
 }
 
+if (!existsSync(root)) {
+  // CI builds this with `if: always()`, so it runs when `test:flows` failed
+  // before writing anything. Saying so beats an ENOENT stack trace.
+  console.error(`No ceremony evidence under ${root}: nothing was recorded.`);
+  process.exit(1);
+}
+
 const flows = readdirSync(root, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => read(entry.name))

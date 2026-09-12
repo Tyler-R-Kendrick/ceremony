@@ -138,14 +138,21 @@ for (const scenario of runnable) {
 }
 
 test("the flow catalog covers every scenario a browser can host", () => {
-  const excluded = authScenarios.length - runnable.length;
-  assert.equal(
-    runnable.length + excluded,
-    authScenarios.length,
-    "Every scenario is either run or explicitly excluded",
+  // `runnable` is the complement of the excluded set, so counting one against
+  // the other proves nothing. What is worth asserting is that every exclusion
+  // states a reason, and that the list stays short — a growing one means the
+  // runner is drifting away from the catalog rather than covering it.
+  const excluded = authScenarios.filter(
+    (scenario) => scenario.browserRunnerSkip !== undefined,
   );
+  for (const scenario of excluded)
+    assert.ok(
+      (scenario.browserRunnerSkip ?? "").length > 30,
+      `${scenario.id} must say why a browser cannot host it`,
+    );
   assert.ok(
-    excluded <= 2,
-    `Only browser-chrome walls may be excluded; ${excluded} were`,
+    excluded.length <= 2,
+    `Only browser-chrome walls may be excluded; ${excluded.length} were`,
   );
+  assert.ok(runnable.length > 0, "the runner must actually run something");
 });
