@@ -31,7 +31,7 @@
   --_ceremony-fg: var(--ceremony-fg, #0e1621);
   --_ceremony-muted: var(--ceremony-muted, #5a6679);
   --_ceremony-border: var(--ceremony-border, #dfe4ec);
-  --_ceremony-border-strong: var(--ceremony-border-strong, #c7d0de);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #7d8899);
   /* One accent, spent on the action the person is meant to take */
   --_ceremony-accent: var(--ceremony-accent, #2540d9);
   --_ceremony-on-accent: var(--ceremony-on-accent, #ffffff);
@@ -68,7 +68,7 @@
     --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
     --_ceremony-muted: var(--ceremony-muted, #93a0b4);
     --_ceremony-border: var(--ceremony-border, #232c3a);
-    --_ceremony-border-strong: var(--ceremony-border-strong, #34404f);
+    --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
     --_ceremony-accent: var(--ceremony-accent, #8296ff);
     --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
     --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
@@ -90,7 +90,7 @@
   --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
   --_ceremony-muted: var(--ceremony-muted, #93a0b4);
   --_ceremony-border: var(--ceremony-border, #232c3a);
-  --_ceremony-border-strong: var(--ceremony-border-strong, #34404f);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
   --_ceremony-accent: var(--ceremony-accent, #8296ff);
   --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
   --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
