@@ -81,6 +81,9 @@ export function createHttpCeremonyPage(
   let currentUrl = "about:blank";
   let document: Document | undefined;
   let elements: Element[] = [];
+  let lastResponse: { status: number; authenticate?: string } | undefined;
+  /** Credentials a person entered into the browser's dialog, kept per origin. */
+  const dialogCredentials = new Map<string, string>();
 
   const load = async (
     url: string,
@@ -92,6 +95,8 @@ export function createHttpCeremonyPage(
       const headers: Record<string, string> = {};
       const cookies = cookieHeader(jar);
       if (cookies) headers["cookie"] = cookies;
+      const dialog = dialogCredentials.get(new URL(target).origin);
+      if (dialog) headers["authorization"] = dialog;
       if (request.method === "POST")
         headers["content-type"] = "application/x-www-form-urlencoded";
       const response = await fetch(target, {
@@ -108,6 +113,11 @@ export function createHttpCeremonyPage(
         continue;
       }
       const html = await response.text();
+      const authenticate = response.headers.get("www-authenticate");
+      lastResponse = {
+        status: response.status,
+        ...(authenticate ? { authenticate } : {}),
+      };
       currentUrl = target;
       visited.push(target);
       const parsed = parseHTML(html);
@@ -143,6 +153,13 @@ export function createHttpCeremonyPage(
     goto: (url) => load(url, { method: "GET" }),
     history: () => [...visited],
     url: async () => currentUrl,
+    response: async () => lastResponse,
+    authenticate: async (origin, credentials) => {
+      dialogCredentials.set(
+        new URL(origin).origin,
+        `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`,
+      );
+    },
     snapshot: async (): Promise<PageSnapshot> => {
       if (!document) throw new Error("No page has been loaded");
       elements = [];

@@ -5,6 +5,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHash, randomBytes, randomInt } from "node:crypto";
+import { SignJWT, jwtVerify } from "jose";
 import type { AddressInfo } from "node:net";
 import { createMarkup, type Markup } from "./markup.js";
 
@@ -50,6 +51,21 @@ export type ProviderBehavior = {
   neverAccept?: boolean;
   /** The sign-in button sits outside any form, so pressing it does nothing. */
   inertSignIn?: boolean;
+  /**
+   * A person can clear the challenge in the same browser. When false the widget
+   * never passes, which is what an unsolvable wall looks like.
+   */
+  challengeClearable?: boolean;
+  /** Sign-in is a passkey prompt with no password to fill. */
+  passkeyOnly?: boolean;
+  /** Sign-in hints at conditional passkey UI but still accepts a password. */
+  conditionalPasskey?: boolean;
+  /** The protected resource answers 401 with a Basic challenge and no page. */
+  basicRealm?: string;
+  /** Issue an ID token bound to the request nonce at the token endpoint. */
+  openidConnect?: boolean;
+  /** Accept RFC 7591 dynamic client registration before authorization. */
+  dynamicRegistration?: boolean;
   clientId?: string;
   redirectUri?: string;
 };
@@ -72,10 +88,17 @@ export type ProviderDouble = {
   clientId: string;
   redirectUri: string;
   /** Start an authorization-code ceremony; returns the PKCE verifier too. */
-  authorization(options?: { state?: string; scope?: string }): {
+  authorization(options?: {
+    state?: string;
+    scope?: string;
+    clientId?: string;
+    resource?: string;
+  }): {
     url: string;
     verifier: string;
     state: string;
+    nonce: string;
+    clientId: string;
   };
   deviceUrl(userCode: string): string;
   issueDeviceCode(): string;
@@ -92,6 +115,17 @@ export type ProviderDouble = {
   ): Promise<{ status: number; body: Record<string, unknown> }>;
   /** Provider-side proof that a session exists for this account. */
   verifyAccess(email: string): Promise<boolean>;
+  /** Access tokens the provider displayed. Never something an agent may hold. */
+  issuedTokens(): readonly string[];
+  /** Applications a person installed, and accounts a federation accepted. */
+  installed(): readonly string[];
+  federated(): readonly string[];
+  /** Accounts that completed an HTTP Basic exchange against the resource. */
+  authenticatedBasic(): readonly string[];
+  /** Validate an ID token the way a relying party would. */
+  verifyIdToken(
+    token: string,
+  ): Promise<{ sub: string; nonce: string } | undefined>;
   close(): Promise<void>;
 };
 
@@ -109,6 +143,8 @@ type AuthorizationRequest = {
   challenge: string;
   state: string;
   scope: string;
+  nonce: string;
+  resource: string;
 };
 
 function cookies(request: IncomingMessage): Record<string, string> {
@@ -148,9 +184,25 @@ export async function startAuthProvider(
   const requests = new Map<string, AuthorizationRequest>();
   const grants = new Map<
     string,
-    { email: string; verifier: string; redirectUri: string }
+    {
+      email: string;
+      verifier: string;
+      redirectUri: string;
+      nonce: string;
+      resource: string;
+      clientId: string;
+    }
   >();
   const devices = new Map<string, { approved: boolean; email?: string }>();
+  /** Challenge tokens issued, and the browsers that have cleared one. */
+  const challenges = new Set<string>();
+  const cleared = new Set<string>();
+  const installations = new Set<string>();
+  const assertions = new Set<string>();
+  const basicAccounts = new Set<string>();
+  const idTokenKey = randomBytes(32);
+  const clients = new Map<string, string>();
+  const tokens = new Map<string, string>();
   const outbox: MailMessage[] = [];
   let faults = behavior.faultySignIns ?? 0;
 
@@ -190,6 +242,21 @@ export async function startAuthProvider(
     const method = request.method ?? "GET";
     const body =
       method === "POST" ? await readBody(request) : new URLSearchParams();
+    // A browser identity exists before any session does, so state such as a
+    // cleared challenge can belong to the browser a person actually used.
+    const existingBrowser = cookies(request)["bid"];
+    const browserId = existingBrowser ?? randomBytes(12).toString("hex");
+    const browser = () => browserId;
+    const withCookies = (headers: Record<string, string>) => {
+      const own = headers["set-cookie"];
+      const extra = existingBrowser
+        ? []
+        : [`bid=${browserId}; Path=/; HttpOnly`];
+      const all = [...(own ? [own] : []), ...extra];
+      const rest = { ...headers };
+      delete rest["set-cookie"];
+      return all.length ? { ...rest, "set-cookie": all } : rest;
+    };
     const send = (
       status: number,
       html: string,
@@ -197,19 +264,26 @@ export async function startAuthProvider(
     ) => {
       response.writeHead(status, {
         "content-type": "text/html; charset=utf-8",
-        ...headers,
+        ...withCookies(headers),
       });
       response.end(html);
     };
-    const json = (status: number, value: unknown) => {
-      response.writeHead(status, { "content-type": "application/json" });
+    const json = (
+      status: number,
+      value: unknown,
+      headers: Record<string, string> = {},
+    ) => {
+      response.writeHead(status, {
+        "content-type": "application/json",
+        ...withCookies(headers),
+      });
       response.end(JSON.stringify(value));
     };
     const redirect = (
       location: string,
       headers: Record<string, string> = {},
     ) => {
-      response.writeHead(302, { location, ...headers });
+      response.writeHead(302, { location, ...withCookies(headers) });
       response.end();
     };
     const openSession = (email: string, factors: number) => {
@@ -218,19 +292,46 @@ export async function startAuthProvider(
       return `sid=${id}; Path=/; HttpOnly`;
     };
 
-    const challengePage = () =>
-      send(
+    const challengePage = () => {
+      // The widget is the real obstacle; the form beside it is what a person
+      // submits once they have satisfied it in their own browser.
+      const token = randomBytes(8).toString("hex");
+      if (behavior.challengeClearable) challenges.add(token);
+      return send(
         200,
         markup.page(
           "Security check",
           `<h1>Confirm you are human</h1>
            <div data-captcha="required">Complete the challenge to continue.</div>
-           <p>This step cannot be completed automatically.</p>`,
+           ${
+             behavior.challengeClearable
+               ? `<form method="post" action="/challenge?to=${encodeURIComponent(url.pathname + url.search)}">
+                    <input type="hidden" name="solved" value="${token}">
+                    <button type="submit">I am not a robot</button>
+                  </form>`
+               : "<p>This step cannot be completed automatically.</p>"
+           }`,
         ),
       );
+    };
+
+    const blocked = (at: ProviderBehavior["challengeAt"]) =>
+      behavior.challengeAt === at && !cleared.has(browser());
 
     const signInPage = (next: string, error?: string) => {
-      if (behavior.challengeAt === "sign-in") return challengePage();
+      if (blocked("sign-in")) return challengePage();
+      if (behavior.passkeyOnly)
+        return send(
+          200,
+          markup.page(
+            "Use your passkey",
+            `<h1>Use your passkey to continue</h1>
+             <div data-passkey="required">Your device will ask for the passkey.</div>
+             <form method="post" action="/passkey?next=${encodeURIComponent(next)}">
+               <button type="submit">Continue with passkey</button>
+             </form>`,
+          ),
+        );
       const action =
         behavior.hijackSignInTo ??
         `${url.pathname}?next=${encodeURIComponent(next)}`;
@@ -239,7 +340,9 @@ export async function startAuthProvider(
           markup.labels.identifier,
           markup.names.identifier,
           "text",
-          "required",
+          behavior.conditionalPasskey
+            ? 'required autocomplete="username webauthn"'
+            : "required",
         ),
         markup.field(
           markup.labels.password,
@@ -275,7 +378,7 @@ export async function startAuthProvider(
     };
 
     const signUpPage = (next: string, error?: string) => {
-      if (behavior.challengeAt === "sign-up") return challengePage();
+      if (blocked("sign-up")) return challengePage();
       const fields = markup.arrange("sign-up", [
         markup.field(
           markup.labels.email,
@@ -383,6 +486,9 @@ export async function startAuthProvider(
         token_endpoint: `${origin}/token`,
         userinfo_endpoint: `${origin}/userinfo`,
         code_challenge_methods_supported: ["S256"],
+        ...(behavior.dynamicRegistration
+          ? { registration_endpoint: `${origin}/oauth/register` }
+          : {}),
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code"],
       });
@@ -534,7 +640,7 @@ export async function startAuthProvider(
         return redirect(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
-      if (behavior.challengeAt === "consent") return challengePage();
+      if (blocked("consent")) return challengePage();
       const requestId = randomBytes(8).toString("hex");
       requests.set(requestId, {
         clientId: url.searchParams.get("client_id") ?? "",
@@ -542,6 +648,8 @@ export async function startAuthProvider(
         challenge: url.searchParams.get("code_challenge") ?? "",
         state: url.searchParams.get("state") ?? "",
         scope: url.searchParams.get("scope") ?? "",
+        nonce: url.searchParams.get("nonce") ?? "",
+        resource: url.searchParams.get("resource") ?? "",
       });
       return send(
         200,
@@ -574,6 +682,9 @@ export async function startAuthProvider(
         email: session.email,
         verifier: pendingRequest.challenge,
         redirectUri: pendingRequest.redirectUri,
+        nonce: pendingRequest.nonce,
+        resource: pendingRequest.resource,
+        clientId: pendingRequest.clientId,
       });
       target.searchParams.set("code", code);
       if (pendingRequest.state)
@@ -593,13 +704,32 @@ export async function startAuthProvider(
       )
         return json(400, { error: "invalid_grant" });
       grants.delete(code);
-      return json(200, {
+      const issued: Record<string, unknown> = {
         access_token: `at_${randomBytes(16).toString("hex")}`,
         token_type: "Bearer",
         expires_in: 3600,
         scope: "openid",
         sub: grant.email,
-      });
+        client_id: grant.clientId,
+        // MCP binds a token to the resource the client asked for; echoing it
+        // is what lets a consumer check it got the audience it requested.
+        ...(grant.resource ? { aud: grant.resource } : {}),
+      };
+      if (behavior.openidConnect)
+        // A real signed assertion, so a consumer's nonce and issuer checks are
+        // exercised rather than assumed.
+        issued["id_token"] = await new SignJWT({
+          nonce: grant.nonce,
+          email: grant.email,
+        })
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuer(origin)
+          .setAudience(grant.verifier ? clientId : clientId)
+          .setSubject(grant.email)
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(idTokenKey);
+      return json(200, issued);
     }
 
     if (url.pathname === "/userinfo") {
@@ -652,6 +782,305 @@ export async function startAuthProvider(
       );
     }
 
+    // A person clears the widget in the same browser they were handed. The
+    // clearance belongs to that browser, so the agent resuming there sees it.
+    // Only a person can satisfy the authenticator; the provider then opens the
+    // session, exactly as it would after a real assertion.
+    if (url.pathname === "/passkey" && method === "POST") {
+      const account = [...accounts.values()][0];
+      if (!account) return redirect("/signin");
+      return redirect(url.searchParams.get("next") ?? "/", {
+        "set-cookie": openSession(account.email, 2),
+      });
+    }
+
+    if (url.pathname === "/challenge" && method === "POST") {
+      const solved = body.get("solved") ?? "";
+      if (!challenges.has(solved)) return redirect("/signin");
+      challenges.delete(solved);
+      cleared.add(browser());
+      return redirect(url.searchParams.get("to") ?? "/");
+    }
+
+    // Personal access tokens: the value is shown on the page, never in a field.
+    // An agent can reach this page; only a person may carry the value onward.
+    if (url.pathname === "/tokens") {
+      const session = sessionOf(request);
+      if (!session)
+        return redirect(`/signin?next=${encodeURIComponent("/tokens")}`);
+      if (method === "GET")
+        return send(
+          200,
+          markup.page(
+            "Access tokens",
+            `<h1>Personal access tokens</h1>
+             <form method="post" action="/tokens">
+               ${markup.field("Token name", "token_name", "text", "required")}
+               <button type="submit">Generate token</button>
+             </form>`,
+          ),
+        );
+      const issued = `pat_${randomBytes(20).toString("hex")}`;
+      tokens.set(issued, session.email);
+      return send(
+        200,
+        markup.page(
+          "Access tokens",
+          `<h1>Copy your new token</h1>
+           <p>This value is shown once. Copy it into the application now.</p>
+           <code data-token>${issued}</code>`,
+        ),
+      );
+    }
+
+    // HTTP Basic: the challenge is a header, so there is no page to fill.
+    if (url.pathname === "/basic") {
+      if (!behavior.basicRealm) return send(404, markup.page("Not found", ""));
+      const header = request.headers.authorization ?? "";
+      const [scheme, encoded] = header.split(" ");
+      const [user, secret] = Buffer.from(encoded ?? "", "base64")
+        .toString("utf8")
+        .split(":");
+      const account = [...accounts.values()].find(
+        (candidate) =>
+          candidate.username.toLowerCase() === (user ?? "").toLowerCase() ||
+          candidate.email.toLowerCase() === (user ?? "").toLowerCase(),
+      );
+      if (
+        scheme?.toLowerCase() !== "basic" ||
+        !account ||
+        account.password !== secret
+      ) {
+        response.writeHead(401, {
+          "www-authenticate": `Basic realm="${behavior.basicRealm}", charset="UTF-8"`,
+          "content-type": "text/html; charset=utf-8",
+        });
+        response.end(markup.page("Unauthorized", "<h1>401</h1>"));
+        return;
+      }
+      basicAccounts.add(account.email.toLowerCase());
+      return send(
+        200,
+        markup.page(
+          "Protected",
+          `<h1>You are signed in</h1><p data-account="${markup.escape(account.email)}">Basic access granted.</p>`,
+        ),
+      );
+    }
+
+    // A resource that explicitly needs no authentication at all.
+    if (url.pathname === "/public")
+      return send(
+        200,
+        markup.page(
+          "Public resource",
+          `<h1>You are signed in</h1><p>This resource is public; no account is required.</p>`,
+        ),
+      );
+
+    // auth.md anonymous identity, claimed later with an emailed approval code.
+    if (url.pathname === "/anonymous") {
+      if (method === "GET")
+        return send(
+          200,
+          markup.page(
+            "Anonymous access",
+            `<h1>Continue without an account</h1>
+             <form method="post" action="/anonymous">
+               <button type="submit">Continue anonymously</button>
+             </form>`,
+          ),
+        );
+      const handle = `anon-${randomBytes(6).toString("hex")}`;
+      accounts.set(handle, {
+        email: handle,
+        username: handle,
+        password: randomBytes(12).toString("hex"),
+        verified: false,
+        totp: digits(6),
+      });
+      return redirect("/claim", { "set-cookie": openSession(handle, 1) });
+    }
+
+    if (url.pathname === "/claim") {
+      const session = sessionOf(request);
+      if (!session) return redirect("/anonymous");
+      if (method === "GET")
+        return send(
+          200,
+          markup.page(
+            "Claim this access",
+            `<h1>Claim your anonymous access</h1>
+             <form method="post" action="/claim">
+               ${markup.field(markup.labels.email, markup.names.email, markup.emailInputType, "required")}
+               <button type="submit">Send approval code</button>
+             </form>`,
+          ),
+        );
+      const address = (body.get(markup.names.email) ?? "").trim().toLowerCase();
+      const existing = pending.get(session.email);
+      if (!existing && address.includes("@")) {
+        const code = digits(6);
+        pending.set(session.email, {
+          email: address,
+          username: session.email,
+          password: "",
+          code,
+          token: session.email,
+        });
+        deliver(address, code, session.email);
+        return send(
+          200,
+          markup.page(
+            "Claim this access",
+            `<h1>${markup.messages.checkInbox}</h1>
+             <form method="post" action="/claim">
+               ${markup.field(markup.labels.verification, markup.names.code, "text", "required")}
+               <button type="submit">${markup.captions.submitCode}</button>
+             </form>`,
+          ),
+        );
+      }
+      if (!existing) return redirect("/claim");
+      if (body.get(markup.names.code) !== existing.code)
+        return send(
+          200,
+          markup.page(
+            "Claim this access",
+            `${markup.alert(markup.messages.badCode)}
+             <h1>${markup.messages.checkInbox}</h1>
+             <form method="post" action="/claim">
+               ${markup.field(markup.labels.verification, markup.names.code, "text", "required")}
+               <button type="submit">${markup.captions.submitCode}</button>
+             </form>`,
+          ),
+        );
+      pending.delete(session.email);
+      const claimed = accounts.get(session.email);
+      if (claimed) claimed.verified = true;
+      session.factors = 2;
+      return send(
+        200,
+        markup.page(
+          "Claimed",
+          `<h1>You are signed in</h1><p data-account="${markup.escape(existing.email)}">This access is now claimed.</p>`,
+        ),
+      );
+    }
+
+    // GitHub App shape: a manifest is submitted, then the app is installed.
+    if (url.pathname === "/apps/new") {
+      const session = sessionOf(request);
+      if (!session)
+        return redirect(`/signin?next=${encodeURIComponent("/apps/new")}`);
+      if (method === "GET")
+        return send(
+          200,
+          markup.page(
+            "Register an application",
+            `<h1>Register a new application</h1>
+             <form method="post" action="/apps/new">
+               ${markup.field("Application name", "app_name", "text", "required")}
+               <button type="submit">Create application</button>
+             </form>`,
+          ),
+        );
+      const app = randomBytes(6).toString("hex");
+      clients.set(app, session.email);
+      return redirect(`/apps/${app}/install`);
+    }
+
+    if (
+      url.pathname.startsWith("/apps/") &&
+      url.pathname.endsWith("/install")
+    ) {
+      const session = sessionOf(request);
+      const app = url.pathname.slice("/apps/".length, -"/install".length);
+      if (!session || !clients.has(app)) return redirect("/signin");
+      if (method === "GET")
+        return send(
+          200,
+          markup.page(
+            "Install application",
+            `<h1>Install this application</h1>
+             <p>Choose where it may act on your behalf.</p>
+             <form method="post" action="${url.pathname}">
+               <button type="submit">${markup.captions.approve}</button>
+             </form>`,
+          ),
+        );
+      installations.add(app);
+      return send(
+        200,
+        markup.page(
+          "Installed",
+          `<h1>You are signed in</h1><p data-account="${markup.escape(session.email)}">The application is installed.</p>`,
+        ),
+      );
+    }
+
+    // RFC 7591 dynamic client registration, as MCP authorization expects.
+    if (url.pathname === "/oauth/register" && method === "POST") {
+      if (!behavior.dynamicRegistration)
+        return json(404, { error: "not_found" });
+      const id = `client_${randomBytes(8).toString("hex")}`;
+      clients.set(id, "dynamic");
+      return json(201, { client_id: id, token_endpoint_auth_method: "none" });
+    }
+
+    if (url.pathname === "/.well-known/oauth-protected-resource")
+      return json(200, {
+        resource: `${origin}/resource`,
+        authorization_servers: [origin],
+      });
+
+    // SAML SP-initiated flow: authenticate, then hand back a signed assertion
+    // through the POST binding, with the no-script submit real IdPs include.
+    if (url.pathname === "/saml/login") {
+      const session = sessionOf(request);
+      const relay = url.searchParams.get("RelayState") ?? "";
+      if (!session)
+        return redirect(
+          `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
+        );
+      const assertion = Buffer.from(
+        `<Assertion><Subject>${session.email}</Subject><Audience>${clientId}</Audience></Assertion>`,
+      ).toString("base64");
+      return send(
+        200,
+        markup.page(
+          "Signing you in",
+          `<h1>Completing sign-in</h1>
+           <form method="post" action="/saml/acs">
+             <input type="hidden" name="SAMLResponse" value="${assertion}">
+             <input type="hidden" name="RelayState" value="${markup.escape(relay)}">
+             <button type="submit">Continue</button>
+           </form>`,
+        ),
+      );
+    }
+
+    if (url.pathname === "/saml/acs" && method === "POST") {
+      const decoded = Buffer.from(
+        body.get("SAMLResponse") ?? "",
+        "base64",
+      ).toString("utf8");
+      const subject = /<Subject>([^<]+)<\/Subject>/.exec(decoded)?.[1] ?? "";
+      if (!accounts.has(subject.toLowerCase()))
+        return send(
+          401,
+          markup.page("Rejected", "<h1>Assertion rejected</h1>"),
+        );
+      assertions.add(subject.toLowerCase());
+      return send(
+        200,
+        markup.page(
+          "Federated",
+          `<h1>You are signed in</h1><p data-account="${markup.escape(subject)}">The assertion was accepted.</p>`,
+        ),
+      );
+    }
+
     if (url.pathname === "/signout" && method === "POST") {
       const id = cookies(request)["sid"];
       if (id) sessions.delete(id);
@@ -671,18 +1100,23 @@ export async function startAuthProvider(
     authorization: (options = {}) => {
       const verifier = randomBytes(32).toString("base64url");
       const state = options.state ?? randomBytes(8).toString("hex");
+      const nonce = randomBytes(8).toString("hex");
       const challenge = createHash("sha256")
         .update(verifier)
         .digest("base64url");
       const target = new URL(`${origin}/authorize`);
-      target.searchParams.set("client_id", clientId);
+      const client = options.clientId ?? clientId;
+      target.searchParams.set("client_id", client);
+      if (options.resource)
+        target.searchParams.set("resource", options.resource);
       target.searchParams.set("redirect_uri", redirectUri);
       target.searchParams.set("response_type", "code");
       target.searchParams.set("code_challenge", challenge);
       target.searchParams.set("code_challenge_method", "S256");
       target.searchParams.set("scope", options.scope ?? "openid profile");
       target.searchParams.set("state", state);
-      return { url: target.href, verifier, state };
+      target.searchParams.set("nonce", nonce);
+      return { url: target.href, verifier, state, nonce, clientId: client };
     },
     deviceUrl: (userCode) => `${origin}/device?user_code=${userCode}`,
     issueDeviceCode: () => {
@@ -723,6 +1157,24 @@ export async function startAuthProvider(
         status: result.status,
         body: (await result.json()) as Record<string, unknown>,
       };
+    },
+    issuedTokens: () => [...tokens.keys()],
+    installed: () => [...installations],
+    federated: () => [...assertions],
+    authenticatedBasic: () => [...basicAccounts],
+    verifyIdToken: async (token) => {
+      try {
+        const { payload } = await jwtVerify(token, idTokenKey, {
+          issuer: origin,
+          audience: clientId,
+        });
+        return {
+          sub: String(payload.sub ?? ""),
+          nonce: String(payload["nonce"] ?? ""),
+        };
+      } catch {
+        return undefined;
+      }
     },
     verifyAccess: async (email) =>
       [...sessions.values()].some(

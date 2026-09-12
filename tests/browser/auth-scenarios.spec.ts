@@ -34,19 +34,26 @@ for (const scenario of authScenarios) {
   test(`browser scenario: ${scenario.id} — ${scenario.title}`, async ({
     page,
   }) => {
+    test.skip(
+      scenario.browserRunnerSkip !== undefined,
+      scenario.browserRunnerSkip,
+    );
     const identity = createIdentity();
     const untrusted = scenario.needsUntrustedOrigin
       ? await startUntrustedOrigin()
       : undefined;
     const context = await startScenario(scenario, identity, untrusted);
     try {
-      const plan = scenario.plan(context);
+      const plan = await scenario.plan(context);
       await page.goto(plan.entryUrl, { waitUntil: "domcontentloaded" });
       const { entryUrl: _entry, state, ...options } = plan;
+      const driven = createPlaywrightCeremonyPage(page);
+      const human = scenario.human?.(driven, identity);
       const result = await runCeremony({
         ...options,
-        page: createPlaywrightCeremonyPage(page),
+        page: driven,
         interpreter: createScriptedInterpreter(),
+        ...(human ? { human } : {}),
       });
 
       expect(result.status, detail(result)).toBe(scenario.expect.status);

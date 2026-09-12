@@ -26,7 +26,8 @@ const patterns = {
   confirmPassword: /confirm|repeat|again|verify your password/i,
   email: /e-?mail/i,
   identifier: /user ?name|handle|login name|account name|identifier/i,
-  displayName: /display name|your name|full name/i,
+  displayName:
+    /display name|your name|full name|application name|token name|key name/i,
   birthDate: /birth|birthday/i,
   verification: /confirmation code|verification code|digit code|\bcode\b/i,
   totp: /authenticator|two-factor|one-time|2fa/i,
@@ -37,11 +38,15 @@ const patterns = {
   signInAction: /sign ?in|log ?in/i,
   approveAction: /authorize|allow|approve|grant/i,
   denyAction: /deny|cancel|not now|reject/i,
-  submitAction: /continue|next|submit|confirm|verify|send/i,
+  submitAction:
+    /continue|next|submit|confirm|verify|send|generate|create|issue|install/i,
   resendAction: /resend|send a new|email me again/i,
   retryAction: /try again|retry|go back|back to sign/i,
   completed:
     /you are signed in|signed in as|device is now approved|account is ready/i,
+  /** A credential now exists and is being shown for a person to collect. */
+  issued:
+    /copy your new|shown once|keep this secret|token created|your new token/i,
   inUse: /already in use|already exists|is taken/i,
   rejected: /not sign you in|incorrect|were not accepted/i,
   unverified: /confirm your email|not verified/i,
@@ -130,6 +135,13 @@ export function createScriptedInterpreter(
     // Finished pages have nothing left to fill and say so.
     if (patterns.completed.test(`${headings} ${snapshot.title}`))
       return act({ action: "done", note: "The provider reports access." });
+    if (
+      goal === "obtain-credential" &&
+      patterns.issued.test(`${headings} ${snapshot.title}`)
+    )
+      // The value is on the page and deliberately out of reach; reporting the
+      // step finished is all there is to do with it.
+      return act({ action: "done", note: "The provider issued a credential." });
 
     // Registration offered elsewhere on this page is taken up before any
     // attempt to sign in with an account that may not exist yet.
@@ -222,24 +234,26 @@ export function createScriptedInterpreter(
     // that suits the goal: an authorization ceremony passes through sign-in,
     // and a registration ends at a consent screen.
     const order =
-      goal === "registration"
-        ? [
-            patterns.signUpAction,
-            patterns.submitAction,
-            patterns.approveAction,
-            patterns.signInAction,
-          ]
-        : goal === "authorize"
+      goal === "obtain-credential"
+        ? [patterns.submitAction, patterns.signInAction]
+        : goal === "registration"
           ? [
+              patterns.signUpAction,
+              patterns.submitAction,
               patterns.approveAction,
               patterns.signInAction,
-              patterns.submitAction,
             ]
-          : [
-              patterns.signInAction,
-              patterns.submitAction,
-              patterns.approveAction,
-            ];
+          : goal === "authorize"
+            ? [
+                patterns.approveAction,
+                patterns.signInAction,
+                patterns.submitAction,
+              ]
+            : [
+                patterns.signInAction,
+                patterns.submitAction,
+                patterns.approveAction,
+              ];
     const submit = order.reduce<SnapshotElement | undefined>(
       (found, pattern) => found ?? findButton(snapshot, pattern),
       undefined,

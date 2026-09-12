@@ -41,6 +41,7 @@ function snapshot(overrides: Partial<PageSnapshot> = {}): PageSnapshot {
     headings: ["Sign in"],
     alerts: [],
     challenge: false,
+    passkey: false,
     elements: [
       { index: 0, kind: "input", type: "text", label: "Username" },
       { index: 1, kind: "input", type: "password", label: "Password" },
@@ -142,6 +143,7 @@ test("a captured callback keeps its state and is never re-read from the page", a
     steps: 0,
     callback: { code: "abc123", state: "s-1" },
     transcript: [],
+    handoffs: 0,
   });
 });
 

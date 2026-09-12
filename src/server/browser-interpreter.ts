@@ -36,6 +36,8 @@ const goalDescriptions: Record<CeremonyGoal, string> = {
   registration:
     "create an account at this provider and finish any confirmation step",
   authorize: "approve the requested access at this provider",
+  "obtain-credential":
+    "cause this provider to issue an access credential. You will never be shown its value; a person collects it privately",
 };
 
 /**

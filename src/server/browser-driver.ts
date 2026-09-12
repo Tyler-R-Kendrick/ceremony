@@ -1,3 +1,4 @@
+import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
   driverActionSchema,
   secretRoles,
@@ -6,6 +7,7 @@ import {
   type CeremonyGoal,
   type CeremonyRole,
   type CeremonyStep,
+  type CeremonyStepAction,
   type DriverAction,
   type PageSnapshot,
   type SnapshotElement,
@@ -26,6 +28,50 @@ import type {
  * not appear.
  */
 
+/**
+ * Why a person has to take part. Each is read from the page or the response,
+ * never inferred from prose, and none of them is a failure: a ceremony that
+ * needs a human is the ordinary case this framework exists to guide.
+ */
+export const humanStepReasons = [
+  /** A CAPTCHA or other proof-of-personhood widget. */
+  "human-challenge",
+  /** A platform authenticator this browser cannot drive. */
+  "passkey",
+  /** Credentials demanded by a browser dialog, which has no page to fill. */
+  "native-dialog",
+] as const;
+export type HumanStepReason = (typeof humanStepReasons)[number];
+
+/**
+ * What a host is asked for. It carries no value and no secret: the person acts
+ * at `url` in their own browser, or through whatever the host's delegation
+ * offers. `attempt` lets a host stop asking rather than prompt forever.
+ */
+export type HumanParticipationRequest = {
+  reason: HumanStepReason;
+  surface: HumanHandoffContract["surface"];
+  recipient: HumanHandoffContract["recipient"];
+  url: string;
+  attempt: number;
+};
+
+/**
+ * `completed` means the person says they finished, which is a claim to check,
+ * not a grant: the driver resumes and re-reads the page, and completion still
+ * needs provider evidence. `declined` is a refusal. `unavailable` means no
+ * person could be reached at all.
+ */
+export type HumanParticipationResult = "completed" | "declined" | "unavailable";
+
+export interface HumanParticipation {
+  /** The connector's declared participation policy. */
+  contract: HumanHandoffContract;
+  request(input: HumanParticipationRequest): Promise<HumanParticipationResult>;
+  /** How many times one attempt may ask a person. Defaults to 2. */
+  maxRequests?: number;
+}
+
 /** The browser surface the driver needs. Adapters supply real pages. */
 export interface CeremonyPage {
   url(): Promise<string>;
@@ -36,6 +82,21 @@ export interface CeremonyPage {
   check(element: SnapshotElement): Promise<void>;
   /** Wait for navigation or in-page updates to quiesce, bounded by the adapter. */
   settle(): Promise<void>;
+  /**
+   * The last response's status and `WWW-Authenticate` header, when the adapter
+   * can see them. A 401 challenge has no page to fill, so it is only visible
+   * here.
+   */
+  response?(): Promise<{ status: number; authenticate?: string } | undefined>;
+  /**
+   * Give the browser credentials for an origin's HTTP authentication dialog,
+   * as a person typing into that dialog would. The driver never calls this:
+   * it exists so a human handoff can answer a challenge that has no page.
+   */
+  authenticate?(
+    origin: string,
+    credentials: { username: string; password: string },
+  ): Promise<void>;
 }
 
 /**
@@ -58,6 +119,8 @@ export type CeremonyOutcome =
 export type CeremonyResult = CeremonyOutcome & {
   /** Ordered, value-free record of what the attempt did. Safe to persist. */
   transcript: readonly CeremonyStep[];
+  /** How many times a person was asked to take part. */
+  handoffs: number;
 };
 
 export interface CeremonyRunOptions {
@@ -78,6 +141,12 @@ export interface CeremonyRunOptions {
    * an allowed origin; an interpreter can neither see nor choose the address.
    */
   confirmationLink?: () => Promise<string | undefined>;
+  /**
+   * How a person is brought into a step the browser cannot complete. Without
+   * it, such a step ends the attempt by name instead of hanging, which is the
+   * correct behaviour for a host that has nobody to ask.
+   */
+  human?: HumanParticipation;
   /**
    * Provider-side confirmation that access exists. Without it a "done" claim
    * cannot be accepted, matching the rule that only verification completes a
@@ -181,10 +250,12 @@ export async function runCeremony(
   let unverifiedClaims = 0;
   let previous = "";
   let followed: string | undefined;
+  let handoffs = 0;
+  const maxHandoffs = options.human?.maxRequests ?? 2;
 
   const record = (
     snapshot: PageSnapshot,
-    action: DriverAction["action"],
+    action: CeremonyStepAction,
     extra: { role?: CeremonyRole; reason?: BlockedReason; note?: string } = {},
   ) => {
     const step: CeremonyStep = { path: snapshot.path, action };
@@ -198,7 +269,41 @@ export async function runCeremony(
   const finish = (outcome: CeremonyOutcome): CeremonyResult => ({
     ...outcome,
     transcript,
+    handoffs,
   });
+
+  /**
+   * Bring a person into a step the browser cannot complete. The declared
+   * handoff contract says where they act and who they are; the driver supplies
+   * the live page so an own-browser fallback always exists. A person's "done"
+   * is a claim: the attempt resumes and re-reads the page, and completion still
+   * requires the same provider evidence it always did.
+   */
+  const handOff = async (
+    snapshot: PageSnapshot,
+    reason: HumanStepReason,
+    url: string,
+  ): Promise<BlockedReason | undefined> => {
+    const fallback: BlockedReason =
+      reason === "passkey"
+        ? "passkey-required"
+        : reason === "native-dialog"
+          ? "native-dialog"
+          : "human-challenge";
+    if (!options.human || handoffs >= maxHandoffs) return fallback;
+    record(snapshot, "handoff", { reason: fallback });
+    handoffs++;
+    const outcome = await options.human.request({
+      reason,
+      surface: options.human.contract.surface,
+      recipient: options.human.contract.recipient,
+      url,
+      attempt: handoffs,
+    });
+    if (outcome === "declined") return "human-declined";
+    if (outcome === "unavailable") return fallback;
+    return undefined;
+  };
 
   while (steps < maxSteps) {
     const url = await page.url();
@@ -223,11 +328,37 @@ export async function runCeremony(
     if (!allowed.has(originOf(url)))
       return finish({ status: "blocked", reason: "untrusted-origin", steps });
 
+    // A 401 has no form to fill: the credentials go to a browser dialog, which
+    // only a person can answer. It is visible in the response, not the page.
+    const response = await page.response?.();
+    const dialog =
+      response?.status === 401 &&
+      /^(basic|digest)\b/i.test(response.authenticate ?? "");
+
     const snapshot = await page.snapshot();
-    if (snapshot.challenge) {
-      // A human challenge is never handed to an interpreter to solve.
-      record(snapshot, "blocked", { reason: "human-challenge" });
-      return finish({ status: "blocked", reason: "human-challenge", steps });
+    // A step needing a person is never handed to an interpreter to solve.
+    // A passkey hint beside a password box is conditional UI: the page still
+    // accepts a password, so it is driven normally. Only a prompt with nothing
+    // else to fill actually requires the authenticator, and so a person.
+    const passkeyOnly =
+      snapshot.passkey &&
+      !snapshot.elements.some((element) => element.type === "password");
+    const humanStep: HumanStepReason | undefined = snapshot.challenge
+      ? "human-challenge"
+      : passkeyOnly
+        ? "passkey"
+        : dialog
+          ? "native-dialog"
+          : undefined;
+    if (humanStep) {
+      const refused = await handOff(snapshot, humanStep, url);
+      if (refused) {
+        record(snapshot, "blocked", { reason: refused });
+        return finish({ status: "blocked", reason: refused, steps });
+      }
+      await page.settle();
+      steps++;
+      continue;
     }
     const serialized = JSON.stringify(snapshot);
     if (contains(serialized, guarded))

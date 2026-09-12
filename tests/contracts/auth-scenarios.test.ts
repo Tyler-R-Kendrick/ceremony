@@ -7,6 +7,7 @@ import {
   type CeremonyRole,
   type PageSnapshot,
 } from "../../src/core/browser-contracts.js";
+import { flowKinds } from "../../src/core/schema.js";
 import {
   runCeremony,
   type CeremonyResult,
@@ -71,7 +72,7 @@ async function attempt(
   );
   t.after(() => context.provider.close());
 
-  const plan = scenario.plan(context);
+  const plan = await scenario.plan(context);
   const page = createHttpCeremonyPage();
   await page.goto(plan.entryUrl);
 
@@ -82,7 +83,13 @@ async function attempt(
     return base(input);
   };
   const { entryUrl: _entry, state, ...options } = plan;
-  const result = await runCeremony({ ...options, page, interpreter });
+  const human = scenario.human?.(page, identity);
+  const result = await runCeremony({
+    ...options,
+    page,
+    interpreter,
+    ...(human ? { human } : {}),
+  });
   return {
     result,
     inputs,
@@ -122,6 +129,18 @@ for (const scenario of authScenarios) {
 
     // The attempt terminates on its own terms, never by running out of patience.
     assert.ok(result.steps <= budget, `${summary} exceeded ${budget} steps`);
+    if (scenario.expect.handoffs !== undefined)
+      assert.equal(
+        result.handoffs,
+        scenario.expect.handoffs,
+        `${scenario.id} asked a person ${result.handoffs} times`,
+      );
+    if (!scenario.human)
+      assert.equal(
+        result.handoffs,
+        0,
+        `${scenario.id} has no person to ask but recorded a handoff`,
+      );
 
     // Every page the driver described must be a valid snapshot. A page it could
     // not express is a contract failure, not an interpreter miss.
@@ -256,7 +275,7 @@ test("a value the driver substituted cannot be echoed back out through a note", 
   const identity = createIdentity();
   const context = await startScenario(scenario, identity);
   t.after(() => context.provider.close());
-  const plan = scenario.plan(context);
+  const plan = await scenario.plan(context);
   const page = createHttpCeremonyPage();
   await page.goto(plan.entryUrl);
 
@@ -281,6 +300,40 @@ test("a value the driver substituted cannot be echoed back out through a note", 
     },
   );
   assert.ok(exfiltrated, "The attempt must have reached the confirmation step");
+});
+
+test("every normative flow kind has at least one scenario", () => {
+  // The catalog is not allowed to look complete while a documented flow has no
+  // page behind it. Adding a kind to `flowKinds` fails here until it does.
+  const covered = new Set(authScenarios.map((scenario) => scenario.flowKind));
+  for (const kind of flowKinds)
+    assert.ok(covered.has(kind), `No scenario exercises the ${kind} flow`);
+});
+
+test("a step that needs a person is never handed to the interpreter", async (t) => {
+  // Whether or not a person is available, the inference boundary is not asked
+  // to clear a challenge, satisfy an authenticator or answer a dialog.
+  for (const scenario of authScenarios.filter(
+    (entry) =>
+      entry.family === "Passkeys / WebAuthn" ||
+      entry.family === "HTTP Basic" ||
+      entry.id.startsWith("challenge-"),
+  )) {
+    const { inputs } = await attempt(t, scenario);
+    // Conditional passkey UI still accepts a password, so it is not a human
+    // step and the interpreter is expected to see it. A prompt with nothing
+    // else to fill is, and must never reach the interpreter.
+    const requiredAPerson = (input: InterpreterInput) =>
+      input.snapshot.challenge ||
+      (input.snapshot.passkey &&
+        !input.snapshot.elements.some(
+          (element) => element.type === "password",
+        ));
+    assert.ok(
+      inputs.every((input) => !requiredAPerson(input)),
+      `${scenario.id} asked the interpreter to act on a human step`,
+    );
+  }
 });
 
 test("the catalog covers the interaction families and outcomes this driver claims", () => {

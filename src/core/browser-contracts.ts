@@ -12,7 +12,17 @@ import { z } from "zod";
  */
 
 /** What the driver is trying to accomplish at a provider. */
-export const ceremonyGoals = ["sign-in", "registration", "authorize"] as const;
+export const ceremonyGoals = [
+  "sign-in",
+  "registration",
+  "authorize",
+  /**
+   * Cause a credential to be issued. The value is displayed for a person to
+   * place in a private collector; the ceremony succeeds when the credential
+   * exists, not when an agent has read it.
+   */
+  "obtain-credential",
+] as const;
 export const ceremonyGoalSchema = z.enum(ceremonyGoals);
 export type CeremonyGoal = z.infer<typeof ceremonyGoalSchema>;
 
@@ -80,6 +90,11 @@ export const pageSnapshotSchema = z
     alerts: z.array(z.string().max(300)).max(8),
     /** A human challenge (CAPTCHA, proof of personhood) is present. */
     challenge: z.boolean(),
+    /**
+     * The page asks for a platform authenticator. Detected from the standard
+     * `webauthn` autocomplete hint, not guessed from prose.
+     */
+    passkey: z.boolean(),
     elements: z.array(snapshotElementSchema).max(60),
   })
   .strict();
@@ -99,6 +114,12 @@ export const blockedReasons = [
   "unsupported-page",
   /** The browser left every origin the ceremony is permitted to act on. */
   "untrusted-origin",
+  /** A person was asked to take part and refused. */
+  "human-declined",
+  /** The step needs an authenticator this browser cannot drive. */
+  "passkey-required",
+  /** Credentials are demanded by a browser dialog, which has no page to fill. */
+  "native-dialog",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -127,10 +148,16 @@ export type CeremonyOutcome =
 /** Redirect parameters captured from the browser, never from a snapshot. */
 export type CeremonyCallback = { code: string; state?: string };
 
+/**
+ * Steps a transcript can record. `handoff` is the driver's own, never an
+ * interpreter's: asking a person to take part is not an inference decision.
+ */
+export type CeremonyStepAction = DriverAction["action"] | "handoff";
+
 /** One transcript entry. Values are excluded, so this is safe to persist. */
 export type CeremonyStep = {
   path: string;
-  action: DriverAction["action"];
+  action: CeremonyStepAction;
   role?: CeremonyRole;
   reason?: BlockedReason;
   note?: string;
@@ -140,6 +167,13 @@ const alertSelector =
   '[role="alert"],[role="alertdialog"],.alert-danger,.invalid-feedback,.form-error,.error-message,.field-error,[data-error]';
 const challengeSelector =
   '[data-captcha],[data-challenge],.g-recaptcha,.h-captcha,.cf-turnstile,iframe[title*="recaptcha" i],iframe[title*="challenge" i],iframe[src*="captcha" i]';
+/**
+ * The WebAuthn autocomplete hint is a real published signal a page gives for
+ * conditional passkey UI, so detecting it is reading the page rather than
+ * guessing at its wording.
+ */
+const passkeySelector =
+  '[autocomplete~="webauthn"],[data-webauthn],[data-passkey]';
 
 /**
  * Build a snapshot from a live document.
@@ -152,7 +186,7 @@ const challengeSelector =
  */
 export function snapshotDocument(
   doc: Document,
-  selectors: { alerts: string; challenge: string },
+  selectors: { alerts: string; challenge: string; passkey: string },
   onElement?: (element: Element, index: number) => void,
 ): PageSnapshot {
   const trim = (value: string | null | undefined, max: number) =>
@@ -277,6 +311,7 @@ export function snapshotDocument(
     headings,
     alerts,
     challenge: doc.querySelector(selectors.challenge) !== null,
+    passkey: doc.querySelector(selectors.passkey) !== null,
     elements,
   };
 }
@@ -285,4 +320,5 @@ export function snapshotDocument(
 export const snapshotSelectors = {
   alerts: alertSelector,
   challenge: challengeSelector,
+  passkey: passkeySelector,
 } as const;
