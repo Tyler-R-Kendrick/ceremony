@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ConnectorManifest } from "../../src/core/index.js";
 import type { EntryContext } from "../../src/core/resolution.js";
@@ -7,12 +7,27 @@ import {
   CeremonyView,
   ConnectorCard,
   ConnectorGrid,
+  createHttpTransport,
   HandoffMeter,
   type ConnectorStatus,
 } from "../../src/react/index.js";
 import "../../src/react/styles.css";
-import { manifests } from "../manifests.js";
-import { createShowcaseTransport, type Waiting } from "./transport.js";
+import { manifestSchema } from "../../src/core/index.js";
+import { z } from "zod";
+
+/**
+ * The real connection server, not a stand-in.
+ *
+ * An earlier version of this page carried an in-page transport that moved
+ * snapshots around without contacting anybody, and a footer admitting it. A
+ * demonstration that discloses it is not demonstrating anything is still not
+ * demonstrating anything, so it is gone: this talks to /api/live/ceremonies,
+ * which runs the real adapters against real providers with real encrypted
+ * storage. Served statically with no server behind it, the cards report that
+ * instead of inventing a result.
+ */
+const transport = createHttpTransport("/api/live/ceremonies");
+
 import "./showcase.css";
 
 /**
@@ -104,49 +119,12 @@ const declarations = {
 
 type DeclarationName = keyof typeof declarations;
 
-function ProviderQueue({
-  waiting,
-  provider,
-}: {
-  waiting: Waiting[];
-  provider: { approve(id: string): void; refuse(id: string): void };
-}) {
-  if (!waiting.length) return null;
-  return (
-    <aside className="stand-in">
-      <p className="stand-in-note">
-        A redirect is finished by the provider, not by the client — so the
-        client polls until it hears back. There is no provider here, so this
-        stands in.
-      </p>
-      {waiting.map((item) => (
-        <div className="stand-in-row" key={item.id}>
-          <span>
-            <strong>{item.service}</strong> · {item.method}
-            {item.userCode ? <code> {item.userCode}</code> : null}
-          </span>
-          <span className="stand-in-actions">
-            <button type="button" onClick={() => provider.approve(item.id)}>
-              Approve
-            </button>
-            <button type="button" onClick={() => provider.refuse(item.id)}>
-              Refuse
-            </button>
-          </span>
-        </div>
-      ))}
-    </aside>
-  );
-}
-
 function ConnectFlow({
   manifest,
-  transport,
   intent,
   onClose,
 }: {
   manifest: ConnectorManifest;
-  transport: ReturnType<typeof createShowcaseTransport>["transport"];
   intent: EntryContext;
   onClose(): void;
 }) {
@@ -174,17 +152,57 @@ function ConnectFlow({
   );
 }
 
+/**
+ * Whether the connection server behind this page is actually configured.
+ *
+ * undefined while asking; false when the page is being served with nothing
+ * behind it, or with a server that has no encrypted storage and no provider
+ * credentials. Either way the page says so — the one thing it must never do is
+ * render a Connect button that cannot connect.
+ */
+function useLiveServer(): {
+  live: boolean | undefined;
+  connectors: ConnectorManifest[];
+} {
+  const [state, setState] = useState<{
+    live: boolean | undefined;
+    connectors: ConnectorManifest[];
+  }>({ live: undefined, connectors: [] });
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/config")
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((config) => {
+        // The server's own list, parsed by the production schema. Rendering a
+        // card the server cannot serve is the same lie in a smaller place.
+        const connectors = z
+          .array(manifestSchema)
+          .catch([])
+          .parse(config?.liveManifests);
+        if (!cancelled)
+          setState({
+            live: Boolean(config?.liveAvailable) && connectors.length > 0,
+            connectors,
+          });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ live: false, connectors: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
 function App() {
-  const [waiting, setWaiting] = useState<Waiting[]>([]);
-  const [{ transport, provider }] = useState(() =>
-    createShowcaseTransport(manifests, setWaiting),
-  );
+  const { live, connectors } = useLiveServer();
   const [theme, setTheme] = useState<ThemeName>("default");
   const [declaration, setDeclaration] = useState<DeclarationName>("assistant");
   const intent = declarations[declaration].intent as EntryContext;
   const [chosen, setChosen] = useState<ConnectorManifest>();
   const [chatChosen, setChatChosen] = useState(false);
-  const github = manifests.find((entry) => entry.id === "github")!;
+  const github = connectors.find((entry) => entry.id === "github");
 
   const present = (manifest: ConnectorManifest) => ({
     status: statuses[manifest.id] ?? ("available" as ConnectorStatus),
@@ -245,6 +263,16 @@ function App() {
         </div>
       </header>
 
+      {live === false && (
+        <p className="offline" role="status">
+          <strong>No connection server is answering.</strong> Every connection
+          on this page is real, so there is nothing to show without one. Run{" "}
+          <code>npm run dev</code> with <code>CEREMONY_DATABASE</code> and{" "}
+          <code>CEREMONY_VAULT_KEY</code> set, then reload. The components below
+          are still the real ones; only the provider round trip is missing.
+        </p>
+      )}
+
       <div className="surfaces">
         <section className="surface" aria-label="In a host application">
           <div className="surface-chrome">
@@ -257,7 +285,6 @@ function App() {
             {chosen ? (
               <ConnectFlow
                 manifest={chosen}
-                transport={transport}
                 intent={intent}
                 onClose={() => setChosen(undefined)}
               />
@@ -266,7 +293,7 @@ function App() {
                 <div className="section-head">
                   <h2>Connections</h2>
                   <p>
-                    {manifests.length} services available ·{" "}
+                    {connectors.length} services available ·{" "}
                     {
                       Object.values(statuses).filter((s) => s === "connected")
                         .length
@@ -275,14 +302,13 @@ function App() {
                   </p>
                 </div>
                 <ConnectorGrid
-                  manifests={manifests}
+                  manifests={connectors}
                   intent={intent}
                   present={present}
                   onConnect={setChosen}
                 />
               </>
             )}
-            <ProviderQueue waiting={waiting} provider={provider} />
           </div>
         </section>
 
@@ -300,11 +326,15 @@ function App() {
                 GitHub needs someone to approve the installation, so I can get
                 everything else ready and then hand it to you once.
               </p>
-              {chatChosen ? (
+              {!github ? (
+                <p className="chat-foot">
+                  The server is not offering a GitHub connector right now, so
+                  there is nothing genuine to render here.
+                </p>
+              ) : chatChosen ? (
                 <div className="chat-embed">
                   <ConnectFlow
                     manifest={github}
-                    transport={transport}
                     intent={intent}
                     onClose={() => setChatChosen(false)}
                   />
@@ -367,11 +397,11 @@ function App() {
 
       <footer className="colophon">
         <p>
-          <strong>Real:</strong> the components, the connector manifests, the
-          screen templates, and the schema that validates every snapshot before
-          the UI will render it. <strong>Not real:</strong> the transport. No
-          provider is contacted, nothing is stored, and no credential is
-          handled.
+          Every connection here runs against the live connection server at{" "}
+          <code>/api/live/ceremonies</code> — real adapters, real providers,
+          real encrypted storage. There is no simulation behind this page. If
+          the server is not configured, the cards say so rather than pretending
+          to connect to something.
         </p>
       </footer>
     </div>

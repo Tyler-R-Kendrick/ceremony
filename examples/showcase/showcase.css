@@ -413,3 +413,16 @@ button.link:hover {
     animation: none !important;
   }
 }
+
+/* Shown when nothing is answering behind the page. Deliberately prominent:
+ * a reader must not mistake an unconfigured demo for a working one. */
+.offline {
+  margin: 0;
+  padding: 0.875rem 1rem;
+  border: 1px solid color-mix(in srgb, #b3261e 40%, var(--page-line));
+  border-radius: 10px;
+  background: color-mix(in srgb, #b3261e 8%, var(--page-surface));
+  color: var(--page-ink);
+  font-size: 0.875rem;
+  text-wrap: pretty;
+}
