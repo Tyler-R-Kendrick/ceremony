@@ -85,9 +85,12 @@ test("an unsubstituted collector refuses to mount and says so", async () => {
   }
   try {
     await import(`../src/mcp-app/entry.js?probe=${Date.now()}`);
-    // The mount rejects asynchronously; let its catch settle.
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const root = document.getElementById("collector");
+    // The mount rejects before its first await, so one microtask is enough
+    // today. Waiting for the message rather than for a fixed tick keeps that an
+    // implementation detail of the entry instead of a timing assumption here.
+    for (let tick = 0; tick < 100 && !root?.textContent; tick++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
     assert.match(root?.textContent ?? "", /could not start/i);
     assert.match(root?.textContent ?? "", /never enter credentials in chat/i);
   } finally {

@@ -291,8 +291,16 @@ test("choosing a connector hands the whole manifest back to the host", async () 
     '<html><body><div id="root"></div></body></html>',
   );
   // react-dom/client reads these off the global before it will render at all.
+  // The act flag is not cosmetic: without it React falls back to its real
+  // scheduler, so how much has flushed by the time the assertions run depends
+  // on how loaded the machine is. With it, act owns the queue and the test is
+  // deterministic. tests/teaching-component.test.ts sets it for the same reason.
   const originals = new Map<string, PropertyDescriptor | undefined>();
-  for (const [key, value] of Object.entries({ window, document })) {
+  for (const [key, value] of Object.entries({
+    window,
+    document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true });
   }
