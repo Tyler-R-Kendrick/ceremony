@@ -70,10 +70,14 @@ async function attempt(
     untrusted,
     overrides.seed,
   );
-  t.after(() => context.provider.close());
+  t.after(() => context.close());
 
   const plan = await scenario.plan(context);
-  const page = createHttpCeremonyPage();
+  // A signature belongs to the agent's client, not to a step of the ceremony,
+  // so it is configured before the first navigation and the driver never sees
+  // it.
+  const headers = scenario.clientHeaders?.(context);
+  const page = createHttpCeremonyPage(headers ? { headers } : {});
   await page.goto(plan.entryUrl);
 
   const inputs: InterpreterInput[] = [];
@@ -274,9 +278,13 @@ test("a value the driver substituted cannot be echoed back out through a note", 
   )!;
   const identity = createIdentity();
   const context = await startScenario(scenario, identity);
-  t.after(() => context.provider.close());
+  t.after(() => context.close());
   const plan = await scenario.plan(context);
-  const page = createHttpCeremonyPage();
+  // A signature belongs to the agent's client, not to a step of the ceremony,
+  // so it is configured before the first navigation and the driver never sees
+  // it.
+  const headers = scenario.clientHeaders?.(context);
+  const page = createHttpCeremonyPage(headers ? { headers } : {});
   await page.goto(plan.entryUrl);
 
   const honest = createScriptedInterpreter();

@@ -8,6 +8,10 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import type { AddressInfo } from "node:net";
 import { createMarkup, type Markup } from "./markup.js";
+import {
+  verifyRequestSignature,
+  type SignatureVerdict,
+} from "../web-bot-auth.js";
 
 /**
  * A self-hosted identity provider double.
@@ -79,6 +83,14 @@ export type ProviderBehavior = {
    * rather than silently accepted.
    */
   knownActors?: readonly string[];
+  /**
+   * Gate every page behind a Web Bot Auth signature
+   * (draft-meunier-webbotauth-httpsig-protocol-02). A request that does not
+   * carry a verifiable one is answered 403 with a human-verification
+   * interstitial, which is the fork a real deployment presents: a recognised
+   * agent passes straight through, an unrecognised one meets a person's work.
+   */
+  requireSignature?: boolean;
   clientId?: string;
   redirectUri?: string;
 };
@@ -150,6 +162,8 @@ export type ProviderDouble = {
   federated(): readonly string[];
   /** Accounts that completed an HTTP Basic exchange against the resource. */
   authenticatedBasic(): readonly string[];
+  /** Every signature verdict the gate reached, oldest first. */
+  signatureVerdicts(): readonly SignatureVerdict[];
   /** Validate an ID token the way a relying party would. */
   verifyIdToken(
     token: string,
@@ -232,6 +246,7 @@ export async function startAuthProvider(
   const assertions = new Set<string>();
   const basicAccounts = new Set<string>();
   const idTokenKey = randomBytes(32);
+  const verdicts: SignatureVerdict[] = [];
   const actorKey = randomBytes(32);
   const knownActors = new Set(behavior.knownActors ?? []);
   let closed = false;
@@ -345,13 +360,13 @@ export async function startAuthProvider(
       return `sid=${id}; Path=/; HttpOnly`;
     };
 
-    const challengePage = () => {
+    const challengePage = (status = 200) => {
       // The widget is the real obstacle; the form beside it is what a person
       // submits once they have satisfied it in their own browser.
       const token = randomBytes(8).toString("hex");
       if (behavior.challengeClearable) challenges.add(token);
       return send(
-        200,
+        status,
         markup.page(
           "Security check",
           `<h1>Confirm you are human</h1>
@@ -370,6 +385,32 @@ export async function startAuthProvider(
 
     const blocked = (at: ProviderBehavior["challengeAt"]) =>
       behavior.challengeAt === at && !cleared.has(browser());
+
+    /**
+     * The Web Bot Auth gate. A request carrying a signature this origin can
+     * verify goes straight to the page it asked for; anything else gets 403
+     * and the same interstitial a person would have to clear. The draft's
+     * `Accept-Signature` says what would have been accepted, so an agent that
+     * can sign learns to, rather than only learning it was refused.
+     */
+    const signatureGate = async (): Promise<boolean> => {
+      if (!behavior.requireSignature) return true;
+      const verdict = await verifyRequestSignature(
+        request.headers as Record<string, string | string[] | undefined>,
+        request.headers.host ?? "",
+      );
+      verdicts.push(verdict);
+      if (verdict.ok) return true;
+      // A cleared challenge stands in for the human-verified cookie a real
+      // interstitial sets, so a person's work is not demanded on every page.
+      if (cleared.has(browser())) return true;
+      response.setHeader(
+        "accept-signature",
+        'sig=("@authority");keyid;created;expires;tag="web-bot-auth"',
+      );
+      challengePage(403);
+      return false;
+    };
 
     const signInPage = (next: string, error?: string) => {
       if (blocked("sign-in")) return challengePage();
@@ -531,6 +572,10 @@ export async function startAuthProvider(
       );
 
     const next = url.searchParams.get("next") ?? "/";
+
+    // The challenge endpoint has to stay reachable, or a person sent to clear
+    // the interstitial would be refused on the way to clearing it.
+    if (url.pathname !== "/challenge" && !(await signatureGate())) return;
 
     if (url.pathname === "/.well-known/openid-configuration")
       return json(200, {
@@ -1280,6 +1325,7 @@ export async function startAuthProvider(
     installed: () => [...installations],
     federated: () => [...assertions],
     authenticatedBasic: () => [...basicAccounts],
+    signatureVerdicts: () => [...verdicts],
     verifyIdToken: async (token) => {
       try {
         const { payload } = await jwtVerify(token, idTokenKey, {

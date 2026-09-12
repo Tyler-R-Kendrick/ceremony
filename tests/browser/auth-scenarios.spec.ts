@@ -52,6 +52,8 @@ for (const scenario of browserCatalog) {
     const context = await startScenario(scenario, identity, untrusted);
     try {
       const plan = await scenario.plan(context);
+      const headers = scenario.clientHeaders?.(context);
+      if (headers) await page.setExtraHTTPHeaders(headers);
       await page.goto(plan.entryUrl, { waitUntil: "domcontentloaded" });
       const { entryUrl: _entry, state, ...options } = plan;
       const driven = createPlaywrightCeremonyPage(page);
@@ -80,7 +82,7 @@ for (const scenario of browserCatalog) {
 
       await scenario.confirm?.(context, result, state ?? {});
     } finally {
-      await context.provider.close();
+      await context.close();
       await untrusted?.close();
     }
   });
@@ -120,6 +122,6 @@ test("the snapshot a real browser produces matches the one parsed in Node", asyn
     const fromBrowser = await createPlaywrightCeremonyPage(page).snapshot();
     expect(fromBrowser).toEqual(fromNode);
   } finally {
-    await context.provider.close();
+    await context.close();
   }
 });

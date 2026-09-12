@@ -73,7 +73,7 @@ export type HttpCeremonyPage = CeremonyPage & {
 };
 
 export function createHttpCeremonyPage(
-  options: { maxRedirects?: number } = {},
+  options: { maxRedirects?: number; headers?: Record<string, string> } = {},
 ): HttpCeremonyPage {
   const maxRedirects = options.maxRedirects ?? 10;
   const jar: Jar = new Map();
@@ -92,7 +92,9 @@ export function createHttpCeremonyPage(
     let target = url;
     let request = init;
     for (let hop = 0; hop <= maxRedirects; hop++) {
-      const headers: Record<string, string> = {};
+      // Headers the client itself carries, such as a request signature. They
+      // belong to the agent's HTTP client, not to any step of the ceremony.
+      const headers: Record<string, string> = { ...options.headers };
       const cookies = cookieHeader(jar);
       if (cookies) headers["cookie"] = cookies;
       const dialog = dialogCredentials.get(new URL(target).origin);

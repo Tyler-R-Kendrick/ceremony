@@ -48,11 +48,13 @@ for (const scenario of runnable) {
     });
     t.after(async () => {
       await page.close();
-      await context.provider.close();
+      await context.close();
       await untrusted?.close();
     });
 
     const plan = await scenario.plan(context);
+    const headers = scenario.clientHeaders?.(context);
+    if (headers) await page.setHeaders(headers);
     await page.goto(plan.entryUrl);
     await page.startRecording("ceremony");
 

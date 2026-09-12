@@ -64,6 +64,10 @@ Each scenario states the provider situation, the preconditions that must hold be
 | `delegated-authorization`                                 | `oauth-code`       | OAuth delegated actor (proposed) | `account-exists`, `account-verified`, `registered-client`                   | `username`, `password`                                                          | completed with a code; token carries `act`                        |
 | `delegated-authorization-needs-the-agent-to-authenticate` | `oauth-code`       | OAuth delegated actor (proposed) | `account-exists`, `account-verified`, `registered-client`                   | `username`, `password`                                                          | completed with a code the agent must still authenticate to redeem |
 | `delegated-authorization-unknown-agent`                   | `oauth-code`       | OAuth delegated actor (proposed) | `account-exists`, `account-verified`, `registered-client`                   | `username`, `password`                                                          | blocked: `provider-error`                                         |
+| `signed-agent-passes-the-bot-gate`                        | `form`             | Signed agent identity (proposed) | `account-exists`, `account-verified`                                        | `username`, `password`                                                          | completed (0 handoffs)                                            |
+| `unsigned-agent-meets-the-bot-gate`                       | `form`             | Signed agent identity (proposed) | `human-available`, `account-exists`, `account-verified`                     | `username`, `password`                                                          | completed after 1 handoff                                         |
+| `expired-signature-is-not-a-signature`                    | `form`             | Signed agent identity (proposed) | `human-available`, `account-exists`, `account-verified`                     | `username`, `password`                                                          | completed after 1 handoff                                         |
+| `unknown-signing-key-is-refused`                          | `form`             | Signed agent identity (proposed) | `account-exists`, `account-verified`                                        | `username`, `password`                                                          | blocked: `human-challenge` (0 handoffs)                           |
 
 Every kind in `flowKinds` has at least one scenario, and a test fails when one does not: a catalog must not look complete while a documented flow has no page behind it. `client-credentials`, certificate and workload-federation profiles are deliberately absent — they have no browser step at all, and inventing a page for them would be a fixture pretending to be evidence.
 
@@ -82,6 +86,19 @@ Some of what an agent will have to authenticate against is still being written. 
 - **An agent the provider does not know is refused before anyone is asked.** That ends `blocked: provider-error`, never `consent-denied`; nobody declined, so reporting a refusal would misplace the blame.
 
 These prove the shape of the draft against pages and a token endpoint that implement it. None of them says a real provider does.
+
+**Signed agent identity** — [`draft-meunier-webbotauth-httpsig-protocol-02`](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02), the Web Bot Auth work. An agent signs its own requests with an Ed25519 key (RFC 9421, `tag="web-bot-auth"`, `keyid` being the RFC 7638 JWK thumbprint) and publishes the public half at `/.well-known/http-message-signatures-directory`; the origin fetches that directory and verifies before deciding what it is talking to.
+
+This is not an authentication method in the sense the rest of the catalog uses — it says nothing about which user is present — so it is modelled as a **gate in front of** an ordinary form sign-in rather than as a flow of its own. The signature belongs to the client the agent runs in, not to any step, so each runner configures it before the first navigation and the driver never sees it. One signature covers `@authority` only, which the draft permits and which is what lets a browser carry it as an ordinary header for a whole ceremony.
+
+What the four scenarios are really about is the **fork**:
+
+- A **recognised agent passes invisibly** and costs nobody anything — 0 handoffs.
+- An **unsigned agent is put in front of a person**, not turned away: 403 carrying `Accept-Signature` and the same interstitial a person clears, after which the ceremony resumes and completes. Same goal, same provider, one path costing a person's time.
+- A **lapsed signature is worth exactly nothing** — it costs the same handoff as arriving with no key at all.
+- A signature from a **key the directory never published** is refused, and with nobody to ask and a wall that cannot be cleared the run ends `blocked: human-challenge` having signed in as nobody.
+
+That last pair matters for a system meant to choose between paths: a signature is only an advantage while it verifies, and the cost of it not verifying is a person's attention.
 
 ## A step that needs a person is a step, not a failure
 
