@@ -201,6 +201,7 @@ export async function startAuthProvider(
   const assertions = new Set<string>();
   const basicAccounts = new Set<string>();
   const idTokenKey = randomBytes(32);
+  let closed = false;
   const clients = new Map<string, string>();
   const tokens = new Map<string, string>();
   const outbox: MailMessage[] = [];
@@ -1182,10 +1183,16 @@ export async function startAuthProvider(
           session.email.toLowerCase() === email.toLowerCase() &&
           session.factors >= 2,
       ),
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      // `close` alone waits on idle keep-alive sockets, which a fixture that
+      // just served a ceremony always has; dropping them releases the port.
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      );
+    },
   };
 }
 
@@ -1223,12 +1230,17 @@ export async function startUntrustedOrigin(): Promise<{
     server.listen(0, "127.0.0.1", () => resolve()),
   );
   const { port } = server.address() as AddressInfo;
+  let shut = false;
   return {
     origin: `http://127.0.0.1:${port}`,
     submissions: () => [...submissions],
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      if (shut) return;
+      shut = true;
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      );
+    },
   };
 }

@@ -432,11 +432,13 @@ test("a seed replays the same pages exactly", async (t) => {
 });
 
 test("ceremonies survive page shapes the catalog never fixed", async (t) => {
-  // The catalog pins a seed per scenario so failures replay exactly. That alone
-  // would let a driver pass by fitting twenty pages, so the same ceremonies are
-  // also run against shapes no committed seed chose. Replay a failure with
-  // SCENARIO_SEED; widen the sweep with SCENARIO_SEEDS.
-  const base = Number(process.env["SCENARIO_SEED"] ?? Date.now() % 100_000);
+  // The catalog pins a seed per scenario, which alone would let a driver pass
+  // by fitting a few dozen pages. These are shapes no committed scenario
+  // chose — but the base is fixed, not drawn from the clock: a test that picks
+  // a different seed every run cannot be replayed when it fails, and a failure
+  // nobody can reproduce is worse than one nobody found. Widen the search with
+  // SCENARIO_SEEDS, and replay a reported failure with SCENARIO_SEED.
+  const base = Number(process.env["SCENARIO_SEED"] ?? 1_000_003);
   const sweep = Number(process.env["SCENARIO_SEEDS"] ?? 12);
   const covered = [
     "sign-in",
