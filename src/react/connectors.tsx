@@ -2,7 +2,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { ConnectorManifest } from "../core/schema.js";
 import {
-  humanHandoffs,
   resolveConnection,
   type ConnectionRoute,
   type EntryContext,
@@ -104,6 +103,7 @@ export function HandoffMeter({ count, of = 3 }: HandoffMeterProps) {
   const total = Math.max(of, count);
   return (
     <span
+      data-ceremony-meter=""
       className="handoff"
       data-cost={count}
       title={
@@ -138,7 +138,7 @@ export function StatusChip({
   const tone =
     status === "connected" ? "ok" : status === "attention" ? "stop" : "muted";
   return (
-    <span className="chip" data-tone={tone}>
+    <span data-ceremony-chip="" className="chip" data-tone={tone}>
       <span className="dot" aria-hidden="true" />
       {children ??
         (status === "connected"
@@ -211,18 +211,24 @@ export function ConnectorCard({
               <>
                 {permissions.slice(0, 3).map((permission) => (
                   <li key={permission}>
-                    <span className="chip">{permission}</span>
+                    <span data-ceremony-chip="" className="chip">
+                      {permission}
+                    </span>
                   </li>
                 ))}
                 {permissions.length > 3 && (
                   <li>
-                    <span className="chip">+{permissions.length - 3}</span>
+                    <span data-ceremony-chip="" className="chip">
+                      +{permissions.length - 3}
+                    </span>
                   </li>
                 )}
               </>
             ) : (
               <li>
-                <span className="chip">{routeLabels[resolved.route]}</span>
+                <span data-ceremony-chip="" className="chip">
+                  {routeLabels[resolved.route]}
+                </span>
               </li>
             )}
           </ul>
@@ -307,6 +313,5 @@ export function costOf(
   manifest: ConnectorManifest,
   intent?: EntryContext,
 ): number {
-  const resolved = resolveQuietly(manifest, intent);
-  return resolved ? humanHandoffs(resolved.method) : 0;
+  return resolveQuietly(manifest, intent)?.handoffs ?? 0;
 }

@@ -22,7 +22,8 @@ const css = readFileSync(
 
 /** Each theme state's block, by the selector that introduces it. */
 const blocks: Record<string, RegExp> = {
-  light: /:where\(\[data-ceremony\], \[data-ceremony-card\]\) \{([\s\S]*?)\n\}/,
+  light:
+    /:where\(\s*\[data-ceremony\],\s*\[data-ceremony-card\],[\s\S]*?\) \{([\s\S]*?)\n\}/,
   "dark (system)":
     /@media \(prefers-color-scheme: dark\) \{([\s\S]*?)\n  \}\n\}/,
   "dark (chosen)":
@@ -88,8 +89,11 @@ for (const [theme, pattern] of Object.entries(blocks))
     );
     const failures: string[] = [];
     for (const [front, back, threshold, what] of pairs) {
-      // focus falls back to accent, which is the same colour by default.
-      const a = colours[front] ?? colours.accent;
+      // focus is the one token declared as `var(--ceremony-focus, accent)`
+      // rather than a hex, so it alone falls back. Every other missing token is
+      // a hole in the palette, and substituting the accent would hide it.
+      const a =
+        front === "focus" ? (colours.focus ?? colours.accent) : colours[front];
       const b = colours[back];
       assert.ok(a && b, `${theme}: ${front}/${back} should both be declared`);
       const ratio = contrast(a, b);

@@ -161,11 +161,15 @@ export type MethodSelection = z.infer<typeof methodSelectionSchema>;
  * and resolves against another.
  */
 export function scopesRequired(context: EntryContext = {}): string[] {
-  const parsed = entryContextSchema.parse(context);
+  return scopesOf(entryContextSchema.parse(context));
+}
+
+/** The same union, for callers that already hold a parsed declaration. */
+function scopesOf(intent: z.output<typeof entryContextSchema>): string[] {
   return [
     ...new Set([
-      ...parsed.requiredScopes,
-      ...parsed.permissions.flatMap((permission) => permission.scopes),
+      ...intent.requiredScopes,
+      ...intent.permissions.flatMap((permission) => permission.scopes),
     ]),
   ];
 }
@@ -180,7 +184,7 @@ export function explainCeremonySelection(
   manifestSchema.parse(manifest);
   const intent = entryContextSchema.parse(context);
   const { surface, identity } = intent;
-  const requiredScopes = scopesRequired(intent);
+  const requiredScopes = scopesOf(intent);
   const budget = interruptionBudget[intent.interruptions];
   const held = new Set(intent.heldConfiguration);
   const order =

@@ -140,9 +140,31 @@ export function CeremonyView({
   // resolved from what the host declared and described in terms of what is
   // about to happen — never offered as a list of protocols to pick from.
   const resolved = useMemo(
-    () => resolveQuietly(manifest, model.client.context),
-    [manifest, model.client.context],
+    () => resolveQuietly(manifest, model.client.intent),
+    [manifest, model.client.intent],
   );
+  // Two methods can reach the same route — an OAuth app and a GitHub App both
+  // end in a provider approval — and two identical options are not a choice.
+  // The connector's own label separates them, and only then, so a manifest
+  // offering genuinely different routes still never names a protocol.
+  const methodChoices = useMemo(() => {
+    const perRoute = new Map<ConnectionRoute, number>();
+    for (const method of manifest.methods) {
+      const route = routeFor(method);
+      perRoute.set(route, (perRoute.get(route) ?? 0) + 1);
+    }
+    return new Map(
+      manifest.methods.map((method) => {
+        const route = routeFor(method);
+        return [
+          method.id,
+          perRoute.get(route)! > 1
+            ? `${routeChoices[route]} · ${method.label}`
+            : routeChoices[route],
+        ];
+      }),
+    );
+  }, [manifest]);
   const id = useId();
   const region = useRef<HTMLDivElement>(null);
   const [selectedMethod, setSelectedMethod] = useState(
@@ -219,7 +241,7 @@ export function CeremonyView({
                   method id, so nothing downstream changes. */}
               {manifest.methods.map((method) => (
                 <option value={method.id} key={method.id}>
-                  {routeChoices[routeFor(method)]}
+                  {methodChoices.get(method.id) ?? method.label}
                 </option>
               ))}
             </select>

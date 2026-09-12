@@ -109,6 +109,14 @@ function browserNavigate(url: string, target: "same-tab" | "new-tab") {
 export function createCeremonyClient(options: CeremonyClientOptions) {
   const manifest = manifestSchema.parse(options.manifest);
   const transport = options.transport ?? createHttpTransport();
+  // What the host declared, and what will actually run. They differ in one
+  // field: surface defaults from the environment, so the same declaration
+  // resolves a different method on a server than in a browser. Resolution uses
+  // the environment-aware one, because that is where the ceremony runs;
+  // anything a view *describes* before the ceremony starts must use the
+  // declared one, or a server render and its hydration print different
+  // sentences about the same connection.
+  const intent = entryContextSchema.parse(options.context ?? {});
   const context = entryContextSchema.parse({
     surface: typeof window === "undefined" ? "headless" : "browser",
     ...options.context,
@@ -445,14 +453,12 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
   }
   return {
     manifest,
-    /** What the host declared it needs. The view describes the route from it. */
-    context,
     /**
-     * Manual selection exists for authoring and gallery surfaces, which are
-     * looking at methods on purpose. A connecting person is not, so the default
-     * resolves a route instead of offering a list of protocols.
+     * The host's declaration, exactly as given. A view describes the route from
+     * this rather than from the environment-augmented context, so the sentence
+     * it prints is the same on a server and in the browser that hydrates it.
      */
-    selection: options.selection ?? "automatic",
+    intent,
     getState: () => state,
     getServerState: () => initial,
     subscribe(listener: () => void) {

@@ -30,8 +30,16 @@ export function collectorDocument(html: string, brokerOrigin: string): string {
 
 /**
  * Reads the artifact `npm run build:mcp-app` produces. Absent means the build
- * step has not run: the caller leaves the collector unregistered and says so,
+ * step has not run: a caller leaves the collector unregistered and says so,
  * rather than registering one that cannot work.
+ *
+ * No production caller supplies this yet, and the build still pays for the
+ * bundle. Wiring it needs a decision this code cannot make on its own:
+ * registerPrivateCollector takes a CeremonyController, which only the
+ * reference application constructs, while the hosted deployment drives the
+ * teaching runs model whose ids are not controller instance ids. Until that is
+ * settled, in-chat collection stays unavailable and private input remains a
+ * browser handoff.
  */
 export async function readCollectorHtml(
   from = new URL("../../artifacts/mcp-app/collector.html", import.meta.url),

@@ -54,6 +54,10 @@ const themes = {
     label: "Ink",
     vars: {
       "--ceremony-accent": "#111827",
+      // A host that moves the accent has to move what sits on it: the default
+      // pairs a dark on-accent with the dark theme, which against this accent
+      // would be black on black.
+      "--ceremony-on-accent": "#ffffff",
       "--ceremony-accent-wash": "#eef0f4",
       "--ceremony-radius-lg": "6px",
       "--ceremony-radius": "4px",
@@ -64,6 +68,7 @@ const themes = {
     label: "Orchid",
     vars: {
       "--ceremony-accent": "#8b2fb8",
+      "--ceremony-on-accent": "#ffffff",
       "--ceremony-accent-wash": "#f7ecfb",
       "--ceremony-radius-lg": "20px",
       "--ceremony-radius": "14px",
@@ -179,10 +184,15 @@ function useLiveServer(): {
           .array(manifestSchema)
           .catch([])
           .parse(config?.liveManifests);
+        // `liveManifests` is answered even by a server with no live controller
+        // behind it, so the list is kept only when the server also says it can
+        // actually run one. Otherwise the page would print "no connection
+        // server is answering" above a grid of working Connect buttons.
+        const available = Boolean(config?.liveAvailable);
         if (!cancelled)
           setState({
-            live: Boolean(config?.liveAvailable) && connectors.length > 0,
-            connectors,
+            live: available && connectors.length > 0,
+            connectors: available ? connectors : [],
           });
       })
       .catch(() => {

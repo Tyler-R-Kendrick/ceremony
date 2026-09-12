@@ -51,6 +51,10 @@ async function bundle() {
 /**
  * The script is inlined rather than referenced, because the client renders this
  * document on its own origin with no way to fetch a sibling file from ours.
+ *
+ * `</script` is neutralised on the way in. The bundle has no such sequence
+ * today, but one string literal that grew one would silently truncate the
+ * document mid-script — in the one page whose job is handling credentials.
  */
 function page(script) {
   return `<!doctype html>
@@ -69,7 +73,7 @@ function page(script) {
   </head>
   <body>
     <div id="collector"></div>
-    <script>${script}</script>
+    <script>${script.replaceAll("</script", "<\\/script")}</script>
   </body>
 </html>
 `;

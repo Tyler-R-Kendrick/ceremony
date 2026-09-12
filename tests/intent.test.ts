@@ -384,3 +384,37 @@ test("a permission's scopes reach the server, not only the client", async () => 
     /No available authentication method/,
   );
 });
+
+test("what a view describes does not depend on there being a window", async () => {
+  const { createCeremonyClient } = await import("../src/core/index.js");
+  const manifest = build([
+    // The browser policy prefers oauth-code; the headless policy prefers device.
+    // A declaration that names no surface must not resolve differently on a
+    // server than in the browser that hydrates it.
+    { id: "oauth", kind: "oauth-code" },
+    { id: "device", kind: "device" },
+  ]);
+  assert.equal(typeof globalThis.window, "undefined");
+  // Never reached: initialize() is not called, so nothing is transported.
+  const refuse = async () => {
+    throw new Error("this client is never started");
+  };
+  const transport = { start: refuse, read: refuse, act: refuse };
+  const client = createCeremonyClient({ manifest, transport });
+  // The declaration a view describes carries the schema's surface, not the
+  // environment's, so it is the same value wherever it is rendered.
+  assert.equal(client.intent.surface, "browser");
+  assert.equal(resolveConnection(manifest, client.intent).method.id, "oauth");
+  // A host that really is headless still says so, and still gets the device
+  // route — the environment is a default, never an override.
+  const declared = createCeremonyClient({
+    manifest,
+    transport,
+    context: { surface: "headless" },
+  });
+  assert.equal(declared.intent.surface, "headless");
+  assert.equal(
+    resolveConnection(manifest, declared.intent).method.id,
+    "device",
+  );
+});

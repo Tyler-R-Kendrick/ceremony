@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { CeremonyView } from "../src/react/index.js";
+import { ConnectorCard, CeremonyView } from "../src/react/index.js";
+import { manifests } from "../examples/manifests.js";
 import {
   carrierFor,
   catalogue,
@@ -52,7 +53,7 @@ function screen(kind, step) {
     error: "",
     manifest,
     execute: async () => {},
-    client: { manifest, context: {}, selection: "automatic" },
+    client: { manifest, intent: {} },
   };
   return renderToString(
     createElement(CeremonyView, {
@@ -64,6 +65,47 @@ function screen(kind, step) {
 }
 
 const count = (total, noun) => `${total} ${noun}${total === 1 ? "" : "s"}`;
+
+/**
+ * The kickoff card, before any flow starts.
+ *
+ * `status` is presentation the host supplies — a page cannot know whether
+ * anything is connected — so the three are shown side by side as the states a
+ * host can put a card into, not as a claim about any account.
+ */
+const cardStates = [
+  {
+    status: "available",
+    note: "not connected yet",
+    intent: {
+      permissions: [
+        { label: "Read your repositories" },
+        { label: "Open pull requests for you" },
+      ],
+    },
+  },
+  { status: "connected", note: "already connected, so it offers management" },
+  { status: "attention", note: "connected, but something needs a person" },
+];
+
+const cards = () =>
+  cardStates
+    .map(({ status, note, intent }, index) => {
+      const manifest = manifests[index % manifests.length];
+      return `
+      <li>
+        <div class="screen-label"><span>${escape(note)}</span></div>
+        <div class="screen">${renderToString(
+          createElement(ConnectorCard, {
+            manifest,
+            status,
+            onConnect: () => {},
+            ...(intent ? { intent } : {}),
+          }),
+        )}</div>
+      </li>`;
+    })
+    .join("");
 
 /** What each flow is, in the terms the rest of the project uses. */
 const flowNotes = {
@@ -191,6 +233,20 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
     </p>
   </header>
 
+  <section class="movement" aria-labelledby="cards-heading">
+    <div class="movement-head">
+      <h2 id="cards-heading">Where it starts</h2>
+      <p>
+        Before any flow runs, a card says what the service is, what the
+        integration will be able to do in the host's own words, and how many
+        times the route will stop to ask a person. That last number is the one
+        the resolver minimises, so a card cannot advertise a cost the chosen
+        route was not chosen for.
+      </p>
+    </div>
+    <ol class="screens">${cards()}</ol>
+  </section>
+
   <section class="movement" aria-labelledby="flows-heading">
     <div class="movement-head">
       <h2 id="flows-heading">The flows</h2>
@@ -283,7 +339,10 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
 
 <script>
   const buttons = [...document.querySelectorAll("[data-filter]")];
-  const rows = [...document.querySelectorAll("tbody tr")];
+  // Scoped to the catalogue: the registration table above is a different
+  // section with its own prose, and filtering it would leave a heading over a
+  // table with nothing but its column names.
+  const rows = [...document.querySelectorAll(".goal tbody tr")];
   const goals = [...document.querySelectorAll(".goal")];
   for (const button of buttons)
     button.addEventListener("click", () => {

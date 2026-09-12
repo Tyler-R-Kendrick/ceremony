@@ -6,8 +6,13 @@
  *
  * 1. Every selector is wrapped in :where(), so the whole sheet has zero
  *    specificity and a host's own rules win without !important.
- * 2. Nothing is styled outside [data-ceremony] and [data-ceremony-card]. There
- *    is no reset, no body rule, no global font.
+ * 2. Nothing is styled outside a ceremony root: [data-ceremony] for a flow,
+ *    [data-ceremony-card] for a kickoff card, and [data-ceremony-meter] /
+ *    [data-ceremony-chip] for the two components that also ship on their own.
+ *    Each of those declares the token layer, so a meter or a chip rendered
+ *    outside a card still resolves its colours instead of losing them. No
+ *    selector is a bare class name — `.chip` belongs to the host, not to us —
+ *    and there is no reset, no body rule, no global font.
  * 3. Type is inherited, never imposed. A component library that drags a webfont
  *    into someone's site is not pluggable.
  *
@@ -24,7 +29,12 @@
  * a nested root recomputes from whatever the host set, at any depth.
  */
 
-:where([data-ceremony], [data-ceremony-card]) {
+:where(
+  [data-ceremony],
+  [data-ceremony-card],
+  [data-ceremony-meter],
+  [data-ceremony-chip]
+) {
   /* Surfaces and text */
   --_ceremony-bg: var(--ceremony-bg, #ffffff);
   --_ceremony-ground: var(--ceremony-ground, #f4f6fa);
@@ -61,7 +71,9 @@
 @media (prefers-color-scheme: dark) {
   :where(
     :root:not([data-theme="light"]) [data-ceremony],
-    :root:not([data-theme="light"]) [data-ceremony-card]
+    :root:not([data-theme="light"]) [data-ceremony-card],
+    :root:not([data-theme="light"]) [data-ceremony-meter],
+    :root:not([data-theme="light"]) [data-ceremony-chip]
   ) {
     --_ceremony-bg: var(--ceremony-bg, #131a24);
     --_ceremony-ground: var(--ceremony-ground, #0a0e15);
@@ -83,7 +95,9 @@
 
 :where(
   [data-theme="dark"] [data-ceremony],
-  [data-theme="dark"] [data-ceremony-card]
+  [data-theme="dark"] [data-ceremony-card],
+  [data-theme="dark"] [data-ceremony-meter],
+  [data-theme="dark"] [data-ceremony-chip]
 ) {
   --_ceremony-bg: var(--ceremony-bg, #131a24);
   --_ceremony-ground: var(--ceremony-ground, #0a0e15);
@@ -106,7 +120,11 @@
   [data-ceremony],
   [data-ceremony] *,
   [data-ceremony-card],
-  [data-ceremony-card] *
+  [data-ceremony-card] *,
+  [data-ceremony-meter],
+  [data-ceremony-meter] *,
+  [data-ceremony-chip],
+  [data-ceremony-chip] *
 ) {
   box-sizing: border-box;
 }
@@ -245,7 +263,7 @@
  * product knows that a list of logos does not, so it is on every card.
  */
 
-:where(.handoff) {
+:where([data-ceremony-meter]) {
   display: inline-flex;
   align-items: center;
   gap: 0.4375rem;
@@ -255,29 +273,29 @@
   white-space: nowrap;
 }
 
-:where(.handoff-pips) {
+:where([data-ceremony-meter] .handoff-pips) {
   display: inline-flex;
   gap: 2px;
 }
 
-:where(.handoff-pip) {
+:where([data-ceremony-meter] .handoff-pip) {
   inline-size: 0.375rem;
   block-size: 0.75rem;
   border-radius: 1px;
   background: var(--_ceremony-border-strong);
 }
 
-:where(.handoff-pip[data-on="true"]) {
+:where([data-ceremony-meter] .handoff-pip[data-on="true"]) {
   background: var(--_ceremony-human);
 }
 
-:where(.handoff[data-cost="0"]) {
+:where([data-ceremony-meter][data-cost="0"]) {
   color: var(--_ceremony-ok);
 }
 
 /* ------------------------------------------------------------------- chips */
 
-:where(.chip) {
+:where([data-ceremony-chip]) {
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
@@ -292,31 +310,31 @@
   white-space: nowrap;
 }
 
-:where(.chip[data-tone="ok"]) {
+:where([data-ceremony-chip][data-tone="ok"]) {
   color: var(--_ceremony-ok);
   background: var(--_ceremony-ok-wash);
   border-color: color-mix(in srgb, var(--_ceremony-ok) 28%, transparent);
 }
 
-:where(.chip[data-tone="human"]) {
+:where([data-ceremony-chip][data-tone="human"]) {
   color: var(--_ceremony-human);
   background: var(--_ceremony-human-wash);
   border-color: color-mix(in srgb, var(--_ceremony-human) 28%, transparent);
 }
 
-:where(.chip[data-tone="stop"]) {
+:where([data-ceremony-chip][data-tone="stop"]) {
   color: var(--_ceremony-stop);
   background: var(--_ceremony-stop-wash);
   border-color: color-mix(in srgb, var(--_ceremony-stop) 28%, transparent);
 }
 
-:where(.chip[data-tone="accent"]) {
+:where([data-ceremony-chip][data-tone="accent"]) {
   color: var(--_ceremony-accent);
   background: var(--_ceremony-accent-wash);
   border-color: color-mix(in srgb, var(--_ceremony-accent) 28%, transparent);
 }
 
-:where(.chip .dot) {
+:where([data-ceremony-chip] .dot) {
   inline-size: 0.375rem;
   block-size: 0.375rem;
   border-radius: 50%;
@@ -530,7 +548,9 @@
 
 :where([data-ceremony] input, [data-ceremony] select) {
   font: inherit;
-  font-size: 0.9375rem;
+  /* 1rem exactly: iOS Safari zooms the page when a focused field is smaller,
+     which reflows a credential form mid-entry. */
+  font-size: 1rem;
   min-block-size: 2.75rem;
   min-inline-size: 0;
   inline-size: 100%;
@@ -753,6 +773,21 @@
   max-inline-size: none;
 }
 
+/* The notice wrapper is a plain block with no gap of its own, and every p in
+ * the sheet has its margin zeroed, so the two stack flush without this. */
+:where([data-ceremony] .notice + .pending) {
+  margin-block-start: 0.5rem;
+}
+
+:where(
+  [data-ceremony][data-step="error"] .notice,
+  [data-ceremony][data-step="expired"] .notice,
+  [data-ceremony-part="error"] .notice
+) {
+  border-inline-start-color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+}
+
 :where([data-ceremony] .pending) {
   display: flex;
   align-items: center;
@@ -773,7 +808,7 @@
   font-size: 0.875rem;
 }
 
-:where([data-ceremony] .sr-only, .sr-only) {
+:where([data-ceremony] .sr-only) {
   position: absolute;
   inline-size: 1px;
   block-size: 1px;
