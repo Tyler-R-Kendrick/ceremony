@@ -19,6 +19,7 @@ import {
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
+import { ceremonyAgentTools } from "./agent-tools.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
@@ -98,72 +99,16 @@ export async function teachingHttp(
     if (path.startsWith("/tools/")) {
       requireCapability(actor, "executor");
       if (!post) return reply({ error: "unavailable" }, 405);
-      if (path === "/tools/connect") {
-        const input = z.strictObject({ connectorId: id }).parse(body);
-        const delegated = await runtime.connectForAgent(
-          actor,
-          input.connectorId,
-        );
-        let run = delegated.run;
-        for (const node of run.nodes) {
-          if (node.verified) continue;
-          const result = await runtime.commands.advance(
-            delegated.actor,
-            run.id,
-            node.id,
-            run.revision,
-            `native:${run.id}:${node.id}:${run.revision}`,
-          );
-          run = await runtime.commands.snapshot(delegated.actor, run.id);
-          if (result.state !== "complete") break;
-        }
-        return reply(run);
-      }
-      if (path === "/tools/snapshot") {
-        const input = z.strictObject({ runId: id }).parse(body);
-        return reply(await runtime.commands.snapshot(actor, input.runId));
-      }
-      const input =
-        path === "/tools/advance"
-          ? {
-              kind: "advance" as const,
-              ...z
-                .strictObject({
-                  runId: id,
-                  nodeId: id,
-                  revision,
-                  commandId: id,
-                })
-                .parse(body),
-            }
-          : path === "/tools/cancel"
-            ? {
-                kind: "cancel" as const,
-                ...z.strictObject({ runId: id, revision }).parse(body),
-              }
-            : undefined;
-      if (!input) return reply({ error: "unavailable" }, 404);
-      await runtime.commands.snapshot(actor, input.runId);
-      const delegated = await runtime.agentActor(input.runId);
-      if (
-        delegated.tenantId !== actor.tenantId ||
-        delegated.subjectId !== actor.subjectId ||
-        delegated.sessionId !== actor.sessionId
-      )
-        throw new AuthorizationError("denied");
-      if (input.kind === "advance")
-        await runtime.commands.advance(
-          delegated,
-          input.runId,
-          input.nodeId,
-          input.revision,
-          input.commandId,
-        );
-      else {
-        await runtime.commands.cancel(delegated, input.runId, input.revision);
-        await runtime.cancel?.(delegated, input.runId);
-      }
-      return reply(await runtime.commands.snapshot(actor, input.runId));
+      const tools = ceremonyAgentTools(runtime);
+      if (path === "/tools/connect")
+        return reply(await tools.connect(actor, body));
+      if (path === "/tools/snapshot")
+        return reply(await tools.snapshot(actor, body));
+      if (path === "/tools/advance")
+        return reply(await tools.advance(actor, body));
+      if (path === "/tools/cancel")
+        return reply(await tools.cancel(actor, body));
+      return reply({ error: "unavailable" }, 404);
     }
     if (path === "/capabilities" && !post)
       return reply({
