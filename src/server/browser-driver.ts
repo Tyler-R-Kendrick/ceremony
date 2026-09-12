@@ -305,9 +305,29 @@ export async function runCeremony(
     return undefined;
   };
 
+  /**
+   * Whether this is the callback the ceremony is waiting for. Compared by
+   * origin and path, never by prefix: `/callbackx` shares a prefix with
+   * `/callback` and is a different endpoint, so a prefix test would accept a
+   * code from somewhere the ceremony never nominated.
+   */
+  const isCallback = (current: string): boolean => {
+    if (!options.redirectUri) return false;
+    try {
+      const arrived = new URL(current);
+      const expected = new URL(options.redirectUri);
+      return (
+        arrived.origin === expected.origin &&
+        arrived.pathname === expected.pathname
+      );
+    } catch {
+      return false;
+    }
+  };
+
   while (steps < maxSteps) {
     const url = await page.url();
-    if (options.redirectUri && url.startsWith(options.redirectUri)) {
+    if (isCallback(url)) {
       const parsed = new URL(url);
       const code = parsed.searchParams.get("code");
       const error = parsed.searchParams.get("error");
@@ -416,8 +436,10 @@ export async function runCeremony(
       } else await page.settle();
       steps++;
       const settled = fingerprint(await page.snapshot());
-      if (settled === previous && ++unchanged >= stallLimit)
-        return finish({ status: "stalled", steps });
+      if (settled === previous) {
+        if (++unchanged >= stallLimit)
+          return finish({ status: "stalled", steps });
+      } else unchanged = 0;
       previous = settled;
       continue;
     }

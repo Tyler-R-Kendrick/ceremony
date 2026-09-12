@@ -15,6 +15,7 @@
 - [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
 - [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
 - [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
+- [Ceremony discovery](ceremony-discovery.md): reading a provider to work out what getting in requires, without submitting anything, and writing it down as a shareable plan.
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [Host identity](host-identity.md), [production deployment](production-deployment.md), and [persistence migration](persistence-migration.md).
 - [Threat model](ceremony-teaching-threat-model.md): protected sources, prohibited sinks and residual risks.

@@ -194,10 +194,18 @@ export function snapshotDocument(
   const labelFor = (element: Element): string => {
     const aria = trim(element.getAttribute("aria-label"), 200);
     if (aria) return aria;
+    // `aria-labelledby` is a list of ids whose text is joined, not one id.
+    // Passing the whole value to getElementById finds nothing when a label is
+    // assembled from several elements, leaving the field unnamed.
     const labelledBy = element.getAttribute("aria-labelledby");
     if (labelledBy) {
-      const target = doc.getElementById(labelledBy);
-      if (target) return trim(target.textContent, 200);
+      const named = labelledBy
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => doc.getElementById(id)?.textContent ?? "")
+        .filter(Boolean)
+        .join(" ");
+      if (named) return trim(named, 200);
     }
     const id = element.getAttribute("id");
     if (id && /^[A-Za-z][\w:.-]*$/.test(id)) {

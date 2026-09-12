@@ -70,10 +70,14 @@ async function attempt(
     untrusted,
     overrides.seed,
   );
-  t.after(() => context.provider.close());
+  t.after(() => context.close());
 
   const plan = await scenario.plan(context);
-  const page = createHttpCeremonyPage();
+  // A signature belongs to the agent's client, not to a step of the ceremony,
+  // so it is configured before the first navigation and the driver never sees
+  // it.
+  const headers = scenario.clientHeaders?.(context);
+  const page = createHttpCeremonyPage(headers ? { headers } : {});
   await page.goto(plan.entryUrl);
 
   const inputs: InterpreterInput[] = [];
@@ -274,9 +278,13 @@ test("a value the driver substituted cannot be echoed back out through a note", 
   )!;
   const identity = createIdentity();
   const context = await startScenario(scenario, identity);
-  t.after(() => context.provider.close());
+  t.after(() => context.close());
   const plan = await scenario.plan(context);
-  const page = createHttpCeremonyPage();
+  // A signature belongs to the agent's client, not to a step of the ceremony,
+  // so it is configured before the first navigation and the driver never sees
+  // it.
+  const headers = scenario.clientHeaders?.(context);
+  const page = createHttpCeremonyPage(headers ? { headers } : {});
   await page.goto(plan.entryUrl);
 
   const honest = createScriptedInterpreter();
@@ -459,6 +467,32 @@ test("ceremonies survive page shapes the catalog never fixed", async (t) => {
         `${id} failed at seed ${seed} (replay with SCENARIO_SEED=${seed} SCENARIO_SEEDS=1): ${detail(result)}`,
       );
     }
+  }
+});
+
+test("a scenario that tracks a draft says which draft, and the catalog agrees", () => {
+  // Proposed behaviour must never read as settled. A family marked proposed
+  // has to name the Internet-Draft and the revision it was written against,
+  // and the published catalog has to cite the same revision, so a reader can
+  // tell whether the draft has moved on since these pages were written.
+  const doc = readFileSync(
+    new URL("../../docs/auth-scenario-doubles.md", import.meta.url),
+    "utf8",
+  );
+  for (const scenario of authScenarios) {
+    const family = scenario.family.endsWith("(proposed)");
+    assert.equal(
+      scenario.proposed !== undefined,
+      family,
+      `${scenario.id}: a proposed family and a declared draft must agree`,
+    );
+    if (!scenario.proposed) continue;
+    assert.match(scenario.proposed.draft, /^draft-[a-z0-9-]+$/);
+    assert.match(scenario.proposed.revision, /^\d{2}$/);
+    assert.ok(
+      doc.includes(`${scenario.proposed.draft}-${scenario.proposed.revision}`),
+      `${scenario.id} cites a draft revision the catalog does not`,
+    );
   }
 });
 

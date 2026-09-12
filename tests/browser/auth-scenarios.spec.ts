@@ -52,6 +52,8 @@ for (const scenario of browserCatalog) {
     const context = await startScenario(scenario, identity, untrusted);
     try {
       const plan = await scenario.plan(context);
+      const headers = scenario.clientHeaders?.(context);
+      if (headers) await page.setExtraHTTPHeaders(headers);
       await page.goto(plan.entryUrl, { waitUntil: "domcontentloaded" });
       const { entryUrl: _entry, state, ...options } = plan;
       const driven = createPlaywrightCeremonyPage(page);
@@ -80,7 +82,7 @@ for (const scenario of browserCatalog) {
 
       await scenario.confirm?.(context, result, state ?? {});
     } finally {
-      await context.provider.close();
+      await context.close();
       await untrusted?.close();
     }
   });
@@ -90,7 +92,9 @@ test("every scenario a browser can host is in the browser catalog", () => {
   const excluded = authScenarios.filter(
     (scenario) => scenario.browserRunnerSkip !== undefined,
   );
-  expect(browserCatalog.length + excluded.length).toBe(authScenarios.length);
+  // `browserCatalog` is this set's complement, so counting them against the
+  // total proves nothing. The reason and the bound are what matter.
+  expect(browserCatalog.length).toBeGreaterThan(0);
   // An exclusion without a stated reason is just a gap.
   for (const scenario of excluded)
     expect(
@@ -120,6 +124,6 @@ test("the snapshot a real browser produces matches the one parsed in Node", asyn
     const fromBrowser = await createPlaywrightCeremonyPage(page).snapshot();
     expect(fromBrowser).toEqual(fromNode);
   } finally {
-    await context.provider.close();
+    await context.close();
   }
 });

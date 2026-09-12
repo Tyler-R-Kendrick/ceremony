@@ -45,11 +45,34 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:flows
+      # Built even when a flow fails: a reviewer wants the page most when
+      # something did not do what the catalog says it does.
+      - run: npm run flows:gallery
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: auth-flows
           path: artifacts/flows/
+  security:
+    # `verify` runs these too, but it reports each stage as counts alone: its
+    # stage output is captured and discarded by design, so a failure there says
+    # "1 failed" and nothing more. These are also the only files that run just
+    # once per CI run — Stryker's dry run covers `tests/*.test.ts` and
+    # `tests/contracts/*.test.ts`, and nothing else reaches `tests/security/`.
+    # Running the same npm script here, outside that wrapper, means a failure
+    # arrives with the name of the test that failed. No browsers: nothing in
+    # this profile drives one.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:security
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04

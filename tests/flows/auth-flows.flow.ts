@@ -48,11 +48,13 @@ for (const scenario of runnable) {
     });
     t.after(async () => {
       await page.close();
-      await context.provider.close();
+      await context.close();
       await untrusted?.close();
     });
 
     const plan = await scenario.plan(context);
+    const headers = scenario.clientHeaders?.(context);
+    if (headers) await page.setHeaders(headers);
     await page.goto(plan.entryUrl);
     await page.startRecording("ceremony");
 
@@ -74,10 +76,19 @@ for (const scenario of runnable) {
       `${JSON.stringify(
         {
           scenario: scenario.id,
+          title: scenario.title,
           flowKind: scenario.flowKind,
           family: scenario.family,
           expected: scenario.expect,
           status: result.status,
+          // The reason and the callback are both asserted below, so the
+          // evidence has to carry them: a file that says only "blocked"
+          // cannot be read back to see whether it blocked for the right
+          // reason.
+          ...(result.status === "blocked" ? { reason: result.reason } : {}),
+          ...(result.status === "completed" && result.callback
+            ? { callback: true }
+            : {}),
           steps: result.steps,
           handoffs: result.handoffs,
           transcript: result.transcript,
@@ -127,14 +138,21 @@ for (const scenario of runnable) {
 }
 
 test("the flow catalog covers every scenario a browser can host", () => {
-  const excluded = authScenarios.length - runnable.length;
-  assert.equal(
-    runnable.length + excluded,
-    authScenarios.length,
-    "Every scenario is either run or explicitly excluded",
+  // `runnable` is the complement of the excluded set, so counting one against
+  // the other proves nothing. What is worth asserting is that every exclusion
+  // states a reason, and that the list stays short — a growing one means the
+  // runner is drifting away from the catalog rather than covering it.
+  const excluded = authScenarios.filter(
+    (scenario) => scenario.browserRunnerSkip !== undefined,
   );
+  for (const scenario of excluded)
+    assert.ok(
+      (scenario.browserRunnerSkip ?? "").length > 30,
+      `${scenario.id} must say why a browser cannot host it`,
+    );
   assert.ok(
-    excluded <= 2,
-    `Only browser-chrome walls may be excluded; ${excluded} were`,
+    excluded.length <= 2,
+    `Only browser-chrome walls may be excluded; ${excluded.length} were`,
   );
+  assert.ok(runnable.length > 0, "the runner must actually run something");
 });

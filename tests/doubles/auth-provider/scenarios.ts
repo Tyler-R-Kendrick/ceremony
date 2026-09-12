@@ -14,6 +14,13 @@ import {
 } from "../../../src/server/browser-driver.js";
 import { createHumanParticipant } from "../human-participant.js";
 import {
+  createSignatureKey,
+  signRequestHeaders,
+  startSignatureDirectory,
+  unpublishedKey,
+  type SignatureKey,
+} from "../web-bot-auth.js";
+import {
   startAuthProvider,
   type ProviderBehavior,
   type ProviderDouble,
@@ -43,6 +50,22 @@ export type ScenarioPrecondition =
   | "mailbox-readable"
   | "registered-client";
 
+/**
+ * A specification that is still a draft.
+ *
+ * A scenario carrying this tracks behaviour that official bodies have proposed
+ * but not ratified, so a reader can tell it apart from a settled flow and knows
+ * which revision was read. Drafts move; the revision is what makes a later
+ * mismatch visible instead of silent.
+ */
+export type ProposedSpec = {
+  /** Internet-Draft name, without the revision suffix. */
+  draft: string;
+  /** The revision this scenario was written against, e.g. "02". */
+  revision: string;
+  title: string;
+};
+
 export type ScenarioExpectation = { handoffs?: number } & (
   | { status: "completed"; callback?: boolean }
   | { status: "blocked"; reason: BlockedReason }
@@ -53,6 +76,18 @@ export type ScenarioExpectation = { handoffs?: number } & (
 
 export type ScenarioContext = {
   provider: ProviderDouble;
+  /**
+   * The agent's signing identity and published key directory, when the
+   * scenario needs one. Signing belongs to the client an agent runs in, not to
+   * the ceremony, so the runner configures it before the first navigation and
+   * the driver never sees it.
+   */
+  signing?: {
+    key: SignatureKey;
+    directory: { origin: string; reads(): number };
+  };
+  /** Release everything the scenario started. */
+  close(): Promise<void>;
   /** An origin deliberately outside the ceremony's allowlist. */
   untrusted?: {
     origin: string;
@@ -99,12 +134,24 @@ export type AuthScenario = {
    */
   flowKind: FlowKind;
   goal: CeremonyGoal;
+  /**
+   * Set when the scenario tracks an unratified draft rather than a settled
+   * specification. Nothing here claims a provider implements it.
+   */
+  proposed?: ProposedSpec;
   preconditions: readonly ScenarioPrecondition[];
   /** Roles the caller must be able to supply for this ceremony to be possible. */
   provides: readonly string[];
   behavior: (context: { untrustedOrigin?: string }) => ProviderBehavior;
   /** Whether the scenario needs the untrusted origin started. */
   needsUntrustedOrigin?: boolean;
+  /** Whether the scenario needs a signing key and a published directory. */
+  needsSignatureDirectory?: boolean;
+  /**
+   * Headers the agent's HTTP client carries on every request, computed once
+   * the provider is up because a signature covers the host it is sent to.
+   */
+  clientHeaders?: (context: ScenarioContext) => Record<string, string>;
   /**
    * A person who takes part when the browser cannot finish a step. Built from
    * the live page, because a handoff means acting in that same browser.
@@ -181,6 +228,21 @@ const existing = (identity: ScenarioContext["identity"], verified = true) => [
     verified,
   },
 ];
+
+/** The agent these delegated-authorization scenarios act as. */
+const agentId = "urn:ceremony:agent:filing-assistant";
+
+const webBotAuth: ProposedSpec = {
+  draft: "draft-meunier-webbotauth-httpsig-protocol",
+  revision: "02",
+  title: "HTTP Message Signatures for automated traffic",
+};
+
+const onBehalfOfUser: ProposedSpec = {
+  draft: "draft-oauth-ai-agents-on-behalf-of-user",
+  revision: "02",
+  title: "OAuth 2.0 Extension: On-Behalf-Of User Authorization for AI Agents",
+};
 
 export const authScenarios: readonly AuthScenario[] = [
   {
@@ -1162,6 +1224,310 @@ export const authScenarios: readonly AuthScenario[] = [
         throw new Error("A public resource must not create an account");
     },
   },
+  {
+    id: "delegated-authorization",
+    title: "consent names the agent, and the token says who is acting",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 87,
+      delegation: true,
+      knownActors: [agentId],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    expect: { status: "completed", callback: true },
+    confirm: async ({ provider }, result, state) => {
+      if (result.status !== "completed" || !result.callback)
+        throw new Error("A delegated authorization must return a code");
+      const redeemed = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId) },
+      );
+      if (redeemed.status !== 200)
+        throw new Error("An authenticated agent must be able to redeem");
+      const token = await provider.readAccessToken(
+        String(redeemed.body["access_token"] ?? ""),
+      );
+      // The point of the draft: the token records that the agent acted, and
+      // for whom. A token without `act` is an ordinary user token.
+      if (token?.act?.sub !== agentId)
+        throw new Error("The issued token must name the acting agent");
+      if (!token.sub)
+        throw new Error("The issued token must still name the user");
+    },
+  },
+  {
+    id: "delegated-authorization-needs-the-agent-to-authenticate",
+    title: "an approved code alone does not buy a delegated token",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 88,
+      delegation: true,
+      knownActors: [agentId],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    // The ceremony genuinely completes: a person approved and a code came
+    // back. Whether the agent may use it is a separate question, answered at
+    // the token endpoint, and the two must not be conflated.
+    expect: { status: "completed", callback: true },
+    confirm: async ({ provider }, result, state) => {
+      if (result.status !== "completed" || !result.callback)
+        throw new Error("A delegated authorization must return a code");
+      const bare = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+      );
+      if (bare.status === 200)
+        throw new Error("A code for an actor must not redeem unauthenticated");
+      const impostor = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken("urn:ceremony:agent:other") },
+      );
+      if (impostor.status === 200)
+        throw new Error("A different agent must not redeem this code");
+      const forged = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId, { issuer: "wrong" }) },
+      );
+      if (forged.status === 200)
+        throw new Error("A self-signed actor token must not be accepted");
+      // The refusals must not have spent the code: the real agent still works.
+      const genuine = await provider.exchange(
+        result.callback.code,
+        state.verifier ?? "",
+        { actorToken: await provider.actorToken(agentId) },
+      );
+      if (genuine.status !== 200)
+        throw new Error("A refused attempt must not consume the grant");
+    },
+  },
+  {
+    id: "delegated-authorization-unknown-agent",
+    title: "an agent the provider does not know is refused before consent",
+    family: "OAuth delegated actor (proposed)",
+    flowKind: "oauth-code",
+    goal: "authorize",
+    proposed: onBehalfOfUser,
+    preconditions: ["account-exists", "account-verified", "registered-client"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 89,
+      delegation: true,
+      knownActors: ["urn:ceremony:agent:someone-else"],
+    }),
+    plan: ({ provider, identity }) => {
+      const request = provider.authorization({ actor: agentId });
+      return {
+        entryUrl: request.url,
+        goal: "authorize",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        redirectUri: provider.redirectUri,
+        protectedValues: [identity.password],
+        state: { verifier: request.verifier, state: request.state },
+      };
+    },
+    // Not a denied consent: nobody was asked. The provider rejected the
+    // request, and reporting that as a refusal would misplace the blame.
+    expect: { status: "blocked", reason: "provider-error" },
+    confirm: async ({ provider }) => {
+      if (provider.issuedTokens().length !== 0)
+        throw new Error("A refused delegation must issue nothing");
+    },
+  },
+  {
+    id: "signed-agent-passes-the-bot-gate",
+    title: "a signed request reaches the sign-in page without asking anyone",
+    family: "Signed agent identity (proposed)",
+    flowKind: "form",
+    goal: "sign-in",
+    proposed: webBotAuth,
+    preconditions: ["account-exists", "account-verified"],
+    provides: ["username", "password"],
+    needsSignatureDirectory: true,
+    behavior: () => ({ seed: 90, requireSignature: true }),
+    clientHeaders: ({ provider, signing }) =>
+      signing
+        ? signRequestHeaders(
+            signing.key,
+            new URL(provider.origin).host,
+            signing.directory.origin,
+          )
+        : {},
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}/signin`,
+      goal: "sign-in",
+      secrets: signInSecrets(identity),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    // The gate is invisible when it passes, which is the point: an agent the
+    // site recognises does not cost a person anything.
+    expect: { status: "completed", handoffs: 0 },
+    confirm: async ({ provider, signing }) => {
+      const verdicts = provider.signatureVerdicts();
+      if (verdicts.length === 0)
+        throw new Error("The gate must have inspected the request");
+      if (!verdicts.every((verdict) => verdict.ok))
+        throw new Error("Every request in a signed ceremony must verify");
+      if ((signing?.directory.reads() ?? 0) === 0)
+        throw new Error("The origin must have read the agent's directory");
+    },
+  },
+  {
+    id: "unsigned-agent-meets-the-bot-gate",
+    title: "an unsigned agent is put in front of a person, not turned away",
+    family: "Signed agent identity (proposed)",
+    flowKind: "form",
+    goal: "sign-in",
+    proposed: webBotAuth,
+    preconditions: ["human-available", "account-exists", "account-verified"],
+    provides: ["username", "password"],
+    behavior: () => ({
+      seed: 91,
+      requireSignature: true,
+      challengeClearable: true,
+    }),
+    // No signature at all: this is the same agent arriving without the key.
+    human: (page) => createHumanParticipant(page),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}/signin`,
+      goal: "sign-in",
+      secrets: signInSecrets(identity),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    // The fork: same goal, same provider, one path costing a person's time.
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider }) => {
+      const verdicts = provider.signatureVerdicts();
+      if (!verdicts.some((verdict) => !verdict.ok && verdict.why === "absent"))
+        throw new Error("The gate must have found no signature to check");
+    },
+  },
+  {
+    id: "expired-signature-is-not-a-signature",
+    title: "a lapsed signature costs a person the same work as none",
+    family: "Signed agent identity (proposed)",
+    flowKind: "form",
+    goal: "sign-in",
+    proposed: webBotAuth,
+    preconditions: ["human-available", "account-exists", "account-verified"],
+    provides: ["username", "password"],
+    needsSignatureDirectory: true,
+    behavior: () => ({
+      seed: 92,
+      requireSignature: true,
+      challengeClearable: true,
+    }),
+    clientHeaders: ({ provider, signing }) =>
+      signing
+        ? signRequestHeaders(
+            signing.key,
+            new URL(provider.origin).host,
+            signing.directory.origin,
+            // Created and expired well before this request was made.
+            { ageSeconds: 3_600, lifetimeSeconds: 60 },
+          )
+        : {},
+    human: (page) => createHumanParticipant(page),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}/signin`,
+      goal: "sign-in",
+      secrets: signInSecrets(identity),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider }) => {
+      if (
+        !provider
+          .signatureVerdicts()
+          .some((verdict) => !verdict.ok && verdict.why === "expired")
+      )
+        throw new Error("A lapsed signature must be refused as expired");
+    },
+  },
+  {
+    id: "unknown-signing-key-is-refused",
+    title: "a signature from a key the directory never published is refused",
+    family: "Signed agent identity (proposed)",
+    flowKind: "form",
+    goal: "sign-in",
+    proposed: webBotAuth,
+    preconditions: ["account-exists", "account-verified"],
+    provides: ["username", "password"],
+    needsSignatureDirectory: true,
+    behavior: () => ({ seed: 93, requireSignature: true }),
+    clientHeaders: ({ provider, signing }) =>
+      signing
+        ? signRequestHeaders(
+            signing.key,
+            new URL(provider.origin).host,
+            signing.directory.origin,
+            // A well-formed signature the published key cannot account for.
+            { signWith: unpublishedKey() },
+          )
+        : {},
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}/signin`,
+      goal: "sign-in",
+      secrets: signInSecrets(identity),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    // Nobody to ask and a wall that cannot be cleared: the honest outcome is
+    // to name the obstacle rather than keep trying or claim access.
+    expect: { status: "blocked", reason: "human-challenge", handoffs: 0 },
+    confirm: async ({ provider, identity }) => {
+      if (
+        !provider
+          .signatureVerdicts()
+          .some((verdict) => !verdict.ok && verdict.why === "bad-signature")
+      )
+        throw new Error("An unpublished key must fail signature verification");
+      if (await provider.verifyAccess(identity.email))
+        throw new Error("A refused agent must not have signed in");
+    },
+  },
 ];
 
 /** Supply the name a provider requires for the thing a ceremony creates. */
@@ -1210,5 +1576,19 @@ export async function startScenario(
     ...(seed === undefined ? {} : { seed }),
     accounts: seededAccounts,
   });
-  return untrusted ? { provider, identity, untrusted } : { provider, identity };
+  const key = scenario.needsSignatureDirectory
+    ? createSignatureKey()
+    : undefined;
+  const directory = key ? await startSignatureDirectory([key]) : undefined;
+  const close = async () => {
+    await provider.close();
+    await directory?.close();
+  };
+  return {
+    provider,
+    identity,
+    close,
+    ...(untrusted ? { untrusted } : {}),
+    ...(key && directory ? { signing: { key, directory } } : {}),
+  };
 }

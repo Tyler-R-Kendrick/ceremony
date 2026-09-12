@@ -76,6 +76,11 @@ export type AgentBrowserOptions = {
 };
 
 export type AgentBrowserPage = CeremonyPage & {
+  /**
+   * Headers this browser carries on every request, such as a request
+   * signature. Set before the first navigation; the driver never sees them.
+   */
+  setHeaders(headers: Record<string, string>): Promise<void>;
   /** Console messages the page produced, oldest first. */
   console(): Promise<string>;
   /** Uncaught page errors. */
@@ -160,6 +165,9 @@ export function createAgentBrowserPage(
     },
     settle: async () => {
       await call("wait", String(settleMs));
+    },
+    setHeaders: async (headers) => {
+      await call("set", "headers", JSON.stringify(headers));
     },
     console: () => read("console"),
     errors: () => read("errors"),
