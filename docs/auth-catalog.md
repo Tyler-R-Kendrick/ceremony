@@ -27,4 +27,6 @@ The simulation page maps six families to GitHub, Stripe, Jira, Supabase and Neon
 
 The auth.md adapter uses `urn:workos:agent-auth:grant-type:claim`, explicitly configured identity/claim endpoints, and service-signed JWT-bearer exchange. It does not infer endpoints from Markdown. Its local provider signs ES256 assertions and validates issuer, audience, type, and expiry. Anonymous tokens are invalidated when claiming completes, and the adapter replaces the connection's stored credential with the returned claimed credential.
 
+Sign-in, registration with emailed-code or link confirmation, second factors, authorization code with PKCE and consent, device approval, and the prerequisite ceremonies between them are additionally exercised as [auth scenario doubles](auth-scenario-doubles.md): self-hosted pages, randomized per instance, driven by the isolated-browser ceremony driver. That is deterministic local evidence for the interaction families named in the table, not certification of any provider that implements them.
+
 The catalog can grow without adding speculative runtime APIs. Implement a new family only with its concrete adapter, screen requirements, failure semantics, and runnable protocol/browser checks.

@@ -9,3 +9,6 @@ export * from "./mcp-app.js";
 export * from "./environment.js";
 export * from "./arazzo.js";
 export * from "./services.js";
+export * from "./browser-interpreter.js";
+export * from "./browser-driver.js";
+export * from "./browser-page.js";

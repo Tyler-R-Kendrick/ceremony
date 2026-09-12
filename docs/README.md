@@ -14,6 +14,7 @@
 - [Development setup](development.md) and [contributing](../CONTRIBUTING.md): root layout, Node, devcontainer, local state and safe cleanup.
 - [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
 - [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
+- [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [Host identity](host-identity.md), [production deployment](production-deployment.md), and [persistence migration](persistence-migration.md).
 - [Threat model](ceremony-teaching-threat-model.md): protected sources, prohibited sinks and residual risks.
