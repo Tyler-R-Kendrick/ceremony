@@ -34,6 +34,9 @@ import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
+import { createCeremonyMcpHandler } from "../src/server/mcp.js";
+import { createMcpIdentity } from "../src/server/mcp-identity.js";
+import { createDevIssuer } from "./issuer.js";
 import type { TeachingRuntime } from "../src/server/teaching-runtime.js";
 
 export interface ReferenceOptions {
@@ -52,6 +55,13 @@ export interface ReferenceOptions {
     cloudflare?: { accountId: string; apiToken: string };
     a2h?: A2HOptions;
   };
+  /**
+   * Serve the MCP endpoint and a development identity issuer at publicOrigin.
+   * Needs an HTTPS origin — run a tunnel to this port and pass its URL as
+   * publicOrigin, so a chat client can reach it and the in-chat collector
+   * (which refuses anything but HTTPS) can mount.
+   */
+  mcp?: boolean;
 }
 export async function startReferenceApp(options: ReferenceOptions = {}) {
   if (process.env.NODE_ENV === "production")
@@ -282,6 +292,44 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           },
         })
       : options.teaching;
+  // Built on first use rather than at startup: the issuer lives in this same
+  // process, so resolving it eagerly would mean waiting on a listener that is
+  // not accepting connections yet.
+  let mcpEndpoint:
+    | Promise<{ fetch(request: Request): Promise<Response | undefined> }>
+    | undefined;
+  const mcpSurface = () =>
+    (mcpEndpoint ??= (async () => {
+      const issuer = await createDevIssuer({
+        origin,
+        audiences: [`${origin}/mcp`],
+      });
+      const authenticate = await createMcpIdentity({
+        issuer: origin,
+        audience: `${origin}/mcp`,
+        metadata: issuer.discovery,
+        // Only ever true for a loopback origin; behind a tunnel the origin is
+        // HTTPS and this is false, which is the configuration to test with.
+        development: origin.startsWith("http://"),
+        mapClaims: async (claims) => ({
+          tenantId: "development",
+          subjectId: String(claims.sub),
+          capabilities: ["executor"],
+        }),
+      });
+      const mcp = createCeremonyMcpHandler(teaching!, {
+        resourceUrl: `${origin}/mcp`,
+        issuer: origin,
+        authenticate,
+        serverName: "Ceremony (development)",
+      });
+      return {
+        async fetch(request: Request) {
+          return (await issuer.handle(request)) ?? (await mcp.fetch(request));
+        },
+      };
+    })());
+
   const server = createServer(async (request, response) => {
     try {
       response.setHeader("x-content-type-options", "nosniff");
@@ -290,6 +338,33 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.headers.host !== new URL(origin).host)
         throw new CeremonyError("Unrecognized host", 403);
       const url = new URL(request.url ?? "/", origin);
+      if (
+        options.mcp &&
+        teaching &&
+        (url.pathname === "/mcp" ||
+          url.pathname.startsWith("/.well-known/") ||
+          url.pathname.startsWith("/oauth/"))
+      ) {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers))
+          if (typeof value === "string") headers.set(name, value);
+        const incoming = new Request(url, {
+          method: request.method ?? "GET",
+          headers,
+          ...(["POST", "PUT", "PATCH"].includes(request.method ?? "")
+            ? { body: await readBody(request) }
+            : {}),
+        });
+        const result = await (await mcpSurface()).fetch(incoming);
+        if (result) {
+          response.statusCode = result.status;
+          result.headers.forEach((value, name) =>
+            response.setHeader(name, value),
+          );
+          response.end(Buffer.from(await result.arrayBuffer()));
+          return;
+        }
+      }
       if (!url.pathname.startsWith("/api/")) {
         vite.middlewares(request, response, () =>
           json(response, { error: "Not found" }, 404),
@@ -932,6 +1007,7 @@ if (
     };
   const app = await startReferenceApp({
     teaching: true,
+    mcp: process.env.CEREMONY_MCP === "true",
     port: number.parse(process.env.CEREMONY_PORT ?? 4173),
     providerPort: number.parse(process.env.CEREMONY_PROVIDER_PORT ?? 4174),
     live,
