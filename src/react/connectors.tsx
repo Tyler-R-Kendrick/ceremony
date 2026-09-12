@@ -23,12 +23,19 @@ export function declaredHandoffs(method: AuthMethod): number {
   return method.contract ? 1 + method.contract.prerequisites.length : 1;
 }
 
-/** Anonymous access is reachable without anyone being asked for anything. */
+/**
+ * Anonymous access is reachable without anyone being asked for anything.
+ *
+ * Completion decides this, not the kind. The manifest schema already refuses
+ * non-authenticated completion on every kind except authmd-anonymous, so the
+ * kind alone adds nothing — and it would be wrong in the one case it differs,
+ * calling an authmd-anonymous method that completes authenticated free when it
+ * is not. The kind is the fallback only for a manifest carrying no contract.
+ */
 export function startsWithoutAPerson(method: AuthMethod): boolean {
-  return (
-    method.kind === "authmd-anonymous" ||
-    (method.contract?.completion.ownership.includes("anonymous") ?? false)
-  );
+  return method.contract
+    ? method.contract.completion.ownership.includes("anonymous")
+    : method.kind === "authmd-anonymous";
 }
 
 /**

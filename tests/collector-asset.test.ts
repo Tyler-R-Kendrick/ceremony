@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { parseHTML } from "linkedom";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -65,4 +66,33 @@ test("a real built document is read back whole", async () => {
   const path = join(directory, "collector.html");
   await writeFile(path, built);
   assert.equal(await readCollectorHtml(pathToFileURL(path)), built);
+});
+
+/**
+ * The bundled entry mounts with the placeholder still in it when a server
+ * forgets to substitute the broker origin. `mountPrivateCollector` refuses a
+ * non-HTTPS origin, so the document must fail closed and say where to go —
+ * never render a credential form pointing at nothing.
+ */
+test("an unsubstituted collector refuses to mount and says so", async () => {
+  const { window, document } = parseHTML(
+    '<html><body><div id="collector"></div></body></html>',
+  );
+  const originals = new Map<string, PropertyDescriptor | undefined>();
+  for (const [key, value] of Object.entries({ window, document })) {
+    originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { value, configurable: true });
+  }
+  try {
+    await import(`../src/mcp-app/entry.js?probe=${Date.now()}`);
+    // The mount rejects asynchronously; let its catch settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const root = document.getElementById("collector");
+    assert.match(root?.textContent ?? "", /could not start/i);
+    assert.match(root?.textContent ?? "", /never enter credentials in chat/i);
+  } finally {
+    for (const [key, descriptor] of originals)
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+  }
 });
