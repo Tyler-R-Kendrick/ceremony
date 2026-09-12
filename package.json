@@ -84,6 +84,7 @@
     "test:scenarios": "node --import tsx --test tests/contracts/auth-scenarios.test.ts tests/browser-driver.test.ts",
     "test:flows": "node --import tsx --test tests/flows/*.flow.ts",
     "flows:gallery": "node scripts/flow-gallery.mjs",
+    "build:gallery": "node --import tsx scripts/build-gallery.mjs",
     "test:snapshots": "node --import tsx --test tests/characterization.test.ts",
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
     "test:fuzz": "node --import tsx --test tests/fuzz.test.ts",

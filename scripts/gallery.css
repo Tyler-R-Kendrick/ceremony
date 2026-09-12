@@ -1,0 +1,416 @@
+/*
+ * Chrome for the published catalogue.
+ *
+ * Deliberately separate from src/react/styles.css, which is the component
+ * library being shown. Nothing here reaches inside [data-ceremony]: a page that
+ * restyled the components would be showing its own work rather than theirs.
+ */
+
+:root {
+  --page-ground: #eef1f6;
+  --page-surface: #ffffff;
+  --page-sunken: #f4f6fa;
+  --page-ink: #0e1621;
+  --page-muted: #5a6679;
+  --page-line: #dde3ec;
+  --page-rule: #c3ccda;
+  --page-accent: #2540d9;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-ground: #070a10;
+    --page-surface: #0f151d;
+    --page-sunken: #0a0e15;
+    --page-ink: #e7ecf4;
+    --page-muted: #93a0b4;
+    --page-line: #1e2632;
+    --page-rule: #34404f;
+    --page-accent: #8296ff;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-ground: #070a10;
+  --page-surface: #0f151d;
+  --page-sunken: #0a0e15;
+  --page-ink: #e7ecf4;
+  --page-muted: #93a0b4;
+  --page-line: #1e2632;
+  --page-rule: #34404f;
+  --page-accent: #8296ff;
+}
+
+body {
+  margin: 0;
+  background: var(--page-ground);
+  color: var(--page-ink);
+  font-family:
+    "Instrument Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125em;
+}
+
+.page {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-inline: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 62rem;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: clamp(1.875rem, 4.5vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+/* The one claim on the page that a reader must not have to hunt for. */
+.honesty {
+  margin: 0.5rem 0 0;
+  padding: 0.875rem 1rem;
+  border-inline-start: 3px solid var(--page-rule);
+  background: var(--page-sunken);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.875rem;
+  color: var(--page-muted);
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.honesty strong {
+  color: var(--page-ink);
+  font-weight: 600;
+}
+
+.movement {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.movement-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.5rem;
+}
+
+.movement-head h2 {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.movement-head p {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--page-muted);
+  font-size: 0.9375rem;
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------- flows */
+
+.flows {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.flow {
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+  overflow: hidden;
+}
+
+.flow-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.125rem;
+  border-block-end: 1px solid var(--page-line);
+  background: var(--page-sunken);
+}
+
+.flow-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.flow-head p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--page-muted);
+}
+
+.flow-count {
+  margin-inline-start: auto !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+code.kind {
+  padding: 0.125rem 0.4375rem;
+  border: 1px solid var(--page-rule);
+  border-radius: 999px;
+  background: var(--page-surface);
+  color: var(--page-ink);
+  white-space: nowrap;
+}
+
+/* A filmstrip, not a wrapped grid: a flow is a sequence, and a grid orphans
+ * the fourth screen of a four-screen flow onto a row of its own, which reads
+ * as an afterthought rather than as the step it is. */
+.screens {
+  list-style: none;
+  margin: 0;
+  padding: 1.125rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(17rem, 19rem);
+  gap: 1.125rem;
+  align-items: start;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.screens > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+
+.screen-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+/* Numbered because the order is real: this is the sequence a flow walks. */
+.screen-index {
+  display: grid;
+  place-items: center;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  border-radius: 50%;
+  background: var(--page-ink);
+  color: var(--page-surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The frame says "this is a rendering of a component", not "this is a window
+ * into a session". It is a specimen case, so it looks like one. */
+.screen {
+  padding: 0.875rem;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-sunken);
+}
+
+.walls {
+  padding: 0;
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-block-start: 0.5rem;
+}
+
+.filters button {
+  border: 1px solid var(--page-line);
+  border-radius: 999px;
+  padding: 0.3125rem 0.75rem;
+  min-block-size: 2rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  background: var(--page-surface);
+  color: var(--page-muted);
+  cursor: pointer;
+}
+
+.filters button[aria-pressed="true"] {
+  background: var(--page-ink);
+  border-color: var(--page-ink);
+  color: var(--page-surface);
+}
+
+.filters button code {
+  color: inherit;
+}
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.goal h3 {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-surface);
+}
+
+table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th {
+  text-align: start;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+  padding: 0.625rem 0.875rem;
+  border-block-end: 1px solid var(--page-line);
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.6875rem 0.875rem;
+  border-block-end: 1px solid var(--page-line);
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+.cell-id code {
+  color: var(--page-accent);
+  overflow-wrap: anywhere;
+}
+
+.cell-title {
+  min-inline-size: 18rem;
+  text-wrap: pretty;
+}
+
+.cell-family {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tags code {
+  padding: 0.0625rem 0.375rem;
+  border-radius: 5px;
+  background: var(--page-sunken);
+  color: var(--page-muted);
+  white-space: nowrap;
+}
+
+.cell-needs .none {
+  color: var(--page-muted);
+  font-size: 0.8125rem;
+}
+
+.cell-outcome {
+  min-inline-size: 11rem;
+}
+
+.cell-handoffs {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.colophon {
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.25rem;
+}
+
+.colophon p {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+@media (max-width: 42rem) {
+  .flow-count {
+    margin-inline-start: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
