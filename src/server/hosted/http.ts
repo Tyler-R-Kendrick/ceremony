@@ -37,8 +37,18 @@ export async function hostedHttp(
   runtime: TeachingRuntime,
   startAgent: (runId: string, turnId: string) => Promise<void>,
   worker?: { secret: string | undefined; dispatch(): Promise<void> },
+  mcp?: { fetch(request: Request): Promise<Response | undefined> },
 ): Promise<Response> {
   try {
+    // Before the browser boundary, deliberately. That boundary is a CSRF
+    // defence for requests authenticated by an ambient cookie: it requires an
+    // Origin header equal to this app's. An MCP client is not a browser, sends
+    // no Origin, and carries a bearer token that a hostile page cannot cause to
+    // be attached — so the check would reject every MCP request while
+    // defending against nothing. The MCP handler does its own authentication
+    // and answers only its own two paths, returning undefined for the rest.
+    const handled = await mcp?.fetch(request);
+    if (handled) return handled;
     assertRequestBoundary(request, { origin: runtime.origin });
     const path = new URL(request.url).pathname;
     if (path === "/api/environment") {
