@@ -16,7 +16,11 @@ import {
   liveConnectors,
   mcpManifest,
 } from "../scripts/gallery-live-connectors.js";
-import { createConnectorTransport } from "../scripts/gallery-live.js";
+import {
+  createConnectorTransport,
+  settle,
+  type ServerInfo,
+} from "../scripts/gallery-live.js";
 import { manifests } from "../examples/manifests.js";
 import {
   asSpecimen,
@@ -144,6 +148,8 @@ const probeDouble: Record<string, unknown> = {
   },
   search_repositories: { total_count: 0, items: [] },
   list_projects: { projects: [] },
+  list_teams: { teams: [] },
+  get_user: { name: "Example User", displayName: "example", teams: [] },
 };
 
 test("every scope the page offers is one a connector here really declares", () => {
@@ -305,15 +311,27 @@ test("a live connector states the mechanism that really runs", async () => {
   }
 });
 
-test("every live connector is one this project already ships a manifest for", () => {
-  // The live section exists to demonstrate the catalogue, not to introduce
-  // services the catalogue never mentions.
-  const known = new Set(everyManifest.map((manifest) => manifest.id));
-  for (const live of liveConnectors)
-    assert.ok(
-      known.has(live.manifest.id),
-      `${live.manifest.id} is live but absent from the catalogue`,
-    );
+test("every live connector names its connector exactly as claude.ai lists it", () => {
+  // `callTool` addresses a connector by its display name and the manifest is
+  // declared when the page is published, so a name here is either the one the
+  // viewer's claude.ai uses or a button that fails on its first step — which
+  // is what the first published version shipped, as "github", to an account
+  // that had no GitHub connector at all. These are the display names read from
+  // the account's own connector list before publishing: no aliases, no guesses.
+  // GitHub is declared although that account lacks it, so the page can say so
+  // and where to add it rather than nothing.
+  const names = ["Supabase", "Vercel", "Linear", "GitHub"];
+  assert.deepEqual(
+    liveConnectors.map((live) => live.server),
+    names,
+  );
+  assert.deepEqual(
+    mcpManifest.servers.map((entry) => entry.server),
+    names,
+  );
+  // One entry per connector: a second spelling would show a viewer a second
+  // "no matching connector" row in the consent dialog for the same service.
+  assert.equal(new Set(names).size, mcpManifest.servers.length);
 });
 
 /** Drive the real transport to the screen one connector failure produces. */
@@ -558,12 +576,13 @@ test("a failure code this page does not know still names itself", async () => {
   assert.match(snapshot.message ?? "", /some_future_code/);
 });
 
-test("consent left undecided says where to answer it, and keeps the retry", async () => {
-  // The shape a first call gets when the consent prompt could not be shown
-  // or was left unanswered: `upstream_error`, retryable, with a wait. The
-  // call never reached the provider, so a retry after answering is exactly
-  // right — and the sentence has to say where the answer is given, because
-  // it is not on this page.
+test("consent left undecided names both things it can mean, and keeps the retry", async () => {
+  // The shape a first call gets when consent could not be given just then:
+  // `upstream_error`, retryable, with a wait. The call never reached the
+  // provider, so a retry is right. The same shape arrived on the published
+  // page when the viewer had no such connector at all — claude.ai's dialog
+  // said "No matching connector found" — and the page told them to look for a
+  // prompt that could not exist. So the sentence has to name both readings.
   const snapshot = await failWith({
     code: "upstream_error",
     message: "connector access isn't confirmed for this artifact right now",
@@ -573,11 +592,168 @@ test("consent left undecided says where to answer it, and keeps the retry", asyn
   });
   assert.equal(snapshot.step, "error");
   assert.ok(snapshot.actions.includes("retry"));
-  assert.match(snapshot.message ?? "", /Review in Claude/);
+  assert.match(snapshot.message ?? "", /No matching connector found/);
   assert.match(
     snapshot.message ?? "",
-    /allow GitHub there, wait about 30s, then press Try again\./,
+    /add GitHub in claude\.ai under Settings → Connectors/,
   );
+  assert.match(snapshot.message ?? "", /wait about 30s and press Try again\./);
+  assert.doesNotMatch(snapshot.message ?? "", /Review in Claude/);
+});
+
+const listed = (...servers: string[]): ServerInfo[] =>
+  servers.map((server) => ({ server, authStatus: "unknown", tools: [] }));
+
+test("a connector the viewer never added is settled as missing, not as an unanswered prompt", async () => {
+  // What the published page actually got, pressing Connect on GitHub with no
+  // GitHub connector in the account: a retryable `upstream_error`. Listing
+  // again after the ask is what tells the two apart — a manifest server the
+  // viewer's list no longer carries has no connector for them.
+  const live = liveConnectors.find((entry) => entry.server === "GitHub")!;
+  const seen = {
+    code: "upstream_error",
+    message: "connector access isn't confirmed for this artifact right now",
+    retryable: true,
+    retryAfterMs: 30000,
+    server: "GitHub",
+  };
+  const settled = (await settle(seen, live, async () =>
+    listed("Supabase", "Vercel", "Linear"),
+  )) as { code: string; server: string; cause?: string };
+  assert.equal(settled.code, "server_not_connected");
+  assert.equal(settled.server, "GitHub");
+  // The record keeps what was seen as well as what was concluded.
+  assert.equal(settled.cause, "upstream_error");
+  const snapshot = await failWith(settled);
+  assert.match(
+    snapshot.message ?? "",
+    /You have no GitHub connector in claude\.ai/,
+  );
+  assert.match(snapshot.message ?? "", /Settings → Connectors/);
+  assert.ok(snapshot.actions.includes("retry"));
+});
+
+test("settling leaves every other failure exactly as it was", async () => {
+  const live = liveConnectors.find((entry) => entry.server === "GitHub")!;
+  const still = listed("Supabase", "Vercel", "Linear", "GitHub");
+  const prompt = {
+    code: "upstream_error",
+    message: "left undecided",
+    retryable: true,
+    server: "GitHub",
+  };
+  // Still listed: the prompt reading stands.
+  assert.equal(await settle(prompt, live, async () => still), prompt);
+  // Not retryable: not the consent shape at all.
+  const outage = { code: "upstream_error", message: "500", server: "GitHub" };
+  assert.equal(await settle(outage, live, async () => []), outage);
+  // Some other code: untouched, whatever the listing says.
+  const lapsed = { code: "needs_reauth", message: "expired", server: "GitHub" };
+  assert.equal(await settle(lapsed, live, async () => []), lapsed);
+  // A listing that cannot answer proves nothing, so nothing is concluded.
+  assert.equal(
+    await settle(prompt, live, async () => {
+      throw new Error("listing unavailable");
+    }),
+    prompt,
+  );
+  // Not an error object at all.
+  const plain = new Error("boom");
+  assert.equal(await settle(plain, live, async () => []), plain);
+});
+
+/** Drive one live connector to completion against the given answers. */
+async function completeWith(
+  server: string,
+  answers: Record<string, unknown>,
+): Promise<{ done: CeremonySnapshot; proof: unknown; calls: unknown[] }> {
+  const live = liveConnectors.find((entry) => entry.server === server)!;
+  const calls: unknown[] = [];
+  let proof: unknown;
+  const transport = createConnectorTransport(
+    live,
+    async (tool, input) => {
+      calls.push({ tool, input });
+      return answers[tool];
+    },
+    (value) => {
+      proof = value;
+    },
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  const done = await transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+  return { done, proof, calls };
+}
+
+test("Vercel completes with the teams the connector returned", async () => {
+  // The shape is the one the Vercel connector really answers `list_teams`
+  // with; the values are examples.
+  const { done, proof, calls } = await completeWith("Vercel", {
+    list_teams: {
+      teams: [
+        {
+          name: "Example team",
+          slug: "example-team",
+          id: "team_x",
+          plan: "pro",
+        },
+      ],
+    },
+  });
+  assert.equal(done.step, "complete");
+  assert.equal(done.outcome?.connectionRef, "example-team");
+  assert.deepEqual(calls, [{ tool: "list_teams", input: undefined }]);
+  assert.match(JSON.stringify(proof), /Connected to Vercel · 1 team/);
+  assert.match(JSON.stringify(proof), /pro plan/);
+});
+
+test("Linear completes as the person who authorized it, and never shows their email", async () => {
+  // `get_user` is asked about "me" — the connector's own word for whoever
+  // authorized it — and its answer carries an email address and an avatar the
+  // page must never read. Both are present here so the check means something.
+  const { done, proof, calls } = await completeWith("Linear", {
+    get_user: {
+      id: "00000000-0000-4000-8000-000000000000",
+      name: "Example Person",
+      displayName: "example.person",
+      email: "example.person@example.com",
+      avatarUrl: "https://example.com/avatar.png",
+      isAdmin: true,
+      teams: [{ id: "t1", name: "Example", key: "EXA" }],
+    },
+  });
+  assert.equal(done.step, "complete");
+  assert.equal(done.outcome?.connectionRef, "example.person");
+  assert.deepEqual(calls, [{ tool: "get_user", input: { query: "me" } }]);
+  const shown = JSON.stringify(proof);
+  assert.match(shown, /Connected to Linear as Example Person/);
+  assert.match(shown, /Example \(EXA\)/);
+  assert.doesNotMatch(shown, /example\.person@example\.com/);
+  assert.doesNotMatch(shown, /avatar/);
+  assert.doesNotMatch(shown, /00000000-0000-4000-8000-000000000000/);
+});
+
+test("Supabase completes with the projects the connector returned", async () => {
+  const { done, proof } = await completeWith("Supabase", {
+    list_projects: {
+      projects: [
+        {
+          id: "abc",
+          name: "Example project",
+          region: "us-west-2",
+          status: "ACTIVE_HEALTHY",
+          organization_id: "org_example",
+        },
+      ],
+    },
+  });
+  assert.equal(done.step, "complete");
+  assert.equal(done.outcome?.connectionRef, "org_example");
+  assert.match(JSON.stringify(proof), /Connected to Supabase · 1 project/);
 });
 
 test("an attempt is reported as an outcome the page can record", async () => {

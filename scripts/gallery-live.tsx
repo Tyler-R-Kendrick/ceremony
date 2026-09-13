@@ -120,6 +120,8 @@ interface McpError {
   server?: string;
   retryable?: boolean;
   retryAfterMs?: number;
+  /** The code this one was settled from, when the page had to look twice. */
+  cause?: string;
 }
 
 function isMcpError(value: unknown): value is McpError {
@@ -181,7 +183,7 @@ function verdict(error: unknown, server: string): Verdict {
       };
     case "server_not_connected":
       return fault(
-        `No ${where} connector is available to you. Add it in claude.ai under Settings → Connectors, then try again.`,
+        `You have no ${where} connector in claude.ai, so there is nothing for this page to reach. Add ${where} in claude.ai under Settings → Connectors, then press Try again.`,
       );
     case "needs_reauth":
       return fault(
@@ -247,17 +249,20 @@ function verdict(error: unknown, server: string): Verdict {
     // time one arrived here it printed a sentence with no code, and finding
     // out which one it was took a round trip through the user.
     // The one a first call gets when consent for the connector could not be
-    // asked, or was asked and left undecided. The call never reached the
-    // provider. What clears it is answering — usually a "Review in Claude"
-    // notice that is not on this page — and then trying again.
+    // given just then: the prompt could not be shown, was left undecided — or,
+    // as this page learned from its own screenshots, found no connector to
+    // ask about. The call never reached a provider. `settle` turns the last
+    // case into `server_not_connected` when listing again proves it; what is
+    // left here is the prompt itself, and the sentence still names the other
+    // reading in case the listing could not tell.
     case "upstream_error":
       return error.retryable
         ? fault(
-            `Claude has not confirmed connector access for this page yet — the consent prompt could not be shown, or was left unanswered. Look for a "Review in Claude" notice (in your Claude tab or app, not on this page), allow ${where} there, ${
+            `claude.ai did not confirm this page's access to ${where}. If it said "No matching connector found", add ${where} in claude.ai under Settings → Connectors. If it showed a prompt you did not answer, answer it. Then${
               typeof error.retryAfterMs === "number"
-                ? `wait about ${Math.ceil(error.retryAfterMs / 1000)}s`
-                : "wait a moment"
-            }, then press Try again.`,
+                ? ` wait about ${Math.ceil(error.retryAfterMs / 1000)}s and`
+                : ""
+            } press Try again.`,
           )
         : fault(`${where} could not be reached: ${error.message}`);
     default:
@@ -265,6 +270,37 @@ function verdict(error: unknown, server: string): Verdict {
         `${where} could not be reached: ${error.message}${error.retryable ? wait : ""} (${error.code})`,
       );
   }
+}
+
+/**
+ * Look twice before blaming a prompt.
+ *
+ * A retryable `upstream_error` on a first call is documented as consent that
+ * could not be given just then. It is also, it turned out, what a connector the
+ * viewer never added produces: the shell finds nothing to ask about, the call
+ * never reaches a provider, and a page reading the code alone told people to
+ * look for a prompt that could not exist. Listing again after the ask settles
+ * it — a manifest server absent from the viewer's list has no connector for
+ * them, which is exactly `server_not_connected` — and the outcome keeps the
+ * code it was settled from, so the record shows what was seen as well as what
+ * was concluded. Any other error, and any listing that cannot tell, passes
+ * through untouched.
+ */
+export async function settle(
+  error: unknown,
+  live: LiveConnector,
+  relist: () => Promise<readonly ServerInfo[]>,
+): Promise<unknown> {
+  if (!isMcpError(error) || error.code !== "upstream_error" || !error.retryable)
+    return error;
+  const servers = await relist().catch(() => undefined);
+  if (servers === undefined || matchServer(servers, live)) return error;
+  return {
+    code: "server_not_connected",
+    message: `No ${live.server} connector is connected in claude.ai for this viewer.`,
+    server: live.server,
+    cause: error.code,
+  } satisfies McpError;
 }
 
 /**
@@ -280,6 +316,8 @@ export interface Outcome {
   step: CeremonySnapshot["step"];
   code?: string;
   message?: string;
+  /** The code a settled failure was seen as before it was understood. */
+  cause?: string;
 }
 
 export function createConnectorTransport(
@@ -335,7 +373,11 @@ export function createConnectorTransport(
         server: live.server,
         step,
         ...(isMcpError(error)
-          ? { code: error.code, message: error.message }
+          ? {
+              code: error.code,
+              message: error.message,
+              ...(error.cause ? { cause: error.cause } : {}),
+            }
           : {
               message: error instanceof Error ? error.message : String(error),
             }),
@@ -410,11 +452,14 @@ function LiveConnection({
   live,
   broker,
   resolved,
+  relist,
   onOutcome,
 }: {
   live: LiveConnector;
   broker: Broker | undefined;
   resolved: ServerInfo | undefined;
+  /** List the viewer's connectors again, after a press has asked about one. */
+  relist: () => Promise<readonly ServerInfo[]>;
   onOutcome: (outcome: Outcome) => void;
 }): ReactNode {
   const [started, setStarted] = useState(false);
@@ -424,13 +469,13 @@ function LiveConnection({
   // by an effect. Capturing them in the closure would freeze the values this
   // component first rendered with — which are none — and every press would
   // report that the view cannot reach connectors while it plainly can.
-  const latest = useRef({ broker, resolved, onOutcome });
-  latest.current = { broker, resolved, onOutcome };
+  const latest = useRef({ broker, resolved, relist, onOutcome });
+  latest.current = { broker, resolved, relist, onOutcome };
   const transport = useState(() =>
     createConnectorTransport(
       live,
       async (tool, input) => {
-        const { broker, resolved } = latest.current;
+        const { broker, resolved, relist } = latest.current;
         if (!broker)
           throw {
             code: "not_granted",
@@ -460,7 +505,11 @@ function LiveConnection({
         // `.payload` is the JSON answer; the result around it carries the
         // content blocks and cache marks. Handing the wrapper to the probe
         // parses to nothing and reads as the provider returning garbage.
-        return (await broker.callTool(server, tool, input)).payload;
+        try {
+          return (await broker.callTool(server, tool, input)).payload;
+        } catch (error) {
+          throw await settle(error, live, relist);
+        }
       },
       setProof,
       (outcome) => latest.current.onOutcome(outcome),
@@ -516,8 +565,8 @@ function Findings({
       createElement("code", null, live.manifest.name),
       ` · ${
         found
-          ? `reachable as "${found.server}", ${found.authStatus}, ${found.tools.length} tool${found.tools.length === 1 ? "" : "s"}${scope ? `, consent ${scope}` : ""}`
-          : "not reachable from this page"
+          ? `listed as "${found.server}", ${found.authStatus === "unknown" ? "not asked about yet" : found.authStatus}, ${found.tools.length} tool${found.tools.length === 1 ? "" : "s"}${scope ? `, consent ${scope}` : ""}`
+          : "not in your claude.ai connectors"
       }`,
     );
   });
@@ -531,26 +580,30 @@ function Findings({
         ? "Checking what this page can reach…"
         : !broker
           ? "This view cannot reach connectors"
-          : `${servers.length} connector${servers.length === 1 ? "" : "s"} reachable from this page`,
+          : `${servers.length} connector${servers.length === 1 ? "" : "s"} listed for this page`,
     ),
     createElement("ul", null, ...rows),
     createElement(
       "p",
       null,
-      "Read from the viewer's own session when the page loaded. If a connector you have is listed as unreachable, it is this page's manifest that does not match it — not your account.",
+      "Read from your own session when the page loaded, and again after each press. Until you have been asked about a connector, claude.ai lists it from this page's manifest whether or not you have it; the first press settles that, and one you do not have is then shown as missing.",
     ),
   );
 }
 
-/** The runtime's name for a connector this page knows, whatever its spelling. */
+/**
+ * The runtime's entry for a connector this page declares.
+ *
+ * Matched on the display name the page declared, which is the one read from
+ * the account's connector list before publishing; case is forgiven only
+ * because nothing is gained by refusing "supabase" for "Supabase".
+ */
 export function matchServer(
   servers: readonly ServerInfo[],
   live: LiveConnector,
 ): ServerInfo | undefined {
-  const wanted = [live.server, ...(live.aliases ?? [])].map((name) =>
-    name.toLowerCase(),
-  );
-  return servers.find((info) => wanted.includes(info.server.toLowerCase()));
+  const wanted = live.server.toLowerCase();
+  return servers.find((info) => info.server.toLowerCase() === wanted);
 }
 
 function LiveSection({
@@ -572,6 +625,18 @@ function LiveSection({
       [...log, { ...outcome, at: new Date().toISOString() }].slice(-10),
     );
   }, []);
+  // Listing again is how a press finds out whether a connector exists at all,
+  // and what it finds belongs in the findings panel too — so the list is
+  // replaced, not merely read.
+  const brokerRef = useRef(broker);
+  brokerRef.current = broker;
+  const relist = useCallback(async (): Promise<readonly ServerInfo[]> => {
+    const current = brokerRef.current;
+    if (!current) return [];
+    const found = await current.listTools().then((result) => result.servers);
+    setServers(found);
+    return found;
+  }, []);
   // What the page found and what happened, written where it can be read from
   // outside the page. Codes, names, states and the runtime's own messages —
   // never a provider's payload. Failing to write is not a failure of the page.
@@ -580,7 +645,7 @@ function LiveSection({
     void broker
       .record({
         at: new Date().toISOString(),
-        version: 11,
+        version: 12,
         reachable: servers.map((info) => ({
           server: info.server,
           authStatus: info.authStatus,
@@ -641,6 +706,7 @@ function LiveSection({
             live: entry,
             broker,
             resolved: matchServer(servers, entry),
+            relist,
             onOutcome,
           }),
         ),

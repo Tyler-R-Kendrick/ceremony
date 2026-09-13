@@ -319,18 +319,25 @@ const permissionGroup = () => `
           <p class="note">the words are the host's; every scope is one a connector here really declares</p>
         </fieldset>`;
 
+/** "a, b and c" — the way a sentence lists things, not the way an array does. */
+const listed = (names) =>
+  names.length < 2
+    ? names.join("")
+    : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
 const liveSection = `
   <section class="movement" aria-labelledby="live-heading">
     <div class="movement-head">
       <h2 id="live-heading">Connect something, right now</h2>
       <p>
-        These two connect for real. Press Connect and the component below runs
-        the ceremony against ${liveConnectors
-          .map((entry) => escape(entry.manifest.name))
-          .join(" and ")}, using the connector you already approved in
-        claude.ai — your credentials, never handled by this page, and read-only.
-        What you get back is whatever the provider just said, including the
-        failure screens when it says no.
+        These connect for real. Press Connect and the component below runs the
+        ceremony against ${listed(
+          liveConnectors.map((entry) => escape(entry.manifest.name)),
+        )}, through the connector you approved in claude.ai — your credentials,
+        never handled by this page, and read-only. What you get back is whatever
+        the provider just said, including the failure screens when it says no.
+        A connector you have not added to claude.ai cannot be reached from
+        anywhere; the card says so, and where to add it.
       </p>
     </div>
     <div class="live" id="${liveMountId}">
