@@ -546,3 +546,14 @@ test("a connection that succeeds completes with what the provider returned", asy
   );
   assert.ok(proof, "the evidence panel should have something to show");
 });
+
+test("a failure code this page does not know still names itself", async () => {
+  // An unhandled code used to print its message and nothing else, so finding
+  // out which code it was cost a round trip through whoever hit it.
+  const snapshot = await failWith({
+    code: "some_future_code",
+    message: "connector access isn't confirmed",
+    server: "github",
+  });
+  assert.match(snapshot.message ?? "", /some_future_code/);
+});

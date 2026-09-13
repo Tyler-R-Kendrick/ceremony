@@ -236,9 +236,12 @@ function verdict(error: unknown, server: string): Verdict {
       return fault(
         `The call to ${where} was interrupted, and whether it ran is unknown.`,
       );
+    // A code this mapping does not know. Naming it is the point: the last
+    // time one arrived here it printed a sentence with no code, and finding
+    // out which one it was took a round trip through the user.
     default:
       return fault(
-        `${where} could not be reached: ${error.message}${error.retryable ? wait : ""}`,
+        `${where} could not be reached: ${error.message}${error.retryable ? wait : ""} (${error.code})`,
       );
   }
 }
