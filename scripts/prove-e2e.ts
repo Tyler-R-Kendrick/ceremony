@@ -30,10 +30,27 @@ import { postgresFixture } from "../tests/fixtures/postgres.js";
  */
 
 const ORIGIN = "http://127.0.0.1:4270";
-const SUPABASE = process.env.SUPABASE_URL!;
-const PUBLISHABLE = "sb_publishable_R-9PA6zyZ47Gk3GHbQ9TXw_EBLw73f1";
-const CLIENT_ID = "bda999cd-7d94-4bef-81b4-f1c541b735d9";
 const OUT = "/tmp/ceremony-proof";
+
+// This proof reads NO credentials from the environment. The provider is given
+// on the command line as the public configuration a developer already ships in
+// a browser client: the project URL and the publishable (anon) key. There is
+// no process.env fallback and no hardcoded client — run it with real public
+// values or not at all.
+const required = (name: string): string => {
+  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+  const value = hit ? hit.slice(name.length + 3) : "";
+  if (!value) {
+    console.error(
+      "Usage: prove-e2e --supabase-url=https://<ref>.supabase.co --anon-key=sb_publishable_...\n" +
+        "No environment credentials are read; pass the provider's public URL and publishable key.",
+    );
+    process.exit(2);
+  }
+  return value;
+};
+const SUPABASE = required("supabase-url");
+const PUBLISHABLE = required("anon-key");
 const report: Record<string, unknown> = { startedAt: new Date().toISOString() };
 const log = (step: string, detail: unknown) => {
   console.log(`\n▶ ${step}`);
@@ -90,7 +107,38 @@ async function supabase(
   return { status: response.status, body };
 }
 
-// 1. Real infrastructure: an isolated PostgreSQL, and the runtime this repo ships.
+// 1a. The ceremony registers its OWN OAuth client with the provider. No client
+// is pre-provisioned or hardcoded. On a provider that advertises RFC 7591 in
+// its discovery document, createOidcIdentity registers the client itself when
+// none is configured; Supabase keeps registration off discovery, so the proof
+// performs the same registration against the documented endpoint and hands the
+// resulting id — the ceremony's own, freshly minted — to the runtime.
+const CLIENT_ID = await retry(
+  "register the ceremony's own OAuth client",
+  async () => {
+    const r = await supabase("/oauth/clients/register", {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Ceremony e2e proof (local)",
+        redirect_uris: [`${ORIGIN}/api/auth/callback`],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    if (r.status >= 300 || !r.body?.client_id)
+      throw new Error(
+        `register ${r.status}: ${JSON.stringify(r.body).slice(0, 120)}`,
+      );
+    return r.body.client_id as string;
+  },
+);
+log("registered the ceremony's own OAuth client", {
+  clientId: `${CLIENT_ID.slice(0, 8)}…`,
+  note: "dynamically registered against the provider, not pre-provisioned",
+});
+
+// 1b. Real infrastructure: an isolated PostgreSQL, and the runtime this repo ships.
 const database = await postgresFixture();
 const cfg = database.config;
 const runtime = await retry(
