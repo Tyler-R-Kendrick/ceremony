@@ -429,8 +429,8 @@ ${liveSection}
         times the route will stop to ask a person. That last number is the one
         the resolver minimises, so a card cannot advertise a cost the chosen
         route was not chosen for. These three are specimens, so their buttons
-        do not respond — pressing Connect needs a provider, and this page
-        reaches none. The part that needs no provider is
+        do not respond; the cards that connect are in the section above. The
+        part that needs no provider at all is
         <a href="#${resolverMountId}">directly below</a>, and it runs.
       </p>
     </div>
