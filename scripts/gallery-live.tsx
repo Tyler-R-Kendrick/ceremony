@@ -4,8 +4,11 @@ import { Ceremony } from "../src/react/index.js";
 import { ConnectorCard } from "../src/react/connectors.js";
 import {
   actionsFor,
+  defaultTemplate,
   snapshotSchema,
+  templateSchema,
   type CeremonySnapshot,
+  type CeremonyTemplate,
   type CeremonyTransport,
 } from "../src/core/schema.js";
 import {
@@ -37,6 +40,34 @@ import {
  * same interface, which is the point of there being an interface.
  */
 
+/**
+ * The shipped template, with one heading that presumed a retry generalised.
+ *
+ * Every failure the library's own flows reach offers a retry, so its error
+ * screen is titled "Let's try that again" and that is right there. This
+ * transport reaches failures that do not: a connector switched off for this
+ * page must not be asked about on a loop, and an organization's policy will
+ * not yield to pressing a button. Those screens carry no retry, and a heading
+ * inviting one over an empty row of actions reads as a broken page.
+ *
+ * So the title is replaced and nothing else is. `templates` is the supported
+ * way for a host to do this, the rest of the screen is the shipped one, and
+ * the specimens further down the page still use the default untouched.
+ */
+const liveTemplate: CeremonyTemplate = (() => {
+  const base = defaultTemplate("oauth-code");
+  return templateSchema.parse({
+    ...base,
+    screens: {
+      ...base.screens,
+      error: base.screens.error.replace(
+        /Title\("[^"]*"\)/,
+        'Title("That did not connect")',
+      ),
+    },
+  });
+})();
+
 /** How long a started attempt stays valid. The client enforces it. */
 const ATTEMPT_MINUTES = 10;
 
@@ -45,6 +76,7 @@ interface McpError {
   message: string;
   server?: string;
   retryable?: boolean;
+  retryAfterMs?: number;
 }
 
 function isMcpError(value: unknown): value is McpError {
@@ -56,52 +88,123 @@ function isMcpError(value: unknown): value is McpError {
 }
 
 /**
- * What a person should do about each failure, in their words.
+ * What each failure means, what to do about it, and whether to offer a retry.
  *
  * Every code gets its own sentence because every code has a different fix, and
  * one "something went wrong" banner would hide the single action that unblocks
- * the page. The codes are the connector capability's own.
+ * the page. Whether a retry appears is part of the answer: some codes say
+ * plainly not to ask again, and a button that re-asks in a loop is worse than
+ * no button. The codes and their readings are the connector capability's own.
  */
-function explain(error: unknown, server: string): string {
-  if (!isMcpError(error))
-    return error instanceof Error
-      ? error.message
-      : "The connection attempt failed.";
-  const where = error.server ?? server;
-  switch (error.code) {
-    case "server_not_connected":
-      return `No ${where} connector is available to you. Add it in claude.ai under Settings → Connectors, then try again.`;
-    case "needs_reauth":
-      return `Your ${where} connection has expired. Reconnect it in claude.ai under Settings → Connectors, then try again.`;
-    case "selection_required":
-      return `You have more than one ${where} connector. Choose which one to use when claude.ai asks, then try again.`;
-    case "not_in_manifest":
-      return `This page did not ask for ${where} access, so it cannot use it.`;
-    case "blocked_by_policy":
-      return `Your organization's policy does not allow this page to use ${where}.`;
-    case "approval_required":
-    case "cancelled":
-      return "You did not approve this connection, so nothing was accessed.";
-    case "capability_disabled":
-      return "Connector access is turned off for this view, so no provider can be reached.";
-    case "server_not_found":
-      return `The ${where} connector no longer exists upstream.`;
-    case "server_unavailable":
-      return `${where} did not answer in time. This one is usually temporary — try again.`;
-    case "bad_request":
-      return `${where} refused the request as malformed. That is this page's bug, not yours.`;
-    case "tool_error":
-      return `${where} refused the request: ${error.message}`;
-    default:
-      return `${where} could not be reached: ${error.message}`;
-  }
+interface Verdict {
+  step: "cancelled" | "error";
+  message: string;
+  /** Offer the retry the step would otherwise carry. */
+  retry: boolean;
 }
 
-/** Whether the viewer turning it down is what happened, rather than a fault. */
-function isRefusal(error: unknown): boolean {
-  return (
-    isMcpError(error) && ["approval_required", "cancelled"].includes(error.code)
-  );
+function verdict(error: unknown, server: string): Verdict {
+  const fault = (message: string, retry = true): Verdict => ({
+    step: "error",
+    message,
+    retry,
+  });
+  if (!isMcpError(error))
+    return fault(
+      error instanceof Error ? error.message : "The connection attempt failed.",
+    );
+  const where = error.server ?? server;
+  const wait =
+    typeof error.retryAfterMs === "number"
+      ? ` Wait about ${Math.ceil(error.retryAfterMs / 1000)}s.`
+      : "";
+  switch (error.code) {
+    // Declined, or switched off for this page afterwards. Not a fault, and
+    // explicitly not something to ask about again on a loop — so it lands on
+    // the cancelled screen carrying the fix, and offers nothing to press.
+    case "not_in_manifest":
+      return {
+        step: "cancelled",
+        message: `This page is not allowed to use ${where}. Allow it for this page in claude.ai — or, if you never declined, the page asked for a tool it never declared, which is the page's bug.`,
+        retry: false,
+      };
+    // Only ever reached top-level. Declined or timed out, and its guidance is
+    // the opposite of the above: offer a way to try, behind a fresh gesture.
+    case "consent_required":
+      return {
+        step: "cancelled",
+        message: `You have not allowed ${where} for this page yet. Press Try again and answer the prompt to allow it.`,
+        retry: true,
+      };
+    case "server_not_connected":
+      return fault(
+        `No ${where} connector is available to you. Add it in claude.ai under Settings → Connectors, then try again.`,
+      );
+    case "needs_reauth":
+      return fault(
+        `Your ${where} connection has expired. Reconnect it in claude.ai under Settings → Connectors, then try again.`,
+      );
+    case "selection_required":
+      return fault(
+        `You have more than one ${where} connector. Choose which one to use when claude.ai asks, then try again.`,
+      );
+    case "server_not_found":
+      return fault(
+        `The ${where} connector no longer exists upstream, so there is nothing to connect to.`,
+        false,
+      );
+    case "server_unavailable":
+      return fault(
+        `${where} did not answer in time. This one is usually temporary.${wait}`,
+      );
+    case "rate_limited":
+      return fault(
+        `This page has called ${where} too often for now.${wait || " Give it a few seconds."}`,
+      );
+    case "blocked_by_policy":
+      return fault(
+        `Your organization's policy does not allow this page to use ${where}.`,
+        false,
+      );
+    // Per-call approval, which a published page cannot ask for. Retrying runs
+    // into the same wall, so no retry is offered.
+    case "approval_required":
+      return fault(
+        `Your organization requires approval for each ${where} call, and a published page cannot ask for it.`,
+        false,
+      );
+    case "not_granted":
+    case "capability_disabled":
+    case "capability_removed":
+      return fault(
+        "This view cannot reach connectors at all, so no provider can be contacted. Open the page from claude.ai to run it for real.",
+        false,
+      );
+    case "user_changed":
+      return fault(
+        "The account signed in here is no longer the one this page loaded for. Reload before connecting anything.",
+        false,
+      );
+    case "bad_request":
+    case "transform_error":
+      return fault(
+        `${where} refused the request as malformed. That is this page's bug, not yours.`,
+        false,
+      );
+    case "tool_error":
+      return fault(`${where} refused the request: ${error.message}`);
+    // The abort case. This page never aborts a call, and the contract warns
+    // that the upstream outcome is unknown when it happens, so it is reported
+    // rather than dressed up as a cancellation somebody chose.
+    case "cancelled":
+      return fault(
+        `The call to ${where} was interrupted, and whether it ran is unknown.`,
+      );
+    default:
+      return fault(
+        `${where} could not be reached: ${error.message}${error.retryable ? wait : ""}`,
+      );
+  }
 }
 
 /**
@@ -113,7 +216,7 @@ function isRefusal(error: unknown): boolean {
  */
 export function createConnectorTransport(
   live: LiveConnector,
-  call: Call | undefined,
+  call: Call,
   onProof: (proof: Proof | undefined) => void,
 ): CeremonyTransport {
   const method = live.manifest.methods[0]!;
@@ -143,11 +246,6 @@ export function createConnectorTransport(
   };
 
   const begin = async (): Promise<CeremonySnapshot> => {
-    if (!call)
-      return at("error", {
-        message:
-          "This view cannot reach connectors, so no provider can be contacted. Open the page from claude.ai to run it for real.",
-      });
     try {
       const proof = await live.probe(call);
       onProof(proof);
@@ -162,9 +260,14 @@ export function createConnectorTransport(
       });
     } catch (error) {
       onProof(undefined);
-      return isRefusal(error)
-        ? at("cancelled")
-        : at("error", { message: explain(error, live.server) });
+      const { step, message, retry } = verdict(error, live.server);
+      return at(step, {
+        message,
+        // The transport decides what is available, the way the connection
+        // server does. Dropping the retry is how "do not ask again" reaches
+        // the screen rather than only the prose.
+        ...(retry ? {} : { actions: [] }),
+      });
     }
   };
 
@@ -174,6 +277,12 @@ export function createConnectorTransport(
     act: async (_id, action) => {
       if (current && action.revision !== current.revision)
         throw new Error("This attempt moved on. Re-read it and try again.");
+      // A snapshot that lists no actions means none are available, and a
+      // transport that says so while still honouring them is not enforcing its
+      // own statement. The client checks this too; a server does not rely on
+      // its client to, and neither does this.
+      if (current && !current.actions.includes(action.action))
+        throw new Error(`${action.action} is not available on this screen.`);
       if (action.action === "begin") return begin();
       if (action.action === "cancel") {
         onProof(undefined);
@@ -215,17 +324,23 @@ function LiveConnection({
   callFor,
 }: {
   live: LiveConnector;
-  callFor: (server: string) => Call | undefined;
+  callFor: (server: string) => Call;
 }): ReactNode {
   const [started, setStarted] = useState(false);
   const [proof, setProof] = useState<Proof | undefined>(undefined);
   const transport = useState(() =>
     createConnectorTransport(live, callFor(live.server), setProof),
   )[0];
+  // Pressing Connect calls the provider straight away — the client prepares an
+  // oauth-code method without stopping — so what it is about to do has to be
+  // legible before the press, not on a screen nobody sees.
   if (!started)
     return createElement(ConnectorCard, {
       manifest: live.manifest,
       status: "available",
+      intent: {
+        permissions: live.access.map((entry) => ({ label: entry.label })),
+      },
       onConnect: () => setStarted(true),
     });
   return createElement(
@@ -238,6 +353,7 @@ function LiveConnection({
     createElement(Ceremony, {
       manifest: live.manifest,
       transport,
+      templates: [liveTemplate],
       autoFocus: false,
       webmcp: false as const,
     }),
@@ -247,7 +363,7 @@ function LiveConnection({
 
 export function mountLive(
   root: HTMLElement,
-  callFor: (server: string) => Call | undefined,
+  callFor: (server: string) => Call,
 ): void {
   createRoot(root).render(
     createElement(

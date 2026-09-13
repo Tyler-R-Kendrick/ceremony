@@ -153,14 +153,15 @@ const stepNotes = {
 };
 
 /**
- * The resolver, compiled for the browser.
+ * Everything the page runs, compiled for the browser: the resolver, the live
+ * connections, and the components both use.
  *
  * A separate file rather than an inline script: the page would otherwise have
- * to escape whatever the minifier happened to emit, and a bundle that contains
- * the wrong six characters would end the script tag early and take the section
- * with it. It also keeps the document itself readable at its own size.
+ * to escape whatever the minifier happened to emit, and a bundle containing
+ * the wrong six characters would end the script tag early and take the whole
+ * section with it. It also keeps the document itself readable at its own size.
  */
-const resolverBundle = await build({
+const clientBundle = await build({
   entryPoints: [fileURLToPath(new URL("scripts/gallery-client.ts", root))],
   bundle: true,
   format: "iife",
@@ -169,7 +170,7 @@ const resolverBundle = await build({
   write: false,
   logLevel: "silent",
 });
-const resolverSource = resolverBundle.outputFiles[0].text;
+const clientSource = clientBundle.outputFiles[0].text;
 
 const entries = catalogue();
 const goals = [...new Set(entries.map((entry) => entry.goal))];
@@ -545,12 +546,12 @@ ${resolver}
 <script type="application/json" id="${resolverPayloadId}">
 ${JSON.stringify(galleryPayload()).replace(/</g, "\\u003c")}
 </script>
-<script src="resolver.js"></script>
+<script src="catalogue.js"></script>
 `;
 
 mkdirSync(fileURLToPath(out), { recursive: true });
 writeFileSync(fileURLToPath(new URL("index.html", out)), page);
-writeFileSync(fileURLToPath(new URL("resolver.js", out)), resolverSource);
+writeFileSync(fileURLToPath(new URL("catalogue.js", out)), clientSource);
 console.log(
   `Auth catalogue: ${entries.length} scenarios, ${flowKinds.length} flows, ${
     flowKinds.reduce((total, kind) => total + journeys[kind].length, 0) +
@@ -558,5 +559,5 @@ console.log(
   } screens -> artifacts/gallery/index.html`,
 );
 console.log(
-  `Resolver: ${(resolverSource.length / 1024).toFixed(0)} kB -> artifacts/gallery/resolver.js`,
+  `Client: ${(clientSource.length / 1024).toFixed(0)} kB -> artifacts/gallery/catalogue.js`,
 );

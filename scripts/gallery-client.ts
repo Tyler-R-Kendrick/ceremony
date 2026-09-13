@@ -288,36 +288,52 @@ declare global {
 /**
  * Wire the live connections to the viewer's own connectors.
  *
- * `use` resolves later than this script's first run and may resolve null — the
- * view cannot run the capability, it was not granted, or the module failed, and
- * the three are indistinguishable on purpose. So the section renders either
- * way: without a caller, pressing Connect reaches the real error screen saying
- * no provider can be contacted, rather than a button that does nothing.
+ * The capability is resolved lazily rather than awaited before mounting. It
+ * never resolves during this script's first run, and when a host is framing
+ * the page but never answers it takes about ten seconds to resolve null — so
+ * awaiting it first would leave the section empty for that whole time. The
+ * cards render now and the capability is looked up when somebody presses
+ * Connect.
+ *
+ * A view that cannot run it raises the capability's own `not_granted`, so the
+ * screen it produces comes from the same mapping every other failure does
+ * rather than from a special case worded separately.
  */
-async function startLive(): Promise<void> {
+function startLive(): void {
   const mount = document.getElementById(liveMountId);
   if (!mount) return;
-  let mcp: McpNamespace | undefined;
-  try {
-    mcp =
-      ((await window.claude?.use("mcp")) as McpNamespace | null) ?? undefined;
-  } catch {
-    mcp = undefined;
-  }
-  const broker = mcp;
-  mountLive(mount, (server) =>
-    broker
-      ? async (tool, input) =>
-          (await broker.callTool(server, tool, input)).payload
-      : undefined,
-  );
+  let resolving: Promise<McpNamespace | null> | undefined;
+  const broker = () =>
+    (resolving ??= (async () => {
+      try {
+        // The contract promises `use` resolves null within about ten seconds
+        // when nothing answers. The race is insurance rather than doubt: if
+        // that promise ever failed to settle, the ceremony would sit busy for
+        // ever, and a screen that spins with no end is the failure this page
+        // has already shipped twice in other forms.
+        const answered = await Promise.race([
+          window.claude?.use("mcp"),
+          new Promise((resolve) => setTimeout(resolve, 15_000)),
+        ]);
+        return (answered as McpNamespace | null | undefined) ?? null;
+      } catch {
+        return null;
+      }
+    })());
+  mountLive(mount, (server) => async (tool, input) => {
+    const mcp = await broker();
+    if (!mcp)
+      throw {
+        code: "not_granted",
+        message: "This view did not grant connector access.",
+      };
+    return (await mcp.callTool(server, tool, input)).payload;
+  });
 }
-
-window.ceremonyResolver = { boot };
 
 const mount = document.getElementById(resolverMountId);
 const payload = document.getElementById(resolverPayloadId);
 if (mount && payload?.textContent)
   boot(mount, JSON.parse(payload.textContent) as unknown);
 
-void startLive();
+startLive();

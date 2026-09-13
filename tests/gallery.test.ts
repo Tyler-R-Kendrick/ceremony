@@ -6,6 +6,7 @@ import {
   flowKinds,
   manifestSchema,
   snapshotSchema,
+  type CeremonySnapshot,
 } from "../src/core/schema.js";
 import { CeremonyView } from "../src/react/index.js";
 import { ConnectorCard } from "../src/react/connectors.js";
@@ -15,6 +16,7 @@ import {
   liveConnectors,
   mcpManifest,
 } from "../scripts/gallery-live-connectors.js";
+import { createConnectorTransport } from "../scripts/gallery-live.js";
 import { manifests } from "../examples/manifests.js";
 import {
   asSpecimen,
@@ -312,4 +314,196 @@ test("every live connector is one this project already ships a manifest for", ()
       known.has(live.manifest.id),
       `${live.manifest.id} is live but absent from the catalogue`,
     );
+});
+
+/** Drive the real transport to the screen one connector failure produces. */
+async function failWith(rejection: unknown): Promise<CeremonySnapshot> {
+  const live = liveConnectors[0]!;
+  const transport = createConnectorTransport(
+    live,
+    async () => {
+      throw rejection;
+    },
+    () => {},
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  return transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+}
+
+test("declining a connector does not offer a retry that would ask again", async () => {
+  // `not_in_manifest` is what a decline actually returns, and the capability
+  // says not to re-ask in a loop. A Try again button is exactly that loop, so
+  // the screen carries the fix and nothing to press.
+  const snapshot = await failWith({
+    code: "not_in_manifest",
+    message: "declined",
+    server: "github",
+  });
+  assert.equal(snapshot.step, "cancelled");
+  assert.deepEqual(snapshot.actions, []);
+  assert.match(snapshot.message ?? "", /not allowed to use github/);
+});
+
+test("a failure a person can clear keeps the retry that clears it", async () => {
+  for (const code of [
+    "server_not_connected",
+    "needs_reauth",
+    "selection_required",
+    "server_unavailable",
+    "rate_limited",
+    "tool_error",
+  ]) {
+    const snapshot = await failWith({ code, message: "x", server: "github" });
+    assert.ok(
+      snapshot.actions.includes("retry"),
+      `${code} should keep its retry`,
+    );
+  }
+});
+
+test("a failure retrying cannot clear does not pretend otherwise", async () => {
+  for (const code of [
+    "blocked_by_policy",
+    "approval_required",
+    "not_granted",
+    "capability_disabled",
+    "capability_removed",
+    "user_changed",
+    "bad_request",
+    "transform_error",
+    "server_not_found",
+  ]) {
+    const snapshot = await failWith({ code, message: "x", server: "github" });
+    assert.deepEqual(snapshot.actions, [], `${code} should offer no retry`);
+  }
+});
+
+test("every connector failure code says something of its own", async () => {
+  // The named anti-pattern for this capability is collapsing distinct codes
+  // into one banner, because that hides the one action that would fix the
+  // page. Distinct sentences are the check that it has not happened.
+  const codes = [
+    "needs_reauth",
+    "server_not_connected",
+    "selection_required",
+    "server_not_found",
+    "server_unavailable",
+    "not_in_manifest",
+    "blocked_by_policy",
+    "approval_required",
+    "tool_error",
+    "bad_request",
+    "cancelled",
+    "rate_limited",
+    "upstream_error",
+    "not_granted",
+    "consent_required",
+    "user_changed",
+  ];
+  const messages = new Map<string, string[]>();
+  for (const code of codes) {
+    const snapshot = await failWith({ code, message: "x", server: "github" });
+    assert.ok(snapshot.message, `${code} says nothing`);
+    messages.set(snapshot.message!, [
+      ...(messages.get(snapshot.message!) ?? []),
+      code,
+    ]);
+  }
+  // `not_granted` and its two aliases are one state by the contract's own
+  // reading; nothing else may share a sentence.
+  const shared = [...messages.values()].filter((group) => group.length > 1);
+  assert.deepEqual(shared, [], "these codes share one sentence");
+});
+
+test("a stale action is refused, as the connection server would refuse it", async () => {
+  const live = liveConnectors[0]!;
+  const transport = createConnectorTransport(
+    live,
+    async () => {
+      throw new Error("the stale action should be refused before any call");
+    },
+    () => {},
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  await assert.rejects(
+    () =>
+      transport.act(started.id, {
+        action: "begin",
+        revision: started.revision + 5,
+        values: {},
+      }),
+    /moved on/,
+  );
+});
+
+test("what the card promises is what the page is allowed to ask for", async () => {
+  for (const live of liveConnectors) {
+    // The card lists these before anybody presses Connect, and pressing it
+    // calls the provider straight away — so a label here that named access the
+    // page never declared would be a promise nothing checks.
+    assert.ok(live.access.length, `${live.server} declares no access`);
+    assert.deepEqual(
+      live.access.map((entry) => entry.tool),
+      [...live.manifest.methods[0]!.scopes],
+    );
+    for (const entry of live.access) assert.ok(entry.label.trim().length > 3);
+    assert.equal(
+      new Set(live.access.map((entry) => entry.label)).size,
+      live.access.length,
+      `${live.server} repeats a label`,
+    );
+  }
+});
+
+test("the page only calls tools that read, because it tells viewers so", () => {
+  // Every completion screen carries "nothing was written". That sentence is a
+  // promise to somebody handing over their credentials, and the only thing
+  // keeping it true is which tools the page may call — so the shape of those
+  // names is checked rather than trusted. A write tool added later fails here
+  // instead of quietly making the page lie.
+  for (const live of liveConnectors)
+    for (const entry of live.access)
+      assert.match(
+        entry.tool,
+        /^(get|list|search|read)_/,
+        `${live.server}/${entry.tool} is not obviously a read`,
+      );
+});
+
+test("a screen offering nothing refuses the action it does not offer", async () => {
+  // The transport states what is available and then enforces it, rather than
+  // leaving that to whichever client happens to be driving it.
+  const snapshot = await failWith({
+    code: "blocked_by_policy",
+    message: "x",
+    server: "github",
+  });
+  assert.deepEqual(snapshot.actions, []);
+  const live = liveConnectors[0]!;
+  const transport = createConnectorTransport(
+    live,
+    async () => {
+      throw { code: "blocked_by_policy", message: "x", server: live.server };
+    },
+    () => {},
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  const blocked = await transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+  await assert.rejects(
+    () =>
+      transport.act(blocked.id, {
+        action: "retry",
+        revision: blocked.revision,
+        values: {},
+      }),
+    /not available on this screen/,
+  );
 });

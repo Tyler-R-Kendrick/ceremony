@@ -117,3 +117,73 @@ test("the contrast maths agrees with the WCAG reference values", () => {
     contrast("#ffffff", "#0e1621").toFixed(3),
   );
 });
+
+/**
+ * The published catalogue's own palette.
+ *
+ * The gate above covers the component library; this page is a separate
+ * stylesheet, and it went out with its meter's unlit pips at 1.62:1 — the
+ * component got that right and the page, copying the shape, did not. A gate
+ * that only guards the library cannot catch that, so the page is read here
+ * too, from the file that ships rather than from values restated in a test.
+ */
+const page = readFileSync(
+  new URL("../scripts/gallery.css", import.meta.url),
+  "utf8",
+);
+
+const pageBlocks: Record<string, RegExp> = {
+  "page light": /^:root \{([\s\S]*?)\n\}/m,
+  "page dark (system)":
+    /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{([\s\S]*?)\n  \}\n\}/,
+  "page dark (chosen)": /:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/,
+};
+
+function pagePalette(source: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const match of source.matchAll(/--page-([a-z-]+): (#[0-9a-fA-F]{6})/g))
+    values[match[1]!] = match[2]!;
+  return values;
+}
+
+/** Every pair this page composes, and what each one has to clear. */
+const pagePairs: [string, string, number, string][] = [
+  ["ink", "surface", 4.5, "body text on a panel"],
+  ["ink", "sunken", 4.5, "body text on an inset surface"],
+  ["ink", "ground", 4.5, "body text on the page itself"],
+  ["muted", "surface", 4.5, "supporting text on a panel"],
+  ["muted", "sunken", 4.5, "supporting text on an inset surface"],
+  ["muted", "ground", 4.5, "supporting text on the page itself"],
+  ["accent", "surface", 4.5, "a link or code reference on a panel"],
+  ["accent", "sunken", 4.5, "that reference on an inset surface"],
+  ["stop", "stop-wash", 4.5, "an unavailable route on its own wash"],
+  ["stop", "surface", 4.5, "that state against a panel"],
+  // 1.4.11: the meter's unlit pips and the filter buttons' edges are non-text
+  // content somebody has to make out, against the surface behind each.
+  ["strong", "surface", 3, "a control edge on a panel"],
+  ["strong", "ground", 3, "a control edge against the page"],
+  ["accent", "ground", 3, "the focus ring against the page"],
+];
+
+for (const [theme, pattern] of Object.entries(pageBlocks))
+  test(`${theme}: every composed colour pair clears its WCAG threshold`, () => {
+    const match = page.match(pattern);
+    assert.ok(match, `the ${theme} block should be found in gallery.css`);
+    const colours = pagePalette(match[1]!);
+    assert.ok(
+      Object.keys(colours).length >= 10,
+      `the ${theme} block should declare the full palette, found ${Object.keys(colours).length}`,
+    );
+    const failures: string[] = [];
+    for (const [front, back, threshold, what] of pagePairs) {
+      const a = colours[front];
+      const b = colours[back];
+      assert.ok(a && b, `${theme}: ${front}/${back} should both be declared`);
+      const ratio = contrast(a, b);
+      if (ratio < threshold)
+        failures.push(
+          `${what}: ${front} ${a} on ${back} ${b} is ${ratio.toFixed(2)}:1, needs ${threshold}:1`,
+        );
+    }
+    assert.deepEqual(failures, []);
+  });

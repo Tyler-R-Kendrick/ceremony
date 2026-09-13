@@ -26,10 +26,24 @@ export interface Proof {
 
 export type Call = (tool: string, input?: unknown) => Promise<unknown>;
 
+/**
+ * One tool the page will call, and what calling it does, in a person's words.
+ *
+ * One list, three uses: it becomes the method's scopes, the capability manifest
+ * the artifact declares, and the permissions the card shows before anybody
+ * presses anything. Keeping them derived from the same place is what stops the
+ * card promising one thing while the page asks for another.
+ */
+export interface Access {
+  tool: string;
+  label: string;
+}
+
 export interface LiveConnector {
   manifest: ConnectorManifest;
   /** The connector's display name, as the viewer's claude.ai lists it. */
   server: string;
+  access: readonly Access[];
   probe(call: Call): Promise<Proof>;
 }
 
@@ -47,7 +61,7 @@ const delegated = (
   id: string,
   name: string,
   description: string,
-  tools: readonly string[],
+  access: readonly Access[],
 ): ConnectorManifest =>
   manifestSchema.parse({
     id,
@@ -59,7 +73,7 @@ const delegated = (
         label: `Approved connector · ${name} via claude.ai`,
         kind: "oauth-code",
         fields: [],
-        scopes: [...tools],
+        scopes: access.map((entry) => entry.tool),
         templateId: "oauth-code",
       },
     ],
@@ -99,15 +113,26 @@ const supabaseProjects = z.object({
   ),
 });
 
+const githubAccess: readonly Access[] = [
+  { tool: "get_me", label: "Read your GitHub profile" },
+  { tool: "search_repositories", label: "Search your repositories" },
+];
+
+const githubBlurb =
+  "Your GitHub account, reached through the connector you approved in claude.ai. It never sees a token and never writes.";
+
+const supabaseAccess: readonly Access[] = [
+  { tool: "list_projects", label: "List your Supabase projects" },
+];
+
+const supabaseBlurb =
+  "Your Supabase account, reached through the connector you approved in claude.ai. It reads nothing inside your projects and never writes.";
+
 export const liveConnectors: readonly LiveConnector[] = [
   {
-    manifest: delegated(
-      "github",
-      "GitHub",
-      "Your GitHub account, reached through the connector you approved in claude.ai. This page reads your profile and searches your repositories; it never sees a token and never writes.",
-      ["get_me", "search_repositories"],
-    ),
+    manifest: delegated("github", "GitHub", githubBlurb, githubAccess),
     server: "github",
+    access: githubAccess,
     async probe(call) {
       const me = githubMe.parse(await call("get_me"));
       // Scoped by what the first call returned, so the second is about the
@@ -145,13 +170,9 @@ export const liveConnectors: readonly LiveConnector[] = [
     },
   },
   {
-    manifest: delegated(
-      "supabase",
-      "Supabase",
-      "Your Supabase account, reached through the connector you approved in claude.ai. This page lists your projects; it reads nothing inside them and never writes.",
-      ["list_projects"],
-    ),
+    manifest: delegated("supabase", "Supabase", supabaseBlurb, supabaseAccess),
     server: "Supabase",
+    access: supabaseAccess,
     async probe(call) {
       const { projects } = supabaseProjects.parse(await call("list_projects"));
       const active = projects.filter(
@@ -192,6 +213,6 @@ export const liveConnectors: readonly LiveConnector[] = [
 export const mcpManifest = {
   servers: liveConnectors.map((live) => ({
     server: live.server,
-    tools: [...live.manifest.methods[0]!.scopes],
+    tools: live.access.map((entry) => entry.tool),
   })),
 };

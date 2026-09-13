@@ -15,6 +15,7 @@
   --page-line: #dde3ec;
   --page-rule: #c3ccda;
   --page-accent: #2540d9;
+  --page-strong: #7d8899;
   --page-stop: #a3261d;
   --page-stop-wash: #fdeceb;
   color-scheme: light dark;
@@ -30,6 +31,7 @@
     --page-line: #1e2632;
     --page-rule: #34404f;
     --page-accent: #8296ff;
+    --page-strong: #6b7889;
     --page-stop: #ff9d94;
     --page-stop-wash: #23100e;
   }
@@ -44,6 +46,7 @@
   --page-line: #1e2632;
   --page-rule: #34404f;
   --page-accent: #8296ff;
+  --page-strong: #6b7889;
   --page-stop: #ff9d94;
   --page-stop-wash: #23100e;
 }
@@ -621,11 +624,15 @@ code.kind {
   gap: 2px;
 }
 
+/* The unlit pips carry the scale the lit ones are read against, so they are
+ * non-text content conveying information and clear 3:1 like the component's
+ * own meter does. They were --page-rule at 1.62:1, which the component got
+ * right and this page, copying the shape, did not. */
 .cost-pip {
   inline-size: 5px;
   block-size: 5px;
   border-radius: 50%;
-  background: var(--page-rule);
+  background: var(--page-strong);
 }
 
 .cost-pip[data-on="true"] {
@@ -673,7 +680,10 @@ code.kind {
 }
 
 .filters button {
-  border: 1px solid var(--page-line);
+  /* A control somebody has to find and hit, so its edge clears 1.4.11's 3:1
+   * against the page behind it. --page-line is a container hairline at 1.1:1
+   * and was never a boundary for a control. */
+  border: 1px solid var(--page-strong);
   border-radius: 999px;
   padding: 0.3125rem 0.75rem;
   min-block-size: 2rem;
