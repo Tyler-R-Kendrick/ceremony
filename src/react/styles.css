@@ -393,10 +393,19 @@
 
 /* The provider identity line, restated inside the flow so a panel opened on
  * its own still says which service is being connected. */
+/* Wrapping, not a two-column grid. This component is dropped into somebody
+ * else's layout at whatever width they have, and the method label beside the
+ * provider's name is long ("Approved connector · Linear via claude.ai"). As a
+ * nowrap cell in an `auto` column it took the row, starved the name column to
+ * about one character, and the sheet's own `overflow-wrap: anywhere` then
+ * split the provider's name down the middle — "Lin/ear", "Git/Hub". Wrapping
+ * puts the label on its own line instead, which costs a line and reads. */
 :where([data-ceremony] .details) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.125rem 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
   padding-block-end: 0.875rem;
   border-block-end: 1px solid var(--_ceremony-border);
 }
@@ -405,23 +414,26 @@
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+  min-inline-size: 0;
+  /* A provider's name is a name: it wraps between words or not at all, never
+   * mid-word, whatever the inherited breaking rule says. */
+  overflow-wrap: normal;
 }
 
 :where([data-ceremony] .details span) {
-  grid-column: 2;
-  grid-row: 1;
   align-self: center;
+  max-inline-size: 100%;
   color: var(--_ceremony-muted);
   font-size: 0.75rem;
   padding: 0.1875rem 0.5rem;
   border: 1px solid var(--_ceremony-border);
   border-radius: 999px;
   background: var(--_ceremony-bg);
-  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 :where([data-ceremony] .details p) {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   color: var(--_ceremony-muted);
   font-size: 0.875rem;
 }

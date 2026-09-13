@@ -135,25 +135,6 @@ const linearUser = z.object({
     .nullish(),
 });
 
-const githubMe = z.object({
-  login: z.string(),
-  details: z
-    .object({
-      name: z.string().nullish(),
-      location: z.string().nullish(),
-      public_repos: z.number().nullish(),
-      followers: z.number().nullish(),
-    })
-    .nullish(),
-});
-
-const githubRepos = z.object({
-  total_count: z.number().nullish(),
-  items: z
-    .array(z.object({ full_name: z.string(), language: z.string().nullish() }))
-    .nullish(),
-});
-
 const supabaseAccess: readonly Access[] = [
   { tool: "list_projects", label: "List your Supabase projects" },
 ];
@@ -164,11 +145,6 @@ const vercelAccess: readonly Access[] = [
 
 const linearAccess: readonly Access[] = [
   { tool: "get_user", label: "Read your Linear profile" },
-];
-
-const githubAccess: readonly Access[] = [
-  { tool: "get_me", label: "Read your GitHub profile" },
-  { tool: "search_repositories", label: "Search your repositories" },
 ];
 
 const through =
@@ -281,51 +257,6 @@ export const liveConnectors: readonly LiveConnector[] = [
       return {
         reference: me.displayName ?? me.name ?? "linear",
         headline: `Connected to Linear as ${who}`,
-        facts,
-      };
-    },
-  },
-  {
-    manifest: delegated(
-      "github",
-      "GitHub",
-      `Your GitHub account, ${through} If you have not added GitHub to claude.ai, this card says so and where to add it.`,
-      githubAccess,
-    ),
-    server: "GitHub",
-    access: githubAccess,
-    async probe(call) {
-      const me = githubMe.parse(await call("get_me"));
-      // Scoped by what the first call returned, so the second is about the
-      // person who actually authorized this rather than a name written here.
-      const repos = githubRepos.parse(
-        await call("search_repositories", {
-          query: `owner:${me.login}`,
-          perPage: 5,
-          minimal_output: true,
-        }),
-      );
-      const items = repos.items ?? [];
-      const facts: Fact[] = [{ label: "Account", value: me.login }];
-      if (me.details?.name)
-        facts.push({ label: "Name", value: me.details.name });
-      if (me.details?.location)
-        facts.push({ label: "Location", value: me.details.location });
-      if (typeof me.details?.public_repos === "number")
-        facts.push({
-          label: "Public repositories",
-          value: String(me.details.public_repos),
-        });
-      if (typeof me.details?.followers === "number")
-        facts.push({ label: "Followers", value: String(me.details.followers) });
-      if (items.length)
-        facts.push({
-          label: `Repositories matched (${items.length})`,
-          value: items.map((item) => item.full_name).join(", "),
-        });
-      return {
-        reference: me.login,
-        headline: `Connected to GitHub as ${me.details?.name ?? me.login}`,
         facts,
       };
     },

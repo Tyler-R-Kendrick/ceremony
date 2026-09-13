@@ -318,9 +318,11 @@ test("every live connector names its connector exactly as claude.ai lists it", (
   // is what the first published version shipped, as "github", to an account
   // that had no GitHub connector at all. These are the display names read from
   // the account's own connector list before publishing: no aliases, no guesses.
-  // GitHub is declared although that account lacks it, so the page can say so
-  // and where to add it rather than nothing.
-  const names = ["Supabase", "Vercel", "Linear", "GitHub"];
+  // A connector the account does not have is not declared at all: claude.ai
+  // answers "No matching connector found", the press fails on its first step,
+  // and nothing the page does can fix it. GitHub was declared that way and is
+  // gone for exactly that reason.
+  const names = ["Supabase", "Vercel", "Linear"];
   assert.deepEqual(
     liveConnectors.map((live) => live.server),
     names,
@@ -530,13 +532,20 @@ test("a connection that succeeds completes with what the provider returned", asy
   // The failure paths were covered and the success path was not, which is how
   // a refactor that handed the probe a call result instead of its payload got
   // as far as a published page. This drives the real transport to completion.
-  const live = liveConnectors.find((entry) => entry.manifest.id === "github")!;
+  const live = liveConnectors.find(
+    (entry) => entry.manifest.id === "supabase",
+  )!;
   const answers: Record<string, unknown> = {
-    get_me: {
-      login: "example-user",
-      details: { name: "Example User", public_repos: 2, followers: 1 },
+    list_projects: {
+      projects: [
+        {
+          name: "Example project",
+          region: "us-west-2",
+          status: "ACTIVE_HEALTHY",
+          organization_id: "example-user",
+        },
+      ],
     },
-    search_repositories: { items: [{ full_name: "example-user/thing" }] },
   };
   let proof: unknown;
   const transport = createConnectorTransport(
@@ -604,51 +613,52 @@ test("consent left undecided names both things it can mean, and keeps the retry"
 const listed = (...servers: string[]): ServerInfo[] =>
   servers.map((server) => ({ server, authStatus: "unknown", tools: [] }));
 
-test("a connector the viewer never added is settled as missing, not as an unanswered prompt", async () => {
-  // What the published page actually got, pressing Connect on GitHub with no
-  // GitHub connector in the account: a retryable `upstream_error`. Listing
-  // again after the ask is what tells the two apart — a manifest server the
-  // viewer's list no longer carries has no connector for them.
-  const live = liveConnectors.find((entry) => entry.server === "GitHub")!;
+test("a connector this viewer does not have is settled as missing, not as an unanswered prompt", async () => {
+  // Another viewer of this page may lack a connector this account has. The
+  // shape they get is a retryable `upstream_error`, the same one an unanswered
+  // consent prompt produces. Listing again after the ask tells the two apart:
+  // a declared server the viewer's list does not carry has no connector for
+  // them, which is `server_not_connected`.
+  const live = liveConnectors.find((entry) => entry.server === "Vercel")!;
   const seen = {
     code: "upstream_error",
     message: "connector access isn't confirmed for this artifact right now",
     retryable: true,
     retryAfterMs: 30000,
-    server: "GitHub",
+    server: "Vercel",
   };
   const settled = (await settle(seen, live, async () =>
-    listed("Supabase", "Vercel", "Linear"),
+    listed("Supabase", "Linear"),
   )) as { code: string; server: string; cause?: string };
   assert.equal(settled.code, "server_not_connected");
-  assert.equal(settled.server, "GitHub");
+  assert.equal(settled.server, "Vercel");
   // The record keeps what was seen as well as what was concluded.
   assert.equal(settled.cause, "upstream_error");
   const snapshot = await failWith(settled);
   assert.match(
     snapshot.message ?? "",
-    /You have no GitHub connector in claude\.ai/,
+    /You have no Vercel connector in claude\.ai/,
   );
   assert.match(snapshot.message ?? "", /Settings → Connectors/);
   assert.ok(snapshot.actions.includes("retry"));
 });
 
 test("settling leaves every other failure exactly as it was", async () => {
-  const live = liveConnectors.find((entry) => entry.server === "GitHub")!;
-  const still = listed("Supabase", "Vercel", "Linear", "GitHub");
+  const live = liveConnectors.find((entry) => entry.server === "Vercel")!;
+  const still = listed("Supabase", "Vercel", "Linear");
   const prompt = {
     code: "upstream_error",
     message: "left undecided",
     retryable: true,
-    server: "GitHub",
+    server: "Vercel",
   };
   // Still listed: the prompt reading stands.
   assert.equal(await settle(prompt, live, async () => still), prompt);
   // Not retryable: not the consent shape at all.
-  const outage = { code: "upstream_error", message: "500", server: "GitHub" };
+  const outage = { code: "upstream_error", message: "500", server: "Vercel" };
   assert.equal(await settle(outage, live, async () => []), outage);
   // Some other code: untouched, whatever the listing says.
-  const lapsed = { code: "needs_reauth", message: "expired", server: "GitHub" };
+  const lapsed = { code: "needs_reauth", message: "expired", server: "Vercel" };
   assert.equal(await settle(lapsed, live, async () => []), lapsed);
   // A listing that cannot answer proves nothing, so nothing is concluded.
   assert.equal(

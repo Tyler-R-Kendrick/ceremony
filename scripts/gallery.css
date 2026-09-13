@@ -314,7 +314,9 @@ code.kind {
 
 .live-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  /* min() matters: a bare 20rem minimum is wider than a phone's content box,
+   * so the track refused to shrink and pushed the card off the screen. */
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
   gap: 1.125rem;
   align-items: start;
 }
@@ -356,23 +358,51 @@ code.kind {
   text-wrap: pretty;
 }
 
+/* Rows stack by default. A label here is provider data — a Supabase project
+ * is named whatever its owner named it — and one long name in a nowrap column
+ * squeezed the value column to nothing, which `overflow-wrap: anywhere` then
+ * rendered one character per line, overflowing the card. Stacked, a long name
+ * costs a line instead of breaking the panel. */
 .evidence-facts {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.3125rem 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
   margin: 0;
   font-size: 0.8125rem;
 }
 
 .evidence-facts dt {
   color: var(--page-muted);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .evidence-facts dd {
-  margin: 0;
+  margin: 0 0 0.4375rem;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+
+.evidence-facts dd:last-child {
+  margin-block-end: 0;
+}
+
+/* Two columns only where there is room for both, and even then the label
+ * column is capped so it can never starve the value. */
+@media (min-width: 34rem) {
+  .evidence-facts {
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    gap: 0.3125rem 0.875rem;
+    align-items: baseline;
+  }
+
+  .evidence-facts dt {
+    max-inline-size: 12rem;
+  }
+
+  .evidence-facts dd,
+  .evidence-facts dd:last-child {
+    margin-block-end: 0;
+  }
 }
 
 .evidence-note {
@@ -560,7 +590,7 @@ code.kind {
 
 .resolutions {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
   gap: 0.875rem;
   align-items: start;
 }
