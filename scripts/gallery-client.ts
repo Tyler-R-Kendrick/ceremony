@@ -284,6 +284,10 @@ interface Consents {
   request(names: readonly string[]): Promise<Record<string, string>>;
 }
 
+interface Store {
+  doc(path: string): { set(data: Record<string, unknown>): Promise<void> };
+}
+
 declare global {
   interface Window {
     ceremonyResolver?: { boot: typeof boot };
@@ -315,13 +319,18 @@ function startLive(): void {
         // that promise ever failed to settle, the section would sit waiting
         // for ever, and a page that spins with no end is the failure this one
         // has already shipped in other forms.
-        const [mcp, permissions] = (await Promise.race([
+        const [mcp, permissions, db] = (await Promise.race([
           Promise.all([
             window.claude?.use("mcp"),
             window.claude?.use("permissions"),
+            window.claude?.use("db"),
           ]),
           new Promise((resolve) => setTimeout(() => resolve([]), 15_000)),
-        ])) as [McpNamespace | null | undefined, Consents | null | undefined];
+        ])) as [
+          McpNamespace | null | undefined,
+          Consents | null | undefined,
+          Store | null | undefined,
+        ];
         if (!mcp) return null;
         return {
           callTool: (server, tool, input) => mcp.callTool(server, tool, input),
@@ -332,6 +341,11 @@ function startLive(): void {
           permission: async (name) =>
             (await permissions?.state(name)) ?? "unavailable",
           ask: async (names) => (await permissions?.request(names)) ?? {},
+          // One document, replaced whole each time. A view without the store
+          // records nothing and loses nothing else.
+          record: async (document) => {
+            await db?.doc("diagnostics/latest").set(document);
+          },
         } satisfies Broker;
       } catch {
         return null;

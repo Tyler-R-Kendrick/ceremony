@@ -557,3 +557,52 @@ test("a failure code this page does not know still names itself", async () => {
   });
   assert.match(snapshot.message ?? "", /some_future_code/);
 });
+
+test("consent left undecided says where to answer it, and keeps the retry", async () => {
+  // The shape a first call gets when the consent prompt could not be shown
+  // or was left unanswered: `upstream_error`, retryable, with a wait. The
+  // call never reached the provider, so a retry after answering is exactly
+  // right — and the sentence has to say where the answer is given, because
+  // it is not on this page.
+  const snapshot = await failWith({
+    code: "upstream_error",
+    message: "connector access isn't confirmed for this artifact right now",
+    retryable: true,
+    retryAfterMs: 30000,
+    server: "GitHub",
+  });
+  assert.equal(snapshot.step, "error");
+  assert.ok(snapshot.actions.includes("retry"));
+  assert.match(snapshot.message ?? "", /Review in Claude/);
+  assert.match(
+    snapshot.message ?? "",
+    /allow GitHub there, wait about 30s, then press Try again\./,
+  );
+});
+
+test("an attempt is reported as an outcome the page can record", async () => {
+  const live = liveConnectors[0]!;
+  const outcomes: unknown[] = [];
+  const transport = createConnectorTransport(
+    live,
+    async () => {
+      throw { code: "needs_reauth", message: "expired", server: "GitHub" };
+    },
+    () => {},
+    (outcome) => outcomes.push(outcome),
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  await transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+  assert.deepEqual(outcomes, [
+    {
+      server: live.server,
+      step: "error",
+      code: "needs_reauth",
+      message: "expired",
+    },
+  ]);
+});

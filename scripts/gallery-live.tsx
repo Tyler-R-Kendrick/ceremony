@@ -1,5 +1,6 @@
 import {
   createElement,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -105,6 +106,12 @@ export interface Broker {
   permission(name: string): Promise<string>;
   /** Consent for one connector, asked once, behind a real gesture. */
   ask(names: readonly string[]): Promise<Record<string, string>>;
+  /**
+   * Write the page's diagnostics document, so what happened on a real run can
+   * be read from outside the page. Codes, names and messages only — never a
+   * provider's payload, and never anything a person typed.
+   */
+  record(document: Record<string, unknown>): Promise<void>;
 }
 
 interface McpError {
@@ -191,7 +198,7 @@ function verdict(error: unknown, server: string): Verdict {
       );
     case "server_unavailable":
       return fault(
-        `${where} did not answer in time. This one is usually temporary.${wait}`,
+        `${where} did not answer in time. This one is usually temporary.${wait} Then press Try again.`,
       );
     case "rate_limited":
       return fault(
@@ -239,6 +246,20 @@ function verdict(error: unknown, server: string): Verdict {
     // A code this mapping does not know. Naming it is the point: the last
     // time one arrived here it printed a sentence with no code, and finding
     // out which one it was took a round trip through the user.
+    // The one a first call gets when consent for the connector could not be
+    // asked, or was asked and left undecided. The call never reached the
+    // provider. What clears it is answering — usually a "Review in Claude"
+    // notice that is not on this page — and then trying again.
+    case "upstream_error":
+      return error.retryable
+        ? fault(
+            `Claude has not confirmed connector access for this page yet — the consent prompt could not be shown, or was left unanswered. Look for a "Review in Claude" notice (in your Claude tab or app, not on this page), allow ${where} there, ${
+              typeof error.retryAfterMs === "number"
+                ? `wait about ${Math.ceil(error.retryAfterMs / 1000)}s`
+                : "wait a moment"
+            }, then press Try again.`,
+          )
+        : fault(`${where} could not be reached: ${error.message}`);
     default:
       return fault(
         `${where} could not be reached: ${error.message}${error.retryable ? wait : ""} (${error.code})`,
@@ -253,10 +274,19 @@ function verdict(error: unknown, server: string): Verdict {
  * does, so a stale action is refused here for the same reason it is refused
  * there. It stores nothing: there is no credential to store.
  */
+/** One attempt's result, as the page records it: what happened, never what was read. */
+export interface Outcome {
+  server: string;
+  step: CeremonySnapshot["step"];
+  code?: string;
+  message?: string;
+}
+
 export function createConnectorTransport(
   live: LiveConnector,
   call: Call,
   onProof: (proof: Proof | undefined) => void,
+  onOutcome: (outcome: Outcome) => void = () => {},
 ): CeremonyTransport {
   const method = live.manifest.methods[0]!;
   const id = globalThis.crypto.randomUUID();
@@ -288,6 +318,7 @@ export function createConnectorTransport(
     try {
       const proof = await live.probe(call);
       onProof(proof);
+      onOutcome({ server: live.server, step: "complete" });
       return at("complete", {
         outcome: {
           connectionRef: proof.reference,
@@ -300,6 +331,15 @@ export function createConnectorTransport(
     } catch (error) {
       onProof(undefined);
       const { step, message, retry } = verdict(error, live.server);
+      onOutcome({
+        server: live.server,
+        step,
+        ...(isMcpError(error)
+          ? { code: error.code, message: error.message }
+          : {
+              message: error instanceof Error ? error.message : String(error),
+            }),
+      });
       return at(step, {
         message,
         // The transport decides what is available, the way the connection
@@ -370,10 +410,12 @@ function LiveConnection({
   live,
   broker,
   resolved,
+  onOutcome,
 }: {
   live: LiveConnector;
   broker: Broker | undefined;
   resolved: ServerInfo | undefined;
+  onOutcome: (outcome: Outcome) => void;
 }): ReactNode {
   const [started, setStarted] = useState(false);
   const [proof, setProof] = useState<Proof | undefined>(undefined);
@@ -382,8 +424,8 @@ function LiveConnection({
   // by an effect. Capturing them in the closure would freeze the values this
   // component first rendered with — which are none — and every press would
   // report that the view cannot reach connectors while it plainly can.
-  const latest = useRef({ broker, resolved });
-  latest.current = { broker, resolved };
+  const latest = useRef({ broker, resolved, onOutcome });
+  latest.current = { broker, resolved, onOutcome };
   const transport = useState(() =>
     createConnectorTransport(
       live,
@@ -421,6 +463,7 @@ function LiveConnection({
         return (await broker.callTool(server, tool, input)).payload;
       },
       setProof,
+      (outcome) => latest.current.onOutcome(outcome),
     ),
   )[0];
   // Pressing Connect calls the provider straight away — the client prepares an
@@ -519,6 +562,39 @@ function LiveSection({
   const [broker, setBroker] = useState<Broker | undefined>(undefined);
   const [servers, setServers] = useState<readonly ServerInfo[]>([]);
   const [consent, setConsent] = useState<Record<string, string>>({});
+  const [attempts, setAttempts] = useState<
+    readonly (Outcome & { at: string })[]
+  >([]);
+  const onOutcome = useCallback((outcome: Outcome) => {
+    // The last few, not a stream: one document, bounded, so the store never
+    // fills with one row per press.
+    setAttempts((log) =>
+      [...log, { ...outcome, at: new Date().toISOString() }].slice(-10),
+    );
+  }, []);
+  // What the page found and what happened, written where it can be read from
+  // outside the page. Codes, names, states and the runtime's own messages —
+  // never a provider's payload. Failing to write is not a failure of the page.
+  useEffect(() => {
+    if (!looked || !broker) return;
+    void broker
+      .record({
+        at: new Date().toISOString(),
+        version: 11,
+        reachable: servers.map((info) => ({
+          server: info.server,
+          authStatus: info.authStatus,
+          tools: info.tools.map((tool) => tool.name),
+          consent: consent[`mcp:${info.server}`] ?? "unread",
+        })),
+        matched: liveConnectors.map((entry) => ({
+          connector: entry.manifest.id,
+          as: matchServer(servers, entry)?.server ?? null,
+        })),
+        attempts,
+      })
+      .catch(() => {});
+  }, [looked, broker, servers, consent, attempts]);
   useEffect(() => {
     let live = true;
     void (async () => {
@@ -565,6 +641,7 @@ function LiveSection({
             live: entry,
             broker,
             resolved: matchServer(servers, entry),
+            onOutcome,
           }),
         ),
       ),
