@@ -10,6 +10,11 @@ import {
 import { CeremonyView } from "../src/react/index.js";
 import { ConnectorCard } from "../src/react/connectors.js";
 import { createCeremonyClient } from "../src/core/client.js";
+import { humanHandoffs, routeFor } from "../src/core/resolution.js";
+import {
+  liveConnectors,
+  mcpManifest,
+} from "../scripts/gallery-live-connectors.js";
 import { manifests } from "../examples/manifests.js";
 import {
   asSpecimen,
@@ -124,6 +129,21 @@ test("the registration variants the catalogue documents are all published", () =
     assert.ok(entry.provides.length, `${entry.id} asks for nothing`);
 });
 
+/**
+ * Minimal valid answers for the live probes, shaped like the real ones.
+ *
+ * Values are invented on purpose: the point is to record which tools a probe
+ * reaches, and a real account's data has no business in a test fixture.
+ */
+const probeDouble: Record<string, unknown> = {
+  get_me: {
+    login: "example-user",
+    details: { name: "Example User", public_repos: 1, followers: 0 },
+  },
+  search_repositories: { total_count: 0, items: [] },
+  list_projects: { projects: [] },
+};
+
 test("every scope the page offers is one a connector here really declares", () => {
   // The labels are the host's copy and the page writes them. The scopes are
   // not copy: a permission naming a scope no method grants would filter
@@ -226,4 +246,70 @@ test("neutralising a specimen neither dims a control nor mangles an element", ()
   assert.ok(html.includes('<article data-ceremony-card=""'), html);
   assert.equal(tabStops(html), 0);
   assert.equal((html.match(/tabindex="-1"/g) ?? []).length, 2);
+});
+
+test("the page declares exactly the connector tools its probes call", async () => {
+  // A tool the page calls but never declared is refused at runtime with
+  // `not_in_manifest`, and a tool declared but never called asks the viewer to
+  // grant access nobody needs. Both are invisible until somebody presses
+  // Connect on a published page, so they are checked here instead.
+  for (const live of liveConnectors) {
+    const called: string[] = [];
+    await live.probe(async (tool) => {
+      called.push(tool);
+      return probeDouble[tool];
+    });
+    const declared = mcpManifest.servers.find(
+      (entry) => entry.server === live.server,
+    );
+    assert.ok(declared, `${live.server} should be declared`);
+    assert.deepEqual(
+      [...called].sort(),
+      [...declared.tools].sort(),
+      `${live.server}: declared tools should be the ones the probe calls`,
+    );
+    // The capability refuses a server entry carrying no tools, and treats it
+    // as "none" rather than "all", so an empty list is never a shorthand.
+    assert.ok(declared.tools.length, `${live.server} declares no tool`);
+  }
+});
+
+test("a live connector states the mechanism that really runs", async () => {
+  for (const live of liveConnectors) {
+    // Through the production schema, so a live manifest obeys every rule the
+    // library enforces on a connector somebody else writes.
+    assert.deepEqual(manifestSchema.parse(live.manifest), live.manifest);
+    const method = live.manifest.methods[0]!;
+    // One method, because there is exactly one way this page connects. A
+    // picker here would offer a choice that does not exist.
+    assert.equal(live.manifest.methods.length, 1);
+    // The grant is the tools, so the scopes have to be the tools; anything
+    // else would tell a person they granted something they did not.
+    assert.deepEqual(
+      [...method.scopes].sort(),
+      [
+        ...(mcpManifest.servers.find((entry) => entry.server === live.server)
+          ?.tools ?? []),
+      ].sort(),
+    );
+    // It collects nothing: the credential is the viewer's assistant's, and a
+    // field here would be this page asking for a secret it must never hold.
+    assert.deepEqual(method.fields, []);
+    // The label has to name the surface doing the approving, or "oauth-code"
+    // reads as a redirect this page never performs.
+    assert.match(method.label, /claude\.ai/);
+    assert.equal(routeFor(method), "provider-approval");
+    assert.equal(humanHandoffs(method), 1);
+  }
+});
+
+test("every live connector is one this project already ships a manifest for", () => {
+  // The live section exists to demonstrate the catalogue, not to introduce
+  // services the catalogue never mentions.
+  const known = new Set(everyManifest.map((manifest) => manifest.id));
+  for (const live of liveConnectors)
+    assert.ok(
+      known.has(live.manifest.id),
+      `${live.manifest.id} is live but absent from the catalogue`,
+    );
 });

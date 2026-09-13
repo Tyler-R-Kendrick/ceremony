@@ -294,6 +294,101 @@ code.kind {
   color: var(--page-muted);
 }
 
+/* ------------------------------------------------------------------- live */
+
+.live {
+  min-block-size: 6rem;
+}
+
+.live-pending {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--page-rule);
+  border-radius: 14px;
+  color: var(--page-muted);
+  font-size: 0.875rem;
+}
+
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.125rem;
+  align-items: start;
+}
+
+/* The live cell is a real surface, not a specimen case: no dashed frame, no
+ * "nothing here can be used" tag, because everything here can. */
+.live-cell {
+  padding: 1.125rem;
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+  min-inline-size: 0;
+}
+
+.live-run {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+/* What the connection went on to read. Separate from the ceremony component,
+ * which renders the ceremony and should not be asked to render a provider's
+ * payload as well. */
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.9375rem 1rem;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-sunken);
+}
+
+.evidence-head {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-wrap: pretty;
+}
+
+.evidence-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.3125rem 0.875rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.evidence-facts dt {
+  color: var(--page-muted);
+  white-space: nowrap;
+}
+
+.evidence-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence-note {
+  margin: 0;
+  padding-block-start: 0.5rem;
+  border-block-start: 1px solid var(--page-line);
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.live-note {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
 /* --------------------------------------------------------------- resolver */
 
 .resolver {

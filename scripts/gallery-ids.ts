@@ -12,3 +12,4 @@
  */
 export const resolverMountId = "resolver";
 export const resolverPayloadId = "catalogue-data";
+export const liveMountId = "live-connections";

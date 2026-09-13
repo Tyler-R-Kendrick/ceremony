@@ -5,7 +5,12 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { ConnectorCard, CeremonyView } from "../src/react/index.js";
 import { manifests } from "../examples/manifests.js";
-import { resolverMountId, resolverPayloadId } from "./gallery-ids.js";
+import {
+  liveMountId,
+  resolverMountId,
+  resolverPayloadId,
+} from "./gallery-ids.js";
+import { liveConnectors } from "./gallery-live-connectors.js";
 import {
   asSpecimen,
   carrierFor,
@@ -313,6 +318,35 @@ const permissionGroup = () => `
           <p class="note">the words are the host's; every scope is one a connector here really declares</p>
         </fieldset>`;
 
+const liveSection = `
+  <section class="movement" aria-labelledby="live-heading">
+    <div class="movement-head">
+      <h2 id="live-heading">Connect something, right now</h2>
+      <p>
+        These two connect for real. Press Connect and the component below runs
+        the ceremony against ${liveConnectors
+          .map((entry) => escape(entry.manifest.name))
+          .join(" and ")}, using the connector you already approved in
+        claude.ai — your credentials, never handled by this page, and read-only.
+        What you get back is whatever the provider just said, including the
+        failure screens when it says no.
+      </p>
+    </div>
+    <div class="live" id="${liveMountId}">
+      <p class="live-pending">Starting the connections…</p>
+    </div>
+    <p class="live-note">
+      One thing differs from a deployment you run yourself, and it is the
+      transport: there, <code>createHttpTransport</code> talks to the connection
+      server, which holds the credential. Here the transport calls your
+      assistant's connectors, which hold it instead. The component, the client
+      and the state machine are the ones the library ships — that is what having
+      a <code>CeremonyTransport</code> interface is for. Flows needing a server
+      of their own — a device code, a private credential collector — are further
+      down as specimens, because this page has no server to run them against.
+    </p>
+  </section>`;
+
 const resolver = `
   <section class="movement" aria-labelledby="resolve-heading">
     <div class="movement-head">
@@ -365,19 +399,19 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
       the product ships, from a snapshot the production schema accepted.
     </p>
     <p class="honesty">
-      <strong>What this is:</strong> the project's own scenario catalogue,
-      specimens of the real screens, and a resolver that really runs.
-      <strong>What it is not:</strong> a live session. A published page makes no
-      network request at all, so no provider is contacted here and no credential
-      is handled — which is why nothing inside a specimen can be pressed. A
-      button wired to do nothing would be the dishonest option. Resolution needs
-      no provider, so <a href="#${resolverMountId}">the resolver below</a> is the real one,
-      compiled into this page and deciding against the real manifests as you
-      change the declaration. Live connections run in the reference application,
-      against the connection server.
+      <strong>This page connects.</strong> Press Connect below and the component
+      the library ships runs a real ceremony against a real provider, through
+      the connectors you approved in claude.ai: your credentials, which this
+      page never sees, and read-only calls that write nothing. The resolver is
+      the real one too, deciding against the real manifests as you change the
+      declaration. <strong>What is not live:</strong> the flows needing a server
+      of their own, which appear further down as specimens and are labelled as
+      specimens — this page has no connection server to run them against, and a
+      button that pretends otherwise would be the dishonest option.
     </p>
   </header>
 
+${liveSection}
   <section class="movement" aria-labelledby="cards-heading">
     <div class="movement-head">
       <h2 id="cards-heading">Where it starts</h2>
