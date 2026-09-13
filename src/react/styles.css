@@ -1,146 +1,813 @@
-/* Optional, low-specificity styles. No global reset, font download or app shell. */
-:where([data-ceremony-part="prerequisites"]) {
-  padding-inline-start: 1.25rem;
-  margin-block: 0 1.5rem;
-  font-size: 0.875rem;
+/*
+ * Ceremony design system.
+ *
+ * Written to be dropped into somebody else's page. Three rules follow from
+ * that, and every choice below obeys them:
+ *
+ * 1. Every selector is wrapped in :where(), so the whole sheet has zero
+ *    specificity and a host's own rules win without !important.
+ * 2. Nothing is styled outside a ceremony root: [data-ceremony] for a flow,
+ *    [data-ceremony-card] for a kickoff card, and [data-ceremony-meter] /
+ *    [data-ceremony-chip] for the two components that also ship on their own.
+ *    Each of those declares the token layer, so a meter or a chip rendered
+ *    outside a card still resolves its colours instead of losing them. No
+ *    selector is a bare class name — `.chip` belongs to the host, not to us —
+ *    and there is no reset, no body rule, no global font.
+ * 3. Type is inherited, never imposed. A component library that drags a webfont
+ *    into someone's site is not pluggable.
+ *
+ * Colour, spacing and radius are --ceremony-* custom properties: a host sets
+ * them once and every part follows. Defaults cover light and dark.
+ *
+ * Those properties are read, never written. The sheet declares --_ceremony-*
+ * instead, each resolving its public counterpart with the default as a
+ * fallback, and styles everything from the private one. Declaring the public
+ * token would break the contract it advertises: [data-ceremony] nests — the
+ * field form is one inside the panel — and a nested root re-declaring a token
+ * overrides the value it inherited from the host, so a themed ceremony would
+ * render the library's own colours from the form down. Resolving instead means
+ * a nested root recomputes from whatever the host set, at any depth.
+ */
+
+:where(
+  [data-ceremony],
+  [data-ceremony-card],
+  [data-ceremony-meter],
+  [data-ceremony-chip]
+) {
+  /* Surfaces and text */
+  --_ceremony-bg: var(--ceremony-bg, #ffffff);
+  --_ceremony-ground: var(--ceremony-ground, #f4f6fa);
+  --_ceremony-fg: var(--ceremony-fg, #0e1621);
+  --_ceremony-muted: var(--ceremony-muted, #5a6679);
+  --_ceremony-border: var(--ceremony-border, #dfe4ec);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #7d8899);
+  /* One accent, spent on the action the person is meant to take */
+  --_ceremony-accent: var(--ceremony-accent, #2540d9);
+  --_ceremony-on-accent: var(--ceremony-on-accent, #ffffff);
+  --_ceremony-accent-wash: var(--ceremony-accent-wash, #edf0fe);
+  --_ceremony-focus: var(--ceremony-focus, var(--_ceremony-accent));
+  /* Semantic, deliberately not the accent: these report state, not emphasis */
+  --_ceremony-ok: var(--ceremony-ok, #0b7a5b);
+  --_ceremony-ok-wash: var(--ceremony-ok-wash, #e6f4ef);
+  --_ceremony-human: var(--ceremony-human, #8a5b06);
+  --_ceremony-human-wash: var(--ceremony-human-wash, #fbf2e0);
+  --_ceremony-stop: var(--ceremony-stop, #a93226);
+  --_ceremony-stop-wash: var(--ceremony-stop-wash, #fbeceb);
+  --_ceremony-radius: var(--ceremony-radius, 10px);
+  --_ceremony-radius-sm: var(--ceremony-radius-sm, 6px);
+  --_ceremony-radius-lg: var(--ceremony-radius-lg, 14px);
+  --_ceremony-gap: var(--ceremony-gap, 1.25rem);
+  --_ceremony-mono: var(
+    --ceremony-mono,
+    ui-monospace,
+    SFMono-Regular,
+    "SF Mono",
+    Menlo,
+    monospace
+  );
 }
-:where([data-ceremony-part="prerequisites"] li) {
-  padding-block: 0.25rem;
+
+@media (prefers-color-scheme: dark) {
+  :where(
+    :root:not([data-theme="light"]) [data-ceremony],
+    :root:not([data-theme="light"]) [data-ceremony-card],
+    :root:not([data-theme="light"]) [data-ceremony-meter],
+    :root:not([data-theme="light"]) [data-ceremony-chip]
+  ) {
+    --_ceremony-bg: var(--ceremony-bg, #131a24);
+    --_ceremony-ground: var(--ceremony-ground, #0a0e15);
+    --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
+    --_ceremony-muted: var(--ceremony-muted, #93a0b4);
+    --_ceremony-border: var(--ceremony-border, #232c3a);
+    --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
+    --_ceremony-accent: var(--ceremony-accent, #8296ff);
+    --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
+    --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
+    --_ceremony-ok: var(--ceremony-ok, #46c79c);
+    --_ceremony-ok-wash: var(--ceremony-ok-wash, #10261f);
+    --_ceremony-human: var(--ceremony-human, #e0ac53);
+    --_ceremony-human-wash: var(--ceremony-human-wash, #2a2113);
+    --_ceremony-stop: var(--ceremony-stop, #f08372);
+    --_ceremony-stop-wash: var(--ceremony-stop-wash, #2b1614);
+  }
 }
-:where([data-ceremony-part="prerequisites"] [aria-current="step"]) {
-  font-weight: 600;
+
+:where(
+  [data-theme="dark"] [data-ceremony],
+  [data-theme="dark"] [data-ceremony-card],
+  [data-theme="dark"] [data-ceremony-meter],
+  [data-theme="dark"] [data-ceremony-chip]
+) {
+  --_ceremony-bg: var(--ceremony-bg, #131a24);
+  --_ceremony-ground: var(--ceremony-ground, #0a0e15);
+  --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
+  --_ceremony-muted: var(--ceremony-muted, #93a0b4);
+  --_ceremony-border: var(--ceremony-border, #232c3a);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
+  --_ceremony-accent: var(--ceremony-accent, #8296ff);
+  --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
+  --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
+  --_ceremony-ok: var(--ceremony-ok, #46c79c);
+  --_ceremony-ok-wash: var(--ceremony-ok-wash, #10261f);
+  --_ceremony-human: var(--ceremony-human, #e0ac53);
+  --_ceremony-human-wash: var(--ceremony-human-wash, #2a2113);
+  --_ceremony-stop: var(--ceremony-stop, #f08372);
+  --_ceremony-stop-wash: var(--ceremony-stop-wash, #2b1614);
 }
-:where([data-ceremony]) {
-  color: var(--ceremony-fg, #263d35);
-  background: var(--ceremony-bg, #ffffff);
-  font-family: inherit;
-  font-size: 1rem;
-  line-height: 1.5;
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-  accent-color: var(--ceremony-accent, #245844);
-  caret-color: var(--ceremony-accent, #245844);
-  scrollbar-color: var(--ceremony-border, #788b80) var(--ceremony-bg, #ffffff);
-}
-:where([data-ceremony], [data-ceremony] *) {
+
+:where(
+  [data-ceremony],
+  [data-ceremony] *,
+  [data-ceremony-card],
+  [data-ceremony-card] *,
+  [data-ceremony-meter],
+  [data-ceremony-meter] *,
+  [data-ceremony-chip],
+  [data-ceremony-chip] *
+) {
   box-sizing: border-box;
 }
-:where([data-ceremony])::selection,
-:where([data-ceremony] *)::selection {
-  color: var(--ceremony-on-accent, #ffffff);
-  background: var(--ceremony-accent, #245844);
+
+/* ---------------------------------------------------------------- connectors
+ * The kickoff surface: one row per service, scannable in a column.
+ */
+
+:where([data-ceremony-grid]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.75rem;
+  min-inline-size: 0;
 }
+
+:where([data-ceremony-card]) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "mark head"
+    "meta meta"
+    "foot foot";
+  grid-template-rows: auto auto 1fr;
+  gap: 0.75rem 0.875rem;
+  align-items: start;
+  block-size: 100%;
+  padding: 1rem;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: var(--_ceremony-radius-lg);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-fg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  min-inline-size: 0;
+  text-align: start;
+}
+
+/* A route the declared intent rules out. Shown, not hidden: a reader learns
+ * more from a service that says it cannot be used here than from one that
+ * quietly disappears, and far more than from a button that fails when pressed. */
+:where([data-ceremony-card][data-status="unavailable"]) {
+  border-style: dashed;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-ceremony-card] .connector-blocked) {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--_ceremony-muted);
+  text-wrap: pretty;
+}
+
+:where([data-ceremony-card][data-status="connected"]) {
+  border-color: color-mix(
+    in srgb,
+    var(--_ceremony-ok) 35%,
+    var(--_ceremony-border)
+  );
+}
+
+:where([data-ceremony-card] .connector-mark) {
+  grid-area: mark;
+  display: grid;
+  place-items: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: var(--_ceremony-radius-sm);
+  border: 1px solid var(--_ceremony-border);
+  background: var(--_ceremony-ground);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+}
+
+:where([data-ceremony-card] .connector-mark svg) {
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+}
+
+:where([data-ceremony-card] .connector-head) {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+
+:where([data-ceremony-card] .connector-name) {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+:where([data-ceremony-card] .connector-summary) {
+  grid-area: meta;
+  color: var(--_ceremony-muted);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+:where([data-ceremony-card] .connector-foot) {
+  grid-area: foot;
+  align-self: end;
+  inline-size: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--_ceremony-border);
+}
+
+:where([data-ceremony-card] .connector-foot-end) {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-inline-start: auto;
+}
+
+:where([data-ceremony-card] .connector-methods) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ------------------------------------------------------------------ the meter
+ * How many times this route stops and asks a person. It is the one thing this
+ * product knows that a list of logos does not, so it is on every card.
+ */
+
+:where([data-ceremony-meter]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--_ceremony-muted);
+  white-space: nowrap;
+}
+
+:where([data-ceremony-meter] .handoff-pips) {
+  display: inline-flex;
+  gap: 2px;
+}
+
+:where([data-ceremony-meter] .handoff-pip) {
+  inline-size: 0.375rem;
+  block-size: 0.75rem;
+  border-radius: 1px;
+  background: var(--_ceremony-border-strong);
+}
+
+:where([data-ceremony-meter] .handoff-pip[data-on="true"]) {
+  background: var(--_ceremony-human);
+}
+
+:where([data-ceremony-meter][data-cost="0"]) {
+  color: var(--_ceremony-ok);
+}
+
+/* ------------------------------------------------------------------- chips */
+
+:where([data-ceremony-chip]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--_ceremony-border);
+  background: var(--_ceremony-ground);
+  color: var(--_ceremony-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+:where([data-ceremony-chip][data-tone="ok"]) {
+  color: var(--_ceremony-ok);
+  background: var(--_ceremony-ok-wash);
+  border-color: color-mix(in srgb, var(--_ceremony-ok) 28%, transparent);
+}
+
+:where([data-ceremony-chip][data-tone="human"]) {
+  color: var(--_ceremony-human);
+  background: var(--_ceremony-human-wash);
+  border-color: color-mix(in srgb, var(--_ceremony-human) 28%, transparent);
+}
+
+:where([data-ceremony-chip][data-tone="stop"]) {
+  color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+  border-color: color-mix(in srgb, var(--_ceremony-stop) 28%, transparent);
+}
+
+:where([data-ceremony-chip][data-tone="accent"]) {
+  color: var(--_ceremony-accent);
+  background: var(--_ceremony-accent-wash);
+  border-color: color-mix(in srgb, var(--_ceremony-accent) 28%, transparent);
+}
+
+:where([data-ceremony-chip] .dot) {
+  inline-size: 0.375rem;
+  block-size: 0.375rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ------------------------------------------------------------------ ceremony */
+
+:where([data-ceremony]) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--_ceremony-gap);
+  color: var(--_ceremony-fg);
+  background: var(--_ceremony-bg);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  accent-color: var(--_ceremony-accent);
+  caret-color: var(--_ceremony-accent);
+}
+
+:where([data-ceremony] .ceremony-stack) {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  min-inline-size: 0;
+}
+
+:where([data-ceremony] .panel) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: var(--_ceremony-radius);
+  background: var(--_ceremony-ground);
+}
+
 :where([data-ceremony] h2) {
   font: inherit;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.02em;
   text-wrap: balance;
-  margin: var(--ceremony-gap, 1rem) 0 0.5rem;
+  margin: 0;
 }
+
 :where([data-ceremony] p) {
-  margin-block: 0.5rem 1rem;
-  max-inline-size: 70ch;
+  margin: 0;
+  max-inline-size: 62ch;
+  text-wrap: pretty;
 }
-:where([data-ceremony] button, [data-ceremony] .button) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 2.75rem;
-  min-inline-size: 2.75rem;
-  max-inline-size: 100%;
-  padding: 0.625rem 1rem;
-  gap: 0.5rem;
-  font: inherit;
+
+/* The provider identity line, restated inside the flow so a panel opened on
+ * its own still says which service is being connected. */
+:where([data-ceremony] .details) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.125rem 0.75rem;
+  padding-block-end: 0.875rem;
+  border-block-end: 1px solid var(--_ceremony-border);
+}
+
+:where([data-ceremony] .details strong) {
+  font-size: 1rem;
   font-weight: 600;
-  line-height: 1.5;
-  text-align: center;
-  text-decoration: none;
-  border: 1px solid var(--ceremony-border, #788b80);
-  border-radius: var(--ceremony-radius, 0.5rem);
-  background: var(--ceremony-bg, #ffffff);
-  color: var(--ceremony-fg, #263d35);
-  cursor: pointer;
+  letter-spacing: -0.01em;
 }
-:where([data-ceremony] .primary) {
-  color: var(--ceremony-on-accent, #ffffff);
-  background: var(--ceremony-accent, #245844);
-  border-color: var(--ceremony-accent, #245844);
+
+:where([data-ceremony] .details span) {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  color: var(--_ceremony-muted);
+  font-size: 0.75rem;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: 999px;
+  background: var(--_ceremony-bg);
+  white-space: nowrap;
 }
-:where([data-ceremony] button:hover, [data-ceremony] .button:hover) {
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+
+:where([data-ceremony] .details p) {
+  grid-column: 1 / -1;
+  color: var(--_ceremony-muted);
+  font-size: 0.875rem;
 }
+
+/* ------------------------------------------------------------- prerequisites
+ * A real sequence, so it is numbered and ordered. Status is carried by form as
+ * well as by its word: the marker changes, not only the label.
+ */
+
+:where([data-ceremony-part="prerequisites"]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  font-size: 0.875rem;
+}
+
+:where([data-ceremony-part="prerequisites"] li) {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  counter-increment: step;
+  padding: 0.5rem 0 0.5rem 1.875rem;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-ceremony-part="prerequisites"] li)::before {
+  content: counter(step);
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0.5rem;
+  display: grid;
+  place-items: center;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--_ceremony-border-strong);
+  background: var(--_ceremony-bg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rail between markers, so the list reads as one run rather than rows. */
+:where([data-ceremony-part="prerequisites"] li:not(:last-child))::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0.625rem;
+  inset-block-start: 1.75rem;
+  inline-size: 1px;
+  block-size: calc(100% - 1.25rem);
+  background: var(--_ceremony-border);
+}
+
+:where([data-ceremony-part="prerequisites"] li[data-status="succeeded"]) {
+  color: var(--_ceremony-fg);
+}
+
 :where(
-  [data-ceremony] button:disabled,
-  [data-ceremony] [aria-disabled="true"]
-) {
-  opacity: 0.65;
-  cursor: not-allowed;
+  [data-ceremony-part="prerequisites"] li[data-status="succeeded"]
+)::before {
+  content: "✓";
+  color: var(--_ceremony-on-accent);
+  background: var(--_ceremony-ok);
+  border-color: var(--_ceremony-ok);
 }
-:where([data-ceremony] :focus-visible, [data-ceremony]:focus-visible) {
-  outline: 2px solid var(--ceremony-focus, #245844);
-  outline-offset: 3px;
+
+:where([data-ceremony-part="prerequisites"] li[data-status="awaiting-human"]) {
+  color: var(--_ceremony-fg);
+  font-weight: 500;
 }
+
+:where(
+  [data-ceremony-part="prerequisites"] li[data-status="awaiting-human"]
+)::before {
+  color: var(--_ceremony-human);
+  border-color: var(--_ceremony-human);
+  background: var(--_ceremony-human-wash);
+}
+
+:where([data-ceremony-part="prerequisites"] li[data-status="failed"])::before {
+  color: var(--_ceremony-stop);
+  border-color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+}
+
+:where(
+  [data-ceremony-part="prerequisites"] li[data-status="verifying"]
+)::before,
+:where([data-ceremony-part="prerequisites"] li[data-status="ready"])::before {
+  color: var(--_ceremony-accent);
+  border-color: var(--_ceremony-accent);
+  background: var(--_ceremony-accent-wash);
+}
+
+:where([data-ceremony-part="prerequisites"] li[aria-current="step"]) {
+  color: var(--_ceremony-fg);
+}
+
+/* --------------------------------------------------------------- form fields */
+
+:where([data-ceremony] fieldset) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+
+:where([data-ceremony] label) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
 :where([data-ceremony] input, [data-ceremony] select) {
   font: inherit;
+  /* 1rem exactly: iOS Safari zooms the page when a focused field is smaller,
+     which reflows a credential form mid-entry. */
   font-size: 1rem;
   min-block-size: 2.75rem;
   min-inline-size: 0;
   inline-size: 100%;
   max-inline-size: 100%;
-  border: 1px solid var(--ceremony-border, #788b80);
-  border-radius: var(--ceremony-radius, 0.5rem);
-  padding: 0.625rem;
-  color: var(--ceremony-fg, #263d35);
-  background: var(--ceremony-bg, #ffffff);
+  border: 1px solid var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  padding: 0.5rem 0.75rem;
+  color: var(--_ceremony-fg);
+  background: var(--_ceremony-bg);
 }
+
+:where([data-ceremony] input:hover, [data-ceremony] select:hover) {
+  border-color: var(--_ceremony-muted);
+}
+
 :where([data-ceremony] input::placeholder) {
-  color: var(--ceremony-muted, #51634f);
+  color: var(--_ceremony-muted);
   opacity: 1;
 }
-:where([data-ceremony] label) {
-  display: block;
-  margin-block: 0.5rem;
+
+/* What the integration will be able to do, in the host's words. Listed rather
+ * than chipped: this is the thing a person should actually read before they
+ * approve anything, so it gets the room to be read. */
+:where([data-ceremony] .intent-permissions) {
+  margin: 0;
+  padding-inline-start: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--_ceremony-fg);
 }
-:where([data-ceremony] fieldset) {
-  border: 0;
-  padding: 0;
-  margin: var(--ceremony-gap, 1rem) 0;
-  min-inline-size: 0;
+
+:where([data-ceremony] .method-picker) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
-:where([data-ceremony] .actions, [data-ceremony] .method-picker > div) {
+
+:where([data-ceremony] .method-picker > div) {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-block: var(--ceremony-gap, 1rem);
+  gap: 0.5rem;
 }
+
 :where([data-ceremony] .method-picker select) {
   flex: 1 1 12rem;
 }
-:where([data-ceremony] .details strong, [data-ceremony] .details span) {
-  display: block;
-}
+
+/* ------------------------------------------------------------------ buttons */
+
 :where(
-  [data-ceremony] .details span,
-  [data-ceremony] .supporting,
-  [data-ceremony] .muted
+  [data-ceremony] button,
+  [data-ceremony] .button,
+  [data-ceremony-card] button
 ) {
-  color: var(--ceremony-muted, #51634f);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4375rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  max-inline-size: 100%;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 550;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+  border: 1px solid var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-fg);
+  cursor: pointer;
 }
-:where([data-ceremony] .notice) {
-  padding: 0.75rem;
-  border: 1px solid var(--ceremony-border, #788b80);
-  border-radius: var(--ceremony-radius, 0.5rem);
+
+:where([data-ceremony] .primary, [data-ceremony-card] button.primary) {
+  color: var(--_ceremony-on-accent);
+  background: var(--_ceremony-accent);
+  border-color: var(--_ceremony-accent);
 }
+
+:where([data-ceremony] .quiet) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--_ceremony-muted);
+}
+
+:where(
+  [data-ceremony] button:hover,
+  [data-ceremony] .button:hover,
+  [data-ceremony-card] button:hover
+) {
+  border-color: var(--_ceremony-muted);
+}
+
+:where(
+  [data-ceremony] .primary:hover,
+  [data-ceremony-card] button.primary:hover
+) {
+  background: color-mix(in srgb, var(--_ceremony-accent) 88%, black);
+  border-color: color-mix(in srgb, var(--_ceremony-accent) 88%, black);
+}
+
+:where([data-ceremony] .quiet:hover) {
+  background: var(--_ceremony-ground);
+  border-color: transparent;
+  color: var(--_ceremony-fg);
+}
+
+:where(
+  [data-ceremony] button:disabled,
+  [data-ceremony] [aria-disabled="true"],
+  [data-ceremony-card] button:disabled
+) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+:where([data-ceremony] .actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* A cancel sitting last reads as the way out, not as a second offer. */
+:where([data-ceremony] .actions .quiet) {
+  margin-inline-start: auto;
+}
+
+:where(
+  [data-ceremony] :focus-visible,
+  [data-ceremony]:focus-visible,
+  [data-ceremony-card] :focus-visible
+) {
+  outline: 2px solid var(--_ceremony-focus);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------- access and outcomes */
+
+:where([data-ceremony] .eyebrow) {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-ceremony] .access, [data-ceremony] .outcome) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+:where([data-ceremony] .access ul, [data-ceremony] .outcome ul) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Scopes are literal provider strings: monospace so they are read as values. */
+:where([data-ceremony] .access li, [data-ceremony] .outcome li) {
+  font-family: var(--_ceremony-mono);
+  font-size: 0.75rem;
+  padding: 0.1875rem 0.4375rem;
+  border-radius: var(--_ceremony-radius-sm);
+  border: 1px solid var(--_ceremony-border);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-muted);
+}
+
+:where([data-ceremony] .outcome .eyebrow) {
+  color: var(--_ceremony-ok);
+}
+
+/* ------------------------------------------------------ device, notice, wait */
+
+:where([data-ceremony] .device) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  align-items: flex-start;
+}
+
+:where([data-ceremony] .field-label) {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--_ceremony-muted);
+}
+
 :where([data-ceremony] output) {
   display: block;
+  font-family: var(--_ceremony-mono);
   font-size: 1.5rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
-  margin-block: 0.75rem;
+  letter-spacing: 0.16em;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-ground);
 }
+
+:where([data-ceremony] .notice) {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--_ceremony-border);
+  border-inline-start: 3px solid var(--_ceremony-human);
+  border-radius: 0 var(--_ceremony-radius-sm) var(--_ceremony-radius-sm) 0;
+  background: var(--_ceremony-human-wash);
+  font-size: 0.875rem;
+  max-inline-size: none;
+}
+
+/* The notice wrapper is a plain block with no gap of its own, and every p in
+ * the sheet has its margin zeroed, so the two stack flush without this. */
+:where([data-ceremony] .notice + .pending) {
+  margin-block-start: 0.5rem;
+}
+
+:where(
+  [data-ceremony][data-step="error"] .notice,
+  [data-ceremony][data-step="expired"] .notice,
+  [data-ceremony-part="error"] .notice
+) {
+  border-inline-start-color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+}
+
+:where([data-ceremony] .pending) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--_ceremony-muted);
+  font-size: 0.875rem;
+}
+
+:where([data-ceremony] .pending > span) {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--_ceremony-accent);
+}
+
+:where([data-ceremony] .supporting, [data-ceremony] .muted) {
+  color: var(--_ceremony-muted);
+  font-size: 0.875rem;
+}
+
 :where([data-ceremony] .sr-only) {
   position: absolute;
   inline-size: 1px;
@@ -152,13 +819,38 @@
   white-space: nowrap;
   border: 0;
 }
+
 @media (prefers-reduced-motion: no-preference) {
-  :where([data-ceremony] button, [data-ceremony] .button) {
-    transition: background-color 120ms ease-out;
+  :where(
+    [data-ceremony] button,
+    [data-ceremony] .button,
+    [data-ceremony-card] button,
+    [data-ceremony] input
+  ) {
+    transition:
+      background-color 120ms ease-out,
+      border-color 120ms ease-out;
+  }
+  :where([data-ceremony] .pending > span) {
+    animation: ceremony-pulse 1.4s ease-in-out infinite;
   }
 }
+
+@keyframes ceremony-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (forced-colors: active) {
   :where([data-ceremony] :focus-visible) {
     outline-color: Highlight;
+  }
+  :where([data-ceremony-card], [data-ceremony] .panel) {
+    border-color: CanvasText;
   }
 }

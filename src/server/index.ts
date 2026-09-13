@@ -7,6 +7,7 @@ export * from "./cloudflare.js";
 export * from "./a2h.js";
 export * from "./mcp-app.js";
 export * from "./mcp.js";
+export * from "./collector-asset.js";
 export * from "./mcp-identity.js";
 export * from "./agent-tools.js";
 export * from "./environment.js";

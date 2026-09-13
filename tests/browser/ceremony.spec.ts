@@ -44,9 +44,7 @@ test("every named service renders only its documented methods and clearly identi
     for (const method of manifest.methods) {
       if (manifest.methods.length > 1) {
         if (method !== manifest.methods[0])
-          await page
-            .getByLabel("Authentication method")
-            .selectOption(method.id);
+          await page.getByLabel("How to connect").selectOption(method.id);
       }
       await expect(page.locator(".runtime-context dd").nth(1)).toHaveText(
         method.label,
@@ -75,8 +73,7 @@ async function selectMethod(page: Page, id: string) {
     0,
   );
   if (connector !== "github") return;
-  if (id !== "oauth")
-    await page.getByLabel("Authentication method").selectOption(id);
+  if (id !== "oauth") await page.getByLabel("How to connect").selectOption(id);
 }
 test("connector entry chooses browser OAuth and preserves progress across service switches", async ({
   page,
@@ -330,8 +327,8 @@ test("switching methods cancels prior attempt; API rejects other sessions and cr
   try {
     await polling.promise;
     // Hold a real background read open while the user changes method.
-    await expect(page.getByLabel("Authentication method")).toBeEnabled();
-    await page.getByLabel("Authentication method").selectOption("api-key");
+    await expect(page.getByLabel("How to connect")).toBeEnabled();
+    await page.getByLabel("How to connect").selectOption("api-key");
   } finally {
     release.resolve();
   }

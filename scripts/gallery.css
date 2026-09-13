@@ -1,0 +1,817 @@
+/*
+ * Chrome for the published catalogue.
+ *
+ * Deliberately separate from src/react/styles.css, which is the component
+ * library being shown. Nothing here reaches inside [data-ceremony]: a page that
+ * restyled the components would be showing its own work rather than theirs.
+ */
+
+:root {
+  --page-ground: #eef1f6;
+  --page-surface: #ffffff;
+  --page-sunken: #f4f6fa;
+  --page-ink: #0e1621;
+  --page-muted: #5a6679;
+  --page-line: #dde3ec;
+  --page-rule: #c3ccda;
+  --page-accent: #2540d9;
+  --page-stop: #a3261d;
+  --page-stop-wash: #fdeceb;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-ground: #070a10;
+    --page-surface: #0f151d;
+    --page-sunken: #0a0e15;
+    --page-ink: #e7ecf4;
+    --page-muted: #93a0b4;
+    --page-line: #1e2632;
+    --page-rule: #34404f;
+    --page-accent: #8296ff;
+    --page-stop: #ff9d94;
+    --page-stop-wash: #23100e;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-ground: #070a10;
+  --page-surface: #0f151d;
+  --page-sunken: #0a0e15;
+  --page-ink: #e7ecf4;
+  --page-muted: #93a0b4;
+  --page-line: #1e2632;
+  --page-rule: #34404f;
+  --page-accent: #8296ff;
+  --page-stop: #ff9d94;
+  --page-stop-wash: #23100e;
+}
+
+body {
+  margin: 0;
+  background: var(--page-ground);
+  color: var(--page-ink);
+  font-family:
+    "Instrument Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125em;
+}
+
+.page {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-inline: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 62rem;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: clamp(1.875rem, 4.5vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+/* The one claim on the page that a reader must not have to hunt for. */
+.honesty {
+  margin: 0.5rem 0 0;
+  padding: 0.875rem 1rem;
+  border-inline-start: 3px solid var(--page-rule);
+  background: var(--page-sunken);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.875rem;
+  color: var(--page-muted);
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.honesty strong {
+  color: var(--page-ink);
+  font-weight: 600;
+}
+
+.movement {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.movement-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.5rem;
+}
+
+.movement-head h2 {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.movement-head p {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--page-muted);
+  font-size: 0.9375rem;
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------- flows */
+
+.flows {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.flow {
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+  overflow: hidden;
+}
+
+.flow-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.125rem;
+  border-block-end: 1px solid var(--page-line);
+  background: var(--page-sunken);
+}
+
+.flow-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.flow-head p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--page-muted);
+}
+
+.flow-count {
+  margin-inline-start: auto !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+code.kind {
+  padding: 0.125rem 0.4375rem;
+  border: 1px solid var(--page-rule);
+  border-radius: 999px;
+  background: var(--page-surface);
+  color: var(--page-ink);
+  white-space: nowrap;
+}
+
+/* A filmstrip, not a wrapped grid: a flow is a sequence, and a grid orphans
+ * the fourth screen of a four-screen flow onto a row of its own, which reads
+ * as an afterthought rather than as the step it is. */
+.screens {
+  list-style: none;
+  margin: 0;
+  padding: 1.125rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(17rem, 19rem);
+  gap: 1.125rem;
+  align-items: start;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.screens > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+
+.screen-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+/* Numbered because the order is real: this is the sequence a flow walks. */
+.screen-index {
+  display: grid;
+  place-items: center;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  border-radius: 50%;
+  background: var(--page-ink);
+  color: var(--page-surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The frame says "this is a rendering of a component", not "this is a window
+ * into a session". It is a specimen case, so it looks like one. */
+.screen {
+  padding: 0.875rem;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-sunken);
+}
+
+.walls {
+  padding: 0;
+}
+
+/* A specimen is inoperable, and the page enforces it three ways: nothing in it
+ * takes the tab order, nothing in it takes a pointer, and the case it sits in
+ * says so before anybody reaches for the button. What it is not is `disabled` —
+ * that would dim the control, and a catalogue showing a greyed Connect is
+ * showing a button the product never renders. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.screen :is(button, a, input, select, textarea) {
+  pointer-events: none;
+}
+
+.specimen-tag {
+  margin: 0;
+  padding-block-end: 0.5rem;
+  border-block-end: 1px dashed var(--page-rule);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+/* ------------------------------------------------------------------- live */
+
+.live {
+  min-block-size: 6rem;
+}
+
+.live-pending {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--page-rule);
+  border-radius: 14px;
+  color: var(--page-muted);
+  font-size: 0.875rem;
+}
+
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.125rem;
+  align-items: start;
+}
+
+/* The live cell is a real surface, not a specimen case: no dashed frame, no
+ * "nothing here can be used" tag, because everything here can. */
+.live-cell {
+  padding: 1.125rem;
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+  min-inline-size: 0;
+}
+
+.live-run {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+/* What the connection went on to read. Separate from the ceremony component,
+ * which renders the ceremony and should not be asked to render a provider's
+ * payload as well. */
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.9375rem 1rem;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-sunken);
+}
+
+.evidence-head {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-wrap: pretty;
+}
+
+.evidence-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.3125rem 0.875rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.evidence-facts dt {
+  color: var(--page-muted);
+  white-space: nowrap;
+}
+
+.evidence-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence-note {
+  margin: 0;
+  padding-block-start: 0.5rem;
+  border-block-start: 1px solid var(--page-line);
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.live-note {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+/* --------------------------------------------------------------- resolver */
+
+.resolver {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.declaration {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.125rem;
+  border: 1px solid var(--page-line);
+  border-radius: 14px;
+  background: var(--page-surface);
+}
+
+.declaration fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+}
+
+.declaration legend {
+  padding: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.choices label {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.4375rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.choices label:hover {
+  background: var(--page-sunken);
+}
+
+.choices input {
+  margin: 0.25rem 0 0;
+  accent-color: var(--page-accent);
+  flex: none;
+}
+
+.choices code {
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 5px;
+  background: var(--page-sunken);
+  color: var(--page-muted);
+}
+
+.choices :focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 2px;
+}
+
+/* The consequence of the choice above it, restated in a person's terms. */
+.note {
+  margin: 0;
+  padding-inline-start: 0.4375rem;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.source-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 0.875rem;
+}
+
+.source-label {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.source {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--page-sunken);
+  color: var(--page-ink);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  /* Wrapped rather than scrolled: a declaration with a long permission label
+   * would otherwise run off the edge of a box with no scrollbar to say so. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  min-inline-size: 0;
+}
+
+.tally {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  font-variant-numeric: tabular-nums;
+  text-wrap: pretty;
+}
+
+.resolutions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.875rem;
+  align-items: start;
+}
+
+.resolution {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9375rem 1rem;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-surface);
+  min-inline-size: 0;
+}
+
+.resolution[data-state="unavailable"] {
+  background: var(--page-sunken);
+  border-style: dashed;
+}
+
+.resolution-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.375rem 0.625rem;
+}
+
+.resolution h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.resolution-what {
+  margin: -0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+/* The one loud thing on the card: what is about to happen to a person. */
+.route {
+  flex: none;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  background: var(--page-ink);
+  color: var(--page-surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.resolution[data-state="unavailable"] .route {
+  background: var(--page-stop-wash);
+  color: var(--page-stop);
+  box-shadow: inset 0 0 0 1px currentcolor;
+}
+
+.sentence {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--page-ink);
+  text-wrap: pretty;
+}
+
+.resolution-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 0.75rem;
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 0.5rem;
+}
+
+.chosen {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+.cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  color: var(--page-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cost-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.cost-pip {
+  inline-size: 5px;
+  block-size: 5px;
+  border-radius: 50%;
+  background: var(--page-rule);
+}
+
+.cost-pip[data-on="true"] {
+  background: var(--page-accent);
+}
+
+.ruled-out {
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+.ruled-out summary {
+  cursor: pointer;
+  padding: 0.125rem 0;
+  border-radius: 6px;
+}
+
+.ruled-out summary:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 2px;
+}
+
+.ruled-out ul {
+  margin: 0.375rem 0 0;
+  padding-inline-start: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  text-wrap: pretty;
+}
+
+@media (max-width: 56rem) {
+  .resolver {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-block-start: 0.5rem;
+}
+
+.filters button {
+  border: 1px solid var(--page-line);
+  border-radius: 999px;
+  padding: 0.3125rem 0.75rem;
+  min-block-size: 2rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  background: var(--page-surface);
+  color: var(--page-muted);
+  cursor: pointer;
+}
+
+.filters button[aria-pressed="true"] {
+  background: var(--page-ink);
+  border-color: var(--page-ink);
+  color: var(--page-surface);
+}
+
+.filters button code {
+  color: inherit;
+}
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.goal h3 {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--page-line);
+  border-radius: 12px;
+  background: var(--page-surface);
+}
+
+table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th {
+  text-align: start;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--page-muted);
+  padding: 0.625rem 0.875rem;
+  border-block-end: 1px solid var(--page-line);
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.6875rem 0.875rem;
+  border-block-end: 1px solid var(--page-line);
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+.cell-id code {
+  color: var(--page-accent);
+  overflow-wrap: anywhere;
+}
+
+.cell-title {
+  min-inline-size: 18rem;
+  text-wrap: pretty;
+}
+
+.cell-family {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tags code {
+  padding: 0.0625rem 0.375rem;
+  border-radius: 5px;
+  background: var(--page-sunken);
+  color: var(--page-muted);
+  white-space: nowrap;
+}
+
+.cell-needs .none {
+  color: var(--page-muted);
+  font-size: 0.8125rem;
+}
+
+.cell-outcome {
+  min-inline-size: 11rem;
+}
+
+.cell-handoffs {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--page-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.colophon {
+  border-block-start: 1px solid var(--page-line);
+  padding-block-start: 1.25rem;
+}
+
+.colophon p {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+@media (max-width: 42rem) {
+  .flow-count {
+    margin-inline-start: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
