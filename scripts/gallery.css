@@ -384,6 +384,41 @@ code.kind {
   text-wrap: pretty;
 }
 
+/* What the page found when it looked. Collapsed, because it is diagnostics —
+ * but present, because "it does not work" with nothing to go on is how this
+ * page wasted two rounds. */
+.findings {
+  margin-block-start: 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--page-muted);
+}
+
+.findings summary {
+  cursor: pointer;
+  padding: 0.25rem 0;
+  border-radius: 6px;
+}
+
+.findings summary:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 2px;
+}
+
+.findings ul {
+  margin: 0.5rem 0;
+  padding-inline-start: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-wrap: pretty;
+}
+
+.findings p {
+  margin: 0;
+  max-width: 70ch;
+  text-wrap: pretty;
+}
+
 .live-note {
   margin: 0;
   max-width: 70ch;

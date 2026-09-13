@@ -12,7 +12,7 @@ import {
   resolverMountId,
   resolverPayloadId,
 } from "./gallery-ids.js";
-import { mountLive } from "./gallery-live.js";
+import { mountLive, type Broker, type ServerInfo } from "./gallery-live.js";
 
 /**
  * The one part of the published catalogue that runs.
@@ -276,6 +276,12 @@ interface McpNamespace {
     tool: string,
     input?: unknown,
   ): Promise<CallToolResult>;
+  listTools(): Promise<{ servers: ServerInfo[] }>;
+}
+
+interface Consents {
+  state(name: string): Promise<string>;
+  request(names: readonly string[]): Promise<Record<string, string>>;
 }
 
 declare global {
@@ -286,49 +292,52 @@ declare global {
 }
 
 /**
- * Wire the live connections to the viewer's own connectors.
+ * Wire the live connections to the viewer's own session.
  *
- * The capability is resolved lazily rather than awaited before mounting. It
- * never resolves during this script's first run, and when a host is framing
- * the page but never answers it takes about ten seconds to resolve null — so
- * awaiting it first would leave the section empty for that whole time. The
- * cards render now and the capability is looked up when somebody presses
- * Connect.
+ * Both capabilities are resolved lazily rather than awaited before mounting.
+ * Neither resolves during this script's first run, and when a host frames the
+ * page but never answers `use` takes about ten seconds to resolve null — so
+ * awaiting first would leave the section empty for that whole time.
  *
- * A view that cannot run it raises the capability's own `not_granted`, so the
- * screen it produces comes from the same mapping every other failure does
+ * A view that cannot run the capability raises its own `not_granted`, so the
+ * screen that produces comes from the same mapping every other failure does
  * rather than from a special case worded separately.
  */
 function startLive(): void {
   const mount = document.getElementById(liveMountId);
   if (!mount) return;
-  let resolving: Promise<McpNamespace | null> | undefined;
-  const broker = () =>
+  let resolving: Promise<Broker | null> | undefined;
+  const getBroker = () =>
     (resolving ??= (async () => {
       try {
         // The contract promises `use` resolves null within about ten seconds
         // when nothing answers. The race is insurance rather than doubt: if
-        // that promise ever failed to settle, the ceremony would sit busy for
-        // ever, and a screen that spins with no end is the failure this page
-        // has already shipped twice in other forms.
-        const answered = await Promise.race([
-          window.claude?.use("mcp"),
-          new Promise((resolve) => setTimeout(resolve, 15_000)),
-        ]);
-        return (answered as McpNamespace | null | undefined) ?? null;
+        // that promise ever failed to settle, the section would sit waiting
+        // for ever, and a page that spins with no end is the failure this one
+        // has already shipped in other forms.
+        const [mcp, permissions] = (await Promise.race([
+          Promise.all([
+            window.claude?.use("mcp"),
+            window.claude?.use("permissions"),
+          ]),
+          new Promise((resolve) => setTimeout(() => resolve([]), 15_000)),
+        ])) as [McpNamespace | null | undefined, Consents | null | undefined];
+        if (!mcp) return null;
+        return {
+          callTool: (server, tool, input) => mcp.callTool(server, tool, input),
+          listTools: () => mcp.listTools(),
+          // Permissions is built in, but a view can still fail to run it.
+          // Without it the page simply does not pre-read consent: the first
+          // call asks anyway, which is the documented default.
+          permission: async (name) =>
+            (await permissions?.state(name)) ?? "unavailable",
+          ask: async (names) => (await permissions?.request(names)) ?? {},
+        } satisfies Broker;
       } catch {
         return null;
       }
     })());
-  mountLive(mount, (server) => async (tool, input) => {
-    const mcp = await broker();
-    if (!mcp)
-      throw {
-        code: "not_granted",
-        message: "This view did not grant connector access.",
-      };
-    return (await mcp.callTool(server, tool, input)).payload;
-  });
+  mountLive(mount, getBroker);
 }
 
 const mount = document.getElementById(resolverMountId);

@@ -1,4 +1,10 @@
-import { createElement, useState, type ReactNode } from "react";
+import {
+  createElement,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { Ceremony } from "../src/react/index.js";
 import { ConnectorCard } from "../src/react/connectors.js";
@@ -70,6 +76,36 @@ const liveTemplate: CeremonyTemplate = (() => {
 
 /** How long a started attempt stays valid. The client enforces it. */
 const ATTEMPT_MINUTES = 10;
+
+/** What one of the viewer's connectors looks like from inside the frame. */
+export interface ServerInfo {
+  server: string;
+  authStatus: "connected" | "needs_reauth" | "unknown";
+  tools: { name: string }[];
+}
+
+/**
+ * Everything this page needs from the viewer's session.
+ *
+ * `listTools` matters as much as `callTool`: it reports the connectors the
+ * frame can actually reach, under the display names they answer to, and the
+ * contract says to call it at load and adapt. Guessing those names instead —
+ * which is what the first version of this did — produces a page that reports
+ * a connector as unreachable when the viewer has it and the name simply did
+ * not match.
+ */
+export interface Broker {
+  callTool(
+    server: string,
+    tool: string,
+    input?: unknown,
+  ): Promise<{ payload?: unknown }>;
+  listTools(): Promise<{ servers: ServerInfo[] }>;
+  /** Consent for one connector, read without ever prompting. */
+  permission(name: string): Promise<string>;
+  /** Consent for one connector, asked once, behind a real gesture. */
+  ask(names: readonly string[]): Promise<Record<string, string>>;
+}
 
 interface McpError {
   code: string;
@@ -319,17 +355,70 @@ function Evidence({ proof }: { proof: Proof }): ReactNode {
   );
 }
 
+/**
+ * One connector: its card, then the ceremony its Connect button really runs.
+ *
+ * `resolved` is the connector as the runtime reported it, not as this page
+ * spelled it. When nothing matched, the card still renders and pressing it
+ * reaches the same failure screen every other unreachable connector does —
+ * saying which connector is missing rather than nothing at all.
+ */
 function LiveConnection({
   live,
-  callFor,
+  broker,
+  resolved,
 }: {
   live: LiveConnector;
-  callFor: (server: string) => Call;
+  broker: Broker | undefined;
+  resolved: ServerInfo | undefined;
 }): ReactNode {
   const [started, setStarted] = useState(false);
   const [proof, setProof] = useState<Proof | undefined>(undefined);
+  // The transport is built once and outlives every render, but what it needs
+  // arrives later: the broker and the connector's real name are both resolved
+  // by an effect. Capturing them in the closure would freeze the values this
+  // component first rendered with — which are none — and every press would
+  // report that the view cannot reach connectors while it plainly can.
+  const latest = useRef({ broker, resolved });
+  latest.current = { broker, resolved };
   const transport = useState(() =>
-    createConnectorTransport(live, callFor(live.server), setProof),
+    createConnectorTransport(
+      live,
+      async (tool, input) => {
+        const { broker, resolved } = latest.current;
+        if (!broker)
+          throw {
+            code: "not_granted",
+            message: "This view did not grant connector access.",
+          };
+        const server = resolved?.server;
+        if (!server)
+          throw {
+            code: "server_not_connected",
+            message: "No connector by that name is reachable from this page.",
+            server: live.server,
+          };
+        // Asked per connector, not for everything at once, and only here —
+        // inside the press. A page that asks on load asks before anybody has
+        // said what they want, and the contract says to ask per section.
+        const scope = `mcp:${server}`;
+        const answer = await broker
+          .ask([scope])
+          .catch(() => ({}) as Record<string, string>);
+        const state = answer[scope];
+        if (state === "denied")
+          throw {
+            code: "not_in_manifest",
+            message: "The viewer declined this connector for this page.",
+            server,
+          };
+        // `.payload` is the JSON answer; the result around it carries the
+        // content blocks and cache marks. Handing the wrapper to the probe
+        // parses to nothing and reads as the provider returning garbage.
+        return (await broker.callTool(server, tool, input)).payload;
+      },
+      setProof,
+    ),
   )[0];
   // Pressing Connect calls the provider straight away — the client prepares an
   // oauth-code method without stopping — so what it is about to do has to be
@@ -347,9 +436,8 @@ function LiveConnection({
     "div",
     { className: "live-run" },
     // No onCancel handler swapping the card back in: a declined connection has
-    // its own screen, it says what happened, and it offers a retry. Replacing
-    // it with the card again would throw that away and leave somebody who just
-    // pressed Connect looking at the button they already pressed.
+    // its own screen, it says what happened, and it offers a retry where one
+    // would help. Replacing it with the card again would throw that away.
     createElement(Ceremony, {
       manifest: live.manifest,
       transport,
@@ -361,23 +449,132 @@ function LiveConnection({
   );
 }
 
-export function mountLive(
-  root: HTMLElement,
-  callFor: (server: string) => Call,
-): void {
-  createRoot(root).render(
+/** What the page found when it looked, so a failure is never a mystery. */
+function Findings({
+  looked,
+  broker,
+  servers,
+  consent,
+}: {
+  looked: boolean;
+  broker: Broker | undefined;
+  servers: readonly ServerInfo[];
+  consent: Record<string, string>;
+}): ReactNode {
+  const rows = liveConnectors.map((live) => {
+    const found = matchServer(servers, live);
+    const scope = found ? consent[`mcp:${found.server}`] : undefined;
+    return createElement(
+      "li",
+      { key: live.manifest.id },
+      createElement("code", null, live.manifest.name),
+      ` · ${
+        found
+          ? `reachable as "${found.server}", ${found.authStatus}, ${found.tools.length} tool${found.tools.length === 1 ? "" : "s"}${scope ? `, consent ${scope}` : ""}`
+          : "not reachable from this page"
+      }`,
+    );
+  });
+  return createElement(
+    "details",
+    { className: "findings" },
+    createElement(
+      "summary",
+      null,
+      !looked
+        ? "Checking what this page can reach…"
+        : !broker
+          ? "This view cannot reach connectors"
+          : `${servers.length} connector${servers.length === 1 ? "" : "s"} reachable from this page`,
+    ),
+    createElement("ul", null, ...rows),
+    createElement(
+      "p",
+      null,
+      "Read from the viewer's own session when the page loaded. If a connector you have is listed as unreachable, it is this page's manifest that does not match it — not your account.",
+    ),
+  );
+}
+
+/** The runtime's name for a connector this page knows, whatever its spelling. */
+export function matchServer(
+  servers: readonly ServerInfo[],
+  live: LiveConnector,
+): ServerInfo | undefined {
+  const wanted = [live.server, ...(live.aliases ?? [])].map((name) =>
+    name.toLowerCase(),
+  );
+  return servers.find((info) => wanted.includes(info.server.toLowerCase()));
+}
+
+function LiveSection({
+  getBroker,
+}: {
+  getBroker: () => Promise<Broker | null>;
+}): ReactNode {
+  const [looked, setLooked] = useState(false);
+  const [broker, setBroker] = useState<Broker | undefined>(undefined);
+  const [servers, setServers] = useState<readonly ServerInfo[]>([]);
+  const [consent, setConsent] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const resolved = (await getBroker()) ?? undefined;
+      if (!live) return;
+      setBroker(resolved);
+      if (resolved) {
+        // Listing never asks the viewer anything, so it is safe on load and
+        // is the only way to learn the names their connectors answer to.
+        const found = await resolved
+          .listTools()
+          .then((result) => result.servers)
+          .catch(() => [] as ServerInfo[]);
+        if (!live) return;
+        setServers(found);
+        const states = await Promise.all(
+          found.map(async (info) => {
+            const scope = `mcp:${info.server}`;
+            return [
+              scope,
+              await resolved.permission(scope).catch(() => "unavailable"),
+            ] as const;
+          }),
+        );
+        if (live) setConsent(Object.fromEntries(states));
+      }
+      if (live) setLooked(true);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [getBroker]);
+  return createElement(
+    "div",
+    null,
     createElement(
       "div",
       { className: "live-grid" },
-      ...liveConnectors.map((live) =>
+      ...liveConnectors.map((entry) =>
         createElement(
           "div",
-          { className: "live-cell", key: live.manifest.id },
-          createElement(LiveConnection, { live, callFor }),
+          { className: "live-cell", key: entry.manifest.id },
+          createElement(LiveConnection, {
+            live: entry,
+            broker,
+            resolved: matchServer(servers, entry),
+          }),
         ),
       ),
     ),
+    createElement(Findings, { looked, broker, servers, consent }),
   );
+}
+
+export function mountLive(
+  root: HTMLElement,
+  getBroker: () => Promise<Broker | null>,
+): void {
+  createRoot(root).render(createElement(LiveSection, { getBroker }));
 }
 
 export { liveConnectors };

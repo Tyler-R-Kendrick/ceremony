@@ -507,3 +507,42 @@ test("a screen offering nothing refuses the action it does not offer", async () 
     /not available on this screen/,
   );
 });
+
+test("a connection that succeeds completes with what the provider returned", async () => {
+  // The failure paths were covered and the success path was not, which is how
+  // a refactor that handed the probe a call result instead of its payload got
+  // as far as a published page. This drives the real transport to completion.
+  const live = liveConnectors.find((entry) => entry.manifest.id === "github")!;
+  const answers: Record<string, unknown> = {
+    get_me: {
+      login: "example-user",
+      details: { name: "Example User", public_repos: 2, followers: 1 },
+    },
+    search_repositories: { items: [{ full_name: "example-user/thing" }] },
+  };
+  let proof: unknown;
+  const transport = createConnectorTransport(
+    live,
+    async (tool) => answers[tool],
+    (value) => {
+      proof = value;
+    },
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  assert.equal(started.step, "intro");
+  const done = await transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+  assert.equal(done.step, "complete");
+  assert.equal(done.outcome?.ownership, "authenticated");
+  // The reference is what the provider said this connection belongs to, not
+  // an id this page minted.
+  assert.equal(done.outcome?.connectionRef, "example-user");
+  assert.deepEqual(
+    [...(done.outcome?.scopes ?? [])],
+    live.access.map((entry) => entry.tool),
+  );
+  assert.ok(proof, "the evidence panel should have something to show");
+});

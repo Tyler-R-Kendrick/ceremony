@@ -43,6 +43,16 @@ export interface LiveConnector {
   manifest: ConnectorManifest;
   /** The connector's display name, as the viewer's claude.ai lists it. */
   server: string;
+  /**
+   * Other spellings the same connector may answer to.
+   *
+   * A capability manifest has to be declared when the page is published,
+   * before anything can observe what the viewer's connectors are actually
+   * called, and `callTool` addresses them by display name. Declaring every
+   * plausible spelling costs nothing and removes the guess: the page then
+   * uses whichever one the runtime reports back.
+   */
+  aliases?: readonly string[];
   access: readonly Access[];
   probe(call: Call): Promise<Proof>;
 }
@@ -132,6 +142,7 @@ export const liveConnectors: readonly LiveConnector[] = [
   {
     manifest: delegated("github", "GitHub", githubBlurb, githubAccess),
     server: "github",
+    aliases: ["GitHub"],
     access: githubAccess,
     async probe(call) {
       const me = githubMe.parse(await call("get_me"));
@@ -172,6 +183,7 @@ export const liveConnectors: readonly LiveConnector[] = [
   {
     manifest: delegated("supabase", "Supabase", supabaseBlurb, supabaseAccess),
     server: "Supabase",
+    aliases: ["supabase"],
     access: supabaseAccess,
     async probe(call) {
       const { projects } = supabaseProjects.parse(await call("list_projects"));
@@ -211,8 +223,10 @@ export const liveConnectors: readonly LiveConnector[] = [
 
 /** Exactly what the page must declare to be allowed to make these calls. */
 export const mcpManifest = {
-  servers: liveConnectors.map((live) => ({
-    server: live.server,
-    tools: live.access.map((entry) => entry.tool),
-  })),
+  servers: liveConnectors.flatMap((live) =>
+    [live.server, ...(live.aliases ?? [])].map((server) => ({
+      server,
+      tools: live.access.map((entry) => entry.tool),
+    })),
+  ),
 };
