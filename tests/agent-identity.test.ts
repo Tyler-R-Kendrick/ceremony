@@ -150,7 +150,10 @@ test("the adapter signs what it sends, and sends nothing extra when it has no id
     }) as typeof fetch;
     try {
       const adapter = createProtocolAdapter(method, config, store);
-      await adapter.submit({ email: "a@b.test", password: "x".repeat(12) });
+      await adapter.submit(
+        { email: "a@b.test", password: "x".repeat(12) },
+        false,
+      );
     } finally {
       globalThis.fetch = original;
     }
