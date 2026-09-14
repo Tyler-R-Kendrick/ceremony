@@ -14,7 +14,7 @@ import {
   resolverPayloadId,
 } from "./gallery-ids.js";
 import {
-  mountAccount,
+  mountAccounts,
   mountLive,
   type Broker,
   type ServerInfo,
@@ -420,7 +420,7 @@ function startAccount(): void {
         );
       }
     })());
-  mountAccount(mount, getStore);
+  mountAccounts(mount, getStore);
 }
 
 const mount = document.getElementById(resolverMountId);

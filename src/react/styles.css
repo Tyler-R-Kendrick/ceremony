@@ -249,6 +249,16 @@
   margin-inline-start: auto;
 }
 
+/* A permission is a sentence the host wrote — "Point you at the token page,
+ * asking for read:user and nothing more" — and a chip that will not wrap runs
+ * off the edge of the card and is clipped with nothing on screen to say so.
+ * Scopes elsewhere keep `nowrap`: those are single values, and breaking one in
+ * half is worse than a long line. */
+:where([data-ceremony-card] .connector-methods [data-ceremony-chip]) {
+  white-space: normal;
+  text-align: start;
+}
+
 :where([data-ceremony-card] .connector-methods) {
   display: flex;
   flex-wrap: wrap;

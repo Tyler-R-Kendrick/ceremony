@@ -187,7 +187,15 @@ const Fields = defineComponent({
         aria-describedby={errorId}
       >
         <legend className="sr-only">
-          {snapshot.step === "claim" ? "Account claiming" : "Credentials"}
+          {snapshot.step === "claim"
+            ? "Account claiming"
+            : // Named for what is actually being asked for. A step that wants an
+              // address and nothing else is not a credential form, and a screen
+              // reader announcing "Credentials" over it is telling somebody to
+              // expect a secret they are not being asked for.
+              snapshot.fields.some((field) => field.type === "password")
+              ? "Credentials"
+              : "Your details"}
         </legend>
         {snapshot.fields.map((field) => (
           <label key={field.name} htmlFor={`${idPrefix}-${field.name}`}>

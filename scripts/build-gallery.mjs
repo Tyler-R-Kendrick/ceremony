@@ -275,37 +275,41 @@ const liveSection = `
 /**
  * The section this page exists for, and therefore the first one.
  *
- * Everything else here presumes an account. Somewhere above this line, for a
- * long time, a paragraph explained that account registration needed a server
- * and could not run on a published page. It can: the ceremony is the shipped
- * component over a real transport, the store is the artifact's own, and the
- * only thing a published page genuinely lacks — a mail server — is named on
- * the face of the mailbox rather than papered over.
+ * Every other flow here presumes an account. These make one. A card apiece,
+ * pressing the card is what starts the ceremony, and the ceremony runs in the
+ * card — including the three that end at a provider's own registration page,
+ * because that is where those accounts are genuinely made and pretending
+ * otherwise would be the fiction this page keeps being told off for.
  */
 const accountSection = `
   <section class="movement opening" aria-labelledby="account-heading">
     <div class="movement-head">
-      <h2 id="account-heading">Create an account</h2>
+      <h2 id="account-heading">Make an account</h2>
       <p>
-        An address this page has never seen becomes an account. One it has seen
-        signs in. The wrong password is refused. Either way the address is
-        confirmed with a six-digit code before anything is issued — and what
-        completion hands back is yours to keep: a session token and a recovery
-        code, in fields that stay masked until you ask, with one press to copy
-        each straight to the clipboard.
+        Every one of these starts by asking who you are, and none of them starts
+        by asking for a password — that is the order providers actually work in,
+        and it is read from what each one declared rather than written into a
+        screen. The account kept here needs a password, so it generates one
+        rather than making you invent it. GitHub, Stripe and Atlassian issue
+        their own credentials, so they never ask you for one: the card carries
+        your address into their registration page and takes back what they
+        issued, masked, with one press to copy it.
       </p>
     </div>
     <div class="account-mount" id="${accountMountId}">
-      <p class="live-pending">Loading the registration ceremony…</p>
+      <p class="live-pending">Loading the registration ceremonies…</p>
     </div>
     <p class="live-note">
-      Real, and specific about how. The password is stretched with PBKDF2-SHA256
-      in your browser and only the derived value is stored; the record is keyed
-      by a digest of the address, so the store holds no addresses and no
-      secrets. The code comes from the platform's random source, is kept only in
-      derived form behind a ten-minute expiry, and is compared without branching
-      on its content. What a published page has no way to do is send mail, so
-      the code is delivered to a mailbox on this page and the mailbox says so.
+      Real, and specific about how. For the account kept here: the password is
+      stretched with PBKDF2-SHA256 in your browser and only the derived value is
+      stored, the record is keyed by a digest of the address so the store holds
+      no addresses and no secrets, and the confirmation code is kept only in
+      derived form behind a ten-minute expiry. A published page cannot send
+      mail, so that code goes to a mailbox here and the mailbox says so. For the
+      three that register at a provider: the links are the providers' real ones
+      and carry your address, the credential you bring back is checked against
+      the shape that provider documents, and it stays in this tab — this page
+      cannot ask GitHub whether a token works, and does not claim to have.
     </p>
   </section>`;
 
@@ -324,10 +328,12 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
     <p class="eyebrow">Ceremony · authentication catalogue</p>
     <h1>It starts with somebody who has no account</h1>
     <p class="lede">
-      So that is what this page starts with, and it runs. Register an address
-      below and an account is really created, really confirmed, and really hands
-      you the credentials it issued. Then connect a service, and the same
-      component does the same thing against ${listed(
+      So that is what this page starts with, and it runs. Four accounts, four
+      cards: one kept here, and one each at GitHub, Stripe and Atlassian. Each
+      asks who you are first and asks for a password only if that provider needs
+      one — and generates it when it may, so nothing worth keeping is ever
+      typed. Then connect a service, and the same component does the same thing
+      against ${listed(
         liveConnectors.map((entry) => escape(entry.manifest.name)),
       )}. Behind both sits the catalogue: ${entries.length} scenarios across
       ${flowKinds.length} flow kinds and ${families.size} families, every screen

@@ -22,11 +22,12 @@ import {
   type ServerInfo,
 } from "../scripts/gallery-live.js";
 import {
-  createRegistrationTransport,
-  registrationManifest,
+  createAccountTransport,
+  mintPassword,
   type AccountStore,
   type Delivery,
 } from "../scripts/gallery-registration.js";
+import { accountProviders } from "../scripts/gallery-accounts.js";
 import {
   connections,
   redemption,
@@ -807,11 +808,19 @@ test("an attempt is reported as an outcome the page can record", async () => {
 /**
  * Registration, driven the way the page drives it.
  *
- * The page's own claims about this ceremony are strong — an address the store
- * has never seen becomes an account, the wrong password is refused, and no
- * secret and no address reaches the store — and a page is not the place to
- * find out that one of them stopped being true.
+ * The claims worth pinning are about order and about what is never asked for.
+ * An identifier comes first and alone; a password appears only where the
+ * provider declared one, and is minted rather than demanded where it may be;
+ * and nothing secret and no address reaches the store. A page is not the place
+ * to find out that one of those stopped being true.
  */
+const OWN = accountProviders.find(
+  (entry) => entry.registration.createdBy === "this-ceremony",
+)!;
+const ISSUING = accountProviders.filter(
+  (entry) => entry.registration.secret === "issued-token",
+);
+
 interface Written {
   store: AccountStore;
   documents: Record<string, unknown>[];
@@ -834,10 +843,13 @@ function recordingStore(): Written {
 }
 
 /** One ceremony, with everything it delivered and handed back kept beside it. */
-function registration(store: AccountStore) {
+function running(
+  provider: (typeof accountProviders)[number],
+  store: AccountStore,
+) {
   const delivered: Delivery[] = [];
   let handback: (Handback & { registered: boolean }) | undefined;
-  const transport = createRegistrationTransport({
+  const transport = createAccountTransport(provider, {
     store,
     deliver: (delivery) => delivered.push(delivery),
     onHandback: (next) => {
@@ -849,138 +861,184 @@ function registration(store: AccountStore) {
     action: "begin" | "submit" | "retry" | "cancel",
     values: Record<string, string> = {},
   ) =>
-    transport.act(snapshot.id, {
-      action,
-      revision: snapshot.revision,
-      values,
-    });
+    transport.act(snapshot.id, { action, revision: snapshot.revision, values });
   return {
     delivered,
     drive,
     handback: () => handback,
-    start: () => transport.start(registrationManifest.id, "email-password"),
+    start: () =>
+      transport.start(provider.manifest.id, provider.manifest.methods[0]!.id),
   };
 }
 
-const PASSWORD = "correct-horse-battery";
+test("every account asks who you are first, and asks for nothing else", async () => {
+  // The defect this pins: a form opening with an address and a password side by
+  // side asserts that every provider wants a password. Single sign-on does not,
+  // a passkey does not, a magic link does not, and a provider that issues its
+  // own credential does not — it has nothing to check a typed one against.
+  for (const provider of accountProviders) {
+    const run = running(provider, recordingStore().store);
+    // The card that starts this already said the provider's name, what it is
+    // about to do, and what it will be able to do. An intro screen would repeat
+    // all three and add a press, so the first screen is the first question.
+    const snapshot = await run.start();
+    assert.equal(snapshot.step, "input", provider.manifest.id);
+    assert.deepEqual(
+      snapshot.fields.map((field) => field.name),
+      provider.identity.map((field) => field.name),
+      `${provider.manifest.id} should open on its identifier alone`,
+    );
+    assert.ok(
+      snapshot.fields.every((field) => field.type !== "password"),
+      `${provider.manifest.id} asks for a secret before it knows who you are`,
+    );
+  }
+});
 
-test("an address the store has never seen becomes an account", async () => {
+test("a password is minted rather than demanded when the provider lets it be", async () => {
   const { store, documents } = recordingStore();
-  const run = registration(store);
-  const address = "newcomer@example.test";
+  const run = running(OWN, store);
+  const person = "minted@example.test";
   let snapshot = await run.start();
-  assert.equal(snapshot.step, "intro");
-  snapshot = await run.drive(snapshot, "begin");
-  assert.deepEqual(
-    snapshot.fields.map((field) => field.name),
-    ["email", "password"],
+  snapshot = await run.drive(snapshot, "submit", { email: person });
+
+  // Offered, not required: leaving it blank is how somebody asks for one they
+  // never have to think of.
+  assert.equal(snapshot.fields.length, 1);
+  assert.equal(snapshot.fields[0]!.name, "password");
+  assert.equal(snapshot.fields[0]!.required, false);
+  assert.match(snapshot.message ?? "", /blank/);
+
+  snapshot = await run.drive(snapshot, "submit", { password: "" });
+  assert.equal(snapshot.step, "input");
+  assert.equal(run.delivered.length, 1);
+  snapshot = await run.drive(snapshot, "submit", {
+    verificationCode: run.delivered[0]!.code,
+  });
+  assert.equal(snapshot.step, "complete");
+
+  const issued = run.handback()!.issued;
+  const minted = issued.find((entry) => entry.name === "password")!;
+  assert.ok(minted, "a minted password is handed back");
+  assert.ok(minted.secret);
+  assert.ok(minted.value.length >= 20);
+  // Distinct every time, and never a constant baked into the page.
+  assert.notEqual(mintPassword(), mintPassword());
+
+  const held = JSON.stringify(documents);
+  for (const value of [person, minted.value, run.delivered[0]!.code])
+    assert.ok(!held.includes(value), `${value.slice(0, 6)}… reached the store`);
+});
+
+test("a password somebody chooses is theirs, and a short one is refused", async () => {
+  const { store } = recordingStore();
+  const chosen = "correct-horse-battery";
+  const run = running(OWN, store);
+  let snapshot = await run.start();
+  snapshot = await run.drive(snapshot, "submit", { email: "own@example.test" });
+  snapshot = await run.drive(snapshot, "submit", { password: "four" });
+  assert.match(snapshot.message ?? "", /at least 10 characters/);
+  assert.equal(run.delivered.length, 0);
+  snapshot = await run.drive(snapshot, "submit", { password: chosen });
+  snapshot = await run.drive(snapshot, "submit", {
+    verificationCode: run.delivered[0]!.code,
+  });
+  assert.equal(snapshot.step, "complete");
+  // Nothing was minted, because nothing needed to be.
+  assert.ok(
+    !run.handback()!.issued.some((entry) => entry.name === "password"),
+    "a chosen password is not re-issued as if the page had made it",
   );
 
-  snapshot = await run.drive(snapshot, "submit", {
-    email: address,
-    password: PASSWORD,
-  });
-  // Not complete: an address nobody has confirmed is not an account yet.
-  assert.equal(snapshot.step, "input");
-  assert.match(snapshot.message ?? "", /No account existed/);
-  assert.equal(run.delivered.length, 1);
-  const { code } = run.delivered[0]!;
-  assert.match(code, /^\d{6}$/);
+  // The second time, the account exists: its password is required and cannot be
+  // minted, and the wrong one is refused.
+  const second = running(OWN, store);
+  let again = await second.start();
+  again = await second.drive(again, "submit", { email: "own@example.test" });
+  assert.equal(again.fields[0]!.required, true);
+  assert.match(again.message ?? "", /already registered/);
+  again = await second.drive(again, "submit", { password: "not-the-one" });
+  assert.equal(again.step, "error");
+  assert.equal(second.delivered.length, 0);
+});
 
-  const wrong = code === "000000" ? "111111" : "000000";
-  snapshot = await run.drive(snapshot, "submit", { verificationCode: wrong });
-  assert.equal(snapshot.step, "input");
-  assert.match(snapshot.message ?? "", /not the code/);
+test("a provider that makes the account carries the address there and takes back what it issued", async () => {
+  for (const provider of ISSUING) {
+    const run = running(provider, recordingStore().store);
+    const person = "issued@example.test";
+    let snapshot = await run.start();
+    snapshot = await run.drive(snapshot, "submit", { email: person });
 
-  snapshot = await run.drive(snapshot, "submit", { verificationCode: code });
-  assert.equal(snapshot.step, "complete");
-  assert.equal(snapshot.outcome?.ownership, "authenticated");
-  assert.ok(snapshot.outcome?.secretRef);
-  assert.equal(run.handback()?.registered, true);
-
-  // The whole point of keying by a digest and storing derived values: a store
-  // anybody who opens the page can read must give nothing away.
-  const held = JSON.stringify(documents);
-  for (const secret of [
-    address,
-    PASSWORD,
-    code,
-    ...run.handback()!.issued.map((entry) => entry.value),
-  ])
+    // The handoff, not a password: this provider issues the credential, so
+    // there is nothing for a person to invent and nothing to mint.
+    assert.equal(snapshot.step, "redirect", provider.manifest.id);
+    assert.ok(snapshot.authorizationUrl);
+    const target = new URL(snapshot.authorizationUrl!);
+    assert.equal(target.protocol, "https:");
     assert.ok(
-      !held.includes(secret),
-      `${secret.slice(0, 6)}… reached the store`,
+      [...target.searchParams.values()].includes(person),
+      `${provider.manifest.id} should carry the address into its own page`,
     );
+    // No credential box on a screen whose purpose is to send somebody away.
+    assert.deepEqual(snapshot.fields, []);
+    assert.ok(snapshot.actions.includes("submit"));
+
+    // The second errand is at a second address: the account is made on one page
+    // and the credential is issued on another.
+    const issuing = await run.drive(snapshot, "submit");
+    assert.equal(issuing.step, "redirect");
+    assert.equal(issuing.authorizationUrl, provider.issuing!.url);
+    assert.deepEqual(issuing.fields, []);
+
+    const collector = await run.drive(issuing, "submit");
+    assert.equal(collector.step, "input");
+    assert.deepEqual(
+      collector.fields.map((field) => field.name),
+      ["token"],
+    );
+
+    // A credential that cannot be genuine is refused, and says why.
+    const refused = await run.drive(collector, "submit", { token: "nonsense" });
+    assert.equal(refused.step, "input");
+    assert.match(refused.message ?? "", /does not start with/);
+    assert.equal(run.handback(), undefined);
+
+    const real = `${provider.shape!.hint.match(/"([^"]+)"/)![1]}${"x".repeat(40)}`;
+    const done = await run.drive(refused, "submit", { token: real });
+    assert.equal(done.step, "complete", provider.manifest.id);
+    const issued = run
+      .handback()!
+      .issued.find((entry) => entry.name === "token")!;
+    assert.equal(issued.value, real);
+    assert.ok(issued.secret);
+    // Nothing about this provider's account is kept here; the provider keeps it.
+    assert.equal(run.delivered.length, 0);
+  }
 });
 
-test("the second time, the same address signs in and the wrong password does not", async () => {
-  const { store } = recordingStore();
-  const address = "returning@example.test";
-  const first = registration(store);
-  let snapshot = await first.drive(await first.start(), "begin");
-  snapshot = await first.drive(snapshot, "submit", {
-    email: address,
-    password: PASSWORD,
-  });
-  snapshot = await first.drive(snapshot, "submit", {
-    verificationCode: first.delivered[0]!.code,
-  });
-  assert.equal(snapshot.step, "complete");
-
-  const refused = registration(store);
-  let second = await refused.drive(await refused.start(), "begin");
-  second = await refused.drive(second, "submit", {
-    email: address,
-    password: "not-the-password",
-  });
-  assert.equal(second.step, "error");
-  assert.match(second.message ?? "", /already registered/);
-  assert.equal(refused.delivered.length, 0);
-
-  const again = registration(store);
-  let third = await again.drive(await again.start(), "begin");
-  third = await again.drive(third, "submit", {
-    email: address,
-    password: PASSWORD,
-  });
-  assert.equal(third.step, "input");
-  assert.match(third.message ?? "", /Welcome back/);
-  // A code minted for this attempt, not the one the registration used.
-  assert.notEqual(again.delivered[0]!.code, first.delivered[0]!.code);
-  third = await again.drive(third, "submit", {
-    verificationCode: again.delivered[0]!.code,
-  });
-  assert.equal(third.step, "complete");
-  assert.equal(again.handback()?.registered, false);
-});
-
-test("a password too short to be one is refused before anything is stored", async () => {
-  const { store, documents } = recordingStore();
-  const run = registration(store);
-  let snapshot = await run.drive(await run.start(), "begin");
-  snapshot = await run.drive(snapshot, "submit", {
-    email: "short@example.test",
-    password: "four",
-  });
-  assert.equal(snapshot.step, "input");
-  assert.match(snapshot.message ?? "", /at least 10 characters/);
-  snapshot = await run.drive(snapshot, "submit", {
-    email: "not an address",
-    password: PASSWORD,
-  });
-  assert.match(snapshot.message ?? "", /not an email address/);
-  assert.equal(documents.length, 0);
-  assert.equal(run.delivered.length, 0);
+test("every provider's declaration is one the production contract accepts", async () => {
+  for (const provider of accountProviders) {
+    const method = provider.manifest.methods[0]!;
+    assert.deepEqual(method.contract?.registration, provider.registration);
+    // Minting is a property of passwords alone: nothing else can be invented
+    // here and still work at the provider that has to accept it.
+    if (provider.registration.mint)
+      assert.equal(provider.registration.secret, "password");
+    if (provider.registration.secret === "issued-token") {
+      assert.ok(provider.signup && provider.issuing && provider.shape);
+      assert.equal(provider.credential?.type, "password");
+    }
+    assert.ok(provider.promises.length);
+  }
 });
 
 test("a completed ceremony hands back both halves, and one alone opens nothing", async () => {
-  const { store } = recordingStore();
-  const run = registration(store);
-  let snapshot = await run.drive(await run.start(), "begin");
+  const run = running(OWN, recordingStore().store);
+  let snapshot = await run.start();
   snapshot = await run.drive(snapshot, "submit", {
     email: "vault@example.test",
-    password: PASSWORD,
   });
+  snapshot = await run.drive(snapshot, "submit", { password: "" });
   snapshot = await run.drive(snapshot, "submit", {
     verificationCode: run.delivered[0]!.code,
   });
@@ -990,7 +1048,6 @@ test("a completed ceremony hands back both halves, and one alone opens nothing",
 
   // Everything handed over is a secret and is therefore masked; the reference,
   // which is not, is carried by the record rather than the issued list.
-  assert.ok(issued.length >= 1);
   assert.ok(issued.every((entry) => entry.secret));
   const key = issued.find((entry) => entry.name === "connectionKey")!.value;
 
@@ -1003,10 +1060,7 @@ test("a completed ceremony hands back both halves, and one alone opens nothing",
     undefined,
   );
   const opened = await connections.redeem(record.secretRef, key);
-  assert.equal(opened?.connectorName, registrationManifest.name);
-  assert.deepEqual(opened?.scopes, [
-    ...registrationManifest.methods[0]!.scopes,
-  ]);
+  assert.equal(opened?.connectorName, OWN.manifest.name);
 
   // The console snippet is shown on the page, so it must not be the leak.
   const snippet = redemption(record, false);
@@ -1018,6 +1072,29 @@ test("a completed ceremony hands back both halves, and one alone opens nothing",
   for (const entry of issued) assert.ok(!listed.includes(entry.value));
   connections.forget(record.secretRef);
   assert.equal(await connections.redeem(record.secretRef, key), undefined);
+});
+
+test("a store that refuses is a screen, not a stack trace", async () => {
+  // A viewer can decline the artifact store, and a view can be served without
+  // one. Both arrive here as a rejected write, and both leave the attempt
+  // exactly where it was — so the screen has to say so and offer the retry.
+  const run = running(OWN, {
+    label: "a store that says no",
+    read: async () => undefined,
+    write: async () => {
+      throw new Error("Storage was declined for this page.");
+    },
+  });
+  let snapshot = await run.start();
+  snapshot = await run.drive(snapshot, "submit", {
+    email: "declined@example.test",
+  });
+  snapshot = await run.drive(snapshot, "submit", { password: "" });
+  assert.equal(snapshot.step, "error");
+  assert.match(snapshot.message ?? "", /nothing was registered/);
+  assert.match(snapshot.message ?? "", /Storage was declined/);
+  assert.ok(snapshot.actions.includes("retry"));
+  assert.equal(run.delivered.length, 0);
 });
 
 test("connecting a connector leaves a connection that really calls it", async () => {
@@ -1071,27 +1148,4 @@ test("connecting a connector leaves a connection that really calls it", async ()
   assert.equal(failed.step, "error");
   assert.equal(failed.outcome, undefined);
   assert.equal(refused, undefined);
-});
-
-test("a store that refuses is a screen, not a stack trace", async () => {
-  // A viewer can decline the artifact store, and a view can be served without
-  // one. Both arrive here as a rejected write, and both leave the attempt
-  // exactly where it was — so the screen has to say so and offer the retry.
-  const run = registration({
-    label: "a store that says no",
-    read: async () => undefined,
-    write: async () => {
-      throw new Error("Storage was declined for this page.");
-    },
-  });
-  let snapshot = await run.drive(await run.start(), "begin");
-  snapshot = await run.drive(snapshot, "submit", {
-    email: "declined@example.test",
-    password: PASSWORD,
-  });
-  assert.equal(snapshot.step, "error");
-  assert.match(snapshot.message ?? "", /nothing was registered/);
-  assert.match(snapshot.message ?? "", /Storage was declined/);
-  assert.ok(snapshot.actions.includes("retry"));
-  assert.equal(run.delivered.length, 0);
 });

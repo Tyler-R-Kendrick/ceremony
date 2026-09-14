@@ -13,6 +13,55 @@ export const humanHandoffContractSchema = z.strictObject({
 });
 export type HumanHandoffContract = z.infer<typeof humanHandoffContractSchema>;
 
+/**
+ * What a provider needs before it will make an account, in the order it needs it.
+ *
+ * Registration does not begin with a password. It begins with whatever names
+ * the account — an address at one provider, a handle at another, both at a
+ * third — and only then, if at all, with something proving it. A flow built the
+ * other way round asks every person for a password whether or not their
+ * provider wants one, which is wrong for single sign-on, wrong for a passkey,
+ * wrong for a magic link, and wrong for every provider that issues the
+ * credential itself rather than accepting one.
+ *
+ * So the identifier is declared separately from the secret, and the secret is
+ * declared as a kind rather than assumed to exist:
+ *
+ * - `none` — nothing beyond the identifier. A passkey, single sign-on, or a
+ *   link the provider mails. No credential field is ever shown.
+ * - `password` — a password, which the provider will hold. `mint` says whether
+ *   the ceremony may generate it instead of asking a person to invent one.
+ * - `issued-token` — the provider issues the credential in its own surface and
+ *   a person brings it back. Never generated here: only the provider can make
+ *   one that works.
+ * - `provider` — the provider owns the credential step completely, as a
+ *   redirect or a device code. Nothing is collected and nothing is minted.
+ *
+ * `mint` is only ever true for `password`, and being true is what lets a
+ * ceremony hand somebody a strong credential they never had to think of — and
+ * never had to type where anything could read it.
+ */
+export const registrationContractSchema = z
+  .strictObject({
+    identifier: z
+      .array(z.enum(["email", "username", "organization"]))
+      .min(1)
+      .max(3)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "Duplicate identifier",
+      ),
+    secret: z.enum(["none", "password", "issued-token", "provider"]),
+    mint: z.boolean(),
+    /** Where the account comes into existence: here, or in the provider's own surface. */
+    createdBy: z.enum(["this-ceremony", "provider-browser"]),
+  })
+  .refine(
+    (value) => !value.mint || value.secret === "password",
+    "Only a password may be minted",
+  );
+export type RegistrationContract = z.infer<typeof registrationContractSchema>;
+
 export const methodContractSchema = z
   .strictObject({
     profile: identifierSchema,
@@ -61,6 +110,8 @@ export const methodContractSchema = z
       )
       .max(12),
     handoff: humanHandoffContractSchema,
+    /** Present when this method can bring an account into being, not merely use one. */
+    registration: registrationContractSchema.optional(),
     completion: z.strictObject({
       verifier: identifierSchema,
       ownership: z

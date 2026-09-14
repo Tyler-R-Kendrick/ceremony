@@ -26,11 +26,11 @@ import {
 } from "./gallery-live-connectors.js";
 import { connections, redemption, type Handback } from "./gallery-secrets.js";
 import {
-  createRegistrationTransport,
-  registrationManifest,
+  createAccountTransport,
   type AccountStore,
   type Delivery,
 } from "./gallery-registration.js";
+import { accountProviders, type AccountProvider } from "./gallery-accounts.js";
 
 /**
  * The live half of the catalogue: a real ceremony, against a real provider.
@@ -83,17 +83,21 @@ const liveTemplate: CeremonyTemplate = (() => {
 })();
 
 /**
- * The shipped form template, saying "account" where it says "connection".
+ * The shipped form template, adapted for making an account rather than using one.
  *
- * The library's words are right for the thing it is usually doing — attaching
- * an integration to something that already exists. This ceremony is the one
- * that makes the thing, and a heading reading "Connect your account" over a
- * form that is about to create one is the wrong sentence. Only the titles
- * change, `templates` is the supported way to change them, and the input screen
- * keeps its own: it covers the password and the code alike, and both are
- * credentials.
+ * Only the titles change, and `templates` is the supported way to change them.
+ * The library says "connection" because it is usually attaching an integration
+ * to something that already exists; this is the ceremony that brings the thing
+ * into being, and a heading reading "Connect your account" over a form about to
+ * create one is the wrong sentence.
+ *
+ * What is deliberately not changed is the redirect screen's contents. Adding
+ * `Fields()` there would have put the handoff and the credential on one screen,
+ * and the library refuses it: a redirect screen is where somebody leaves, and a
+ * credential box on it invites typing a secret into the page they are about to
+ * leave rather than the one that issued it. The flow takes the extra screen.
  */
-const registrationTemplate: CeremonyTemplate = (() => {
+const accountTemplate: CeremonyTemplate = (() => {
   const base = defaultTemplate("form");
   const retitle = (screen: string, title: string) =>
     screen.replace(/Title\("[^"]*"\)/, `Title(${JSON.stringify(title)})`);
@@ -101,7 +105,9 @@ const registrationTemplate: CeremonyTemplate = (() => {
     ...base,
     screens: {
       ...base.screens,
-      intro: retitle(base.screens.intro, "Create an account, or sign in"),
+      intro: retitle(base.screens.intro, "Make an account"),
+      input: retitle(base.screens.input, "One thing at a time"),
+      redirect: retitle(base.screens.redirect, "Over to them for a moment"),
       complete: retitle(base.screens.complete, "Your account is ready"),
       error: retitle(base.screens.error, "That did not go through"),
       cancelled: retitle(
@@ -903,6 +909,78 @@ function LiveSection({
 }
 
 /**
+ * One account provider: its card, then the ceremony its button really runs.
+ *
+ * The card comes first on purpose. Pressing a button on the card is what starts
+ * the ceremony, and what happens next happens in the card — this is the whole
+ * of the interaction, not a link to somewhere the interaction lives.
+ */
+function AccountCard({
+  provider,
+  store,
+  onDelivery,
+}: {
+  provider: AccountProvider;
+  store: Promise<AccountStore>;
+  onDelivery: (delivery: Delivery) => void;
+}): ReactNode {
+  const [started, setStarted] = useState(false);
+  const [handback, setHandback] = useState<
+    (Handback & { registered: boolean }) | undefined
+  >(undefined);
+  const latest = useRef({ onDelivery });
+  latest.current = { onDelivery };
+  const transport = useState(() =>
+    createAccountTransport(provider, {
+      // Asked for once, awaited by whoever needs it. The capability can take
+      // seconds to resolve and the first screen must not wait on it: nobody has
+      // typed anything yet, so there is nothing to store.
+      store: {
+        label: "resolving",
+        read: async (id: string) => (await store).read(id),
+        write: async (id: string, document: Record<string, unknown>) =>
+          (await store).write(id, document),
+      },
+      deliver: (delivery) => latest.current.onDelivery(delivery),
+      onHandback: setHandback,
+    }),
+  )[0];
+  if (!started)
+    return createElement(ConnectorCard, {
+      manifest: provider.manifest,
+      status: "available",
+      intent: {
+        permissions: provider.promises.map((label) => ({ label })),
+      },
+      onConnect: () => setStarted(true),
+    });
+  return createElement(
+    "div",
+    { className: "live-run" },
+    createElement(Ceremony, {
+      manifest: provider.manifest,
+      transport,
+      templates: [accountTemplate],
+      autoFocus: false,
+      webmcp: false as const,
+    }),
+    handback
+      ? createElement(Vault, {
+          handback,
+          title: handback.registered
+            ? `${provider.manifest.name} · what you keep`
+            : "Signed in · what you keep",
+          callable: false,
+          foot:
+            provider.registration.createdBy === "this-ceremony"
+              ? "All of this was generated in your browser a moment ago. The account record holds a derived form of each value and never the value itself, so these are the only copies — nothing on this page can print them a second time."
+              : `${provider.manifest.name} issued this, not this page. It is held in this tab behind the reference above, was never written to the store, and no assistant ever saw it.`,
+        })
+      : null,
+  );
+}
+
+/**
  * Where the confirmation code goes, because a published page has no mail server.
  *
  * Naming it a mailbox rather than dressing it as an inbox is the honest move:
@@ -943,38 +1021,37 @@ function Mailbox({
       : createElement(
           "p",
           { className: "mailbox-empty" },
-          "Empty. Begin on the left, give an address, and the code arrives here.",
+          "Empty. Only the account kept here sends a code; the providers that make the account themselves send their own mail, to your real inbox.",
         ),
     createElement(
       "p",
       { className: "mailbox-note" },
-      "There is no mail server on a published page, so the code is delivered here rather than to an inbox. It expires in ten minutes.",
+      "There is no mail server on a published page, so a code this page sends is delivered here rather than to an inbox. It expires in ten minutes.",
     ),
   );
 }
 
 /**
- * Registration, as the thing this page is for rather than an item in a list.
+ * Every account this page can make, as a card apiece.
  *
- * The ceremony is the shipped component driving the shipped client over a real
- * transport; the mailbox beside it is where the out-of-band step lands; and the
- * panel underneath is what the finished ceremony hands back. Nothing here is a
- * rendering of a flow that ran somewhere else.
+ * One grid, one mailbox under it, and no ordering claim beyond the first being
+ * the one that finishes here. The rest hand off to a provider that makes the
+ * account itself, which is the honest shape of registering at GitHub, Stripe or
+ * Atlassian and is not something a page can do on their behalf.
  */
-function Account({
+function Accounts({
   getStore,
 }: {
   getStore: () => Promise<AccountStore>;
 }): ReactNode {
   const [deliveries, setDeliveries] = useState<readonly Delivery[]>([]);
-  const [handback, setHandback] = useState<
-    (Handback & { registered: boolean }) | undefined
-  >(undefined);
   const [store, setStore] = useState<AccountStore | undefined>(undefined);
-  // Asked for once, awaited by whoever needs it. The capability can take
-  // seconds to resolve, and the first screen must not wait on it: nobody has
-  // typed anything yet, so there is nothing to store.
   const pending = useState(() => getStore())[0];
+  const onDelivery = useCallback(
+    (delivery: Delivery) =>
+      setDeliveries((list) => [delivery, ...list].slice(0, 3)),
+    [],
+  );
   useEffect(() => {
     let alive = true;
     void pending.then((resolved) => {
@@ -984,62 +1061,44 @@ function Account({
       alive = false;
     };
   }, [pending]);
-  const transport = useState(() =>
-    createRegistrationTransport({
-      store: {
-        label: "resolving",
-        read: async (id) => (await pending).read(id),
-        write: async (id, document) => (await pending).write(id, document),
-      },
-      deliver: (delivery) =>
-        setDeliveries((list) => [delivery, ...list].slice(0, 3)),
-      onHandback: setHandback,
-    }),
-  )[0];
   return createElement(
     "div",
-    { className: "account" },
+    { className: "accounts" },
     createElement(
       "div",
-      { className: "account-run" },
-      createElement(Ceremony, {
-        manifest: registrationManifest,
-        transport,
-        templates: [registrationTemplate],
-        autoFocus: false,
-        webmcp: false as const,
-      }),
-      handback
-        ? createElement(Vault, {
-            handback,
-            title: handback.registered
-              ? "Account created · what you keep"
-              : "Signed in · what you keep",
-            callable: false,
-            foot: "All of this was generated in your browser a moment ago. The account record holds a derived form of each value and never the value itself, so these are the only copies — nothing on this page can print the recovery code a second time.",
-          })
-        : null,
+      { className: "live-grid" },
+      ...accountProviders.map((provider) =>
+        createElement(
+          "div",
+          { className: "live-cell", key: provider.manifest.id },
+          createElement(AccountCard, {
+            provider,
+            store: pending,
+            onDelivery,
+          }),
+        ),
+      ),
     ),
     createElement(
-      "aside",
-      { className: "account-aside" },
+      "div",
+      { className: "accounts-foot" },
       createElement(Mailbox, { deliveries }),
       createElement(
         "p",
         { className: "account-store" },
         store
-          ? `Accounts are kept in ${store.label}. The password never leaves this browser: it is stretched here and only the derived value is stored, alongside no address at all — the record is keyed by a digest of it.`
+          ? `The account kept here lives in ${store.label}. Its password never leaves this browser: it is stretched here and only the derived value is stored, alongside no address at all — the record is keyed by a digest of it.`
           : "Finding somewhere to keep accounts…",
       ),
     ),
   );
 }
 
-export function mountAccount(
+export function mountAccounts(
   root: HTMLElement,
   getStore: () => Promise<AccountStore>,
 ): void {
-  createRoot(root).render(createElement(Account, { getStore }));
+  createRoot(root).render(createElement(Accounts, { getStore }));
 }
 
 export function mountLive(

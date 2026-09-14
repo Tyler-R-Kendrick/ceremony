@@ -921,36 +921,31 @@ tbody tr:last-child td {
   font-size: clamp(1.5rem, 3.2vw, 1.875rem);
 }
 
-.account-mount {
-  min-inline-size: 0;
+/* One card per account, then one mailbox under the lot. The mailbox is shared
+ * because only one of these providers posts to it — the others send their own
+ * mail, to a real inbox — and giving each card its own would be three empty
+ * boxes explaining that they are empty. */
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-/* The ceremony and the mailbox are one working surface, so they share a card
- * rather than sitting in two. Stacked until there is honestly room for two
- * columns: the mailbox under the form is the reading order anyway. */
-.account {
+.accounts-foot {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.125rem;
-  padding: 1.125rem;
-  border: 1px solid var(--page-line);
-  border-radius: 14px;
-  background: var(--page-surface);
+  gap: 1rem;
+  align-items: start;
 }
 
-@media (min-width: 56rem) {
-  .account {
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+@media (min-width: 52rem) {
+  .accounts-foot {
+    grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
     gap: 1.5rem;
-    padding: 1.5rem;
   }
 }
 
-.account-run,
-.account-aside {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.account-mount {
   min-inline-size: 0;
 }
 
