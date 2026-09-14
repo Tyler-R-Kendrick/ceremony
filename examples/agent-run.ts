@@ -1,25 +1,33 @@
-import { chromium, type Browser } from "playwright-core";
 import { randomBytes } from "node:crypto";
 import {
   createSecrets,
   runCeremony,
   type CeremonyResult,
+  type HumanParticipationResult,
 } from "../src/server/browser-driver.js";
 import { createPlaywrightCeremonyPage } from "../src/server/browser-page.js";
 import { createHeuristicInterpreter } from "../src/server/browser-interpreter.js";
 import type {
-  CeremonyGoal,
+  CeremonyRole,
   CeremonyStep,
 } from "../src/core/browser-contracts.js";
+import type { HumanHandoffContract } from "../src/core/connector-contracts.js";
+import type { AccountProvider } from "../scripts/gallery-accounts.js";
+import type { BrowserBackend, BrowserSession } from "./browser-session.js";
 
 /**
- * The agent, in its own browser, doing the ceremony itself.
+ * The agent, in its own browser, making the account itself.
  *
- * Nothing here is handed to a person. The agent mints the identity it will
- * register, drives the provider's real pages, reads the confirmation code out
- * of band from the provider's own mailbox, and comes back with the outcome.
- * Every step it takes is reported as it happens, which is what lets a card show
- * the run rather than a link to somewhere the run might happen.
+ * It is handed an address and a provider and nothing else. It mints the
+ * password, drives the provider's real registration pages, and asks a person
+ * for exactly the things it cannot produce: a code the provider mailed to an
+ * inbox it does not have, a challenge only a human can answer, a credential the
+ * provider issues on a page the driver is built not to read. Everything it does
+ * is reported as it happens, which is what lets a card show the run rather
+ * than a link to somewhere the run might happen.
+ *
+ * What comes back is by value only to the caller, who is expected to hold it
+ * by reference for everybody else: nothing here ever puts a secret in a step.
  */
 
 const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_";
@@ -36,25 +44,53 @@ function mint(length = 20): string {
   return out;
 }
 
+export type AgentPhase = "register" | "issue" | "collect";
+
+export interface AgentOutput {
+  name: string;
+  label: string;
+  value: string;
+}
+
 export interface AgentRunOptions {
-  /** The provider the agent will register at. Its pages, not ours. */
+  provider: AccountProvider;
+  /** The person's address. Absent, a provider with its own mailbox gets one minted. */
+  email?: string;
+  /** The reference provider, the one account this ceremony can register unaided. */
   issuer: string;
-  goal: CeremonyGoal;
-  /** Where the agent starts. Defaults to the provider's credential page. */
-  entryUrl?: string;
+  session: BrowserSession;
   onStep?: (step: CeremonyStep) => void;
-  /** Supplied by the caller in tests; launched here otherwise. */
-  browser?: Browser;
+  onSession?: (info: { backend: BrowserBackend; liveUrl?: string }) => void;
+  onPhase?: (phase: AgentPhase) => void;
+  /** A value the run produced. Handed over once, as it is made. */
+  onOutput?: (output: AgentOutput) => void;
+  /** Ask the person for a value the agent cannot produce. */
+  ask: (role: CeremonyRole | "token", prompt: string) => Promise<string>;
+  /** Ask the person to take over the browser for a step only they can do. */
+  takeOver: (input: {
+    reason: string;
+    url: string;
+    attempt: number;
+  }) => Promise<HumanParticipationResult>;
 }
 
 export interface AgentRunReport {
-  /** The address the agent invented and registered. Not a person's. */
+  /** The address that was registered. */
   identity: string;
   result: CeremonyResult;
+  /** What, if anything, showed the account is real. */
+  evidence: "provider-confirmed" | "credential-shape" | "none";
 }
 
+const openHandoff: HumanHandoffContract = {
+  surface: "provider-browser",
+  recipient: "initiating-subject",
+  delegation: "a2h-authorize",
+  resume: "verify",
+};
+
 /**
- * Read the confirmation code from the provider's mailbox.
+ * Read the confirmation code from the reference provider's mailbox.
  *
  * Out of band on purpose: it is fetched from the provider's own origin, not
  * scraped from the page being driven, so the agent is doing what a person with
@@ -75,53 +111,139 @@ async function codeFrom(issuer: string, address: string): Promise<string> {
   throw new Error("No code arrived for this address");
 }
 
-export async function runAgentCeremony({
-  issuer,
-  goal,
-  entryUrl,
-  onStep,
-  browser,
-}: AgentRunOptions): Promise<AgentRunReport> {
-  const identity = `agent-${randomBytes(4).toString("hex")}@ceremony.test`;
+/** Provider-side proof: the account is real only if the provider issues against it. */
+async function issuedBy(
+  issuer: string,
+  email: string,
+  password: string,
+): Promise<string | undefined> {
+  const response = await fetch(`${issuer}/credentials`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ email, password }),
+  });
+  if (!response.ok) return undefined;
+  const body = (await response.json()) as { access_token?: unknown };
+  return typeof body.access_token === "string" ? body.access_token : undefined;
+}
+
+export async function runAgentCeremony(
+  options: AgentRunOptions,
+): Promise<AgentRunReport> {
+  const { provider, issuer, session, ask, takeOver } = options;
+  const own = provider.registration.createdBy === "this-ceremony";
+  const identity =
+    options.email?.trim() ||
+    (own ? `agent-${randomBytes(4).toString("hex")}@ceremony.test` : "");
+  if (!identity)
+    throw new Error(`${provider.manifest.name} needs an address to register`);
+  const local = identity.split("@")[0] ?? "agent";
   const password = mint();
-  const owned = browser ?? (await chromium.launch({ args: ["--no-sandbox"] }));
-  const context = await owned.newContext();
+  const entry = own
+    ? `${issuer}/register`
+    : provider.signup?.({ email: identity });
+  if (!entry)
+    throw new Error(`${provider.manifest.name} has no registration page`);
+  const origins = own
+    ? [issuer]
+    : [entry, ...(provider.issuing ? [provider.issuing.url] : [])];
+  const contract =
+    provider.manifest.methods[0]?.contract?.handoff ?? openHandoff;
+
+  const context = await session.browser.newContext();
   const page = await context.newPage();
+  const given = new Set<string>();
+  const produce = (name: string, label: string, value: string) => {
+    if (given.has(name)) return;
+    given.add(name);
+    options.onOutput?.({ name, label, value });
+  };
   try {
-    await page.goto(entryUrl ?? `${issuer}/register`, {
-      waitUntil: "domcontentloaded",
+    await page.goto(entry, { waitUntil: "domcontentloaded" });
+    const liveUrl = await session.liveView(page).catch(() => undefined);
+    options.onSession?.({
+      backend: session.backend,
+      ...(liveUrl ? { liveUrl } : {}),
     });
+    options.onPhase?.("register");
     const result = await runCeremony({
       page: createPlaywrightCeremonyPage(page),
       interpreter: createHeuristicInterpreter(),
-      goal,
+      goal: "registration",
       secrets: createSecrets({
         email: identity,
-        username: identity,
+        username: own
+          ? identity
+          : `${local.replace(/[^a-z0-9]/gi, "").slice(0, 20) || "agent"}-${randomBytes(2).toString("hex")}`,
+        "display-name": local,
         password,
         "password-confirm": password,
-        "verification-code": () => codeFrom(issuer, identity),
+        "verification-code": own
+          ? () => codeFrom(issuer, identity)
+          : () =>
+              ask(
+                "verification-code",
+                `The code ${provider.manifest.name} sent to ${identity}`,
+              ),
       }),
-      allowedOrigins: [issuer],
+      allowedOrigins: origins,
       protectedValues: [password],
-      // Provider-side proof, not the page's word for it: the account is only
-      // real if the provider will issue against it. A "done" the driver cannot
-      // confirm comes back as unverified rather than completed.
-      verify: async () => {
-        const response = await fetch(`${issuer}/credentials`, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ email: identity, password }),
-        });
-        if (!response.ok) return false;
-        const body = (await response.json()) as { access_token?: string };
-        return typeof body.access_token === "string";
+      human: {
+        contract,
+        request: async ({ reason, url, attempt }) =>
+          takeOver({ reason, url: liveUrl ?? url, attempt }),
       },
-      ...(onStep ? { onStep } : {}),
+      ...(own
+        ? {
+            verify: async () => {
+              const token = await issuedBy(issuer, identity, password);
+              if (!token) return false;
+              produce("password", "Generated password", password);
+              produce("access_token", "Session token", token);
+              return true;
+            },
+          }
+        : {}),
+      ...(options.onStep ? { onStep: options.onStep } : {}),
     });
-    return { identity, result };
+    let evidence: AgentRunReport["evidence"] =
+      result.status === "completed" ? "provider-confirmed" : "none";
+
+    // The provider issues the credential on a page of its own, and the driver
+    // is built not to read one off a screen. So the agent goes there, a person
+    // copies it — from the live view when there is one — and it comes back
+    // through a field, shape-checked. A registration that was stopped outright
+    // has no account to issue against, so nobody is asked.
+    if (
+      !own &&
+      provider.issuing &&
+      provider.credential &&
+      result.status !== "blocked"
+    ) {
+      produce("password", "Generated password", password);
+      options.onPhase?.("issue");
+      await page
+        .goto(provider.issuing.url, { waitUntil: "domcontentloaded" })
+        .catch(() => {});
+      options.onPhase?.("collect");
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const value = await ask("token", provider.credential.label);
+        const complaint = provider.shape?.check(value);
+        if (complaint) {
+          options.onStep?.({
+            path: new URL(provider.issuing.url).pathname,
+            action: "wait",
+            note: complaint,
+          });
+          continue;
+        }
+        produce("token", provider.credential.label, value.trim());
+        evidence = "credential-shape";
+        break;
+      }
+    }
+    return { identity, result, evidence };
   } finally {
-    await context.close();
-    if (!browser) await owned.close();
+    await context.close().catch(() => {});
   }
 }

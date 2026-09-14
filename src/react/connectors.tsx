@@ -168,6 +168,12 @@ export interface ConnectorCardProps {
   busy?: boolean;
   /** Replaces the default action label, e.g. "Reconnect". */
   actionLabel?: string;
+  /**
+   * How many times a person was actually asked. Absent, the card shows what the
+   * route would cost; once an attempt has run, what it cost is the truer number
+   * and a card still advertising the estimate contradicts its own result.
+   */
+  handoffs?: number;
   onConnect(manifest: ConnectorManifest): void;
 }
 
@@ -180,6 +186,7 @@ export function ConnectorCard({
   ink,
   busy = false,
   actionLabel,
+  handoffs,
   onConnect,
 }: ConnectorCardProps) {
   const resolved = useMemo(
@@ -244,7 +251,7 @@ export function ConnectorCard({
           </p>
         )}
         <div className="connector-foot-end">
-          <HandoffMeter count={resolved?.handoffs ?? 0} />
+          <HandoffMeter count={handoffs ?? resolved?.handoffs ?? 0} />
           <button
             type="button"
             className="primary"
