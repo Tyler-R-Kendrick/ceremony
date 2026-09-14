@@ -286,6 +286,23 @@ code.kind {
   pointer-events: none;
 }
 
+/* Why a card cannot run here, and the one command that runs it. A control that
+ * answers nothing teaches nothing; this is what the dead button became. */
+.how-to-run {
+  margin: 0;
+  padding-block-start: 0.625rem;
+  border-block-start: 1px dashed var(--page-rule);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--page-muted);
+  text-wrap: pretty;
+}
+
+.how-to-run code {
+  color: var(--page-ink);
+  overflow-wrap: anywhere;
+}
+
 .specimen-tag {
   margin: 0;
   padding-block-end: 0.5rem;

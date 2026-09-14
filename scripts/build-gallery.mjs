@@ -5,11 +5,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { ConnectorCard, CeremonyView } from "../src/react/index.js";
 import { manifests } from "../examples/manifests.js";
-import {
-  liveMountId,
-  resolverMountId,
-  resolverPayloadId,
-} from "./gallery-ids.js";
+import { liveMountId, resolverPayloadId } from "./gallery-ids.js";
 import { liveConnectors } from "./gallery-live-connectors.js";
 import {
   asSpecimen,
@@ -110,34 +106,32 @@ const cards = () =>
       return `
       <li>
         <div class="screen-label"><span>${escape(note)}</span></div>
-        ${frame(
-          renderToString(
-            createElement(ConnectorCard, {
-              manifest,
-              status,
-              // Never pressed: the specimen is inoperable by construction, and
-              // a page with no network has nothing honest to do on a press.
-              onConnect: () => {},
-              ...(intent ? { intent } : {}),
-            }),
-          ),
-        )}
+        <div class="screen">
+          <p class="specimen-tag">needs a connection server</p>
+          ${asSpecimen(
+            renderToString(
+              createElement(ConnectorCard, {
+                manifest,
+                status,
+                // Inoperable here by construction: with no server there is
+                // nothing honest for a press to do. The card says why rather
+                // than leaving somebody pressing a button that answers nothing.
+                onConnect: () => {},
+                ...(intent ? { intent } : {}),
+              }),
+            ),
+          )}
+          <p class="how-to-run">
+            This route redirects to a provider or verifies a credential against
+            one, and both need a server this page does not have. Run
+            <code>npm run dev</code>, then open
+            <code>/?mode=test&amp;connector=${escape(manifest.id)}</code> to
+            press it for real.
+          </p>
+        </div>
       </li>`;
     })
     .join("");
-
-/** What each flow is, in the terms the rest of the project uses. */
-const flowNotes = {
-  "oauth-code": "The person approves at the provider and is brought back.",
-  "github-app":
-    "An application is registered and installed before access exists.",
-  device: "A code is read here and entered somewhere else.",
-  "authmd-anonymous":
-    "Access begins with nobody attached, and can be claimed later.",
-  "api-key": "A credential the person already holds is collected privately.",
-  basic: "A username and password the provider accepts directly.",
-  form: "Whatever the provider's own form asks for.",
-};
 
 const stepNotes = {
   intro: "what is about to happen",
@@ -215,33 +209,6 @@ const table = (rows) => `
       <tbody>${rows.map(row).join("")}</tbody>
     </table>
   </div>`;
-
-const flowPanel = (kind) => `
-  <article class="flow" id="flow-${escape(kind)}">
-    <header class="flow-head">
-      <h3><code class="kind">${escape(kind)}</code></h3>
-      <p>${escape(flowNotes[kind])}</p>
-      <p class="flow-count">${count(
-        entries.filter((entry) => entry.flowKind === kind).length,
-        "scenario",
-      )} · ${count(journeys[kind].length, "screen")}</p>
-    </header>
-    <ol class="screens">
-      ${journeys[kind]
-        .map(
-          (step, index) => `
-        <li>
-          <div class="screen-label">
-            <span class="screen-index">${index + 1}</span>
-            <code>${escape(step)}</code>
-            <span>${escape(stepNotes[step])}</span>
-          </div>
-          ${frame(screen(kind, step))}
-        </li>`,
-        )
-        .join("")}
-    </ol>
-  </article>`;
 
 /**
  * The live resolver's controls.
@@ -355,37 +322,6 @@ const liveSection = `
     </p>
   </section>`;
 
-const resolver = `
-  <section class="movement" aria-labelledby="resolve-heading">
-    <div class="movement-head">
-      <h2 id="resolve-heading">Resolve it yourself</h2>
-      <p>
-        The part of this page that runs. Nobody is asked to choose between PKCE
-        and a device code, because a person cannot answer that and should not
-        have to — everything needed to decide it is something the host already
-        knew. State it here and every connector re-decides: which route, what it
-        costs somebody, and what was ruled out and why.
-      </p>
-    </div>
-    <div class="resolver" id="${resolverMountId}">
-      <form class="declaration">
-        ${declarations.map(choiceGroup).join("")}
-        ${permissionGroup()}
-        <div class="source-wrap">
-          <p class="source-label">What that declares</p>
-          <pre class="source" data-declaration></pre>
-        </div>
-      </form>
-      <div class="results">
-        <p class="tally" data-tally aria-live="polite">
-          The resolver runs in your browser. With scripting off this section
-          stays empty; nothing else on the page depends on it.
-        </p>
-        <div class="resolutions" data-resolutions></div>
-      </div>
-    </div>
-  </section>`;
-
 const page = `<title>Ceremony Auth Catalogue</title>
 <link
   rel="stylesheet"
@@ -407,15 +343,15 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
       the product ships, from a snapshot the production schema accepted.
     </p>
     <p class="honesty">
-      <strong>This page connects.</strong> Press Connect below and the component
-      the library ships runs a real ceremony against a real provider, through
-      the connectors you approved in claude.ai: your credentials, which this
-      page never sees, and read-only calls that write nothing. The resolver is
-      the real one too, deciding against the real manifests as you change the
-      declaration. <strong>What is not live:</strong> the flows needing a server
-      of their own, which appear further down as specimens and are labelled as
-      specimens — this page has no connection server to run them against, and a
-      button that pretends otherwise would be the dishonest option.
+      <strong>This page connects.</strong> Press Connect on a card below and
+      the component the library ships runs a real ceremony to completion,
+      through the connectors you approved in claude.ai: your credentials, which
+      this page never sees, and read-only calls that write nothing.
+      <strong>What is not live:</strong> routes needing a server of their own —
+      a redirect has to land somewhere, a credential has to be verified against
+      a provider — and a published page has neither. Those cards say so and name
+      the command that runs them, account registration included: an address the
+      provider has never seen becomes an account.
     </p>
   </header>
 
@@ -428,27 +364,15 @@ ${liveSection}
         integration will be able to do in the host's own words, and how many
         times the route will stop to ask a person. That last number is the one
         the resolver minimises, so a card cannot advertise a cost the chosen
-        route was not chosen for. These three are specimens, so their buttons
-        do not respond; the cards that connect are in the section above. The
-        part that needs no provider at all is
-        <a href="#${resolverMountId}">directly below</a>, and it runs.
+        route was not chosen for. These three cannot run on a published page —
+        each needs a server to land a redirect or verify a credential — so each
+        says why on its face and names the command that runs it. The cards that
+        do run are in the section above.
       </p>
     </div>
     <ol class="screens">${cards()}</ol>
   </section>
-${resolver}
 
-  <section class="movement" aria-labelledby="flows-heading">
-    <div class="movement-head">
-      <h2 id="flows-heading">The flows</h2>
-      <p>
-        Seven kinds, each shown in the order it actually reaches its screens.
-        A redirect never asks for input; a device flow waits; only anonymous
-        access can be claimed afterwards.
-      </p>
-    </div>
-    <div class="flows">${flowKinds.map(flowPanel).join("")}</div>
-  </section>
 
   <section class="movement" aria-labelledby="walls-heading">
     <div class="movement-head">
