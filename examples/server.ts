@@ -26,7 +26,13 @@ import {
   Agent2Human,
   type A2HOptions,
 } from "../src/server/index.js";
-import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
+import {
+  flowKindSchema,
+  entryContextSchema,
+  createSignatureAgent,
+  directoryMediaType,
+  directoryPath,
+} from "../src/core/index.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
@@ -71,6 +77,11 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
   const origin = options.publicOrigin ?? `http://127.0.0.1:${port}`;
   const issuer = `http://127.0.0.1:${providerPort}`;
   const provider = await createReferenceProvider({ issuer, appOrigin: origin });
+  // The agent's own identity, minted here, asking nobody for anything. Its
+  // public half is served below; every provider call it makes is signed with
+  // the private half, so a bot gate can recognise it instead of stopping a
+  // person. No account, no API token, no enrolment.
+  const agent = createSignatureAgent(origin);
   const credentials = new MemoryCredentialStore();
   const demoDatabase = new CeremonyDatabase(":memory:", randomBytes(32));
   const broker = new PrivateCredentialBroker(demoDatabase);
@@ -221,6 +232,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                 identityEndpoint: `${issuer}/agent/identity`,
                 claimEndpoint: `${issuer}/agent/identity/claim`,
                 allowLoopbackHttp: true,
+                agent,
               },
               credentials,
             ),
@@ -364,6 +376,13 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           response.end(Buffer.from(await result.arrayBuffer()));
           return;
         }
+      }
+      // Where an origin looks to find out which agent is calling. Public by
+      // design: it carries a public key and nothing else.
+      if (request.method === "GET" && url.pathname === directoryPath) {
+        response.writeHead(200, { "content-type": directoryMediaType });
+        response.end(agent.document());
+        return;
       }
       if (!url.pathname.startsWith("/api/")) {
         vite.middlewares(request, response, () =>

@@ -7,6 +7,7 @@ import {
   type AdapterUpdate,
   type AuthAdapter,
 } from "./controller.js";
+import type { SignatureAgent } from "../core/web-bot-auth.js";
 
 export interface CredentialStore {
   put(
@@ -54,6 +55,16 @@ export interface ProtocolConfig {
   claimEndpoint: string;
   /** Only for local reference/test services; never relax HTTPS for remote hosts. */
   allowLoopbackHttp?: boolean;
+  /**
+   * The agent's own signed identity, if it has one.
+   *
+   * Present, every outbound request carries a Web Bot Auth signature, so an
+   * origin fronted by a bot gate can recognise this agent and let it through
+   * without stopping a person. It asks nobody for anything: the agent generates
+   * its own key and publishes the public half itself. Absent, requests go
+   * unsigned and a gate does what it would have done anyway.
+   */
+  agent?: SignatureAgent;
 }
 export function trustedUrl(
   value: string,
@@ -151,8 +162,17 @@ export function createProtocolAdapter(
   let awaiting: Record<string, string> = {};
   let outcome: AuthOutcome | undefined;
   const request = async (url: string, init: RequestInit): Promise<Response> => {
-    const response = await fetch(trustedUrl(url, config), {
+    const target = trustedUrl(url, config);
+    const response = await fetch(target, {
       ...init,
+      ...(config.agent
+        ? {
+            headers: {
+              ...(init.headers as Record<string, string> | undefined),
+              ...config.agent.headers(target.href),
+            },
+          }
+        : {}),
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
