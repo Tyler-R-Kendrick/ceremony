@@ -21,6 +21,17 @@ import {
   settle,
   type ServerInfo,
 } from "../scripts/gallery-live.js";
+import {
+  createRegistrationTransport,
+  registrationManifest,
+  type AccountStore,
+  type Delivery,
+} from "../scripts/gallery-registration.js";
+import {
+  connections,
+  redemption,
+  type Handback,
+} from "../scripts/gallery-secrets.js";
 import { manifests } from "../examples/manifests.js";
 import {
   asSpecimen,
@@ -791,4 +802,273 @@ test("an attempt is reported as an outcome the page can record", async () => {
       message: "expired",
     },
   ]);
+});
+
+/**
+ * Registration, driven the way the page drives it.
+ *
+ * The page's own claims about this ceremony are strong — an address the store
+ * has never seen becomes an account, the wrong password is refused, and no
+ * secret and no address reaches the store — and a page is not the place to
+ * find out that one of them stopped being true.
+ */
+interface Written {
+  store: AccountStore;
+  documents: Record<string, unknown>[];
+}
+
+function recordingStore(): Written {
+  const held = new Map<string, Record<string, unknown>>();
+  const documents: Record<string, unknown>[] = [];
+  return {
+    documents,
+    store: {
+      label: "a test",
+      read: async (id) => held.get(id),
+      write: async (id, document) => {
+        held.set(id, document);
+        documents.push(document);
+      },
+    },
+  };
+}
+
+/** One ceremony, with everything it delivered and handed back kept beside it. */
+function registration(store: AccountStore) {
+  const delivered: Delivery[] = [];
+  let handback: (Handback & { registered: boolean }) | undefined;
+  const transport = createRegistrationTransport({
+    store,
+    deliver: (delivery) => delivered.push(delivery),
+    onHandback: (next) => {
+      handback = next;
+    },
+  });
+  const drive = async (
+    snapshot: CeremonySnapshot,
+    action: "begin" | "submit" | "retry" | "cancel",
+    values: Record<string, string> = {},
+  ) =>
+    transport.act(snapshot.id, {
+      action,
+      revision: snapshot.revision,
+      values,
+    });
+  return {
+    delivered,
+    drive,
+    handback: () => handback,
+    start: () => transport.start(registrationManifest.id, "email-password"),
+  };
+}
+
+const PASSWORD = "correct-horse-battery";
+
+test("an address the store has never seen becomes an account", async () => {
+  const { store, documents } = recordingStore();
+  const run = registration(store);
+  const address = "newcomer@example.test";
+  let snapshot = await run.start();
+  assert.equal(snapshot.step, "intro");
+  snapshot = await run.drive(snapshot, "begin");
+  assert.deepEqual(
+    snapshot.fields.map((field) => field.name),
+    ["email", "password"],
+  );
+
+  snapshot = await run.drive(snapshot, "submit", {
+    email: address,
+    password: PASSWORD,
+  });
+  // Not complete: an address nobody has confirmed is not an account yet.
+  assert.equal(snapshot.step, "input");
+  assert.match(snapshot.message ?? "", /No account existed/);
+  assert.equal(run.delivered.length, 1);
+  const { code } = run.delivered[0]!;
+  assert.match(code, /^\d{6}$/);
+
+  const wrong = code === "000000" ? "111111" : "000000";
+  snapshot = await run.drive(snapshot, "submit", { verificationCode: wrong });
+  assert.equal(snapshot.step, "input");
+  assert.match(snapshot.message ?? "", /not the code/);
+
+  snapshot = await run.drive(snapshot, "submit", { verificationCode: code });
+  assert.equal(snapshot.step, "complete");
+  assert.equal(snapshot.outcome?.ownership, "authenticated");
+  assert.ok(snapshot.outcome?.secretRef);
+  assert.equal(run.handback()?.registered, true);
+
+  // The whole point of keying by a digest and storing derived values: a store
+  // anybody who opens the page can read must give nothing away.
+  const held = JSON.stringify(documents);
+  for (const secret of [
+    address,
+    PASSWORD,
+    code,
+    ...run.handback()!.issued.map((entry) => entry.value),
+  ])
+    assert.ok(
+      !held.includes(secret),
+      `${secret.slice(0, 6)}… reached the store`,
+    );
+});
+
+test("the second time, the same address signs in and the wrong password does not", async () => {
+  const { store } = recordingStore();
+  const address = "returning@example.test";
+  const first = registration(store);
+  let snapshot = await first.drive(await first.start(), "begin");
+  snapshot = await first.drive(snapshot, "submit", {
+    email: address,
+    password: PASSWORD,
+  });
+  snapshot = await first.drive(snapshot, "submit", {
+    verificationCode: first.delivered[0]!.code,
+  });
+  assert.equal(snapshot.step, "complete");
+
+  const refused = registration(store);
+  let second = await refused.drive(await refused.start(), "begin");
+  second = await refused.drive(second, "submit", {
+    email: address,
+    password: "not-the-password",
+  });
+  assert.equal(second.step, "error");
+  assert.match(second.message ?? "", /already registered/);
+  assert.equal(refused.delivered.length, 0);
+
+  const again = registration(store);
+  let third = await again.drive(await again.start(), "begin");
+  third = await again.drive(third, "submit", {
+    email: address,
+    password: PASSWORD,
+  });
+  assert.equal(third.step, "input");
+  assert.match(third.message ?? "", /Welcome back/);
+  // A code minted for this attempt, not the one the registration used.
+  assert.notEqual(again.delivered[0]!.code, first.delivered[0]!.code);
+  third = await again.drive(third, "submit", {
+    verificationCode: again.delivered[0]!.code,
+  });
+  assert.equal(third.step, "complete");
+  assert.equal(again.handback()?.registered, false);
+});
+
+test("a password too short to be one is refused before anything is stored", async () => {
+  const { store, documents } = recordingStore();
+  const run = registration(store);
+  let snapshot = await run.drive(await run.start(), "begin");
+  snapshot = await run.drive(snapshot, "submit", {
+    email: "short@example.test",
+    password: "four",
+  });
+  assert.equal(snapshot.step, "input");
+  assert.match(snapshot.message ?? "", /at least 10 characters/);
+  snapshot = await run.drive(snapshot, "submit", {
+    email: "not an address",
+    password: PASSWORD,
+  });
+  assert.match(snapshot.message ?? "", /not an email address/);
+  assert.equal(documents.length, 0);
+  assert.equal(run.delivered.length, 0);
+});
+
+test("a completed ceremony hands back both halves, and one alone opens nothing", async () => {
+  const { store } = recordingStore();
+  const run = registration(store);
+  let snapshot = await run.drive(await run.start(), "begin");
+  snapshot = await run.drive(snapshot, "submit", {
+    email: "vault@example.test",
+    password: PASSWORD,
+  });
+  snapshot = await run.drive(snapshot, "submit", {
+    verificationCode: run.delivered[0]!.code,
+  });
+  const handback = run.handback()!;
+  const { record, issued } = handback;
+  assert.equal(record.secretRef, snapshot.outcome?.secretRef);
+
+  // Everything handed over is a secret and is therefore masked; the reference,
+  // which is not, is carried by the record rather than the issued list.
+  assert.ok(issued.length >= 1);
+  assert.ok(issued.every((entry) => entry.secret));
+  const key = issued.find((entry) => entry.name === "connectionKey")!.value;
+
+  assert.equal(
+    await connections.redeem(record.secretRef, "not-the-key"),
+    undefined,
+  );
+  assert.equal(
+    await connections.redeem(globalThis.crypto.randomUUID(), key),
+    undefined,
+  );
+  const opened = await connections.redeem(record.secretRef, key);
+  assert.equal(opened?.connectorName, registrationManifest.name);
+  assert.deepEqual(opened?.scopes, [
+    ...registrationManifest.methods[0]!.scopes,
+  ]);
+
+  // The console snippet is shown on the page, so it must not be the leak.
+  const snippet = redemption(record, false);
+  assert.ok(snippet.includes(record.secretRef));
+  for (const entry of issued) assert.ok(!snippet.includes(entry.value));
+
+  // A page that lists its connections for an assistant lists references only.
+  const listed = JSON.stringify(connections.list());
+  for (const entry of issued) assert.ok(!listed.includes(entry.value));
+  connections.forget(record.secretRef);
+  assert.equal(await connections.redeem(record.secretRef, key), undefined);
+});
+
+test("connecting a connector leaves a connection that really calls it", async () => {
+  const live = liveConnectors[0]!;
+  let handback: Handback | undefined;
+  const transport = createConnectorTransport(
+    live,
+    async (tool) => probeDouble[tool],
+    () => {},
+    () => {},
+    (next) => {
+      handback = next;
+    },
+  );
+  const started = await transport.start(live.manifest.id, "delegated");
+  const snapshot = await transport.act(started.id, {
+    action: "begin",
+    revision: started.revision,
+    values: {},
+  });
+  assert.equal(snapshot.step, "complete");
+  assert.equal(snapshot.outcome?.secretRef, handback?.record.secretRef);
+  const key = handback!.issued[0]!.value;
+  const opened = await connections.redeem(handback!.record.secretRef, key);
+  assert.ok(opened?.call, "a connector connection can go on calling it");
+  assert.deepEqual(
+    await opened!.call!(live.access[0]!.tool),
+    probeDouble[live.access[0]!.tool],
+  );
+
+  // A connection that never happened hands nothing back, so there is nothing
+  // for a panel to offer and nothing to redeem.
+  let refused: Handback | undefined = handback;
+  const failing = createConnectorTransport(
+    live,
+    async () => {
+      throw { code: "needs_reauth", message: "expired", server: live.server };
+    },
+    () => {},
+    () => {},
+    (next) => {
+      refused = next;
+    },
+  );
+  const attempt = await failing.start(live.manifest.id, "delegated");
+  const failed = await failing.act(attempt.id, {
+    action: "begin",
+    revision: attempt.revision,
+    values: {},
+  });
+  assert.equal(failed.step, "error");
+  assert.equal(failed.outcome, undefined);
+  assert.equal(refused, undefined);
 });

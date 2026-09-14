@@ -95,7 +95,7 @@ const Access = defineComponent({
  * access the value is selected instead, leaving one keystroke rather than a
  * button that silently does nothing.
  */
-function SecureField({
+export function SecureField({
   id,
   name,
   label,

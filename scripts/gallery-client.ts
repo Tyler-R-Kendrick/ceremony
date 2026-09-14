@@ -8,11 +8,19 @@ import {
 } from "../src/core/resolution.js";
 import { manifestSchema, type ConnectorManifest } from "../src/core/schema.js";
 import {
+  accountMountId,
   liveMountId,
   resolverMountId,
   resolverPayloadId,
 } from "./gallery-ids.js";
-import { mountLive, type Broker, type ServerInfo } from "./gallery-live.js";
+import {
+  mountAccount,
+  mountLive,
+  type Broker,
+  type ServerInfo,
+} from "./gallery-live.js";
+import { memoryStore, type AccountStore } from "./gallery-registration.js";
+import { connections } from "./gallery-secrets.js";
 
 /**
  * The one part of the published catalogue that runs.
@@ -284,14 +292,36 @@ interface Consents {
   request(names: readonly string[]): Promise<Record<string, string>>;
 }
 
+interface Document {
+  get(): Promise<{
+    exists: boolean;
+    data(): Record<string, unknown> | undefined;
+  }>;
+  set(data: Record<string, unknown>): Promise<void>;
+}
+
 interface Store {
-  doc(path: string): { set(data: Record<string, unknown>): Promise<void> };
+  doc(path: string): Document;
 }
 
 declare global {
   interface Window {
     ceremonyResolver?: { boot: typeof boot };
     claude?: { use(name: string): Promise<unknown> };
+    /**
+     * The page's connection vault, reachable from the console.
+     *
+     * Published so the code the handback panel shows is code somebody can
+     * actually run: a reference alone is refused, a wrong key is refused, and
+     * a redeemed connector connection really calls the connector. A panel
+     * printing a snippet that only looks runnable would be the same broken
+     * promise as a button that does nothing.
+     */
+    ceremony?: {
+      redeem: typeof connections.redeem;
+      list: typeof connections.list;
+      forget: typeof connections.forget;
+    };
   }
 }
 
@@ -354,9 +384,55 @@ function startLive(): void {
   mountLive(mount, getBroker);
 }
 
+/**
+ * Registration, wired to whatever this view can actually keep accounts in.
+ *
+ * The artifact store when there is one; this tab's memory when there is not.
+ * The ceremony is the same either way, and the page says which it got rather
+ * than leaving somebody to find out by reloading.
+ */
+function startAccount(): void {
+  const mount = document.getElementById(accountMountId);
+  if (!mount) return;
+  let resolving: Promise<AccountStore> | undefined;
+  const getStore = () =>
+    (resolving ??= (async (): Promise<AccountStore> => {
+      try {
+        const store = (await Promise.race([
+          window.claude?.use("db"),
+          new Promise((resolve) => setTimeout(() => resolve(null), 15_000)),
+        ])) as Store | null | undefined;
+        if (!store) throw new Error("no store");
+        return {
+          label:
+            "this page's own store — shared with everyone who can open the page, which is why it holds no addresses and no secrets",
+          read: async (id) => {
+            const snapshot = await store.doc(`accounts/${id}`).get();
+            return snapshot.exists ? snapshot.data() : undefined;
+          },
+          write: async (id, document) => {
+            await store.doc(`accounts/${id}`).set(document);
+          },
+        };
+      } catch {
+        return memoryStore(
+          "this tab only — no store answered here, so an account lasts until you reload",
+        );
+      }
+    })());
+  mountAccount(mount, getStore);
+}
+
 const mount = document.getElementById(resolverMountId);
 const payload = document.getElementById(resolverPayloadId);
 if (mount && payload?.textContent)
   boot(mount, JSON.parse(payload.textContent) as unknown);
 
+window.ceremony = {
+  redeem: (secretRef, key) => connections.redeem(secretRef, key),
+  list: () => connections.list(),
+  forget: (secretRef) => connections.forget(secretRef),
+};
+
+startAccount();
 startLive();

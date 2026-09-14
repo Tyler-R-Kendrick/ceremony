@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { Ceremony } from "../src/react/index.js";
+import { Ceremony, SecureField } from "../src/react/index.js";
 import { ConnectorCard } from "../src/react/connectors.js";
 import {
   actionsFor,
@@ -24,6 +24,13 @@ import {
   type LiveConnector,
   type Proof,
 } from "./gallery-live-connectors.js";
+import { connections, redemption, type Handback } from "./gallery-secrets.js";
+import {
+  createRegistrationTransport,
+  registrationManifest,
+  type AccountStore,
+  type Delivery,
+} from "./gallery-registration.js";
 
 /**
  * The live half of the catalogue: a real ceremony, against a real provider.
@@ -71,6 +78,37 @@ const liveTemplate: CeremonyTemplate = (() => {
         /Title\("[^"]*"\)/,
         'Title("That did not connect")',
       ),
+    },
+  });
+})();
+
+/**
+ * The shipped form template, saying "account" where it says "connection".
+ *
+ * The library's words are right for the thing it is usually doing — attaching
+ * an integration to something that already exists. This ceremony is the one
+ * that makes the thing, and a heading reading "Connect your account" over a
+ * form that is about to create one is the wrong sentence. Only the titles
+ * change, `templates` is the supported way to change them, and the input screen
+ * keeps its own: it covers the password and the code alike, and both are
+ * credentials.
+ */
+const registrationTemplate: CeremonyTemplate = (() => {
+  const base = defaultTemplate("form");
+  const retitle = (screen: string, title: string) =>
+    screen.replace(/Title\("[^"]*"\)/, `Title(${JSON.stringify(title)})`);
+  return templateSchema.parse({
+    ...base,
+    screens: {
+      ...base.screens,
+      intro: retitle(base.screens.intro, "Create an account, or sign in"),
+      complete: retitle(base.screens.complete, "Your account is ready"),
+      error: retitle(base.screens.error, "That did not go through"),
+      cancelled: retitle(
+        base.screens.cancelled,
+        "Stopped before anything was made",
+      ),
+      expired: retitle(base.screens.expired, "That code expired"),
     },
   });
 })();
@@ -325,6 +363,7 @@ export function createConnectorTransport(
   call: Call,
   onProof: (proof: Proof | undefined) => void,
   onOutcome: (outcome: Outcome) => void = () => {},
+  onHandback: (handback: Handback | undefined) => void = () => {},
 ): CeremonyTransport {
   const method = live.manifest.methods[0]!;
   const id = globalThis.crypto.randomUUID();
@@ -356,6 +395,23 @@ export function createConnectorTransport(
     try {
       const proof = await live.probe(call);
       onProof(proof);
+      // The connection exists now, so it is given a name and a key before
+      // anything else happens. Without this the ceremony would finish having
+      // produced nothing anybody could keep: the provider answered, the
+      // screen said so, and there was no way to name what had answered or to
+      // use it afterwards. The key never leaves this tab; the reference is
+      // what the outcome carries, and it grants nothing by itself.
+      const handback = await connections.issue(
+        {
+          connectorId: live.manifest.id,
+          connectorName: live.manifest.name,
+          scopes: [...method.scopes],
+          reference: proof.reference,
+        },
+        [],
+        call,
+      );
+      onHandback(handback);
       onOutcome({ server: live.server, step: "complete" });
       return at("complete", {
         outcome: {
@@ -364,10 +420,12 @@ export function createConnectorTransport(
           // The grant really is the set of tools this page may call with the
           // viewer's credentials. Naming anything else would overstate it.
           scopes: [...method.scopes],
+          secretRef: handback.record.secretRef,
         },
       });
     } catch (error) {
       onProof(undefined);
+      onHandback(undefined);
       const { step, message, retry } = verdict(error, live.server);
       onOutcome({
         server: live.server,
@@ -407,15 +465,133 @@ export function createConnectorTransport(
       if (action.action === "begin") return begin();
       if (action.action === "cancel") {
         onProof(undefined);
+        onHandback(undefined);
         return at("cancelled");
       }
       if (action.action === "retry") {
         onProof(undefined);
+        onHandback(undefined);
         return at("intro");
       }
       throw new Error(`${action.action} is not available on this connection.`);
     },
   };
+}
+
+/** A value worth keeping that is not worth hiding, with one press to take it. */
+function CopyRow({
+  value,
+  label,
+}: {
+  value: string;
+  label: string;
+}): ReactNode {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  return createElement(
+    "span",
+    { className: "copy-row" },
+    createElement("code", null, value),
+    createElement(
+      "button",
+      {
+        type: "button",
+        className: "quiet",
+        onClick: () => {
+          void navigator.clipboard.writeText(value).then(
+            () => setState("copied"),
+            () => setState("failed"),
+          );
+        },
+      },
+      state === "copied" ? "Copied" : state === "failed" ? "Select it" : "Copy",
+      createElement("span", { className: "sr-only" }, ` ${label}`),
+    ),
+  );
+}
+
+/**
+ * What the ceremony handed back, and what to do with it.
+ *
+ * This panel is the answer to a completed connection that leaves nothing
+ * behind. Two things come out of every ceremony here and they are treated
+ * differently on purpose: the reference is shown as text, because it grants
+ * nothing and has to be quotable; every key and token is in a masked field with
+ * Show and Copy, because it is the credential and reading it aloud is how it
+ * gets lost. Copy moves a value field-to-clipboard without it ever being
+ * rendered, which typing it out would not.
+ */
+function Vault({
+  handback,
+  title,
+  callable,
+  foot,
+}: {
+  handback: Handback;
+  title: string;
+  /** Whether the redeemed connection can go on to call the provider. */
+  callable: boolean;
+  foot: string;
+}): ReactNode {
+  const { record, issued } = handback;
+  return createElement(
+    "div",
+    { className: "vault" },
+    createElement("p", { className: "vault-head" }, title),
+    createElement(
+      "div",
+      { className: "vault-field" },
+      createElement("span", { className: "vault-label" }, "Reference"),
+      createElement(CopyRow, { value: record.secretRef, label: "reference" }),
+      createElement(
+        "p",
+        { className: "vault-note" },
+        "Grants nothing on its own, so it is safe to store, to paste into a prompt, or to hand to an assistant. It is what the outcome carries.",
+      ),
+    ),
+    ...issued.map((entry) =>
+      createElement(
+        "div",
+        { className: "vault-field", key: entry.name },
+        createElement("span", { className: "vault-label" }, entry.label),
+        createElement(SecureField, {
+          id: `vault-${record.secretRef}-${entry.name}`,
+          label: entry.label,
+          value: entry.value,
+        }),
+        createElement("p", { className: "vault-note" }, entry.note),
+      ),
+    ),
+    createElement(
+      "div",
+      { className: "vault-field" },
+      createElement("span", { className: "vault-label" }, "Scopes"),
+      createElement(
+        "p",
+        { className: "vault-scopes" },
+        ...record.scopes.map((scope, index) =>
+          createElement("code", { key: scope }, index ? ` ${scope}` : scope),
+        ),
+      ),
+    ),
+    createElement(
+      "details",
+      { className: "vault-code" },
+      createElement("summary", null, "Redeem it from the console"),
+      createElement(
+        "pre",
+        null,
+        createElement("code", null, redemption(record, callable)),
+      ),
+      createElement(
+        "p",
+        null,
+        "This runs. ",
+        createElement("code", null, "ceremony"),
+        " is on this page, both halves are required, and a wrong key is refused the same way a wrong reference is.",
+      ),
+    ),
+    createElement("p", { className: "vault-foot" }, foot),
+  );
 }
 
 /** What the connection went on to read, once it existed. */
@@ -464,6 +640,7 @@ function LiveConnection({
 }): ReactNode {
   const [started, setStarted] = useState(false);
   const [proof, setProof] = useState<Proof | undefined>(undefined);
+  const [handback, setHandback] = useState<Handback | undefined>(undefined);
   // The transport is built once and outlives every render, but what it needs
   // arrives later: the broker and the connector's real name are both resolved
   // by an effect. Capturing them in the closure would freeze the values this
@@ -513,6 +690,7 @@ function LiveConnection({
       },
       setProof,
       (outcome) => latest.current.onOutcome(outcome),
+      setHandback,
     ),
   )[0];
   // Pressing Connect calls the provider straight away — the client prepares an
@@ -541,6 +719,14 @@ function LiveConnection({
       webmcp: false as const,
     }),
     proof ? createElement(Evidence, { proof }) : null,
+    handback
+      ? createElement(Vault, {
+          handback,
+          title: `${live.manifest.name} · what you can keep`,
+          callable: true,
+          foot: `${live.manifest.name}'s own token stays with claude.ai and is never handed to a page. What this page can give you is a connection of its own: the reference names it, the key opens it, and together they call ${live.manifest.name} with the access you just approved.`,
+        })
+      : null,
   );
 }
 
@@ -714,6 +900,146 @@ function LiveSection({
     ),
     createElement(Findings, { looked, broker, servers, consent }),
   );
+}
+
+/**
+ * Where the confirmation code goes, because a published page has no mail server.
+ *
+ * Naming it a mailbox rather than dressing it as an inbox is the honest move:
+ * the courier is the part that is missing, and every other part of the step is
+ * real. The code comes from the platform's random source, the store keeps only
+ * a derived form of it behind a ten-minute expiry, and it has to come back
+ * through the form before anything is issued.
+ */
+function Mailbox({
+  deliveries,
+}: {
+  deliveries: readonly Delivery[];
+}): ReactNode {
+  return createElement(
+    "div",
+    { className: "mailbox" },
+    createElement("p", { className: "mailbox-head" }, "Mailbox"),
+    deliveries.length
+      ? createElement(
+          "ol",
+          { className: "mailbox-list" },
+          ...deliveries.map((delivery) =>
+            createElement(
+              "li",
+              { key: delivery.at },
+              createElement(
+                "p",
+                { className: "mailbox-subject" },
+                delivery.reason === "registration"
+                  ? "Confirm your new account"
+                  : "Confirm it is you",
+              ),
+              createElement("p", { className: "mailbox-to" }, delivery.to),
+              createElement(CopyRow, { value: delivery.code, label: "code" }),
+            ),
+          ),
+        )
+      : createElement(
+          "p",
+          { className: "mailbox-empty" },
+          "Empty. Begin on the left, give an address, and the code arrives here.",
+        ),
+    createElement(
+      "p",
+      { className: "mailbox-note" },
+      "There is no mail server on a published page, so the code is delivered here rather than to an inbox. It expires in ten minutes.",
+    ),
+  );
+}
+
+/**
+ * Registration, as the thing this page is for rather than an item in a list.
+ *
+ * The ceremony is the shipped component driving the shipped client over a real
+ * transport; the mailbox beside it is where the out-of-band step lands; and the
+ * panel underneath is what the finished ceremony hands back. Nothing here is a
+ * rendering of a flow that ran somewhere else.
+ */
+function Account({
+  getStore,
+}: {
+  getStore: () => Promise<AccountStore>;
+}): ReactNode {
+  const [deliveries, setDeliveries] = useState<readonly Delivery[]>([]);
+  const [handback, setHandback] = useState<
+    (Handback & { registered: boolean }) | undefined
+  >(undefined);
+  const [store, setStore] = useState<AccountStore | undefined>(undefined);
+  // Asked for once, awaited by whoever needs it. The capability can take
+  // seconds to resolve, and the first screen must not wait on it: nobody has
+  // typed anything yet, so there is nothing to store.
+  const pending = useState(() => getStore())[0];
+  useEffect(() => {
+    let alive = true;
+    void pending.then((resolved) => {
+      if (alive) setStore(resolved);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [pending]);
+  const transport = useState(() =>
+    createRegistrationTransport({
+      store: {
+        label: "resolving",
+        read: async (id) => (await pending).read(id),
+        write: async (id, document) => (await pending).write(id, document),
+      },
+      deliver: (delivery) =>
+        setDeliveries((list) => [delivery, ...list].slice(0, 3)),
+      onHandback: setHandback,
+    }),
+  )[0];
+  return createElement(
+    "div",
+    { className: "account" },
+    createElement(
+      "div",
+      { className: "account-run" },
+      createElement(Ceremony, {
+        manifest: registrationManifest,
+        transport,
+        templates: [registrationTemplate],
+        autoFocus: false,
+        webmcp: false as const,
+      }),
+      handback
+        ? createElement(Vault, {
+            handback,
+            title: handback.registered
+              ? "Account created · what you keep"
+              : "Signed in · what you keep",
+            callable: false,
+            foot: "All of this was generated in your browser a moment ago. The account record holds a derived form of each value and never the value itself, so these are the only copies — nothing on this page can print the recovery code a second time.",
+          })
+        : null,
+    ),
+    createElement(
+      "aside",
+      { className: "account-aside" },
+      createElement(Mailbox, { deliveries }),
+      createElement(
+        "p",
+        { className: "account-store" },
+        store
+          ? `Accounts are kept in ${store.label}. The password never leaves this browser: it is stretched here and only the derived value is stored, alongside no address at all — the record is keyed by a digest of it.`
+          : "Finding somewhere to keep accounts…",
+      ),
+    ),
+  );
+}
+
+export function mountAccount(
+  root: HTMLElement,
+  getStore: () => Promise<AccountStore>,
+): void {
+  createRoot(root).render(createElement(Account, { getStore }));
 }
 
 export function mountLive(

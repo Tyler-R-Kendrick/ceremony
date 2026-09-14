@@ -3,9 +3,12 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { ConnectorCard, CeremonyView } from "../src/react/index.js";
-import { manifests } from "../examples/manifests.js";
-import { liveMountId, resolverPayloadId } from "./gallery-ids.js";
+import { CeremonyView } from "../src/react/index.js";
+import {
+  accountMountId,
+  liveMountId,
+  resolverPayloadId,
+} from "./gallery-ids.js";
 import { liveConnectors } from "./gallery-live-connectors.js";
 import {
   asSpecimen,
@@ -45,8 +48,13 @@ const escape = (value) =>
       })[character],
   );
 
-const frame = (html) => `<div class="screen">
-          <p class="specimen-tag">specimen · nothing here can be used</p>
+// `inert` rather than `disabled`: a specimen must look exactly like the screen
+// the product renders — greying its controls would show a button this library
+// never draws — while still not responding to a press. A control that depresses
+// under the mouse and then does nothing is the thing people report as broken,
+// and there is nothing on its face to say it is a picture.
+const frame = (html) => `<div class="screen" inert>
+          <p class="specimen-tag">specimen · a picture of a screen, not a screen</p>
           ${asSpecimen(html)}
         </div>`;
 
@@ -76,62 +84,6 @@ function screen(kind, step) {
 }
 
 const count = (total, noun) => `${total} ${noun}${total === 1 ? "" : "s"}`;
-
-/**
- * The kickoff card, before any flow starts.
- *
- * `status` is presentation the host supplies — a page cannot know whether
- * anything is connected — so the three are shown side by side as the states a
- * host can put a card into, not as a claim about any account.
- */
-const cardStates = [
-  {
-    status: "available",
-    note: "not connected yet",
-    intent: {
-      permissions: [
-        { label: "Read your repositories" },
-        { label: "Open pull requests for you" },
-      ],
-    },
-  },
-  { status: "connected", note: "already connected, so it offers management" },
-  { status: "attention", note: "connected, but something needs a person" },
-];
-
-const cards = () =>
-  cardStates
-    .map(({ status, note, intent }, index) => {
-      const manifest = manifests[index % manifests.length];
-      return `
-      <li>
-        <div class="screen-label"><span>${escape(note)}</span></div>
-        <div class="screen">
-          <p class="specimen-tag">needs a connection server</p>
-          ${asSpecimen(
-            renderToString(
-              createElement(ConnectorCard, {
-                manifest,
-                status,
-                // Inoperable here by construction: with no server there is
-                // nothing honest for a press to do. The card says why rather
-                // than leaving somebody pressing a button that answers nothing.
-                onConnect: () => {},
-                ...(intent ? { intent } : {}),
-              }),
-            ),
-          )}
-          <p class="how-to-run">
-            This route redirects to a provider or verifies a credential against
-            one, and both need a server this page does not have. Run
-            <code>npm run dev</code>, then open
-            <code>/?mode=test&amp;connector=${escape(manifest.id)}</code> to
-            press it for real.
-          </p>
-        </div>
-      </li>`;
-    })
-    .join("");
 
 const stepNotes = {
   intro: "what is about to happen",
@@ -295,16 +247,14 @@ const listed = (names) =>
 const liveSection = `
   <section class="movement" aria-labelledby="live-heading">
     <div class="movement-head">
-      <h2 id="live-heading">Connect something, right now</h2>
+      <h2 id="live-heading">Connect a service</h2>
       <p>
-        These connect for real. Press Connect and the component below runs the
-        ceremony against ${listed(
-          liveConnectors.map((entry) => escape(entry.manifest.name)),
-        )}, through the connector you approved in claude.ai — your credentials,
-        never handled by this page, and read-only. What you get back is whatever
-        the provider just said, including the failure screens when it says no.
-        A connector you have not added to claude.ai cannot be reached from
-        anywhere; the card says so, and where to add it.
+        Press Connect on a card and the ceremony runs inside that card, against
+        ${listed(liveConnectors.map((entry) => escape(entry.manifest.name)))},
+        through the connector you approved in claude.ai. Your credentials, never
+        handled by this page, and read-only. What comes back is whatever the
+        provider just said — including the refusals — and a connection you can
+        keep: a reference that grants nothing and a key that opens it.
       </p>
     </div>
     <div class="live" id="${liveMountId}">
@@ -314,11 +264,48 @@ const liveSection = `
       One thing differs from a deployment you run yourself, and it is the
       transport: there, <code>createHttpTransport</code> talks to the connection
       server, which holds the credential. Here the transport calls your
-      assistant's connectors, which hold it instead. The component, the client
-      and the state machine are the ones the library ships — that is what having
-      a <code>CeremonyTransport</code> interface is for. Flows needing a server
-      of their own — a device code, a private credential collector — are further
-      down as specimens, because this page has no server to run them against.
+      assistant's connectors, which hold it instead — so the provider's token is
+      never handed to a page, and what a finished ceremony can give you is a
+      connection of this page's own. The component, the client and the state
+      machine are the ones the library ships; that is what having a
+      <code>CeremonyTransport</code> interface is for.
+    </p>
+  </section>`;
+
+/**
+ * The section this page exists for, and therefore the first one.
+ *
+ * Everything else here presumes an account. Somewhere above this line, for a
+ * long time, a paragraph explained that account registration needed a server
+ * and could not run on a published page. It can: the ceremony is the shipped
+ * component over a real transport, the store is the artifact's own, and the
+ * only thing a published page genuinely lacks — a mail server — is named on
+ * the face of the mailbox rather than papered over.
+ */
+const accountSection = `
+  <section class="movement opening" aria-labelledby="account-heading">
+    <div class="movement-head">
+      <h2 id="account-heading">Create an account</h2>
+      <p>
+        An address this page has never seen becomes an account. One it has seen
+        signs in. The wrong password is refused. Either way the address is
+        confirmed with a six-digit code before anything is issued — and what
+        completion hands back is yours to keep: a session token and a recovery
+        code, in fields that stay masked until you ask, with one press to copy
+        each straight to the clipboard.
+      </p>
+    </div>
+    <div class="account-mount" id="${accountMountId}">
+      <p class="live-pending">Loading the registration ceremony…</p>
+    </div>
+    <p class="live-note">
+      Real, and specific about how. The password is stretched with PBKDF2-SHA256
+      in your browser and only the derived value is stored; the record is keyed
+      by a digest of the address, so the store holds no addresses and no
+      secrets. The code comes from the platform's random source, is kept only in
+      derived form behind a ten-minute expiry, and is compared without branching
+      on its content. What a published page has no way to do is send mail, so
+      the code is delivered to a mailbox on this page and the mailbox says so.
     </p>
   </section>`;
 
@@ -335,45 +322,21 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
 <div class="page">
   <header class="masthead">
     <p class="eyebrow">Ceremony · authentication catalogue</p>
-    <h1>Every way a connection actually starts</h1>
+    <h1>It starts with somebody who has no account</h1>
     <p class="lede">
-      ${entries.length} scenarios across ${flowKinds.length} flow kinds and
-      ${families.size} families, including ${registration.length} distinct ways an
-      account gets created. Every screen below is rendered by the same component
-      the product ships, from a snapshot the production schema accepted.
-    </p>
-    <p class="honesty">
-      <strong>This page connects.</strong> Press Connect on a card below and
-      the component the library ships runs a real ceremony to completion,
-      through the connectors you approved in claude.ai: your credentials, which
-      this page never sees, and read-only calls that write nothing.
-      <strong>What is not live:</strong> routes needing a server of their own —
-      a redirect has to land somewhere, a credential has to be verified against
-      a provider — and a published page has neither. Those cards say so and name
-      the command that runs them, account registration included: an address the
-      provider has never seen becomes an account.
+      So that is what this page starts with, and it runs. Register an address
+      below and an account is really created, really confirmed, and really hands
+      you the credentials it issued. Then connect a service, and the same
+      component does the same thing against ${listed(
+        liveConnectors.map((entry) => escape(entry.manifest.name)),
+      )}. Behind both sits the catalogue: ${entries.length} scenarios across
+      ${flowKinds.length} flow kinds and ${families.size} families, every screen
+      rendered by the component the product ships.
     </p>
   </header>
 
+${accountSection}
 ${liveSection}
-  <section class="movement" aria-labelledby="cards-heading">
-    <div class="movement-head">
-      <h2 id="cards-heading">Where it starts</h2>
-      <p>
-        Before any flow runs, a card says what the service is, what the
-        integration will be able to do in the host's own words, and how many
-        times the route will stop to ask a person. That last number is the one
-        the resolver minimises, so a card cannot advertise a cost the chosen
-        route was not chosen for. These three cannot run on a published page —
-        each needs a server to land a redirect or verify a credential — so each
-        says why on its face and names the command that runs it. The cards that
-        do run are in the section above.
-      </p>
-    </div>
-    <ol class="screens">${cards()}</ol>
-  </section>
-
-
   <section class="movement" aria-labelledby="walls-heading">
     <div class="movement-head">
       <h2 id="walls-heading">Where an attempt stops</h2>
