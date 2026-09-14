@@ -2,6 +2,7 @@
 import {
   createContext,
   useContext,
+  useRef,
   useState,
   useId,
   type FormEvent,
@@ -84,6 +85,88 @@ const Access = defineComponent({
     );
   },
 });
+/**
+ * A credential, handled the way a credential should be: masked until asked
+ * for, revealable deliberately, and copyable straight to the clipboard.
+ *
+ * The copy button is the point. A person needs the value; an assistant must
+ * never see it. Moving it field-to-clipboard keeps it out of any transcript,
+ * which typing it back out would not. When the embedding refuses clipboard
+ * access the value is selected instead, leaving one keystroke rather than a
+ * button that silently does nothing.
+ */
+function SecureField({
+  id,
+  name,
+  label,
+  value,
+  required,
+  describedBy,
+}: {
+  id: string;
+  name?: string;
+  label: string;
+  /** Present for a value the ceremony produced; absent for one being entered. */
+  value?: string;
+  required?: boolean;
+  describedBy?: string;
+}): ReactNode {
+  const [revealed, setRevealed] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "selected">("idle");
+  const field = useRef<HTMLInputElement>(null);
+  const copy = async () => {
+    const input = field.current;
+    if (!input?.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      setState("copied");
+    } catch {
+      setRevealed(true);
+      input.select();
+      setState("selected");
+    }
+  };
+  return (
+    <span className="secure-field" data-ceremony-secure="">
+      <input
+        ref={field}
+        id={id}
+        {...(name ? { name } : {})}
+        type={revealed ? "text" : "password"}
+        {...(value === undefined
+          ? { required: required === true }
+          : { value, readOnly: true })}
+        aria-describedby={describedBy}
+        maxLength={4096}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={() => setState("idle")}
+      />
+      <span className="secure-actions">
+        <button
+          type="button"
+          className="quiet"
+          aria-pressed={revealed}
+          onClick={() => setRevealed((shown) => !shown)}
+        >
+          {revealed ? "Hide" : "Show"}
+          <span className="sr-only"> {label}</span>
+        </button>
+        <button type="button" className="quiet" onClick={() => void copy()}>
+          {state === "copied" ? "Copied" : "Copy"}
+          <span className="sr-only"> {label}</span>
+        </button>
+      </span>
+      <span role="status" aria-live="polite" className="sr-only">
+        {state === "copied"
+          ? `${label} copied to the clipboard`
+          : state === "selected"
+            ? `${label} selected — copy it with your keyboard`
+            : ""}
+      </span>
+    </span>
+  );
+}
 const Fields = defineComponent({
   name: "Fields",
   description:
@@ -103,21 +186,25 @@ const Fields = defineComponent({
         {snapshot.fields.map((field) => (
           <label key={field.name} htmlFor={`${idPrefix}-${field.name}`}>
             {field.label}
-            <input
-              id={`${idPrefix}-${field.name}`}
-              name={field.name}
-              type={field.type}
-              required={field.required}
-              aria-describedby={errorId}
-              maxLength={4096}
-              autoComplete={
-                field.type === "password"
-                  ? "off"
-                  : field.type === "email"
-                    ? "email"
-                    : "username"
-              }
-            />
+            {field.type === "password" ? (
+              <SecureField
+                id={`${idPrefix}-${field.name}`}
+                name={field.name}
+                label={field.label}
+                required={field.required}
+                {...(errorId ? { describedBy: errorId } : {})}
+              />
+            ) : (
+              <input
+                id={`${idPrefix}-${field.name}`}
+                name={field.name}
+                type={field.type}
+                required={field.required}
+                aria-describedby={errorId}
+                maxLength={4096}
+                autoComplete={field.type === "email" ? "email" : "username"}
+              />
+            )}
           </label>
         ))}
       </fieldset>
@@ -204,7 +291,7 @@ const Outcome = defineComponent({
     "Required verified connection status and actual granted access. Runtime binding.",
   props: z.object({}),
   component: () => {
-    const { snapshot } = useBindings();
+    const { snapshot, idPrefix } = useBindings();
     const outcome = snapshot.outcome;
     return outcome ? (
       <div className="outcome">
@@ -227,6 +314,21 @@ const Outcome = defineComponent({
             <li key={scope}>{scope}</li>
           ))}
         </ul>
+        {outcome.secretRef ? (
+          <div className="secret-ref">
+            <span className="field-label">Credential reference</span>
+            <SecureField
+              id={`${idPrefix}-secret-ref`}
+              label="credential reference"
+              value={outcome.secretRef}
+            />
+            <p className="supporting">
+              The credential stays with the connection. This reference is what
+              your code redeems for it, so the value never reaches this page or
+              an assistant.
+            </p>
+          </div>
+        ) : null}
       </div>
     ) : null;
   },
