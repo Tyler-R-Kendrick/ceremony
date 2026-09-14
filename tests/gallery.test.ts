@@ -1072,3 +1072,26 @@ test("connecting a connector leaves a connection that really calls it", async ()
   assert.equal(failed.outcome, undefined);
   assert.equal(refused, undefined);
 });
+
+test("a store that refuses is a screen, not a stack trace", async () => {
+  // A viewer can decline the artifact store, and a view can be served without
+  // one. Both arrive here as a rejected write, and both leave the attempt
+  // exactly where it was — so the screen has to say so and offer the retry.
+  const run = registration({
+    label: "a store that says no",
+    read: async () => undefined,
+    write: async () => {
+      throw new Error("Storage was declined for this page.");
+    },
+  });
+  let snapshot = await run.drive(await run.start(), "begin");
+  snapshot = await run.drive(snapshot, "submit", {
+    email: "declined@example.test",
+    password: PASSWORD,
+  });
+  assert.equal(snapshot.step, "error");
+  assert.match(snapshot.message ?? "", /nothing was registered/);
+  assert.match(snapshot.message ?? "", /Storage was declined/);
+  assert.ok(snapshot.actions.includes("retry"));
+  assert.equal(run.delivered.length, 0);
+});

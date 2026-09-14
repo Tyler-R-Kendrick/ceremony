@@ -407,7 +407,24 @@ export function createRegistrationTransport({
             "An address and a password. If the address is new here it becomes an account; if it is not, this signs in.",
         });
       if (action.action === "submit")
-        return awaiting ? confirm(action.values) : identify(action.values);
+        try {
+          return await (awaiting
+            ? confirm(action.values)
+            : identify(action.values));
+        } catch (error) {
+          // The store is the one thing here that belongs to somebody else: a
+          // viewer can decline it, a view can be served without it, and it can
+          // simply fail. None of those is a reason to show a stack trace under
+          // a form somebody just filled in, and every one of them leaves the
+          // attempt exactly where it was — so the screen says what happened and
+          // keeps the retry that starts it again.
+          awaiting = undefined;
+          return at("error", {
+            message: `Accounts could not be reached just now, so nothing was registered and nothing was signed in. ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        }
       if (action.action === "cancel") {
         awaiting = undefined;
         onHandback(undefined);
