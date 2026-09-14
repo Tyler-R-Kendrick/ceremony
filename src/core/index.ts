@@ -12,4 +12,3 @@ export * from "./connector-contracts.js";
 export * from "./connector-authoring.js";
 export * from "./browser-contracts.js";
 export * from "./ceremony-plan.js";
-export * from "./web-bot-auth.js";

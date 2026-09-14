@@ -1,0 +1,41 @@
+{
+  "version": 3,
+  "framework": {
+    "name": "nitro",
+    "version": "3.0.260903-beta"
+  },
+  "overrides": {},
+  "routes": [
+    {
+      "src": "^\\/\\.well-known\\/workflow\\/v1\\/flow$",
+      "dest": "/.well-known/workflow/v1/flow"
+    },
+    {
+      "src": "^\\/\\.well-known\\/workflow\\/v1\\/step$",
+      "dest": "/.well-known/workflow/v1/step"
+    },
+    {
+      "src": "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$",
+      "dest": "/.well-known/workflow/v1/webhook/[token]"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/mcp",
+      "dest": "/mcp"
+    },
+    {
+      "src": "/api/?(?<path>.+)",
+      "dest": "/api/[...path]"
+    },
+    {
+      "src": "/.well-known/oauth-protected-resource/?(?<path>.+)",
+      "dest": "/.well-known/oauth-protected-resource/[...path]"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/__server"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "runtime": "nodejs22.x",
+  "handler": "index.js",
+  "launcherType": "Nodejs",
+  "architecture": "arm64",
+  "shouldAddHelpers": false
+}

@@ -1,0 +1,18 @@
+{
+  "runtime": "nodejs22.x",
+  "handler": "index.js",
+  "launcherType": "Nodejs",
+  "architecture": "arm64",
+  "shouldAddHelpers": true,
+  "maxDuration": "max",
+  "shouldAddSourcemapSupport": true,
+  "experimentalTriggers": [
+    {
+      "type": "queue/v2beta",
+      "topic": "__wkf_step_*",
+      "consumer": "default",
+      "retryAfterSeconds": 5,
+      "initialDelaySeconds": 0
+    }
+  ]
+}

@@ -26,13 +26,12 @@ import {
   Agent2Human,
   type A2HOptions,
 } from "../src/server/index.js";
+import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
 import {
-  flowKindSchema,
-  entryContextSchema,
   createSignatureAgent,
   directoryMediaType,
   directoryPath,
-} from "../src/core/index.js";
+} from "../src/core/web-bot-auth.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
