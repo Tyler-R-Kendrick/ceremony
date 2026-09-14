@@ -163,16 +163,19 @@ export function createProtocolAdapter(
   let outcome: AuthOutcome | undefined;
   const request = async (url: string, init: RequestInit): Promise<Response> => {
     const target = trustedUrl(url, config);
+    // Merged through Headers, not spread. `init.headers` arrives as a Headers
+    // instance from oauth4webapi and as an array elsewhere, and spreading
+    // either yields {} — which silently dropped content-type and
+    // authorization and failed every verification that depended on them.
+    const headers = new Headers(init.headers);
+    if (config.agent)
+      for (const [name, value] of Object.entries(
+        config.agent.headers(target.href),
+      ))
+        headers.set(name, value);
     const response = await fetch(target, {
       ...init,
-      ...(config.agent
-        ? {
-            headers: {
-              ...(init.headers as Record<string, string> | undefined),
-              ...config.agent.headers(target.href),
-            },
-          }
-        : {}),
+      headers,
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });

@@ -140,7 +140,10 @@ test("the adapter signs what it sends, and sends nothing extra when it has no id
     const seen: Record<string, string>[] = [];
     const original = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
-      seen.push({ ...((init?.headers as Record<string, string>) ?? {}) });
+      // Read through Headers, because that is what the adapter sends. The
+      // first version of this spread the value instead and captured {} — the
+      // same mistake that cost the adapter its content-type.
+      seen.push(Object.fromEntries(new Headers(init?.headers).entries()));
       return new Response(
         JSON.stringify({ access_token: "t", token_type: "bearer" }),
         {
