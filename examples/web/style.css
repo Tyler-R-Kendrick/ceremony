@@ -955,7 +955,8 @@ fieldset label:last-child input {
 /* The agent's cards: each runs the ceremony, and shows it running. */
 .agent-connectors {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  /* min() so a narrow viewport shrinks the track instead of overflowing it. */
+  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
   /* A card that is running must not stretch the ones beside it. */
   align-items: start;
   gap: 1rem;
