@@ -89,6 +89,16 @@ const claimSchema = z.object({
     interval: z.number().positive().optional(),
   }),
 });
+/**
+ * A provider saying the account is not usable yet: it has just been created,
+ * or it exists and has never been confirmed. Either way the ceremony stays
+ * open and asks for the code rather than reporting a connection nobody can use.
+ */
+const verificationSchema = z.object({
+  verification_required: z.literal(true),
+  email: z.string().min(1).max(320),
+  created: z.boolean().optional(),
+});
 const tokenSchema = z.object({
   access_token: z.string().min(1),
   token_type: z.string(),
@@ -132,6 +142,13 @@ export function createProtocolAdapter(
   let nextPoll = 0;
   let interval = 5000;
   let stopped = false;
+  /**
+   * What was submitted before the provider asked for a verification code.
+   * Registration is a second round trip, and the person must not be made to
+   * type an address and password again to finish creating the account they
+   * just asked for.
+   */
+  let awaiting: Record<string, string> = {};
   let outcome: AuthOutcome | undefined;
   const request = async (url: string, init: RequestInit): Promise<Response> => {
     const response = await fetch(trustedUrl(url, config), {
@@ -294,7 +311,7 @@ export function createProtocolAdapter(
         );
       } else if (method.kind === "api-key")
         headers.set("authorization", `Bearer ${values.token}`);
-      else body = new URLSearchParams(values);
+      else body = new URLSearchParams({ ...awaiting, ...values });
       const response = await request(config.credentialEndpoint, {
         method: "POST",
         headers,
@@ -302,14 +319,37 @@ export function createProtocolAdapter(
       });
       if (!response.ok) return failResponse(response);
       if (stopped) throw new CeremonyError("Attempt cancelled");
-      if (method.kind === "form")
+      if (method.kind === "form") {
+        const payload: unknown = await response.json();
+        const pending = verificationSchema.safeParse(payload);
+        if (pending.success) {
+          // Sign in and registration are one ceremony: an address the provider
+          // has never seen becomes an account, and an account nobody has
+          // confirmed stays unusable. Neither is a failure, so neither ends
+          // the attempt — it asks for the code and carries on.
+          awaiting = { ...awaiting, ...values };
+          return {
+            step: "input",
+            fields: [
+              {
+                name: "verificationCode",
+                label: "Verification code",
+                type: "text",
+                required: true,
+                classification: "secret",
+              },
+            ],
+            message: pending.data.created
+              ? `No account existed for ${pending.data.email}, so one was created. Enter the code sent to that address to finish.`
+              : `That account has not been confirmed yet. Enter the code sent to ${pending.data.email}.`,
+          };
+        }
+        awaiting = {};
         return {
           step: "complete",
-          outcome: await save(
-            tokenSchema.parse(await response.json()),
-            "authenticated",
-          ),
+          outcome: await save(tokenSchema.parse(payload), "authenticated"),
         };
+      }
       await response.body?.cancel();
       outcome = {
         connectionRef: await store.put(values),
