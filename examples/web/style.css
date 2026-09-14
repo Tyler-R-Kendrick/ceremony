@@ -960,7 +960,7 @@ fieldset label:last-child input {
   /* A card that is running must not stretch the ones beside it. */
   align-items: start;
   gap: 1rem;
-  margin-block-end: 1.5rem;
+  margin-block-start: 1.5rem;
 }
 
 .agent-connectors > h2 {

@@ -160,7 +160,6 @@ function App() {
                 </p>
               </div>
             </div>
-            <AgentConnectors providers={config.agentProviders} />
             <div className="connect-grid" data-live={liveMode || undefined}>
               <aside className="connector-list" aria-label="Available services">
                 <h2 className="rail-heading">Available services</h2>
@@ -380,6 +379,7 @@ function App() {
                 </div>
               </section>
             </div>
+            <AgentConnectors providers={config.agentProviders} />
           </>
         )}
       </main>
