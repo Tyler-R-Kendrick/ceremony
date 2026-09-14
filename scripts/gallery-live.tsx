@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
@@ -31,6 +32,7 @@ import {
   type Delivery,
 } from "./gallery-registration.js";
 import { accountProviders, type AccountProvider } from "./gallery-accounts.js";
+import { brandOf } from "./gallery-brands.js";
 
 /**
  * The live half of the catalogue: a real ceremony, against a real provider.
@@ -370,6 +372,7 @@ export function createConnectorTransport(
   onProof: (proof: Proof | undefined) => void,
   onOutcome: (outcome: Outcome) => void = () => {},
   onHandback: (handback: Handback | undefined) => void = () => {},
+  onStep: (step: CeremonySnapshot["step"]) => void = () => {},
 ): CeremonyTransport {
   const method = live.manifest.methods[0]!;
   const id = globalThis.crypto.randomUUID();
@@ -394,6 +397,7 @@ export function createConnectorTransport(
       expiresAt: Date.now() + ATTEMPT_MINUTES * 60_000,
       ...extra,
     });
+    onStep(current.step);
     return current;
   };
 
@@ -515,44 +519,27 @@ function CopyRow({
   );
 }
 
-/**
- * What the ceremony handed back, and what to do with it.
- *
- * This panel is the answer to a completed connection that leaves nothing
- * behind. Two things come out of every ceremony here and they are treated
- * differently on purpose: the reference is shown as text, because it grants
- * nothing and has to be quotable; every key and token is in a masked field with
- * Show and Copy, because it is the credential and reading it aloud is how it
- * gets lost. Copy moves a value field-to-clipboard without it ever being
- * rendered, which typing it out would not.
- */
-function Vault({
-  handback,
-  title,
-  callable,
-  foot,
-}: {
-  handback: Handback;
-  title: string;
-  /** Whether the redeemed connection can go on to call the provider. */
-  callable: boolean;
-  foot: string;
-}): ReactNode {
+/** Live state of a card, from the step the flow is on. */
+function cardStatus(
+  step: CeremonySnapshot["step"] | undefined,
+): "available" | "connected" | "attention" {
+  if (step === "complete") return "connected";
+  if (step === "error" || step === "expired" || step === "cancelled")
+    return "attention";
+  return "available";
+}
+
+/** What the ceremony produced: a reference to say out loud, and keys to keep. */
+function Vault({ handback }: { handback: Handback }): ReactNode {
   const { record, issued } = handback;
   return createElement(
     "div",
     { className: "vault" },
-    createElement("p", { className: "vault-head" }, title),
     createElement(
       "div",
       { className: "vault-field" },
       createElement("span", { className: "vault-label" }, "Reference"),
       createElement(CopyRow, { value: record.secretRef, label: "reference" }),
-      createElement(
-        "p",
-        { className: "vault-note" },
-        "Grants nothing on its own, so it is safe to store, to paste into a prompt, or to hand to an assistant. It is what the outcome carries.",
-      ),
     ),
     ...issued.map((entry) =>
       createElement(
@@ -568,35 +555,22 @@ function Vault({
       ),
     ),
     createElement(
-      "div",
-      { className: "vault-field" },
-      createElement("span", { className: "vault-label" }, "Scopes"),
-      createElement(
-        "p",
-        { className: "vault-scopes" },
-        ...record.scopes.map((scope, index) =>
-          createElement("code", { key: scope }, index ? ` ${scope}` : scope),
-        ),
-      ),
-    ),
-    createElement(
       "details",
       { className: "vault-code" },
-      createElement("summary", null, "Redeem it from the console"),
+      createElement("summary", null, "Redeem"),
       createElement(
         "pre",
         null,
-        createElement("code", null, redemption(record, callable)),
-      ),
-      createElement(
-        "p",
-        null,
-        "This runs. ",
-        createElement("code", null, "ceremony"),
-        " is on this page, both halves are required, and a wrong key is refused the same way a wrong reference is.",
+        createElement(
+          "code",
+          null,
+          redemption(
+            record,
+            Boolean(record.scopes.length && handback.callable),
+          ),
+        ),
       ),
     ),
-    createElement("p", { className: "vault-foot" }, foot),
   );
 }
 
@@ -613,11 +587,6 @@ function Evidence({ proof }: { proof: Proof }): ReactNode {
         createElement("dt", { key: `t${index}` }, fact.label),
         createElement("dd", { key: `d${index}` }, fact.value),
       ]),
-    ),
-    createElement(
-      "p",
-      { className: "evidence-note" },
-      "Read live from the provider just now, with your credentials. This page never saw a token, and nothing was written.",
     ),
   );
 }
@@ -645,6 +614,10 @@ function LiveConnection({
   onOutcome: (outcome: Outcome) => void;
 }): ReactNode {
   const [started, setStarted] = useState(false);
+  const [run, setRun] = useState(0);
+  const [step, setStep] = useState<CeremonySnapshot["step"] | undefined>(
+    undefined,
+  );
   const [proof, setProof] = useState<Proof | undefined>(undefined);
   const [handback, setHandback] = useState<Handback | undefined>(undefined);
   // The transport is built once and outlives every render, but what it needs
@@ -654,7 +627,7 @@ function LiveConnection({
   // report that the view cannot reach connectors while it plainly can.
   const latest = useRef({ broker, resolved, relist, onOutcome });
   latest.current = { broker, resolved, relist, onOutcome };
-  const transport = useState(() =>
+  const build = () =>
     createConnectorTransport(
       live,
       async (tool, input) => {
@@ -697,41 +670,55 @@ function LiveConnection({
       setProof,
       (outcome) => latest.current.onOutcome(outcome),
       setHandback,
-    ),
-  )[0];
-  // Pressing Connect calls the provider straight away — the client prepares an
-  // oauth-code method without stopping — so what it is about to do has to be
-  // legible before the press, not on a screen nobody sees.
-  if (!started)
-    return createElement(ConnectorCard, {
+      setStep,
+    );
+  const [transport, setTransport] = useState(build);
+  const brand = brandOf(live.manifest.id);
+  const status = cardStatus(step);
+  return createElement(
+    "div",
+    {
+      className: "flow",
+      // The brand drives the card's own accent, so the action is the provider's
+      // colour rather than the page's.
+      style: {
+        ["--ceremony-accent"]: brand.tint,
+        ["--ceremony-on-accent"]: brand.ink,
+      } as CSSProperties,
+    },
+    createElement(ConnectorCard, {
       manifest: live.manifest,
-      status: "available",
+      status,
+      tint: brand.tint,
+      ink: brand.ink,
+      ...(brand.logo ? { logo: brand.logo } : {}),
       intent: {
         permissions: live.access.map((entry) => ({ label: entry.label })),
       },
-      onConnect: () => setStarted(true),
-    });
-  return createElement(
-    "div",
-    { className: "live-run" },
-    // No onCancel handler swapping the card back in: a declined connection has
-    // its own screen, it says what happened, and it offers a retry where one
-    // would help. Replacing it with the card again would throw that away.
-    createElement(Ceremony, {
-      manifest: live.manifest,
-      transport,
-      templates: [liveTemplate],
-      autoFocus: false,
-      webmcp: false as const,
+      ...(started ? { actionLabel: "Start over" } : {}),
+      onConnect: () => {
+        if (!started) return setStarted(true);
+        setProof(undefined);
+        setHandback(undefined);
+        setStep(undefined);
+        setTransport(() => build());
+        setRun((count) => count + 1);
+      },
     }),
-    proof ? createElement(Evidence, { proof }) : null,
-    handback
-      ? createElement(Vault, {
-          handback,
-          title: `${live.manifest.name} · what you can keep`,
-          callable: true,
-          foot: `${live.manifest.name}'s own token stays with claude.ai and is never handed to a page. What this page can give you is a connection of its own: the reference names it, the key opens it, and together they call ${live.manifest.name} with the access you just approved.`,
-        })
+    started
+      ? createElement(
+          "div",
+          { className: "flow-live", key: run },
+          createElement(Ceremony, {
+            manifest: live.manifest,
+            transport,
+            templates: [liveTemplate],
+            autoFocus: false,
+            webmcp: false as const,
+          }),
+          proof ? createElement(Evidence, { proof }) : null,
+          handback ? createElement(Vault, { handback }) : null,
+        )
       : null,
   );
 }
@@ -925,12 +912,16 @@ function AccountCard({
   onDelivery: (delivery: Delivery) => void;
 }): ReactNode {
   const [started, setStarted] = useState(false);
+  const [run, setRun] = useState(0);
+  const [step, setStep] = useState<CeremonySnapshot["step"] | undefined>(
+    undefined,
+  );
   const [handback, setHandback] = useState<
     (Handback & { registered: boolean }) | undefined
   >(undefined);
   const latest = useRef({ onDelivery });
   latest.current = { onDelivery };
-  const transport = useState(() =>
+  const build = () =>
     createAccountTransport(provider, {
       // Asked for once, awaited by whoever needs it. The capability can take
       // seconds to resolve and the first screen must not wait on it: nobody has
@@ -943,39 +934,52 @@ function AccountCard({
       },
       deliver: (delivery) => latest.current.onDelivery(delivery),
       onHandback: setHandback,
-    }),
-  )[0];
-  if (!started)
-    return createElement(ConnectorCard, {
+      onStep: setStep,
+    });
+  const [transport, setTransport] = useState(build);
+  const brand = brandOf(provider.manifest.id);
+  return createElement(
+    "div",
+    {
+      className: "flow",
+      // The brand drives the card's own accent, so the action is the provider's
+      // colour rather than the page's.
+      style: {
+        ["--ceremony-accent"]: brand.tint,
+        ["--ceremony-on-accent"]: brand.ink,
+      } as CSSProperties,
+    },
+    createElement(ConnectorCard, {
       manifest: provider.manifest,
-      status: "available",
+      status: cardStatus(step),
+      tint: brand.tint,
+      ink: brand.ink,
+      ...(brand.logo ? { logo: brand.logo } : {}),
       intent: {
         permissions: provider.promises.map((label) => ({ label })),
       },
-      onConnect: () => setStarted(true),
-    });
-  return createElement(
-    "div",
-    { className: "live-run" },
-    createElement(Ceremony, {
-      manifest: provider.manifest,
-      transport,
-      templates: [accountTemplate],
-      autoFocus: false,
-      webmcp: false as const,
+      ...(started ? { actionLabel: "Start over" } : {}),
+      onConnect: () => {
+        if (!started) return setStarted(true);
+        setHandback(undefined);
+        setStep(undefined);
+        setTransport(() => build());
+        setRun((count) => count + 1);
+      },
     }),
-    handback
-      ? createElement(Vault, {
-          handback,
-          title: handback.registered
-            ? `${provider.manifest.name} · what you keep`
-            : "Signed in · what you keep",
-          callable: false,
-          foot:
-            provider.registration.createdBy === "this-ceremony"
-              ? "All of this was generated in your browser a moment ago. The account record holds a derived form of each value and never the value itself, so these are the only copies — nothing on this page can print them a second time."
-              : `${provider.manifest.name} issued this, not this page. It is held in this tab behind the reference above, was never written to the store, and no assistant ever saw it.`,
-        })
+    started
+      ? createElement(
+          "div",
+          { className: "flow-live", key: run },
+          createElement(Ceremony, {
+            manifest: provider.manifest,
+            transport,
+            templates: [accountTemplate],
+            autoFocus: false,
+            webmcp: false as const,
+          }),
+          handback ? createElement(Vault, { handback }) : null,
+        )
       : null,
   );
 }
@@ -1018,16 +1022,7 @@ function Mailbox({
             ),
           ),
         )
-      : createElement(
-          "p",
-          { className: "mailbox-empty" },
-          "Empty. Only the account kept here sends a code; the providers that make the account themselves send their own mail, to your real inbox.",
-        ),
-    createElement(
-      "p",
-      { className: "mailbox-note" },
-      "There is no mail server on a published page, so a code this page sends is delivered here rather than to an inbox. It expires in ten minutes.",
-    ),
+      : createElement("p", { className: "mailbox-empty" }, "No codes yet."),
   );
 }
 
@@ -1045,22 +1040,12 @@ function Accounts({
   getStore: () => Promise<AccountStore>;
 }): ReactNode {
   const [deliveries, setDeliveries] = useState<readonly Delivery[]>([]);
-  const [store, setStore] = useState<AccountStore | undefined>(undefined);
   const pending = useState(() => getStore())[0];
   const onDelivery = useCallback(
     (delivery: Delivery) =>
       setDeliveries((list) => [delivery, ...list].slice(0, 3)),
     [],
   );
-  useEffect(() => {
-    let alive = true;
-    void pending.then((resolved) => {
-      if (alive) setStore(resolved);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [pending]);
   return createElement(
     "div",
     { className: "accounts" },
@@ -1079,18 +1064,7 @@ function Accounts({
         ),
       ),
     ),
-    createElement(
-      "div",
-      { className: "accounts-foot" },
-      createElement(Mailbox, { deliveries }),
-      createElement(
-        "p",
-        { className: "account-store" },
-        store
-          ? `The account kept here lives in ${store.label}. Its password never leaves this browser: it is stretched here and only the derived value is stored, alongside no address at all — the record is keyed by a digest of it.`
-          : "Finding somewhere to keep accounts…",
-      ),
-    ),
+    createElement(Mailbox, { deliveries }),
   );
 }
 

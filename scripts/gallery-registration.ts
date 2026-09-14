@@ -121,6 +121,8 @@ export interface AccountOptions {
   store: AccountStore;
   deliver(delivery: Delivery): void;
   onHandback(handback: (Handback & { registered: boolean }) | undefined): void;
+  /** Every step, so the card can show where the flow is. */
+  onStep?(step: CeremonySnapshot["step"]): void;
 }
 
 const accountKey = (email: string) =>
@@ -151,7 +153,7 @@ export function mintPassword(length = MINTED_LENGTH): string {
 
 export function createAccountTransport(
   provider: AccountProvider,
-  { store, deliver, onHandback }: AccountOptions,
+  { store, deliver, onHandback, onStep = () => {} }: AccountOptions,
 ): CeremonyTransport {
   const method = provider.manifest.methods[0]!;
   const id = globalThis.crypto.randomUUID();
@@ -198,6 +200,7 @@ export function createAccountTransport(
       expiresAt: Date.now() + ATTEMPT_MINUTES * 60_000,
       ...extra,
     });
+    onStep(current.step);
     return current;
   };
 
@@ -314,7 +317,7 @@ export function createAccountTransport(
                 name: "password",
                 label: "Password",
                 value: password,
-                note: "Generated here a moment ago, never typed and never sent to an assistant. It is the account's password now, so keep it before you close this.",
+                note: "Generated here. Keep it.",
                 secret: true,
               } satisfies Issued,
             ]
@@ -323,14 +326,14 @@ export function createAccountTransport(
           name: "sessionToken",
           label: "Session token",
           value: token,
-          note: `Authenticates as this account for ${SESSION_HOURS} hours. The account record holds a derived form of it, so this is the only copy.`,
+          note: `Good for ${SESSION_HOURS} hours. Only copy.`,
           secret: true,
         },
         {
           name: "recoveryCode",
           label: "Recovery code",
           value: recovery,
-          note: "Shown once, on purpose. Keep it somewhere you would keep a key — nothing on this page can print it again.",
+          note: "Shown once.",
           secret: true,
         },
       ],
@@ -516,7 +519,7 @@ export function createAccountTransport(
           name: "token",
           label: provider.credential!.label,
           value: token,
-          note: `Issued by ${provider.manifest.name}, not by this page. It stays in this tab: the store never receives it, no assistant ever sees it, and closing the tab is what ends it.`,
+          note: `Issued by ${provider.manifest.name}. Held in this tab only.`,
           secret: true,
         },
       ],

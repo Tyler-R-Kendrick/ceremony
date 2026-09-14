@@ -248,69 +248,21 @@ const liveSection = `
   <section class="movement" aria-labelledby="live-heading">
     <div class="movement-head">
       <h2 id="live-heading">Connect a service</h2>
-      <p>
-        Press Connect on a card and the ceremony runs inside that card, against
-        ${listed(liveConnectors.map((entry) => escape(entry.manifest.name)))},
-        through the connector you approved in claude.ai. Your credentials, never
-        handled by this page, and read-only. What comes back is whatever the
-        provider just said — including the refusals — and a connection you can
-        keep: a reference that grants nothing and a key that opens it.
-      </p>
     </div>
     <div class="live" id="${liveMountId}">
-      <p class="live-pending">Starting the connections…</p>
+      <p class="live-pending">Loading…</p>
     </div>
-    <p class="live-note">
-      One thing differs from a deployment you run yourself, and it is the
-      transport: there, <code>createHttpTransport</code> talks to the connection
-      server, which holds the credential. Here the transport calls your
-      assistant's connectors, which hold it instead — so the provider's token is
-      never handed to a page, and what a finished ceremony can give you is a
-      connection of this page's own. The component, the client and the state
-      machine are the ones the library ships; that is what having a
-      <code>CeremonyTransport</code> interface is for.
-    </p>
   </section>`;
 
-/**
- * The section this page exists for, and therefore the first one.
- *
- * Every other flow here presumes an account. These make one. A card apiece,
- * pressing the card is what starts the ceremony, and the ceremony runs in the
- * card — including the three that end at a provider's own registration page,
- * because that is where those accounts are genuinely made and pretending
- * otherwise would be the fiction this page keeps being told off for.
- */
+/** A card per account. The cards say what they do; the page does not narrate. */
 const accountSection = `
   <section class="movement opening" aria-labelledby="account-heading">
     <div class="movement-head">
       <h2 id="account-heading">Make an account</h2>
-      <p>
-        Every one of these starts by asking who you are, and none of them starts
-        by asking for a password — that is the order providers actually work in,
-        and it is read from what each one declared rather than written into a
-        screen. The account kept here needs a password, so it generates one
-        rather than making you invent it. GitHub, Stripe and Atlassian issue
-        their own credentials, so they never ask you for one: the card carries
-        your address into their registration page and takes back what they
-        issued, masked, with one press to copy it.
-      </p>
     </div>
     <div class="account-mount" id="${accountMountId}">
-      <p class="live-pending">Loading the registration ceremonies…</p>
+      <p class="live-pending">Loading…</p>
     </div>
-    <p class="live-note">
-      Real, and specific about how. For the account kept here: the password is
-      stretched with PBKDF2-SHA256 in your browser and only the derived value is
-      stored, the record is keyed by a digest of the address so the store holds
-      no addresses and no secrets, and the confirmation code is kept only in
-      derived form behind a ten-minute expiry. A published page cannot send
-      mail, so that code goes to a mailbox here and the mailbox says so. For the
-      three that register at a provider: the links are the providers' real ones
-      and carry your address, the credential you bring back is checked against
-      the shape that provider documents, and it stays in this tab — this page
-      cannot ask GitHub whether a token works, and does not claim to have.
-    </p>
   </section>`;
 
 const page = `<title>Ceremony Auth Catalogue</title>
@@ -325,20 +277,8 @@ ${readFileSync(fileURLToPath(new URL("scripts/gallery.css", root)), "utf8")}
 
 <div class="page">
   <header class="masthead">
-    <p class="eyebrow">Ceremony · authentication catalogue</p>
-    <h1>It starts with somebody who has no account</h1>
-    <p class="lede">
-      So that is what this page starts with, and it runs. Four accounts, four
-      cards: one kept here, and one each at GitHub, Stripe and Atlassian. Each
-      asks who you are first and asks for a password only if that provider needs
-      one — and generates it when it may, so nothing worth keeping is ever
-      typed. Then connect a service, and the same component does the same thing
-      against ${listed(
-        liveConnectors.map((entry) => escape(entry.manifest.name)),
-      )}. Behind both sits the catalogue: ${entries.length} scenarios across
-      ${flowKinds.length} flow kinds and ${families.size} families, every screen
-      rendered by the component the product ships.
-    </p>
+    <p class="eyebrow">Ceremony</p>
+    <h1>Connector cards that run the ceremony</h1>
   </header>
 
 ${accountSection}
@@ -346,10 +286,6 @@ ${liveSection}
   <section class="movement" aria-labelledby="walls-heading">
     <div class="movement-head">
       <h2 id="walls-heading">Where an attempt stops</h2>
-      <p>
-        Three endings every flow shares. They are screens in their own right,
-        because an attempt that failed still has to tell somebody what happened.
-      </p>
     </div>
     <ol class="screens walls">
       ${walls
@@ -369,13 +305,7 @@ ${liveSection}
 
   <section class="movement" aria-labelledby="registration-heading">
     <div class="movement-head">
-      <h2 id="registration-heading">Making an account</h2>
-      <p>
-        ${registration.length} variants, and they differ in ways that change the
-        screens: where the confirmation arrives, whether terms must be accepted,
-        what happens when the address is already taken, and whether registration
-        is a ceremony of its own or a prerequisite inside another one.
-      </p>
+      <h2 id="registration-heading">Registration variants</h2>
     </div>
     ${table(registration)}
   </section>
@@ -383,10 +313,6 @@ ${liveSection}
   <section class="movement" aria-labelledby="catalogue-heading">
     <div class="movement-head">
       <h2 id="catalogue-heading">The whole catalogue</h2>
-      <p>
-        Grouped by what the caller is trying to achieve. Filter by flow kind to
-        see what one mechanism has to cover.
-      </p>
       <div class="filters" role="group" aria-label="Filter by flow kind">
         <button type="button" data-filter="all" aria-pressed="true">All</button>
         ${flowKinds
@@ -410,13 +336,9 @@ ${liveSection}
 
   <footer class="colophon">
     <p>
-      The catalogue is read from the scenario list the auth doubles drive, so
-      this page cannot claim coverage the test suite does not have. The screens
-      are rendered by the real templates from snapshots the production schema
-      accepted, so a screen shown here is one the product can reach.
-      <code>client-credentials</code>, certificate and workload-federation
-      profiles are deliberately absent: they have no browser step at all, and a
-      page invented for them would be a fixture pretending to be evidence.
+      ${entries.length} scenarios, ${flowKinds.length} flow kinds. Screens are
+      rendered by the shipped components from snapshots the production schema
+      accepted.
     </p>
   </footer>
 </div>

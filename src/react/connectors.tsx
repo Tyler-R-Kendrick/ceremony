@@ -70,11 +70,13 @@ export interface ProviderMarkProps {
   logo?: ReactNode;
   /** Brand colour behind the fallback initials. */
   tint?: string;
+  /** What reads on that colour. White is wrong on a light brand. */
+  ink?: string;
 }
 
-export function ProviderMark({ name, logo, tint }: ProviderMarkProps) {
+export function ProviderMark({ name, logo, tint, ink }: ProviderMarkProps) {
   const style: CSSProperties | undefined = tint
-    ? { background: tint, borderColor: tint, color: "#fff" }
+    ? { background: tint, borderColor: tint, color: ink ?? "#fff" }
     : undefined;
   return (
     <span
@@ -161,6 +163,8 @@ export interface ConnectorCardProps {
   status?: ConnectorStatus;
   logo?: ReactNode;
   tint?: string;
+  /** What reads on `tint`. White is wrong on a light brand. */
+  ink?: string;
   busy?: boolean;
   /** Replaces the default action label, e.g. "Reconnect". */
   actionLabel?: string;
@@ -173,6 +177,7 @@ export function ConnectorCard({
   status = "available",
   logo,
   tint,
+  ink,
   busy = false,
   actionLabel,
   onConnect,
@@ -191,6 +196,7 @@ export function ConnectorCard({
         name={manifest.name}
         {...(logo ? { logo } : {})}
         {...(tint ? { tint } : {})}
+        {...(ink ? { ink } : {})}
       />
       <div className="connector-head">
         <h3 className="connector-name">{manifest.name}</h3>

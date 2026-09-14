@@ -8,23 +8,7 @@ import {
   type RegistrationContract,
 } from "../src/core/connector-contracts.js";
 
-/**
- * The accounts this page can make, and what each provider needs to make one.
- *
- * Read the shape before the list. Every one of these starts with an identifier
- * and none of them starts with a password, because that is the order providers
- * actually work in: something names the account, and only then, sometimes, does
- * something prove it. Three of the four never ask a person for a password at
- * all — one mints its own, two have the provider issue the credential — and the
- * declaration is what decides that rather than a screen written by hand.
- *
- * The provider URLs are the real ones, and the identifier is carried into them
- * so nobody types their address twice. What a published page cannot do is
- * verify an issued credential against the provider that issued it: that takes a
- * request to the provider, and this page has no way to make one. It checks the
- * documented shape instead, says that is what it checked, and keeps the
- * credential in the tab rather than pretending to have used it.
- */
+/** The accounts this page can make, and what each provider needs to make one. */
 
 export interface CredentialShape {
   /** What a good one looks like, in a person's words. */
@@ -148,8 +132,7 @@ export const accountProviders: readonly AccountProvider[] = [
     manifest: manifestSchema.parse({
       id: "account",
       name: "An account here",
-      description:
-        "An address, and nothing else to think of. If this page has never seen the address it registers it; if it has, it signs in. The password is generated for you unless you ask to choose one.",
+      description: "Register or sign in. The password is generated for you.",
       methods: [
         {
           id: "email-password",
@@ -165,19 +148,18 @@ export const accountProviders: readonly AccountProvider[] = [
     registration: ownAccount,
     identity: [email],
     promises: [
-      "Register the address, or sign it in if it is already here",
-      "Generate a password for you, unless you would rather choose one",
-      "Hand you a session token and a recovery code, masked",
+      "Register or sign in",
+      "Generate a password",
+      "Issue a session token and recovery code",
     ],
-    completion:
-      "The account exists, its address is confirmed, and the credentials below were issued to it.",
+    completion: "Registered and confirmed.",
   },
   {
     manifest: manifestSchema.parse({
       id: "github",
       name: "GitHub",
       description:
-        "Register at GitHub with your address, then bring back a personal access token. GitHub issues the token; nothing here can invent one that works.",
+        "Register at GitHub, then bring back a personal access token.",
       methods: [
         {
           id: "personal-access-token",
@@ -197,7 +179,7 @@ export const accountProviders: readonly AccountProvider[] = [
     issuing: {
       url: "https://github.com/settings/tokens/new?description=Ceremony%20catalogue&scopes=read:user",
       label: "Create the token at GitHub",
-      note: "read:user is enough, and it is the only scope this asks for. Give it the shortest expiry GitHub offers.",
+      note: "read:user, shortest expiry.",
     },
     credential: secret("token", "GitHub personal access token"),
     shape: looksLike(
@@ -206,19 +188,18 @@ export const accountProviders: readonly AccountProvider[] = [
       20,
     ),
     promises: [
-      "Open GitHub's registration with your address already in it",
-      "Point you at the token page, asking for read:user and nothing more",
-      "Hold the token GitHub issues, in this tab, masked",
+      "Open GitHub signup with your address",
+      "Token page, read:user only",
+      "Hold the issued token in this tab",
     ],
-    completion:
-      "GitHub issued this token to that address. This page checked its shape, never sent it anywhere, and holds it under the reference below.",
+    completion: "GitHub issued this token. Shape checked; held in this tab.",
   },
   {
     manifest: manifestSchema.parse({
       id: "stripe",
       name: "Stripe",
       description:
-        "Register at Stripe with your address, then bring back a test-mode secret key. Stripe issues the key; nothing here can invent one that works.",
+        "Register at Stripe, then bring back a test-mode secret key.",
       methods: [
         {
           id: "secret-key",
@@ -242,7 +223,7 @@ export const accountProviders: readonly AccountProvider[] = [
     issuing: {
       url: "https://dashboard.stripe.com/test/apikeys",
       label: "Copy the test key from Stripe",
-      note: "The test-mode key, the one beginning sk_test_. A live key moves real money and has no business in a catalogue page.",
+      note: "Test mode only — sk_test_, never a live key.",
     },
     credential: secret("token", "Stripe test secret key"),
     shape: looksLike(
@@ -251,19 +232,17 @@ export const accountProviders: readonly AccountProvider[] = [
       20,
     ),
     promises: [
-      "Open Stripe's registration with your address already in it",
-      "Point you at the test-mode keys, never the live ones",
-      "Hold the key Stripe issues, in this tab, masked",
+      "Open Stripe signup with your address",
+      "Test-mode keys only",
+      "Hold the issued key in this tab",
     ],
-    completion:
-      "Stripe issued this key to that address. This page checked its shape, never sent it anywhere, and holds it under the reference below.",
+    completion: "Stripe issued this key. Shape checked; held in this tab.",
   },
   {
     manifest: manifestSchema.parse({
       id: "jira",
       name: "Jira",
-      description:
-        "Register an Atlassian account with your address, then bring back an API token. Atlassian issues the token, and it is not your password — Jira has not accepted one for years.",
+      description: "Register at Atlassian, then bring back an API token.",
       methods: [
         {
           // `api-key`, not `basic`, and the difference is real: Jira is used
@@ -287,16 +266,15 @@ export const accountProviders: readonly AccountProvider[] = [
     issuing: {
       url: "https://id.atlassian.com/manage-profile/security/api-tokens",
       label: "Create the token at Atlassian",
-      note: "Create API token, name it for this page, and copy it before the dialog closes — Atlassian shows it once.",
+      note: "Copy it before the dialog closes.",
     },
     credential: secret("token", "Atlassian API token"),
     shape: looksLike('Atlassian API tokens begin "ATATT".', ["ATATT"], 24),
     promises: [
-      "Open Atlassian's registration with your address already in it",
-      "Point you at the API token page, which is not your password",
-      "Hold the token Atlassian issues, in this tab, masked",
+      "Open Atlassian signup with your address",
+      "API token page",
+      "Hold the issued token in this tab",
     ],
-    completion:
-      "Atlassian issued this token to that address. This page checked its shape, never sent it anywhere, and holds it under the reference below.",
+    completion: "Atlassian issued this token. Shape checked; held in this tab.",
   },
 ];

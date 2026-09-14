@@ -147,6 +147,8 @@ export interface Handback {
   record: ConnectionRecord;
   issued: readonly Issued[];
   headline: string;
+  /** Whether redeeming this can go on to call the provider. */
+  callable: boolean;
 }
 
 interface Held {
@@ -189,6 +191,7 @@ class ConnectionVault {
     });
     return {
       record: full,
+      callable: Boolean(call),
       headline: `Connected to ${record.connectorName}`,
       issued: [
         {

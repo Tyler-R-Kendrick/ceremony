@@ -338,13 +338,9 @@ code.kind {
   align-items: start;
 }
 
-/* The live cell is a real surface, not a specimen case: no dashed frame, no
- * "nothing here can be used" tag, because everything here can. */
+/* The card is the surface. No frame around it: a card inside a card reads as
+ * two objects and there is only one. */
 .live-cell {
-  padding: 1.125rem;
-  border: 1px solid var(--page-line);
-  border-radius: 14px;
-  background: var(--page-surface);
   min-inline-size: 0;
 }
 
@@ -925,6 +921,22 @@ tbody tr:last-child td {
  * because only one of these providers posts to it — the others send their own
  * mail, to a real inbox — and giving each card its own would be three empty
  * boxes explaining that they are empty. */
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+.flow-live {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--page-line);
+  min-inline-size: 0;
+}
+
 .accounts {
   display: flex;
   flex-direction: column;
