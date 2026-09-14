@@ -484,3 +484,173 @@ test("IDN production cookie attributes and configuration fail closed", async () 
     await store.close();
   }
 });
+
+test("IDN OIDC registers its own client (RFC 7591) when none is configured, and reuses it across restarts", async () => {
+  // The objection this answers: a pre-provisioned client id, handed in through
+  // the environment, is not the ceremony doing its own registration. With no
+  // clientId configured, the identity must register a client with the provider
+  // itself, use that client for a real signed-token login, and — because the
+  // registration is persisted — never register a second one on restart.
+  const { privateKey, publicKey } = await generateKeyPair("RS256");
+  const jwk = {
+    ...(await exportJWK(publicKey)),
+    kid: "reg",
+    alg: "RS256",
+    use: "sig",
+  };
+  let issuer = "";
+  let nonce = "";
+  let challenge = "";
+  let registrations = 0;
+  let registeredClientId = "";
+  const redirectsRegistered: string[] = [];
+  const server = createServer(async (req, res) => {
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/.well-known/openid-configuration")
+      return res.end(
+        JSON.stringify({
+          issuer,
+          authorization_endpoint: `${issuer}/authorize`,
+          token_endpoint: `${issuer}/token`,
+          jwks_uri: `${issuer}/jwks`,
+          registration_endpoint: `${issuer}/register`,
+          response_types_supported: ["code"],
+          subject_types_supported: ["public"],
+          id_token_signing_alg_values_supported: ["RS256"],
+        }),
+      );
+    if (req.url === "/jwks") return res.end(JSON.stringify({ keys: [jwk] }));
+    if (req.url === "/register" && req.method === "POST") {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const meta = JSON.parse(body || "{}");
+      registrations += 1;
+      registeredClientId = `dyn-client-${registrations}`;
+      for (const uri of meta.redirect_uris ?? []) redirectsRegistered.push(uri);
+      res.statusCode = 201;
+      return res.end(
+        JSON.stringify({
+          client_id: registeredClientId,
+          client_id_issued_at: Math.floor(Date.now() / 1000),
+          redirect_uris: meta.redirect_uris,
+          grant_types: meta.grant_types ?? ["authorization_code"],
+          response_types: meta.response_types ?? ["code"],
+          token_endpoint_auth_method: meta.token_endpoint_auth_method ?? "none",
+        }),
+      );
+    }
+    if (req.url === "/token") {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const params = new URLSearchParams(body);
+      if (
+        (await oauth.calculatePKCECodeChallenge(
+          params.get("code_verifier") ?? "",
+        )) !== challenge
+      ) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({ error: "invalid_grant" }));
+      }
+      const jwt = await new SignJWT({ nonce })
+        .setProtectedHeader({ alg: "RS256", kid: "reg" })
+        .setIssuer(issuer)
+        // The audience is the client the ceremony registered for itself.
+        .setAudience(registeredClientId)
+        .setSubject("oidc|registered")
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(privateKey);
+      return res.end(
+        JSON.stringify({
+          access_token: "fixture-token",
+          token_type: "Bearer",
+          id_token: jwt,
+        }),
+      );
+    }
+    res.statusCode = 404;
+    res.end("{}");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  issuer = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  try {
+    const origin = "http://127.0.0.1:4174";
+    const config = {
+      issuer,
+      origin,
+      development: true,
+      clientName: "Ceremony proof",
+      mapClaims: async (claims: oauth.IDToken) => ({
+        tenantId: "tenant",
+        subjectId: claims.sub,
+        capabilities: ["executor" as const],
+      }),
+    };
+    const identity = await createOidcIdentity(
+      config,
+      persistentIdentityStore(store),
+    );
+    assert.equal(
+      registrations,
+      1,
+      "the identity registered exactly one client",
+    );
+    assert.deepEqual(
+      redirectsRegistered,
+      [`${origin}/api/auth/callback`],
+      "it registered its own real callback, not one handed to it",
+    );
+    const login = await identity.login(
+      new Request(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+      }),
+    );
+    const url = new URL(login.headers.get("location")!);
+    assert.equal(
+      url.searchParams.get("client_id"),
+      registeredClientId,
+      "login uses the self-registered client",
+    );
+    nonce = url.searchParams.get("nonce")!;
+    challenge = url.searchParams.get("code_challenge")!;
+    const callback = new Request(
+      `${origin}/api/auth/callback?code=code&state=${url.searchParams.get("state")}`,
+      { headers: { cookie: login.headers.getSetCookie()[0]!.split(";")[0]! } },
+    );
+    const done = await identity.callback(callback);
+    const session = done.headers.getSetCookie()[0]!.split(";")[0]!;
+    const actor = await identity.authenticate(
+      new Request(origin, { headers: { cookie: session } }),
+    );
+    assert.equal(actor?.subjectId, "oidc|registered");
+    // A restart reuses the persisted registration rather than making another.
+    const restart = await createOidcIdentity(
+      config,
+      persistentIdentityStore(store),
+    );
+    assert.equal(
+      registrations,
+      1,
+      "a restart reuses the persisted client, not a new registration",
+    );
+    const login2 = await restart.login(
+      new Request(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+      }),
+    );
+    assert.equal(
+      new URL(login2.headers.get("location")!).searchParams.get("client_id"),
+      registeredClientId,
+    );
+  } finally {
+    server.close();
+    await store.close();
+  }
+});

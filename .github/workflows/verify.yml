@@ -49,11 +49,21 @@ jobs:
       # something did not do what the catalog says it does.
       - run: npm run flows:gallery
         if: always()
+      # The published auth catalogue. It bundles the real resolver for the
+      # browser, so a change that breaks that bundle breaks a page people are
+      # given a link to — and nothing else in the suite builds it.
+      - run: npm run build:gallery
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: auth-flows
           path: artifacts/flows/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auth-catalogue
+          path: artifacts/gallery/
   security:
     # `verify` runs these too, but it reports each stage as counts alone: its
     # stage output is captured and discarded by design, so a failure there says

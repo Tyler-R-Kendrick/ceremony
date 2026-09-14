@@ -27,6 +27,13 @@ import {
   type A2HOptions,
 } from "../src/server/index.js";
 import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
+import { createAgentRoutes } from "./agent-routes.js";
+import { accountProviders } from "../scripts/gallery-accounts.js";
+import {
+  createSignatureAgent,
+  directoryMediaType,
+  directoryPath,
+} from "../src/core/web-bot-auth.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
@@ -71,6 +78,13 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
   const origin = options.publicOrigin ?? `http://127.0.0.1:${port}`;
   const issuer = `http://127.0.0.1:${providerPort}`;
   const provider = await createReferenceProvider({ issuer, appOrigin: origin });
+  // The agent's own identity, minted here, asking nobody for anything. Its
+  // public half is served below; every provider call it makes is signed with
+  // the private half, so a bot gate can recognise it instead of stopping a
+  // person. No account, no API token, no enrolment.
+  const agent = createSignatureAgent(origin);
+  // The agent's runs, started from a card and watched over a stream.
+  const agentRoutes = createAgentRoutes({ issuer });
   const credentials = new MemoryCredentialStore();
   const demoDatabase = new CeremonyDatabase(":memory:", randomBytes(32));
   const broker = new PrivateCredentialBroker(demoDatabase);
@@ -221,6 +235,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                 identityEndpoint: `${issuer}/agent/identity`,
                 claimEndpoint: `${issuer}/agent/identity/claim`,
                 allowLoopbackHttp: true,
+                agent,
               },
               credentials,
             ),
@@ -365,6 +380,13 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           return;
         }
       }
+      // Where an origin looks to find out which agent is calling. Public by
+      // design: it carries a public key and nothing else.
+      if (request.method === "GET" && url.pathname === directoryPath) {
+        response.writeHead(200, { "content-type": directoryMediaType });
+        response.end(agent.document());
+        return;
+      }
       if (!url.pathname.startsWith("/api/")) {
         vite.middlewares(request, response, () =>
           json(response, { error: "Not found" }, 404),
@@ -501,6 +523,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           teachingAvailable: Boolean(teaching),
           teachingConnectors: teaching?.connectors ?? [],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
+          // The catalogue lives here, with the agent that drives it; the page
+          // is sent only what a card renders.
+          agentProviders: accountProviders.map((provider) => ({
+            manifest: provider.manifest,
+            own: provider.registration.createdBy === "this-ceremony",
+            ...(provider.credential
+              ? { credentialLabel: provider.credential.label }
+              : {}),
+          })),
         });
       if (request.method === "GET" && url.pathname === "/api/workflows/github")
         return json(response, githubWorkflows);
@@ -631,6 +662,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         );
         return;
       }
+      /**
+       * The agent's runs: started from a card, watched as a stream, answered
+       * through their own routes. Every step the driver takes is sent as it
+       * happens, so a card can show the ceremony being performed rather than
+       * a link to somewhere a person could go and perform it themselves.
+       * Steps are the driver's own value-free records: no credential, no code
+       * and no page markup travels down this stream.
+       */
+      if (await agentRoutes(request, response, url, owner)) return;
       if (url.pathname.startsWith("/api/live/ceremonies")) {
         if (!liveController)
           throw new CeremonyError(

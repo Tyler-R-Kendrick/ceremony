@@ -6,6 +6,7 @@ import {
   type CeremonyRole,
   type DriverAction,
   type PageSnapshot,
+  type SnapshotElement,
 } from "../core/browser-contracts.js";
 
 /**
@@ -92,3 +93,126 @@ export function createModelInterpreter(
 
 /** Every role name, for callers building a secret source. */
 export const interpreterRoles: readonly CeremonyRole[] = ceremonyRoles;
+
+/**
+ * A model-free interpreter, reading the same sanitized snapshot as the model.
+ *
+ * It exists so an agent can drive a ceremony where no model is configured, and
+ * so the driving itself is testable without one. It sees exactly what
+ * `createModelInterpreter` sees — no page markup, no values — and returns the
+ * same bounded action, so swapping the two changes one argument and nothing
+ * else about the run.
+ *
+ * The rules are the ones a person uses on an unfamiliar sign-in page: fill what
+ * is asked for and you can supply, then press the thing that moves forward; if
+ * there is nothing to fill and the page is the wrong one, follow the link
+ * toward the page you need. It is deliberately not clever — it reports blocked
+ * rather than guessing, because a wrong guess at an auth provider costs a real
+ * attempt.
+ */
+export function createHeuristicInterpreter(): CeremonyInterpreter {
+  const words = (element: SnapshotElement) =>
+    `${element.name ?? ""} ${element.label ?? ""} ${element.placeholder ?? ""} ${element.text ?? ""}`.toLowerCase();
+
+  /** What this control is asking for, or nothing when it cannot be told. */
+  const roleOf = (
+    element: SnapshotElement,
+    seenPassword: boolean,
+  ): CeremonyRole | undefined => {
+    const text = words(element);
+    if (/\b(code|otp|one[- ]?time|verification)\b/.test(text))
+      return /totp|authenticat/.test(text) ? "totp-code" : "verification-code";
+    if (element.type === "email" || /e-?mail/.test(text)) return "email";
+    if (element.type === "password" || /password|passphrase/.test(text))
+      return seenPassword || /confirm|again|repeat|retype/.test(text)
+        ? "password-confirm"
+        : "password";
+    if (/user\s?name|handle|login/.test(text)) return "username";
+    if (/display|full name|your name/.test(text)) return "display-name";
+    if (/birth|date of birth|dob/.test(text)) return "birth-date";
+    return undefined;
+  };
+
+  const forward =
+    /continue|submit|sign in|log in|register|create|next|confirm|verify|approve|authorize|finish|done/;
+  /** Links that take an unfamiliar page toward the one the goal needs. */
+  const toward: Record<CeremonyGoal, RegExp> = {
+    "sign-in": /sign in|log in|already have/,
+    registration: /sign up|register|create (an )?account|new account/,
+    authorize: /authorize|approve|allow|continue/,
+    "obtain-credential": /token|api key|credential|new (personal )?access/,
+  };
+
+  return async ({ goal, snapshot, available, history }) => {
+    if (snapshot.challenge)
+      return { action: "blocked", reason: "human-challenge" };
+    if (snapshot.passkey && !available.includes("password"))
+      return { action: "blocked", reason: "passkey-required" };
+
+    // An alert that names a wall is a wall, whatever else is on the page.
+    const alerts = snapshot.alerts.join(" ").toLowerCase();
+    if (/already (exists|registered|taken)|in use/.test(alerts))
+      return { action: "blocked", reason: "account-exists" };
+    if (/incorrect|invalid|did not match|wrong password/.test(alerts))
+      return { action: "blocked", reason: "credentials-rejected" };
+
+    let seenPassword = false;
+    for (const element of snapshot.elements) {
+      if (element.kind !== "input" && element.kind !== "select") continue;
+      const role = roleOf(element, seenPassword);
+      if (role === "password") seenPassword = true;
+      if (!role || element.filled || !available.includes(role)) continue;
+      // Never type into a form that posts somewhere else; the driver refuses
+      // it too, and asking is a wasted step.
+      if (element.submitsTo) continue;
+      return { action: "fill", element: element.index, role };
+    }
+
+    const unchecked = snapshot.elements.find(
+      (element) =>
+        element.kind === "checkbox" &&
+        element.required === true &&
+        element.filled !== true,
+    );
+    if (unchecked) return { action: "check", element: unchecked.index };
+
+    const pressed = new Set(
+      history
+        .filter((entry) => entry.action === "click")
+        .map((entry) => entry.note),
+    );
+    const submit = snapshot.elements.find(
+      (element) =>
+        element.kind === "button" &&
+        forward.test(words(element)) &&
+        !pressed.has(element.text),
+    );
+    if (submit)
+      return { action: "click", element: submit.index, note: submit.text };
+
+    const link = snapshot.elements.find(
+      (element) =>
+        element.kind === "link" &&
+        toward[goal].test(words(element)) &&
+        !pressed.has(element.text),
+    );
+    if (link) return { action: "click", element: link.index, note: link.text };
+
+    // Nothing to fill and nothing to press. A page that says the thing
+    // happened, with no way left to act, is the end of the ceremony — claiming
+    // it is safe because the driver only accepts a claim that verification
+    // confirms. Otherwise one wait covers a page still settling, and a second
+    // means this page is not one these rules understand.
+    const said =
+      `${snapshot.title} ${snapshot.headings.join(" ")}`.toLowerCase();
+    if (
+      /created|registered|confirmed|connected|approved|signed in|welcome|success/.test(
+        said,
+      )
+    )
+      return { action: "done" };
+    return history.at(-1)?.action === "wait"
+      ? { action: "blocked", reason: "unsupported-page" }
+      : { action: "wait" };
+  };
+}

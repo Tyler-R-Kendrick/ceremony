@@ -1,0 +1,14 @@
+{
+  "stepFiles": [
+    "/home/user/ceremony/dist/server/agent/workflow.js",
+    "/home/user/ceremony/node_modules/workflow/dist/stdlib.js",
+    "/home/user/ceremony/src/server/agent/workflow.ts"
+  ],
+  "workflowFiles": [
+    "/home/user/ceremony/dist/server/agent/workflow.js",
+    "/home/user/ceremony/src/server/agent/workflow.ts"
+  ],
+  "serdeOnlyFiles": [
+    "/home/user/ceremony/node_modules/@workflow/builders/dist/serde-checker.js"
+  ]
+}

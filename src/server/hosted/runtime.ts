@@ -32,7 +32,7 @@ export async function createHostedRuntime(
       key: z.string().regex(/^[a-fA-F0-9]{64}$/),
       keyId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       issuer: z.url(),
-      clientId: z.string().min(1),
+      clientId: z.string().min(1).optional(),
       tenant: z.string().min(1).max(100),
       account: z.string().regex(/^[A-Za-z0-9-]{1,100}$/),
       configurationVersion: z.string().min(1).max(100),
@@ -86,7 +86,8 @@ export async function createHostedRuntime(
       {
         origin: c.origin,
         issuer: c.issuer,
-        clientId: c.clientId,
+        ...(c.clientId ? { clientId: c.clientId } : {}),
+        clientName: `Ceremony · ${c.tenant}`,
         ...(testProfile ? { development: true } : {}),
         ...(env.CEREMONY_OIDC_CLIENT_SECRET
           ? { clientSecret: env.CEREMONY_OIDC_CLIENT_SECRET }

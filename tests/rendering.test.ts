@@ -61,8 +61,24 @@ for (const manifest of [...manifests, githubAppManifest]) {
           assert.match(html, /host-theme/);
           assert.match(html, /dir="rtl"/);
           assert.doesNotMatch(html, /private-connection-handle/);
-          if (snapshot.fields.some((field) => field.type === "password"))
+          for (const field of snapshot.fields.filter(
+            (entry) => entry.type === "password",
+          )) {
             assert.match(html, /type="password"/);
+            // The Show and Copy controls sit inside the <label> that would
+            // otherwise name this input, so a name computed from the label's
+            // text picks them up too — "API token Show API token Copy API
+            // token" — and the field stops being findable by its own name.
+            // The explicit name is what keeps it addressable, to a screen
+            // reader and to anything driving the page.
+            assert.match(
+              html,
+              new RegExp(
+                `aria-label="${field.label.replace(/[.*+?^$\\{}()|[\]]/g, "\\$&")}"`,
+              ),
+              `${field.name} should be named by its own label alone`,
+            );
+          }
         }
       } finally {
         client.dispose();

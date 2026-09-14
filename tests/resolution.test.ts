@@ -16,15 +16,11 @@ import { entryContextSchema } from "../src/core/resolution.js";
 
 const manifest = manifests[0]!;
 test("entry context accepts both supported surfaces and rejects undeclared surfaces", () => {
-  assert.deepEqual(entryContextSchema.parse({}), {
-    surface: "browser",
-    requiredScopes: [],
-  });
+  // The full set of defaults is pinned in tests/intent.test.ts; this is about
+  // the surface, which is the one field the transport layer depends on.
   for (const surface of ["browser", "headless"])
-    assert.deepEqual(entryContextSchema.parse({ surface }), {
-      surface,
-      requiredScopes: [],
-    });
+    assert.equal(entryContextSchema.parse({ surface }).surface, surface);
+  assert.equal(entryContextSchema.parse({}).surface, "browser");
   for (const surface of ["", "unknown", null, 0])
     assert.equal(entryContextSchema.safeParse({ surface }).success, false);
 });

@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "steps": {
+    "src/server/agent/workflow.ts": {
+      "runAgentTurn": {
+        "stepId": "step//./src/server/agent/workflow//runAgentTurn"
+      }
+    },
+    "node_modules/workflow/dist/stdlib.js": {
+      "fetch": {
+        "stepId": "step//workflow@4.8.7//fetch"
+      }
+    },
+    "node_modules/workflow/dist/internal/builtins.js": {
+      "__builtin_response_array_buffer": {
+        "stepId": "__builtin_response_array_buffer"
+      },
+      "__builtin_response_json": {
+        "stepId": "__builtin_response_json"
+      },
+      "__builtin_response_text": {
+        "stepId": "__builtin_response_text"
+      }
+    },
+    "dist/server/agent/workflow.js": {
+      "runAgentTurn": {
+        "stepId": "step//./dist/server/agent/workflow//runAgentTurn"
+      }
+    }
+  },
+  "workflows": {
+    "src/server/agent/workflow.ts": {
+      "ceremonyAgentWorkflow": {
+        "workflowId": "workflow//./src/server/agent/workflow//ceremonyAgentWorkflow",
+        "graph": {
+          "nodes": [
+            {
+              "id": "start",
+              "type": "workflowStart",
+              "data": {
+                "label": "Start: ceremonyAgentWorkflow2",
+                "nodeKind": "workflow_start"
+              }
+            },
+            {
+              "id": "end",
+              "type": "workflowEnd",
+              "data": {
+                "label": "Return",
+                "nodeKind": "workflow_end"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e_start_end",
+              "source": "start",
+              "target": "end",
+              "type": "default"
+            }
+          ]
+        }
+      }
+    },
+    "dist/server/agent/workflow.js": {
+      "ceremonyAgentWorkflow": {
+        "workflowId": "workflow//./dist/server/agent/workflow//ceremonyAgentWorkflow",
+        "graph": {
+          "nodes": [
+            {
+              "id": "start",
+              "type": "workflowStart",
+              "data": {
+                "label": "Start: ceremonyAgentWorkflow",
+                "nodeKind": "workflow_start"
+              }
+            },
+            {
+              "id": "end",
+              "type": "workflowEnd",
+              "data": {
+                "label": "Return",
+                "nodeKind": "workflow_end"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e_start_end",
+              "source": "start",
+              "target": "end",
+              "type": "default"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "classes": {
+    "node_modules/@ai-sdk/openai-compatible/dist/index.js": {
+      "OpenAICompatibleChatLanguageModel": {
+        "classId": "class//@ai-sdk/openai-compatible@3.0.45//OpenAICompatibleChatLanguageModel"
+      },
+      "OpenAICompatibleCompletionLanguageModel": {
+        "classId": "class//@ai-sdk/openai-compatible@3.0.45//OpenAICompatibleCompletionLanguageModel"
+      },
+      "OpenAICompatibleEmbeddingModel": {
+        "classId": "class//@ai-sdk/openai-compatible@3.0.45//OpenAICompatibleEmbeddingModel"
+      },
+      "OpenAICompatibleImageModel": {
+        "classId": "class//@ai-sdk/openai-compatible@3.0.45//OpenAICompatibleImageModel"
+      }
+    },
+    "node_modules/@ai-sdk/gateway/dist/index.js": {
+      "GatewayEmbeddingModel": {
+        "classId": "class//@ai-sdk/gateway@4.0.76//GatewayEmbeddingModel"
+      },
+      "GatewayImageModel": {
+        "classId": "class//@ai-sdk/gateway@4.0.76//GatewayImageModel"
+      },
+      "GatewayLanguageModel": {
+        "classId": "class//@ai-sdk/gateway@4.0.76//GatewayLanguageModel"
+      }
+    }
+  }
+}
