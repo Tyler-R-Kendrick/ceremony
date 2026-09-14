@@ -27,6 +27,7 @@ import {
   type A2HOptions,
 } from "../src/server/index.js";
 import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
+import { runAgentCeremony } from "./agent-run.js";
 import {
   createSignatureAgent,
   directoryMediaType,
@@ -647,6 +648,46 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         response.end(
           `<!doctype html><html lang="en"><meta charset="utf-8"><title>Continuing to GitHub</title><main><p role="status">Continuing to GitHub for app registration…</p><form method="post" action="${escapeHtml(destination.url)}"><input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(destination.manifest))}"><noscript><button>Continue to GitHub</button></noscript></form></main><script nonce="${scriptNonce}">document.querySelector('form').submit()</script></html>`,
         );
+        return;
+      }
+      /**
+       * The agent, driving a real browser, streamed as it goes.
+       *
+       * One connection, one run. Every step the driver takes is sent as it
+       * happens, so a card can show the ceremony being performed rather than
+       * a link to somewhere a person could go and perform it themselves.
+       * Steps are the driver's own value-free records: no credential, no code
+       * and no page markup travels down this stream.
+       */
+      if (request.method === "GET" && url.pathname === "/api/live/agent") {
+        response.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-store",
+          connection: "keep-alive",
+          "x-content-type-options": "nosniff",
+        });
+        const emit = (event: string, data: unknown) => {
+          response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        };
+        try {
+          const report = await runAgentCeremony({
+            issuer,
+            goal: "registration",
+            onStep: (step) => emit("step", step),
+          });
+          emit("done", {
+            identity: report.identity,
+            status: report.result.status,
+            steps: report.result.steps,
+            handoffs: report.result.handoffs,
+          });
+        } catch (error) {
+          emit("done", {
+            status: "failed",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        response.end();
         return;
       }
       if (url.pathname.startsWith("/api/live/ceremonies")) {

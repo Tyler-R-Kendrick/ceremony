@@ -11,6 +11,7 @@ import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
 import { TeachingConnection } from "./teaching.js";
+import { AgentCard } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -158,6 +159,7 @@ function App() {
                 </p>
               </div>
             </div>
+            {!liveMode && <AgentCard />}
             <div className="connect-grid" data-live={liveMode || undefined}>
               <aside className="connector-list" aria-label="Available services">
                 <h2 className="rail-heading">Available services</h2>

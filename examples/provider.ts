@@ -117,6 +117,8 @@ export async function createReferenceProvider(
     { scope: string; expires: number; registration?: string }
   >();
   const formTokens = new Map<string, { attempt: string; expires: number }>();
+  /** Registration's own one-shot form tokens. Separate: it has no attempt. */
+  const registerTokens = new Map<string, number>();
   const keys = await generateKeyPair("ES256");
   const issue = (scope: string, registration?: string) => {
     const token = secret();
@@ -171,6 +173,36 @@ export async function createReferenceProvider(
       attempt.kind === "oauth" ? options.appOrigin : undefined,
     );
   };
+  /**
+   * Registration, as a page a browser can actually be driven through.
+   *
+   * The account already registered over `POST /credentials`; what it never had
+   * was a surface. Without one there is nothing for a browser — a person's or
+   * an agent's — to do, so "register in a browser" could only ever be described
+   * rather than performed. Same `authenticate`, same code, same mailbox.
+   */
+  const showRegister = (
+    response: Parameters<typeof page>[0],
+    options: { email?: string; awaitingCode?: boolean; alert?: string } = {},
+  ) => {
+    const formToken = secret();
+    registerTokens.set(formToken, now() + ttl * 1000);
+    page(
+      response,
+      options.awaitingCode ? "Confirm your address" : "Create an account",
+      `${options.alert ? `<p role="alert">${escapeHtml(options.alert)}</p>` : ""}` +
+        `<form method="post" action="/register">` +
+        `<input type="hidden" name="csrf" value="${formToken}">` +
+        `<label>Email<input type="email" name="email" required value="${escapeHtml(options.email ?? "")}"${options.awaitingCode ? " readonly" : ""}></label>` +
+        `<label>Password<input type="password" name="password" required minlength="10"></label>` +
+        (options.awaitingCode
+          ? `<label>Verification code<input name="verification_code" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>`
+          : "") +
+        `<button type="submit">${options.awaitingCode ? "Confirm" : "Create account"}</button>` +
+        `</form>`,
+    );
+  };
+
   return createServer(async (request, response) => {
     const fail = (error: string, status = 400) =>
       json(response, { error }, status);
@@ -288,6 +320,47 @@ export async function createReferenceProvider(
           response,
           attempt.denied ? "Request denied" : "Connection approved",
           "<p>You can close this tab and return to Ceremony.</p>",
+        );
+      }
+      if (request.method === "GET" && url.pathname === "/register")
+        return showRegister(response);
+      if (request.method === "POST" && url.pathname === "/register") {
+        if (request.headers.origin !== options.issuer)
+          return fail("invalid_origin", 403);
+        const form = new URLSearchParams(await readBody(request));
+        const token = form.get("csrf") ?? "";
+        const expires = registerTokens.get(token);
+        registerTokens.delete(token);
+        if (!expires || expires <= now())
+          return showRegister(response, { alert: "That form expired." });
+        const email = form.get("email") ?? "";
+        const password = form.get("password") ?? "";
+        const result = authenticate(
+          email,
+          password,
+          form.get("verification_code") ?? "",
+        );
+        if ("pending" in result)
+          return showRegister(response, {
+            email,
+            awaitingCode: true,
+            alert: result.created
+              ? "Account created. Enter the code sent to that address."
+              : "That address is not confirmed yet. Enter the code sent to it.",
+          });
+        if (!result.ok)
+          return showRegister(response, {
+            email,
+            awaitingCode: Boolean(form.get("verification_code")),
+            alert:
+              result.error === "invalid_user_code"
+                ? "That is not the code."
+                : "Those credentials were rejected.",
+          });
+        return page(
+          response,
+          "Account created",
+          `<p>${escapeHtml(email)} is registered and confirmed.</p>`,
         );
       }
       if (request.method === "GET" && url.pathname === "/inbox") {

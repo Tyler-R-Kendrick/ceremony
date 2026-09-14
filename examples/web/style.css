@@ -951,3 +951,66 @@ fieldset label:last-child input {
     flex: 1 1 130px;
   }
 }
+
+/* The agent's own card: it runs the ceremony, and shows it running. */
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.125rem 1.25rem;
+  margin-block-end: 1.25rem;
+  border: 1px solid var(--line, #dde3ec);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+}
+
+.agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.agent-head h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+}
+
+.agent-what {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 0.875rem;
+  color: var(--muted, #5a6679);
+}
+
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-steps li[data-action="blocked"] {
+  color: #a3261d;
+}
+
+.agent-outcome {
+  margin: 0;
+  padding-block-start: 0.625rem;
+  border-block-start: 1px solid var(--line, #dde3ec);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.agent-outcome[data-status="completed"] {
+  color: #0b7a5b;
+}
+
+.agent-outcome[data-status="failed"],
+.agent-outcome[data-status="blocked"] {
+  color: #a3261d;
+}
