@@ -291,7 +291,7 @@ const Outcome = defineComponent({
     "Required verified connection status and actual granted access. Runtime binding.",
   props: z.object({}),
   component: () => {
-    const { snapshot, idPrefix } = useBindings();
+    const { snapshot } = useBindings();
     const outcome = snapshot.outcome;
     return outcome ? (
       <div className="outcome">
@@ -314,21 +314,6 @@ const Outcome = defineComponent({
             <li key={scope}>{scope}</li>
           ))}
         </ul>
-        {(outcome.secretRef ?? outcome.connectionRef) ? (
-          <div className="secret-ref">
-            <span className="field-label">Credential reference</span>
-            <SecureField
-              id={`${idPrefix}-secret-ref`}
-              label="credential reference"
-              value={outcome.secretRef ?? outcome.connectionRef}
-            />
-            <p className="supporting">
-              The credential stays with the connection. This reference is what
-              your code redeems for it, so the value never reaches this page or
-              an assistant.
-            </p>
-          </div>
-        ) : null}
       </div>
     ) : null;
   },
