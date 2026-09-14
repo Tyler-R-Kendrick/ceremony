@@ -136,6 +136,12 @@ export function SecureField({
         {...(value === undefined
           ? { required: required === true }
           : { value, readOnly: true })}
+        /* Named explicitly, because the two controls beside it are inside the
+         * <label> that would otherwise name it: an accessible name computed
+         * from that label’s text content came out as "API token Show API
+         * token Copy API token". The control labels belong to the controls,
+         * and the field’s name is the field’s name. */
+        aria-label={label}
         aria-describedby={describedBy}
         maxLength={4096}
         autoComplete="off"
