@@ -28,6 +28,7 @@ import {
 } from "../src/server/index.js";
 import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
 import { createAgentRoutes } from "./agent-routes.js";
+import { accountProviders } from "../scripts/gallery-accounts.js";
 import {
   createSignatureAgent,
   directoryMediaType,
@@ -522,6 +523,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           teachingAvailable: Boolean(teaching),
           teachingConnectors: teaching?.connectors ?? [],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
+          // The catalogue lives here, with the agent that drives it; the page
+          // is sent only what a card renders.
+          agentProviders: accountProviders.map((provider) => ({
+            manifest: provider.manifest,
+            own: provider.registration.createdBy === "this-ceremony",
+            ...(provider.credential
+              ? { credentialLabel: provider.credential.label }
+              : {}),
+          })),
         });
       if (request.method === "GET" && url.pathname === "/api/workflows/github")
         return json(response, githubWorkflows);

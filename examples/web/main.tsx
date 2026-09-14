@@ -11,7 +11,7 @@ import "./style.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
 import { TeachingConnection } from "./teaching.js";
-import { AgentConnectors } from "./agent-card.js";
+import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -27,6 +27,7 @@ const configSchema = z.object({
   liveAvailable: z.boolean().default(false),
   teachingAvailable: z.boolean().default(false),
   teachingConnectors: z.array(z.string()).default(["github"]),
+  agentProviders: z.array(agentProviderSchema).default([]),
 });
 type Config = z.infer<typeof configSchema>;
 function App() {
@@ -159,7 +160,7 @@ function App() {
                 </p>
               </div>
             </div>
-            {!liveMode && <AgentConnectors />}
+            <AgentConnectors providers={config.agentProviders} />
             <div className="connect-grid" data-live={liveMode || undefined}>
               <aside className="connector-list" aria-label="Available services">
                 <h2 className="rail-heading">Available services</h2>

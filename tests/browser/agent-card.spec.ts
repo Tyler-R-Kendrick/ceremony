@@ -98,13 +98,17 @@ test("a branded card has the agent register the account in its own browser", asy
   await expect(card.getByRole("button", { name: "Start over" })).toBeEnabled();
 });
 
-test("a provider the agent cannot reach reports that, and hands nothing off to a link", async ({
+test("the cards are on the page people actually open, and hand nothing off to a link", async ({
   page,
 }) => {
-  await page.goto("/?mode=test");
+  // The default URL, not ?mode=test: these cards were once rendered only in the
+  // test harness, which meant the feature was invisible to anyone who just
+  // opened the app.
+  await page.goto("/");
   const accounts = page.getByRole("region", {
     name: "Accounts the agent can register",
   });
+  await expect(accounts).toBeVisible();
   const card = accounts
     .locator(".agent-flow")
     .filter({ has: page.getByRole("heading", { name: "GitHub" }) });

@@ -1,12 +1,25 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
+import { z } from "zod";
 import { ConnectorCard } from "../../src/react/connectors.js";
 import { SecureField } from "../../src/react/index.js";
-import {
-  accountProviders,
-  type AccountProvider,
-} from "../../scripts/gallery-accounts.js";
+import { manifestSchema } from "../../src/core/index.js";
 import { brandOf } from "../../scripts/gallery-brands.js";
 import "../../src/react/styles.css";
+
+/**
+ * What the browser needs to know about a provider the agent can register at.
+ *
+ * Deliberately not the provider itself: the catalogue belongs to the server
+ * that runs the agent, and importing it here dragged its contract builders into
+ * every visitor's download for data the page renders four fields of.
+ */
+export const agentProviderSchema = z.object({
+  manifest: manifestSchema,
+  /** Whether this ceremony makes the account, or the provider's own surface does. */
+  own: z.boolean(),
+  credentialLabel: z.string().optional(),
+});
+export type AgentProvider = z.infer<typeof agentProviderSchema>;
 
 /**
  * A branded card that has the agent make the account, and shows it doing so.
@@ -67,6 +80,21 @@ interface Done {
 
 type Phase = "idle" | "identify" | "running" | "done";
 
+/** One run, as the card holds it. */
+interface Run {
+  phase: Phase;
+  id?: string | undefined;
+  steps: Step[];
+  stage?: string | undefined;
+  session?: Session | undefined;
+  ask?: Ask | undefined;
+  handoff?: Handoff | undefined;
+  outputs: Output[];
+  done?: Done | undefined;
+  problem?: string | undefined;
+}
+const idle: Run = { phase: "idle", steps: [], outputs: [] };
+
 const describe = (step: Step) =>
   step.action === "fill"
     ? `Filled ${step.role}`
@@ -104,18 +132,13 @@ async function post(path: string, body: unknown): Promise<Response> {
   });
 }
 
-function AgentConnectorCard({ provider }: { provider: AccountProvider }) {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [runId, setRunId] = useState<string>();
-  const [steps, setSteps] = useState<Step[]>([]);
-  const [stage, setStage] = useState<string>();
-  const [session, setSession] = useState<Session>();
-  const [ask, setAsk] = useState<Ask>();
-  const [handoff, setHandoff] = useState<Handoff>();
-  const [outputs, setOutputs] = useState<Output[]>([]);
-  const [done, setDone] = useState<Done>();
-  const [problem, setProblem] = useState<string>();
-  const own = provider.registration.createdBy === "this-ceremony";
+function AgentConnectorCard({ provider }: { provider: AgentProvider }) {
+  const [run, setRun] = useState<Run>(idle);
+  const { phase, steps, stage, session, ask, handoff, outputs, done, problem } =
+    run;
+  const patch = (next: Partial<Run>) =>
+    setRun((current) => ({ ...current, ...next }));
+  const own = provider.own;
   const brand = brandOf(provider.manifest.id);
   const idPrefix = `agent-${provider.manifest.id}`;
   // What this card will do, which is not what the provider's own catalogue
@@ -129,81 +152,81 @@ function AgentConnectorCard({ provider }: { provider: AccountProvider }) {
     : [
         `Registers at ${provider.manifest.name} in its own browser`,
         "Asks you for the emailed code",
-        `Hands back the ${provider.credential?.label ?? "credential"}`,
+        `Hands back the ${provider.credentialLabel ?? "credential"}`,
       ];
-
-  const reset = () => {
-    setRunId(undefined);
-    setSteps([]);
-    setStage(undefined);
-    setSession(undefined);
-    setAsk(undefined);
-    setHandoff(undefined);
-    setOutputs([]);
-    setDone(undefined);
-    setProblem(undefined);
-  };
 
   const start = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const email = String(new FormData(event.currentTarget).get("email") ?? "");
-    reset();
-    setPhase("running");
+    setRun({ ...idle, phase: "running" });
     const started = await post("/api/live/agent", {
       provider: provider.manifest.id,
       ...(email ? { email } : {}),
     });
     if (!started.ok) {
-      setProblem("The agent could not be started.");
-      setPhase("done");
+      patch({ phase: "done", problem: "The agent could not be started." });
       return;
     }
     const { id } = (await started.json()) as { id: string };
-    setRunId(id);
+    patch({ id });
     const source = new EventSource(`/api/live/agent/${id}/events`);
     const read = (event: Event) => JSON.parse((event as MessageEvent).data);
     source.addEventListener("step", (event) => {
-      setSteps((all) => [...all, read(event) as Step]);
+      const step = read(event) as Step;
+      setRun((current) => ({ ...current, steps: [...current.steps, step] }));
     });
     source.addEventListener("phase", (event) => {
-      setStage((read(event) as { phase: string }).phase);
+      patch({ stage: (read(event) as { phase: string }).phase });
     });
     source.addEventListener("session", (event) => {
-      setSession(read(event) as Session);
+      patch({ session: read(event) as Session });
     });
     source.addEventListener("ask", (event) => {
-      setAsk(read(event) as Ask);
+      patch({ ask: read(event) as Ask });
     });
     source.addEventListener("handoff", (event) => {
-      setHandoff(read(event) as Handoff);
+      patch({ handoff: read(event) as Handoff });
     });
     source.addEventListener("output", (event) => {
       const output = read(event) as Output;
-      setOutputs((all) => [...all, output]);
+      setRun((current) => ({
+        ...current,
+        outputs: [...current.outputs, output],
+      }));
       // Redeemed once, straight into a masked field. The reference is spent.
       void post(`/api/live/agent/${id}/redeem`, { ref: output.ref })
         .then((response) => (response.ok ? response.json() : undefined))
         .then((body: { value?: string } | undefined) => {
           const value = body?.value;
           if (typeof value !== "string") return;
-          setOutputs((all) =>
-            all.map((entry) =>
+          setRun((current) => ({
+            ...current,
+            outputs: current.outputs.map((entry) =>
               entry.ref === output.ref ? { ...entry, value } : entry,
             ),
-          );
+          }));
         });
     });
     source.addEventListener("done", (event) => {
-      setDone(read(event) as Done);
-      setAsk(undefined);
-      setHandoff(undefined);
-      setPhase("done");
+      patch({
+        phase: "done",
+        done: read(event) as Done,
+        ask: undefined,
+        handoff: undefined,
+      });
     });
     source.addEventListener("end", () => source.close());
     source.onerror = () => {
       source.close();
-      setPhase((current) => (current === "running" ? "done" : current));
-      setProblem((current) => current ?? "The stream from the agent closed.");
+      setRun((current) =>
+        current.phase === "done"
+          ? current
+          : {
+              ...current,
+              phase: "done",
+              problem: "The stream from the agent closed.",
+            },
+      );
     };
   };
 
@@ -212,15 +235,15 @@ function AgentConnectorCard({ provider }: { provider: AccountProvider }) {
     const form = event.currentTarget;
     const value = String(new FormData(form).get("value") ?? "");
     form.reset();
-    if (!runId || !value) return;
-    setAsk(undefined);
-    await post(`/api/live/agent/${runId}/answer`, { value });
+    if (!run.id || !value) return;
+    patch({ ask: undefined });
+    await post(`/api/live/agent/${run.id}/answer`, { value });
   };
 
   const human = async (result: "completed" | "declined") => {
-    if (!runId) return;
-    setHandoff(undefined);
-    await post(`/api/live/agent/${runId}/human`, { result });
+    if (!run.id) return;
+    patch({ handoff: undefined });
+    await post(`/api/live/agent/${run.id}/human`, { result });
   };
 
   const connected =
@@ -252,10 +275,7 @@ function AgentConnectorCard({ provider }: { provider: AccountProvider }) {
         busy={phase === "running"}
         {...(done ? { handoffs: done.handoffs ?? 0 } : {})}
         actionLabel={phase === "idle" ? "Create account" : "Start over"}
-        onConnect={() => {
-          reset();
-          setPhase("identify");
-        }}
+        onConnect={() => setRun({ ...idle, phase: "identify" })}
       />
       {phase !== "idle" && (
         <div className="agent-live" aria-live="polite">
@@ -392,11 +412,16 @@ function AgentConnectorCard({ provider }: { provider: AccountProvider }) {
   );
 }
 
-export function AgentConnectors() {
+export function AgentConnectors({
+  providers,
+}: {
+  providers: readonly AgentProvider[];
+}) {
+  if (!providers.length) return null;
   return (
     <section className="agent-connectors" aria-labelledby="agent-connectors">
       <h2 id="agent-connectors">Accounts the agent can register</h2>
-      {accountProviders.map((provider) => (
+      {providers.map((provider) => (
         <AgentConnectorCard key={provider.manifest.id} provider={provider} />
       ))}
     </section>
