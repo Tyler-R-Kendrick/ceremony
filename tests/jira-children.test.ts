@@ -835,6 +835,146 @@ test("Jira renews expired owner assignments without reviving old links or repeat
   assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
 });
 
+test("Jira retention preserves configured status until the later shared-app expiry without reviving the owner link", async (t) => {
+  const f = await fixture(t);
+  f.behavior.configured = false;
+  const hour = 3_600_000;
+  let now = 1;
+  const clockedStore: AsyncCeremonyStore = {
+    transaction: (work) =>
+      f.store.transaction((tx) => work({ ...tx, now: async () => now })),
+    close: async () => {},
+  };
+  const setup = new JiraSetupAssignments(clockedStore, {
+    scopes: ["read:jira-user"],
+    owner: async () => "owner",
+    authorize: async () => {},
+  });
+  const owner: ActorContext = {
+    ...f.actor,
+    subjectId: "owner",
+    capabilities: ["admin"],
+  };
+  const run = await f.create();
+  await f.advance(run.id, "app");
+  const current = await f.commands.snapshot(f.actor, run.id);
+  const assigned = await setup.request(f.actor, run.id, current.revision);
+  const pendingRun = await f.create();
+  await f.advance(pendingRun.id, "app");
+  const pendingState = await f.commands.snapshot(f.actor, pendingRun.id);
+  const pending = await setup.request(
+    f.actor,
+    pendingRun.id,
+    pendingState.revision,
+  );
+  now += 23 * hour;
+  await setup.configure(owner, assigned.id, assigned.revision, {
+    clientId: f.config.clientId,
+    clientSecret: f.config.clientSecret,
+  });
+  now += 2 * hour;
+  assert.equal((await setup.status(f.actor, run.id)).state, "configured");
+  await assert.rejects(setup.view(owner, assigned.id), /denied/);
+  assert.deepEqual(
+    await retainExpiredJiraSetup(clockedStore, f.actor.tenantId),
+    {
+      assignments: 1,
+      apps: 0,
+      indexes: 1,
+    },
+  );
+  assert.equal((await setup.status(f.actor, run.id)).state, "configured");
+  assert.equal(
+    (await setup.resolve(f.actor, run.id))?.clientId,
+    f.config.clientId,
+  );
+  assert.equal((await setup.status(f.actor, pendingRun.id)).state, "none");
+  await assert.rejects(setup.view(owner, pending.id), /denied/);
+  await assert.rejects(setup.view(owner, assigned.id), /denied/);
+  now = 1 + 47 * hour;
+  assert.equal((await setup.status(f.actor, run.id)).state, "unavailable");
+  assert.equal(await setup.resolve(f.actor, run.id), undefined);
+  assert.deepEqual(
+    await retainExpiredJiraSetup(clockedStore, f.actor.tenantId),
+    {
+      assignments: 1,
+      apps: 1,
+      indexes: 1,
+    },
+  );
+  assert.equal((await setup.status(f.actor, run.id)).state, "none");
+  assert.equal((await setup.status(f.actor, pendingRun.id)).state, "none");
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list(f.actor.tenantId, "audit")))
+      .length > 0,
+    true,
+  );
+  assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+});
+
+for (const appState of ["missing", "malformed", "different-owner"] as const)
+  test(`Jira retention does not preserve expired configured assignments for a ${appState} app`, async (t) => {
+    const f = await fixture(t);
+    f.behavior.configured = false;
+    let now = 1;
+    const clockedStore: AsyncCeremonyStore = {
+      transaction: (work) =>
+        f.store.transaction((tx) => work({ ...tx, now: async () => now })),
+      close: async () => {},
+    };
+    const setup = new JiraSetupAssignments(clockedStore, {
+      scopes: ["read:jira-user"],
+      owner: async () => "owner",
+      authorize: async () => {},
+    });
+    const owner: ActorContext = {
+      ...f.actor,
+      subjectId: "owner",
+      capabilities: ["admin"],
+    };
+    const run = await f.create();
+    await f.advance(run.id, "app");
+    const current = await f.commands.snapshot(f.actor, run.id);
+    const assigned = await setup.request(f.actor, run.id, current.revision);
+    now += 23 * 3_600_000;
+    await setup.configure(owner, assigned.id, assigned.revision, {
+      clientId: f.config.clientId,
+      clientSecret: f.config.clientSecret,
+    });
+    await f.store.transaction(async (tx) => {
+      const shared = (
+        await tx.list<Record<string, unknown>>(f.actor.tenantId, "artifact")
+      ).find((record) => record.id.startsWith("jira-shared-app:"));
+      assert.ok(shared);
+      const key = {
+        tenant: f.actor.tenantId,
+        kind: "artifact" as const,
+        id: shared.id,
+      };
+      if (appState === "missing") await tx.delete(key, shared.revision);
+      else
+        await tx.put(
+          key,
+          appState === "malformed"
+            ? { invalid: true }
+            : { ...shared.value, owner: "different-owner" },
+          shared.revision,
+        );
+    });
+    now += 2 * 3_600_000;
+    assert.equal((await setup.status(f.actor, run.id)).state, "unavailable");
+    assert.deepEqual(
+      await retainExpiredJiraSetup(clockedStore, f.actor.tenantId),
+      {
+        assignments: 1,
+        apps: 0,
+        indexes: 1,
+      },
+    );
+    assert.equal((await setup.status(f.actor, run.id)).state, "none");
+    assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+  });
+
 test("Jira expired assignment and shared-app records can be retained without deleting audit", async (t) => {
   const f = await fixture(t);
   f.behavior.configured = false;
