@@ -116,6 +116,20 @@ test("an unstated intent narrows nothing", () => {
   });
 });
 
+test("resolution validates the manifest before consulting availability", () => {
+  const manifest = build([{ id: "only", kind: "oauth-code" }]);
+  let calls = 0;
+  assert.throws(
+    () =>
+      explainCeremonySelection({ ...manifest, name: "" }, {}, () => {
+        calls++;
+        return "available";
+      }),
+    { name: "ZodError" },
+  );
+  assert.equal(calls, 0);
+});
+
 test("registration describes creating an account without outranking existing sign-in", () => {
   for (const settings of [{}, { contract: false }] as const) {
     const registration = build([
@@ -257,6 +271,43 @@ test("cost breaks a tie; it does not overturn the surface policy", () => {
   );
 });
 
+test("ranking ties use a reflexive and antisymmetric comparator", (t) => {
+  const manifest = build([
+    { id: "first", kind: "oauth-code" },
+    { id: "second", kind: "oauth-code" },
+  ]);
+  const sort = Array.prototype.sort;
+  let checked = 0;
+  const checkedSort = t.mock.fn(function (
+    this: unknown[],
+    compare?: (a: unknown, b: unknown) => number,
+  ) {
+    if (
+      compare &&
+      this.length === 2 &&
+      this.every(
+        (row) =>
+          typeof row === "object" &&
+          row !== null &&
+          "methodId" in row &&
+          "index" in row,
+      )
+    ) {
+      checked++;
+      for (const row of this) assert.equal(compare(row, row), 0);
+      assert.equal(compare(this[0], this[1]), -compare(this[1], this[0]));
+    }
+    return sort.call(this, compare);
+  });
+  try {
+    Array.prototype.sort = checkedSort;
+    assert.equal(explainCeremonySelection(manifest).selectedMethodId, "first");
+  } finally {
+    Array.prototype.sort = sort;
+  }
+  assert.equal(checked, 1);
+});
+
 test("app keys the host holds make a route preferable, never eligible", () => {
   const manifest = build([
     { id: "needs-keys", kind: "oauth-code", needs: ["CLIENT_SECRET"] },
@@ -283,6 +334,26 @@ test("app keys the host holds make a route preferable, never eligible", () => {
   );
 });
 
+test("optional and session configuration neither costs a stop nor asks the host", () => {
+  for (const [source, required] of [
+    ["host", false],
+    ["session-environment", true],
+    ["session-environment", false],
+  ] as const) {
+    const manifest = build([
+      { id: "first", kind: "oauth-code", needs: ["CLIENT_ID"] },
+      { id: "second", kind: "oauth-code" },
+    ]);
+    Object.assign(manifest.methods[0]!.contract!.configuration[0]!, {
+      source,
+      required,
+    });
+    const resolved = resolveConnection(manifestSchema.parse(manifest));
+    assert.equal(resolved.method.id, "first");
+    assert.deepEqual(resolved.missingConfiguration, []);
+  }
+});
+
 test("a route is named by what happens to a person, not by its protocol", () => {
   const manifest = build([
     { id: "oauth", kind: "oauth-code" },
@@ -304,14 +375,37 @@ test("a route is named by what happens to a person, not by its protocol", () => 
   // A manifest with no contract still resolves to a route rather than nothing.
   const bare = build([
     { id: "key", kind: "api-key", contract: false },
+    { id: "basic", kind: "basic", contract: false },
+    { id: "form", kind: "form", contract: false },
     { id: "anon", kind: "authmd-anonymous", contract: false },
     { id: "oauth", kind: "oauth-code", contract: false },
     { id: "device", kind: "device", contract: false },
   ]);
   assert.deepEqual(
     bare.methods.map((method) => routeFor(method)),
-    ["supplied-credential", "no-account", "provider-approval", "second-device"],
+    [
+      "supplied-credential",
+      "supplied-credential",
+      "supplied-credential",
+      "no-account",
+      "provider-approval",
+      "second-device",
+    ],
   );
+  assert.deepEqual(resolveConnection(bare).missingConfiguration, []);
+});
+
+test("claimed completion follows its contract instead of the anonymous flow kind", () => {
+  const manifest = build([
+    { id: "claimed", kind: "authmd-anonymous", anonymous: true },
+  ]);
+  manifest.methods[0]!.contract!.completion.ownership = ["claimed"];
+  const resolved = resolveConnection(manifestSchema.parse(manifest), {
+    identity: "personal",
+    interruptions: "at-most-one",
+  });
+  assert.equal(resolved.route, "provider-approval");
+  assert.equal(resolved.handoffs, 1);
 });
 
 test("a summary says what is about to happen and names no mechanism", () => {
@@ -338,13 +432,16 @@ test("an anonymous route interrupts nobody and a staged one counts every stop", 
     { id: "anon", kind: "authmd-anonymous", anonymous: true },
     { id: "staged", kind: "oauth-code", prerequisites: 2 },
     { id: "bare", kind: "device", contract: false },
+    { id: "bare-anon", kind: "authmd-anonymous", contract: false },
   ]);
-  const [anon, staged, bare] = manifest.methods;
+  const [anon, staged, bare, bareAnon] = manifest.methods;
   assert.equal(humanHandoffs(anon!), 0);
   assert.equal(startsWithoutAPerson(anon!), true);
   assert.equal(humanHandoffs(staged!), 3);
   // No contract to read: one stop is the floor, never zero.
   assert.equal(humanHandoffs(bare!), 1);
+  assert.equal(humanHandoffs(bareAnon!), 0);
+  assert.equal(startsWithoutAPerson(bareAnon!), true);
 });
 
 test("an unsupported surface is still reported per method", () => {

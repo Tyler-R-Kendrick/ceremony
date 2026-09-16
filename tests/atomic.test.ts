@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomBytes } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
   fieldSchema,
@@ -119,4 +120,35 @@ test("atomic: nested transaction rollback preserves the outer transaction", (t) 
     }),
   );
   assert.equal(db.get("outer", z.number()), 1);
+});
+
+test("atomic: nested transactions release their SQLite savepoints on success and failure", (t) => {
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  t.after(() => db.close());
+  // Inspect the real engine: outer commit would otherwise hide leaked savepoints.
+  const engine = Reflect.get(db, "db") as DatabaseSync;
+  assert.ok(engine instanceof DatabaseSync);
+  db.transaction(() => {
+    assert.equal(
+      db.transaction(() => {
+        db.put("committed", 1);
+        return "done";
+      }),
+      "done",
+    );
+    assert.throws(() => engine.exec("RELEASE ceremony_1"), /no such savepoint/);
+    assert.throws(
+      () =>
+        db.transaction(() => {
+          db.put("rolled-back", 2);
+          throw Error("fixture rollback");
+        }),
+      /fixture rollback/,
+    );
+    assert.throws(() => engine.exec("RELEASE ceremony_1"), /no such savepoint/);
+    assert.equal(db.get("rolled-back", z.number()), undefined);
+    db.put("outer", 3);
+  });
+  assert.equal(db.get("committed", z.number()), 1);
+  assert.equal(db.get("outer", z.number()), 3);
 });

@@ -25,6 +25,7 @@ import {
   type ActionEvent,
 } from "../src/core/execution.js";
 import { resolveCeremonyMethod } from "../src/core/resolution.js";
+import { registrationContractSchema } from "../src/core/connector-contracts.js";
 import {
   CeremonyDatabase,
   PrivateCredentialBroker,
@@ -43,6 +44,53 @@ const method = (kind: AuthMethod["kind"]) =>
   [...manifests, githubAppManifest]
     .flatMap((m) => m.methods)
     .find((m) => m.kind === kind)!;
+
+test("atomic: registration permits minting only passwords and reports duplicate identifiers", () => {
+  const contract = {
+    identifier: ["email"],
+    secret: "password",
+    mint: true,
+    createdBy: "this-ceremony",
+  };
+  assert.equal(registrationContractSchema.safeParse(contract).success, true);
+  assert.equal(
+    registrationContractSchema.safeParse({
+      ...contract,
+      createdBy: "provider-browser",
+    }).success,
+    true,
+  );
+  assert.equal(
+    registrationContractSchema.safeParse({ ...contract, createdBy: "" })
+      .success,
+    false,
+  );
+  for (const secret of ["none", "issued-token", "provider"]) {
+    assert.equal(
+      registrationContractSchema.safeParse({ ...contract, secret, mint: false })
+        .success,
+      true,
+    );
+    const rejected = registrationContractSchema.safeParse({
+      ...contract,
+      secret,
+    });
+    assert.equal(rejected.success, false);
+    if (!rejected.success)
+      assert.deepEqual(rejected.error.issues, [
+        { code: "custom", path: [], message: "Only a password may be minted" },
+      ]);
+  }
+  const duplicate = registrationContractSchema.safeParse({
+    ...contract,
+    identifier: ["email", "email"],
+  });
+  assert.equal(duplicate.success, false);
+  if (!duplicate.success)
+    assert.deepEqual(duplicate.error.issues, [
+      { code: "custom", path: ["identifier"], message: "Duplicate identifier" },
+    ]);
+});
 
 test("atomic: every method pair follows browser/headless policy independent of manifest ordering", () => {
   for (const surface of ["browser", "headless"] as const) {
