@@ -5,13 +5,14 @@ import {
   requiredStages,
   summarizeStage,
   coverageTotals,
+  failedTestFiles,
 } from "./verification-summary.js";
 import {
   profileFingerprint,
   browserVersions,
 } from "./verification-metadata.js";
 
-// Store only allowlisted command statistics, never provider/model/DOM diagnostics.
+// Store only allowlisted statistics/test inventory names, never raw diagnostics.
 const commands = requiredStages;
 const startedAt = new Date().toISOString();
 const profilePath =
@@ -101,6 +102,23 @@ for (const command of commands) {
     browsers: {},
     durationMs: Date.now() - start,
   };
+  if (command === "test:coverage" && record.exitCode !== 0) {
+    try {
+      const inventory = JSON.parse(
+        execFileSync(
+          process.execPath,
+          ["scripts/test.mjs", "all", "--inventory"],
+          {
+            encoding: "utf8",
+          },
+        ),
+      ).files;
+      record.failedTestFiles = failedTestFiles(output, inventory);
+    } catch {
+      // Inventory failure must not prevent retaining the original failed stage.
+      record.failedTestFiles = [];
+    }
+  }
   if (command === "test:e2e" && record.exitCode === 0) {
     try {
       const { chromium, firefox, webkit } = await import("playwright-core");
@@ -126,6 +144,8 @@ for (const command of commands) {
   );
   persist();
   if (record.exitCode !== 0) {
+    if (record.failedTestFiles?.length)
+      console.error(`Failed test files: ${record.failedTestFiles.join(", ")}`);
     console.error(
       `Run npm run ${command} for local diagnostics. Sanitized attempt retained at ${directory}/commands.json`,
     );

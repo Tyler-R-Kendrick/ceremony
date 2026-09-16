@@ -11,6 +11,23 @@ export const requiredStages = [
   "test:e2e",
 ] as const;
 export type VerificationStage = (typeof requiredStages)[number];
+
+/** Retain known test files only, never diagnostic messages or absolute prefixes. */
+export function failedTestFiles(output: string, inventory: readonly string[]) {
+  const locations = [
+    ...output
+      .replace(/\u001b\[[0-9;]*m/g, "")
+      .matchAll(
+        /^(?:test at |[ \t]*location: ['"])([^\r\n]+?):\d+:\d+['"]?[ \t]*$/gm,
+      ),
+  ].map((match) => match[1]!);
+  return inventory.filter((file) =>
+    locations.some(
+      (location) => location === file || location.endsWith(`/${file}`),
+    ),
+  );
+}
+
 export function coverageTotals(value: unknown) {
   if (
     !value ||
