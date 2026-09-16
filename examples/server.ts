@@ -27,6 +27,13 @@ import {
   type A2HOptions,
 } from "../src/server/index.js";
 import { flowKindSchema, entryContextSchema } from "../src/core/index.js";
+import { createAgentRoutes } from "./agent-routes.js";
+import { accountProviders } from "../scripts/gallery-accounts.js";
+import {
+  createSignatureAgent,
+  directoryMediaType,
+  directoryPath,
+} from "../src/core/web-bot-auth.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
 import { createReferenceProvider } from "./provider.js";
@@ -34,6 +41,9 @@ import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
+import { createCeremonyMcpHandler } from "../src/server/mcp.js";
+import { createMcpIdentity } from "../src/server/mcp-identity.js";
+import { createDevIssuer } from "./issuer.js";
 import type { TeachingRuntime } from "../src/server/teaching-runtime.js";
 
 export interface ReferenceOptions {
@@ -52,6 +62,13 @@ export interface ReferenceOptions {
     cloudflare?: { accountId: string; apiToken: string };
     a2h?: A2HOptions;
   };
+  /**
+   * Serve the MCP endpoint and a development identity issuer at publicOrigin.
+   * Needs an HTTPS origin — run a tunnel to this port and pass its URL as
+   * publicOrigin, so a chat client can reach it and the in-chat collector
+   * (which refuses anything but HTTPS) can mount.
+   */
+  mcp?: boolean;
 }
 export async function startReferenceApp(options: ReferenceOptions = {}) {
   if (process.env.NODE_ENV === "production")
@@ -61,6 +78,13 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
   const origin = options.publicOrigin ?? `http://127.0.0.1:${port}`;
   const issuer = `http://127.0.0.1:${providerPort}`;
   const provider = await createReferenceProvider({ issuer, appOrigin: origin });
+  // The agent's own identity, minted here, asking nobody for anything. Its
+  // public half is served below; every provider call it makes is signed with
+  // the private half, so a bot gate can recognise it instead of stopping a
+  // person. No account, no API token, no enrolment.
+  const agent = createSignatureAgent(origin);
+  // The agent's runs, started from a card and watched over a stream.
+  const agentRoutes = createAgentRoutes({ issuer });
   const credentials = new MemoryCredentialStore();
   const demoDatabase = new CeremonyDatabase(":memory:", randomBytes(32));
   const broker = new PrivateCredentialBroker(demoDatabase);
@@ -211,6 +235,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                 identityEndpoint: `${issuer}/agent/identity`,
                 claimEndpoint: `${issuer}/agent/identity/claim`,
                 allowLoopbackHttp: true,
+                agent,
               },
               credentials,
             ),
@@ -290,6 +315,44 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           },
         })
       : options.teaching;
+  // Built on first use rather than at startup: the issuer lives in this same
+  // process, so resolving it eagerly would mean waiting on a listener that is
+  // not accepting connections yet.
+  let mcpEndpoint:
+    | Promise<{ fetch(request: Request): Promise<Response | undefined> }>
+    | undefined;
+  const mcpSurface = () =>
+    (mcpEndpoint ??= (async () => {
+      const issuer = await createDevIssuer({
+        origin,
+        audiences: [`${origin}/mcp`],
+      });
+      const authenticate = await createMcpIdentity({
+        issuer: origin,
+        audience: `${origin}/mcp`,
+        metadata: issuer.discovery,
+        // Only ever true for a loopback origin; behind a tunnel the origin is
+        // HTTPS and this is false, which is the configuration to test with.
+        development: origin.startsWith("http://"),
+        mapClaims: async (claims) => ({
+          tenantId: "development",
+          subjectId: String(claims.sub),
+          capabilities: ["executor"],
+        }),
+      });
+      const mcp = createCeremonyMcpHandler(teaching!, {
+        resourceUrl: `${origin}/mcp`,
+        issuer: origin,
+        authenticate,
+        serverName: "Ceremony (development)",
+      });
+      return {
+        async fetch(request: Request) {
+          return (await issuer.handle(request)) ?? (await mcp.fetch(request));
+        },
+      };
+    })());
+
   const server = createServer(async (request, response) => {
     try {
       response.setHeader("x-content-type-options", "nosniff");
@@ -298,6 +361,40 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.headers.host !== new URL(origin).host)
         throw new CeremonyError("Unrecognized host", 403);
       const url = new URL(request.url ?? "/", origin);
+      if (
+        options.mcp &&
+        teaching &&
+        (url.pathname === "/mcp" ||
+          url.pathname.startsWith("/.well-known/") ||
+          url.pathname.startsWith("/oauth/"))
+      ) {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(request.headers))
+          if (typeof value === "string") headers.set(name, value);
+        const incoming = new Request(url, {
+          method: request.method ?? "GET",
+          headers,
+          ...(["POST", "PUT", "PATCH"].includes(request.method ?? "")
+            ? { body: await readBody(request) }
+            : {}),
+        });
+        const result = await (await mcpSurface()).fetch(incoming);
+        if (result) {
+          response.statusCode = result.status;
+          result.headers.forEach((value, name) =>
+            response.setHeader(name, value),
+          );
+          response.end(Buffer.from(await result.arrayBuffer()));
+          return;
+        }
+      }
+      // Where an origin looks to find out which agent is calling. Public by
+      // design: it carries a public key and nothing else.
+      if (request.method === "GET" && url.pathname === directoryPath) {
+        response.writeHead(200, { "content-type": directoryMediaType });
+        response.end(agent.document());
+        return;
+      }
       if (!url.pathname.startsWith("/api/")) {
         vite.middlewares(request, response, () =>
           json(response, { error: "Not found" }, 404),
@@ -434,6 +531,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           teachingAvailable: Boolean(teaching),
           teachingConnectors: teaching?.connectors ?? [],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
+          // The catalogue lives here, with the agent that drives it; the page
+          // is sent only what a card renders.
+          agentProviders: accountProviders.map((provider) => ({
+            manifest: provider.manifest,
+            own: provider.registration.createdBy === "this-ceremony",
+            ...(provider.credential
+              ? { credentialLabel: provider.credential.label }
+              : {}),
+          })),
         });
       if (request.method === "GET" && url.pathname === "/api/workflows/github")
         return json(response, githubWorkflows);
@@ -564,6 +670,15 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         );
         return;
       }
+      /**
+       * The agent's runs: started from a card, watched as a stream, answered
+       * through their own routes. Every step the driver takes is sent as it
+       * happens, so a card can show the ceremony being performed rather than
+       * a link to somewhere a person could go and perform it themselves.
+       * Steps are the driver's own value-free records: no credential, no code
+       * and no page markup travels down this stream.
+       */
+      if (await agentRoutes(request, response, url, owner)) return;
       if (url.pathname.startsWith("/api/live/ceremonies")) {
         if (!liveController)
           throw new CeremonyError(
@@ -940,6 +1055,7 @@ if (
     };
   const app = await startReferenceApp({
     teaching: true,
+    mcp: process.env.CEREMONY_MCP === "true",
     port: number.parse(process.env.CEREMONY_PORT ?? 4173),
     providerPort: number.parse(process.env.CEREMONY_PROVIDER_PORT ?? 4174),
     live,

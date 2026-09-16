@@ -275,6 +275,10 @@ for (const [mode, exitCode, expectedEffects] of [
       assert.equal(provider.effects.size, expectedEffects);
       // Simulate database-clock lease expiration after the dead process; no sleeping or clock selected by a client.
       const admin = new Pool(database.config);
+      // The fixture's server is stopped while this pool may still hold an idle
+      // client, and pg rethrows a pool `error` event that nothing is listening
+      // for. See the note in tests/persistence.test.ts.
+      admin.on("error", () => {});
       try {
         await admin.query("UPDATE ceremony_claims SET expires=0");
       } finally {

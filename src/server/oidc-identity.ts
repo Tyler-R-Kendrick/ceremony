@@ -52,7 +52,15 @@ export function persistentIdentityStore(
 export interface OidcIdentityConfig {
   origin: string;
   issuer: string;
-  clientId: string;
+  /**
+   * A pre-provisioned client id. Omit it and the identity registers its own
+   * client with the provider (RFC 7591) at startup: registering the client is
+   * the ceremony's own work, not something an operator wires up out of band and
+   * passes in through the environment.
+   */
+  clientId?: string;
+  /** Name shown to the provider when the client is registered dynamically. */
+  clientName?: string;
   clientSecret?: string;
   development?: boolean;
   sessionSeconds?: number;
@@ -71,6 +79,9 @@ const sessionSchema = z.strictObject({
   actor: actorContextSchema,
   expiresAt: z.number(),
 });
+/** A client the identity registered for itself, persisted so a restart or a
+ * second instance reuses the one registration instead of making another. */
+const registeredClientSchema = z.strictObject({ client_id: z.string().min(1) });
 const token = () => randomBytes(32).toString("base64url");
 const key = (kind: string, value: string) =>
   `${kind}:${createHash("sha256").update(value).digest("hex")}`;
@@ -94,40 +105,9 @@ export async function createOidcIdentity(
   }
 > {
   const origin = exactOrigin(config.origin, config.development);
+  const redirect = `${origin}/api/auth/callback`;
   const issuer = new URL(config.issuer);
-  if (
-    issuer.username ||
-    issuer.password ||
-    issuer.search ||
-    issuer.hash ||
-    (issuer.protocol !== "https:" &&
-      !(
-        config.development &&
-        issuer.protocol === "http:" &&
-        issuer.hostname === "127.0.0.1"
-      ))
-  )
-    throw new AuthorizationError("invalid_request");
-  if (
-    !config.clientId ||
-    (config.sessionSeconds !== undefined &&
-      (!Number.isInteger(config.sessionSeconds) ||
-        config.sessionSeconds < 60 ||
-        config.sessionSeconds > 86400))
-  )
-    throw new AuthorizationError("invalid_request");
-  const options = {
-    [oauth.allowInsecureRequests]: config.development === true,
-  };
-  const as = await oauth.processDiscoveryResponse(
-    issuer,
-    await oauth.discoveryRequest(issuer, options),
-  );
-  for (const endpoint of [
-    as.authorization_endpoint,
-    as.token_endpoint,
-    as.jwks_uri,
-  ]) {
+  const safeEndpoint = (endpoint: string | undefined): URL => {
     if (!endpoint) throw new AuthorizationError("invalid_request");
     const url = new URL(endpoint);
     if (
@@ -142,9 +122,86 @@ export async function createOidcIdentity(
         ))
     )
       throw new AuthorizationError("invalid_request");
+    return url;
+  };
+  if (
+    issuer.username ||
+    issuer.password ||
+    issuer.search ||
+    issuer.hash ||
+    (issuer.protocol !== "https:" &&
+      !(
+        config.development &&
+        issuer.protocol === "http:" &&
+        issuer.hostname === "127.0.0.1"
+      ))
+  )
+    throw new AuthorizationError("invalid_request");
+  if (
+    config.sessionSeconds !== undefined &&
+    (!Number.isInteger(config.sessionSeconds) ||
+      config.sessionSeconds < 60 ||
+      config.sessionSeconds > 86400)
+  )
+    throw new AuthorizationError("invalid_request");
+  const options = {
+    [oauth.allowInsecureRequests]: config.development === true,
+  };
+  const as = await oauth.processDiscoveryResponse(
+    issuer,
+    await oauth.discoveryRequest(issuer, options),
+  );
+  for (const endpoint of [
+    as.authorization_endpoint,
+    as.token_endpoint,
+    as.jwks_uri,
+  ])
+    safeEndpoint(endpoint);
+  // The client the ceremony authenticates as. When none was configured it
+  // registers one with the provider now (RFC 7591), rather than relying on a
+  // client somebody provisioned out of band. The registration is persisted, so
+  // a restart or a second instance reuses it instead of registering again.
+  let client: oauth.Client;
+  if (config.clientId) {
+    client = { client_id: config.clientId };
+  } else {
+    safeEndpoint(as.registration_endpoint);
+    const registrationKey = key(
+      "identity-client",
+      `${issuer.href}|${redirect}`,
+    );
+    const cached = registeredClientSchema.safeParse(
+      await store.get(registrationKey),
+    );
+    if (cached.success) {
+      client = { client_id: cached.data.client_id };
+    } else {
+      const registered = await oauth.processDynamicClientRegistrationResponse(
+        await oauth.dynamicClientRegistrationRequest(
+          as,
+          {
+            client_name: config.clientName ?? "Ceremony connection",
+            redirect_uris: [redirect],
+            grant_types: ["authorization_code"],
+            response_types: ["code"],
+            token_endpoint_auth_method: config.clientSecret
+              ? "client_secret_post"
+              : "none",
+            application_type: "web",
+          },
+          options,
+        ),
+      );
+      if (!registered.client_id)
+        throw new AuthorizationError("invalid_request");
+      client = { client_id: registered.client_id };
+      await store.put(
+        registrationKey,
+        { client_id: registered.client_id },
+        Date.now() + 365 * 24 * 60 * 60 * 1000,
+      );
+    }
   }
-  const client: oauth.Client = { client_id: config.clientId };
-  const redirect = `${origin}/api/auth/callback`;
   const prefix = config.development ? "ceremony_" : "__Host-ceremony_";
   const sessionName = `${prefix}session`;
   const stateName = `${prefix}login`;

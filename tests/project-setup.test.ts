@@ -138,7 +138,13 @@ test("project Node baseline and container CI agree without implicit credential e
   ])
     assert.equal(config[field], undefined);
   const ci = await readFile(join(root, ".github/workflows/verify.yml"), "utf8");
-  assert.equal(ci.match(/node-version-file: \.nvmrc/g)?.length, 2);
+  // Every job takes its Node from the same file, so a job cannot quietly run on
+  // a different runtime than the one the project claims to support. Counting
+  // the pins against the setup steps states that rule; counting them against a
+  // fixed number would only state how many jobs there were when it was written.
+  const setups = ci.match(/uses: actions\/setup-node@/g)?.length ?? 0;
+  assert.ok(setups > 0);
+  assert.equal(ci.match(/node-version-file: \.nvmrc/g)?.length, setups);
   const containerCI = await readFile(
     join(root, ".github/workflows/devcontainer.yml"),
     "utf8",

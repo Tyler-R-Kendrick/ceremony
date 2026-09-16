@@ -19,9 +19,20 @@ import {
   type CeremonyTemplate,
 } from "../core/index.js";
 import { BoundCeremony, validateTemplate } from "./templates.js";
+import { resolveQuietly } from "./connectors.js";
+import { routeFor, type ConnectionRoute } from "../core/resolution.js";
+
+/** The picker's own words: the card's vocabulary, phrased as a choice. */
+const routeChoices: Record<ConnectionRoute, string> = {
+  "provider-approval": "Approve at the provider",
+  "second-device": "Use a code on another device",
+  "supplied-credential": "Enter a credential I already have",
+  "no-account": "Start without an account",
+};
 export * from "./templates.js";
 export * from "./webmcp.js";
 export * from "./teaching.js";
+export * from "./connectors.js";
 export { createHttpTransport } from "../core/index.js";
 
 /** Use the exact same client with host-owned React components instead of OpenUI. */
@@ -124,6 +135,36 @@ export function CeremonyView({
   dir?: "ltr" | "rtl" | "auto";
 }) {
   const { snapshot, busy, error, manifest } = model;
+  // Manual selection is for authoring and gallery surfaces, which are looking
+  // at methods on purpose. Connecting is not one of those, so the route is
+  // resolved from what the host declared and described in terms of what is
+  // about to happen — never offered as a list of protocols to pick from.
+  const resolved = useMemo(
+    () => resolveQuietly(manifest, model.client.intent),
+    [manifest, model.client.intent],
+  );
+  // Two methods can reach the same route — an OAuth app and a GitHub App both
+  // end in a provider approval — and two identical options are not a choice.
+  // The connector's own label separates them, and only then, so a manifest
+  // offering genuinely different routes still never names a protocol.
+  const methodChoices = useMemo(() => {
+    const perRoute = new Map<ConnectionRoute, number>();
+    for (const method of manifest.methods) {
+      const route = routeFor(method);
+      perRoute.set(route, (perRoute.get(route) ?? 0) + 1);
+    }
+    return new Map(
+      manifest.methods.map((method) => {
+        const route = routeFor(method);
+        return [
+          method.id,
+          perRoute.get(route)! > 1
+            ? `${routeChoices[route]} · ${method.label}`
+            : routeChoices[route],
+        ];
+      }),
+    );
+  }, [manifest]);
   const id = useId();
   const region = useRef<HTMLDivElement>(null);
   const [selectedMethod, setSelectedMethod] = useState(
@@ -163,15 +204,27 @@ export function CeremonyView({
     >
       {!snapshot && !busy && (
         <>
-          <h2>Choose how to connect</h2>
+          <h2>Connect {manifest.name}</h2>
           <p className="supporting">
-            Select an available method to review its next step.
+            {resolved?.summary ??
+              "No route satisfies what this integration asks for."}
           </p>
+          {resolved && resolved.permissions.length > 0 && (
+            <ul
+              className="intent-permissions"
+              data-ceremony-part="permissions"
+              aria-label={`What ${manifest.name} will be able to do`}
+            >
+              {resolved.permissions.map((permission) => (
+                <li key={permission}>{permission}</li>
+              ))}
+            </ul>
+          )}
         </>
       )}
       {manifest.methods.length > 1 && (
         <div className="method-picker" data-ceremony-part="method-picker">
-          <label htmlFor={`${id}-method`}>Authentication method</label>
+          <label htmlFor={`${id}-method`}>How to connect</label>
           <div>
             <select
               id={`${id}-method`}
@@ -182,9 +235,13 @@ export function CeremonyView({
                 dispatch({ action: "start", methodId: event.target.value });
               }}
             >
+              {/* Named by what happens to the person, never by the
+                  protocol: "OAuth · PKCE" is a fact about an RFC, and the
+                  reader is trying to connect a service. The value stays the
+                  method id, so nothing downstream changes. */}
               {manifest.methods.map((method) => (
                 <option value={method.id} key={method.id}>
-                  {method.label}
+                  {methodChoices.get(method.id) ?? method.label}
                 </option>
               ))}
             </select>
