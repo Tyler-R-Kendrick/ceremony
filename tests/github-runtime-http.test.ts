@@ -8,6 +8,62 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { randomBytes } from "node:crypto";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 
+test("GitHub account discovery distinguishes existing, available and unavailable checks without asserting registration", async (t) => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  t.after(() => store.close());
+  const actor: ActorContext = {
+    tenantId: "tenant",
+    subjectId: "subject",
+    sessionId: "session",
+    actorKind: "human",
+    capabilities: ["executor"],
+  };
+  let status = 200;
+  let calls = 0;
+  const runtime = createGitHubRuntime({
+    store,
+    identity: { authenticate: async () => actor },
+    origin: "http://127.0.0.1:4173",
+    environment: "test",
+    configurationVersion: "v1",
+    authorize: async () => true,
+    github: {
+      fetch: async (url, init) => {
+        calls++;
+        assert.equal(url, "https://api.github.com/users/selected%2Faccount");
+        assert.equal(
+          new Headers(init?.headers).get("accept"),
+          "application/vnd.github+json",
+        );
+        assert.ok(init?.signal instanceof AbortSignal);
+        if (status === 0) throw new Error("provider unavailable");
+        return new Response(null, { status });
+      },
+    },
+  });
+  assert.equal(
+    await runtime.accountStatus!(actor, "jira", "selected/account"),
+    "unchecked",
+  );
+  assert.equal(calls, 0);
+  for (const [response, expected] of [
+    [200, "existing"],
+    [404, "available"],
+    [503, "unchecked"],
+    [0, "unchecked"],
+  ] as const) {
+    status = response;
+    assert.equal(
+      await runtime.accountStatus!(actor, "github", "selected/account"),
+      expected,
+    );
+  }
+  assert.equal(calls, 4);
+});
+
 test("AC-32: mounted callback resumes authorized surviving parent after original cancellation", async (t) => {
   const f = await teachingGitHubFixture(4498);
   t.after(() => f.close());
@@ -200,7 +256,7 @@ test("AC-14 AC-20: configured app and trusted continuation remain server-owned w
 });
 
 test("expired issued setup requires a ticket-bound human restart; no registration effect is replayed automatically", async (t) => {
-  const f = await teachingGitHubFixture(4497);
+  const f = await teachingGitHubFixture(4503);
   t.after(() => f.close());
   const cookie = f.sessionCookie("restart-owner");
   const request = (path: string, body?: unknown, selectedCookie = cookie) =>

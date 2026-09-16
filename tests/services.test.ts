@@ -44,6 +44,22 @@ test("characterization: live service manifests, workflows and missing-setup pres
   t.assert.snapshot([adapter(0).initial!(), adapter(1).initial!()]);
 });
 
+test("atomic: service registration rejects an incompatible pinned workflow before mounting", (t) => {
+  const { db, env } = fixture(t);
+  const workflow = serviceWorkflows.stripe!;
+  serviceWorkflows.stripe = {
+    ...workflow,
+    info: { ...workflow.info, version: "2.0.0" },
+  };
+  t.after(() => {
+    serviceWorkflows.stripe = workflow;
+  });
+  assert.throws(
+    () => serviceRegistrations(db, env),
+    /Connector workflow reference is unavailable or incompatible/,
+  );
+});
+
 test("atomic: service resume prefers completed work and excludes other services, owners, terminal and expired attempts", (t) => {
   const now = 2_000_000_000_000;
   t.mock.method(Date, "now", () => now);
@@ -110,6 +126,7 @@ test("atomic: completed service access outranks pending attempts for every datab
     ["pending-a", "input"],
     ["verified", "complete"],
     ["pending-b", "intro"],
+    ["verified-b", "complete"],
   ]) {
     db.put(`instance:${id}`, {
       owner: "alice",
@@ -128,6 +145,16 @@ test("atomic: completed service access outranks pending attempts for every datab
   ]) {
     order = permutation.map((id) => `instance:${id}`);
     assert.equal(registrations[0]!.resume!("alice", "api-key"), "verified");
+  }
+  // Equal-priority sessions retain enumeration order, including completed ties.
+  for (const candidates of [
+    ["pending-a", "pending-b"],
+    ["pending-b", "pending-a"],
+    ["verified", "verified-b"],
+    ["verified-b", "verified"],
+  ]) {
+    order = candidates.map((id) => `instance:${id}`);
+    assert.equal(registrations[0]!.resume!("alice", "api-key"), candidates[0]);
   }
 });
 
@@ -251,13 +278,21 @@ test("chaos: malformed and expired Supabase success cannot persist credentials o
     user: { id: "synthetic-user" },
   };
   let response: Record<string, unknown> = {};
-  const { adapter, db, env } = fixture(t, async () => Response.json(response));
+  let lookups = 0;
+  const { adapter, db, env } = fixture(t, async (input) => {
+    if (new URL(String(input)).pathname === "/auth/v1/user") {
+      lookups++;
+      return Response.json({ id: "synthetic-user" });
+    }
+    return Response.json(response);
+  });
   const bad: Record<string, unknown>[] = [
     { ...valid, expires_at: "invalid-expiry" },
     { ...valid, access_token: 123 },
     { ...valid, refresh_token: 123 },
     { ...valid, expires_at: now / 1000 },
     { ...valid, expires_at: now / 1000 - 1 },
+    { ...valid, expires_at: Number.MAX_VALUE },
   ];
   for (const field of ["access_token", "refresh_token", "user"]) {
     const value: Record<string, unknown> = { ...valid };
@@ -280,6 +315,11 @@ test("chaos: malformed and expired Supabase success cannot persist credentials o
     );
     assert.deepEqual(db.keys("connection:"), []);
     assert.deepEqual(env.read("alice"), {});
+    assert.equal(
+      lookups,
+      0,
+      "Invalid sessions must not authorize a user lookup",
+    );
   }
 });
 

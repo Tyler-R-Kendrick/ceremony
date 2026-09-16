@@ -92,7 +92,49 @@ test("SPEC-02: legacy manifests remain readable but cannot claim formal conforma
     );
   const unclassified = structuredClone(serviceManifests[0]!);
   delete unclassified.methods[0]!.fields[0]!.classification;
-  assert.equal(manifestSchema.safeParse(unclassified).success, false);
+  const unsupported = structuredClone(githubAppManifest);
+  delete unsupported.support;
+  const uncontracted = structuredClone(githubAppManifest);
+  delete uncontracted.methods[0]!.contract;
+  for (const invalid of [unclassified, unsupported, uncontracted]) {
+    const parsed = manifestSchema.safeParse(invalid);
+    assert.equal(parsed.success, false);
+    if (!parsed.success)
+      assert.deepEqual(parsed.error.issues, [
+        {
+          code: "custom",
+          message:
+            "Version 1 requires support, method contracts and explicit field classifications",
+          path: [],
+        },
+      ]);
+  }
+});
+
+test("SPEC-02: one incomplete method invalidates an otherwise conforming versioned manifest", () => {
+  const valid = structuredClone(serviceManifests[0]!);
+  valid.methods = [
+    valid.methods[0]!,
+    { ...structuredClone(valid.methods[0]!), id: "alternate" },
+  ];
+  assert.deepEqual(manifestSchema.parse(valid), valid);
+  for (const index of [0, 1])
+    for (const missing of ["contract", "classification"]) {
+      const invalid = structuredClone(valid);
+      if (missing === "contract") delete invalid.methods[index]!.contract;
+      else delete invalid.methods[index]!.fields[0]!.classification;
+      const parsed = manifestSchema.safeParse(invalid);
+      assert.equal(parsed.success, false, `${index}: ${missing}`);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          {
+            code: "custom",
+            message:
+              "Version 1 requires support, method contracts and explicit field classifications",
+            path: [],
+          },
+        ]);
+    }
 });
 
 test("SPEC-03: protected material, endpoints and invented authority cannot enter handoff definitions", () => {

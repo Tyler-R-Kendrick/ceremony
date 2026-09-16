@@ -133,3 +133,55 @@ test("GitHub-specific configuration revision ignores unrelated edits and conserv
     db.close();
   }
 });
+
+test("Stripe configuration is session-bound and changes revision only with its credential", (t) => {
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  t.after(() => db.close());
+  const env = new CeremonyEnvironment(db);
+  const read = (owner = "alice") =>
+    env.stripeConfiguration(owner, "session", "v1");
+  const empty = read();
+  assert.equal(empty.token, undefined);
+  env.update("alice", {
+    revision: 0,
+    values: { STRIPE_SECRET_KEY: "synthetic-key" },
+  });
+  const configured = read();
+  assert.equal(configured.token, "synthetic-key");
+  assert.notEqual(configured.version, empty.version);
+  assert.equal(read("bob").token, undefined);
+  assert.notEqual(
+    env.stripeConfiguration("alice", "other-session", "v1").version,
+    configured.version,
+  );
+  assert.notEqual(
+    env.stripeConfiguration("alice", "session", "v2").version,
+    configured.version,
+  );
+  env.update("alice", { revision: 1, values: { OTHER: "unrelated" } });
+  assert.deepEqual(read(), configured);
+  env.update("alice", {
+    revision: 2,
+    values: { STRIPE_SECRET_KEY: "synthetic-key" },
+  });
+  assert.deepEqual(read(), configured);
+  env.update("alice", {
+    revision: 3,
+    values: { STRIPE_SECRET_KEY: "rotated-key" },
+  });
+  const rotated = read();
+  assert.equal(rotated.token, "rotated-key");
+  assert.notEqual(rotated.version, configured.version);
+  env.update("alice", { revision: 4, remove: ["STRIPE_SECRET_KEY"] });
+  assert.equal(read().token, undefined);
+  assert.notEqual(read().version, rotated.version);
+  db.put('session-environment:"legacy"', {
+    revision: 8,
+    values: { STRIPE_SECRET_KEY: "legacy-key" },
+  });
+  const legacy = read("legacy");
+  assert.equal(legacy.token, "legacy-key");
+  assert.notEqual(legacy.version, empty.version);
+  env.update("legacy", { revision: 8, values: { OTHER: "changed" } });
+  assert.deepEqual(read("legacy"), legacy);
+});

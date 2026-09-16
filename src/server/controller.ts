@@ -473,6 +473,37 @@ export class CeremonyController {
       action: action.success ? action.data.action : "invalid",
     });
   }
+  private submissionValues(
+    owner: string,
+    id: string,
+    snapshot: CeremonySnapshot,
+    input: z.infer<typeof actionSchema>,
+  ): Record<string, string> {
+    const { revision, values, secretRef } = input;
+    try {
+      if (
+        (this.options.broker || snapshot.method.kind === "github-app") &&
+        snapshot.fields.some((field) => field.type === "password") &&
+        !secretRef
+      )
+        throw new CeremonyError(
+          "Use private credential collection and submit its reference",
+        );
+      return validateInput(
+        snapshot.fields,
+        secretRef
+          ? (this.options.broker?.consume(owner, id, revision, secretRef) ??
+              (() => {
+                throw new CeremonyError("Private collection unavailable");
+              })())
+          : values,
+      );
+    } catch (error) {
+      throw new CeremonyError(
+        error instanceof Error ? error.message : "Invalid fields",
+      );
+    }
+  }
   private async actLocked(
     owner: string,
     id: string,
@@ -511,30 +542,12 @@ export class CeremonyController {
         await this.run(instance, () => instance.adapter.begin());
         break;
       case "submit": {
-        let validated: Record<string, string>;
-        try {
-          if (
-            (this.options.broker || snapshot.method.kind === "github-app") &&
-            snapshot.fields.some((field) => field.type === "password") &&
-            !secretRef
-          )
-            throw new CeremonyError(
-              "Use private credential collection and submit its reference",
-            );
-          validated = validateInput(
-            snapshot.fields,
-            secretRef
-              ? (this.options.broker?.consume(owner, id, revision, secretRef) ??
-                  (() => {
-                    throw new CeremonyError("Private collection unavailable");
-                  })())
-              : values,
-          );
-        } catch (error) {
-          throw new CeremonyError(
-            error instanceof Error ? error.message : "Invalid fields",
-          );
-        }
+        const validated = this.submissionValues(
+          owner,
+          id,
+          snapshot,
+          parsed.data,
+        );
         await this.run(instance, () =>
           instance.adapter.submit(validated, snapshot.step === "claim"),
         );

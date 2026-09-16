@@ -1,4 +1,9 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+} from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
@@ -73,6 +78,9 @@ test("AC-44 AC-45: keyboard teaching controls, reduced motion, and expanded mobi
         });
       }
     }
+    await expect(start).toBeDisabled();
+    await tabTo(page, page.getByLabel("GitHub account or organization"));
+    await page.keyboard.type("fixture-owner");
     await tabTo(page, start);
     await page.keyboard.press("Enter");
     await expect(

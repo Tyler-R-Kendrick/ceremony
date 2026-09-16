@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
 test.use({
@@ -19,6 +19,9 @@ test("AC-20 AC-30: private recovery verifies an existing app after a lost one-sh
     await fixture.login(context, "recovery-author");
     await fixture.providerPages(context);
     await page.goto(`${fixture.origin}/`);
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     await page
       .getByRole("button", { name: "Teach this connection", exact: true })
       .click();

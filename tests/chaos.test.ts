@@ -11,6 +11,41 @@ import {
   githubAppManifest,
 } from "../src/server/github.js";
 import { CloudflareHumanBrowser } from "../src/server/cloudflare.js";
+import { pollDeviceToken } from "../src/server/authored-operations.js";
+
+for (const fault of ["disconnect", "timeout", 429, 500, 503] as const)
+  test(`chaos: discovered device polling ${fault} remains pending for scheduled retry`, async () => {
+    let calls = 0;
+    const result = await pollDeviceToken(
+      "https://provider.example/token",
+      { deviceCode: "private-code", clientId: "ceremony" },
+      async () => {
+        calls++;
+        if (fault === "disconnect")
+          throw new TypeError("private transport diagnostic");
+        if (fault === "timeout")
+          throw new DOMException(
+            "private transport diagnostic",
+            "TimeoutError",
+          );
+        return new Response("private transport diagnostic", {
+          status: fault,
+          headers: { "retry-after": "9" },
+        });
+      },
+    );
+    assert.deepEqual(result, {
+      status: "pending",
+      slow: true,
+      transient: true,
+      retryAfter: typeof fault === "number" ? 9 : 0,
+    });
+    assert.equal(
+      calls,
+      1,
+      "the scheduler, not an immediate replay, owns retry timing",
+    );
+  });
 
 for (const fault of [
   "disconnect",

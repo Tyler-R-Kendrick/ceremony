@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { createTeachingRuntime } from "../src/server/teaching-runtime.js";
+import {
+  createTeachingRuntime,
+  type TeachingRuntimeOptions,
+} from "../src/server/teaching-runtime.js";
+import {
+  saveAuthoredAccountIntent,
+  readAuthoredAccountIntent,
+  saveAuthoredLogin,
+  consumeAuthoredLogin,
+} from "../src/server/authored-operations.js";
 import { OperationRegistry } from "../src/server/recipes/registry.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
@@ -41,7 +50,11 @@ const recipe: RecipeDefinition = {
   ],
   outputs: {},
 };
-function fixture(connectorId?: string, continuation = true) {
+function fixture(
+  connectorId?: string,
+  continuation = true,
+  accountStatus?: TeachingRuntimeOptions["accountStatus"],
+) {
   const runContext = connectorId
     ? { ...context, provider: "fixture-provider", profile: "fixture-key" }
     : context;
@@ -91,6 +104,7 @@ function fixture(connectorId?: string, continuation = true) {
     registry,
     identity: { authenticate: async () => actor },
     origin: context.origin,
+    ...(accountStatus ? { accountStatus } : {}),
     ...(connectorId
       ? {
           connections: new Map([
@@ -145,6 +159,152 @@ function fixture(connectorId?: string, continuation = true) {
     },
   };
 }
+
+test("reused procedures carry only the current account selection and recheck its status", async (t) => {
+  const lookups: string[] = [];
+  const f = fixture("custom", false, async (_actor, connector, identifier) => {
+    assert.equal(connector, "custom");
+    lookups.push(identifier);
+    return "available";
+  });
+  t.after(() => f.store.close());
+  const source = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+  );
+  await saveAuthoredAccountIntent(f.store, actor, source.id, {
+    identifier: "selected@example.test",
+    status: "existing",
+  });
+  await saveAuthoredLogin(f.store, actor, source.id, {
+    username: "selected@example.test",
+    password: "private-source-password",
+  });
+  const run = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+    source.id,
+  );
+  assert.notEqual(run.id, source.id);
+  assert.deepEqual(lookups, ["selected@example.test"]);
+  assert.deepEqual(await readAuthoredAccountIntent(f.store, actor, run.id), {
+    identifier: "selected@example.test",
+    status: "available",
+  });
+  assert.equal(await consumeAuthoredLogin(f.store, actor, run.id), undefined);
+  assert.equal(run.nodes[0]?.state, "pending");
+  assert.equal(run.nodes[0]?.verified, false);
+  assert.equal(f.effects(), 0);
+  assert.equal(JSON.stringify(run).includes("selected@example.test"), false);
+  assert.equal(JSON.stringify(run).includes("private-source-password"), false);
+});
+
+test("account selection references reject foreign sessions and changed or cancelled authorization contexts before creating a run", async (t) => {
+  let lookups = 0;
+  const f = fixture("custom", false, async () => {
+    lookups++;
+    return "existing";
+  });
+  t.after(() => f.store.close());
+  const source = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+  );
+  await saveAuthoredAccountIntent(f.store, actor, source.id, {
+    identifier: "selected@example.test",
+    status: "existing",
+  });
+  for (const other of [
+    { ...actor, subjectId: "foreign" },
+    { ...actor, sessionId: "other-session" },
+    { ...actor, tenantId: "foreign-tenant" },
+  ])
+    await assert.rejects(
+      f.runtime.executeRecipe(
+        other,
+        recipe,
+        { target: "account" },
+        "custom",
+        source.id,
+      ),
+    );
+  const key = { tenant: actor.tenantId, kind: "run" as const, id: source.id };
+  const original = await f.store.transaction((tx) => tx.get<RunRecord>(key));
+  for (const change of [
+    { provider: "other" },
+    { profile: "other" },
+    { target: "other" },
+    { origin: "https://other.example" },
+    { configurationVersion: "other" },
+    { environment: "other" },
+    { status: "cancelled" as const },
+  ]) {
+    await f.store.transaction(async (tx) => {
+      const current = await tx.get<RunRecord>(key);
+      await tx.put(key, { ...original!.value, ...change }, current!.revision);
+    });
+    await assert.rejects(
+      f.runtime.executeRecipe(
+        actor,
+        recipe,
+        { target: "account" },
+        "custom",
+        source.id,
+      ),
+    );
+  }
+  assert.equal(lookups, 0);
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list(actor.tenantId, "run"))).length,
+    1,
+  );
+  assert.equal(f.effects(), 0);
+});
+
+test("selection reuse without provider lookup stays unchecked and legacy runs without a selection remain compatible", async (t) => {
+  const f = fixture("custom", false);
+  t.after(() => f.store.close());
+  const source = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+  );
+  const legacy = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+    source.id,
+  );
+  assert.equal(
+    await readAuthoredAccountIntent(f.store, actor, legacy.id),
+    undefined,
+  );
+  await saveAuthoredAccountIntent(f.store, actor, source.id, {
+    identifier: "selected@example.test",
+    status: "existing",
+  });
+  const run = await f.runtime.executeRecipe(
+    actor,
+    recipe,
+    { target: "account" },
+    "custom",
+    source.id,
+  );
+  assert.deepEqual(await readAuthoredAccountIntent(f.store, actor, run.id), {
+    identifier: "selected@example.test",
+    status: "unchecked",
+  });
+  assert.equal(f.effects(), 0);
+});
+
 test("host-registered connectors use the shared HTTP runtime and unknown connectors cannot create runs", async () => {
   const f = fixture("custom");
   try {

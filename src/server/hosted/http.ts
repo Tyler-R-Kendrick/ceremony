@@ -32,6 +32,51 @@ function browserIdentity(identity: HostIdentityAdapter): BrowserIdentity {
     throw new Error("Hosted identity unavailable");
   return identity as BrowserIdentity;
 }
+async function hostedIdentityCommand(
+  request: Request,
+  runtime: TeachingRuntime,
+  path: string,
+): Promise<Response> {
+  if (request.method !== "POST")
+    throw new AuthorizationError("invalid_request");
+  if (
+    !z
+      .object({})
+      .strict()
+      .safeParse(await boundedJson(request, 1024)).success
+  )
+    throw new AuthorizationError("invalid_request");
+  await reserveRequest(
+    runtime.store,
+    {
+      tenantId: "hosted",
+      subjectId: "authentication-boundary",
+      sessionId: "server",
+      actorKind: "system",
+      capabilities: [],
+    },
+    120,
+  );
+  const identity = browserIdentity(runtime.identity);
+  const response = path.endsWith("/login")
+    ? await identity.login(request)
+    : await identity.logout(request);
+  if (response.status !== 303)
+    throw new Error("Hosted identity response unavailable");
+  const headers = new Headers(response.headers);
+  headers.delete("location");
+  headers.set("cache-control", "no-store");
+  headers.set("referrer-policy", "no-referrer");
+  if (path.endsWith("/logout")) {
+    headers.set("clear-site-data", '"cache", "cookies", "storage"');
+    return Response.json({ signedOut: true }, { headers });
+  }
+  const authorizationUrl = response.headers.get("location");
+  if (!authorizationUrl)
+    throw new Error("Hosted identity response unavailable");
+  return Response.json({ authorizationUrl }, { headers });
+}
+
 /** One mounted hosted route, also used by real HTTP identity integration tests. Human auth responses are never agent tools. */
 export async function hostedHttp(
   request: Request,
@@ -50,8 +95,11 @@ export async function hostedHttp(
     // and answers only its own two paths, returning undefined for the rest.
     const handled = await mcp?.fetch(request);
     if (handled) return handled;
-    assertRequestBoundary(request, { origin: runtime.origin });
     const path = new URL(request.url).pathname;
+    // Teaching owns its boundary, including same-origin private human forms.
+    if (path.startsWith("/api/v1/teaching/"))
+      return await teachingHttp(request, runtime, startAgent);
+    assertRequestBoundary(request, { origin: runtime.origin });
     if (path === "/api/environment") {
       const actor = await authenticatedActor(request, runtime.identity);
       requireCapability(actor, "executor");
@@ -89,7 +137,20 @@ export async function hostedHttp(
         { headers: { "cache-control": "no-store" } },
       );
     }
-    if (path === "/api/config" && request.method === "GET")
+    if (path === "/api/config" && request.method === "GET") {
+      let authored: Awaited<
+        ReturnType<TeachingRuntime["authoring"]["listManifests"]>
+      > = [];
+      try {
+        const actor = await authenticatedActor(request, runtime.identity);
+        authored = await runtime.authoring.listManifests(actor);
+      } catch {
+        authored = [];
+      }
+      const connectors = [
+        ...runtime.connectors,
+        ...authored.map((item) => item.id),
+      ];
       return Response.json(
         {
           manifests: [githubAppManifest],
@@ -97,60 +158,24 @@ export async function hostedHttp(
             githubAppManifest,
             ...serviceManifests,
             jiraManifest,
-          ].filter((manifest) => runtime.connectors.includes(manifest.id)),
+            ...authored,
+          ].filter((manifest) => connectors.includes(manifest.id)),
           liveAvailable: true,
           teachingAvailable: true,
-          teachingConnectors: runtime.connectors,
+          teachingConnectors: connectors,
           generationAvailable: false,
         },
         { headers: { "cache-control": "no-store" } },
       );
+    }
     if (path === "/api/workflows/github" && request.method === "GET")
       return Response.json(githubWorkflows, {
         headers: { "cache-control": "no-store" },
       });
     if (path === "/api/auth/callback")
       return await browserIdentity(runtime.identity).callback(request);
-    if (path === "/api/auth/login" || path === "/api/auth/logout") {
-      if (request.method !== "POST")
-        throw new AuthorizationError("invalid_request");
-      if (
-        !z
-          .object({})
-          .strict()
-          .safeParse(await boundedJson(request, 1024)).success
-      )
-        throw new AuthorizationError("invalid_request");
-      await reserveRequest(
-        runtime.store,
-        {
-          tenantId: "hosted",
-          subjectId: "authentication-boundary",
-          sessionId: "server",
-          actorKind: "system",
-          capabilities: [],
-        },
-        120,
-      );
-      const identity = browserIdentity(runtime.identity);
-      const response = path.endsWith("/login")
-        ? await identity.login(request)
-        : await identity.logout(request);
-      if (response.status !== 303)
-        throw new Error("Hosted identity response unavailable");
-      const headers = new Headers(response.headers);
-      headers.delete("location");
-      headers.set("cache-control", "no-store");
-      headers.set("referrer-policy", "no-referrer");
-      if (path.endsWith("/logout")) {
-        headers.set("clear-site-data", '"cache", "cookies", "storage"');
-        return Response.json({ signedOut: true }, { headers });
-      }
-      const authorizationUrl = response.headers.get("location");
-      if (!authorizationUrl)
-        throw new Error("Hosted identity response unavailable");
-      return Response.json({ authorizationUrl }, { headers });
-    }
+    if (path === "/api/auth/login" || path === "/api/auth/logout")
+      return await hostedIdentityCommand(request, runtime, path);
     return await teachingHttp(request, runtime, startAgent);
   } catch (error) {
     const status =

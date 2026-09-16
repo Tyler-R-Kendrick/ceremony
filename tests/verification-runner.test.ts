@@ -4,12 +4,61 @@ import {
   summarizeStage,
   requiredStages,
   coverageTotals,
+  failedTestFiles,
 } from "../scripts/verification-summary.js";
 import {
   browserVersions,
   profileFingerprint,
 } from "../scripts/verification-metadata.js";
 import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+
+test("OPS: failed test diagnostics retain only known inventory names", () => {
+  const inventory = ["tests/one.test.ts", "tests/nested/two.test.ts"];
+  const output = [
+    "test at tests/one.test.ts:12:3",
+    "private-provider-error password=synthetic-secret",
+    "  location: '/private-user/checkout/tests/nested/two.test.ts:2:8'",
+    "test at tests/private-secret.test.ts:1:1",
+    "test at tests/one.test.ts:13:1",
+    "test at tests/one.test.ts:12:3 private-secret",
+    "provider says test at tests/one.test.ts:12:3",
+  ].join("\n");
+  assert.deepEqual(failedTestFiles(output, inventory), inventory);
+  assert.deepEqual(failedTestFiles(output, []), []);
+  assert.deepEqual(failedTestFiles("private-provider-error", inventory), []);
+  assert.deepEqual(
+    failedTestFiles(
+      "\u001b[31mtest at tests/one.test.ts:1:2\u001b[0m",
+      inventory,
+    ),
+    [inventory[0]],
+  );
+});
+
+test("OPS: actual Node assertion failures identify a file without retaining diagnostics", () => {
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const fixture = "tests/fixtures/runner-sentinel.ts";
+  for (const reporter of ["spec", "tap"]) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--no-experimental-webstorage",
+        "--import",
+        "tsx",
+        "--test",
+        `--test-reporter=${reporter}`,
+        fixture,
+      ],
+      { encoding: "utf8", env: environment, timeout: 15_000 },
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
+    assert.deepEqual(failedTestFiles(result.stdout, [fixture]), [fixture]);
+  }
+});
 
 test("OPS: runtime metadata fingerprints actual profile and never substitutes unavailable browser versions", async () => {
   const profile = JSON.parse(

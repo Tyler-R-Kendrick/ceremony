@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, cp, access } from "node:fs/promises";
 import { tmpdir } from "node:os";

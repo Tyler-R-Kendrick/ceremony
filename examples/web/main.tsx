@@ -142,9 +142,7 @@ function App() {
         {studioOpened && (
           <div hidden={tab !== "studio"}>
             <Suspense fallback={<p role="status">Loading authoring tools…</p>}>
-              <WorkflowStudio
-                generationAvailable={config?.generationAvailable ?? false}
-              />
+              <WorkflowStudio />
             </Suspense>
           </div>
         )}
@@ -180,13 +178,12 @@ function App() {
                       <span>
                         <strong>{item.name}</strong>
                         <small>
-                          {liveMode
-                            ? item.id === "github"
-                              ? "App setup · repository access"
-                              : item.id === "jira"
-                                ? "OAuth consent"
-                                : connectorDetails[item.id]?.summary
-                            : connectorDetails[item.id]?.summary}
+                          {item.id === "github" && liveMode
+                            ? "App setup · repository access"
+                            : item.id === "jira" && liveMode
+                              ? "OAuth consent"
+                              : (connectorDetails[item.id]?.summary ??
+                                item.description)}
                         </small>
                       </span>
                     </button>
@@ -268,6 +265,19 @@ function App() {
                   <TeachingConnection
                     key={connector.id}
                     connectorId={connector.id}
+                    onDeleted={() => {
+                      void fetch("/api/config")
+                        .then((response) => response.json())
+                        .then((value) => {
+                          const next = configSchema.parse(value);
+                          setConfig(next);
+                          const remaining =
+                            next.teachingConnectors.find(
+                              (id) => id !== connector.id,
+                            ) ?? next.liveManifests[0]?.id;
+                          if (remaining) selectConnector(remaining);
+                        });
+                    }}
                   />
                 ) : liveMode && !config.liveAvailable ? (
                   <div className="ceremony">

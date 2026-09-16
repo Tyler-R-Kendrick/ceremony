@@ -255,6 +255,43 @@ test("OPS hosted private routes reject invalid fields, stale writes, agent actor
       async () => {},
     );
   try {
+    const mcpResponse = Response.json({ transport: "mcp" });
+    const mcp = {
+      fetch: async (request: Request) =>
+        new URL(request.url).pathname === "/mcp" ? mcpResponse : undefined,
+    };
+    assert.equal(
+      await hostedHttp(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+        runtime,
+        async () => {},
+        undefined,
+        mcp,
+      ),
+      mcpResponse,
+      "MCP owns its bearer boundary before browser Origin validation",
+    );
+    assert.equal(
+      (
+        await hostedHttp(
+          new Request(`${origin}/api/environment`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          }),
+          runtime,
+          async () => {},
+          undefined,
+          mcp,
+        )
+      ).status,
+      403,
+      "MCP fallthrough cannot bypass browser Origin validation",
+    );
     assert.equal((await call("/api/workflows/github")).status, 200);
     assert.equal(
       (await call("/api/environment", undefined, "DELETE")).status,

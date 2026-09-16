@@ -1,5 +1,6 @@
-import { chromium, type Browser } from "playwright-core";
+import type { Browser } from "playwright-core";
 import { z } from "zod";
+import { chromium } from "./playwright.js";
 import { CeremonyError } from "./controller.js";
 import { CeremonyDatabase } from "./storage.js";
 

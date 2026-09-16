@@ -30,7 +30,8 @@
                   "oauth-code",
                   "device",
                   "authmd-anonymous",
-                  "github-app"
+                  "github-app",
+                  "account-registration"
                 ]
               },
               "fields": {
@@ -397,7 +398,8 @@
               "oauth-code",
               "device",
               "authmd-anonymous",
-              "github-app"
+              "github-app",
+              "account-registration"
             ]
           },
           "screens": {

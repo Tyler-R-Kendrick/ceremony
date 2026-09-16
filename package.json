@@ -89,8 +89,10 @@
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
     "test:fuzz": "node --import tsx --test tests/fuzz.test.ts",
     "test:chaos": "node --import tsx --test tests/chaos.test.ts",
-    "test:coverage": "c8 --all --include 'src/**/*.ts' --include 'src/**/*.tsx' --check-coverage --lines 90 --statements 90 --branches 80 --functions 90 --reporter text --reporter json-summary --reports-dir artifacts/coverage node scripts/test.mjs all",
-    "test:mutation": "stryker run",
+    "test:coverage": "c8 --all --include 'src/**/*.ts' --include 'src/**/*.tsx' --check-coverage --lines 90 --statements 90 --branches 80 --functions 90 --reporter text --reporter json-summary --reporter json --reports-dir artifacts/coverage node scripts/test.mjs all",
+    "test:crap": "npm run test:coverage && node --import tsx scripts/crap.ts",
+    "test:auth:mutation": "stryker run stryker.auth.config.mjs && stryker run stryker.snapshot.config.mjs",
+    "test:mutation": "node --import tsx scripts/verify-mutation.ts",
     "test:security:mutation": "stryker run stryker.security.config.mjs",
     "test:e2e": "playwright test",
     "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
@@ -110,6 +112,7 @@
     "pg": "8.23.0",
     "playwright-core": "^1.63.0",
     "stripe": "^22.6.1",
+    "undici": "7.29.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {

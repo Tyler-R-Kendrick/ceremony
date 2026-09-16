@@ -3,6 +3,7 @@ import {
   defaultTemplate,
   fieldsFor,
   flowKinds,
+  manifestSchema,
   snapshotSchema,
   type AuthMethod,
   type CeremonySnapshot,
@@ -13,6 +14,10 @@ import {
 import { manifests } from "../examples/manifests.js";
 import { githubAppManifest } from "../src/server/github.js";
 import { authScenarios } from "../tests/doubles/auth-provider/scenarios.js";
+import {
+  applyProviderProposal,
+  newConnectorProject,
+} from "../src/core/connector-authoring.js";
 
 /**
  * The data behind the published catalogue.
@@ -86,14 +91,21 @@ export const journeys: Record<FlowKind, readonly Step[]> = {
   "api-key": ["intro", "input", "complete"],
   basic: ["intro", "input", "complete"],
   form: ["intro", "input", "complete"],
+  "account-registration": ["intro", "input", "complete"],
 };
 
 /** Where an attempt stops instead of finishing. Shared by every flow. */
 export const walls: readonly Step[] = ["error", "cancelled", "expired"];
 
+const registrationProject = newConnectorProject();
+applyProviderProposal(registrationProject, "example", {
+  methods: ["account-registration"],
+});
+
 export const everyManifest: readonly ConnectorManifest[] = [
   ...manifests,
   githubAppManifest,
+  manifestSchema.parse(registrationProject.manifest),
 ];
 
 /** A real connector and method for each kind, never a manifest written here. */

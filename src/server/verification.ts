@@ -205,6 +205,17 @@ function coversBoundary(
     )
   );
 }
+function capabilityDisabled(
+  id: string,
+  capabilities: VerificationConfiguration["capabilities"],
+): boolean {
+  return (
+    (id === "AC-40" && !capabilities.nativeWebMCP) ||
+    (id === "LIVE-02" && !capabilities.inAppAgent) ||
+    (id === "LIVE-04" && !capabilities.installedPwa) ||
+    (id === "LIVE-05" && !capabilities.remoteBrowser)
+  );
+}
 /** Results are derived from executed outcomes. Earlier failed attempts remain failures, not hidden retries. */
 export function deriveVerification(input: {
   commit: string;
@@ -239,12 +250,7 @@ export function deriveVerification(input: {
               : "local-integration") as VerificationResult["cases"][number]["environment"],
         evidencePaths: [] as string[],
       };
-      if (
-        (id === "AC-40" && !config.capabilities.nativeWebMCP) ||
-        (id === "LIVE-02" && !config.capabilities.inAppAgent) ||
-        (id === "LIVE-04" && !config.capabilities.installedPwa) ||
-        (id === "LIVE-05" && !config.capabilities.remoteBrowser)
-      )
+      if (capabilityDisabled(id, config.capabilities))
         return {
           ...base,
           status: "NOT_REQUESTED",

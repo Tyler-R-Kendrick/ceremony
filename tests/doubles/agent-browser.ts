@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { chromium } from "playwright-core";
 import {
   snapshotPageSource,
   type PageSnapshot,
@@ -109,7 +110,13 @@ export function createAgentBrowserPage(
       ["--session", options.session, ...args],
       {
         maxBuffer: 32 * 1024 * 1024,
-        env: { ...process.env, PATH: searchPath },
+        env: {
+          ...process.env,
+          PATH: searchPath,
+          AGENT_BROWSER_EXECUTABLE_PATH:
+            process.env["AGENT_BROWSER_EXECUTABLE_PATH"] ??
+            chromium.executablePath(),
+        },
       },
     );
     return stdout.trim();

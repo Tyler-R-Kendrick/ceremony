@@ -306,12 +306,12 @@ export class AsyncJiraChildren {
   ) {
     await this.authorize(context);
     return this.store.transaction(async (tx) => {
-      await this.assertExecutionFence(context, tx);
       const run = await tx.get<RunRecord>({
         tenant: context.actor.tenantId,
         kind: "run",
         id: context.runId,
       });
+      await this.assertExecutionFence(context, tx);
       const command = await tx.get<{
         state: string;
         runId: string;
@@ -425,6 +425,11 @@ export class AsyncJiraChildren {
           try {
             await this.authorize(context);
             await this.store.transaction(async (tx) => {
+              const run = await tx.get<RunRecord>({
+                tenant: context.actor.tenantId,
+                kind: "run",
+                id: context.runId,
+              });
               await this.assertExecutionFence(context, tx);
               const command = await tx.get<{
                 state: string;
@@ -435,11 +440,6 @@ export class AsyncJiraChildren {
                 tenant: context.actor.tenantId,
                 kind: "command",
                 id: context.commandId,
-              });
-              const run = await tx.get<RunRecord>({
-                tenant: context.actor.tenantId,
-                kind: "run",
-                id: context.runId,
               });
               const node = run?.value.nodes.find(
                 (node) => node.id === context.nodeId,

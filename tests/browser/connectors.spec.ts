@@ -1,7 +1,78 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { startReferenceApp } from "../../examples/server.js";
+import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
+
+test("GitHub connect collects the account before starting", async ({
+  page,
+}) => {
+  const fixture = await teachingGitHubFixture(4590, {
+    browser: {
+      complete: async (input) =>
+        input.credentials?.password
+          ? { status: "credentials" }
+          : { status: "blocked", reason: "no-form" },
+    },
+  });
+  try {
+    await fixture.login(page.context(), "browser-account-owner");
+    await page.goto(fixture.origin);
+    const account = page.getByLabel("GitHub account or organization");
+    const connect = page.getByRole("button", {
+      name: "Connect GitHub",
+      exact: true,
+    });
+    await expect(account).toBeVisible();
+    await expect(connect).toBeDisabled();
+    let body: Record<string, unknown> | undefined;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        request.url().endsWith("/api/v1/teaching/runs")
+      )
+        body = request.postDataJSON();
+    });
+    await account.fill("fixture-owner");
+    await connect.click();
+    await expect
+      .poll(() => body)
+      .toMatchObject({
+        connectorId: "github",
+        target: "fixture-owner",
+        account: "fixture-owner",
+      });
+    await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill("fixture-private-password");
+    const form = page
+      .locator("form")
+      .filter({ has: page.getByLabel("Password", { exact: true }) });
+    const humanResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/human"),
+    );
+    await form.getByRole("button").click();
+    const submitted = await humanResponse;
+    expect(submitted.request().headers().origin).toBe(fixture.origin);
+    expect(
+      submitted.status(),
+      submitted.status() === 303 ? undefined : await submitted.text(),
+    ).toBe(303);
+    await expect(
+      page.getByRole("region", { name: "Connection and reusable steps" }),
+    ).toContainText("Prepare GitHub App");
+    await expect(
+      page.getByText("Your account does not have permission for this action.", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  } finally {
+    await fixture.close();
+  }
+});
 
 test("the service collection starts real ceremonies with inline prerequisites", async ({
   page,
@@ -18,17 +89,43 @@ test("the service collection starts real ceremonies with inline prerequisites", 
   await expect(
     page.getByRole("link", { name: "Connect a real GitHub App" }),
   ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Connect GitHub", exact: true })
-    .click();
-  const signup = page.getByRole("link", {
-    name: "Create your GitHub account (opens a new tab)",
+  let githubRequest: Record<string, unknown> | undefined;
+  await page.route("**/api/v1/teaching/runs", async (route) => {
+    githubRequest = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "run:github-account",
+        provider: "github",
+        status: "active",
+        revision: 1,
+        nodes: [
+          {
+            id: "provider-account",
+            operationId: "authored.register-account",
+            state: "awaiting-human",
+            verified: false,
+          },
+        ],
+        human: {
+          reason: "session",
+          account: "fixture-owner",
+          fields: ["account", "password"],
+        },
+      }),
+    });
   });
-  await expect(signup).toHaveAttribute("href", "https://github.com/signup");
-  await expect(signup).toHaveAttribute("target", "_blank");
-  await expect(signup).toHaveAttribute("rel", "noopener noreferrer");
+  const connectGitHub = page.getByRole("button", {
+    name: "Connect GitHub",
+    exact: true,
+  });
+  await expect(connectGitHub).toBeDisabled();
+  await expect(page.getByLabel("GitHub account or organization")).toBeVisible();
   await expect(
-    page.getByText("signup alone does not", { exact: false }),
+    page.getByText("available handles start isolated registration", {
+      exact: false,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
@@ -37,12 +134,19 @@ test("the service collection starts real ceremonies with inline prerequisites", 
     }),
   ).toHaveCount(0);
   await page.getByLabel("GitHub account or organization").fill("fixture-owner");
-  await page
-    .getByRole("button", { name: "Connect GitHub", exact: true })
-    .click();
+  await connectGitHub.click();
+  await expect
+    .poll(() => githubRequest)
+    .toMatchObject({
+      connectorId: "github",
+      target: "fixture-owner",
+      account: "fixture-owner",
+    });
   await expect(
     page.getByRole("region", { name: "Connection and reusable steps" }),
-  ).toContainText("Prepare GitHub App — your participation is needed");
+  ).toContainText("The account exists. Supply its password");
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+  await page.unroute("**/api/v1/teaching/runs");
   const services = page.getByRole("complementary", {
     name: "Available services",
   });
@@ -59,7 +163,9 @@ test("the service collection starts real ceremonies with inline prerequisites", 
     "Open or create your Stripe account — your participation is needed",
   );
   await expect(
-    page.getByRole("link", { name: "Continue with Stripe" }),
+    page
+      .locator(".teaching-actions")
+      .getByRole("link", { name: "Continue with Stripe" }),
   ).toHaveAttribute("href", /\/api\/v1\/teaching\/stripe\/[^/]+\/human$/);
   await services.getByRole("button", { name: /Supabase/ }).click();
   await expect(
@@ -78,7 +184,9 @@ test("the service collection starts real ceremonies with inline prerequisites", 
     "Set up your Supabase project — your participation is needed",
   );
   await expect(
-    page.getByRole("link", { name: "Continue with Supabase" }),
+    page
+      .locator(".teaching-actions")
+      .getByRole("link", { name: "Continue with Supabase" }),
   ).toHaveAttribute("href", /\/api\/v1\/teaching\/supabase\/[^/]+\/human$/);
   expect(starts.length).toBeGreaterThanOrEqual(3);
   expect(

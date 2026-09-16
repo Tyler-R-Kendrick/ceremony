@@ -13,6 +13,62 @@ import {
 } from "../src/core/index.js";
 import { manifests } from "../examples/manifests.js";
 import { githubAppManifest } from "../src/server/github.js";
+import { parseHTML } from "linkedom";
+
+test("rendering: extracted method picker preserves route labels and distinct same-route choices", () => {
+  const manifest = {
+    ...githubAppManifest,
+    methods: [
+      githubAppManifest.methods[0]!,
+      {
+        ...githubAppManifest.methods[0]!,
+        id: "second-app",
+        label: "Second app",
+      },
+    ],
+  };
+  const client = createCeremonyClient({ manifest, selection: "manual" });
+  try {
+    const { document } = parseHTML(
+      renderToStaticMarkup(
+        createElement(CeremonyView, {
+          model: {
+            snapshot: undefined,
+            busy: false,
+            refreshing: false,
+            error: "",
+            client,
+            execute: client.execute,
+            manifest,
+          },
+        }),
+      ),
+    );
+    assert.equal(
+      document.querySelector(".method-picker label")?.textContent,
+      "How to connect",
+    );
+    assert.deepEqual(
+      Array.from(document.querySelectorAll("option"), (option) => [
+        option.getAttribute("value"),
+        option.textContent,
+      ]),
+      [
+        [
+          manifest.methods[0]!.id,
+          `Approve at the provider · ${manifest.methods[0]!.label}`,
+        ],
+        ["second-app", "Approve at the provider · Second app"],
+      ],
+    );
+    assert.equal(
+      document.querySelector("h2")?.textContent,
+      `Connect ${manifest.name}`,
+    );
+  } finally {
+    client.dispose();
+  }
+});
 
 for (const manifest of [...manifests, githubAppManifest]) {
   for (const method of manifest.methods)

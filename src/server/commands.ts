@@ -16,6 +16,7 @@ import {
   OperationRegistry,
   type OperationContext,
   type OperationResult,
+  type RegisteredOperation,
 } from "./recipes/registry.js";
 import { appendSemanticTransition } from "./demonstrations.js";
 
@@ -124,9 +125,19 @@ export class ProtectedCommandService {
         node.operationId,
         node.operationVersion,
       );
+      const authored =
+        operation.contract.provider === "authored" &&
+        operation.contract.profile === "authored" &&
+        context.profile === "authored";
+      const githubAccountBootstrap =
+        node.operationId === "authored.register-account" &&
+        context.provider === "github" &&
+        context.profile === "github-app";
       if (
-        operation.contract.provider !== context.provider ||
-        operation.contract.profile !== context.profile ||
+        (!authored &&
+          !githubAccountBootstrap &&
+          (operation.contract.provider !== context.provider ||
+            operation.contract.profile !== context.profile)) ||
         node.dependsOn.some((id) => !prior.has(id))
       )
         throw new AuthorizationError("denied");
@@ -269,6 +280,7 @@ export class ProtectedCommandService {
               nodeId: node.id,
               commandId: `reuse:${runId}`,
               effectId: `reuse:${runId}`,
+              provider: run.provider,
               target: run.target,
               configurationVersion: run.configurationVersion,
               origin: run.origin,
@@ -286,8 +298,8 @@ export class ProtectedCommandService {
       }
     }
     await this.store.transaction(async (tx) => {
-      await tx.assertFence(initial.fence);
       const current = await this.owned(tx, actor, runId);
+      await tx.assertFence(initial.fence);
       if (
         current.revision !== initial.run.revision ||
         current.value.status === "cancelled"
@@ -344,6 +356,45 @@ export class ProtectedCommandService {
       },
       signal,
     );
+  }
+  private async resolveInputs(
+    tx: AsyncTransaction,
+    actor: ActorContext,
+    run: RunRecord,
+    node: RunPlanNode,
+    operation: RegisteredOperation,
+  ) {
+    const outputs = new Map<string, Record<string, unknown>>();
+    for (const dependency of node.dependsOn) {
+      const complete = await tx.get<NodeRecord>(
+        key(actor, "node", `${run.id}:${dependency}`),
+      );
+      if (!complete?.value.verified || complete.value.state !== "complete")
+        throw new AuthorizationError("denied");
+      outputs.set(dependency, complete.value.outputs);
+    }
+    const values: Record<string, unknown> = {};
+    for (const [name, binding] of Object.entries(node.bindings)) {
+      if (!Object.hasOwn(operation.contract.inputs, name))
+        throw new AuthorizationError("invalid_request");
+      if (binding.from === "literal") {
+        if (operation.classifications[name]?.classification !== "public")
+          throw new AuthorizationError("denied");
+        values[name] = binding.value;
+      } else if (binding.from === "input") {
+        if (!Object.hasOwn(run.inputs, binding.name))
+          throw new AuthorizationError("invalid_request");
+        values[name] = run.inputs[binding.name];
+      } else {
+        const source = outputs.get(binding.node);
+        if (!source || !Object.hasOwn(source, binding.name))
+          throw new AuthorizationError("denied");
+        values[name] = source[binding.name];
+      }
+    }
+    const checked = operation.inputSchema.safeParse(values);
+    if (!checked.success) throw new AuthorizationError("invalid_request");
+    return checked.data;
   }
   async execute(
     actor: ActorContext,
@@ -497,36 +548,7 @@ export class ProtectedCommandService {
         ownState?.value.verified
       )
         throw new AuthorizationError("denied");
-      const outputs = new Map<string, Record<string, unknown>>();
-      for (const dependency of node.dependsOn) {
-        const complete = await tx.get<NodeRecord>(
-          key(actor, "node", `${run.id}:${dependency}`),
-        );
-        if (!complete?.value.verified || complete.value.state !== "complete")
-          throw new AuthorizationError("denied");
-        outputs.set(dependency, complete.value.outputs);
-      }
-      const values: Record<string, unknown> = {};
-      for (const [name, binding] of Object.entries(node.bindings)) {
-        if (!Object.hasOwn(operation.contract.inputs, name))
-          throw new AuthorizationError("invalid_request");
-        if (binding.from === "literal") {
-          if (operation.classifications[name]?.classification !== "public")
-            throw new AuthorizationError("denied");
-          values[name] = binding.value;
-        } else if (binding.from === "input") {
-          if (!Object.hasOwn(run.inputs, binding.name))
-            throw new AuthorizationError("invalid_request");
-          values[name] = run.inputs[binding.name];
-        } else {
-          const source = outputs.get(binding.node);
-          if (!source || !Object.hasOwn(source, binding.name))
-            throw new AuthorizationError("denied");
-          values[name] = source[binding.name];
-        }
-      }
-      const checked = operation.inputSchema.safeParse(values);
-      if (!checked.success) throw new AuthorizationError("invalid_request");
+      const values = await this.resolveInputs(tx, actor, run, node, operation);
       // Non-public inputs can originate only in host-owned run bindings, never inline tool arguments.
       const fence = await tx.claim(
         key(actor, "run", run.id),
@@ -547,7 +569,7 @@ export class ProtectedCommandService {
         { commandId: command.commandId, intent, status: "intent-persisted" },
         null,
       );
-      return { run, node, values: checked.data, fence, effectId, record };
+      return { run, node, values, fence, effectId, record };
     });
     if (admission.existing) return admission.existing;
     const { run, node, values, fence, effectId } = admission;
@@ -558,6 +580,7 @@ export class ProtectedCommandService {
       nodeId: node.id,
       commandId: command.commandId,
       effectId,
+      provider: run.provider,
       target: run.target,
       configurationVersion: run.configurationVersion,
       origin: run.origin,
@@ -590,8 +613,9 @@ export class ProtectedCommandService {
     if (!(await this.reauthorize(actor, run, command.operationId)))
       throw new AuthorizationError("denied");
     return this.store.transaction(async (tx) => {
-      await tx.assertFence(fence);
+      // Match admission/cancellation: lock the run before its lease.
       const current = await this.owned(tx, actor, run.id);
+      await tx.assertFence(fence);
       if (
         !(await this.reauthorize(actor, current.value, command.operationId, tx))
       )
@@ -774,6 +798,7 @@ export async function deliverContinuations(
       try {
         await handler({ runId: value.runId, deliveryId: value.deliveryId });
         await store.transaction(async (tx) => {
+          await tx.get(key(actor, "outbox", entry.id));
           await tx.assertFence(fence);
           await tx.put(
             key(actor, "outbox", entry.id),

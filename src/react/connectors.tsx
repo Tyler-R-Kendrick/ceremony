@@ -54,6 +54,7 @@ const routeLabels: Record<ConnectionRoute, string> = {
   "provider-approval": "Approve at the provider",
   "second-device": "Code on another device",
   "supplied-credential": "Credential you hold",
+  "account-registration": "Create an account",
   "no-account": "No account needed",
 };
 

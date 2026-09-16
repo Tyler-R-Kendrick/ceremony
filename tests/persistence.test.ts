@@ -105,6 +105,12 @@ async function contract(store: AsyncCeremonyStore) {
     PersistenceConflict,
   );
   const fence = await store.transaction((tx) => tx.claim(key, "worker", 1000));
+  await assert.rejects(
+    store.transaction((tx) =>
+      tx.assertFence({ ...fence, generation: fence.generation + 1 }),
+    ),
+    PersistenceConflict,
+  );
   await store.transaction((tx) => tx.heartbeat(fence, 1000));
   await assert.rejects(
     store.transaction((tx) => tx.assertFence({ ...fence, worker: "wrong" })),

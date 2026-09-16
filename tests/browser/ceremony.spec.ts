@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { defaultTemplate } from "../../src/core/index.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { manifests, connectorDetails } from "../../examples/manifests.js";
@@ -352,31 +353,25 @@ test("switching methods cancels prior attempt; API rejects other sessions and cr
   expect(badOrigin.status()).toBe(403);
   await stranger.close();
 });
-async function openAuthoredPresentation(page: Page) {
+async function openAuthoredPresentation(
+  page: Page,
+  generationAvailable = false,
+) {
   await page
     .getByRole("button", { name: "Workflow studio", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Create connector", exact: true })
-    .click();
-  await page.getByLabel("Connector name", { exact: true }).fill("Acme");
-  await page
-    .getByLabel("Provider OpenAPI document")
-    .fill("https://example.com/openapi.json");
-  await page.getByRole("button", { name: "Design ceremonies" }).click();
-  for (const kind of ["oauth-code", "basic", "api-key"]) {
-    await page
-      .getByLabel("Authentication method", { exact: true })
-      .selectOption(kind);
-    await page.getByRole("button", { name: "Add method", exact: true }).click();
-  }
-  await page.getByRole("button", { name: "Review connector" }).click();
-  await page
-    .getByText("Customize ceremony presentation", { exact: true })
-    .click();
+  await page.evaluate(
+    async ({ entry, generationAvailable }) => {
+      (await import(entry)).mountPresentationHarness(generationAvailable);
+    },
+    {
+      entry: `/@fs${fileURLToPath(new URL("./presentation-harness.tsx", import.meta.url))}`,
+      generationAvailable,
+    },
+  );
 }
 
-test("studio previews authored presentation states, rejects malformed imports, and fits mobile", async ({
+test("isolated presentation editor previews states, rejects malformed imports, and fits mobile", async ({
   page,
 }) => {
   await page.goto("/");
@@ -409,6 +404,9 @@ test("studio previews authored presentation states, rejects malformed imports, a
     ),
   ).toBe(true);
   await page
+    .getByRole("button", { name: "Close presentation fixture" })
+    .click();
+  await page
     .getByRole("navigation")
     .getByRole("button", { name: "Connect", exact: true })
     .click();
@@ -418,7 +416,7 @@ test("studio previews authored presentation states, rejects malformed imports, a
     ),
   ).toBe(true);
 });
-test("generate, export and import an authored presentation without applying it to Connect", async ({
+test("isolated presentation editor generates, exports and imports without applying to Connect", async ({
   page,
 }) => {
   let captured = "";
@@ -450,7 +448,7 @@ test("generate, export and import an authored presentation without applying it t
   });
   try {
     await page.goto(`${app.origin}/?mode=test`);
-    await openAuthoredPresentation(page);
+    await openAuthoredPresentation(page, true);
     await page.getByLabel("Auth family").selectOption("api-key");
     await page
       .getByRole("button", { name: "Generate template", exact: true })
@@ -477,12 +475,20 @@ test("generate, export and import an authored presentation without applying it t
     await page
       .getByRole("button", { name: "Save presentation to project" })
       .click();
+    await expect(page.locator("#saved-presentation")).toHaveText(
+      JSON.stringify([candidate]),
+    );
+    await page.getByLabel("Auth family").selectOption("basic");
+    await page.getByLabel("Auth family").selectOption("api-key");
     model.closeAllConnections();
     await new Promise<void>((done) => model.close(() => done()));
     await page.getByLabel("Ceremony state").selectOption("input");
     await expect(page.locator(".preview-card")).toContainText(
       "A calmer connection",
     );
+    await page
+      .getByRole("button", { name: "Close presentation fixture" })
+      .click();
     await page
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })

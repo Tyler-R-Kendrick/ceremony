@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import {
   arazzoSchema,
   runArazzo,
+  validateConnectorWorkflows,
   type ArazzoDocument,
 } from "../src/server/arazzo.js";
+import { manifests } from "../examples/manifests.js";
+
+test("legacy connectors without workflow contracts remain valid without a document catalog", () => {
+  const legacy = structuredClone(manifests[0]!);
+  delete legacy.schemaVersion;
+  for (const method of legacy.methods) delete method.contract;
+  assert.doesNotThrow(() => validateConnectorWorkflows(legacy, new Map()));
+});
 
 const document: ArazzoDocument = {
   arazzo: "1.0.1",

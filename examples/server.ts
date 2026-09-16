@@ -40,6 +40,13 @@ import { createReferenceProvider } from "./provider.js";
 import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
+import { createAuthorizationBrowser } from "../src/server/browser-executor.js";
+import {
+  createHttpInbox,
+  createMailTmInbox,
+} from "../src/server/authored-inbox.js";
+import { configuredModel } from "../src/server/agent/model.js";
+import { createModelInterpreter } from "../src/server/isolated-account-interpreter.js";
 import { jiraManifest } from "../src/server/recipes/jira.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
@@ -266,6 +273,40 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           origin,
           environment: "development",
           configurationVersion: "v1",
+          browser: createAuthorizationBrowser({
+            ...(options.live?.cloudflare
+              ? { cloudflare: options.live.cloudflare }
+              : {}),
+            ...(process.env.BROWSERBASE_API_KEY &&
+            process.env.BROWSERBASE_PROJECT_ID
+              ? {
+                  browserbase: {
+                    apiKey: process.env.BROWSERBASE_API_KEY,
+                    projectId: process.env.BROWSERBASE_PROJECT_ID,
+                  },
+                }
+              : {}),
+            ...(() => {
+              const model = configuredModel({
+                ...(options.modelUrl ? { endpoint: options.modelUrl } : {}),
+                ...(options.modelName ? { model: options.modelName } : {}),
+                ...(options.modelKey ? { apiKey: options.modelKey } : {}),
+              });
+              return model
+                ? { interpreter: createModelInterpreter(model) }
+                : {};
+            })(),
+          }),
+          ...(process.env.CEREMONY_INBOX_URL
+            ? {
+                inbox: createHttpInbox({
+                  baseUrl: process.env.CEREMONY_INBOX_URL,
+                  ...(process.env.CEREMONY_INBOX_TOKEN
+                    ? { token: process.env.CEREMONY_INBOX_TOKEN }
+                    : {}),
+                }),
+              }
+            : { inbox: createMailTmInbox() }),
           jira: {
             configuration: async (actor) =>
               environment.jiraConfiguration(
@@ -374,7 +415,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
   const server = createServer(async (request, response) => {
     try {
       response.setHeader("x-content-type-options", "nosniff");
-      response.setHeader("referrer-policy", "no-referrer");
+      response.setHeader("referrer-policy", "same-origin");
       response.setHeader("x-frame-options", "DENY");
       if (request.headers.host !== new URL(origin).host)
         throw new CeremonyError("Unrecognized host", 403);
@@ -452,17 +493,17 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         );
       }
       const session = sessions.get(owner)!;
+      const teachingHeaders = new Headers();
+      for (const [name, value] of Object.entries(request.headers))
+        if (typeof value === "string") teachingHeaders.set(name, value);
+      // Only the built-in demo runtime uses the server-derived anonymous cookie.
+      if (options.teaching === true)
+        teachingHeaders.set("cookie", `ceremony-session=${owner}`);
       if (url.pathname.startsWith("/api/v1/teaching")) {
         if (!teaching) return json(response, { error: "unavailable" }, 503);
-        const headers = new Headers();
-        for (const [name, value] of Object.entries(request.headers))
-          if (typeof value === "string") headers.set(name, value);
-        // The development-only anonymous session is derived server-side, never from request JSON.
-        if (options.teaching === true)
-          headers.set("cookie", `ceremony-session=${owner}`);
         const incoming = new Request(url, {
           method: request.method ?? "GET",
-          headers,
+          headers: teachingHeaders,
           ...(request.method === "POST"
             ? { body: await readBody(request) }
             : {}),
@@ -536,9 +577,25 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           !request.headers["content-type"]?.startsWith("application/json"))
       )
         throw new CeremonyError("Invalid request origin or content type", 403);
-      if (request.method === "GET" && url.pathname === "/api/config")
+      if (request.method === "GET" && url.pathname === "/api/config") {
+        let authored: Awaited<
+          ReturnType<TeachingRuntime["authoring"]["listManifests"]>
+        > = [];
+        if (teaching && "authoring" in teaching && owner) {
+          try {
+            const actor = await teaching.identity.authenticate(
+              new Request(url, {
+                headers: teachingHeaders,
+              }),
+            );
+            if (actor) authored = await teaching.authoring.listManifests(actor);
+          } catch {
+            authored = [];
+          }
+        }
+        const authoredIds = authored.map((item) => item.id);
         return json(response, {
-          manifests: controller.manifests(),
+          manifests: [...controller.manifests(), ...authored],
           liveManifests: [
             ...(liveController?.manifests() ?? [
               githubAppManifest,
@@ -547,10 +604,11 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
               ),
             ]),
             ...(teaching?.connectors.includes("jira") ? [jiraManifest] : []),
+            ...authored,
           ],
           liveAvailable: Boolean(liveController),
           teachingAvailable: Boolean(teaching),
-          teachingConnectors: teaching?.connectors ?? [],
+          teachingConnectors: [...(teaching?.connectors ?? []), ...authoredIds],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
           // The catalogue lives here, with the agent that drives it; the page
           // is sent only what a card renders.
@@ -562,6 +620,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
               : {}),
           })),
         });
+      }
       if (request.method === "GET" && url.pathname === "/api/workflows/github")
         return json(response, githubWorkflows);
       const environmentRoute = /^\/api\/environment(?:\/([a-z0-9-]+))?$/.exec(

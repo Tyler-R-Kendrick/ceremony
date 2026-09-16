@@ -80,6 +80,7 @@ export const connectionRoutes = [
   "provider-approval",
   "second-device",
   "supplied-credential",
+  "account-registration",
   "no-account",
 ] as const;
 export const connectionRouteSchema = z.enum(connectionRoutes);
@@ -108,6 +109,7 @@ export function humanHandoffs(method: AuthMethod): number {
 }
 
 export function routeFor(method: AuthMethod): ConnectionRoute {
+  if (method.kind === "account-registration") return "account-registration";
   // No contract field distinguishes a second device, and every kind of flow
   // could in principle use one, so the kind is the only source for it.
   if (method.kind === "device") return "second-device";
@@ -196,6 +198,7 @@ export function explainCeremonySelection(
           "authmd-anonymous",
           "api-key",
           "form",
+          "account-registration",
           "basic",
         ]
       : [
@@ -205,6 +208,7 @@ export function explainCeremonySelection(
           "authmd-anonymous",
           "api-key",
           "form",
+          "account-registration",
           "basic",
         ];
   const candidates = manifest.methods.map((method, index) => {
@@ -302,6 +306,8 @@ export interface ResolvedConnection {
 }
 
 function describe(route: ConnectionRoute, service: string): string {
+  if (route === "account-registration")
+    return `Create a ${service} account. If the provider needs your help, you will complete its private challenge securely.`;
   if (route === "second-device")
     return `${service} will give you a code to enter on another device.`;
   if (route === "supplied-credential")

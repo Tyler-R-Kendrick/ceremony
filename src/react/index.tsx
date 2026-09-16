@@ -24,6 +24,7 @@ import { routeFor, type ConnectionRoute } from "../core/resolution.js";
 
 /** The picker's own words: the card's vocabulary, phrased as a choice. */
 const routeChoices: Record<ConnectionRoute, string> = {
+  "account-registration": "Create an account",
   "provider-approval": "Approve at the provider",
   "second-device": "Use a code on another device",
   "supplied-credential": "Enter a credential I already have",
@@ -118,6 +119,83 @@ export function Ceremony(props: CeremonyProps) {
     />
   );
 }
+function MethodPicker({
+  id,
+  methods,
+  methodChoices,
+  methodId,
+  busy,
+  hasSnapshot,
+  onSelect,
+  onStart,
+}: {
+  id: string;
+  methods: CeremonyClient["manifest"]["methods"];
+  methodChoices: ReadonlyMap<string, string>;
+  methodId: string;
+  busy: boolean;
+  hasSnapshot: boolean;
+  onSelect: (methodId: string) => void;
+  onStart: () => void;
+}) {
+  return (
+    <>
+      {methods.length > 1 && (
+        <div className="method-picker" data-ceremony-part="method-picker">
+          <label htmlFor={`${id}-method`}>How to connect</label>
+          <div>
+            <select
+              id={`${id}-method`}
+              value={methodId}
+              disabled={busy}
+              onChange={(event) => onSelect(event.target.value)}
+            >
+              {methods.map((method) => (
+                <option value={method.id} key={method.id}>
+                  {methodChoices.get(method.id) ?? method.label}
+                </option>
+              ))}
+            </select>
+            {!hasSnapshot && (
+              <button type="button" disabled={busy} onClick={onStart}>
+                Select method
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+function ConnectionIntroduction({
+  name,
+  resolved,
+}: {
+  name: string;
+  resolved: ReturnType<typeof resolveQuietly>;
+}) {
+  return (
+    <>
+      <h2>Connect {name}</h2>
+      <p className="supporting">
+        {resolved?.summary ??
+          "No route satisfies what this integration asks for."}
+      </p>
+      {resolved && resolved.permissions.length > 0 && (
+        <ul
+          className="intent-permissions"
+          data-ceremony-part="permissions"
+          aria-label={`What ${name} will be able to do`}
+        >
+          {resolved.permissions.map((permission) => (
+            <li key={permission}>{permission}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** A replaceable view: multiple views can share one host-owned client. */
 export function CeremonyView({
   model,
@@ -203,60 +281,21 @@ export function CeremonyView({
       aria-busy={busy}
     >
       {!snapshot && !busy && (
-        <>
-          <h2>Connect {manifest.name}</h2>
-          <p className="supporting">
-            {resolved?.summary ??
-              "No route satisfies what this integration asks for."}
-          </p>
-          {resolved && resolved.permissions.length > 0 && (
-            <ul
-              className="intent-permissions"
-              data-ceremony-part="permissions"
-              aria-label={`What ${manifest.name} will be able to do`}
-            >
-              {resolved.permissions.map((permission) => (
-                <li key={permission}>{permission}</li>
-              ))}
-            </ul>
-          )}
-        </>
+        <ConnectionIntroduction name={manifest.name} resolved={resolved} />
       )}
-      {manifest.methods.length > 1 && (
-        <div className="method-picker" data-ceremony-part="method-picker">
-          <label htmlFor={`${id}-method`}>How to connect</label>
-          <div>
-            <select
-              id={`${id}-method`}
-              value={methodId}
-              disabled={busy}
-              onChange={(event) => {
-                setSelectedMethod(event.target.value);
-                dispatch({ action: "start", methodId: event.target.value });
-              }}
-            >
-              {/* Named by what happens to the person, never by the
-                  protocol: "OAuth · PKCE" is a fact about an RFC, and the
-                  reader is trying to connect a service. The value stays the
-                  method id, so nothing downstream changes. */}
-              {manifest.methods.map((method) => (
-                <option value={method.id} key={method.id}>
-                  {methodChoices.get(method.id) ?? method.label}
-                </option>
-              ))}
-            </select>
-            {!snapshot && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => dispatch({ action: "start", methodId })}
-              >
-                Select method
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <MethodPicker
+        id={id}
+        methods={manifest.methods}
+        methodChoices={methodChoices}
+        methodId={methodId}
+        busy={busy}
+        hasSnapshot={Boolean(snapshot)}
+        onSelect={(methodId) => {
+          setSelectedMethod(methodId);
+          dispatch({ action: "start", methodId });
+        }}
+        onStart={() => dispatch({ action: "start", methodId })}
+      />
       {error && (
         <div data-ceremony-part="error">
           <p className="notice" role="alert" id={`${id}-error`}>

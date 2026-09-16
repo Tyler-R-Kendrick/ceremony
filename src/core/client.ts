@@ -188,6 +188,179 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
     }
     return snapshot;
   }
+  function assertActive(signal: AbortSignal | undefined) {
+    signal?.throwIfAborted();
+    if (disposed) throw new Error("This ceremony client has been disposed.");
+  }
+  async function startAttempt(
+    parsed: Extract<CeremonyCommand, { action: "start" }>,
+    prior: CeremonySnapshot | undefined,
+    source: ExecutionSource,
+    signal: AbortSignal | undefined,
+  ): Promise<CeremonySnapshot> {
+    let next: CeremonySnapshot;
+    if (
+      parsed.methodId &&
+      !manifest.methods.some((method) => method.id === parsed.methodId)
+    )
+      throw new Error("Unknown authentication method.");
+    if (parsed.methodId && prior?.actions.includes("cancel")) {
+      const cancelled = await executeCeremonyAction(
+        {
+          action: "cancel",
+          source,
+          connectorId: manifest.id,
+          instanceId: prior.id,
+          methodId: prior.method.id,
+        },
+        () =>
+          transport.act(prior.id, {
+            action: "cancel",
+            revision: prior.revision,
+            values: {},
+          }),
+        options,
+      );
+      assertActive(signal);
+      if (cancelled) accept(cancelled);
+    }
+    assertActive(signal);
+    next = parsed.methodId
+      ? await transport.start(manifest.id, parsed.methodId)
+      : transport.connect
+        ? await transport.connect(manifest.id, context)
+        : await transport.start(
+            manifest.id,
+            resolveCeremonyMethod(manifest, context).id,
+          );
+    assertActive(signal);
+    next = accept(next);
+    if (!disposed) observe(() => options.onInstance?.(next.id));
+    // Only protocol preparation is automatic, not provisioning anonymous resources.
+    if (
+      !parsed.methodId &&
+      next.actions.includes("begin") &&
+      ["oauth-code", "device"].includes(next.method.kind)
+    ) {
+      const prepared = await executeCeremonyAction(
+        {
+          action: "begin",
+          source,
+          connectorId: manifest.id,
+          instanceId: next.id,
+          methodId: next.method.id,
+        },
+        () =>
+          transport.act(next.id, {
+            action: "begin",
+            revision: next.revision,
+            values: {},
+          }),
+        options,
+      );
+      if (prepared) next = prepared;
+    }
+    assertActive(signal);
+    if (
+      !parsed.methodId &&
+      options.delegation === "agent" &&
+      next.actions.includes("request-human")
+    ) {
+      accept(next);
+      try {
+        const delegated = await executeCeremonyAction(
+          {
+            action: "request-human",
+            source,
+            connectorId: manifest.id,
+            instanceId: next.id,
+            methodId: next.method.id,
+          },
+          () =>
+            transport.act(next.id, {
+              action: "request-human",
+              revision: next.revision,
+              values: {},
+            }),
+          options,
+        );
+        if (delegated) next = delegated;
+      } catch {
+        publish({
+          error:
+            "Delegation is unavailable. Continue using the provider link or private collector.",
+        });
+      }
+    }
+    return next;
+  }
+  async function submitAction(
+    parsed: Exclude<
+      CeremonyCommand,
+      { action: "start" | "read" | "navigate" | "request-input" }
+    >,
+    prior: CeremonySnapshot,
+    source: ExecutionSource,
+    signal: AbortSignal | undefined,
+  ): Promise<CeremonySnapshot> {
+    if (!prior.actions.includes(parsed.action))
+      throw new Error("Action is not available in the current state.");
+    if (
+      (source === "webmcp" || source === "agent") &&
+      (parsed.secretRef ||
+        Object.keys(parsed.values ?? {}).some(
+          (name) =>
+            !prior.fields.some(
+              (field) =>
+                field.name === name && classifyField(field) === "public",
+            ),
+        ))
+    )
+      throw new Error("Use private credential collection, not tool arguments.");
+    let secretRef = parsed.secretRef;
+    let values = secretRef
+      ? {}
+      : validateInput(
+          parsed.action === "submit" ? prior.fields : [],
+          parsed.values ?? {},
+        );
+    if (
+      parsed.action === "submit" &&
+      !secretRef &&
+      prior.fields.some((field) => field.type === "password") &&
+      transport.collect
+    ) {
+      secretRef = await transport.collect(prior.id, prior.revision, values);
+      values = {};
+    }
+    assertActive(signal);
+    return await transport.act(prior.id, {
+      action: parsed.action,
+      revision: prior.revision,
+      values,
+      ...(secretRef ? { secretRef } : {}),
+    });
+  }
+  async function navigateAttempt(
+    prior: CeremonySnapshot,
+  ): Promise<CeremonySnapshot> {
+    if (prior.expiresAt <= Date.now())
+      throw new Error("This attempt has expired.");
+    const url =
+      prior.step === "redirect"
+        ? prior.authorizationUrl
+        : prior.step === "waiting"
+          ? prior.verificationUri
+          : undefined;
+    if (!url) throw new Error("Provider navigation is not available.");
+    await (options.navigate ?? browserNavigate)(
+      url,
+      prior.step === "redirect" && !prior.prerequisites
+        ? "same-tab"
+        : "new-tab",
+    );
+    return prior;
+  }
   async function execute(
     command: CeremonyCommand,
     source: ExecutionSource = "ui",
@@ -209,9 +382,7 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
       async () => {
         const parsed = commandSchema.parse(command);
         if (parsed.action !== "read") await pendingRead;
-        signal?.throwIfAborted();
-        if (disposed)
-          throw new Error("This ceremony client has been disposed.");
+        assertActive(signal);
         if (locked) throw new Error("A ceremony action is already running.");
         locked = true;
         const prior = state.snapshot;
@@ -222,107 +393,7 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
         try {
           let next: CeremonySnapshot;
           if (parsed.action === "start") {
-            if (
-              parsed.methodId &&
-              !manifest.methods.some((method) => method.id === parsed.methodId)
-            )
-              throw new Error("Unknown authentication method.");
-            if (parsed.methodId && prior?.actions.includes("cancel")) {
-              const cancelled = await executeCeremonyAction(
-                {
-                  action: "cancel",
-                  source,
-                  connectorId: manifest.id,
-                  instanceId: prior.id,
-                  methodId: prior.method.id,
-                },
-                () =>
-                  transport.act(prior.id, {
-                    action: "cancel",
-                    revision: prior.revision,
-                    values: {},
-                  }),
-                options,
-              );
-              signal?.throwIfAborted();
-              if (disposed)
-                throw new Error("This ceremony client has been disposed.");
-              if (cancelled) accept(cancelled);
-            }
-            signal?.throwIfAborted();
-            if (disposed)
-              throw new Error("This ceremony client has been disposed.");
-            next = parsed.methodId
-              ? await transport.start(manifest.id, parsed.methodId)
-              : transport.connect
-                ? await transport.connect(manifest.id, context)
-                : await transport.start(
-                    manifest.id,
-                    resolveCeremonyMethod(manifest, context).id,
-                  );
-            signal?.throwIfAborted();
-            if (disposed)
-              throw new Error("This ceremony client has been disposed.");
-            next = accept(next);
-            if (!disposed) observe(() => options.onInstance?.(next.id));
-            // Only protocol preparation is automatic, not provisioning anonymous resources.
-            if (
-              !parsed.methodId &&
-              next.actions.includes("begin") &&
-              ["oauth-code", "device"].includes(next.method.kind)
-            ) {
-              const prepared = await executeCeremonyAction(
-                {
-                  action: "begin",
-                  source,
-                  connectorId: manifest.id,
-                  instanceId: next.id,
-                  methodId: next.method.id,
-                },
-                () =>
-                  transport.act(next.id, {
-                    action: "begin",
-                    revision: next.revision,
-                    values: {},
-                  }),
-                options,
-              );
-              if (prepared) next = prepared;
-            }
-            signal?.throwIfAborted();
-            if (disposed)
-              throw new Error("This ceremony client has been disposed.");
-            if (
-              !parsed.methodId &&
-              options.delegation === "agent" &&
-              next.actions.includes("request-human")
-            ) {
-              accept(next);
-              try {
-                const delegated = await executeCeremonyAction(
-                  {
-                    action: "request-human",
-                    source,
-                    connectorId: manifest.id,
-                    instanceId: next.id,
-                    methodId: next.method.id,
-                  },
-                  () =>
-                    transport.act(next.id, {
-                      action: "request-human",
-                      revision: next.revision,
-                      values: {},
-                    }),
-                  options,
-                );
-                if (delegated) next = delegated;
-              } catch {
-                publish({
-                  error:
-                    "Delegation is unavailable. Continue using the provider link or private collector.",
-                });
-              }
-            }
+            next = await startAttempt(parsed, prior, source, signal);
           } else if (parsed.action === "read") {
             const id = prior?.id ?? options.resumeId;
             if (!id) return undefined;
@@ -346,75 +417,11 @@ export function createCeremonyClient(options: CeremonyClientOptions) {
               privateInputPending = true;
               return prior;
             }
-            if (parsed.action === "navigate") {
-              if (prior.expiresAt <= Date.now())
-                throw new Error("This attempt has expired.");
-              const url =
-                prior.step === "redirect"
-                  ? prior.authorizationUrl
-                  : prior.step === "waiting"
-                    ? prior.verificationUri
-                    : undefined;
-              if (!url)
-                throw new Error("Provider navigation is not available.");
-              await (options.navigate ?? browserNavigate)(
-                url,
-                prior.step === "redirect" && !prior.prerequisites
-                  ? "same-tab"
-                  : "new-tab",
-              );
-              return prior;
-            }
-            if (!prior.actions.includes(parsed.action))
-              throw new Error("Action is not available in the current state.");
-            if (
-              (source === "webmcp" || source === "agent") &&
-              (parsed.secretRef ||
-                Object.keys(parsed.values ?? {}).some(
-                  (name) =>
-                    !prior.fields.some(
-                      (field) =>
-                        field.name === name &&
-                        classifyField(field) === "public",
-                    ),
-                ))
-            )
-              throw new Error(
-                "Use private credential collection, not tool arguments.",
-              );
-            let secretRef = parsed.secretRef;
-            let values = secretRef
-              ? {}
-              : validateInput(
-                  parsed.action === "submit" ? prior.fields : [],
-                  parsed.values ?? {},
-                );
-            if (
-              parsed.action === "submit" &&
-              !secretRef &&
-              prior.fields.some((field) => field.type === "password") &&
-              transport.collect
-            ) {
-              secretRef = await transport.collect(
-                prior.id,
-                prior.revision,
-                values,
-              );
-              values = {};
-            }
-            signal?.throwIfAborted();
-            if (disposed)
-              throw new Error("This ceremony client has been disposed.");
-            next = await transport.act(prior.id, {
-              action: parsed.action,
-              revision: prior.revision,
-              values,
-              ...(secretRef ? { secretRef } : {}),
-            });
+            if (parsed.action === "navigate")
+              return await navigateAttempt(prior);
+            next = await submitAction(parsed, prior, source, signal);
           }
-          signal?.throwIfAborted();
-          if (disposed)
-            throw new Error("This ceremony client has been disposed.");
+          assertActive(signal);
           const accepted = accept(next);
           return accepted;
         } catch (cause) {

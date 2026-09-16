@@ -10,6 +10,7 @@ import {
   actionsFor,
   defaultTemplate,
   fieldsFor,
+  fieldSchema,
   flowKinds,
   manifestSchema,
   methodSchema,
@@ -24,6 +25,7 @@ import {
   type ActionEvent,
 } from "../src/core/execution.js";
 import { resolveCeremonyMethod } from "../src/core/resolution.js";
+import { registrationContractSchema } from "../src/core/connector-contracts.js";
 import {
   CeremonyDatabase,
   PrivateCredentialBroker,
@@ -42,6 +44,53 @@ const method = (kind: AuthMethod["kind"]) =>
   [...manifests, githubAppManifest]
     .flatMap((m) => m.methods)
     .find((m) => m.kind === kind)!;
+
+test("atomic: registration permits minting only passwords and reports duplicate identifiers", () => {
+  const contract = {
+    identifier: ["email"],
+    secret: "password",
+    mint: true,
+    createdBy: "this-ceremony",
+  };
+  assert.equal(registrationContractSchema.safeParse(contract).success, true);
+  assert.equal(
+    registrationContractSchema.safeParse({
+      ...contract,
+      createdBy: "provider-browser",
+    }).success,
+    true,
+  );
+  assert.equal(
+    registrationContractSchema.safeParse({ ...contract, createdBy: "" })
+      .success,
+    false,
+  );
+  for (const secret of ["none", "issued-token", "provider"]) {
+    assert.equal(
+      registrationContractSchema.safeParse({ ...contract, secret, mint: false })
+        .success,
+      true,
+    );
+    const rejected = registrationContractSchema.safeParse({
+      ...contract,
+      secret,
+    });
+    assert.equal(rejected.success, false);
+    if (!rejected.success)
+      assert.deepEqual(rejected.error.issues, [
+        { code: "custom", path: [], message: "Only a password may be minted" },
+      ]);
+  }
+  const duplicate = registrationContractSchema.safeParse({
+    ...contract,
+    identifier: ["email", "email"],
+  });
+  assert.equal(duplicate.success, false);
+  if (!duplicate.success)
+    assert.deepEqual(duplicate.error.issues, [
+      { code: "custom", path: ["identifier"], message: "Duplicate identifier" },
+    ]);
+});
 
 test("atomic: every method pair follows browser/headless policy independent of manifest ordering", () => {
   for (const surface of ["browser", "headless"] as const) {
@@ -96,6 +145,10 @@ test("atomic: method validation returns actionable errors for invalid credential
     [{ ...method("api-key"), fields: [] }, "api-key requires token"],
     [{ ...method("api-key"), fields: [field] }, "api-key requires token"],
     [{ ...method("form"), fields: [] }, "Form requires fields"],
+    [
+      { ...method("form"), kind: "account-registration", fields: [] },
+      "Form requires fields",
+    ],
     [{ ...method("form"), fields: [field, field] }, "Duplicate field names"],
     [
       { ...method("oauth-code"), fields: [field] },
@@ -140,6 +193,88 @@ test("atomic: method validation returns actionable errors for invalid credential
     assert.deepEqual(duplicate.error.issues, [
       { code: "custom", message: "Duplicate method IDs", path: [] },
     ]);
+});
+
+test("atomic: credential methods require private collection and authenticated completion", () => {
+  for (const kind of [
+    "basic",
+    "api-key",
+    "form",
+    "account-registration",
+  ] as const) {
+    const valid = structuredClone({
+      ...method(kind === "account-registration" ? "form" : kind),
+      kind,
+    });
+    assert.ok(valid.contract);
+    assert.equal(valid.contract.handoff.surface, "private-collector");
+    assert.deepEqual(valid.contract.completion.ownership, ["authenticated"]);
+    assert.deepEqual(methodSchema.parse(valid), valid);
+    for (const [part, message] of [
+      ["handoff", "Credential methods require private collection"],
+      ["completion", "This method requires authenticated completion"],
+    ] as const) {
+      const invalid = structuredClone(valid);
+      if (part === "handoff")
+        invalid.contract!.handoff.surface = "provider-browser";
+      else invalid.contract!.completion.ownership = ["claimed"];
+      const parsed = methodSchema.safeParse(invalid);
+      assert.equal(parsed.success, false, `${kind}: ${part}`);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          { code: "custom", message, path: [] },
+        ]);
+    }
+  }
+});
+
+test("atomic: authenticated completion rejects mixed ownership alternatives", () => {
+  const valid = structuredClone(method("oauth-code"));
+  assert.deepEqual(methodSchema.parse(valid), valid);
+  for (const other of ["anonymous", "claimed"] as const)
+    for (const ownership of [
+      ["authenticated", other],
+      [other, "authenticated"],
+    ] as const) {
+      const invalid = structuredClone(valid);
+      invalid.contract!.completion.ownership = [...ownership];
+      const parsed = methodSchema.safeParse(invalid);
+      assert.equal(parsed.success, false);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          {
+            code: "custom",
+            message: "This method requires authenticated completion",
+            path: [],
+          },
+        ]);
+    }
+});
+
+test("atomic: credential field classifications retain exact private-input diagnostics", () => {
+  for (const credential of [
+    { ...field, type: "password" },
+    { ...field, name: "password" },
+    { ...field, name: "token" },
+  ]) {
+    assert.ok(fieldSchema.safeParse(credential).success);
+    assert.ok(
+      fieldSchema.safeParse({ ...credential, classification: "secret" })
+        .success,
+    );
+    for (const classification of ["public", "personal"]) {
+      const parsed = fieldSchema.safeParse({ ...credential, classification });
+      assert.equal(parsed.success, false);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          {
+            code: "custom",
+            message: "Credential fields must remain secret",
+            path: [],
+          },
+        ]);
+    }
+  }
 });
 
 test("atomic: public identifiers reject invalid prefixes/suffixes and accept their exact length boundary", () => {

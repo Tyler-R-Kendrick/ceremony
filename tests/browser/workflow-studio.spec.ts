@@ -1,100 +1,83 @@
-import { test, expect } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { test as base, expect } from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
-import { parseConnectorProject } from "../../src/core/connector-authoring.js";
-import {
-  newConnectorProject,
-  newAuthoredMethod,
-} from "../../src/core/connector-authoring.js";
-import { defaultTemplate } from "../../src/core/schema.js";
+import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
-test("Studio authors a new connector without running Connect or reading Environment", async ({
+const test = base.extend<{ studioOrigin: string }>({
+  studioOrigin: async ({ context }, use) => {
+    const host = await teachingGitHubFixture(4596);
+    try {
+      await host.login(context, "studio-author");
+      await use(host.origin);
+    } finally {
+      await host.close();
+    }
+  },
+});
+
+test("Studio chat stays put and links a working generic connector", async ({
   page,
+  studioOrigin,
 }, info) => {
-  const effects: string[] = [];
-  page.on("request", (request) => {
-    if (
-      /\/api\/(live\/)?ceremonies|\/api\/v1\/teaching|\/api\/environment|\/api\/workflows/.test(
-        request.url(),
-      )
-    )
-      effects.push(request.url());
-  });
-  await page.goto("/?section=studio&connector=github");
+  await page.goto(`${studioOrigin}/?section=studio`);
   await expect(
-    page.getByRole("heading", { name: "Workflow studio", exact: true }),
+    page.getByRole("button", { name: "Create connector", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("Message the authoring agent")
+    .fill("create a ceremony for acme");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const link = page.getByRole("link", { name: /connector=acme/ });
+  await expect(link).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByRole("heading", { name: "Discovered ceremonies" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Connect GitHub", exact: true }),
+    page
+      .getByRole("region", { name: "Discovered ceremonies" })
+      .getByText(/assumed from the provider name/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "OAuth authorization code" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/section=studio/);
+  await link.click();
+  await expect(
+    page.getByRole("heading", { name: /Connect acme/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This host has not registered a working ceremony"),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", {
-      name: "Create from demonstration",
+    page.getByRole("button", { name: "Connect acme", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Connect acme", exact: true }).click();
+  await expect(
+    page.getByText("This saved connection belongs to another service"),
+  ).toHaveCount(0);
+  await expect(page.getByText("Verified access is ready")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Continue with acme" }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Your input is needed for step 1 of 3: App registration.", {
       exact: true,
     }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Create connector", exact: true })
-    .click();
-  await expect(page.getByLabel("Connector name", { exact: true })).toHaveValue(
-    "",
-  );
-  await page
-    .getByLabel("Connector name", { exact: true })
-    .fill("Acme Workspace");
-  await page.getByLabel("Connector ID", { exact: true }).fill("acme-workspace");
-  await page
-    .getByLabel("What does this connector do?")
-    .fill("Connect your Acme workspace.");
-  await page
-    .getByLabel("Provider OpenAPI document")
-    .fill("https://api.example.com/openapi.json");
-  await page.getByRole("button", { name: "Design ceremonies" }).click();
-  await page.getByRole("button", { name: "Add method", exact: true }).click();
-  await page.getByLabel("Completion verifier").fill("acme.verify-access");
-  await page.getByLabel("SDK operation ID").fill("accounts/get-current");
-  await page.getByRole("button", { name: "Add step", exact: true }).click();
-  await page
-    .getByLabel("What happens?")
-    .nth(1)
-    .fill("Check workspace membership");
-  await page.getByLabel("SDK operation ID").nth(1).fill("memberships/check");
-  await page
-    .getByRole("button", { name: "Move up", exact: true })
-    .nth(1)
-    .click();
-  await page
-    .getByText("Prerequisites and human fallback", { exact: true })
-    .click();
-  await page
-    .getByLabel("Who should help when human participation is required?")
-    .selectOption("authorized-owner");
-  if (process.env.CEREMONY_CAPTURE_REVIEW === "1") {
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.screenshot({
-        path: info.outputPath(`studio-editor-${width}.png`),
-        fullPage: true,
-      });
-    }
-  }
-  await page.getByRole("button", { name: "Review connector" }).click();
-  await expect(
-    page.getByText("Definition valid. Ready to export for host integration."),
   ).toBeVisible();
-  const pending = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save connector project" }).click();
-  const download = await pending;
-  const bytes = await readFile((await download.path())!);
-  const project = parseConnectorProject(bytes.toString());
-  expect(project.manifest.id).toBe("acme-workspace");
-  expect(project.manifest.methods[0]!.contract.handoff.recipient).toBe(
-    "authorized-owner",
-  );
-  expect(
-    project.workflows[0]!.workflows[0]!.steps.map((step) => step.operationId),
-  ).toEqual(["memberships/check", "accounts/get-current"]);
-  expect(effects).toEqual([]);
+  await page.getByRole("link", { name: "Continue with acme" }).first().click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Register the acme integration",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Public provider origin")).toHaveCount(0);
+  await expect(page.getByLabel("Access token")).toHaveCount(0);
+  await expect(
+    page.getByText(/will not ask you for tokens, passwords/),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Return to connection" }).click();
+  await page.getByRole("button", { name: "Delete connection" }).click();
+  await expect(page.getByRole("heading", { name: /acme/i })).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
@@ -109,165 +92,127 @@ test("Studio authors a new connector without running Connect or reading Environm
         fullPage: true,
       });
   }
-  await page.getByRole("button", { name: "1. Connector", exact: true }).click();
-  await page.getByLabel("Open connector project").setInputFiles({
-    name: "invalid.json",
-    mimeType: "application/json",
-    buffer: Buffer.from('{"published":true}'),
-  });
-  await expect(
-    page.getByRole("status").filter({ hasText: "Could not open" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Connector name", { exact: true })).toHaveValue(
-    "Acme Workspace",
-  );
-  await page.getByLabel("Open connector project").setInputFiles({
-    name: "connector.json",
-    mimeType: "application/json",
-    buffer: bytes,
-  });
-  await expect(
-    page.getByRole("status").filter({ hasText: "Project opened" }),
-  ).toBeVisible();
-  await page
-    .getByLabel("Connector name", { exact: true })
-    .fill("Unfinished changes");
-  await page.getByLabel("Open connector project").setInputFiles({
-    name: "connector.json",
-    mimeType: "application/json",
-    buffer: bytes,
-  });
-  await page.getByRole("button", { name: "Keep editing" }).click();
-  await expect(page.getByLabel("Connector name", { exact: true })).toHaveValue(
-    "Unfinished changes",
-  );
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Connect GitHub", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Workflow studio", exact: true })
-    .click();
-  await expect(page.getByLabel("Connector name", { exact: true })).toHaveValue(
-    "Unfinished changes",
-  );
 });
 
-test("imported document names and saved presentations remain editable when methods change", async ({
+test("studio streams ceremony progress for a misspelled Bluesky name", async ({
   page,
+  studioOrigin,
 }) => {
-  const project = newConnectorProject();
-  project.manifest.id = "acme";
-  project.manifest.name = "Acme";
-  project.workflows = ["first-api", "second-api"].map((document, i) => ({
-    document,
-    arazzo: "1.0.1",
-    info: { title: "Acme API", version: "1.0.0" },
-    sourceDescriptions: [
-      {
-        name: "provider",
-        type: "openapi",
-        url: "https://example.com/openapi.json",
+  await page.goto(`${studioOrigin}/?section=studio`);
+  await page.getByLabel("Message the authoring agent").fill("blusky");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const activity = page.getByRole("region", { name: "Ceremony progress" });
+  await expect(activity).toBeVisible({ timeout: 5_000 });
+  await expect(activity.locator(".authoring-elapsed")).toBeVisible();
+  await expect(activity.locator(".authoring-counters")).toBeVisible();
+  await expect(
+    activity.locator(".authoring-live-log li").first(),
+  ).toBeVisible();
+  await expect(activity.locator(".authoring-tasks li").first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Discovered ceremonies" }),
+  ).toBeVisible({ timeout: 60_000 });
+  const board = page.getByRole("region", { name: "Discovered ceremonies" });
+  await expect(
+    board.getByRole("button", { name: "OAuth authorization code" }),
+  ).toBeVisible();
+  await expect(
+    board.getByRole("button", { name: "Account registration" }),
+  ).toBeVisible();
+  await board.getByRole("button", { name: "Account registration" }).click();
+  await expect(board.getByLabel("Account name or email")).toBeVisible();
+  await expect(
+    board.getByRole("button", { name: "Check account and continue" }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("Password")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Continue isolated authorization" }),
+  ).toHaveCount(0);
+  await expect(
+    board.getByText("https://bsky.social", { exact: true }),
+  ).toBeVisible({ timeout: 60_000 });
+});
+
+test("GitHub account registration asks for a handle before it runs", async ({
+  page,
+  studioOrigin,
+}) => {
+  await page.goto(`${studioOrigin}/?section=studio`);
+  await page.getByLabel("Message the authoring agent").fill("github");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const board = page.getByRole("region", { name: "Discovered ceremonies" });
+  await expect(board).toBeVisible({ timeout: 60_000 });
+  await board.getByRole("button", { name: "Account registration" }).click();
+  await expect(board.getByLabel("GitHub handle")).toBeVisible();
+  await board.getByLabel("GitHub handle").fill("fixture-owner");
+  await expect(
+    board.getByRole("button", { name: "Check account and continue" }),
+  ).toBeEnabled();
+});
+
+test("changing the Studio provider clears the previous account and handoff", async ({
+  page,
+  studioOrigin,
+}) => {
+  await page.route("**/api/v1/teaching/authoring/chat", async (route) => {
+    const { message } = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        result: {
+          draft: { connectorId: message, methods: ["account-registration"] },
+          discovery: { origin: `https://${message}.example` },
+        },
       },
-    ],
-    workflows: [
-      {
-        workflowId: `method-${i + 1}`,
-        summary: "Authorize",
-        steps: [
-          {
-            stepId: "verify",
-            description: "Verify",
-            operationId: "accounts/get",
-          },
+    });
+  });
+  await page.route("**/api/v1/teaching/runs", (route) =>
+    route.fulfill({
+      json: {
+        id: "run-alpha",
+        provider: "alpha",
+        human: { reason: "passkey", fields: ["provider-authorization"] },
+        nodes: [
+          { operationId: "authored.register-account", state: "awaiting-human" },
         ],
       },
-    ],
-  }));
-  project.manifest.methods = project.workflows.map((doc, i) => {
-    const method = newAuthoredMethod("oauth-code", `method-${i + 1}`);
-    method.contract!.completion.verifier = "acme.verify";
-    method.contract!.workflows[0]!.document = doc.document;
-    return method;
+    }),
+  );
+  await page.goto(`${studioOrigin}/?section=studio`);
+  const message = page.getByLabel("Message the authoring agent");
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  const board = page.getByRole("region", { name: "Discovered ceremonies" });
+  await message.fill("alpha");
+  await send.click();
+  await board
+    .getByRole("button", { name: "Account registration", exact: true })
+    .click();
+  await board.getByLabel("Account name or email").fill("alpha-owner");
+  await board
+    .getByRole("button", { name: "Check account and continue" })
+    .click();
+  const handoff = page.getByRole("region", {
+    name: "Human assistance required",
   });
-  const template = defaultTemplate("oauth-code");
-  template.screens.intro = template.screens.intro.replace(
-    "Connect your account",
-    "Your authored welcome",
-  );
-  project.templates = [template];
-  await page.goto("/?section=studio");
-  await page.getByLabel("Open connector project").setInputFiles({
-    name: "project.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(project)),
-  });
-  await page.getByRole("button", { name: "3. Review & export" }).click();
-  await page
-    .getByText("Customize ceremony presentation", { exact: true })
-    .click();
-  await expect(page.getByLabel("Template source · JSON / OpenUI")).toHaveValue(
-    /Your authored welcome/,
-  );
-  await page.getByRole("button", { name: "2. Ceremonies" }).click();
-  await page
-    .getByLabel("Authentication method", { exact: true })
-    .selectOption("api-key");
-  await page.getByRole("button", { name: "Add method", exact: true }).click();
-  await page.getByLabel("Completion verifier").last().fill("acme.verify-key");
-  await page.getByLabel("SDK operation ID").last().fill("keys/verify");
-  await page
-    .getByRole("button", { name: "Remove method", exact: true })
-    .first()
-    .click();
-  await page
-    .getByRole("button", { name: "Remove method", exact: true })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Review connector" }).click();
   await expect(
-    page.getByText("Definition valid. Ready to export for host integration."),
-  ).toBeVisible();
-  const pending = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save connector project" }).click();
-  const downloaded = await pending;
-  const result = parseConnectorProject(
-    await readFile((await downloaded.path())!, "utf8"),
+    handoff.getByRole("link", { name: "Continue with human assistance" }),
+  ).toHaveAttribute("href", "/api/v1/teaching/alpha/run-alpha/human");
+  // A revised proposal for the same provider must not lose its pending handoff.
+  await message.fill("alpha");
+  await send.click();
+  await expect(handoff).toBeVisible();
+  await expect(board.getByLabel("Account name or email")).toHaveValue(
+    "alpha-owner",
   );
-  expect(result.workflows.map((doc) => doc.document)).toEqual(["first-api"]);
-  expect(result.manifest.methods[0]!.contract.workflows[0]!.document).toBe(
-    "first-api",
-  );
-  expect(result.templates).toEqual([]);
-});
-
-test("incomplete ceremonies stay editable without a false validation pass", async ({
-  page,
-}) => {
-  await page.goto("/?section=studio");
-  await page.getByRole("button", { name: "Create connector" }).click();
-  await page.getByRole("button", { name: "3. Review & export" }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "Resolve these definition issues",
-  );
+  await message.fill("beta");
+  await send.click();
+  await expect(board).toContainText("https://beta.example");
+  await expect(handoff).toHaveCount(0);
+  await expect(page.locator('a[href*="run-alpha"]')).toHaveCount(0);
+  await board
+    .getByRole("button", { name: "Account registration", exact: true })
+    .click();
+  await expect(board.getByLabel("Account name or email")).toHaveValue("");
   await expect(
-    page.getByRole("button", { name: "Export manifest" }),
+    board.getByRole("button", { name: "Check account and continue" }),
   ).toBeDisabled();
-  const saved = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Save connector project" }).click();
-  const file = await saved;
-  expect(file.suggestedFilename()).toBe("untitled.connector.json");
-  const bytes = await readFile((await file.path())!);
-  await page.getByRole("button", { name: "Adjust definition" }).click();
-  await page.getByLabel("Open connector project").setInputFiles({
-    name: "draft.json",
-    mimeType: "application/json",
-    buffer: bytes,
-  });
-  await expect(
-    page.getByRole("status").filter({ hasText: "Project opened" }),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel("Connector name", { exact: true }),
-  ).toBeVisible();
 });

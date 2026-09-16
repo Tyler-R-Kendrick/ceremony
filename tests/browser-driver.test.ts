@@ -18,9 +18,11 @@ import {
   type CeremonyPage,
 } from "../src/server/browser-driver.js";
 import {
+  createHeuristicInterpreter,
   createModelInterpreter,
   interpreterPrompt,
   interpreterRoles,
+  type InterpreterInput,
 } from "../src/server/browser-interpreter.js";
 import {
   createPlaywrightCeremonyPage,
@@ -425,6 +427,178 @@ test("the model interpreter returns only actions that parse and use offered role
     )(input),
     undefined,
   );
+});
+
+test("the heuristic fills offered registration and verification roles without seeing their values", async () => {
+  const interpret = createHeuristicInterpreter();
+  const elements: SnapshotElement[] = [
+    { index: 0, kind: "input", type: "email", label: "Email" },
+    { index: 1, kind: "input", name: "username" },
+    { index: 2, kind: "input", placeholder: "Your name" },
+    { index: 3, kind: "select", label: "Date of birth" },
+    { index: 4, kind: "input", type: "password" },
+    { index: 5, kind: "input", type: "password" },
+    { index: 6, kind: "input", label: "Verification code" },
+    { index: 7, kind: "input", label: "Authenticator code" },
+  ];
+  const roles = [
+    "email",
+    "username",
+    "display-name",
+    "birth-date",
+    "password",
+    "password-confirm",
+    "verification-code",
+    "totp-code",
+  ] as const;
+  for (const [index, role] of roles.entries()) {
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({ elements }),
+        available: roles,
+        history: [],
+      }),
+      { action: "fill", element: index, role },
+    );
+    elements[index]!.filled = true;
+  }
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: snapshot({
+        elements: [{ index: 9, kind: "input", label: "Repeat password" }],
+      }),
+      available: ["password-confirm"],
+      history: [],
+    }),
+    { action: "fill", element: 9, role: "password-confirm" },
+  );
+});
+
+test("the heuristic stops at provider walls and does not fill unavailable or cross-origin inputs", async () => {
+  const interpret = createHeuristicInterpreter();
+  const base: InterpreterInput = {
+    goal: "sign-in",
+    snapshot: snapshot(),
+    available: ["password"],
+    history: [],
+  };
+  for (const [page, available, reason] of [
+    [{ challenge: true }, ["password"], "human-challenge"],
+    [{ passkey: true }, [], "passkey-required"],
+    [
+      { alerts: ["Account already registered"] },
+      ["password"],
+      "account-exists",
+    ],
+    [{ alerts: ["Incorrect password"] }, ["password"], "credentials-rejected"],
+  ] satisfies Array<
+    [Partial<PageSnapshot>, InterpreterInput["available"], string]
+  >) {
+    assert.deepEqual(
+      await interpret({
+        ...base,
+        snapshot: snapshot(page),
+        available,
+      }),
+      { action: "blocked", reason },
+    );
+  }
+  assert.deepEqual(
+    await interpret({ ...base, snapshot: snapshot({ passkey: true }) }),
+    { action: "fill", element: 1, role: "password" },
+  );
+  assert.deepEqual(
+    await interpret({
+      ...base,
+      snapshot: snapshot({
+        elements: [
+          { index: 0, kind: "input", label: "Unknown field" },
+          { index: 1, kind: "input", type: "email" },
+          { index: 2, kind: "input", type: "password", filled: true },
+          {
+            index: 3,
+            kind: "input",
+            type: "password",
+            submitsTo: "https://outside.example",
+          },
+          { index: 4, kind: "checkbox", required: false },
+          { index: 5, kind: "checkbox", required: true, filled: true },
+          { index: 6, kind: "checkbox", required: true, filled: false },
+        ],
+      }),
+      available: ["password", "password-confirm"],
+    }),
+    { action: "check", element: 6 },
+  );
+});
+
+test("the heuristic follows the goal's alternative link without repeating a clicked action", async () => {
+  const interpret = createHeuristicInterpreter();
+  for (const [goal, label] of [
+    ["sign-in", "Already have an account? Log in"],
+    ["registration", "Create an account"],
+    ["authorize", "Allow access"],
+    ["obtain-credential", "New personal access token"],
+  ] as const) {
+    const input: InterpreterInput = {
+      goal,
+      snapshot: snapshot({
+        elements: [
+          { index: 0, kind: "button", text: "Continue" },
+          { index: 1, kind: "button", text: "Help" },
+          { index: 2, kind: "link", text: "Privacy policy" },
+          { index: 3, kind: "link", text: label },
+        ],
+      }),
+      available: [],
+      history: [],
+    };
+    assert.deepEqual(await interpret(input), {
+      action: "click",
+      element: 0,
+      note: "Continue",
+    });
+    input.history = [{ action: "fill" }, { action: "click", note: "Continue" }];
+    assert.deepEqual(await interpret(input), {
+      action: "click",
+      element: 3,
+      note: label,
+    });
+    input.history = [...input.history, { action: "click", note: label }];
+    assert.deepEqual(await interpret(input), { action: "wait" });
+    input.history = [...input.history, { action: "wait" }];
+    assert.deepEqual(await interpret(input), {
+      action: "blocked",
+      reason: "unsupported-page",
+    });
+  }
+});
+
+test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
+  const interpret = createHeuristicInterpreter();
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      available: [],
+      history: [],
+      snapshot: snapshot({ title: "Account created", elements: [] }),
+    }),
+    { action: "done" },
+  );
+  const page = inertPage();
+  page.snapshot = async () =>
+    snapshot({ title: "Account created", elements: [] });
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: interpret,
+    secrets: createSecrets({}),
+    verify: async () => false,
+  });
+  assert.equal(result.status, "unverified");
 });
 
 test("every role the action schema accepts is one the driver can substitute", () => {

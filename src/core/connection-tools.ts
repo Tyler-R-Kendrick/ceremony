@@ -27,6 +27,31 @@ const safeState = z.strictObject({
     )
     .max(32),
 });
+// HTTP presentation metadata belongs to the human UI, not the model tool result.
+// Validate the known envelope before projecting; unknown provider fields still fail closed.
+const transportState = safeState
+  .extend({
+    identity: z
+      .strictObject({ handle: z.string().max(256), did: z.string().max(256) })
+      .optional(),
+    capture: z.literal(true).optional(),
+    account: z.literal("stored").optional(),
+    human: z
+      .strictObject({
+        reason: z.string().max(100),
+        account: z.string().max(254).optional(),
+        fields: z.array(z.string().max(100)).max(32),
+      })
+      .optional(),
+  })
+  .transform(({ id, revision, provider, profile, status, nodes }) => ({
+    id,
+    revision,
+    provider,
+    profile,
+    status,
+    nodes,
+  }));
 export type ConnectionState = z.infer<typeof safeState>;
 export interface ProtectedConnectionTransport {
   connect?(): Promise<ConnectionState>;
@@ -107,7 +132,7 @@ export function createConnectionTools(
           state = await transport.cancel(parsed.revision);
         else throw new Error("Invalid command");
         options?.signal.throwIfAborted();
-        return { ok: true, state: safeState.parse(state) };
+        return { ok: true, state: transportState.parse(state) };
       } catch {
         return { ok: false, error: "denied-or-unavailable" };
       }

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 test.use({
   trace: "off",
@@ -29,6 +29,9 @@ test("AC-35 AC-42: closed initiating tab still delivers the verified host task o
       ).status(),
     ).toBe(403);
     await page.goto(fixture.origin);
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     await page
       .getByRole("button", { name: "Connect GitHub", exact: true })
       .click();
@@ -86,7 +89,7 @@ test("AC-35 AC-42: closed initiating tab still delivers the verified host task o
       }));
     expect(await ledger()).toEqual({
       run: "complete",
-      verified: 3,
+      verified: 4,
       statuses: ["pending"],
     });
     // Actual hosted worker and continuation HTTP adapter; no browser callback is needed to deliver.

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
 test.use({
@@ -37,6 +37,9 @@ test("AC-43: real static worker update and account switch preserve pending autho
     await expect
       .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
       .toBe(true);
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     await page
       .getByRole("button", { name: "Connect GitHub", exact: true })
       .click();

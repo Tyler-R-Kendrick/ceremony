@@ -3,6 +3,7 @@ import {
   authenticatedActor,
   AuthorizationError,
   requireCapability,
+  type ActorContext,
 } from "./identity.js";
 import {
   assertRequestBoundary,
@@ -15,17 +16,87 @@ import {
   parseRecipeImport,
 } from "../core/recipe-contracts.js";
 import {
+  accountIdentifierSchema,
   demonstrationConsentSchema,
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
+import { readFile } from "node:fs/promises";
+import {
+  authoredAccountRegistrationRecipe,
+  authoredAccountStored,
+  deleteAuthoredSession,
+  publicAuthoredIdentity,
+  readAuthoredAccountIntent,
+  readAuthoredBlocker,
+  readAuthoredCapture,
+  readAuthoredLog,
+  saveAuthoredAccountIntent,
+} from "./authored-operations.js";
 import { ceremonyAgentTools } from "./agent-tools.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
+import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
 import { configuredModel } from "./agent/model.js";
 
 const revision = z.number().int().positive();
+async function presentRun(
+  runtime: TeachingRuntime,
+  actor: Parameters<TeachingRuntime["commands"]["snapshot"]>[0],
+  run: Awaited<ReturnType<TeachingRuntime["commands"]["snapshot"]>>,
+) {
+  const identity = await publicAuthoredIdentity(runtime.store, actor, run.id);
+  const capture = await readAuthoredCapture(runtime.store, actor, run.id);
+  const blocker = await readAuthoredBlocker(runtime.store, actor, run.id);
+  const accountIntent = await readAuthoredAccountIntent(
+    runtime.store,
+    actor,
+    run.id,
+  );
+  const account =
+    accountIntent &&
+    (await authoredAccountStored(
+      runtime.store,
+      actor,
+      run.provider,
+      accountIntent,
+    ));
+  return {
+    ...run,
+    ...(identity ? { identity } : {}),
+    ...(capture ? { capture: true } : {}),
+    ...(account ? { account: "stored" as const } : {}),
+    ...(blocker
+      ? {
+          human: {
+            reason: blocker,
+            ...(accountIntent?.identifier
+              ? { account: accountIntent.identifier }
+              : {}),
+            fields:
+              blocker === "passkey"
+                ? ["provider-authorization"]
+                : blocker === "required-input"
+                  ? ["provider-required-fields"]
+                  : blocker === "session"
+                    ? ["account", "password"]
+                    : blocker === "verification"
+                      ? ["verification-code"]
+                      : blocker === "challenge"
+                        ? ["captcha-or-mfa"]
+                        : [
+                              "email-in-use",
+                              "username-in-use",
+                              "account",
+                            ].includes(blocker)
+                          ? ["account"]
+                          : [],
+          },
+        }
+      : {}),
+  };
+}
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
 const review = z.strictObject({
   revision,
@@ -41,6 +112,889 @@ const reply = (value: unknown, status = 200) =>
     },
   });
 
+async function authoringHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  requireCapability(actor, "author");
+  if (path === "/authoring/chat") {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const input = z
+      .strictObject({
+        message: z.string().min(1).max(2000),
+        conversationId: z.uuid().optional(),
+      })
+      .parse(body);
+    const stream = request.headers.get("accept")?.includes("text/event-stream");
+    const work = async (
+      onProgress: (text: string) => void,
+      onDraft?: (result: unknown) => void,
+    ) => {
+      onProgress("Starting ceremony discovery");
+      const chat = await runtime.authoring.chat(
+        actor,
+        input.message,
+        input.conversationId,
+        onProgress,
+      );
+      if (chat.result) onDraft?.(chat.result);
+      const extra = chat.result?.draft?.methods?.length
+        ? " Choose a ceremony. I will run it in the isolated browser."
+        : "";
+      const messages = extra
+        ? chat.messages.map((item, index) =>
+            index === chat.messages.length - 1 && item.role === "assistant"
+              ? { ...item, text: `${item.text}${extra}`.slice(0, 2000) }
+              : item,
+          )
+        : chat.messages;
+      return { chat: { ...chat, messages }, run: undefined };
+    };
+    if (stream) {
+      const encoder = new TextEncoder();
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            const send = (event: string, data: unknown) => {
+              controller.enqueue(
+                encoder.encode(
+                  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+                ),
+              );
+            };
+            try {
+              const finished = await work(
+                (text) => send("progress", { text }),
+                (result) => send("draft", { result }),
+              );
+              send("done", {
+                ...finished.chat,
+                ...(finished.run ? { run: finished.run } : {}),
+              });
+            } catch {
+              send("error", { error: "denied-or-unavailable" });
+            } finally {
+              controller.close();
+            }
+          },
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+          },
+        },
+      );
+    }
+    const finished = await work(() => {});
+    return reply({
+      ...finished.chat,
+      ...(finished.run ? { run: finished.run } : {}),
+    });
+  }
+  if (path === "/authoring/delete") {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const input = z
+      .strictObject({
+        connectorId: z.string().min(1).max(64),
+        runId: z.string().min(1).max(120).optional(),
+        revision: revision.optional(),
+      })
+      .parse(body);
+    requireCapability(actor, "executor");
+    if (input.runId) {
+      try {
+        if (input.revision)
+          await runtime.commands.cancel(actor, input.runId, input.revision);
+      } catch {
+        /* Already complete or cancelled. */
+      }
+      await deleteAuthoredSession(runtime.store, actor, input.runId);
+    }
+    const removed = await runtime.authoring.uninstall(actor, input.connectorId);
+    return reply({ ok: true, human: null, removed });
+  }
+  const installedRoute = /^\/authoring\/installed\/([a-z0-9-]{1,64})$/.exec(
+    path,
+  );
+  if (installedRoute && !post) {
+    const connectorId = installedRoute[1]!;
+    const installed = await runtime.authoring.getInstalled(actor, connectorId);
+    if (!installed) return reply({ error: "unavailable" }, 404);
+    const discovery = installed.discovery as
+      { grantTypes?: string[] } | undefined;
+    return reply({
+      id: connectorId,
+      name: installed.manifest.name,
+      methods: installed.manifest.methods.map((method) => ({
+        id: method.id,
+        kind: method.kind,
+        label: method.label,
+      })),
+      discovery: installed.discovery
+        ? {
+            ...installed.discovery,
+            extra: extraDiscoveredCeremonies(discovery?.grantTypes ?? []),
+          }
+        : null,
+    });
+  }
+  if (path === "/authoring/from-provider") {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const input = z
+      .strictObject({
+        provider: z.string().min(1).max(100),
+        origin: z.string().url().max(200).optional(),
+        openApiUrl: z.string().url().max(500).optional(),
+        intent: z.enum(["draft", "complete", "run"]).default("draft"),
+      })
+      .parse(body);
+    return reply(
+      await runtime.authoring.fromProvider(
+        actor,
+        input.provider,
+        input.openApiUrl,
+        input.intent,
+        input.origin,
+      ),
+    );
+  }
+  if (path === "/authoring/compose") {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const input = z
+      .strictObject({
+        draftId: z.uuid(),
+        revision: revision,
+        childIds: z.array(z.string().min(1).max(64)).min(2).max(12),
+      })
+      .parse(body);
+    return reply(
+      await runtime.authoring.compose(
+        actor,
+        input.draftId,
+        input.revision,
+        input.childIds,
+      ),
+    );
+  }
+  const draft = /^\/authoring\/drafts\/([^/]+)$/.exec(path);
+  if (draft && !post)
+    return reply(
+      await runtime.authoring.read(
+        actor,
+        z.uuid().parse(decodeURIComponent(draft[1]!)),
+      ),
+    );
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function toolHttp(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  requireCapability(actor, "executor");
+  if (!post) return reply({ error: "unavailable" }, 405);
+  const tools = ceremonyAgentTools(runtime);
+  if (path === "/tools/connect") {
+    const run = await tools.connect(actor, body);
+    return reply(await presentRun(runtime, actor, run));
+  }
+  if (path === "/tools/snapshot") {
+    return reply(
+      await presentRun(runtime, actor, await tools.snapshot(actor, body)),
+    );
+  }
+  if (path === "/tools/advance") return reply(await tools.advance(actor, body));
+  if (path === "/tools/cancel") return reply(await tools.cancel(actor, body));
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function startRunHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  body: unknown,
+): Promise<Response> {
+  const input = z
+    .strictObject({
+      connectorId: id,
+      ceremony: z
+        .enum([
+          "api-key",
+          "basic",
+          "form",
+          "oauth-code",
+          "device",
+          "authmd-anonymous",
+          "github-app",
+          "account-registration",
+        ])
+        .optional(),
+      teach: z.boolean().optional(),
+      target: z.string().min(1).max(2048).optional(),
+      account: accountIdentifierSchema.optional(),
+    })
+    .refine(
+      (input) =>
+        input.connectorId !== "github" ||
+        !input.account ||
+        /^[a-zA-Z0-9-]{1,100}$/.test(input.account),
+    )
+    .refine(
+      (input) =>
+        !input.target ||
+        input.connectorId === "jira" ||
+        /^[a-zA-Z0-9-]{1,100}$/.test(input.target),
+    )
+    .parse(body);
+  if (!(await runtime.listConnectors(actor)).includes(input.connectorId))
+    throw new AuthorizationError("invalid_request");
+  if (input.target) {
+    if (!runtime.selectTarget) throw new AuthorizationError("denied");
+    await runtime.selectTarget(actor, input.target, input.connectorId);
+  }
+  const work = async (onProgress: (text: string) => void) => {
+    if (input.account) onProgress(`Checking account ${input.account}`);
+    const accountStatus = input.account
+      ? ((await runtime.accountStatus?.(
+          actor,
+          input.connectorId,
+          input.account,
+        )) ?? "unchecked")
+      : undefined;
+    const selected = input.ceremony;
+    if (input.account) {
+      onProgress(
+        accountStatus === "existing"
+          ? `Found existing ${input.connectorId} account; using sign-in`
+          : accountStatus === "available"
+            ? `Account is available; using registration`
+            : "Provider account lookup is unavailable; registration will verify the account",
+      );
+    }
+    let run =
+      selected === "account-registration"
+        ? await runtime.executeRecipe(
+            actor,
+            authoredAccountRegistrationRecipe,
+            {},
+            input.connectorId,
+          )
+        : await runtime.connect(actor, input.connectorId, true, input.account);
+    if (
+      input.account &&
+      accountStatus &&
+      !(await readAuthoredAccountIntent(runtime.store, actor, run.id))
+    )
+      await saveAuthoredAccountIntent(runtime.store, actor, run.id, {
+        identifier: input.account,
+        status: accountStatus,
+      });
+    if (selected) {
+      await runtime.store.transaction(async (tx) => {
+        const key = {
+          tenant: actor.tenantId,
+          kind: "session" as const,
+          id: `authored-ceremony:${run.id}`,
+        };
+        const current = await tx.get(key);
+        await tx.put(key, { kind: selected }, current?.revision ?? null);
+      });
+    }
+    const demo = input.teach
+      ? await runtime.demonstrations.start(actor, run.id)
+      : undefined;
+    let seen = 0;
+    const flush = async () => {
+      const events = await readAuthoredLog(runtime.store, actor, run.id);
+      for (const line of events.slice(seen)) onProgress(line.text);
+      seen = events.length;
+    };
+    for (const node of run.nodes) {
+      if (node.verified) continue;
+      const advancing = runtime.commands.advance(
+        actor,
+        run.id,
+        node.id,
+        run.revision,
+        `auto:${run.id}:${node.id}:${run.revision}`,
+      );
+      const settled = advancing.then(
+        () => true,
+        () => true,
+      );
+      while (
+        !(await Promise.race([
+          settled,
+          new Promise((resolve) => setTimeout(resolve, 400)),
+        ]))
+      )
+        await flush().catch(() => {});
+      await flush().catch(() => {});
+      const result = await advancing;
+      run = await runtime.commands.snapshot(actor, run.id);
+      if (result.state !== "complete") break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await flush().catch(() => {});
+    return {
+      ...(await presentRun(runtime, actor, run)),
+      ...(demo ? { demonstration: demo } : {}),
+    };
+  };
+  const stream = request.headers.get("accept")?.includes("text/event-stream");
+  if (stream) {
+    const encoder = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          const send = (event: string, data: unknown) => {
+            controller.enqueue(
+              encoder.encode(
+                `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+              ),
+            );
+          };
+          try {
+            send("done", await work((text) => send("progress", { text })));
+          } catch {
+            send("error", { error: "denied-or-unavailable" });
+          } finally {
+            controller.close();
+          }
+        },
+      }),
+      {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        },
+      },
+    );
+  }
+  return reply(await work(() => {}));
+}
+
+async function runHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  if (path === "/runs" && post)
+    return await startRunHttp(request, runtime, actor, body);
+  const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
+  const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
+  const captureRoute = /^\/runs\/([^/]+)\/capture$/.exec(path);
+  if (captureRoute && !post) {
+    const runId = id.parse(decodeURIComponent(captureRoute[1]!));
+    await runtime.commands.snapshot(actor, runId);
+    const pathOnDisk = await readAuthoredCapture(runtime.store, actor, runId);
+    if (!pathOnDisk) return reply({ error: "unavailable" }, 404);
+    try {
+      const bytes = await readFile(pathOnDisk);
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          "content-type": "video/webm",
+          "cache-control": "no-store",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+        },
+      });
+    } catch {
+      return reply({ error: "unavailable" }, 404);
+    }
+  }
+  if (activeDemo && !post) {
+    const runId = id.parse(decodeURIComponent(activeDemo[1]!));
+    await runtime.commands.snapshot(actor, runId);
+    const pointer = await runtime.store.transaction((tx) =>
+      tx.get<{ id: string }>({
+        tenant: actor.tenantId,
+        kind: "session",
+        id: `demonstration:${runId}`,
+      }),
+    );
+    if (!pointer) return reply({ demonstration: null });
+    try {
+      return reply({
+        demonstration: await runtime.demonstrations.timeline(
+          actor,
+          pointer.value.id,
+        ),
+      });
+    } catch {
+      return reply({ demonstration: null });
+    }
+  }
+  if (runRoute) {
+    const runId = id.parse(decodeURIComponent(runRoute[1]!));
+    if (!post && !runRoute[2])
+      return reply(
+        await presentRun(
+          runtime,
+          actor,
+          await runtime.commands.snapshot(actor, runId),
+        ),
+      );
+    if (post && runRoute[2] === "cancel") {
+      const result = await runtime.commands.cancel(
+        actor,
+        runId,
+        z.strictObject({ revision }).parse(body).revision,
+      );
+      await runtime.cancel?.(actor, runId);
+      return reply(result);
+    }
+    if (post && runRoute[2] === "advance") {
+      const input = z
+        .strictObject({ nodeId: id, revision, commandId: id })
+        .parse(body);
+      await runtime.commands.advance(
+        actor,
+        runId,
+        input.nodeId,
+        input.revision,
+        input.commandId,
+      );
+      return reply(
+        await presentRun(
+          runtime,
+          actor,
+          await runtime.commands.snapshot(actor, runId),
+        ),
+      );
+    }
+  }
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function demonstrationHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  if (path === "/demonstrations" && post) {
+    const input = z
+      .strictObject({ runId: id, scope: z.array(id).max(32).optional() })
+      .parse(body);
+    return reply(
+      await runtime.demonstrations.start(actor, input.runId, input.scope),
+    );
+  }
+  const demoRoute = /^\/demonstrations\/([^/]+)$/.exec(path);
+  if (demoRoute) {
+    const demoId = id.parse(decodeURIComponent(demoRoute[1]!));
+    if (post) {
+      const input = z
+        .strictObject({ revision, consent: demonstrationConsentSchema })
+        .parse(body);
+      return reply(
+        await runtime.demonstrations.change(
+          actor,
+          demoId,
+          input.revision,
+          input.consent,
+        ),
+      );
+    }
+    const url = new URL(request.url);
+    return reply(
+      await runtime.demonstrations.timeline(
+        actor,
+        demoId,
+        Number(url.searchParams.get("after") ?? 0),
+        Number(url.searchParams.get("limit") ?? 100),
+      ),
+    );
+  }
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function draftHttp(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  if (path === "/drafts/compile" && post) {
+    const input = z
+      .strictObject({
+        demonstrationId: id,
+        first: z.number().int().nonnegative(),
+        last: z.number().int().nonnegative(),
+      })
+      .parse(body);
+    if (
+      input.first < 1 ||
+      input.last < input.first ||
+      input.last - input.first >= 1000
+    )
+      throw new AuthorizationError("invalid_request");
+    const events: DemonstrationEvent[] = [];
+    let after = input.first - 1;
+    while (after < input.last) {
+      const page = await runtime.demonstrations.timeline(
+        actor,
+        input.demonstrationId,
+        after,
+        Math.min(100, input.last - after),
+      );
+      if (!page.events.length) break;
+      events.push(
+        ...page.events.filter((event) => event.sequence <= input.last),
+      );
+      after = page.events.at(-1)!.sequence;
+    }
+    return reply(
+      await runtime.recipes.compileDraft(actor, events, {
+        first: input.first,
+        last: input.last,
+      }),
+    );
+  }
+  if (path === "/drafts/import" && post) {
+    const input = z
+      .strictObject({ definition: z.string().max(262144) })
+      .parse(body);
+    return reply(
+      await runtime.recipes.createDraft(
+        actor,
+        parseRecipeImport(input.definition),
+      ),
+    );
+  }
+  const draftRoute =
+    /^\/drafts\/([^/]+)(?:\/(edit|review|publish|suggest))?$/.exec(path);
+  if (draftRoute) {
+    const draftId = id.parse(decodeURIComponent(draftRoute[1]!));
+    if (!post && !draftRoute[2])
+      return reply(await runtime.recipes.getDraft(actor, draftId));
+    if (post && draftRoute[2] === "edit") {
+      const input = z
+        .strictObject({ revision, definition: recipeDefinitionSchema })
+        .parse(body);
+      return reply(
+        await runtime.recipes.editDraft(
+          actor,
+          draftId,
+          input.revision,
+          input.definition,
+        ),
+      );
+    }
+    if (post && draftRoute[2] === "suggest") {
+      z.strictObject({ revision }).parse(body);
+      const draft = await runtime.recipes.getDraft(actor, draftId);
+      if (draft.revision !== z.strictObject({ revision }).parse(body).revision)
+        throw new PersistenceConflict();
+      if (draft.author !== actor.subjectId)
+        throw new AuthorizationError("denied");
+      const preview = await runtime.recipes.preview(actor, draft.definition);
+      if (preview.diagnostics.length)
+        throw new AuthorizationError("invalid_request");
+      const suggestion = await suggestRecipeLabels(
+        runtime.store,
+        actor,
+        draftId,
+        preview.leaves.map((leaf) => ({
+          id: leaf.use.id,
+          version: leaf.use.version,
+        })),
+        configuredModel(runtime.modelConfiguration),
+      );
+      return reply({ suggestion });
+    }
+    if (post && (draftRoute[2] === "review" || draftRoute[2] === "publish")) {
+      const input = review.parse(body);
+      return reply(
+        (await runtime.recipes[draftRoute[2]](
+          actor,
+          draftId,
+          input.revision,
+          input.digest,
+        )) ?? { reviewed: true },
+      );
+    }
+  }
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function recipeHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+): Promise<Response> {
+  if (path === "/recipes" && !post) {
+    requireCapability(actor, "executor");
+    const rows = await runtime.store.transaction((tx) =>
+      tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
+    );
+    return reply({
+      recipes: rows
+        .filter((x) => x.value.definition && !x.value.retired)
+        .map((x) => ({
+          id: x.value.definition.id,
+          title: x.value.definition.title,
+          version: x.value.version,
+          digest: x.value.digest,
+          definition: x.value.definition,
+        })),
+    });
+  }
+  const publishedRoute = /^\/recipes\/([^/]+)\/(export|retire)$/.exec(path);
+  if (publishedRoute) {
+    const recipeId = id.parse(decodeURIComponent(publishedRoute[1]!));
+    if (post && publishedRoute[2] === "retire") {
+      const input = z
+        .strictObject({ version: z.string().regex(/^\d+\.\d+\.\d+$/) })
+        .parse(body);
+      await runtime.recipes.retire(actor, recipeId, input.version);
+      return reply({ retired: true });
+    }
+    if (!post && publishedRoute[2] === "export") {
+      const url = new URL(request.url);
+      const published = await runtime.recipes.getPublished(
+        actor,
+        recipeId,
+        z
+          .string()
+          .regex(/^\d+\.\d+\.\d+$/)
+          .parse(url.searchParams.get("version")),
+        z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .parse(url.searchParams.get("digest")),
+      );
+      return reply(published.definition);
+    }
+  }
+  if (path === "/composition/preview" && post)
+    return reply(
+      await runtime.recipes.preview(actor, recipeDefinitionSchema.parse(body)),
+    );
+  if (path === "/recipes/compose" && post) {
+    const input = z
+      .strictObject({
+        references: z
+          .array(
+            z.strictObject({ id, version: z.string(), digest: z.string() }),
+          )
+          .min(2)
+          .max(32),
+      })
+      .parse(body);
+    return reply(
+      await runtime.recipes.composePublished(actor, input.references),
+    );
+  }
+  if (path === "/recipes/execute" && post) {
+    const input = z
+      .strictObject({
+        connectorId: id.default("github"),
+        sourceRunId: id.optional(),
+        id,
+        version: z.string(),
+        digest: z.string(),
+        inputs: z.record(
+          id,
+          z.union([
+            z.string().max(512),
+            z.number().finite(),
+            z.boolean(),
+            z.null(),
+          ]),
+        ),
+      })
+      .parse(body);
+    const published = await runtime.recipes.getPublished(
+      actor,
+      input.id,
+      input.version,
+      input.digest,
+    );
+    return reply(
+      await runtime.executeRecipe(
+        actor,
+        published.definition,
+        input.inputs,
+        input.connectorId,
+        input.sourceRunId,
+      ),
+    );
+  }
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function agentHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+  body: unknown,
+  startAgent: ((runId: string, turnId: string) => Promise<void>) | undefined,
+): Promise<Response> {
+  const agentRoute = /^\/agent\/([^/]+)\/(start|stop|status|stream)$/.exec(
+    path,
+  );
+  if (agentRoute) {
+    const runId = id.parse(decodeURIComponent(agentRoute[1]!));
+    if (post && agentRoute[2] === "stop") {
+      z.strictObject({}).parse(body);
+      await runtime.agent.stop(actor, runId);
+      return reply({ status: "stopped" });
+    }
+    if (post && agentRoute[2] === "start") {
+      z.strictObject({}).parse(body);
+      if (!runtime.modelConfiguration.model)
+        return reply({ status: "unavailable" });
+      const turnId = await runtime.delegate(actor, runId);
+      if (startAgent) {
+        await startAgent(runId, turnId);
+        return reply({ turnId, status: "running" });
+      }
+      return reply({
+        turnId,
+        status: await runtime.agent.turn(actor, runId, turnId),
+      });
+    }
+    if (!post && agentRoute[2] === "status")
+      return reply(
+        await runtime.agent.status(
+          actor,
+          runId,
+          id
+            .optional()
+            .parse(
+              new URL(request.url).searchParams.get("turnId") ?? undefined,
+            ),
+        ),
+      );
+    if (!post && agentRoute[2] === "stream")
+      return await agentStatusStream(
+        runtime.agent,
+        actor,
+        runId,
+        id
+          .optional()
+          .parse(new URL(request.url).searchParams.get("turnId") ?? undefined),
+        async () => {
+          const current = await authenticatedActor(request, runtime.identity);
+          if (
+            current.tenantId !== actor.tenantId ||
+            current.subjectId !== actor.subjectId ||
+            current.sessionId !== actor.sessionId
+          )
+            throw new AuthorizationError("denied");
+          requireCapability(current, "executor");
+        },
+      );
+  }
+  return reply({ error: "unavailable" }, 404);
+}
+
+async function humanHttp(
+  request: Request,
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  path: string,
+  post: boolean,
+): Promise<Response | undefined> {
+  if (
+    (/^\/jira\/[^/]+\/owner-setup$/.test(path) ||
+      /^\/jira\/owner-setup\/[^/]+$/.test(path)) &&
+    runtime.ownerSetup
+  ) {
+    if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+    return await runtime.ownerSetup(actor, request);
+  }
+  if (
+    ["/github/installation-return", "/jira/authorization-return"].includes(
+      path,
+    ) &&
+    runtime.humanReturn
+  ) {
+    if (post) return reply({ error: "unavailable" }, 405);
+    requireCapability(actor, "executor");
+    if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+    return await runtime.humanReturn(actor, request);
+  }
+  if (
+    (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
+      /^\/[a-z0-9-]{1,64}\/[^/]+\/(human|account)$/.test(path)) &&
+    runtime.human
+  ) {
+    const connector = path.split("/")[1]!;
+    const action = path.split("/")[3];
+    if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+    requireCapability(actor, "executor");
+    const runId = id.parse(decodeURIComponent(path.split("/")[2]!));
+    const run = await runtime.commands.snapshot(actor, runId);
+    if (
+      post &&
+      connector === "github" &&
+      action !== "recovery" &&
+      action !== "account" &&
+      !run.nodes.some(
+        (node) =>
+          ["authored.register-account", "authored.authorize-user"].includes(
+            node.operationId,
+          ) && node.state === "awaiting-human",
+      )
+    )
+      return reply({ error: "unavailable" }, 405);
+    // Recovery handler owns bounded private-body parsing. Never clone it into generic authoring state.
+    return await runtime.human(actor, runId, request);
+  }
+  return undefined;
+}
+
+function errorResponse(error: unknown): Response {
+  if (error instanceof Error && error.message === "account-required")
+    return reply({ error: "account-required" }, 409);
+  if (error instanceof Error && error.message === "jira-site-required")
+    return reply({ error: "jira-site-required" }, 409);
+  if (
+    error instanceof Error &&
+    error.message === "incomplete-github-configuration"
+  )
+    return reply({ error: "incomplete-github-configuration" }, 409);
+  if (error instanceof PersistenceConflict)
+    return reply({ error: "conflict" }, 409);
+  if (error instanceof AuthorizationError)
+    return reply(
+      { error: error.code },
+      error.code === "unauthenticated"
+        ? 401
+        : error.code === "invalid_request"
+          ? 400
+          : 403,
+    );
+  if (error instanceof z.ZodError)
+    return reply({ error: "invalid_request" }, 400);
+  return reply({ error: "unavailable" }, 400);
+}
+
 /** Mounted unchanged by the local example and authenticated hosted adapter. */
 export async function teachingHttp(
   request: Request,
@@ -52,7 +1006,38 @@ export async function teachingHttp(
       /^\/api\/v1\/teaching/,
       "",
     );
-    assertRequestBoundary(request, { origin: runtime.origin });
+    assertRequestBoundary(request, {
+      origin: runtime.origin,
+      ...(request.method === "POST" &&
+      /^\/[a-z0-9-]+\/[^/]+\/(human|account)$/.test(path)
+        ? {
+            contentTypes: [
+              "application/json",
+              "application/x-www-form-urlencoded",
+            ],
+          }
+        : {}),
+    });
+    if (
+      request.method === "GET" &&
+      /^\/oauth-clients\/[a-z0-9-]{1,64}\/[^/]+$/.test(path)
+    ) {
+      const [, , connectorId, runId] = path.split("/");
+      const record = await runtime.store.transaction((tx) =>
+        tx.get({
+          tenant: "public",
+          kind: "artifact",
+          id: `oauth-client:${connectorId}:${runId}`,
+        }),
+      );
+      if (!record) return reply({ error: "unavailable" }, 404);
+      return Response.json(record.value, {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        },
+      });
+    }
     let actor;
     try {
       actor = await authenticatedActor(request, runtime.identity);
@@ -74,59 +1059,13 @@ export async function teachingHttp(
     if (!["GET", "POST"].includes(request.method))
       return reply({ error: "unavailable" }, 405);
     const post = request.method === "POST";
-    if (
-      (/^\/jira\/[^/]+\/owner-setup$/.test(path) ||
-        /^\/jira\/owner-setup\/[^/]+$/.test(path)) &&
-      runtime.ownerSetup
-    ) {
-      if (actor.actorKind !== "human") throw new AuthorizationError("denied");
-      return await runtime.ownerSetup(actor, request);
-    }
-    if (
-      ["/github/installation-return", "/jira/authorization-return"].includes(
-        path,
-      ) &&
-      runtime.humanReturn
-    ) {
-      if (post) return reply({ error: "unavailable" }, 405);
-      requireCapability(actor, "executor");
-      if (actor.actorKind !== "human") throw new AuthorizationError("denied");
-      return await runtime.humanReturn(actor, request);
-    }
-    if (
-      (/^\/github\/[^/]+\/(human|callback|recovery)$/.test(path) ||
-        /^\/(stripe|supabase|jira)\/[^/]+\/human$/.test(path)) &&
-      runtime.human
-    ) {
-      const action = path.split("/")[3];
-      if (
-        post &&
-        action !== "recovery" &&
-        !/^\/(stripe|supabase|jira)\//.test(path)
-      )
-        return reply({ error: "unavailable" }, 405);
-      if (actor.actorKind !== "human") throw new AuthorizationError("denied");
-      requireCapability(actor, "executor");
-      const runId = id.parse(decodeURIComponent(path.split("/")[2]!));
-      await runtime.commands.snapshot(actor, runId);
-      // Recovery handler owns bounded private-body parsing. Never clone it into generic authoring state.
-      return await runtime.human(actor, runId, request);
-    }
+    const humanResponse = await humanHttp(request, runtime, actor, path, post);
+    if (humanResponse) return humanResponse;
     const body = post ? await boundedJson(request) : undefined;
-    if (path.startsWith("/tools/")) {
-      requireCapability(actor, "executor");
-      if (!post) return reply({ error: "unavailable" }, 405);
-      const tools = ceremonyAgentTools(runtime);
-      if (path === "/tools/connect")
-        return reply(await tools.connect(actor, body));
-      if (path === "/tools/snapshot")
-        return reply(await tools.snapshot(actor, body));
-      if (path === "/tools/advance")
-        return reply(await tools.advance(actor, body));
-      if (path === "/tools/cancel")
-        return reply(await tools.cancel(actor, body));
-      return reply({ error: "unavailable" }, 404);
-    }
+    if (path.startsWith("/authoring/"))
+      return await authoringHttp(request, runtime, actor, path, post, body);
+    if (path.startsWith("/tools/"))
+      return await toolHttp(runtime, actor, path, post, body);
     if (path === "/capabilities" && !post)
       return reply({
         available: true,
@@ -134,414 +1073,35 @@ export async function teachingHttp(
         modelAvailable: Boolean(runtime.modelConfiguration.model),
         signOutAvailable:
           typeof Reflect.get(runtime.identity, "logout") === "function",
-        connectors: runtime.connectors,
+        connectors: await runtime.listConnectors(actor),
+        authoredConnectors: (await runtime.authoring.listManifests(actor)).map(
+          (item) => item.id,
+        ),
       });
-    if (path === "/runs" && post) {
-      const input = z
-        .strictObject({
-          connectorId: id,
-          teach: z.boolean().optional(),
-          target: z.string().min(1).max(2048).optional(),
-        })
-        .refine(
-          (input) =>
-            !input.target ||
-            input.connectorId === "jira" ||
-            /^[a-zA-Z0-9-]{1,100}$/.test(input.target),
-        )
-        .parse(body);
-      if (!runtime.connectors.includes(input.connectorId))
-        throw new AuthorizationError("invalid_request");
-      if (input.target) {
-        if (!runtime.selectTarget) throw new AuthorizationError("denied");
-        await runtime.selectTarget(actor, input.target, input.connectorId);
-      }
-      let run = await runtime.connect(actor, input.connectorId);
-      const demo = input.teach
-        ? await runtime.demonstrations.start(actor, run.id)
-        : undefined;
-      for (const node of run.nodes) {
-        if (node.verified) continue;
-        const result = await runtime.commands.advance(
-          actor,
-          run.id,
-          node.id,
-          run.revision,
-          `auto:${run.id}:${node.id}:${run.revision}`,
-        );
-        run = await runtime.commands.snapshot(actor, run.id);
-        if (result.state !== "complete") break;
-      }
-      return reply({ ...run, ...(demo ? { demonstration: demo } : {}) });
-    }
-    const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
-    const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
-    if (activeDemo && !post) {
-      const runId = id.parse(decodeURIComponent(activeDemo[1]!));
-      await runtime.commands.snapshot(actor, runId);
-      const pointer = await runtime.store.transaction((tx) =>
-        tx.get<{ id: string }>({
-          tenant: actor.tenantId,
-          kind: "session",
-          id: `demonstration:${runId}`,
-        }),
-      );
-      if (!pointer) return reply({ demonstration: null });
-      try {
-        return reply({
-          demonstration: await runtime.demonstrations.timeline(
-            actor,
-            pointer.value.id,
-          ),
-        });
-      } catch {
-        return reply({ demonstration: null });
-      }
-    }
-    if (runRoute) {
-      const runId = id.parse(decodeURIComponent(runRoute[1]!));
-      if (!post && !runRoute[2])
-        return reply(await runtime.commands.snapshot(actor, runId));
-      if (post && runRoute[2] === "cancel") {
-        const result = await runtime.commands.cancel(
-          actor,
-          runId,
-          z.strictObject({ revision }).parse(body).revision,
-        );
-        await runtime.cancel?.(actor, runId);
-        return reply(result);
-      }
-      if (post && runRoute[2] === "advance") {
-        const input = z
-          .strictObject({ nodeId: id, revision, commandId: id })
-          .parse(body);
-        await runtime.commands.advance(
-          actor,
-          runId,
-          input.nodeId,
-          input.revision,
-          input.commandId,
-        );
-        return reply(await runtime.commands.snapshot(actor, runId));
-      }
-    }
-    if (path === "/demonstrations" && post) {
-      const input = z
-        .strictObject({ runId: id, scope: z.array(id).max(32).optional() })
-        .parse(body);
-      return reply(
-        await runtime.demonstrations.start(actor, input.runId, input.scope),
-      );
-    }
-    const demoRoute = /^\/demonstrations\/([^/]+)$/.exec(path);
-    if (demoRoute) {
-      const demoId = id.parse(decodeURIComponent(demoRoute[1]!));
-      if (post) {
-        const input = z
-          .strictObject({ revision, consent: demonstrationConsentSchema })
-          .parse(body);
-        return reply(
-          await runtime.demonstrations.change(
-            actor,
-            demoId,
-            input.revision,
-            input.consent,
-          ),
-        );
-      }
-      const url = new URL(request.url);
-      return reply(
-        await runtime.demonstrations.timeline(
-          actor,
-          demoId,
-          Number(url.searchParams.get("after") ?? 0),
-          Number(url.searchParams.get("limit") ?? 100),
-        ),
-      );
-    }
-    if (path === "/drafts/compile" && post) {
-      const input = z
-        .strictObject({
-          demonstrationId: id,
-          first: z.number().int().nonnegative(),
-          last: z.number().int().nonnegative(),
-        })
-        .parse(body);
-      if (
-        input.first < 1 ||
-        input.last < input.first ||
-        input.last - input.first >= 1000
-      )
-        throw new AuthorizationError("invalid_request");
-      const events: DemonstrationEvent[] = [];
-      let after = input.first - 1;
-      while (after < input.last) {
-        const page = await runtime.demonstrations.timeline(
-          actor,
-          input.demonstrationId,
-          after,
-          Math.min(100, input.last - after),
-        );
-        if (!page.events.length) break;
-        events.push(
-          ...page.events.filter((event) => event.sequence <= input.last),
-        );
-        after = page.events.at(-1)!.sequence;
-      }
-      return reply(
-        await runtime.recipes.compileDraft(actor, events, {
-          first: input.first,
-          last: input.last,
-        }),
-      );
-    }
-    if (path === "/drafts/import" && post) {
-      const input = z
-        .strictObject({ definition: z.string().max(262144) })
-        .parse(body);
-      return reply(
-        await runtime.recipes.createDraft(
-          actor,
-          parseRecipeImport(input.definition),
-        ),
-      );
-    }
-    const draftRoute =
-      /^\/drafts\/([^/]+)(?:\/(edit|review|publish|suggest))?$/.exec(path);
-    if (draftRoute) {
-      const draftId = id.parse(decodeURIComponent(draftRoute[1]!));
-      if (!post && !draftRoute[2])
-        return reply(await runtime.recipes.getDraft(actor, draftId));
-      if (post && draftRoute[2] === "edit") {
-        const input = z
-          .strictObject({ revision, definition: recipeDefinitionSchema })
-          .parse(body);
-        return reply(
-          await runtime.recipes.editDraft(
-            actor,
-            draftId,
-            input.revision,
-            input.definition,
-          ),
-        );
-      }
-      if (post && draftRoute[2] === "suggest") {
-        z.strictObject({ revision }).parse(body);
-        const draft = await runtime.recipes.getDraft(actor, draftId);
-        if (
-          draft.revision !== z.strictObject({ revision }).parse(body).revision
-        )
-          throw new PersistenceConflict();
-        if (draft.author !== actor.subjectId)
-          throw new AuthorizationError("denied");
-        const preview = await runtime.recipes.preview(actor, draft.definition);
-        if (preview.diagnostics.length)
-          throw new AuthorizationError("invalid_request");
-        const suggestion = await suggestRecipeLabels(
-          runtime.store,
-          actor,
-          draftId,
-          preview.leaves.map((leaf) => ({
-            id: leaf.use.id,
-            version: leaf.use.version,
-          })),
-          configuredModel(runtime.modelConfiguration),
-        );
-        return reply({ suggestion });
-      }
-      if (post && (draftRoute[2] === "review" || draftRoute[2] === "publish")) {
-        const input = review.parse(body);
-        return reply(
-          (await runtime.recipes[draftRoute[2]](
-            actor,
-            draftId,
-            input.revision,
-            input.digest,
-          )) ?? { reviewed: true },
-        );
-      }
-    }
-    if (path === "/recipes" && !post) {
-      requireCapability(actor, "executor");
-      const rows = await runtime.store.transaction((tx) =>
-        tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
-      );
-      return reply({
-        recipes: rows
-          .filter((x) => x.value.definition && !x.value.retired)
-          .map((x) => ({
-            id: x.value.definition.id,
-            title: x.value.definition.title,
-            version: x.value.version,
-            digest: x.value.digest,
-            definition: x.value.definition,
-          })),
-      });
-    }
-    const publishedRoute = /^\/recipes\/([^/]+)\/(export|retire)$/.exec(path);
-    if (publishedRoute) {
-      const recipeId = id.parse(decodeURIComponent(publishedRoute[1]!));
-      if (post && publishedRoute[2] === "retire") {
-        const input = z
-          .strictObject({ version: z.string().regex(/^\d+\.\d+\.\d+$/) })
-          .parse(body);
-        await runtime.recipes.retire(actor, recipeId, input.version);
-        return reply({ retired: true });
-      }
-      if (!post && publishedRoute[2] === "export") {
-        const url = new URL(request.url);
-        const published = await runtime.recipes.getPublished(
-          actor,
-          recipeId,
-          z
-            .string()
-            .regex(/^\d+\.\d+\.\d+$/)
-            .parse(url.searchParams.get("version")),
-          z
-            .string()
-            .regex(/^[a-f0-9]{64}$/)
-            .parse(url.searchParams.get("digest")),
-        );
-        return reply(published.definition);
-      }
-    }
-    if (path === "/composition/preview" && post)
-      return reply(
-        await runtime.recipes.preview(
-          actor,
-          recipeDefinitionSchema.parse(body),
-        ),
-      );
-    if (path === "/recipes/compose" && post) {
-      const input = z
-        .strictObject({
-          references: z
-            .array(
-              z.strictObject({ id, version: z.string(), digest: z.string() }),
-            )
-            .min(2)
-            .max(32),
-        })
-        .parse(body);
-      return reply(
-        await runtime.recipes.composePublished(actor, input.references),
-      );
-    }
-    if (path === "/recipes/execute" && post) {
-      const input = z
-        .strictObject({
-          connectorId: id.default("github"),
-          id,
-          version: z.string(),
-          digest: z.string(),
-          inputs: z.record(
-            id,
-            z.union([
-              z.string().max(512),
-              z.number().finite(),
-              z.boolean(),
-              z.null(),
-            ]),
-          ),
-        })
-        .parse(body);
-      const published = await runtime.recipes.getPublished(
+    if (path === "/runs" || path.startsWith("/runs/"))
+      return await runHttp(request, runtime, actor, path, post, body);
+    if (path === "/demonstrations" || path.startsWith("/demonstrations/"))
+      return await demonstrationHttp(request, runtime, actor, path, post, body);
+    if (path.startsWith("/drafts/"))
+      return await draftHttp(runtime, actor, path, post, body);
+    if (
+      path === "/recipes" ||
+      path.startsWith("/recipes/") ||
+      path === "/composition/preview"
+    )
+      return await recipeHttp(request, runtime, actor, path, post, body);
+    if (path.startsWith("/agent/"))
+      return await agentHttp(
+        request,
+        runtime,
         actor,
-        input.id,
-        input.version,
-        input.digest,
+        path,
+        post,
+        body,
+        startAgent,
       );
-      return reply(
-        await runtime.executeRecipe(
-          actor,
-          published.definition,
-          input.inputs,
-          input.connectorId,
-        ),
-      );
-    }
-    const agentRoute = /^\/agent\/([^/]+)\/(start|stop|status|stream)$/.exec(
-      path,
-    );
-    if (agentRoute) {
-      const runId = id.parse(decodeURIComponent(agentRoute[1]!));
-      if (post && agentRoute[2] === "stop") {
-        z.strictObject({}).parse(body);
-        await runtime.agent.stop(actor, runId);
-        return reply({ status: "stopped" });
-      }
-      if (post && agentRoute[2] === "start") {
-        z.strictObject({}).parse(body);
-        if (!runtime.modelConfiguration.model)
-          return reply({ status: "unavailable" });
-        const turnId = await runtime.delegate(actor, runId);
-        if (startAgent) {
-          await startAgent(runId, turnId);
-          return reply({ turnId, status: "running" });
-        }
-        return reply({
-          turnId,
-          status: await runtime.agent.turn(actor, runId, turnId),
-        });
-      }
-      if (!post && agentRoute[2] === "status")
-        return reply(
-          await runtime.agent.status(
-            actor,
-            runId,
-            id
-              .optional()
-              .parse(
-                new URL(request.url).searchParams.get("turnId") ?? undefined,
-              ),
-          ),
-        );
-      if (!post && agentRoute[2] === "stream")
-        return await agentStatusStream(
-          runtime.agent,
-          actor,
-          runId,
-          id
-            .optional()
-            .parse(
-              new URL(request.url).searchParams.get("turnId") ?? undefined,
-            ),
-          async () => {
-            const current = await authenticatedActor(request, runtime.identity);
-            if (
-              current.tenantId !== actor.tenantId ||
-              current.subjectId !== actor.subjectId ||
-              current.sessionId !== actor.sessionId
-            )
-              throw new AuthorizationError("denied");
-            requireCapability(current, "executor");
-          },
-        );
-    }
     return reply({ error: "unavailable" }, 404);
   } catch (error) {
-    if (error instanceof Error && error.message === "account-required")
-      return reply({ error: "account-required" }, 409);
-    if (error instanceof Error && error.message === "jira-site-required")
-      return reply({ error: "jira-site-required" }, 409);
-    if (
-      error instanceof Error &&
-      error.message === "incomplete-github-configuration"
-    )
-      return reply({ error: "incomplete-github-configuration" }, 409);
-    if (error instanceof PersistenceConflict)
-      return reply({ error: "conflict" }, 409);
-    if (error instanceof AuthorizationError)
-      return reply(
-        { error: error.code },
-        error.code === "unauthenticated"
-          ? 401
-          : error.code === "invalid_request"
-            ? 400
-            : 403,
-      );
-    if (error instanceof z.ZodError)
-      return reply({ error: "invalid_request" }, 400);
-    return reply({ error: "unavailable" }, 400);
+    return errorResponse(error);
   }
 }

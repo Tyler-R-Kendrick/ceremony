@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -13,6 +13,15 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 test("AC-24 failed browser diagnostics exclude protected DOM and attachments", async () => {
+  for (const file of await readdir(resolve("tests/browser"))) {
+    if (file.endsWith(".spec.ts"))
+      expect(
+        /from ["']@playwright\/test["']/.test(
+          await readFile(resolve("tests/browser", file), "utf8"),
+        ),
+        `${file} must use the shared private-diagnostics fixture`,
+      ).toBe(false);
+  }
   const directory = await mkdtemp(resolve(".diagnostics-"));
   const canary = `synthetic-private-${randomUUID()}`;
   try {
@@ -22,19 +31,19 @@ test("AC-24 failed browser diagnostics exclude protected DOM and attachments", a
 export default { ...config, testDir: '.', testMatch: '**/intentional.spec.ts',
 webServer: undefined, retries: 0, outputDir: './results',
 reporter: [['json', { outputFile: './report.json' }], [${JSON.stringify(resolve("scripts/safe-browser-reporter.ts"))}]],
-projects: [{ name: 'chromium', use: { browserName: 'chromium' } }] };
+projects: config.projects.filter(p => p.name !== 'native-webmcp').map(({ name, use }) => ({ name, use })) };
 `,
     );
     await mkdir(join(directory, "tests/browser"), { recursive: true });
     await writeFile(
       join(directory, "tests/browser/intentional.spec.ts"),
-      `import { test, expect } from '@playwright/test';
-test('intentional failure for diagnostic isolation', async ({ page }) => {
+      `import { test, expect } from ${JSON.stringify(resolve("tests/fixtures/browser-test.ts"))};
+for (const kind of ['assertion', 'missing-locator']) test('intentional failure for diagnostic isolation: ' + kind, async ({ page }) => {
   await page.setContent('<main><h1>Private collector</h1><p></p><textarea></textarea></main>');
   await page.locator('p').evaluate((node, value) => { node.textContent = value; }, process.env.DIAGNOSTIC_CANARY);
   await page.locator('textarea').fill(process.env.DIAGNOSTIC_CANARY!);
   await page.evaluate((value) => { document.title = value!; document.body.dataset.private = value; }, process.env.DIAGNOSTIC_CANARY);
-  try { expect(true).toBe(false); }
+  try { if (kind === 'missing-locator') await expect(page.getByRole('button', { name: 'Absent action' })).toBeVisible({ timeout: 100 }); else expect(true).toBe(false); }
   finally { await test.step('cleanup', async () => { await page.title(); }); }
 });
 `,
@@ -76,25 +85,32 @@ test('intentional failure for diagnostic isolation', async ({ page }) => {
     const reportText = await readFile(join(directory, "report.json"), "utf8");
     expect(reportText.includes(canary)).toBe(false);
     const report = JSON.parse(reportText);
-    expect(report.stats.unexpected).toBe(1);
-    const result = report.suites[0].specs[0].tests[0].results[0];
-    expect(result.status).toBe("failed");
-    expect(result.error.message.includes("toBe")).toBe(true);
+    expect(report.stats.unexpected).toBe(6);
     const safeText = await readFile(
       join(directory, "artifacts/browser/results.json"),
       "utf8",
     );
     expect(safeText.includes(canary)).toBe(false);
-    const safe = JSON.parse(safeText).cases[0];
-    expect(safe.firstFailureLine).toBe(7);
-    expect(safe.lastStepLine).toBe(8);
-    // This version always attaches assertion/source context, but the opt-out
-    // must prevent its automatic ARIA snapshot before it is collected.
-    for (const attachment of result.attachments) {
-      expect(attachment.name).toBe("error-context");
-      const content = await readFile(attachment.path, "utf8");
-      expect(content.includes(canary)).toBe(false);
-      expect(/# Page snapshot|```yaml/.test(content)).toBe(false);
+    const safeCases = JSON.parse(safeText).cases;
+    expect(safeCases).toHaveLength(6);
+    for (const safe of safeCases) {
+      expect(safe.firstFailureLine).toBe(7);
+      expect(safe.lastStepLine).toBe(8);
+    }
+    for (const spec of report.suites[0].specs) {
+      for (const run of spec.tests) {
+        const result = run.results[0];
+        expect(result.status).toBe("failed");
+        expect(result.error.message.includes("toBe")).toBe(true);
+        // Ordinary failure snapshots are disabled; matcher-supplied snapshots
+        // must also be removed before Playwright writes its source attachments.
+        for (const attachment of result.attachments) {
+          expect(attachment.name).toBe("error-context");
+          const content = await readFile(attachment.path, "utf8");
+          expect(content.includes(canary)).toBe(false);
+          expect(/# Page snapshot|```yaml/.test(content)).toBe(false);
+        }
+      }
     }
     const files = await readdir(join(directory, "results"), {
       recursive: true,

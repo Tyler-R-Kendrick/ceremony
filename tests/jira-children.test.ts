@@ -7,6 +7,7 @@ import { ProtectedCommandService } from "../src/server/commands.js";
 import {
   SQLiteCeremonyStore,
   type AsyncCeremonyStore,
+  type RecordKey,
 } from "../src/server/persistence/index.js";
 import {
   validateRecipe,
@@ -29,7 +30,7 @@ import {
 } from "../src/server/jira-setup.js";
 import type { RunRecord } from "../src/server/commands.js";
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, now?: () => number) {
   const token = randomBytes(32).toString("hex");
   const config: JiraOAuthConfiguration = {
     clientId: "fixture-client",
@@ -132,10 +133,17 @@ async function fixture(t: TestContext) {
         server.close(() => resolve());
       }),
   );
-  const store = new SQLiteCeremonyStore(":memory:", {
+  const database = new SQLiteCeremonyStore(":memory:", {
     current: "test",
     keys: { test: randomBytes(32) },
   });
+  const store: AsyncCeremonyStore = now
+    ? {
+        transaction: (work) =>
+          database.transaction((tx) => work({ ...tx, now: async () => now() })),
+        close: () => database.close(),
+      }
+    : database;
   t.after(() => store.close());
   const actor: ActorContext = {
     tenantId: "tenant",
@@ -248,6 +256,84 @@ async function fixture(t: TestContext) {
   };
 }
 
+for (const superseded of [false, true])
+  test(`Jira handler and artifact save lock the run before its fence (${superseded ? "superseded" : "current"} worker)`, async (t) => {
+    const f = await fixture(t);
+    const run = await f.create();
+    const context = f.context(run.id, "app");
+    context.fence = await f.store.transaction(async (tx) => {
+      await tx.put(
+        { tenant: f.actor.tenantId, kind: "command", id: context.commandId },
+        {
+          state: "running",
+          runId: run.id,
+          nodeId: "app",
+          effectId: context.effectId,
+        },
+        null,
+      );
+      return tx.claim(
+        { tenant: f.actor.tenantId, kind: "run", id: run.id },
+        "jira-lock-order-worker",
+        60000,
+      );
+    });
+    const transactions: string[][] = [];
+    let fences = 0;
+    const transaction = f.store.transaction.bind(f.store);
+    t.mock.method(
+      f.store,
+      "transaction",
+      (work: Parameters<typeof transaction>[0]) =>
+        transaction((tx) => {
+          const events: string[] = [];
+          transactions.push(events);
+          return work({
+            ...tx,
+            get: async <T>(key: RecordKey) => {
+              const record = await tx.get<T>(key);
+              if (key.kind === "run" && key.id === run.id) events.push("run");
+              if (key.kind === "command") events.push("command");
+              return record;
+            },
+            assertFence: async (fence) => {
+              events.push("fence");
+              if (++fences === 2 && superseded) await tx.cancel(fence);
+              await tx.assertFence(fence);
+              events.push("fence-accepted");
+            },
+            put: async (key, value, revision) => {
+              if (key.kind === "artifact") {
+                events.push("artifact");
+                assert.ok(events.includes("fence-accepted"));
+              }
+              return tx.put(key, value, revision);
+            },
+          });
+        }),
+    );
+    const result = await f.registry
+      .require("jira.prepare-app", "1.0.0")
+      .handler(context, {});
+    const fenced = transactions.filter((events) => events.includes("fence"));
+    assert.equal(fenced.length, 2, "Exercise both handler admission and save");
+    for (const events of fenced) {
+      assert.equal(events[0], "run");
+      assert.ok(events.indexOf("run") < events.indexOf("fence"));
+      if (events.includes("command"))
+        assert.ok(events.indexOf("run") < events.indexOf("command"));
+    }
+    assert.equal(result.state, superseded ? "failed" : "complete");
+    const artifacts = await f.store.transaction((tx) =>
+      tx.list(f.actor.tenantId, "artifact"),
+    );
+    assert.equal(artifacts.length, superseded ? 0 : 1);
+    const snapshot = await f.commands.snapshot(f.actor, run.id);
+    assert.equal(snapshot.revision, run.revision);
+    assert.equal(snapshot.nodes[0]!.verified, false);
+    assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
+  });
+
 for (const configured of [true, false])
   test(`Jira mounted handlers preserve the parent through ${configured ? "shared configuration" : "private owner setup"} and provider verification`, async (t) => {
     const f = await fixture(t);
@@ -299,6 +385,19 @@ for (const configured of [true, false])
     const run = await started.json();
     assert.equal(run.status, "active");
     const path = `/jira/${run.id}/human`;
+    // Custom hosts also call the runtime directly, without teachingHttp's method guard.
+    for (const method of ["PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+      await assert.rejects(
+        () =>
+          runtime.human!(
+            actor,
+            run.id,
+            new Request(`https://app.example/api/v1/teaching${path}`, {
+              method,
+            }),
+          ),
+        { code: "denied" },
+      );
     assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
     if (!configured) {
       const page = await request(path);
@@ -1447,7 +1546,8 @@ test("Jira owner setup is a private prerequisite in the same parent, never an ac
 });
 
 test("Jira verification rejects foreign context, missing evidence and expired artifacts", async (t) => {
-  const f = await fixture(t);
+  const instant = Date.now();
+  const f = await fixture(t, () => instant);
   const run = await f.create();
   await f.advance(run.id, "app");
   const operation = f.registry.require("jira.prepare-app", "1.0.0");

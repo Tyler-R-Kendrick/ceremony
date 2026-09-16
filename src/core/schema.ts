@@ -10,6 +10,7 @@ export const flowKinds = [
   "device",
   "authmd-anonymous",
   "github-app",
+  "account-registration",
 ] as const;
 export const flowKindSchema = z.enum(flowKinds);
 export type FlowKind = z.infer<typeof flowKindSchema>;
@@ -72,7 +73,9 @@ export const methodSchema = z
       });
     if (
       method.contract &&
-      ["basic", "api-key", "form"].includes(method.kind) &&
+      ["basic", "api-key", "form", "account-registration"].includes(
+        method.kind,
+      ) &&
       method.contract.handoff.surface !== "private-collector"
     )
       ctx.addIssue({
@@ -95,9 +98,17 @@ export const methodSchema = z
         message: `${method.kind} requires ${expected.join(", ")}`,
       });
     }
-    if (method.kind === "form" && !names.length)
+    if (
+      (method.kind === "form" || method.kind === "account-registration") &&
+      !names.length
+    )
       ctx.addIssue({ code: "custom", message: "Form requires fields" });
-    if (!["basic", "api-key", "form"].includes(method.kind) && names.length)
+    if (
+      !["basic", "api-key", "form", "account-registration"].includes(
+        method.kind,
+      ) &&
+      names.length
+    )
       ctx.addIssue({
         code: "custom",
         message: "This method does not collect credentials",
@@ -385,7 +396,9 @@ export function defaultTemplate(kind: FlowKind): CeremonyTemplate {
         ? "Prepare your GitHub integration"
         : kind === "authmd-anonymous"
           ? "Start anonymous access"
-          : "Connect your account",
+          : kind === "account-registration"
+            ? "Create your account"
+            : "Connect your account",
     input: "Enter your credentials",
     redirect: "Continue with your provider",
     waiting: "Waiting for approval",
