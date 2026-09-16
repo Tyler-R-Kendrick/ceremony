@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-stripe.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 13648,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-stripe.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 7073,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-stripe.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 13662,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-stripe.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 10294,
+      "lastStepLine": 114
+    },
+    {
+      "file": "tests/browser/teaching-stripe.spec.ts",
+      "line": 6,
+      "project": "chromium",
+      "status": "passed",
+      "retry": 0,
+      "duration": 9023,
+      "lastStepLine": 114
+    }
+  ]
+}

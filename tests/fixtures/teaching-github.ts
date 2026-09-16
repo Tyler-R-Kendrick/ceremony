@@ -22,6 +22,7 @@ export async function teachingGitHubFixture(
     returnPath?: string;
     stripe?: boolean;
     supabase?: "aal1" | "aal2";
+    jira?: "configured" | "owner-setup";
   } = {},
 ) {
   const database = await postgresFixture();
@@ -47,6 +48,10 @@ export async function teachingGitHubFixture(
     supabaseReads: 0,
     supabaseMfa: 0,
     supabaseMfaAttempts: 0,
+    jiraConsents: 0,
+    jiraExchanges: 0,
+    jiraReads: 0,
+    jiraCallbackStatus: 0,
   };
   const supabaseKey = randomBytes(32),
     factorId = randomUUID(),
@@ -62,11 +67,116 @@ export async function teachingGitHubFixture(
   const continuationToken = randomBytes(32).toString("hex");
   const workerToken = randomBytes(32).toString("hex");
   const delivered = new Set<string>();
+  const jiraCredentials = {
+    clientId: "synthetic-jira-client",
+    clientSecret: randomBytes(32).toString("hex"),
+  };
+  const jiraToken = randomBytes(32).toString("hex");
+  const jiraCloud = "8594f221-9797-5f78-1fa4-485e198d7cd0";
+  const jiraStates = new Set<string>();
+  const jiraCodes = new Set<string>();
   const consumed = new Set<string>();
   let registeredSetupUrl = "";
   const provider = createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, "http://fixture");
+      if (options.jira && url.pathname === "/jira/authorize") {
+        const state = url.searchParams.get("state") ?? "";
+        if (
+          !/^[A-Za-z0-9_-]{43}$/.test(state) ||
+          url.searchParams.get("client_id") !== jiraCredentials.clientId ||
+          url.searchParams.get("redirect_uri") !==
+            `${origin}/api/v1/teaching/jira/authorization-return` ||
+          url.searchParams.get("scope") !== "read:jira-user" ||
+          url.searchParams.get("prompt") !== "consent"
+        )
+          throw new Error("Invalid Jira fixture authorization");
+        jiraStates.add(state);
+        const listening = provider.address();
+        if (!listening || typeof listening === "string")
+          throw new Error("Fixture unavailable");
+        res
+          .writeHead(200, {
+            "content-type": "text/html",
+            "cache-control": "no-store",
+          })
+          .end(
+            `<!doctype html><html lang="en"><title>Local Atlassian consent fixture</title><h1>Authorize the fixture Jira site</h1><form action="http://127.0.0.1:${listening.port}/jira/consent"><input type="hidden" name="state" value="${state}"><button>Allow fixture access</button></form></html>`,
+          );
+        return;
+      }
+      if (options.jira && url.pathname === "/jira/consent") {
+        const state = url.searchParams.get("state") ?? "";
+        if (!jiraStates.delete(state))
+          throw new Error("Invalid Jira fixture consent");
+        const code = randomUUID();
+        jiraCodes.add(code);
+        effects.jiraConsents++;
+        res
+          .writeHead(303, {
+            location: `${origin}/api/v1/teaching/jira/authorization-return?state=${state}&code=${code}`,
+            "cache-control": "no-store",
+          })
+          .end();
+        return;
+      }
+      if (options.jira && url.pathname === "/oauth/token") {
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        const body = JSON.parse(raw);
+        if (
+          req.method !== "POST" ||
+          body.client_id !== jiraCredentials.clientId ||
+          body.client_secret !== jiraCredentials.clientSecret ||
+          body.redirect_uri !==
+            `${origin}/api/v1/teaching/jira/authorization-return` ||
+          !jiraCodes.delete(body.code)
+        )
+          throw new Error("Invalid Jira fixture exchange");
+        effects.jiraExchanges++;
+        res.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            access_token: jiraToken,
+            token_type: "Bearer",
+            expires_in: 3600,
+            scope: "read:jira-user",
+          }),
+        );
+        return;
+      }
+      if (
+        options.jira &&
+        [
+          "/oauth/token/accessible-resources",
+          `/ex/jira/${jiraCloud}/rest/api/3/myself`,
+        ].includes(url.pathname)
+      ) {
+        if (
+          req.method !== "GET" ||
+          req.headers.authorization !== `Bearer ${jiraToken}`
+        )
+          throw new Error("Invalid Jira fixture access");
+        const sites = url.pathname === "/oauth/token/accessible-resources";
+        if (!sites) effects.jiraReads++;
+        res.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify(
+            sites
+              ? [
+                  {
+                    id: jiraCloud,
+                    url: "https://synthetic.atlassian.net",
+                    scopes: ["read:jira-user"],
+                  },
+                ]
+              : {
+                  accountId: "synthetic-jira-user",
+                  active: true,
+                  accountType: "atlassian",
+                },
+          ),
+        );
+        return;
+      }
       if (options.supabase && url.pathname === "/confirm-project-user") {
         supabaseConfirmed = true;
         res
@@ -296,6 +406,38 @@ export async function teachingGitHubFixture(
     origin,
     environment: "local-e2e",
     configurationVersion: "fixture-v1",
+    ...(options.jira
+      ? {
+          jira: {
+            configuration: async () => ({
+              version: "fixture-v1",
+              ...(options.jira === "configured"
+                ? {
+                    ...jiraCredentials,
+                    siteUrl: "https://synthetic.atlassian.net",
+                  }
+                : {}),
+            }),
+            allowTarget: async (_actor, target) =>
+              target === "https://synthetic.atlassian.net",
+            allowLoopbackHttp: true,
+            fetch: (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+              const url = new URL(String(input));
+              if (
+                ![
+                  "https://auth.atlassian.com",
+                  "https://api.atlassian.com",
+                ].includes(url.origin)
+              )
+                throw new Error("Unexpected Jira fixture origin");
+              return fetch(
+                `http://127.0.0.1:${address.port}${url.pathname}${url.search}`,
+                init,
+              );
+            },
+          },
+        }
+      : {}),
     ...(options.supabase
       ? {
           supabase: {
@@ -346,7 +488,13 @@ export async function teachingGitHubFixture(
               subjectId,
               sessionId: cookie!,
               actorKind: "human",
-              capabilities: ["author", "reviewer", "publisher", "executor"],
+              capabilities: [
+                "author",
+                "reviewer",
+                "publisher",
+                "executor",
+                ...(options.jira === "owner-setup" ? ["admin" as const] : []),
+              ],
             }
           : null;
       },
@@ -385,6 +533,13 @@ export async function teachingGitHubFixture(
       },
     },
   });
+  const humanReturn = runtime.humanReturn;
+  if (options.jira && humanReturn)
+    runtime.humanReturn = async (actor, request) => {
+      const response = await humanReturn(actor, request);
+      effects.jiraCallbackStatus = response.status;
+      return response;
+    };
   let app: { close(): Promise<void> };
   let staticRevision = 1;
   try {
@@ -424,6 +579,32 @@ export async function teachingGitHubFixture(
     stripeKey,
     supabaseConfirmationUrl: `http://127.0.0.1:${address.port}/confirm-project-user`,
     supabaseFactorId: factorId,
+    jiraCredentials,
+    async jiraProviderPages(context: BrowserContext) {
+      await context.route(
+        `${origin}/api/v1/teaching/jira/*/human`,
+        async (route) => {
+          if (route.request().method() !== "GET") return route.continue();
+          const response = await route.fetch({ maxRedirects: 0 });
+          if (response.status() !== 303) return route.fulfill({ response });
+          const url = new URL(response.headers().location!);
+          if (
+            url.origin !== "https://auth.atlassian.com" ||
+            url.pathname !== "/authorize"
+          )
+            throw new Error("Unexpected Jira handoff");
+          // Playwright routes the initial request, and WebKit cannot fulfill a redirect status.
+          // Render the real HTTP fixture consent response here; its form navigates to the provider fixture.
+          // No app command, callback, token exchange or verification response is replaced.
+          const consent = await context.request.get(
+            `http://127.0.0.1:${address.port}/jira/authorize${url.search}`,
+          );
+          if (consent.status() !== 200)
+            throw new Error("Invalid fixture consent response");
+          await route.fulfill({ response: consent });
+        },
+      );
+    },
     workerAuthorization: `Bearer ${workerToken}`,
     sessionCookie,
     updateStaticRelease() {

@@ -86,9 +86,18 @@ for (const assurance of ["aal1", "aal2"] as const)
       await page
         .getByLabel("Password", { exact: true })
         .fill("synthetic-project-password");
-      await page
-        .getByRole("button", { name: "Continue with this account" })
-        .click();
+      const [signupResponse] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url() === privateUrl &&
+            response.request().method() === "POST",
+        ),
+        page
+          .getByRole("button", { name: "Continue with this account" })
+          .click(),
+      ]);
+      expect(signupResponse.status()).toBe(200);
+      expect(fixture.effects.supabaseSignups).toBe(1);
       await expect(
         page.getByRole("heading", { name: "Confirm your email" }),
       ).toBeVisible();

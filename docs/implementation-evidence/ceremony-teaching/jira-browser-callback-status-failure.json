@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "tests/browser/teaching-jira.spec.ts",
+      "line": 7,
+      "project": "chromium",
+      "status": "failed",
+      "retry": 0,
+      "duration": 25289,
+      "lastStepLine": 4,
+      "firstFailureLine": 103
+    }
+  ],
+  "interpretation": "Owner POST status 200 and consent heading assertions passed. Callback response was received, but its status was not the required 303. The existing safe reporter did not retain its actual status. This narrows the failure to callback advancement, not only UI rendering."
+}

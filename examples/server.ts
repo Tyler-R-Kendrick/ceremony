@@ -40,6 +40,7 @@ import { createReferenceProvider } from "./provider.js";
 import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
+import { jiraManifest } from "../src/server/recipes/jira.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
 import { createMcpIdentity } from "../src/server/mcp-identity.js";
@@ -265,6 +266,16 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           origin,
           environment: "development",
           configurationVersion: "v1",
+          jira: {
+            configuration: async (actor) =>
+              environment.jiraConfiguration(
+                actor.subjectId,
+                actor.sessionId,
+                "v1",
+              ),
+            allowTarget: async () => true,
+            allowLoopbackHttp: true,
+          },
           stripe: {
             configuration: async (actor) =>
               environment.stripeConfiguration(
@@ -293,7 +304,14 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                 subjectId: owner,
                 sessionId: owner,
                 actorKind: "human",
-                capabilities: ["executor", "author", "reviewer", "publisher"],
+                // Explicit loopback development owner; production roles come only from host identity.
+                capabilities: [
+                  "executor",
+                  "author",
+                  "reviewer",
+                  "publisher",
+                  "admin",
+                ],
               };
             },
           },
@@ -521,11 +539,14 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       if (request.method === "GET" && url.pathname === "/api/config")
         return json(response, {
           manifests: controller.manifests(),
-          liveManifests: liveController?.manifests() ?? [
-            githubAppManifest,
-            ...serviceManifests.filter((manifest) =>
-              teaching?.connectors.includes(manifest.id),
-            ),
+          liveManifests: [
+            ...(liveController?.manifests() ?? [
+              githubAppManifest,
+              ...serviceManifests.filter((manifest) =>
+                teaching?.connectors.includes(manifest.id),
+              ),
+            ]),
+            ...(teaching?.connectors.includes("jira") ? [jiraManifest] : []),
           ],
           liveAvailable: Boolean(liveController),
           teachingAvailable: Boolean(teaching),
