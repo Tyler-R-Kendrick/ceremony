@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "1084e108396c78b705966466516ed009c8fed09e",
+  "scope": "Incremental local A2H transport binding; not cross-owner assignment or release certification",
+  "attempts": [
+    {
+      "command": "focused A2H tests before receive recipient guard",
+      "exitCode": 1,
+      "passed": 4,
+      "failed": 1,
+      "skipped": 0,
+      "reasonCode": "RECIPIENT_REMAP_ACCEPTED"
+    },
+    {
+      "command": "focused A2H, Agent2Human and chaos tests after guard",
+      "exitCode": 0,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    { "command": "npm run check", "exitCode": 0 },
+    {
+      "command": "npm run test:pact",
+      "exitCode": 0,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "priorCommittedVerification": {
+    "commit": "1084e108396c78b705966466516ed009c8fed09e",
+    "command": "npm run verify",
+    "startedAt": "2026-09-10T12:50:38.893Z",
+    "exitCode": 1,
+    "nodeTestsPassed": 370,
+    "workflowTestsPassed": 2,
+    "securityMutantsKilled": 226,
+    "securityMutantsTimedOut": 1,
+    "timedOutMutation": {
+      "file": "src/server/commands.ts",
+      "line": 168,
+      "id": "28",
+      "replacement": "empty string"
+    },
+    "laterBuildAndBrowserStages": "NOT_RUN",
+    "reasonCode": "MUTATION_TIMEOUT_IS_NOT_A_KILLED_GUARD"
+  },
+  "releaseVerdict": "FAIL",
+  "externalChecks": {
+    "liveGateway": "NOT_REQUESTED",
+    "liveGitHub": "NOT_REQUESTED",
+    "deployedWorkflow": "NOT_REQUESTED",
+    "installedPwa": "NOT_REQUESTED"
+  }
+}
