@@ -118,6 +118,10 @@ export async function createHostedRuntime(
         configuration: (actor) =>
           environment.resolveStripe(actor, c.configurationVersion),
       },
+      supabase: {
+        configuration: (actor) =>
+          environment.resolveSupabase(actor, c.configurationVersion),
+      },
       configuration: (actor) =>
         environment.resolveGitHub(actor, c.configurationVersion),
       expectedAccount: c.account,
@@ -137,10 +141,21 @@ export async function createHostedRuntime(
             (run.provider === "stripe"
               ? (await environment.resolveStripe(actor, c.configurationVersion))
                   .version
-              : (await environment.resolveGitHub(actor, c.configurationVersion))
-                  .configurationVersion)) &&
+              : run.provider === "supabase"
+                ? (
+                    await environment.resolveSupabase(
+                      actor,
+                      c.configurationVersion,
+                    )
+                  ).version
+                : (
+                    await environment.resolveGitHub(
+                      actor,
+                      c.configurationVersion,
+                    )
+                  ).configurationVersion)) &&
         run.origin === c.origin &&
-        (run.provider === "stripe"
+        (run.provider === "stripe" || run.provider === "supabase"
           ? run.target === "self"
           : run.provider === "github" && run.target === c.account),
     });

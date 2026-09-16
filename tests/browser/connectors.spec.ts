@@ -64,11 +64,22 @@ test("the service collection starts real ceremonies with inline prerequisites", 
   await services.getByRole("button", { name: /Supabase/ }).click();
   await expect(
     page.getByLabel("Supabase project URL", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByLabel("Supabase publishable key", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Email", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Connect Supabase", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Connection and reusable steps" }),
+  ).toContainText(
+    "Set up your Supabase project — your participation is needed",
+  );
+  await expect(
+    page.getByRole("link", { name: "Continue with Supabase" }),
+  ).toHaveAttribute("href", /\/api\/v1\/teaching\/supabase\/[^/]+\/human$/);
   expect(starts.length).toBeGreaterThanOrEqual(3);
   expect(
     starts.every(

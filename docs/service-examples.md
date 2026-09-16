@@ -16,6 +16,8 @@ The default collection now offers GitHub App registration/installation, Stripe k
 
 The inventories are curated examples, not every login option offered by each vendor. No invented `api.read` permissions are attached to Stripe, Jira, Supabase or Neon. Empty OAuth scope lists do not imply unlimited access.
 
+Jira's Basic example is only the labeled developer harness, not the design for a distributed live connector. Rechecked on 2026-09-10: Atlassian's [current integration guidance](https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/) requires a shared distributable 3LO app instead of collecting customer API tokens or instructing each customer to create an individual app. Integration registration therefore belongs to an authorized integration owner; end users should reuse that setup and complete provider-owned account/consent steps. This live 3LO ceremony is not implemented yet. For explicitly permitted script profiles, [scoped API tokens use the gateway/cloud-ID URL](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account), not the unscoped site URL; the two must not be silently interchanged.
+
 ## Why Neon has a separate adapter
 
 The original auth.md adapter implements the WorkOS-documented email/code claim grant. Neon's published profile instead uses project claim endpoints, a provider-owned organization selection page, and a `reconciled` completion flag. These are not interchangeable protocols.
