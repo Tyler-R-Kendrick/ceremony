@@ -168,6 +168,29 @@ test("atomic: credential methods require private collection and authenticated co
   }
 });
 
+test("atomic: authenticated completion rejects mixed ownership alternatives", () => {
+  const valid = structuredClone(method("oauth-code"));
+  assert.deepEqual(methodSchema.parse(valid), valid);
+  for (const other of ["anonymous", "claimed"] as const)
+    for (const ownership of [
+      ["authenticated", other],
+      [other, "authenticated"],
+    ] as const) {
+      const invalid = structuredClone(valid);
+      invalid.contract!.completion.ownership = [...ownership];
+      const parsed = methodSchema.safeParse(invalid);
+      assert.equal(parsed.success, false);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          {
+            code: "custom",
+            message: "This method requires authenticated completion",
+            path: [],
+          },
+        ]);
+    }
+});
+
 test("atomic: credential field classifications retain exact private-input diagnostics", () => {
   for (const credential of [
     { ...field, type: "password" },
