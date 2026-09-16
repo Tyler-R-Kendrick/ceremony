@@ -34,6 +34,17 @@ export async function mutationProgress(
         initial = false;
         record({ phase: "mutants" });
       }
+      const progress = line.match(
+        /^Mutation testing \d+% \(elapsed: [^)]*\) (\d+)\/(\d+) tested \((\d+) survived, (\d+) timed out\)$/,
+      );
+      if (!initial && progress)
+        record({
+          phase: "progress",
+          tested: Number(progress[1]),
+          total: Number(progress[2]),
+          survived: Number(progress[3]),
+          timedOut: Number(progress[4]),
+        });
       if (initial && /\bDEBUG TapTestRunner Running: `node /.test(line)) {
         const file = inventory.find((name) => line.includes(`"${name}"\` in `));
         if (file) record({ phase: "initial", file });

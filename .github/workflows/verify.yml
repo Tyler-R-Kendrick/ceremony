@@ -87,9 +87,9 @@ jobs:
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
-    # Schema took 44m19s; the 915-mutant authoring run hit its 30-minute job cap.
+    # Schema took 44m19s; the 915-mutant authoring run also exceeded 60 minutes.
     # Keep every mutant, test timeout and threshold; budget headroom for the whole job.
-    timeout-minutes: ${{ (matrix.target == 'schema' || matrix.target == 'connector-authoring') && 60 || 30 }}
+    timeout-minutes: ${{ matrix.target == 'connector-authoring' && 180 || matrix.target == 'schema' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:

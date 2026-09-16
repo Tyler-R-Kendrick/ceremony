@@ -45,6 +45,8 @@ test("mutation progress stops logging file starts after the initial run and pres
   const source = [
     'console.log("\\u001b[32mINFO DryRunExecutor Initial test run succeeded. Ran 98 tests\\u001b[0m")',
     'console.log("DEBUG TapTestRunner Running: `node \\\"tests/one.test.ts\\\"` in /private-checkout")',
+    'console.log("Mutation testing 50% (elapsed: 1 minute, remaining: private-estimate) 10/20 tested (2 survived, 1 timed out)")',
+    'console.log("Mutation testing 50% (elapsed: 1 minute) 10/20 tested (2 survived, 1 timed out) private-diagnostic")',
   ].join(";");
   assert.equal(
     await mutationProgress(
@@ -57,7 +59,13 @@ test("mutation progress stops logging file starts after the initial run and pres
   );
   assert.deepEqual(
     records.map((r) => r.phase),
-    ["mutants", "exit"],
+    ["mutants", "progress", "exit"],
+  );
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(records[1]!).filter(([key]) => key !== "elapsedMs"),
+    ),
+    { phase: "progress", tested: 10, total: 20, survived: 2, timedOut: 1 },
   );
   assert.equal(records.at(-1)?.code, 0);
   assert.equal(JSON.stringify(records).includes("private"), false);
