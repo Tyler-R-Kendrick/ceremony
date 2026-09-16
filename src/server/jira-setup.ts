@@ -410,7 +410,7 @@ export class JiraSetupAssignments {
   }
 }
 
-/** Operator retention: remove expired pending assignments and expired shared apps. Audit stays. */
+/** Operator retention: keep configured status while its shared app is live. Audit stays. */
 export async function retainExpiredJiraSetup(
   store: AsyncCeremonyStore,
   tenant: string,
@@ -420,7 +420,11 @@ export async function retainExpiredJiraSetup(
   const sweep = async (
     kind: "handoff" | "artifact",
     prefix: string,
-    expired: (value: unknown, now: number) => boolean,
+    expired: (
+      value: unknown,
+      now: number,
+      tx: AsyncTransaction,
+    ) => boolean | Promise<boolean>,
   ) => {
     let after = "";
     let removed = 0;
@@ -444,7 +448,7 @@ export async function retainExpiredJiraSetup(
             id: record.id,
           });
           if (!current) return false;
-          if (!expired(current.value, await tx.now())) return false;
+          if (!(await expired(current.value, await tx.now(), tx))) return false;
           await tx.delete({ tenant, kind, id: record.id }, current.revision);
           return true;
         });
@@ -454,10 +458,26 @@ export async function retainExpiredJiraSetup(
     }
     return removed;
   };
-  counts.assignments = await sweep("handoff", "jira-setup:", (value, now) => {
-    const assignment = assignmentSchema.safeParse(value);
-    return assignment.success && assignment.data.expires <= now;
-  });
+  counts.assignments = await sweep(
+    "handoff",
+    "jira-setup:",
+    async (value, now, tx) => {
+      const assignment = assignmentSchema.safeParse(value);
+      if (!assignment.success || assignment.data.expires > now) return false;
+      if (assignment.data.state === "pending") return true;
+      const app = await tx.get({
+        tenant,
+        kind: "artifact",
+        id: `jira-shared-app:${assignment.data.scope}`,
+      });
+      const sharedApp = sharedSchema.safeParse(app?.value);
+      return !(
+        sharedApp.success &&
+        sharedApp.data.owner === assignment.data.owner &&
+        sharedApp.data.expires > now
+      );
+    },
+  );
   counts.apps = await sweep("artifact", "jira-shared-app:", (value, now) => {
     const shared = sharedSchema.safeParse(value);
     return shared.success && shared.data.expires <= now;

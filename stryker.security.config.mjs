@@ -48,6 +48,13 @@ export default {
       "src/server/a2h.ts",
       "canonicalJson(channel.data) !== canonicalJson(expectedChannel)",
     ),
+    guard("src/server/hosted/a2h.ts", "id: scope ?", 0),
+    guard(
+      "src/server/hosted/a2h.ts",
+      "previousAssignment && previousAssignment !== scope",
+      2,
+    ),
+    guard("src/server/hosted/a2h.ts", "if (!delivery)", 7),
     guard("src/server/commands.ts", 'ownState?.value.state === "uncertain"', 2),
     guard(
       "src/server/commands.ts",
@@ -97,6 +104,11 @@ export default {
     ),
     guard("src/server/jira-setup.ts", "shared.data.expires > now"),
     guard("src/server/jira-setup.ts", "assignment.expires <= now"),
+    guard(
+      "src/server/jira-setup.ts",
+      "if (!assignment.success || assignment.data.expires > now)",
+    ),
+    guard("src/server/jira-setup.ts", "sharedApp.success &&", 5, -1),
     guard("src/server/github-runtime.ts", 'state.state !== "configured"'),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
     guard(
@@ -158,6 +170,7 @@ export default {
     testFiles: [
       "tests/commands.test.ts",
       "tests/a2h-ceremonies.test.ts",
+      "tests/hosted-a2h.test.ts",
       "tests/orchestration.test.ts",
       "tests/teaching-runtime-boundaries.test.ts",
       "tests/teaching-contracts.test.ts",
