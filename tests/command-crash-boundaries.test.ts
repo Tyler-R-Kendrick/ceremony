@@ -145,9 +145,16 @@ for (const ordering of orderings)
       await provider.close();
     }
   });
-test("AC-27: concurrent authenticated UI and agent HTTP requests share one effect across independent PostgreSQL connections", async () => {
+test("AC-27: concurrent authenticated UI and agent HTTP requests share one effect across independent PostgreSQL connections", async (t) => {
+  const releaseProvider = Promise.withResolvers<void>();
+  const enteredProvider = Promise.withResolvers<void>();
+  const duplicateHoldingRun = Promise.withResolvers<void>();
+  const completionAtLock = Promise.withResolvers<void>();
   const database = await postgresFixture(),
-    provider = await providerFixture();
+    provider = await providerFixture(
+      releaseProvider.promise,
+      enteredProvider.resolve,
+    );
   const keys = { current: "test", keys: { test: randomBytes(32) } };
   const a = new PostgresCeremonyStore(database.config, keys),
     b = new PostgresCeremonyStore(database.config, keys);
@@ -198,8 +205,68 @@ test("AC-27: concurrent authenticated UI and agent HTTP requests share one effec
         method: "POST",
         headers: { cookie: "fixture-auth=subject" },
       });
-    const responses = await Promise.all([request("ui"), request("agent")]);
-    assert.ok(responses.every((r) => r.status === 200));
+    const uiRequest = request("ui");
+    await Promise.race([
+      enteredProvider.promise,
+      uiRequest.then(() => assert.fail("UI must reach the provider")),
+    ]);
+    // Hold the duplicate's run lock while completion acquires its first lock.
+    // Taking the lease first creates a run/lease deadlock across these connections.
+    const aTransaction = a.transaction.bind(a);
+    t.mock.method(
+      a,
+      "transaction",
+      (work: Parameters<typeof aTransaction>[0]) =>
+        aTransaction(async (tx) => {
+          const get = tx.get.bind(tx);
+          const assertFence = tx.assertFence.bind(tx);
+          t.mock.method(tx, "get", (...args: Parameters<typeof get>) => {
+            completionAtLock.resolve();
+            return get(...args);
+          });
+          t.mock.method(
+            tx,
+            "assertFence",
+            async (...args: Parameters<typeof assertFence>) => {
+              await assertFence(...args);
+              completionAtLock.resolve();
+            },
+          );
+          return work(tx);
+        }),
+    );
+    const bTransaction = b.transaction.bind(b);
+    t.mock.method(
+      b,
+      "transaction",
+      (work: Parameters<typeof bTransaction>[0]) =>
+        bTransaction(async (tx) => {
+          const claim = tx.claim.bind(tx);
+          t.mock.method(
+            tx,
+            "claim",
+            async (...args: Parameters<typeof claim>) => {
+              duplicateHoldingRun.resolve();
+              await completionAtLock.promise;
+              return claim(...args);
+            },
+          );
+          return work(tx);
+        }),
+    );
+    const agentRequest = request("agent");
+    await Promise.race([
+      duplicateHoldingRun.promise,
+      agentRequest.then(() =>
+        assert.fail("Agent must reach the duplicate claim"),
+      ),
+    ]);
+    releaseProvider.resolve();
+    const responses = await Promise.all([uiRequest, agentRequest]);
+    assert.deepEqual(
+      responses.map((r) => r.status),
+      [200, 200],
+    );
     const results = await Promise.all(responses.map((r) => r.json()));
     assert.ok(results.some((r) => r.verified));
     assert.equal(provider.effects.size, 1);
@@ -211,6 +278,8 @@ test("AC-27: concurrent authenticated UI and agent HTTP requests share one effec
       1,
     );
   } finally {
+    releaseProvider.resolve();
+    completionAtLock.resolve();
     app.closeAllConnections();
     await new Promise<void>((resolve) => app.close(() => resolve()));
     await a.close();

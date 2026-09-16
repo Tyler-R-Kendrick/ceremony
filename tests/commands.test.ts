@@ -176,6 +176,62 @@ test("AC-07 AC-10 AC-35: authoritative recording consent and durable continuatio
   );
 });
 
+test("AC-27: execution, revalidation and continuation lock their record before its lease", async (t) => {
+  const f = await fixture(t);
+  const transaction = f.store.transaction.bind(f.store);
+  const fences: string[] = [];
+  t.mock.method(
+    f.store,
+    "transaction",
+    (work: Parameters<typeof transaction>[0]) =>
+      transaction(async (tx) => {
+        const locked = new Set<string>();
+        const get = tx.get.bind(tx);
+        const assertFence = tx.assertFence.bind(tx);
+        t.mock.method(tx, "get", async (...args: Parameters<typeof get>) => {
+          const record = await get(...args);
+          const key = args[0];
+          if (record) locked.add(`${key.tenant}:${key.kind}:${key.id}`);
+          return record;
+        });
+        t.mock.method(
+          tx,
+          "assertFence",
+          async (...args: Parameters<typeof assertFence>) => {
+            const fence = args[0];
+            assert.equal(
+              locked.has(`${fence.tenant}:${fence.kind}:${fence.id}`),
+              true,
+              "Owning record must be locked before its lease",
+            );
+            await assertFence(...args);
+            fences.push(fence.kind);
+          },
+        );
+        return work(tx);
+      }),
+  );
+  await f.commands.advance(actor, f.run.id, "prepare", 1, "first");
+  await f.commands.advance(actor, f.run.id, "verify", 2, "second");
+  await f.commands.revalidate(actor, f.run.id);
+  let deliveries = 0;
+  await deliverContinuations(
+    f.store,
+    actor,
+    new Map([
+      [
+        "resume-host",
+        async () => {
+          deliveries++;
+        },
+      ],
+    ]),
+  );
+  assert.deepEqual(fences, ["run", "run", "run", "outbox"]);
+  assert.equal(f.effects(), 2);
+  assert.equal(deliveries, 1);
+});
+
 test("AC-18 AC-33: revocation and cancellation during an external call fence late results", async (t) => {
   let release!: () => void;
   const wait = new Promise<void>((r) => {

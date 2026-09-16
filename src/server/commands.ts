@@ -298,8 +298,8 @@ export class ProtectedCommandService {
       }
     }
     await this.store.transaction(async (tx) => {
-      await tx.assertFence(initial.fence);
       const current = await this.owned(tx, actor, runId);
+      await tx.assertFence(initial.fence);
       if (
         current.revision !== initial.run.revision ||
         current.value.status === "cancelled"
@@ -613,8 +613,9 @@ export class ProtectedCommandService {
     if (!(await this.reauthorize(actor, run, command.operationId)))
       throw new AuthorizationError("denied");
     return this.store.transaction(async (tx) => {
-      await tx.assertFence(fence);
+      // Match admission/cancellation: lock the run before its lease.
       const current = await this.owned(tx, actor, run.id);
+      await tx.assertFence(fence);
       if (
         !(await this.reauthorize(actor, current.value, command.operationId, tx))
       )
@@ -797,6 +798,7 @@ export async function deliverContinuations(
       try {
         await handler({ runId: value.runId, deliveryId: value.deliveryId });
         await store.transaction(async (tx) => {
+          await tx.get(key(actor, "outbox", entry.id));
           await tx.assertFence(fence);
           await tx.put(
             key(actor, "outbox", entry.id),
