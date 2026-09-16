@@ -1,15 +1,254 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import {
+import http, {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import net, {
   connect,
   createServer as createTcpServer,
   type AddressInfo,
+  type Socket,
 } from "node:net";
-import { test } from "node:test";
+import { EventEmitter } from "node:events";
+import { syncBuiltinESMExports } from "node:module";
+import { test, type TestContext } from "node:test";
 import type { Browser } from "playwright-core";
 import { createAuthorizationBrowser } from "../src/server/browser-executor.js";
 import { chromium } from "../src/server/playwright.js";
 import { createBrowserEgressProxy } from "../src/server/browser-egress.js";
+
+function socketProbe() {
+  return Object.assign(new EventEmitter(), {
+    readableEnded: false,
+    destroys: 0,
+    written: [] as string[],
+    timeouts: [] as number[],
+    destinations: [] as unknown[],
+    onTimeout: undefined as (() => void) | undefined,
+    destroy() {
+      this.destroys++;
+      return this;
+    },
+    write(bytes: string | Buffer) {
+      this.written.push(bytes.toString());
+      return true;
+    },
+    end(bytes: string) {
+      this.written.push(bytes);
+      return this;
+    },
+    pipe(destination: unknown) {
+      this.destinations.push(destination);
+      return destination;
+    },
+    setTimeout(delay: number, callback?: () => void) {
+      this.timeouts.push(delay);
+      if (callback) this.onTimeout = callback;
+      return this;
+    },
+  });
+}
+
+async function bounded<T>(promise: Promise<T>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("fixture callback did not complete")),
+          1_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function proxyProbe(t: TestContext) {
+  const upstream = socketProbe();
+  const connections: net.NetConnectOpts[] = [];
+  let handler:
+    ((request: IncomingMessage, response: ServerResponse) => void) | undefined;
+  let closed = 0;
+  const server = Object.assign(new EventEmitter(), {
+    listen(port: number, host: string, callback: () => void) {
+      assert.equal(port, 0);
+      assert.equal(host, "127.0.0.1");
+      assert.equal(server.listenerCount("error"), 1);
+      callback();
+    },
+    address: () => ({ port: 43210 }),
+    close(callback: () => void) {
+      closed++;
+      callback();
+    },
+  });
+  t.mock.method(http, "createServer", (listener: typeof handler) => {
+    handler = listener;
+    return server;
+  });
+  t.mock.method(net, "connect", (options: net.NetConnectOpts) => {
+    connections.push(options);
+    return upstream as unknown as Socket;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  return {
+    server,
+    upstream,
+    connections,
+    handler: () => handler!,
+    closed: () => closed,
+  };
+}
+
+test("proxy closes live sockets, releases closed sockets and completes server shutdown", async (t) => {
+  const f = proxyProbe(t);
+  const proxy = await bounded(createBrowserEgressProxy());
+  assert.equal(proxy.server, "http://127.0.0.1:43210");
+  const finished = socketProbe(),
+    active = socketProbe();
+  f.server.emit("connection", finished);
+  f.server.emit("connection", active);
+  finished.emit("close");
+  await bounded(proxy.close());
+  assert.equal(
+    finished.destroys,
+    0,
+    "closed sockets must not stay retained for later cleanup",
+  );
+  assert.equal(active.destroys, 1);
+  assert.equal(f.closed(), 1);
+});
+
+test("proxy ends forbidden HTTP responses with an explicit closed connection", async (t) => {
+  const f = proxyProbe(t);
+  const proxy = await bounded(createBrowserEgressProxy());
+  let status: number | undefined,
+    headers: unknown,
+    ended = false;
+  f.handler()(
+    {} as IncomingMessage,
+    {
+      writeHead(code: number, value: unknown) {
+        status = code;
+        headers = value;
+      },
+      end() {
+        ended = true;
+      },
+    } as unknown as ServerResponse,
+  );
+  assert.equal(status, 403);
+  assert.deepEqual(headers, { connection: "close" });
+  assert.equal(ended, true);
+  await bounded(proxy.close());
+});
+
+for (const [address, allowLoopbackHttp] of [
+  ["2606:4700:4700::1111", false],
+  ["::1", true],
+] as const)
+  test(`proxy preserves ${address}, opaque head bytes and native connection lifecycle`, async (t) => {
+    const f = proxyProbe(t);
+    const proxy = await bounded(
+      createBrowserEgressProxy({ allowLoopbackHttp }),
+    );
+    const client = socketProbe();
+    f.server.emit("connection", client);
+    f.server.emit(
+      "connect",
+      { url: `[${address}]:443` },
+      client,
+      Buffer.from("opaque-head"),
+    );
+    assert.equal(f.connections.length, 1);
+    const options = f.connections[0] as net.TcpNetConnectOpts;
+    assert.equal(options.host, address);
+    assert.equal(options.port, 443);
+    assert.equal(options.autoSelectFamily, true);
+    assert.equal(typeof options.lookup, "function");
+    assert.deepEqual(f.upstream.timeouts, [10_000]);
+    f.upstream.emit("connect");
+    assert.deepEqual(f.upstream.timeouts, [10_000, 0]);
+    assert.deepEqual(client.written, [
+      "HTTP/1.1 200 Connection Established\r\n\r\n",
+    ]);
+    assert.deepEqual(f.upstream.written, ["opaque-head"]);
+    assert.deepEqual(client.destinations, [f.upstream]);
+    assert.deepEqual(f.upstream.destinations, [client]);
+    client.emit("close");
+    assert.equal(f.upstream.destroys, 1);
+    await bounded(proxy.close());
+  });
+
+for (const failure of [
+  "client-error",
+  "upstream-error",
+  "upstream-close",
+  "setup-timeout",
+])
+  test(`proxy releases the peer after ${failure}`, async (t) => {
+    const f = proxyProbe(t);
+    const proxy = await bounded(createBrowserEgressProxy());
+    const client = socketProbe();
+    f.server.emit("connection", client);
+    f.server.emit(
+      "connect",
+      { url: "provider.example:443" },
+      client,
+      Buffer.alloc(0),
+    );
+    if (failure === "setup-timeout") {
+      assert.equal(typeof f.upstream.onTimeout, "function");
+      f.upstream.onTimeout!();
+      assert.equal(f.upstream.destroys, 1);
+    } else if (failure === "client-error") {
+      client.emit("error", new Error("fixture client failure"));
+      assert.equal(f.upstream.destroys, 1);
+    } else if (failure === "upstream-error") {
+      f.upstream.emit("error", new Error("fixture upstream failure"));
+      assert.equal(client.destroys, 1);
+    } else {
+      f.upstream.emit("connect");
+      f.upstream.emit("close");
+      assert.equal(client.destroys, 1);
+    }
+    await bounded(proxy.close());
+  });
+
+test("proxy preserves a clean upstream end and rejects user-info authorities before transport", async (t) => {
+  const f = proxyProbe(t);
+  const proxy = await bounded(createBrowserEgressProxy());
+  const client = socketProbe();
+  f.server.emit(
+    "connect",
+    { url: "provider.example:443" },
+    client,
+    Buffer.alloc(0),
+  );
+  f.upstream.readableEnded = true;
+  f.upstream.emit("close");
+  assert.equal(client.destroys, 0);
+  const rejected = socketProbe();
+  f.server.emit(
+    "connect",
+    { url: "ignored@provider.example:443" },
+    rejected,
+    Buffer.alloc(0),
+  );
+  assert.equal(f.connections.length, 1);
+  assert.deepEqual(rejected.written, [
+    "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n",
+  ]);
+  await bounded(proxy.close());
+});
 
 for (const scheme of ["http", "https"])
   test(`default isolated Chromium cannot reach an allowlisted ${scheme} loopback provider`, async (t) => {

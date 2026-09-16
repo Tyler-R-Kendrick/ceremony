@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import dns from "node:dns/promises";
 import { createServer } from "node:http";
+import { syncBuiltinESMExports } from "node:module";
 import type { AddressInfo, LookupFunction } from "node:net";
 import { PassThrough } from "node:stream";
 import tls from "node:tls";
 import { test } from "node:test";
 import {
   createPublicAuthFetch,
+  createPublicAuthLookup,
   isPublicAuthAddress,
   loopbackAuthFetch,
   publicAuthFetch,
@@ -15,6 +18,44 @@ import {
   beginAuthorization,
   exchangeAuthorizationCode,
 } from "../src/server/authored-oauth.js";
+
+test("default socket lookup preserves the operating system's public address preference", async (t) => {
+  const answers = [
+    { address: "2606:4700:4700::1111", family: 6 },
+    { address: "1.1.1.1", family: 4 },
+  ];
+  const resolver = t.mock.method(
+    dns,
+    "lookup",
+    async (hostname: string, options: { all: boolean; verbatim: boolean }) => {
+      assert.equal(hostname, "provider.example");
+      assert.equal(options.all, true);
+      // Model an IPv6-first OS resolver: opting out of verbatim ordering
+      // prioritizes IPv4, which can select an unreachable provider interface.
+      return options.verbatim ? answers : [...answers].reverse();
+    },
+  );
+  syncBuiltinESMExports();
+  t.after(() => {
+    resolver.mock.restore();
+    syncBuiltinESMExports();
+  });
+  const lookup = createPublicAuthLookup();
+  const replies: unknown[] = [];
+  lookup("provider.example", {}, (error, address, family) => {
+    replies.push({ error, address, family });
+  });
+  lookup("provider.example", { all: true }, (error, addresses) => {
+    replies.push({ error, addresses });
+  });
+  // The injected resolver settles immediately. Drain its callbacks, then
+  // assert they occurred; a missing socket callback must fail, not hang.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(replies, [
+    { error: null, ...answers[0] },
+    { error: null, addresses: answers },
+  ]);
+});
 
 test("outbound address policy excludes private, special, mapped and transition networks", () => {
   for (const address of [

@@ -9,7 +9,10 @@ import {
   PersistenceConflict,
   SQLiteCeremonyStore,
 } from "../src/server/persistence/index.js";
-import { OperationRegistry } from "../src/server/recipes/index.js";
+import {
+  OperationRegistry,
+  type PublishedRecipe,
+} from "../src/server/recipes/index.js";
 import { createTeachingRuntime } from "../src/server/teaching-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { ConnectorDrafts } from "../src/server/connector-drafts.js";
@@ -156,6 +159,53 @@ test("teaching endpoint families preserve error translation, authoring round tri
       ),
       runtime,
     );
+  const emptyRecipes = await call("/recipes");
+  assert.equal(emptyRecipes.status, 200);
+  assert.deepEqual(await emptyRecipes.json(), { recipes: [] });
+  const published: PublishedRecipe = {
+    definition: {
+      schemaVersion: 1,
+      id: "fixture",
+      title: "Published fixture",
+      description: "Synthetic recipe inventory fixture",
+      inputs: {},
+      invocations: [
+        {
+          id: "prepare",
+          use: { kind: "operation", id: "prepare", version: "1.0.0" },
+          dependsOn: [],
+          bindings: {},
+        },
+      ],
+      outputs: {},
+    },
+    version: "1.0.0",
+    digest: "a".repeat(64),
+    closure: {},
+    retired: false,
+    publisher: actor.subjectId,
+  };
+  await store.transaction(async (tx) => {
+    for (const [tenant, id, value] of [
+      [actor.tenantId, "fixture", published],
+      [actor.tenantId, "retired", { ...published, retired: true }],
+      ["other-tenant", "foreign", published],
+    ] as const)
+      await tx.put({ tenant, kind: "recipe", id }, value, null);
+  });
+  const recipes = await call("/recipes");
+  assert.equal(recipes.status, 200);
+  assert.deepEqual(await recipes.json(), {
+    recipes: [
+      {
+        id: published.definition.id,
+        title: published.definition.title,
+        version: published.version,
+        digest: published.digest,
+        definition: published.definition,
+      },
+    ],
+  });
   const routes: Array<[string, unknown?]> = [
     ["/authoring/from-provider", { provider: "fixture" }],
     ["/tools/snapshot", { runId: "fixture" }],

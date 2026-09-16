@@ -654,58 +654,132 @@ test("authentication sessions never request video recording", async (t) => {
   assert.equal(result.capturePath, undefined);
 });
 
-test("remote auth sessions disable vendor recording, logging and CAPTCHA outsourcing", async (t) => {
-  const provider = await listen();
-  t.after(() => provider.close());
-  const browser = await chromium.launch({ headless: true });
-  t.after(() => browser.close());
-  const newContext = browser.newContext.bind(browser);
-  let proxied = false;
-  browser.newContext = async (options) => {
-    assert.deepEqual(options?.proxy, {
-      server: "http://vetted-proxy.example:8080",
-      bypass: "<-loopback>",
+for (const server of [
+  undefined,
+  "socks5://vetted-proxy.example:8080",
+  "http://synthetic-user@vetted-proxy.example:8080",
+  "http://:synthetic-password@vetted-proxy.example:8080",
+])
+  test(`remote proxy rejects unsafe configuration before contacting a vendor (${server ?? "missing"})`, async (t) => {
+    let vendorRequests = 0;
+    let browserConnections = 0;
+    let localLaunches = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      vendorRequests++;
+      return new Response(null, { status: 503 });
     });
-    proxied = true;
-    // This synthetic remote transport uses the local provider fixture directly.
-    const { proxy: _proxy, ...localOptions } = options ?? {};
-    return newContext(localOptions);
-  };
-  let request: unknown;
-  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
-    assert.equal(url, "https://api.browserbase.com/v1/sessions");
-    assert.equal(init.method, "POST");
-    request = JSON.parse(String(init.body));
-    return Response.json({
-      connectUrl: "wss://synthetic-browser.example/session",
+    t.mock.method(chromium, "connectOverCDP", async () => {
+      browserConnections++;
+      throw new Error("Unexpected browser connection");
     });
+    t.mock.method(chromium, "launch", async () => {
+      localLaunches++;
+      throw new Error("Unexpected local fallback");
+    });
+    const executor = createAuthorizationBrowser({
+      browserbase: { apiKey: "synthetic-key", projectId: "synthetic-project" },
+      ...(server ? { remoteProxy: { server } } : {}),
+    });
+    assert.deepEqual(
+      await executor.complete({
+        startUrl: "https://provider.example/login",
+        redirectUri: "https://host.example/callback",
+        allowedOrigins: ["https://provider.example"],
+      }),
+      { status: "blocked", reason: "browser-unavailable" },
+    );
+    assert.equal(vendorRequests, 0);
+    assert.equal(browserConnections, 0);
+    assert.equal(localLaunches, 0);
   });
-  t.mock.method(chromium, "connectOverCDP", async (url: string) => {
-    assert.equal(url, "wss://synthetic-browser.example/session");
-    return browser;
+
+test("remote proxy does not fall back locally when the vendor is unavailable", async (t) => {
+  let vendorRequests = 0;
+  let localLaunches = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    vendorRequests++;
+    return new Response(null, { status: 503 });
+  });
+  t.mock.method(chromium, "launch", async () => {
+    localLaunches++;
+    throw new Error("Unexpected local fallback");
   });
   const executor = createAuthorizationBrowser({
     browserbase: { apiKey: "synthetic-key", projectId: "synthetic-project" },
-    remoteProxy: { server: "http://vetted-proxy.example:8080" },
+    remoteProxy: { server: "https://vetted-proxy.example:8443" },
   });
-  const result = await executor.complete({
-    startUrl: `${provider.origin}/login`,
-    redirectUri: `${provider.origin}/callback`,
-    allowedOrigins: [provider.origin],
-    credentials: { username: "agent", password: "synthetic-secret" },
-    timeoutMs: 15_000,
-  });
-  assert.equal(result.status, "callback");
-  assert.equal(proxied, true);
-  assert.deepEqual(request, {
-    projectId: "synthetic-project",
-    browserSettings: {
-      recordSession: false,
-      logSession: false,
-      solveCaptchas: false,
-    },
-  });
+  assert.deepEqual(
+    await executor.complete({
+      startUrl: "https://provider.example/login",
+      redirectUri: "https://host.example/callback",
+      allowedOrigins: ["https://provider.example"],
+    }),
+    { status: "blocked", reason: "browser-unavailable" },
+  );
+  assert.equal(vendorRequests, 1);
+  assert.equal(localLaunches, 0);
 });
+
+for (const proxyServer of [
+  "http://vetted-proxy.example:8080",
+  "https://vetted-proxy.example:8443",
+])
+  test(`remote auth sessions disable vendor recording, logging and CAPTCHA outsourcing (${proxyServer})`, async (t) => {
+    const provider = await listen();
+    t.after(() => provider.close());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const newContext = browser.newContext.bind(browser);
+    let proxied = false;
+    browser.newContext = async (options) => {
+      assert.deepEqual(options?.proxy, {
+        server: proxyServer,
+        bypass: "<-loopback>",
+      });
+      proxied = true;
+      // This synthetic remote transport uses the local provider fixture directly.
+      const { proxy: _proxy, ...localOptions } = options ?? {};
+      return newContext(localOptions);
+    };
+    let request: unknown;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async (url: string, init: RequestInit) => {
+        assert.equal(url, "https://api.browserbase.com/v1/sessions");
+        assert.equal(init.method, "POST");
+        request = JSON.parse(String(init.body));
+        return Response.json({
+          connectUrl: "wss://synthetic-browser.example/session",
+        });
+      },
+    );
+    t.mock.method(chromium, "connectOverCDP", async (url: string) => {
+      assert.equal(url, "wss://synthetic-browser.example/session");
+      return browser;
+    });
+    const executor = createAuthorizationBrowser({
+      browserbase: { apiKey: "synthetic-key", projectId: "synthetic-project" },
+      remoteProxy: { server: proxyServer },
+    });
+    const result = await executor.complete({
+      startUrl: `${provider.origin}/login`,
+      redirectUri: `${provider.origin}/callback`,
+      allowedOrigins: [provider.origin],
+      credentials: { username: "agent", password: "synthetic-secret" },
+      timeoutMs: 15_000,
+    });
+    assert.equal(result.status, "callback");
+    assert.equal(proxied, true);
+    assert.deepEqual(request, {
+      projectId: "synthetic-project",
+      browserSettings: {
+        recordSession: false,
+        logSession: false,
+        solveCaptchas: false,
+      },
+    });
+  });
 
 for (const source of ["supplied", "vault", "inbox"] as const)
   test(`known credentials are redacted before the first agent action (${source})`, async (t) => {
@@ -2631,14 +2705,23 @@ test("a page with no form stops as no-form instead of waiting out the timeout", 
   const executor = createAuthorizationBrowser({
     open: async () => ({ browser, close: async () => {} }),
   });
-  const began = Date.now();
+  const began = performance.now();
+  const now = Date.now;
+  let noFormReported = false;
+  // A discarded terminal result must fail an assertion, not spin until a hit limit.
+  t.mock.method(Date, "now", () => now() + (noFormReported ? 30_000 : 0));
   const result = await executor.complete({
     startUrl: `${provider.origin}/plain`,
     redirectUri: `${provider.origin}/callback`,
     allowedOrigins: [provider.origin],
     timeoutMs: 30_000,
+    onEvent: (event) => {
+      if (event === "No sign-in or registration form on the provider page")
+        noFormReported = true;
+    },
   });
-  assert.ok(Date.now() - began < 20_000);
+  assert.ok(performance.now() - began < 20_000);
+  assert.equal(noFormReported, true);
   assert.equal(result.status, "blocked");
   if (result.status === "blocked") assert.equal(result.reason, "no-form");
 });
