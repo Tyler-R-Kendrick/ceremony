@@ -23,7 +23,7 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The separate local protocol
 - Review a whole ceremony or a contiguous fragment and save a reusable recipe. Compatible published recipes compose with fresh principal/environment bindings; sharing procedure does not share access.
 - Reviewed recipes execute without a model. Optional AI SDK assistance and Workflow continuation use the same protected command service and explicit human fallbacks.
 
-Read [teaching behavior](docs/ceremony-teaching.md), [service support](docs/service-examples.md), and [live authentication](docs/live-auth.md). GitHub, Stripe and Supabase have provider-backed adapters; the explicit `/?mode=test` harness contains simulations. Neither local fixtures nor adapter code constitute live-vendor certification. The composable teaching runtime currently uses GitHub App children.
+Read [teaching behavior](docs/ceremony-teaching.md), [service support](docs/service-examples.md), and [live authentication](docs/live-auth.md). GitHub, Stripe and Supabase have provider-backed adapters and composable prerequisite/access children; the explicit `/?mode=test` harness contains simulations. Supabase includes project setup, project-user signup/confirmation and enrolled TOTP verification. Neither local fixtures nor adapter code constitute live-vendor certification.
 
 ## Library interfaces
 

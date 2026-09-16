@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { jwtVerify } from "jose";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
+import { jwtVerify, SignJWT } from "jose";
 import { PostgresCeremonyStore } from "../../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../../src/server/github-runtime.js";
 import { startReferenceApp } from "../../examples/server.js";
@@ -21,6 +21,7 @@ export async function teachingGitHubFixture(
     loseContinuationAcknowledgment?: boolean;
     returnPath?: string;
     stripe?: boolean;
+    supabase?: "aal1" | "aal2";
   } = {},
 ) {
   const database = await postgresFixture();
@@ -41,7 +42,22 @@ export async function teachingGitHubFixture(
     continuationRequests: 0,
     continuationEffects: 0,
     stripeReads: 0,
+    supabaseSignups: 0,
+    supabaseSignins: 0,
+    supabaseReads: 0,
+    supabaseMfa: 0,
+    supabaseMfaAttempts: 0,
   };
+  const supabaseKey = randomBytes(32),
+    factorId = randomUUID(),
+    challengeId = randomUUID();
+  const supabaseToken = (aal: string) =>
+    new SignJWT({ aal })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("fixture-project-user")
+      .setExpirationTime("1h")
+      .sign(supabaseKey);
+  let supabaseConfirmed = false;
   const stripeKey = `rk_test_${randomBytes(24).toString("hex")}`;
   const continuationToken = randomBytes(32).toString("hex");
   const workerToken = randomBytes(32).toString("hex");
@@ -51,6 +67,103 @@ export async function teachingGitHubFixture(
   const provider = createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, "http://fixture");
+      if (options.supabase && url.pathname === "/confirm-project-user") {
+        supabaseConfirmed = true;
+        res
+          .writeHead(200, {
+            "content-type": "text/html",
+            "cache-control": "no-store",
+          })
+          .end(
+            "<!doctype html><title>Local confirmation fixture</title><p>Fixture email confirmed. Return to the connection.</p>",
+          );
+        return;
+      }
+      if (options.supabase && url.pathname.startsWith("/auth/v1/")) {
+        res.setHeader("content-type", "application/json");
+        const user = {
+          id: "fixture-project-user",
+          factors: [{ id: factorId, factor_type: "totp", status: "verified" }],
+        };
+        if (url.pathname === "/auth/v1/user") {
+          await jwtVerify(
+            (req.headers.authorization ?? "").slice(7),
+            supabaseKey,
+            { subject: user.id },
+          );
+          effects.supabaseReads++;
+          res.end(JSON.stringify(user));
+          return;
+        }
+        if (req.method !== "POST") throw new Error();
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        const body = JSON.parse(raw);
+        if (url.pathname === "/auth/v1/signup") {
+          if (
+            body.email !== "project-user@example.com" ||
+            body.password !== "synthetic-project-password"
+          )
+            throw new Error();
+          effects.supabaseSignups++;
+          res.end(JSON.stringify({ id: user.id }));
+          return;
+        }
+        let aal = "aal1";
+        if (url.pathname === "/auth/v1/token") {
+          effects.supabaseSignins++;
+          if (
+            !supabaseConfirmed ||
+            body.email !== "project-user@example.com" ||
+            body.password !== "synthetic-project-password"
+          ) {
+            res.statusCode = 400;
+            res.end(
+              JSON.stringify({
+                code: "email_not_confirmed",
+                message: "fixture-rejected",
+              }),
+            );
+            return;
+          }
+        } else {
+          await jwtVerify(
+            (req.headers.authorization ?? "").slice(7),
+            supabaseKey,
+            { subject: user.id },
+          );
+          if (url.pathname === `/auth/v1/factors/${factorId}/challenge`) {
+            res.end(
+              JSON.stringify({
+                id: challengeId,
+                type: "totp",
+                expires_at: Math.floor(Date.now() / 1000) + 300,
+              }),
+            );
+            return;
+          }
+          if (url.pathname === `/auth/v1/factors/${factorId}/verify`)
+            effects.supabaseMfaAttempts++;
+          if (
+            url.pathname !== `/auth/v1/factors/${factorId}/verify` ||
+            body.challenge_id !== challengeId ||
+            body.code !== "123456"
+          )
+            throw new Error();
+          effects.supabaseMfa++;
+          aal = "aal2";
+        }
+        res.end(
+          JSON.stringify({
+            access_token: await supabaseToken(aal),
+            refresh_token: "synthetic-project-refresh",
+            token_type: "bearer",
+            expires_in: 3600,
+            user,
+          }),
+        );
+        return;
+      }
       if (options.stripe && url.pathname === "/v1/balance") {
         if (
           req.method !== "GET" ||
@@ -183,6 +296,23 @@ export async function teachingGitHubFixture(
     origin,
     environment: "local-e2e",
     configurationVersion: "fixture-v1",
+    ...(options.supabase
+      ? {
+          supabase: {
+            configuration: async () => ({ version: "fixture-v1" }),
+            requiredAssurance: options.supabase,
+            fetch: (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+              const url = new URL(String(input));
+              if (url.origin !== "https://synthetic.supabase.co")
+                throw new Error("Unexpected Supabase fixture origin");
+              return fetch(
+                `http://127.0.0.1:${address.port}${url.pathname}${url.search}`,
+                init,
+              );
+            },
+          },
+        }
+      : {}),
     ...(options.stripe
       ? {
           stripe: {
@@ -292,6 +422,8 @@ export async function teachingGitHubFixture(
     runtime,
     privateRecovery: { appId: 42, pem },
     stripeKey,
+    supabaseConfirmationUrl: `http://127.0.0.1:${address.port}/confirm-project-user`,
+    supabaseFactorId: factorId,
     workerAuthorization: `Bearer ${workerToken}`,
     sessionCookie,
     updateStaticRelease() {
