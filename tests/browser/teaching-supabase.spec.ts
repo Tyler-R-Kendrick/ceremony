@@ -9,6 +9,11 @@ for (const assurance of ["aal1", "aal2"] as const)
   }, testInfo) => {
     const startedAt = Date.now();
     const phases: Array<{ phase: string; elapsedMs: number }> = [];
+    const collectorRequests: Array<{
+      phase: string;
+      elapsedMs: number;
+      status?: number;
+    }> = [];
     const mark = (phase: string) =>
       phases.push({ phase, elapsedMs: Date.now() - startedAt });
     const fixture = await teachingGitHubFixture(4423, { supabase: assurance });
@@ -44,6 +49,21 @@ for (const assurance of ["aal1", "aal2"] as const)
       await connect.click();
       await page.getByRole("link", { name: "Continue with Supabase" }).click();
       const privateUrl = page.url();
+      page.on("request", (request) => {
+        if (request.url() === privateUrl)
+          collectorRequests.push({
+            phase: `${request.method()}-${request.resourceType()}-started`,
+            elapsedMs: Date.now() - startedAt,
+          });
+      });
+      page.on("response", (response) => {
+        if (response.url() === privateUrl)
+          collectorRequests.push({
+            phase: `${response.request().method()}-${response.request().resourceType()}-response`,
+            elapsedMs: Date.now() - startedAt,
+            status: response.status(),
+          });
+      });
       const parent = decodeURIComponent(
         new URL(privateUrl).pathname.split("/")[5]!,
       );
@@ -161,8 +181,19 @@ for (const assurance of ["aal1", "aal2"] as const)
       expect(response.status()).toBe(403);
     } catch (error) {
       // Timing and effect counts only: never retain private URLs, fields, or DOM.
+      const credentialsFormValid = await context
+        .pages()[0]
+        ?.evaluate(() => {
+          const form = document.querySelector<HTMLFormElement>(
+            'form[data-kind="credentials"]',
+          );
+          return form ? form.matches(":valid") : undefined;
+        })
+        .catch(() => undefined);
       console.info({
         phases,
+        collectorRequests,
+        credentialsFormValid,
         elapsedMs: Date.now() - startedAt,
         effects: {
           signups: fixture.effects.supabaseSignups,
