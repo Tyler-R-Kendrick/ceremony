@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 export default defineConfig({
   root: "examples/web",
+  // Mutation sandboxes share node_modules, not their application's cache.
+  cacheDir: ".vite",
   plugins: [
     {
       name: "exclude-development-overlay",

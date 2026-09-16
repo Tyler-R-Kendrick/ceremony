@@ -1,4 +1,5 @@
 node_modules/
+.vite/
 .stryker-tmp/
 dist/
 web-dist/
