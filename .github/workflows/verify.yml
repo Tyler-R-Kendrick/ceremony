@@ -25,6 +25,7 @@ jobs:
           path: |
             artifacts/coverage/coverage-summary.json
             artifacts/verification/
+            artifacts/security-mutation/mutation.json
             artifacts/bundle/size.json
             artifacts/browser/results.json
             artifacts/workflow/results.json
