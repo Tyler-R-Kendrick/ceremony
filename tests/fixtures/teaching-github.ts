@@ -22,7 +22,7 @@ export async function teachingGitHubFixture(
     returnPath?: string;
     stripe?: boolean;
     supabase?: "aal1" | "aal2";
-    jira?: "configured" | "owner-setup";
+    jira?: "configured" | "owner-setup" | "owner-contribution";
   } = {},
 ) {
   const database = await postgresFixture();
@@ -409,6 +409,9 @@ export async function teachingGitHubFixture(
     ...(options.jira
       ? {
           jira: {
+            ...(options.jira === "owner-contribution"
+              ? { setupOwner: async () => "integration-owner" }
+              : {}),
             configuration: async () => ({
               version: "fixture-v1",
               ...(options.jira === "configured"
@@ -493,7 +496,11 @@ export async function teachingGitHubFixture(
                 "reviewer",
                 "publisher",
                 "executor",
-                ...(options.jira === "owner-setup" ? ["admin" as const] : []),
+                ...(options.jira === "owner-setup" ||
+                (options.jira === "owner-contribution" &&
+                  subjectId === "integration-owner")
+                  ? ["admin" as const]
+                  : []),
               ],
             }
           : null;
