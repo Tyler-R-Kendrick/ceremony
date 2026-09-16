@@ -10,6 +10,7 @@ import {
   actionsFor,
   defaultTemplate,
   fieldsFor,
+  fieldSchema,
   flowKinds,
   manifestSchema,
   methodSchema,
@@ -140,6 +141,57 @@ test("atomic: method validation returns actionable errors for invalid credential
     assert.deepEqual(duplicate.error.issues, [
       { code: "custom", message: "Duplicate method IDs", path: [] },
     ]);
+});
+
+test("atomic: credential methods require private collection and authenticated completion", () => {
+  for (const kind of ["basic", "api-key", "form"] as const) {
+    const valid = structuredClone(method(kind));
+    assert.ok(valid.contract);
+    assert.equal(valid.contract.handoff.surface, "private-collector");
+    assert.deepEqual(valid.contract.completion.ownership, ["authenticated"]);
+    assert.deepEqual(methodSchema.parse(valid), valid);
+    for (const [part, message] of [
+      ["handoff", "Credential methods require private collection"],
+      ["completion", "This method requires authenticated completion"],
+    ] as const) {
+      const invalid = structuredClone(valid);
+      if (part === "handoff")
+        invalid.contract!.handoff.surface = "provider-browser";
+      else invalid.contract!.completion.ownership = ["claimed"];
+      const parsed = methodSchema.safeParse(invalid);
+      assert.equal(parsed.success, false, `${kind}: ${part}`);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          { code: "custom", message, path: [] },
+        ]);
+    }
+  }
+});
+
+test("atomic: credential field classifications retain exact private-input diagnostics", () => {
+  for (const credential of [
+    { ...field, type: "password" },
+    { ...field, name: "password" },
+    { ...field, name: "token" },
+  ]) {
+    assert.ok(fieldSchema.safeParse(credential).success);
+    assert.ok(
+      fieldSchema.safeParse({ ...credential, classification: "secret" })
+        .success,
+    );
+    for (const classification of ["public", "personal"]) {
+      const parsed = fieldSchema.safeParse({ ...credential, classification });
+      assert.equal(parsed.success, false);
+      if (!parsed.success)
+        assert.deepEqual(parsed.error.issues, [
+          {
+            code: "custom",
+            message: "Credential fields must remain secret",
+            path: [],
+          },
+        ]);
+    }
+  }
 });
 
 test("atomic: public identifiers reject invalid prefixes/suffixes and accept their exact length boundary", () => {

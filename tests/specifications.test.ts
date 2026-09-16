@@ -92,7 +92,23 @@ test("SPEC-02: legacy manifests remain readable but cannot claim formal conforma
     );
   const unclassified = structuredClone(serviceManifests[0]!);
   delete unclassified.methods[0]!.fields[0]!.classification;
-  assert.equal(manifestSchema.safeParse(unclassified).success, false);
+  const unsupported = structuredClone(githubAppManifest);
+  delete unsupported.support;
+  const uncontracted = structuredClone(githubAppManifest);
+  delete uncontracted.methods[0]!.contract;
+  for (const invalid of [unclassified, unsupported, uncontracted]) {
+    const parsed = manifestSchema.safeParse(invalid);
+    assert.equal(parsed.success, false);
+    if (!parsed.success)
+      assert.deepEqual(parsed.error.issues, [
+        {
+          code: "custom",
+          message:
+            "Version 1 requires support, method contracts and explicit field classifications",
+          path: [],
+        },
+      ]);
+  }
 });
 
 test("SPEC-03: protected material, endpoints and invented authority cannot enter handoff definitions", () => {
