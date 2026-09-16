@@ -78,7 +78,13 @@ export default {
       "run.revision !== assignment.runRevision ||",
     ),
     guard("src/server/jira-setup.ts", "current.revision !== revision ||"),
-    guard("src/server/jira-setup.ts", "current.revision !== run.revision ||"),
+    guard(
+      "src/server/jira-setup.ts",
+      "current.revision !== run.revision ||",
+      1,
+      0,
+      2,
+    ),
     guard("src/server/jira-setup.ts", "if (value.expires > (await tx.now()))"),
     guard("src/server/jira-setup.ts", 'if (value.state !== "pending")'),
     guard(
