@@ -36,7 +36,7 @@
     ".codex",
     ".agents"
   ],
-  "concurrency": 4,
+  "concurrency": 1,
   "timeoutMS": 10000,
   "dryRunTimeoutMinutes": 10,
   "reporters": ["clear-text", "progress-append-only", "json", "html"],

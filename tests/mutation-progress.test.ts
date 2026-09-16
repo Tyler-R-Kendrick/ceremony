@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { mutationProgress } from "../scripts/verify-mutation.js";
+
+test("mutation workers serialize fixtures sharing primary TCP ports", () => {
+  const profile = JSON.parse(
+    readFileSync(new URL("../stryker.config.json", import.meta.url), "utf8"),
+  );
+  assert.equal(profile.concurrency, 1);
+  const workflow = readFileSync(
+    new URL("../.github/workflows/verify.yml", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    /--concurrency\b/.test(workflow),
+    false,
+    "CI must retain the profile's fixture isolation",
+  );
+});
 
 test("mutation progress retains live inventory filenames and exit status, not diagnostics", async () => {
   const records: Array<Record<string, string | number | null>> = [];

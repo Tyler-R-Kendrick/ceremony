@@ -87,9 +87,9 @@ jobs:
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
-    # Schema took 44m19s; the 915-mutant authoring run also exceeded 60 minutes.
-    # Keep every mutant, test timeout and threshold; budget headroom for the whole job.
-    timeout-minutes: ${{ matrix.target == 'connector-authoring' && 180 || matrix.target == 'schema' && 60 || 30 }}
+    # ponytail: one worker for fixed fixture ports; parallelize after listener isolation.
+    # Halving workers doubles only the whole-job budget, not test deadlines or thresholds.
+    timeout-minutes: ${{ matrix.target == 'connector-authoring' && 360 || matrix.target == 'schema' && 120 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,7 +120,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:mutation -- --mutate "${{ matrix.file }}" --concurrency 2
+      - run: npm run test:mutation -- --mutate "${{ matrix.file }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
