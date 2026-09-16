@@ -1244,9 +1244,21 @@ test("Jira verification rejects foreign context, missing evidence and expired ar
     kind: "artifact" as const,
     id: app.id,
   };
+  const transaction = f.store.transaction.bind(f.store);
+  let now = await transaction((tx) => tx.now());
+  t.mock.method(
+    f.store,
+    "transaction",
+    (work: Parameters<typeof transaction>[0]) =>
+      transaction((tx) => work({ ...tx, now: async () => now })),
+  );
   await f.store.transaction(async (tx) => {
-    await tx.put(key, { ...app.value, expires: await tx.now() }, app.revision);
+    await tx.put(key, { ...app.value, expires: now + 1 }, app.revision);
   });
+  assert.equal(await operation.verify!(context, result), true);
+  now += 1;
+  assert.equal(await operation.verify!(context, result), false);
+  now += 1;
   assert.equal(await operation.verify!(context, result), false);
   await f.store.transaction(async (tx) => {
     const current = await tx.get(key);
