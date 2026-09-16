@@ -145,6 +145,10 @@ test("atomic: method validation returns actionable errors for invalid credential
     [{ ...method("api-key"), fields: [] }, "api-key requires token"],
     [{ ...method("api-key"), fields: [field] }, "api-key requires token"],
     [{ ...method("form"), fields: [] }, "Form requires fields"],
+    [
+      { ...method("form"), kind: "account-registration", fields: [] },
+      "Form requires fields",
+    ],
     [{ ...method("form"), fields: [field, field] }, "Duplicate field names"],
     [
       { ...method("oauth-code"), fields: [field] },
@@ -192,8 +196,16 @@ test("atomic: method validation returns actionable errors for invalid credential
 });
 
 test("atomic: credential methods require private collection and authenticated completion", () => {
-  for (const kind of ["basic", "api-key", "form"] as const) {
-    const valid = structuredClone(method(kind));
+  for (const kind of [
+    "basic",
+    "api-key",
+    "form",
+    "account-registration",
+  ] as const) {
+    const valid = structuredClone({
+      ...method(kind === "account-registration" ? "form" : kind),
+      kind,
+    });
     assert.ok(valid.contract);
     assert.equal(valid.contract.handoff.surface, "private-collector");
     assert.deepEqual(valid.contract.completion.ownership, ["authenticated"]);

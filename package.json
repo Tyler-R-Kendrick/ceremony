@@ -92,7 +92,7 @@
     "test:coverage": "c8 --all --include 'src/**/*.ts' --include 'src/**/*.tsx' --check-coverage --lines 90 --statements 90 --branches 80 --functions 90 --reporter text --reporter json-summary --reporter json --reports-dir artifacts/coverage node scripts/test.mjs all",
     "test:crap": "npm run test:coverage && node --import tsx scripts/crap.ts",
     "test:auth:mutation": "stryker run stryker.auth.config.mjs && stryker run stryker.snapshot.config.mjs",
-    "test:mutation": "stryker run",
+    "test:mutation": "node --import tsx scripts/verify-mutation.ts",
     "test:security:mutation": "stryker run stryker.security.config.mjs",
     "test:e2e": "playwright test",
     "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",

@@ -26,6 +26,19 @@ const handoff = (surface: "provider-browser" | "private-collector") => ({
 
 const credentialKinds = ["basic", "api-key", "form", "account-registration"];
 
+test("held configuration names require the complete bounded identifier", () => {
+  for (const name of ["A", "CLIENT_SECRET", "A".repeat(96)])
+    assert.deepEqual(
+      entryContextSchema.parse({ heldConfiguration: [name] }).heldConfiguration,
+      [name],
+    );
+  for (const name of ["", "-CLIENT_SECRET", "CLIENT_SECRET-", "A".repeat(97)])
+    assert.equal(
+      entryContextSchema.safeParse({ heldConfiguration: [name] }).success,
+      false,
+    );
+});
+
 function fieldsFor(kind: string) {
   if (kind === "api-key")
     return [
