@@ -107,6 +107,52 @@ export function Ceremony(props: CeremonyProps) {
     />
   );
 }
+function MethodPicker({
+  id,
+  methods,
+  methodId,
+  busy,
+  hasSnapshot,
+  onSelect,
+  onStart,
+}: {
+  id: string;
+  methods: CeremonyClient["manifest"]["methods"];
+  methodId: string;
+  busy: boolean;
+  hasSnapshot: boolean;
+  onSelect: (methodId: string) => void;
+  onStart: () => void;
+}) {
+  return (
+    <>
+      {methods.length > 1 && (
+        <div className="method-picker" data-ceremony-part="method-picker">
+          <label htmlFor={`${id}-method`}>Authentication method</label>
+          <div>
+            <select
+              id={`${id}-method`}
+              value={methodId}
+              disabled={busy}
+              onChange={(event) => onSelect(event.target.value)}
+            >
+              {methods.map((method) => (
+                <option value={method.id} key={method.id}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+            {!hasSnapshot && (
+              <button type="button" disabled={busy} onClick={onStart}>
+                Select method
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 /** A replaceable view: multiple views can share one host-owned client. */
 export function CeremonyView({
   model,
@@ -169,37 +215,18 @@ export function CeremonyView({
           </p>
         </>
       )}
-      {manifest.methods.length > 1 && (
-        <div className="method-picker" data-ceremony-part="method-picker">
-          <label htmlFor={`${id}-method`}>Authentication method</label>
-          <div>
-            <select
-              id={`${id}-method`}
-              value={methodId}
-              disabled={busy}
-              onChange={(event) => {
-                setSelectedMethod(event.target.value);
-                dispatch({ action: "start", methodId: event.target.value });
-              }}
-            >
-              {manifest.methods.map((method) => (
-                <option value={method.id} key={method.id}>
-                  {method.label}
-                </option>
-              ))}
-            </select>
-            {!snapshot && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => dispatch({ action: "start", methodId })}
-              >
-                Select method
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <MethodPicker
+        id={id}
+        methods={manifest.methods}
+        methodId={methodId}
+        busy={busy}
+        hasSnapshot={Boolean(snapshot)}
+        onSelect={(methodId) => {
+          setSelectedMethod(methodId);
+          dispatch({ action: "start", methodId });
+        }}
+        onStart={() => dispatch({ action: "start", methodId })}
+      />
       {error && (
         <div data-ceremony-part="error">
           <p className="notice" role="alert" id={`${id}-error`}>

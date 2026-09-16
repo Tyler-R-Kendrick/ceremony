@@ -890,6 +890,173 @@ fieldset label:last-child input {
   width: 100%;
   resize: vertical;
 }
+.authoring-activity {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line, #dce2e9);
+  border-radius: 12px;
+}
+.authoring-activity-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+.authoring-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2f6fed;
+  box-shadow: 0 0 0 0 rgba(47, 111, 237, 0.55);
+  animation: authoring-pulse 1.2s ease-out infinite;
+}
+.authoring-pulse.is-idle {
+  animation: none;
+  background: #6b7c8d;
+  box-shadow: none;
+}
+@keyframes authoring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(47, 111, 237, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(47, 111, 237, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(47, 111, 237, 0);
+  }
+}
+.authoring-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.authoring-counters {
+  color: var(--muted, #526171);
+  font-size: 12px;
+}
+.authoring-current {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.authoring-current span {
+  color: var(--muted, #526171);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.authoring-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.authoring-tasks li {
+  padding: 4px 10px;
+  border: 1px solid var(--line, #dce2e9);
+  border-radius: 999px;
+  font-size: 12px;
+}
+.authoring-tasks li[data-state="active"] {
+  border-color: #2f6fed;
+  background: rgba(47, 111, 237, 0.08);
+}
+.authoring-tasks li[data-state="done"] {
+  opacity: 0.72;
+}
+.authoring-live-log {
+  max-height: 12rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.authoring-live-log li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(15, 23, 32, 0.06);
+}
+.authoring-live-log time {
+  color: var(--muted, #526171);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .authoring-pulse {
+    animation: none;
+  }
+}
+.authoring-capture,
+.teaching-capture {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.authoring-capture figcaption,
+.teaching-capture figcaption {
+  color: var(--muted, #526171);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.authoring-capture video,
+.teaching-capture video {
+  width: 100%;
+  max-height: 320px;
+  background: #0f1720;
+  border-radius: 8px;
+}
+.ceremony-board {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid var(--line, #dce2e9);
+  border-radius: 12px;
+}
+.ceremony-board h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.ceremony-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ceremony-action {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 16rem;
+}
+.ceremony-action small {
+  color: var(--muted, #666);
+  line-height: 1.3;
+}
+.ceremony-board dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+.ceremony-board dt {
+  color: var(--muted, #526171);
+}
+.ceremony-board dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ceremony-board ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
 .authoring-provider {
   display: grid;
   gap: 12px;

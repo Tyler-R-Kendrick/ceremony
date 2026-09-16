@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "../fixtures/browser-test.js";
+import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 import { fileURLToPath } from "node:url";
 import type { ActionEvent, ActionFailureEvent } from "../../src/core/index.js";
 
@@ -22,6 +23,26 @@ interface NativeModelContext {
   getTools(): Promise<RegisteredTool[]>;
   executeTool(tool: RegisteredTool, input: string): Promise<string | null>;
 }
+
+const authoringNames = ["from_provider", "compose", "read", "delete"]
+  .map((action) => `ceremony_author_${action}`)
+  .sort();
+const connectionNames = ["cancel", "connect", "snapshot", "advance"]
+  .map((action) => `ceremony_github_${action}`)
+  .sort();
+const connectedNames = [...authoringNames, ...connectionNames].sort();
+const teachingTest = test.extend<{
+  teachingHost: Awaited<ReturnType<typeof teachingGitHubFixture>>;
+}>({
+  teachingHost: async ({}, use) => {
+    const host = await teachingGitHubFixture(4489);
+    try {
+      await use(host);
+    } finally {
+      await host.close();
+    }
+  },
+});
 
 test("AC-40 real native registration collision recovers and abort only removes owned mounted tools", async ({
   page,
@@ -52,7 +73,12 @@ test("AC-40 real native registration collision recovers and abort only removes o
       "Browser tools are unavailable. The normal connection controls still work.",
     ),
   ).toBeVisible();
-  expect(await names(page)).toEqual(["ceremony_github_snapshot"]);
+  await expect
+    .poll(async () => (await names(page)).sort())
+    .toEqual([...authoringNames, "ceremony_github_snapshot"].sort());
+  await page
+    .getByLabel("GitHub account or organization")
+    .fill("native-fixture-owner");
   await expect(
     page.getByRole("button", { name: "Connect GitHub", exact: true }),
   ).toBeEnabled();
@@ -61,28 +87,40 @@ test("AC-40 real native registration collision recovers and abort only removes o
     .getByRole("button", { name: "Workflow studio", exact: true })
     .click();
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect.poll(() => names(page)).toHaveLength(4);
+  await expect
+    .poll(async () => (await names(page)).sort())
+    .toEqual(connectedNames);
   await page.evaluate(
     async (entry) => {
       (await import(entry)).mountTeachingHarness("independent_teaching");
     },
     `/@fs${fileURLToPath(new URL("./webmcp-harness.tsx", import.meta.url))}`,
   );
-  await expect.poll(() => names(page)).toHaveLength(8);
+  await expect
+    .poll(async () => (await names(page)).sort())
+    .toEqual(
+      [
+        ...connectedNames,
+        ...["cancel", "connect", "snapshot", "advance"].map(
+          (action) => `independent_teaching_${action}`,
+        ),
+      ].sort(),
+    );
   expect((await call(page, "snapshot", {}, "independent_teaching")).ok).toBe(
     false,
   );
   await page
     .getByRole("button", { name: "Unmount independent_teaching", exact: true })
     .click();
-  await expect.poll(() => names(page)).toHaveLength(4);
-  expect(
-    (await names(page)).every((name) => name.startsWith("ceremony_github_")),
-  ).toBe(true);
+  await expect
+    .poll(async () => (await names(page)).sort())
+    .toEqual(connectedNames);
   await page
     .getByRole("button", { name: "Workflow studio", exact: true })
     .click();
-  await expect.poll(() => names(page)).toHaveLength(0);
+  await expect
+    .poll(async () => (await names(page)).sort())
+    .toEqual(authoringNames);
 });
 declare global {
   interface Document {
@@ -98,94 +136,94 @@ test.beforeEach(({ page }) => {
 test.afterEach(({ page }) => expect(errors.get(page)).toEqual([]));
 
 for (const surface of ["document", "navigator"] as const)
-  test(`DevTools discovers and invokes the actual page tools through ${surface}.modelContext`, async ({
-    page,
-    context,
-  }) => {
-    if (surface === "navigator")
-      await context.addInitScript(() => {
-        // Exercise the older entry point using Chrome's real registry, not a tool-registration mock.
-        const native = document.modelContext;
-        Object.defineProperty(navigator, "modelContext", {
-          value: native,
-          configurable: true,
+  teachingTest(
+    `DevTools discovers and invokes the actual page tools through ${surface}.modelContext`,
+    async ({ page, context, teachingHost }) => {
+      if (surface === "navigator")
+        await context.addInitScript(() => {
+          // Exercise the older entry point using Chrome's real registry, not a tool-registration mock.
+          const native = document.modelContext;
+          Object.defineProperty(navigator, "modelContext", {
+            value: native,
+            configurable: true,
+          });
+          Object.defineProperty(document, "modelContext", {
+            value: undefined,
+            configurable: true,
+          });
         });
-        Object.defineProperty(document, "modelContext", {
-          value: undefined,
-          configurable: true,
-        });
+      const cdp = await context.newCDPSession(page);
+      const registered = new Map<string, { name: string; frameId: string }>();
+      const responses: {
+        invocationId: string;
+        status: string;
+        output?: unknown;
+      }[] = [];
+      cdp.on("WebMCP.toolsAdded", ({ tools }) => {
+        for (const tool of tools) registered.set(tool.name, tool);
       });
-    const cdp = await context.newCDPSession(page);
-    const registered = new Map<string, { name: string; frameId: string }>();
-    const responses: {
-      invocationId: string;
-      status: string;
-      output?: unknown;
-    }[] = [];
-    cdp.on("WebMCP.toolsAdded", ({ tools }) => {
-      for (const tool of tools) registered.set(tool.name, tool);
-    });
-    cdp.on("WebMCP.toolsRemoved", ({ tools }) => {
-      for (const tool of tools) registered.delete(tool.name);
-    });
-    cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
-    await cdp.send("WebMCP.enable");
-    await page.goto("/");
-    await expect.poll(() => registered.size).toBe(4);
-    await page
-      .getByRole("button", { name: "Connect GitHub", exact: true })
-      .click();
-    await page
-      .getByLabel("GitHub account or organization")
-      .fill("native-fixture-owner");
-    await page
-      .getByRole("button", { name: "Connect GitHub", exact: true })
-      .click();
-    await expect(
-      page.getByRole("link", { name: "Continue with GitHub", exact: true }),
-    ).toBeVisible();
-    // Opening DevTools after the page loaded must discover the existing tools too.
-    await cdp.send("WebMCP.disable");
-    registered.clear();
-    await cdp.send("WebMCP.enable");
-    await expect.poll(() => registered.size).toBe(4);
-    const tool = registered.get("ceremony_github_snapshot")!;
-    expect(tool).toBeDefined();
-    const { invocationId } = await cdp.send("WebMCP.invokeTool", {
-      frameId: tool.frameId,
-      toolName: tool.name,
-      input: {},
-    });
-    await expect
-      .poll(
-        () =>
-          responses.find((response) => response.invocationId === invocationId)
-            ?.status,
-      )
-      .toBe("Completed");
-    const output = responses.find(
-      (response) => response.invocationId === invocationId,
-    )!.output;
-    expect(
-      typeof output === "string" ? JSON.parse(output) : output,
-    ).toMatchObject({
-      ok: true,
-      state: { provider: "github", status: "active" },
-    });
-    await page
-      .getByRole("button", { name: "Workflow studio", exact: true })
-      .click();
-    await expect.poll(() => registered.size).toBe(0);
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await expect
-      .poll(() => [...registered.keys()].sort())
-      .toEqual(
-        ["cancel", "connect", "snapshot", "advance"]
-          .map((action) => `ceremony_github_${action}`)
-          .sort(),
-      );
-    await cdp.detach();
-  });
+      cdp.on("WebMCP.toolsRemoved", ({ tools }) => {
+        for (const tool of tools) registered.delete(tool.name);
+      });
+      cdp.on("WebMCP.toolResponded", (response) => responses.push(response));
+      await cdp.send("WebMCP.enable");
+      await teachingHost.login(context, "native-tool-owner");
+      await page.goto(teachingHost.origin);
+      await expect
+        .poll(() => [...registered.keys()].sort())
+        .toEqual(connectedNames);
+      await page
+        .getByLabel("GitHub account or organization")
+        .fill("fixture-owner");
+      await page
+        .getByRole("button", { name: "Connect GitHub", exact: true })
+        .click();
+      await expect(
+        page.getByRole("link", { name: "Continue with GitHub", exact: true }),
+      ).toBeVisible();
+      // Opening DevTools after the page loaded must discover the existing tools too.
+      await cdp.send("WebMCP.disable");
+      registered.clear();
+      await cdp.send("WebMCP.enable");
+      await expect
+        .poll(() => [...registered.keys()].sort())
+        .toEqual(connectedNames);
+      const tool = registered.get("ceremony_github_snapshot")!;
+      expect(tool).toBeDefined();
+      const { invocationId } = await cdp.send("WebMCP.invokeTool", {
+        frameId: tool.frameId,
+        toolName: tool.name,
+        input: {},
+      });
+      await expect
+        .poll(
+          () =>
+            responses.find((response) => response.invocationId === invocationId)
+              ?.status,
+        )
+        .toBe("Completed");
+      const output = responses.find(
+        (response) => response.invocationId === invocationId,
+      )!.output;
+      expect(
+        typeof output === "string" ? JSON.parse(output) : output,
+      ).toMatchObject({
+        ok: true,
+        state: { provider: "github", status: "active" },
+      });
+      await page
+        .getByRole("button", { name: "Workflow studio", exact: true })
+        .click();
+      await expect
+        .poll(() => [...registered.keys()].sort())
+        .toEqual(authoringNames);
+      await page.getByRole("button", { name: "Connect", exact: true }).click();
+      await expect
+        .poll(() => [...registered.keys()].sort())
+        .toEqual(connectedNames);
+      await cdp.detach();
+    },
+  );
 
 test("unavailable browser support is visible instead of claiming WebMCP registration", async ({
   page,

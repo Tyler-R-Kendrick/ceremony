@@ -16,7 +16,7 @@ import type {
   AsyncCeremonyStore,
   AsyncTransaction,
 } from "../persistence/index.js";
-import { OperationRegistry } from "./registry.js";
+import { OperationRegistry, type RegisteredOperation } from "./registry.js";
 
 export { OperationRegistry } from "./registry.js";
 export type {
@@ -67,6 +67,47 @@ export async function validateRecipe(
   const active = new Set<string>();
   let visited = 0;
   let exhausted = false;
+  function validateOperationInputs(
+    operation: RegisteredOperation,
+    bindings: Record<string, Binding>,
+    id: string,
+  ) {
+    if (!operation.fixtures.length) fail("missing-operation-fixtures", id);
+    if (!operation.verify) fail("missing-verifier", id);
+    for (const [name, input] of Object.entries(operation.contract.inputs)) {
+      const binding = bindings[name];
+      const vocabulary = registry.vocabulary.get(input.contract);
+      if (!binding) {
+        if (input.required) fail("unbound-required-input", id);
+        continue;
+      }
+      if (binding.from === "literal") {
+        if (
+          !vocabulary ||
+          vocabulary.classification !== "public" ||
+          !vocabulary.schema.safeParse(binding.value).success
+        )
+          fail("forbidden-literal", id);
+      } else if (binding.from === "input") {
+        if (recipe.inputs[binding.name]?.contract !== input.contract)
+          fail("incompatible-input", id);
+      } else {
+        const producer = leaves.find((leaf) => leaf.id === binding.node);
+        const producerOperation =
+          producer?.use.kind === "operation"
+            ? registry.get(producer.use.id, producer.use.version)
+            : undefined;
+        if (
+          producerOperation?.contract.outputs[binding.name]?.contract !==
+          input.contract
+        )
+          fail("incompatible-output", id);
+      }
+    }
+    for (const name of Object.keys(bindings))
+      if (!Object.hasOwn(operation.contract.inputs, name))
+        fail("unknown-operation-input", id);
+  }
   async function expand(
     current: RecipeDefinition,
     prefix: string,
@@ -174,41 +215,7 @@ export async function validateRecipe(
           outputs.set(node.id, {});
           continue;
         }
-        if (!operation.fixtures.length) fail("missing-operation-fixtures", id);
-        if (!operation.verify) fail("missing-verifier", id);
-        for (const [name, input] of Object.entries(operation.contract.inputs)) {
-          const binding = bindings[name];
-          const vocabulary = registry.vocabulary.get(input.contract);
-          if (!binding) {
-            if (input.required) fail("unbound-required-input", id);
-            continue;
-          }
-          if (binding.from === "literal") {
-            if (
-              !vocabulary ||
-              vocabulary.classification !== "public" ||
-              !vocabulary.schema.safeParse(binding.value).success
-            )
-              fail("forbidden-literal", id);
-          } else if (binding.from === "input") {
-            if (recipe.inputs[binding.name]?.contract !== input.contract)
-              fail("incompatible-input", id);
-          } else {
-            const producer = leaves.find((leaf) => leaf.id === binding.node);
-            const producerOperation =
-              producer?.use.kind === "operation"
-                ? registry.get(producer.use.id, producer.use.version)
-                : undefined;
-            if (
-              producerOperation?.contract.outputs[binding.name]?.contract !==
-              input.contract
-            )
-              fail("incompatible-output", id);
-          }
-        }
-        for (const name of Object.keys(bindings))
-          if (!Object.hasOwn(operation.contract.inputs, name))
-            fail("unknown-operation-input", id);
+        validateOperationInputs(operation, bindings, id);
         const dependsOn = predecessors;
         leaves.push({ id, use: node.use, dependsOn, bindings });
         completionNodes.set(node.id, [id]);

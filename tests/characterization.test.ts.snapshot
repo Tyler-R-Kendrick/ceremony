@@ -375,6 +375,23 @@ exports[`characterization: every flow template and state action 1`] = `
       "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
       "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
     }
+  },
+  {
+    "version": 1,
+    "id": "account-registration",
+    "kind": "account-registration",
+    "screens": {
+      "intro": "root = Stack([Title(\\"Create your account\\"), Details(), Access(), Actions(), Notice()])",
+      "input": "root = Stack([Title(\\"Enter your credentials\\"), Details(), Fields(), Actions(), Notice()])",
+      "redirect": "root = Stack([Title(\\"Continue with your provider\\"), Details(), Redirect(), Actions(), Notice()])",
+      "waiting": "root = Stack([Title(\\"Waiting for approval\\"), Details(), Device(), Actions(), Notice()])",
+      "anonymous": "root = Stack([Title(\\"Anonymous access is ready\\"), Details(), Outcome(), Actions(), Notice()])",
+      "claim": "root = Stack([Title(\\"Claim ownership\\"), Details(), Fields(), Actions(), Notice()])",
+      "complete": "root = Stack([Title(\\"You’re connected\\"), Details(), Outcome(), Actions(), Notice()])",
+      "error": "root = Stack([Title(\\"Let’s try that again\\"), Details(), Outcome(), Actions(), Notice()])",
+      "cancelled": "root = Stack([Title(\\"Connection cancelled\\"), Details(), Outcome(), Actions(), Notice()])",
+      "expired": "root = Stack([Title(\\"This attempt has expired\\"), Details(), Outcome(), Actions(), Notice()])"
+    }
   }
 ]
 `;

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -7,7 +7,12 @@ for (const assurance of ["aal1", "aal2"] as const)
   test(`Supabase ${assurance} connects from project setup through confirmed signup and private verification`, async ({
     browser,
   }, testInfo) => {
+    const startedAt = Date.now();
+    const phases: Array<{ phase: string; elapsedMs: number }> = [];
+    const mark = (phase: string) =>
+      phases.push({ phase, elapsedMs: Date.now() - startedAt });
     const fixture = await teachingGitHubFixture(4423, { supabase: assurance });
+    mark("fixture-ready");
     const context = await browser.newContext();
     try {
       await fixture.login(context, "supabase-owner");
@@ -19,6 +24,7 @@ for (const assurance of ["aal1", "aal2"] as const)
         exact: true,
       });
       await expect(connect).toBeVisible();
+      mark("connection-page-ready");
       for (const viewport of [
         { width: 1440, height: 1000 },
         { width: 390, height: 844 },
@@ -44,6 +50,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       await expect(
         page.getByRole("heading", { name: "Set up your Supabase project" }),
       ).toBeVisible();
+      mark("project-form-ready");
       await expect(
         page.getByRole("link", { name: "Create a Supabase account (new tab)" }),
       ).toHaveAttribute("href", "https://supabase.com/dashboard/sign-up");
@@ -70,6 +77,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       await expect(
         page.getByRole("heading", { name: "Connect your project account" }),
       ).toBeVisible();
+      mark("credentials-form-ready");
       await page.getByLabel("Email address").fill("project-user@example.com");
       await page
         .getByLabel("Password", { exact: true })
@@ -80,6 +88,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       await expect(page.getByRole("status")).toContainText(
         "Sign-in could not be verified",
       );
+      mark("rejected-signin-checked");
       expect(fixture.effects.supabaseSignups).toBe(0);
       await page.getByLabel("Account action").selectOption("sign-up");
       await page.getByLabel("Email address").fill("project-user@example.com");
@@ -101,6 +110,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       await expect(
         page.getByRole("heading", { name: "Confirm your email" }),
       ).toBeVisible();
+      mark("signup-awaiting-confirmation");
       expect(fixture.effects.supabaseSignups).toBe(1);
       await Promise.all([
         page.waitForNavigation({ waitUntil: "load" }),
@@ -113,6 +123,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       const confirmation = await context.newPage();
       await confirmation.goto(fixture.supabaseConfirmationUrl);
       await confirmation.close();
+      mark("provider-confirmation-complete");
       await page
         .getByRole("button", { name: "Check confirmed account" })
         .click();
@@ -137,6 +148,7 @@ for (const assurance of ["aal1", "aal2"] as const)
       await expect(
         page.getByRole("heading", { name: "Supabase connection verified" }),
       ).toBeVisible();
+      mark("verified-parent-visible");
       expect(fixture.effects.supabaseMfa).toBe(assurance === "aal2" ? 1 : 0);
       expect(new URL(page.url()).searchParams.get("teachingRun")).toBe(parent);
       expect(fixture.effects.supabaseReads).toBeGreaterThan(0);
@@ -147,6 +159,19 @@ for (const assurance of ["aal1", "aal2"] as const)
       ).toBeVisible();
       const response = await context.request.get(privateUrl);
       expect(response.status()).toBe(403);
+    } catch (error) {
+      // Timing and effect counts only: never retain private URLs, fields, or DOM.
+      console.info({
+        phases,
+        elapsedMs: Date.now() - startedAt,
+        effects: {
+          signups: fixture.effects.supabaseSignups,
+          signins: fixture.effects.supabaseSignins,
+          reads: fixture.effects.supabaseReads,
+          mfaAttempts: fixture.effects.supabaseMfaAttempts,
+        },
+      });
+      throw error;
     } finally {
       await context.close();
       await fixture.close();

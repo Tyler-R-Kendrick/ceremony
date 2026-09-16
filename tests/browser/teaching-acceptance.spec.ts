@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "../fixtures/browser-test.js";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 test.use({
   trace: "off",
@@ -46,6 +46,12 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
     await fixture.login(context, "whole-author");
     await fixture.providerPages(context);
     await page.goto(`${fixture.origin}/`);
+    await expect(
+      page.getByRole("button", { name: "Teach this connection", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     await page
       .getByRole("button", { name: "Teach this connection", exact: true })
       .click();
@@ -162,6 +168,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/`);
         await page
+          .getByLabel("GitHub account or organization")
+          .fill("fixture-owner");
+        await page
           .getByRole("button", {
             name: "Teach this connection",
             exact: true,
@@ -201,6 +210,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
       await fixture.providerPages(automaticContext);
       const automaticPage = await automaticContext.newPage();
       await automaticPage.goto(fixture.origin);
+      await automaticPage
+        .getByLabel("GitHub account or organization")
+        .fill("fixture-owner");
       const connected = automaticPage.waitForResponse(
         (response) =>
           response.url().endsWith("/runs") &&
@@ -210,11 +222,18 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
         .getByRole("button", { name: "Connect GitHub", exact: true })
         .click();
       const planned = await (await connected).json();
-      expect(planned.nodes.length).toBe(3);
       expect(
-        planned.nodes.every((node: { id: string }) =>
-          node.id.startsWith("part-"),
-        ),
+        planned.nodes.map((node: { operationId: string }) => node.operationId),
+      ).toEqual([
+        "authored.register-account",
+        "github.prepare-app",
+        "github.authorize-installation",
+        "github.verify-access",
+      ]);
+      expect(
+        planned.nodes
+          .slice(1)
+          .every((node: { id: string }) => node.id.startsWith("part-")),
       ).toBe(true);
       const before = { ...fixture.effects };
       await completeProvider(automaticPage);
@@ -229,6 +248,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
       await fixture.providerPages(context);
       const page = await context.newPage();
       await page.goto(fixture.origin);
+      await page
+        .getByLabel("GitHub account or organization")
+        .fill("fixture-owner");
       await page
         .getByRole("checkbox", { name: "Prepare an app", exact: true })
         .check();
@@ -287,6 +309,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
     await fixture.login(context, "consent-author");
     await fixture.providerPages(context);
     await page.goto(`${fixture.origin}/`);
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     const started = page.waitForResponse(
       (response) =>
         response.url().endsWith("/runs") &&
@@ -375,6 +400,9 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
     await fixture.login(context, "offline-author");
     await fixture.providerPages(context);
     await page.goto(fixture.origin);
+    await page
+      .getByLabel("GitHub account or organization")
+      .fill("fixture-owner");
     await page
       .getByRole("button", { name: "Connect GitHub", exact: true })
       .click();

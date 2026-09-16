@@ -6,6 +6,16 @@ import {
 } from "./operation-contracts.js";
 import { bindingSchema } from "./recipe-contracts.js";
 
+export const accountIdentifierSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(254)
+  .regex(/^[^\s\p{Cc}\p{Cf}]+$/u)
+  .refine(
+    (value) => !value.includes("@") || z.email().safeParse(value).success,
+  );
+
 export const commandEnvelopeSchema = z
   .object({
     commandId: identifierSchema,

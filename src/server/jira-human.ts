@@ -101,7 +101,7 @@ export async function jiraHuman(
     kind: "handoff" as const,
     id: `jira-collector:${ticket}`,
   });
-  if (request.method === "POST") {
+  const submitHumanInput = async () => {
     const parsed = z
       .strictObject({
         ticket: z.uuid(),
@@ -157,7 +157,8 @@ export async function jiraHuman(
     await store.transaction((tx) => tx.delete(key(ticket), admission.revision));
     await advance();
     return Response.json({ returnUrl: request.url }, { headers });
-  }
+  };
+  if (request.method === "POST") return submitHumanInput();
   if (request.method !== "GET") throw new AuthorizationError("denied");
   if (mode === "app" && !owner) {
     return new Response(

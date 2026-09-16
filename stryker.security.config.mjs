@@ -30,6 +30,17 @@ export default {
       "r.value.sessionId === actor.sessionId &&",
     ),
     guard(
+      "src/server/teaching-runtime.ts",
+      "source.value.subjectId !== actor.subjectId ||",
+      7,
+      -1,
+    ),
+    guard(
+      "src/server/teaching-runtime.ts",
+      "if (intent) await saveAuthoredAccountIntent(store, actor, run.id, intent);",
+      0,
+    ),
+    guard(
       "src/server/a2h.ts",
       "record.principalId !== recipient.principalId ||",
     ),
@@ -163,6 +174,7 @@ export default {
       "tests/teaching-contracts.test.ts",
       "tests/persistence.test.ts",
       "tests/github-children.test.ts",
+      "tests/github-installation-return.test.ts",
       "tests/github-runtime-http.test.ts",
       "tests/stripe-children.test.ts",
       "tests/services.test.ts",

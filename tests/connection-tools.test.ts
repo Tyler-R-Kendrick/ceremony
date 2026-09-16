@@ -144,3 +144,48 @@ test("AC-07 abort fences tool invocation and late delivery", async () => {
   });
   assert.equal(effects, 1);
 });
+
+test("connection tools project public handoff metadata without exposing it", async () => {
+  for (const extra of [
+    { human: { reason: "passkey", fields: ["provider-authorization"] } },
+    {
+      human: {
+        reason: "session",
+        account: "fixture-owner",
+        fields: ["account", "password"],
+      },
+    },
+    { account: "stored" },
+    { capture: true },
+    { identity: { handle: "fixture-owner", did: "fixture-owner" } },
+  ]) {
+    let response: unknown = { ...state, ...extra };
+    const transport = async () => response as ConnectionState;
+    const tools = createConnectionTools("fixture", {
+      connect: transport,
+      snapshot: transport,
+      advance: transport,
+      cancel: transport,
+    });
+    for (const tool of tools.slice(0, 2)) {
+      assert.deepEqual(await tool.execute({}), { ok: true, state });
+    }
+    response = { ...state, ...extra, userCode: "synthetic-private-code" };
+    assert.deepEqual(await tools[1]!.execute({}), {
+      ok: false,
+      error: "denied-or-unavailable",
+    });
+    response = {
+      ...state,
+      human: {
+        reason: "session",
+        fields: [],
+        password: "synthetic-private-password",
+      },
+    };
+    assert.deepEqual(await tools[1]!.execute({}), {
+      ok: false,
+      error: "denied-or-unavailable",
+    });
+  }
+});

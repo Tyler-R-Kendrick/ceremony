@@ -153,6 +153,10 @@ test("OPS-IDN production factory uses actual PostgreSQL and signed OIDC, no anon
     assert.ok(actor);
     assert.deepEqual(actor.capabilities, ["executor"]);
     assert.equal(actor.tenantId, "tenant");
+    await assert.rejects(
+      runtime.connect(actor, "jira", false),
+      /jira-site-required/,
+    );
     const run = await runtime.connect(actor, "github", false);
     assert.equal(run.status, "active");
     await assert.rejects(
@@ -215,9 +219,22 @@ test("OPS-IDN production factory uses actual PostgreSQL and signed OIDC, no anon
       CEREMONY_CONTINUATION_URL: "https://task.example/continue",
       CEREMONY_CONTINUATION_TOKEN: "fixture-".repeat(8),
       CEREMONY_JIRA_SETUP_OWNER_SUBJECT: "designated-owner",
+      JIRA_CLIENT_ID: "fixture-jira-app",
+      JIRA_CLIENT_SECRET: "fixture-jira-secret",
+      JIRA_SITE_URL: "https://fixture.atlassian.net",
     });
     assert.equal(typeof optional.ownerSetup, "function");
     assert.equal(runtime.ownerSetup, undefined);
+    const jira = await optional.connect(actor, "jira", false);
+    assert.equal(jira.provider, "jira");
+    const beforeJiraEdit = await environment.describe(actor);
+    await environment.update(actor, {
+      revision: beforeJiraEdit.revision,
+      values: { JIRA_CLIENT_ID: "fixture-session-app" },
+    });
+    const partialJira = await optional.connect(actor, "jira", false);
+    assert.equal(partialJira.provider, "jira");
+    assert.notEqual(partialJira.id, jira.id);
     await optional.store.close();
     const gateway = await createHostedRuntime({
       ...env,

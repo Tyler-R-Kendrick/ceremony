@@ -90,7 +90,7 @@ export async function supabaseHuman(
     kind: "handoff" as const,
     id: `supabase-collector:${id}`,
   });
-  if (request.method === "POST") {
+  const submitHumanInput = async () => {
     const input = z
       .strictObject({
         ticket: z.uuid(),
@@ -164,7 +164,8 @@ export async function supabaseHuman(
       },
       { headers },
     );
-  }
+  };
+  if (request.method === "POST") return submitHumanInput();
   if (request.method !== "GET") throw new AuthorizationError("denied");
   const ticket = randomUUID();
   await store.transaction(async (tx) =>

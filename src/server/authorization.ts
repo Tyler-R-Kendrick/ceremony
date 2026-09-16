@@ -57,7 +57,11 @@ export function exactOrigin(value: string, development = false): string {
 }
 export function assertRequestBoundary(
   request: Request,
-  options: { origin: string; maxBytes?: number },
+  options: {
+    origin: string;
+    maxBytes?: number;
+    contentTypes?: string[];
+  },
 ): void {
   if (new URL(request.url).origin !== options.origin)
     throw new AuthorizationError("invalid_request");
@@ -68,8 +72,9 @@ export function assertRequestBoundary(
   )
     throw new AuthorizationError("denied");
   if (
-    request.headers.get("content-type")?.split(";")[0]?.trim() !==
-    "application/json"
+    !(options.contentTypes ?? ["application/json"]).includes(
+      request.headers.get("content-type")?.split(";")[0]?.trim() ?? "",
+    )
   )
     throw new AuthorizationError("invalid_request");
   const length = request.headers.get("content-length");
@@ -84,6 +89,17 @@ export async function boundedJson(
   request: Pick<Request, "body">,
   maxBytes = 262144,
 ): Promise<unknown> {
+  try {
+    return JSON.parse(await boundedText(request, maxBytes));
+  } catch {
+    throw new AuthorizationError("invalid_request");
+  }
+}
+
+export async function boundedText(
+  request: Pick<Request, "body">,
+  maxBytes = 262144,
+): Promise<string> {
   const reader = request.body?.getReader();
   if (!reader) throw new AuthorizationError("invalid_request");
   const chunks: Uint8Array[] = [];
@@ -99,7 +115,7 @@ export async function boundedJson(
       }
       chunks.push(value);
     }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return Buffer.concat(chunks).toString("utf8");
   } catch {
     throw new AuthorizationError("invalid_request");
   }

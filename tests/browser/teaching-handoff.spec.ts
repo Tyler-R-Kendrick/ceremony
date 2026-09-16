@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { randomUUID } from "node:crypto";
 import { teachingGitHubFixture } from "../fixtures/teaching-github.js";
 

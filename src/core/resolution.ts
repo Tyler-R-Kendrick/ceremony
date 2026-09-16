@@ -56,6 +56,7 @@ export function explainCeremonySelection(
           "authmd-anonymous",
           "api-key",
           "form",
+          "account-registration",
           "basic",
         ]
       : [
@@ -65,6 +66,7 @@ export function explainCeremonySelection(
           "authmd-anonymous",
           "api-key",
           "form",
+          "account-registration",
           "basic",
         ];
   const candidates = manifest.methods.map((method, index) => {

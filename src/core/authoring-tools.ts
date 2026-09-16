@@ -50,8 +50,26 @@ export const authoringResultSchema = z.strictObject({
   discovery: z
     .strictObject({
       origin: z.string().max(200),
-      documents: z.array(z.string().max(120)).max(8),
+      assumed: z.boolean(),
+      candidates: z.array(z.string().max(200)).max(8),
+      documents: z.array(z.string().max(200)).max(16),
+      methods: z.array(z.enum(flowKinds)).max(12),
+      grantTypes: z.array(z.string().max(80)).max(16),
+      extra: z.array(z.string().max(80)).max(8),
       searchUsed: z.boolean(),
+      authorizationEndpoint: z.string().max(300).optional(),
+      tokenEndpoint: z.string().max(300).optional(),
+      deviceAuthorizationEndpoint: z.string().max(300).optional(),
+      registrationEndpoint: z.string().max(300).optional(),
+      issuer: z.string().max(300).optional(),
+      clientId: z.string().max(2048).optional(),
+      scopes: z.array(z.string().max(80)).max(16).optional(),
+      clientIdMetadataDocumentSupported: z.boolean().optional(),
+      dpopRequired: z.boolean().optional(),
+      dpopSigningAlgorithms: z
+        .array(z.string().min(1).max(32))
+        .max(32)
+        .optional(),
     })
     .optional(),
   draft: draftSummary.optional(),

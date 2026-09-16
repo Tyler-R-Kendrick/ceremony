@@ -11,6 +11,8 @@ import {
   parseConnectorProject,
   exportConnectorFiles,
   parseConnectorDraft,
+  originCandidatesFromProvider,
+  originHintFromProvider,
   proposeConnectorForProvider,
 } from "../src/core/connector-authoring.js";
 import { flowKinds } from "../src/core/schema.js";
@@ -465,7 +467,38 @@ test("provider proposals pick generic families without fetching", () => {
   ]);
   assert.deepEqual(proposeConnectorForProvider("Obscure SaaS").methods, [
     "oauth-code",
+    "account-registration",
   ]);
+  assert.ok(originCandidatesFromProvider("xai").includes("https://auth.x.ai"));
+  assert.ok(originCandidatesFromProvider("xai").includes("https://x.ai"));
+  assert.ok(
+    originCandidatesFromProvider("bluesky social").includes(
+      "https://bsky.social",
+    ),
+  );
+  assert.ok(
+    originCandidatesFromProvider("bluesky").includes("https://bsky.social"),
+  );
+  assert.equal(
+    proposeConnectorForProvider("https://auth.example.com").slug,
+    "auth-example-com",
+  );
+  assert.equal(
+    proposeConnectorForProvider("https://auth.example.com").name,
+    "auth.example.com",
+  );
+  assert.equal(
+    originHintFromProvider("create a ceremony for auth.example.com"),
+    "https://auth.example.com",
+  );
+  assert.equal(
+    originHintFromProvider("https://login.example:8443"),
+    "https://login.example:8443",
+  );
+  assert.equal(
+    originHintFromProvider("http://127.0.0.1:4174"),
+    "http://127.0.0.1:4174",
+  );
   assert.equal(proposeConnectorForProvider("githb").slug, "github");
   assert.equal(
     proposeConnectorForProvider("create a ceremony for blusky").slug,

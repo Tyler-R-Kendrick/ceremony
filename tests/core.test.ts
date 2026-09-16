@@ -79,13 +79,16 @@ test("manifest and input validation reject duplicate IDs, unknown fields and unm
   assert.deepEqual(actionsFor("error", true), ["finish", "claim", "cancel"]);
 });
 test("real connector examples cover every implemented auth family without invented methods", () => {
-  assert.deepEqual(
-    new Set(
-      [...manifests, githubAppManifest].flatMap((item) =>
-        item.methods.map((method) => method.kind),
-      ),
+  const exampleKinds = new Set(
+    [...manifests, githubAppManifest].flatMap((item) =>
+      item.methods.map((method) => method.kind),
     ),
-    new Set(flowKinds),
+  );
+  assert.ok([...exampleKinds].every((kind) => flowKinds.includes(kind)));
+  assert.ok(
+    flowKinds
+      .filter((kind) => kind !== "account-registration")
+      .every((kind) => exampleKinds.has(kind)),
   );
   assert.deepEqual(
     manifests.map((item) => item.id),

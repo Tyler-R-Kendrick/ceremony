@@ -16,6 +16,8 @@ import { manifests } from "../../examples/manifests.js";
 import { Agent2Human } from "../../src/server/a2h.js";
 import { CeremonyDatabase } from "../../src/server/storage.js";
 import { effectAuthorizationDigest } from "../../src/server/authorization.js";
+import { pollDeviceToken } from "../../src/server/authored-operations.js";
+import { discoverProviderAuth } from "../../src/server/provider-discovery.js";
 
 function contract(t: TestContext, provider: string) {
   const dir = mkdtempSync(join(tmpdir(), "ceremony-protocol-pact-"));
@@ -45,6 +47,156 @@ function config(origin: string): ProtocolConfig {
     allowLoopbackHttp: true,
   };
 }
+
+for (const variant of [
+  "matching",
+  "wrong-issuer",
+  "wrong-request-path",
+] as const)
+  test(`Pact: delegated discovery ${variant} preserves issuer-bound metadata paths`, async (t) => {
+    const pact = contract(t, "runtime-discovery-provider");
+    const resource = "https://resource.example";
+    const issuer = "https://identity.example/tenant";
+    const paths = [
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/openid-configuration",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-client",
+      "/auth.md",
+      "/openapi.json",
+      "/.well-known/oauth-authorization-server/tenant",
+      "/tenant/.well-known/openid-configuration",
+    ];
+    for (const path of paths) {
+      const protectedResource =
+        path === "/.well-known/oauth-protected-resource";
+      const metadata = path === "/tenant/.well-known/openid-configuration";
+      pact
+        .given("the resource delegates authentication to a path-scoped issuer")
+        .uponReceiving(`discover ${path}`)
+        .withRequest({
+          method: "GET",
+          path,
+          headers: { accept: "application/json, text/plain, text/markdown" },
+        })
+        .willRespondWith({
+          status: protectedResource || metadata ? 200 : 404,
+          ...(protectedResource || metadata
+            ? {
+                body: protectedResource
+                  ? { authorization_servers: [issuer] }
+                  : {
+                      issuer:
+                        variant === "wrong-issuer"
+                          ? "https://foreign.example"
+                          : issuer,
+                      authorization_endpoint: `${issuer}/authorize`,
+                      token_endpoint: `${issuer}/token`,
+                      code_challenge_methods_supported: ["S256"],
+                    },
+              }
+            : {}),
+        });
+    }
+    const execute = () =>
+      pact.executeTest(async ({ url }) => {
+        const result = await discoverProviderAuth([resource], {
+          fetch: (input, init) => {
+            const source = new URL(String(input));
+            assert.ok(
+              [resource, "https://identity.example"].includes(source.origin),
+            );
+            const path =
+              variant === "wrong-request-path"
+                ? source.pathname.replace("/tenant/", "/other/")
+                : source.pathname;
+            return fetch(`${url}${path}`, init);
+          },
+        });
+        if (variant === "matching") {
+          assert.equal(result.issuer, issuer);
+          assert.equal(result.tokenEndpoint, `${issuer}/token`);
+          assert.deepEqual(result.methods, ["oauth-code"]);
+        } else if (variant === "wrong-issuer") {
+          assert.equal(result.authorizationEndpoint, undefined);
+          assert.deepEqual(result.methods, []);
+        }
+      });
+    if (variant === "wrong-request-path")
+      await assert.rejects(execute, /mismatch|matching|not received/i);
+    else await execute();
+  });
+
+for (const outcome of [
+  "ready",
+  "authorization_pending",
+  "slow_down",
+  "access_denied",
+  "unavailable",
+  "wrong-client",
+] as const)
+  test(`Pact: discovered device token consumer handles ${outcome}`, async (t) => {
+    const pact = contract(t, "discovered-device-provider");
+    const interaction = pact
+      .given("a device approval exists for ceremony")
+      .uponReceiving("poll the exact device grant and public client")
+      .withRequest({
+        method: "POST",
+        path: "/token",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          accept: "application/json",
+        },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: "synthetic-device",
+          client_id: "ceremony",
+        }).toString(),
+      })
+      .willRespondWith({
+        status:
+          outcome === "unavailable"
+            ? 503
+            : ["ready", "wrong-client"].includes(outcome)
+              ? 200
+              : 400,
+        headers: {
+          "content-type": "application/json",
+          ...(outcome === "unavailable" ? { "retry-after": "7" } : {}),
+        },
+        body: ["ready", "wrong-client"].includes(outcome)
+          ? { access_token: "synthetic-token", token_type: "Bearer" }
+          : { error: outcome },
+      });
+    const execute = () =>
+      interaction.executeTest(async ({ url }) => {
+        const result = await pollDeviceToken(
+          `${url}/token`,
+          {
+            deviceCode: "synthetic-device",
+            clientId:
+              outcome === "wrong-client" ? "another-client" : "ceremony",
+          },
+          fetch,
+        );
+        if (outcome === "ready") {
+          assert.equal(result.status, "ready");
+          if (result.status === "ready")
+            assert.equal(result.accessToken, "synthetic-token");
+        } else if (outcome === "access_denied")
+          assert.deepEqual(result, { status: "denied" });
+        else if (outcome !== "wrong-client")
+          assert.deepEqual(result, {
+            status: "pending",
+            slow: outcome !== "authorization_pending",
+            transient: outcome === "unavailable",
+            retryAfter: outcome === "unavailable" ? 7 : 0,
+          });
+      });
+    if (outcome === "wrong-client")
+      await assert.rejects(execute, /mismatch|matching|not received/i);
+    else await execute();
+  });
 
 test("Pact: OAuth callback exchanges its code with the original PKCE verifier", async (t) => {
   const pact = contract(t, "oauth-code-provider");

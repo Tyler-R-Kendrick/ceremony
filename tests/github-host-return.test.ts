@@ -6,7 +6,7 @@ import { teachingGitHubFixture } from "./fixtures/teaching-github.js";
 import { githubConnectionRecipe } from "../src/server/teaching-runtime.js";
 
 test("trusted host return path rejects unsafe targets and survives both verified GitHub callbacks", async (t) => {
-  const fixture = await teachingGitHubFixture(4491, {
+  const fixture = await teachingGitHubFixture(4501, {
     returnPath: "/workspace/connections",
   });
   t.after(() => fixture.close());

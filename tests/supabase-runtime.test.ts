@@ -33,6 +33,21 @@ for (const assurance of ["aal1", "aal2"] as const)
     assert.equal(response.status, 200);
     const run = (await response.json()) as { id: string };
     const path = `/api/v1/teaching/supabase/${encodeURIComponent(run.id)}/human`;
+    const actor = await f.runtime.identity.authenticate(
+      new Request(`${f.origin}${path}`, { headers: { cookie } }),
+    );
+    assert.ok(actor);
+    // Custom hosts also call the runtime directly, without teachingHttp's method guard.
+    for (const method of ["PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+      await assert.rejects(
+        () =>
+          f.runtime.human!(
+            actor,
+            run.id,
+            new Request(`${f.origin}${path}`, { method }),
+          ),
+        { code: "denied" },
+      );
     const admission = await send(path);
     assert.equal(admission.status, 200);
     assert.equal(admission.headers.get("cache-control"), "no-store");

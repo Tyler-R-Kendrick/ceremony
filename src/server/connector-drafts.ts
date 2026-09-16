@@ -3,10 +3,14 @@ import { z } from "zod";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
   applyProviderProposal,
+  ceremonyFamilyLabel,
   composeAuthoredMethods,
   disambiguateProvider,
+  extraDiscoveredCeremonies,
   extractProviderName,
+  methodsForDiscoveredAuth,
   newConnectorProject,
+  originCandidatesFromProvider,
   parseConnectorDraft,
   providerCatalog,
   type ConnectorDraft,
@@ -20,6 +24,7 @@ import type { AsyncCeremonyStore } from "./persistence/index.js";
 import { validateAgentText } from "./agent/model.js";
 import {
   discoverProviderAuth,
+  type DiscoveredAuth,
   type ProviderSearch,
 } from "./provider-discovery.js";
 import {
@@ -33,6 +38,13 @@ const recordSchema = z.strictObject({
   author: z.string().min(1).max(200),
   session: z.string().min(1).max(200),
   project: z.unknown(),
+});
+const installedSchema = z.object({
+  author: z.string(),
+  session: z.string(),
+  manifest: z.unknown(),
+  definition: z.unknown(),
+  discovery: z.unknown().optional(),
 });
 const chatSchema = z.strictObject({
   author: z.string().min(1).max(200),
@@ -73,18 +85,34 @@ function replyFrom(result: AuthoringResult) {
     result.resolution &&
     result.resolution.resolved &&
     !result.resolution.query.toLowerCase().includes(result.resolution.resolved)
-      ? ` I treated that as ${result.draft.provider}.`
+      ? ` Treated the name as ${result.draft.provider}.`
       : "";
-  const found = result.discovery?.documents.length
-    ? ` Discovery found ${result.discovery.documents.join(", ")}.`
+  const origin = result.discovery?.origin
+    ? ` Origin ${result.discovery.origin}${result.discovery.assumed ? " (assumed from the provider name)" : ""}.`
     : "";
+  const ceremonies = result.draft.methods
+    .map((kind) => ceremonyFamilyLabel(kind))
+    .join("; ");
+  const extra = result.discovery?.extra.length
+    ? ` Also discovered ${result.discovery.extra.join("; ")}.`
+    : "";
+  const generated = [
+    result.discovery?.clientId
+      ? `client ${result.discovery.clientId.slice(0, 48)}`
+      : "",
+    result.discovery?.scopes?.length
+      ? `scopes ${result.discovery.scopes.join(" ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
   const outline = (result.draft.outline ?? [])
     .map((line) => `\n- ${line}`)
     .join("");
   const test = result.draft.connectorId
-    ? `\nTest it here: /?connector=${result.draft.connectorId}`
+    ? `\n/?connector=${result.draft.connectorId}`
     : "";
-  return `Drafted a ${result.draft.provider} ceremony.${corrected}${found}${outline}${test}`;
+  return `Drafted ${result.draft.methods.length} ${result.draft.provider} ceremonies: ${ceremonies}.${corrected}${origin}${extra}${generated ? ` Generated ${generated}.` : ""}${outline}${test}`;
 }
 
 function humanFor(
@@ -134,6 +162,64 @@ function humanFor(
   return null;
 }
 
+function authoringDiscovery(
+  discovery: DiscoveredAuth,
+  candidates: string[],
+  explicitOrigin?: string,
+) {
+  return {
+    origin: discovery.origin,
+    assumed: !explicitOrigin,
+    candidates: [...new Set(candidates.filter(Boolean))].slice(0, 8),
+    documents: discovery.documents.slice(0, 16),
+    methods: discovery.methods,
+    grantTypes: discovery.grantTypes.slice(0, 16),
+    extra: extraDiscoveredCeremonies(discovery.grantTypes),
+    searchUsed: discovery.searchUsed,
+    ...(discovery.userinfoEndpoint
+      ? { userinfoEndpoint: discovery.userinfoEndpoint }
+      : {}),
+    ...(discovery.revocationEndpoint
+      ? { revocationEndpoint: discovery.revocationEndpoint }
+      : {}),
+    ...(discovery.codeChallengeMethods
+      ? { codeChallengeMethods: discovery.codeChallengeMethods }
+      : {}),
+    ...(discovery.retryable ? { retryable: true } : {}),
+    ...(discovery.pushedAuthorizationRequestEndpoint
+      ? {
+          pushedAuthorizationRequestEndpoint:
+            discovery.pushedAuthorizationRequestEndpoint,
+        }
+      : {}),
+    ...(discovery.requirePushedAuthorizationRequests
+      ? { requirePushedAuthorizationRequests: true }
+      : {}),
+    ...(discovery.authorizationEndpoint
+      ? { authorizationEndpoint: discovery.authorizationEndpoint }
+      : {}),
+    ...(discovery.tokenEndpoint
+      ? { tokenEndpoint: discovery.tokenEndpoint }
+      : {}),
+    ...(discovery.deviceAuthorizationEndpoint
+      ? { deviceAuthorizationEndpoint: discovery.deviceAuthorizationEndpoint }
+      : {}),
+    ...(discovery.registrationEndpoint
+      ? { registrationEndpoint: discovery.registrationEndpoint }
+      : {}),
+    ...(discovery.issuer ? { issuer: discovery.issuer } : {}),
+    ...(discovery.clientId ? { clientId: discovery.clientId } : {}),
+    ...(discovery.scopes?.length ? { scopes: discovery.scopes } : {}),
+    ...(discovery.clientIdMetadataDocumentSupported
+      ? { clientIdMetadataDocumentSupported: true }
+      : {}),
+    ...(discovery.dpopRequired ? { dpopRequired: true } : {}),
+    ...(discovery.dpopSigningAlgorithms
+      ? { dpopSigningAlgorithms: discovery.dpopSigningAlgorithms }
+      : {}),
+  };
+}
+
 function summarize(
   id: string,
   revision: number,
@@ -180,6 +266,7 @@ export class ConnectorDrafts {
     openApiUrl?: string,
     intent: "draft" | "complete" | "run" = "draft",
     origin?: string,
+    onProgress?: (text: string) => void,
   ): Promise<AuthoringResult> {
     requireCapability(actor, "author");
     const resolution = disambiguateProvider(provider);
@@ -195,23 +282,44 @@ export class ConnectorDrafts {
           fields: [{ name: "provider", label: "Provider name", type: "text" }],
         },
       };
+    onProgress?.(`Resolving ${resolution.resolved}`);
     const catalog = providerCatalog[resolution.resolved];
-    const origins = [...(origin ? [origin] : []), ...(catalog?.origins ?? [])];
+    const origins = [
+      ...(origin ? [origin] : []),
+      ...(catalog?.origins ?? []),
+      ...originCandidatesFromProvider(provider),
+    ];
+    onProgress?.(
+      `Assumed origins ${[...new Set(origins)].slice(0, 6).join(", ")}`,
+    );
     const discovery = await discoverProviderAuth(origins, {
       ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
       ...(this.options.search ? { search: this.options.search } : {}),
       query: resolution.resolved,
       ...(this.options.allowLoopbackHttp ? { allowLoopbackHttp: true } : {}),
+      ...(onProgress ? { onProgress } : {}),
     });
+    const methods = methodsForDiscoveredAuth(
+      resolution.resolved,
+      discovery.methods,
+    );
+    onProgress?.(
+      `Generating ${methods.map((kind) => ceremonyFamilyLabel(kind)).join("; ")}`,
+    );
     const project = newConnectorProject();
     applyProviderProposal(project, resolution.resolved, {
-      ...(discovery.methods.length ? { methods: discovery.methods } : {}),
+      methods,
       ...(openApiUrl || discovery.openApiUrl
         ? { openApiUrl: openApiUrl ?? discovery.openApiUrl }
         : {}),
     });
     const saved = parseConnectorDraft(JSON.stringify(project));
-    await this.install(actor, saved);
+    const report = authoringDiscovery(discovery, origins, origin);
+    await this.install(actor, saved, {
+      ...discovery,
+      assumed: report.assumed,
+      candidates: report.candidates,
+    });
     const id = randomUUID();
     const revision = await this.store.transaction((tx) =>
       tx.put(
@@ -222,11 +330,7 @@ export class ConnectorDrafts {
     );
     return summarize(id, revision, saved, intent, {
       resolution,
-      discovery: {
-        origin: discovery.origin,
-        documents: discovery.documents,
-        searchUsed: discovery.searchUsed,
-      },
+      discovery: report,
     });
   }
   async compose(
@@ -258,7 +362,11 @@ export class ConnectorDrafts {
       return summarize(draftId, next, saved, "draft");
     });
   }
-  async install(actor: ActorContext, project: ConnectorDraft) {
+  async install(
+    actor: ActorContext,
+    project: ConnectorDraft,
+    discovery?: import("./provider-discovery.js").DiscoveredAuth,
+  ) {
     const manifest = manifestFromProject(project);
     const definition = recipeFromProject(project);
     await this.store.transaction(async (tx) => {
@@ -275,6 +383,7 @@ export class ConnectorDrafts {
           session: actor.sessionId,
           manifest,
           definition,
+          ...(discovery ? { discovery } : {}),
         },
         prior?.revision ?? null,
       );
@@ -290,18 +399,12 @@ export class ConnectorDrafts {
       }),
     );
     if (!record) return undefined;
-    const value = z
-      .strictObject({
-        author: z.string(),
-        session: z.string(),
-        manifest: z.unknown(),
-        definition: z.unknown(),
-      })
-      .parse(record.value);
+    const value = installedSchema.parse(record.value);
     if (value.author !== actor.subjectId) return undefined;
     return {
       manifest: value.manifest as ConnectorManifest,
       definition: value.definition as RecipeDefinition,
+      discovery: value.discovery,
     };
   }
   async uninstall(actor: ActorContext, connectorId: string) {
@@ -318,14 +421,7 @@ export class ConnectorDrafts {
     };
     const current = await this.store.transaction((tx) => tx.get(recordKey));
     if (!current) return false;
-    const value = z
-      .strictObject({
-        author: z.string(),
-        session: z.string(),
-        manifest: z.unknown(),
-        definition: z.unknown(),
-      })
-      .parse(current.value);
+    const value = installedSchema.parse(current.value);
     if (value.author !== actor.subjectId)
       throw new AuthorizationError("denied");
     await this.store.transaction((tx) =>
@@ -344,14 +440,7 @@ export class ConnectorDrafts {
       after = page.at(-1)!.id;
       for (const record of page) {
         if (!record.id.startsWith("installed-connector:")) continue;
-        const value = z
-          .strictObject({
-            author: z.string(),
-            session: z.string(),
-            manifest: z.unknown(),
-            definition: z.unknown(),
-          })
-          .safeParse(record.value);
+        const value = installedSchema.safeParse(record.value);
         if (!value.success || value.data.author !== actor.subjectId) continue;
         const parsed = z
           .custom<ConnectorManifest>((item) => item)
@@ -380,6 +469,7 @@ export class ConnectorDrafts {
     actor: ActorContext,
     message: string,
     conversationId?: string,
+    onProgress?: (text: string) => void,
   ): Promise<AuthoringChat> {
     requireCapability(actor, "author");
     let text: string;
@@ -416,7 +506,7 @@ export class ConnectorDrafts {
       const target =
         extractProviderName(
           text.replace(
-            /^(delete|remove|uninstall)\s+(the\s+)?(connection|connector|ceremony)?\s*(for|to)?\s*/i,
+            /^(delete|remove|uninstall)\b\s*(the\s+)?(connection|connector|ceremony)?\s*(for|to)?\s*/i,
             "",
           ),
         ) || prior.lastProvider;
@@ -455,8 +545,17 @@ export class ConnectorDrafts {
         undefined,
         "draft",
         text,
+        onProgress,
       );
-    else result = await this.fromProvider(actor, text, undefined, "draft");
+    else
+      result = await this.fromProvider(
+        actor,
+        text,
+        undefined,
+        "draft",
+        undefined,
+        onProgress,
+      );
     const pending =
       result.human?.reason === "provider-name" ||
       result.human?.reason === "origin-url"

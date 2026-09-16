@@ -29,7 +29,7 @@ import {
 } from "../src/server/jira-setup.js";
 import type { RunRecord } from "../src/server/commands.js";
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, now?: () => number) {
   const token = randomBytes(32).toString("hex");
   const config: JiraOAuthConfiguration = {
     clientId: "fixture-client",
@@ -132,10 +132,17 @@ async function fixture(t: TestContext) {
         server.close(() => resolve());
       }),
   );
-  const store = new SQLiteCeremonyStore(":memory:", {
+  const database = new SQLiteCeremonyStore(":memory:", {
     current: "test",
     keys: { test: randomBytes(32) },
   });
+  const store: AsyncCeremonyStore = now
+    ? {
+        transaction: (work) =>
+          database.transaction((tx) => work({ ...tx, now: async () => now() })),
+        close: () => database.close(),
+      }
+    : database;
   t.after(() => store.close());
   const actor: ActorContext = {
     tenantId: "tenant",
@@ -299,6 +306,19 @@ for (const configured of [true, false])
     const run = await started.json();
     assert.equal(run.status, "active");
     const path = `/jira/${run.id}/human`;
+    // Custom hosts also call the runtime directly, without teachingHttp's method guard.
+    for (const method of ["PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+      await assert.rejects(
+        () =>
+          runtime.human!(
+            actor,
+            run.id,
+            new Request(`https://app.example/api/v1/teaching${path}`, {
+              method,
+            }),
+          ),
+        { code: "denied" },
+      );
     assert.deepEqual(f.effects, { exchanges: 0, sites: 0, users: 0 });
     if (!configured) {
       const page = await request(path);
@@ -1307,7 +1327,8 @@ test("Jira owner setup is a private prerequisite in the same parent, never an ac
 });
 
 test("Jira verification rejects foreign context, missing evidence and expired artifacts", async (t) => {
-  const f = await fixture(t);
+  const instant = Date.now();
+  const f = await fixture(t, () => instant);
   const run = await f.create();
   await f.advance(run.id, "app");
   const operation = f.registry.require("jira.prepare-app", "1.0.0");

@@ -15,6 +15,7 @@ export type OperationContext = {
   nodeId: string;
   commandId: string;
   effectId: string;
+  provider?: string;
   target: string;
   configurationVersion: string;
   origin: string;

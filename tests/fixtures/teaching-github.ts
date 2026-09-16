@@ -23,6 +23,8 @@ export async function teachingGitHubFixture(
     stripe?: boolean;
     supabase?: "aal1" | "aal2";
     jira?: "configured" | "owner-setup" | "owner-contribution";
+    browser?: import("../../src/server/browser-executor.js").AuthorizationBrowser;
+    inbox?: import("../../src/server/authored-inbox.js").ProgrammableInbox;
   } = {},
 ) {
   const database = await postgresFixture();
@@ -297,6 +299,12 @@ export async function teachingGitHubFixture(
           .end(JSON.stringify({ login: "fixture-owner", type: "User" }));
         return;
       }
+      if (url.pathname.startsWith("/users/")) {
+        res
+          .writeHead(404, { "content-type": "application/json" })
+          .end('{"message":"Not Found"}');
+        return;
+      }
       if (url.pathname === "/host/continue") {
         if (
           req.headers.authorization !== `Bearer ${continuationToken}` ||
@@ -406,6 +414,33 @@ export async function teachingGitHubFixture(
     origin,
     environment: "local-e2e",
     configurationVersion: "fixture-v1",
+    browser: options.browser ?? {
+      complete: async () => ({ status: "credentials" as const }),
+    },
+    authoredFetch: async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      // Other authored tests use actual loopback OAuth provider servers.
+      if (url.protocol === "http:" && url.hostname === "127.0.0.1")
+        return fetch(input, init);
+      if ((init?.method ?? "GET") !== "GET")
+        throw new Error("Unexpected authored fixture request");
+      // Synthetic metadata exercises discovery, not live Bluesky conformance.
+      if (
+        url.href ===
+        "https://bsky.social/.well-known/oauth-authorization-server"
+      )
+        return Response.json({
+          issuer: "https://bsky.social",
+          authorization_endpoint: "https://bsky.social/oauth/authorize",
+          token_endpoint: "https://bsky.social/oauth/token",
+          userinfo_endpoint: "https://bsky.social/oauth/userinfo",
+          client_id_metadata_document_supported: true,
+          code_challenge_methods_supported: ["S256"],
+          grant_types_supported: ["authorization_code"],
+        });
+      return new Response("", { status: 404 });
+    },
+    ...(options.inbox ? { inbox: options.inbox } : {}),
     ...(options.jira
       ? {
           jira: {
@@ -479,6 +514,7 @@ export async function teachingGitHubFixture(
       : {}),
     ...(options.returnPath ? { returnPath: options.returnPath } : {}),
     expectedAccount: "fixture-owner",
+    allowTarget: async (_actor, target) => target === "fixture-owner",
     identity: {
       authenticate: async (request) => {
         const cookie = /(?:^|; )teaching-fixture=([^;]+)/.exec(
@@ -563,7 +599,9 @@ export async function teachingGitHubFixture(
         )
       : await startReferenceApp({
           port,
-          providerPort: port + 1,
+          // Teaching uses the provider above, not the reference demo provider.
+          // Let the OS assign its unused listener instead of taking another app's port.
+          providerPort: 0,
           teaching: runtime,
         });
   } catch (error) {

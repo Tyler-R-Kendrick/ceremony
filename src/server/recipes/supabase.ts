@@ -6,7 +6,7 @@ import type {
   AsyncTransaction,
 } from "../persistence/index.js";
 import { AsyncPrivateCollectionBroker } from "../persistence/collections.js";
-import type { RunRecord } from "../commands.js";
+import type { RunRecord, RunPlanNode } from "../commands.js";
 import { AuthorizationError } from "../identity.js";
 import { appendSemanticTransition } from "../demonstrations.js";
 import {
@@ -556,6 +556,58 @@ export class AsyncSupabaseChildren {
       ),
     );
   }
+  private async reopenSession(
+    tx: AsyncTransaction,
+    context: OperationContext,
+    run: RunRecord,
+    node: RunPlanNode,
+  ) {
+    const binding = node.bindings.session;
+    const producer =
+      binding?.from === "output"
+        ? run.nodes.find(
+            (item) =>
+              item.id === binding.node &&
+              item.operationId === "supabase.obtain-session",
+          )
+        : undefined;
+    if (!producer || !node.dependsOn.includes(producer.id))
+      throw new AuthorizationError("denied");
+    const sessionKey = {
+      tenant: context.actor.tenantId,
+      kind: "node" as const,
+      id: `${context.runId}:${producer.id}`,
+    };
+    const prior = await tx.get(sessionKey);
+    if (!prior) throw new AuthorizationError("denied");
+    await tx.put(
+      sessionKey,
+      { state: "awaiting-human", verified: false, outputs: {} },
+      prior.revision,
+    );
+    await appendSemanticTransition(
+      tx,
+      context.actor,
+      context.runId,
+      {
+        nodeId: producer.id,
+        operationId: producer.operationId,
+        operationVersion: producer.operationVersion,
+        actorKind: "human",
+        kind: "transition",
+        beforeState: "complete",
+        afterState: "awaiting-human",
+        publicBindings: {},
+        verification: "pending",
+      },
+      {},
+    );
+    for (const kind of ["session", "connection"] as const) {
+      const key = this.key(context, kind),
+        material = await tx.get(key);
+      if (material) await tx.delete(key, material.revision);
+    }
+  }
   /** Native authenticated collector only; a confirmation click is permission to check, never completion evidence. */
   async humanView(
     context: OperationContext,
@@ -783,53 +835,8 @@ export class AsyncSupabaseChildren {
             { credentials: value },
             900000,
           );
-          if (recovering) {
-            const binding = node.bindings.session;
-            const producer =
-              binding?.from === "output"
-                ? run.value.nodes.find(
-                    (item) =>
-                      item.id === binding.node &&
-                      item.operationId === "supabase.obtain-session",
-                  )
-                : undefined;
-            if (!producer || !node.dependsOn.includes(producer.id))
-              throw new AuthorizationError("denied");
-            const sessionKey = {
-              tenant: context.actor.tenantId,
-              kind: "node" as const,
-              id: `${context.runId}:${producer.id}`,
-            };
-            const prior = await tx.get(sessionKey);
-            if (!prior) throw new AuthorizationError("denied");
-            await tx.put(
-              sessionKey,
-              { state: "awaiting-human", verified: false, outputs: {} },
-              prior.revision,
-            );
-            await appendSemanticTransition(
-              tx,
-              context.actor,
-              context.runId,
-              {
-                nodeId: producer.id,
-                operationId: producer.operationId,
-                operationVersion: producer.operationVersion,
-                actorKind: "human",
-                kind: "transition",
-                beforeState: "complete",
-                afterState: "awaiting-human",
-                publicBindings: {},
-                verification: "pending",
-              },
-              {},
-            );
-            for (const kind of ["session", "connection"] as const) {
-              const key = this.key(context, kind),
-                material = await tx.get(key);
-              if (material) await tx.delete(key, material.revision);
-            }
-          }
+          if (recovering)
+            await this.reopenSession(tx, context, run.value, node);
         }
       } else {
         const material = await tx.get<Material>(this.key(context, "input"));

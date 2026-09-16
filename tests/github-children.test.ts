@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { test, type TestContext } from "node:test";
 import { jwtVerify } from "jose";
 import {
   AsyncGitHubChildren,
   githubVocabulary,
-  resolveGitHubInstallationRun,
 } from "../src/server/recipes/github.js";
 import {
   OperationRegistry,
@@ -385,102 +384,6 @@ test("expired unissued registration renews safely; issued registration enters re
   assert.equal((await f.github.prepare(f.context)).state, "uncertain");
   await f.github.recover(f.context, { appId: f.app.id, pem: f.app.pem });
   assert.equal((await f.github.prepare(f.context)).state, "complete");
-});
-
-test("installation return routing independently rejects forged actor, origin, state syntax, binding and expiry", async (t) => {
-  const f = await fixture(t);
-  const nonce = "a".repeat(43);
-  const actor = f.context.actor;
-  const origin = f.options.origin;
-  const fixedNow = Date.now();
-  const store = {
-    close: async () => {},
-    transaction: <T>(
-      work: (
-        tx: import("../src/server/persistence/index.js").AsyncTransaction,
-      ) => Promise<T>,
-    ) =>
-      f.store.transaction((tx) => work({ ...tx, now: async () => fixedNow })),
-  };
-  const url = (state = nonce) =>
-    new URL(
-      `${origin}/api/v1/teaching/github/installation-return?state=${encodeURIComponent(state)}`,
-    );
-  const save = (state = nonce, changes = {}) =>
-    f.store.transaction(async (tx) => {
-      const key = {
-        tenant: actor.tenantId,
-        kind: "handoff" as const,
-        id: `github-return:${createHash("sha256").update(state).digest("hex")}`,
-      };
-      const prior = await tx.get(key);
-      await tx.put(
-        key,
-        {
-          subject: actor.subjectId,
-          runId: "authorized-parent",
-          origin,
-          expires: fixedNow + 1,
-          ...changes,
-        },
-        prior?.revision ?? null,
-      );
-    });
-  await save();
-  assert.equal(
-    await resolveGitHubInstallationRun(store, actor, origin, url()),
-    "authorized-parent",
-  );
-  for (const changed of [
-    { actorKind: "agent" as const },
-    { actorKind: "system" as const },
-    { subjectId: "foreign" },
-    { tenantId: "foreign" },
-  ])
-    await assert.rejects(
-      resolveGitHubInstallationRun(
-        store,
-        { ...actor, ...changed },
-        origin,
-        url(),
-      ),
-      /return unavailable/,
-    );
-  for (const target of [
-    new URL(url().href.replace(origin, "https://foreign.example")),
-    new URL(`${origin}/other?state=${nonce}`),
-    new URL(`${url()}&state=${nonce}`),
-    new URL(`${origin}/api/v1/teaching/github/installation-return`),
-  ])
-    await assert.rejects(
-      resolveGitHubInstallationRun(store, actor, origin, target),
-      /return unavailable/,
-    );
-  // Seed invalid tokens deliberately: otherwise a lookup miss masks a removed syntax guard.
-  for (const invalid of [
-    `!${nonce}`,
-    `${nonce}!`,
-    "a".repeat(42),
-    "a".repeat(44),
-  ]) {
-    await save(invalid);
-    await assert.rejects(
-      resolveGitHubInstallationRun(store, actor, origin, url(invalid)),
-      /return unavailable/,
-    );
-  }
-  for (const change of [
-    { origin: "https://foreign.example" },
-    { subject: "foreign" },
-    { expires: fixedNow },
-    { expires: fixedNow - 1 },
-  ]) {
-    await save(nonce, change);
-    await assert.rejects(
-      resolveGitHubInstallationRun(store, actor, origin, url()),
-      /return unavailable/,
-    );
-  }
 });
 
 test("installation callback and protected artifact commit atomically across storage failure", async (t) => {

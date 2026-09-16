@@ -127,6 +127,7 @@ test("AC-16 AC-27: protected commands reject unmet dependencies and deduplicate 
   );
   await assert.rejects(
     f.commands.snapshot({ ...actor, subjectId: "mallory" }, f.run.id),
+    { code: "denied" },
   );
   assert.equal(f.effects(), 1);
 });

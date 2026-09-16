@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
 
 test("Environment shares private session values across connectors and blocks unsafe writes", async ({
@@ -135,21 +135,15 @@ test("Environment shares private session values across connectors and blocks uns
   ).toBe(403);
   // Stored configuration is actually consulted by the live adapter: incomplete app setup blocks begin.
   await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Connect GitHub", exact: true }),
+  ).toBeDisabled();
+  const account = page.getByLabel("GitHub account or organization");
+  await expect(account).toBeVisible();
+  await account.fill("fixture-owner");
   await page
     .getByRole("button", { name: "Connect GitHub", exact: true })
     .click();
-  const account = page.getByLabel("GitHub account or organization");
-  await expect(
-    account
-      .or(page.getByText(/Complete all four GitHub App variables/))
-      .first(),
-  ).toBeVisible();
-  if (await account.isVisible()) {
-    await account.fill("fixture-owner");
-    await page
-      .getByRole("button", { name: "Connect GitHub", exact: true })
-      .click();
-  }
   await expect(
     page.getByText(/Complete all four GitHub App variables/),
   ).toBeVisible();

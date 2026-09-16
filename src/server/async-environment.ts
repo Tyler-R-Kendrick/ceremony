@@ -122,9 +122,10 @@ export class AsyncCeremonyEnvironment {
     return this.store.transaction(async (tx) => {
       const key = this.key(actor);
       const record = await tx.get<EnvironmentRecord>(key);
-      if ((record?.revision ?? 0) !== edit.revision)
-        throw new PersistenceConflict();
-      const values = { ...record?.value.values, ...imported, ...edit.values };
+      const previousRevision = record?.revision ?? 0;
+      if (previousRevision !== edit.revision) throw new PersistenceConflict();
+      const previousValues = record?.value.values ?? {};
+      const values = { ...previousValues, ...imported, ...edit.values };
       for (const name of edit.remove) delete values[name];
       if (
         Object.keys(values).length > 100 ||
@@ -132,9 +133,9 @@ export class AsyncCeremonyEnvironment {
       )
         throw new AuthorizationError("invalid_request");
       const githubRevision = nextGitHubEnvironmentRevision(
-        record?.value.values ?? {},
+        previousValues,
         values,
-        record?.value.githubRevision ?? record?.revision ?? 0,
+        record?.value.githubRevision ?? previousRevision,
       );
       const revision = await tx.put(
         key,
@@ -142,18 +143,18 @@ export class AsyncCeremonyEnvironment {
           values,
           githubRevision,
           jiraRevision: nextJiraEnvironmentRevision(
-            record?.value.values ?? {},
+            previousValues,
             values,
-            record?.value.jiraRevision ?? record?.revision ?? 0,
+            record?.value.jiraRevision ?? previousRevision,
           ),
           supabaseRevision: nextSupabaseEnvironmentRevision(
-            record?.value.values ?? {},
+            previousValues,
             values,
-            record?.value.supabaseRevision ?? record?.revision ?? 0,
+            record?.value.supabaseRevision ?? previousRevision,
           ),
           stripeRevision:
-            (record?.value.stripeRevision ?? record?.revision ?? 0) +
-            (record?.value.values.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
+            (record?.value.stripeRevision ?? previousRevision) +
+            (previousValues.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
               ? 1
               : 0),
         },

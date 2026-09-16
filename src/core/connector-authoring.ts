@@ -265,7 +265,12 @@ export function parseConnectorProject(text: string): ConnectorProject {
 
 /** Conservative initial fields, not inferred provider capabilities. Author reviews every method. */
 export function newAuthoredMethod(kind: FlowKind, id: string): AuthMethod {
-  const privateInput = ["api-key", "basic", "form"].includes(kind);
+  const privateInput = [
+    "api-key",
+    "basic",
+    "form",
+    "account-registration",
+  ].includes(kind);
   const fields: AuthMethod["fields"] =
     kind === "api-key"
       ? [
@@ -277,7 +282,7 @@ export function newAuthoredMethod(kind: FlowKind, id: string): AuthMethod {
             classification: "secret",
           },
         ]
-      : kind === "basic" || kind === "form"
+      : kind === "basic" || kind === "form" || kind === "account-registration"
         ? [
             {
               name: "username",
@@ -434,6 +439,23 @@ export function defaultWorkflowSteps(kind: FlowKind) {
         operationId: "provider.claim-ownership",
       },
     ],
+    "account-registration": [
+      {
+        stepId: "find-signup",
+        description: "Find the provider account registration page",
+        operationId: "provider.find-signup",
+      },
+      {
+        stepId: "register-account",
+        description: "Register an account in the isolated browser",
+        operationId: "provider.register-account",
+      },
+      {
+        stepId: "verify-account",
+        description: "Verify the new account can authenticate",
+        operationId: "provider.verify-access",
+      },
+    ],
     "github-app": [
       {
         stepId: "register-app",
@@ -502,6 +524,12 @@ export const providerCatalog: Record<
     methods: ["github-app", "oauth-code", "device", "api-key"],
     origins: ["https://github.com", "https://api.github.com"],
   },
+  bluesky: {
+    name: "Bluesky",
+    description: "Connect a Bluesky account.",
+    methods: ["oauth-code"],
+    origins: ["https://bsky.social"],
+  },
   stripe: {
     name: "Stripe",
     description: "Verify a Stripe secret or restricted key.",
@@ -547,22 +575,12 @@ export const providerCatalog: Record<
     methods: ["oauth-code"],
     origins: ["https://accounts.google.com"],
   },
-  bluesky: {
-    name: "Bluesky",
-    description:
-      "Authorize a Bluesky account with AT Protocol OAuth, or an app password.",
-    methods: ["oauth-code", "api-key"],
-    origins: ["https://bsky.social", "https://bsky.app"],
-  },
 };
 
 const providerAliases: Record<string, string> = {
   gh: "github",
   ghe: "github",
   goog: "google",
-  bsky: "bluesky",
-  blusky: "bluesky",
-  "blue-sky": "bluesky",
 };
 
 /** Pull a provider token out of a chat utterance. */
@@ -585,12 +603,148 @@ export function extractProviderName(utterance: string) {
   return (text.trim() || utterance.trim()).slice(0, 100);
 }
 
-function providerSlug(name: string) {
-  return extractProviderName(name)
+function hostnameSlug(hostname: string) {
+  return hostname
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 64);
+}
+
+function providerSlug(name: string) {
+  const extracted = extractProviderName(name);
+  try {
+    const url = new URL(extracted);
+    if (url.protocol === "http:" || url.protocol === "https:")
+      return hostnameSlug(url.hostname);
+  } catch {
+    /* Not a URL. */
+  }
+  return hostnameSlug(extracted);
+}
+
+const publicTlds = [
+  "ai",
+  "io",
+  "dev",
+  "app",
+  "gg",
+  "im",
+  "so",
+  "social",
+  "org",
+  "net",
+  "com",
+  "info",
+  "xyz",
+  "cloud",
+  "me",
+] as const;
+
+function shortBrand(brand: string) {
+  if (brand.length < 5) return;
+  return `${brand[0]}${brand.slice(-3)}`;
+}
+
+function addOrigin(candidates: string[], value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return;
+    if (!candidates.includes(url.origin)) candidates.push(url.origin);
+  } catch {
+    /* Invalid origin. */
+  }
+}
+
+function authHosts(host: string) {
+  return [
+    `https://${host}`,
+    `https://auth.${host}`,
+    `https://accounts.${host}`,
+    `https://login.${host}`,
+    `https://api.${host}`,
+  ];
+}
+
+/** Public origins the agent should crawl. Never a human field. */
+export function originCandidatesFromProvider(name: string) {
+  const extracted = extractProviderName(name);
+  const candidates: string[] = [];
+  try {
+    const url = new URL(extracted);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      addOrigin(candidates, url.origin);
+      for (const origin of authHosts(url.hostname.replace(/^www\./, "")))
+        addOrigin(candidates, origin);
+    }
+  } catch {
+    /* Not a URL. */
+  }
+  const lower = extracted.toLowerCase().replace(/^www\./, "");
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(lower)) {
+    const labels = lower.split(".");
+    for (const host of [lower, labels.slice(-2).join(".")])
+      for (const origin of authHosts(host)) addOrigin(candidates, origin);
+  } else {
+    const slug = hostnameSlug(lower);
+    for (const tld of publicTlds) {
+      if (!slug.endsWith(tld) || slug.length <= tld.length) continue;
+      const brand = slug.slice(0, -tld.length).replace(/-+$/g, "");
+      if (brand.length < 1) continue;
+      for (const host of [brand, shortBrand(brand)]) {
+        if (!host) continue;
+        for (const origin of authHosts(`${host}.${tld}`))
+          addOrigin(candidates, origin);
+      }
+    }
+    if (slug.length >= 5 && !slug.includes("-")) {
+      const hosts = [slug, shortBrand(slug)].filter((host): host is string =>
+        Boolean(host),
+      );
+      const apexTlds = [
+        "social",
+        "com",
+        "io",
+        "app",
+        "org",
+        "ai",
+        "dev",
+      ] as const;
+      for (const host of hosts)
+        for (const tld of apexTlds)
+          addOrigin(candidates, `https://${host}.${tld}`);
+      for (const host of hosts)
+        for (const tld of apexTlds)
+          for (const origin of authHosts(`${host}.${tld}`).slice(1))
+            addOrigin(candidates, origin);
+    }
+  }
+  return candidates.slice(0, 16);
+}
+
+/** First crawl seed from a URL or domain-like provider name. */
+export function originHintFromProvider(name: string) {
+  return originCandidatesFromProvider(name)[0];
+}
+
+/** Catalog methods plus discovered families. Unknown names keep a token fallback. */
+export function methodsForDiscoveredAuth(
+  slug: string,
+  discovered: FlowKind[],
+): FlowKind[] {
+  const catalog = providerCatalog[slug];
+  const methods: FlowKind[] = catalog
+    ? [...catalog.methods, ...discovered]
+    : discovered.length
+      ? [...discovered]
+      : ["oauth-code"];
+  if (
+    methods.some((kind) =>
+      ["oauth-code", "device", "github-app"].includes(kind),
+    )
+  )
+    methods.push("account-registration");
+  return [...new Set<FlowKind>(methods)];
 }
 
 function editDistance(a: string, b: string) {
@@ -684,15 +838,71 @@ export function proposeConnectorForProvider(name: string) {
   const known = providerCatalog[slug];
   if (known && resolution.confidence === "high")
     return { slug, ...known, resolution };
-  const label = name.trim() || "Provider";
+  const extracted = extractProviderName(resolution.query);
+  const origins = originCandidatesFromProvider(resolution.query);
+  let label = extracted || "Provider";
+  try {
+    label = new URL(extracted).hostname;
+  } catch {
+    /* Keep the extracted name. */
+  }
   return {
     slug: slug || "provider",
     name: label,
-    description: `Connect ${label} with a generic OAuth ceremony. Review every step before export.`,
-    methods: ["oauth-code"] as FlowKind[],
-    origins: [] as string[],
+    description: `Connect ${label} with a generic discovered-auth ceremony. Review every step before export.`,
+    methods: methodsForDiscoveredAuth(slug, []),
+    origins,
     resolution,
   };
+}
+
+export const ceremonyFamilyLabels: Record<FlowKind, string> = {
+  "api-key": "API key",
+  basic: "HTTP Basic",
+  form: "Form sign-in",
+  "oauth-code": "OAuth authorization code",
+  device: "OAuth device code",
+  "authmd-anonymous": "Anonymous claim",
+  "github-app": "GitHub App registration",
+  "account-registration": "Account registration",
+};
+
+export function ceremonyFamilyLabel(kind: FlowKind) {
+  return ceremonyFamilyLabels[kind];
+}
+
+/** Prerequisite fields or ceremonies a generated ceremony needs to finish unattended. */
+export function ceremonyPrerequisiteLabels(kind: FlowKind): string[] {
+  if (kind === "account-registration")
+    return ["a fresh email address the agent can receive (agent inbox)"];
+  if (kind === "oauth-code" || kind === "device")
+    return ["a provider account (registration runs first when none is stored)"];
+  return [];
+}
+
+const knownGrants = new Set([
+  "authorization_code",
+  "refresh_token",
+  "password",
+  "client_credentials",
+  "urn:ietf:params:oauth:grant-type:device_code",
+]);
+
+const extraCeremonyLabels: Record<string, string> = {
+  "urn:ietf:params:oauth:grant-type:jwt-bearer": "On-behalf-of (JWT bearer)",
+  "urn:ietf:params:oauth:grant-type:token-exchange":
+    "On-behalf-of (token exchange)",
+  "urn:ietf:params:oauth:grant-type:saml2-bearer": "SAML bearer",
+};
+
+export function extraDiscoveredCeremonies(grantTypes: string[]) {
+  return [
+    ...new Set(
+      grantTypes
+        .filter((grant) => !knownGrants.has(grant))
+        .map((grant) => extraCeremonyLabels[grant] ?? grant),
+    ),
+  ].slice(0, 8);
 }
 
 export function applyProviderProposal(
@@ -710,17 +920,8 @@ export function applyProviderProposal(
   const kinds = overrides?.methods?.length
     ? overrides.methods
     : proposal.methods;
-  const familyNames: Record<FlowKind, string> = {
-    "api-key": "API key",
-    basic: "Username and password (Basic)",
-    form: "Sign-in form",
-    "oauth-code": "Browser authorization (OAuth)",
-    device: "Device authorization",
-    "authmd-anonymous": "Anonymous access and claiming",
-    "github-app": "GitHub App",
-  };
   for (const kind of kinds)
-    attachGenericCeremony(project, kind, familyNames[kind]);
+    attachGenericCeremony(project, kind, ceremonyFamilyLabel(kind));
   return proposal;
 }
 

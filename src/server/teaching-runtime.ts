@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
   ProtectedCommandService,
@@ -22,6 +23,11 @@ import {
 import { AgentCoordinator } from "./agent/coordinator.js";
 import { configuredModel, type ModelConfiguration } from "./agent/model.js";
 import type { RecipeDefinition } from "../core/recipe-contracts.js";
+import {
+  authoredAccountIntentKey,
+  saveAuthoredAccountIntent,
+  type AuthoredAccountIntent,
+} from "./authored-operations.js";
 
 export const githubConnectionRecipe: RecipeDefinition = {
   schemaVersion: 1,
@@ -63,6 +69,29 @@ export const githubConnectionRecipe: RecipeDefinition = {
   outputs: { connection: { node: "access", name: "connection" } },
 };
 
+const registrationFirst = (definition: RecipeDefinition): RecipeDefinition => ({
+  ...definition,
+  id: `${definition.id}-registration-first`,
+  invocations: [
+    {
+      id: "provider-account",
+      use: {
+        kind: "operation",
+        id: "authored.register-account",
+        version: "1.0.0",
+      },
+      dependsOn: [],
+      bindings: {},
+    },
+    ...definition.invocations.map((invocation) => ({
+      ...invocation,
+      dependsOn: invocation.dependsOn.length
+        ? invocation.dependsOn
+        : ["provider-account"],
+    })),
+  ],
+});
+
 export interface TeachingRuntimeOptions {
   store: AsyncCeremonyStore;
   identity: HostIdentityAdapter;
@@ -78,8 +107,18 @@ export interface TeachingRuntimeOptions {
       revalidateOperation: string;
     }
   >;
-  context(actor: ActorContext, connectorId: string): Promise<RunContext>;
+  context(
+    actor: ActorContext,
+    connectorId: string,
+    authored?: boolean,
+  ): Promise<RunContext>;
   authoringSearch?: ProviderSearch;
+  authoringFetch?: typeof fetch;
+  accountStatus?: (
+    actor: ActorContext,
+    connectorId: string,
+    account: string,
+  ) => Promise<"existing" | "available" | "unchecked">;
   selectTarget?: (
     actor: ActorContext,
     target: string,
@@ -120,16 +159,27 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       ],
     ],
   );
-  async function connection(actor: ActorContext, connectorId: string) {
+  async function connection(
+    actor: ActorContext,
+    connectorId: string,
+    authored: boolean,
+  ) {
+    const installed = await authoring.getInstalled(actor, connectorId);
+    if (authored && installed)
+      return {
+        definition: installed.definition,
+        outputContract: "authored.connection",
+        revalidateOperation: "authored.verify-access",
+      };
     const registered = connections.get(connectorId);
     if (registered) return registered;
-    const installed = await authoring.getInstalled(actor, connectorId);
-    if (!installed) throw new AuthorizationError("invalid_request");
-    return {
-      definition: installed.definition,
-      outputContract: "authored.connection",
-      revalidateOperation: "authored.verify-access",
-    };
+    if (installed)
+      return {
+        definition: installed.definition,
+        outputContract: "authored.connection",
+        revalidateOperation: "authored.verify-access",
+      };
+    throw new AuthorizationError("invalid_request");
   }
   const commands = new ProtectedCommandService(
     store,
@@ -168,7 +218,11 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
   );
   const recipes = new RecipeService(store, registry);
   const authoring = new ConnectorDrafts(store, {
-    fetch,
+    fetch:
+      options.authoringFetch ??
+      (options.origin.startsWith("http://127.0.0.1")
+        ? loopbackAuthFetch
+        : publicAuthFetch),
     ...(options.authoringSearch ? { search: options.authoringSearch } : {}),
     ...(options.origin.startsWith("http://127.0.0.1")
       ? { allowLoopbackHttp: true }
@@ -186,8 +240,10 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     definition: RecipeDefinition,
     inputs: Record<string, unknown>,
     connectorId: string,
+    sourceRunId?: string,
   ) {
-    await connection(actor, connectorId);
+    const authored = Boolean(await authoring.getInstalled(actor, connectorId));
+    await connection(actor, connectorId, authored);
     const checked = await recipes.preview(actor, definition);
     if (checked.diagnostics.length)
       throw new AuthorizationError("invalid_request");
@@ -209,22 +265,65 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       dependsOn: n.dependsOn,
       bindings: n.bindings,
     }));
-    return commands.createRun(
+    const runContext = await options.context(actor, connectorId, authored);
+    const identifier = sourceRunId
+      ? await store.transaction(async (tx) => {
+          const source = await tx.get<RunRecord>({
+            tenant: actor.tenantId,
+            kind: "run",
+            id: sourceRunId,
+          });
+          if (
+            !source ||
+            source.value.subjectId !== actor.subjectId ||
+            source.value.sessionId !== actor.sessionId ||
+            source.value.status === "cancelled" ||
+            !Object.entries(runContext).every(
+              ([name, value]) => Reflect.get(source.value, name) === value,
+            )
+          )
+            throw new AuthorizationError("denied");
+          return (
+            await tx.get<AuthoredAccountIntent>(
+              authoredAccountIntentKey(actor, sourceRunId),
+            )
+          )?.value.identifier;
+        })
+      : undefined;
+    // Reuse the person's selection, never a demonstration's credentials or
+    // verification outcome. Provider availability is checked for the new run.
+    const intent: AuthoredAccountIntent | undefined = identifier
+      ? {
+          identifier,
+          status:
+            (await options.accountStatus?.(actor, connectorId, identifier)) ??
+            "unchecked",
+        }
+      : undefined;
+    const run = await commands.createRun(
       actor,
-      await options.context(actor, connectorId),
+      runContext,
       nodes,
       inputs,
       options.continuation?.id,
     );
+    if (intent) await saveAuthoredAccountIntent(store, actor, run.id, intent);
+    return run;
   }
   async function connect(
     actor: ActorContext,
     connectorId: string,
     fresh = true,
+    account?: string,
   ) {
     requireCapability(actor, "executor");
-    const registered = await connection(actor, connectorId);
-    const context = await options.context(actor, connectorId);
+    const authored = Boolean(await authoring.getInstalled(actor, connectorId));
+    const context = await options.context(actor, connectorId, authored);
+    const registered = await connection(
+      actor,
+      connectorId,
+      context.profile === "authored",
+    );
     // Reuse requires the entire authorization context, not just a connector name.
     const existing = await store.transaction(async (tx) => {
       let after = "";
@@ -235,17 +334,35 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
           1000,
           after,
         );
-        const match = page.find(
+        const candidates = page.filter(
           (r) =>
             r.value.subjectId === actor.subjectId &&
             r.value.sessionId === actor.sessionId &&
             r.value.continuation === options.continuation?.id &&
             r.value.status !== "cancelled" &&
+            (!account ||
+              (r.value.nodes[0]?.operationId === "authored.register-account" &&
+                r.value.target === context.target)) &&
+            (context.profile !== "authored" ||
+              r.value.nodes.every((node) =>
+                node.operationId.startsWith("authored."),
+              )) &&
             Object.entries(context).every(
               ([k, v]) => Reflect.get(r.value, k) === v,
             ),
         );
-        if (match || page.length < 1000) return match;
+        for (const candidate of candidates) {
+          if (
+            !account ||
+            (
+              await tx.get<AuthoredAccountIntent>(
+                authoredAccountIntentKey(actor, candidate.id),
+              )
+            )?.value.identifier.toLowerCase() === account.toLowerCase()
+          )
+            return candidate;
+        }
+        if (page.length < 1000) return undefined;
         after = page.at(-1)!.id;
       }
     });
@@ -257,7 +374,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
         registered.revalidateOperation,
       ))
     )
-      return fresh
+      return fresh && (!account || existing.value.status === "complete")
         ? commands.revalidate(actor, existing.id)
         : commands.snapshot(actor, existing.id);
     const selected = await recipes.selectConnection(actor, {
@@ -267,7 +384,9 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     });
     return executeRecipe(
       actor,
-      selected ?? registered.definition,
+      account
+        ? registrationFirst(selected ?? registered.definition)
+        : (selected ?? registered.definition),
       {},
       connectorId,
     );
@@ -402,6 +521,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     demonstrations,
     agent,
     modelConfiguration,
+    accountStatus: options.accountStatus,
     connect,
     connectForAgent,
     executeRecipe,
