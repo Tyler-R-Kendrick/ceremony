@@ -582,6 +582,9 @@ const providerAliases: Record<string, string> = {
   ghe: "github",
   goog: "google",
 };
+// Provider names are data keys, never inherited Object.prototype members.
+Object.setPrototypeOf(providerCatalog, null);
+Object.setPrototypeOf(providerAliases, null);
 
 /** Pull a provider token out of a chat utterance. */
 export function extractProviderName(utterance: string) {
@@ -894,6 +897,7 @@ const extraCeremonyLabels: Record<string, string> = {
     "On-behalf-of (token exchange)",
   "urn:ietf:params:oauth:grant-type:saml2-bearer": "SAML bearer",
 };
+Object.setPrototypeOf(extraCeremonyLabels, null);
 
 export function extraDiscoveredCeremonies(grantTypes: string[]) {
   return [

@@ -2,7 +2,15 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "tap",
   "tap": {
-    "testFiles": ["tests/*.test.ts", "tests/contracts/*.test.ts"],
+    "testFiles": [
+      "tests/authoring-termination.test.ts",
+      "tests/authoring-boundaries.test.ts",
+      "tests/authoring-composition.test.ts",
+      "tests/authoring-disambiguation.test.ts",
+      "tests/authoring-origins.test.ts",
+      "tests/*.test.ts",
+      "tests/contracts/*.test.ts"
+    ],
     "nodeArgs": [
       "--import",
       "tsx",
