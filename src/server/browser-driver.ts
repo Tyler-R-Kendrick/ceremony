@@ -325,6 +325,153 @@ export async function runCeremony(
     }
   };
 
+  async function applyElementAction(
+    action: DriverAction,
+    snapshot: PageSnapshot,
+    url: string,
+  ): Promise<CeremonyResult | undefined> {
+    const element =
+      action.element === undefined
+        ? undefined
+        : snapshot.elements[action.element];
+    if (!element) {
+      steps++;
+      if (++refusals >= 2) {
+        record(snapshot, "blocked", { reason: "unsupported-page" });
+        return finish({ status: "blocked", reason: "unsupported-page", steps });
+      }
+      return;
+    }
+
+    if (action.action === "fill") {
+      const role = action.role;
+      // A role the caller never supplied is as unusable as a missing element:
+      // the value is never resolved, and the attempt says so rather than
+      // spending its whole budget re-asking.
+      if (!role || !secrets.roles.includes(role)) {
+        steps++;
+        if (++refusals >= 2) {
+          record(snapshot, "blocked", { reason: "unsupported-page" });
+          return finish({
+            status: "blocked",
+            reason: "unsupported-page",
+            steps,
+          });
+        }
+        return;
+      }
+      // A permitted page can still hand a secret to a third party. Refuse the
+      // entry rather than the navigation: by then the value is already sent.
+      if (
+        secretRoles.includes(role) &&
+        (!allowed.has(originOf(url)) ||
+          (element.submitsTo !== undefined &&
+            !allowed.has(originOf(element.submitsTo))))
+      )
+        return finish({ status: "blocked", reason: "untrusted-origin", steps });
+      const value = await secrets.resolve(role);
+      if (value === undefined) {
+        // A mailbox that never delivered is a reportable wall, not a retry loop.
+        record(snapshot, "blocked", { reason: "provider-error" });
+        return finish({ status: "blocked", reason: "provider-error", steps });
+      }
+      if (secretRoles.includes(role) && !guarded.includes(value))
+        guarded.push(value);
+      await page.fill(element, value);
+      record(snapshot, "fill", {
+        role,
+        ...(action.note ? { note: action.note } : {}),
+      });
+    } else if (action.action === "check") {
+      await page.check(element);
+      record(snapshot, "check", action.note ? { note: action.note } : {});
+    } else {
+      await page.click(element);
+      record(snapshot, "click", action.note ? { note: action.note } : {});
+    }
+
+    refusals = 0;
+    await page.settle();
+    steps++;
+    const current = fingerprint(await page.snapshot());
+    if (current === previous) {
+      if (++unchanged >= stallLimit)
+        return finish({ status: "stalled", steps });
+    } else unchanged = 0;
+    previous = current;
+  }
+
+  async function driveSnapshot(
+    snapshot: PageSnapshot,
+    url: string,
+  ): Promise<CeremonyResult | undefined> {
+    const serialized = JSON.stringify(snapshot);
+    if (contains(serialized, guarded))
+      throw new CeremonySecretLeak("a page snapshot");
+
+    const input: InterpreterInput = {
+      goal,
+      snapshot,
+      available: secrets.roles,
+      history: history.slice(-8),
+    };
+    const proposed = await interpreter(input);
+    const parsed = proposed
+      ? driverActionSchema.safeParse(proposed)
+      : undefined;
+    if (!parsed?.success) {
+      // Two consecutive unusable proposals mean this surface is not supported.
+      if (++refusals >= 2) {
+        record(snapshot, "blocked", { reason: "unsupported-page" });
+        return finish({ status: "blocked", reason: "unsupported-page", steps });
+      }
+      steps++;
+      return;
+    }
+    const action = parsed.data;
+    if (action.note && contains(action.note, guarded))
+      throw new CeremonySecretLeak("an interpreter note");
+
+    // Reaching here means the proposal is structurally usable.
+    if (action.action === "blocked") {
+      const reason = action.reason ?? "unsupported-page";
+      record(snapshot, "blocked", {
+        reason,
+        ...(action.note ? { note: action.note } : {}),
+      });
+      return finish({ status: "blocked", reason, steps });
+    }
+    if (action.action === "done") {
+      refusals = 0;
+      record(snapshot, "done", action.note ? { note: action.note } : {});
+      if (options.verify && (await options.verify()))
+        return finish({ status: "completed", steps });
+      if (++unverifiedClaims >= 2)
+        return finish({ status: "unverified", steps });
+      steps++;
+      return;
+    }
+    if (action.action === "wait") {
+      refusals = 0;
+      record(snapshot, "wait", action.note ? { note: action.note } : {});
+      const link = await options.confirmationLink?.();
+      if (link && allowed.has(originOf(link)) && link !== followed) {
+        followed = link;
+        await page.goto(link);
+      } else await page.settle();
+      steps++;
+      const settled = fingerprint(await page.snapshot());
+      if (settled === previous) {
+        if (++unchanged >= stallLimit)
+          return finish({ status: "stalled", steps });
+      } else unchanged = 0;
+      previous = settled;
+      return;
+    }
+
+    return applyElementAction(action, snapshot, url);
+  }
+
   while (steps < maxSteps) {
     const url = await page.url();
     if (isCallback(url)) {
@@ -380,139 +527,8 @@ export async function runCeremony(
       steps++;
       continue;
     }
-    const serialized = JSON.stringify(snapshot);
-    if (contains(serialized, guarded))
-      throw new CeremonySecretLeak("a page snapshot");
-
-    const input: InterpreterInput = {
-      goal,
-      snapshot,
-      available: secrets.roles,
-      history: history.slice(-8),
-    };
-    const proposed = await interpreter(input);
-    const parsed = proposed
-      ? driverActionSchema.safeParse(proposed)
-      : undefined;
-    if (!parsed?.success) {
-      // Two consecutive unusable proposals mean this surface is not supported.
-      if (++refusals >= 2) {
-        record(snapshot, "blocked", { reason: "unsupported-page" });
-        return finish({ status: "blocked", reason: "unsupported-page", steps });
-      }
-      steps++;
-      continue;
-    }
-    const action = parsed.data;
-    if (action.note && contains(action.note, guarded))
-      throw new CeremonySecretLeak("an interpreter note");
-
-    // Reaching here means the proposal is structurally usable.
-    if (action.action === "blocked") {
-      const reason = action.reason ?? "unsupported-page";
-      record(snapshot, "blocked", {
-        reason,
-        ...(action.note ? { note: action.note } : {}),
-      });
-      return finish({ status: "blocked", reason, steps });
-    }
-    if (action.action === "done") {
-      refusals = 0;
-      record(snapshot, "done", action.note ? { note: action.note } : {});
-      if (options.verify && (await options.verify()))
-        return finish({ status: "completed", steps });
-      if (++unverifiedClaims >= 2)
-        return finish({ status: "unverified", steps });
-      steps++;
-      continue;
-    }
-    if (action.action === "wait") {
-      refusals = 0;
-      record(snapshot, "wait", action.note ? { note: action.note } : {});
-      const link = await options.confirmationLink?.();
-      if (link && allowed.has(originOf(link)) && link !== followed) {
-        followed = link;
-        await page.goto(link);
-      } else await page.settle();
-      steps++;
-      const settled = fingerprint(await page.snapshot());
-      if (settled === previous) {
-        if (++unchanged >= stallLimit)
-          return finish({ status: "stalled", steps });
-      } else unchanged = 0;
-      previous = settled;
-      continue;
-    }
-
-    const element =
-      action.element === undefined
-        ? undefined
-        : snapshot.elements[action.element];
-    if (!element) {
-      steps++;
-      if (++refusals >= 2) {
-        record(snapshot, "blocked", { reason: "unsupported-page" });
-        return finish({ status: "blocked", reason: "unsupported-page", steps });
-      }
-      continue;
-    }
-
-    if (action.action === "fill") {
-      const role = action.role;
-      // A role the caller never supplied is as unusable as a missing element:
-      // the value is never resolved, and the attempt says so rather than
-      // spending its whole budget re-asking.
-      if (!role || !secrets.roles.includes(role)) {
-        steps++;
-        if (++refusals >= 2) {
-          record(snapshot, "blocked", { reason: "unsupported-page" });
-          return finish({
-            status: "blocked",
-            reason: "unsupported-page",
-            steps,
-          });
-        }
-        continue;
-      }
-      // A permitted page can still hand a secret to a third party. Refuse the
-      // entry rather than the navigation: by then the value is already sent.
-      if (
-        secretRoles.includes(role) &&
-        (!allowed.has(originOf(url)) ||
-          (element.submitsTo !== undefined &&
-            !allowed.has(originOf(element.submitsTo))))
-      )
-        return finish({ status: "blocked", reason: "untrusted-origin", steps });
-      const value = await secrets.resolve(role);
-      if (value === undefined) {
-        // A mailbox that never delivered is a reportable wall, not a retry loop.
-        record(snapshot, "blocked", { reason: "provider-error" });
-        return finish({ status: "blocked", reason: "provider-error", steps });
-      }
-      if (secretRoles.includes(role) && !guarded.includes(value))
-        guarded.push(value);
-      await page.fill(element, value);
-      record(snapshot, "fill", {
-        role,
-        ...(action.note ? { note: action.note } : {}),
-      });
-    } else if (action.action === "check") {
-      await page.check(element);
-      record(snapshot, "check", action.note ? { note: action.note } : {});
-    } else {
-      await page.click(element);
-      record(snapshot, "click", action.note ? { note: action.note } : {});
-    }
-
-    refusals = 0;
-    await page.settle();
-    steps++;
-    const current = fingerprint(await page.snapshot());
-    if (current === previous) {
-      if (++unchanged >= stallLimit)
-        return finish({ status: "stalled", steps });
-    } else unchanged = 0;
-    previous = current;
+    const outcome = await driveSnapshot(snapshot, url);
+    if (outcome) return outcome;
   }
   return finish({ status: "exhausted", steps });
 }

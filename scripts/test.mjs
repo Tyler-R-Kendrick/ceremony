@@ -53,7 +53,16 @@ if (
 }
 const result = spawnSync(
   process.execPath,
-  ["--no-experimental-webstorage", "--import", "tsx", "--test", ...files],
+  // Files also launch browsers, databases and covered children. Bound the outer
+  // pool rather than exhausting each nested fixture's unchanged deadline.
+  [
+    "--no-experimental-webstorage",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=4",
+    ...files,
+  ],
   { stdio: "inherit", env: process.env },
 );
 process.exit(result.status ?? 1);

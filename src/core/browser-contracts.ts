@@ -246,6 +246,16 @@ export function snapshotDocument(
     const tag = control.tagName.toLowerCase();
     const rawType = (control.getAttribute("type") ?? "").toLowerCase();
     if (tag === "input" && rawType === "hidden") continue;
+    const entry = snapshotControl(control, elements.length, tag, rawType);
+    if (onElement) onElement(control, entry.index);
+    elements.push(entry);
+  }
+  function snapshotControl(
+    control: Element,
+    index: number,
+    tag: string,
+    rawType: string,
+  ): SnapshotElement {
     const label = labelFor(control);
     const name = trim(control.getAttribute("name"), 128);
     const placeholder = trim(control.getAttribute("placeholder"), 200);
@@ -260,24 +270,7 @@ export function snapshotDocument(
     const required =
       control.hasAttribute("required") ||
       control.getAttribute("aria-required") === "true";
-    const entry: SnapshotElement = { index: elements.length, kind: "input" };
-    if (tag === "input" && (rawType === "checkbox" || rawType === "radio")) {
-      entry.kind = "checkbox";
-      entry.filled = checked;
-    } else if (tag === "select") {
-      entry.kind = "select";
-      entry.options = Array.from(control.querySelectorAll("option"))
-        .slice(0, 20)
-        .map((option) => trim(option.textContent, 100));
-      entry.filled = value.length > 0;
-    } else if (tag === "button" || rawType === "submit" || rawType === "button")
-      entry.kind = "button";
-    else if (tag === "a" || control.getAttribute("role") === "link")
-      entry.kind = "link";
-    else {
-      entry.kind = "input";
-      entry.filled = value.length > 0;
-    }
+    const entry = controlState();
     if (entry.kind === "input" || entry.kind === "checkbox")
       entry.type = rawType || (tag === "textarea" ? "textarea" : "text");
     if (name) entry.name = name;
@@ -302,8 +295,33 @@ export function snapshotDocument(
         entry.submitsTo = "unknown";
       }
     }
-    if (onElement) onElement(control, entry.index);
-    elements.push(entry);
+
+    function controlState(): SnapshotElement {
+      const entry: SnapshotElement = { index, kind: "input" };
+      if (tag === "input" && (rawType === "checkbox" || rawType === "radio")) {
+        entry.kind = "checkbox";
+        entry.filled = checked;
+      } else if (tag === "select") {
+        entry.kind = "select";
+        entry.options = Array.from(control.querySelectorAll("option"))
+          .slice(0, 20)
+          .map((option) => trim(option.textContent, 100));
+        entry.filled = value.length > 0;
+      } else if (
+        tag === "button" ||
+        rawType === "submit" ||
+        rawType === "button"
+      )
+        entry.kind = "button";
+      else if (tag === "a" || control.getAttribute("role") === "link")
+        entry.kind = "link";
+      else {
+        entry.kind = "input";
+        entry.filled = value.length > 0;
+      }
+      return entry;
+    }
+    return entry;
   }
   const headings = Array.from(doc.querySelectorAll("h1,h2,h3,legend"))
     .slice(0, 8)
