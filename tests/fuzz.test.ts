@@ -13,6 +13,7 @@ import { resolveCeremonyMethod } from "../src/core/resolution.js";
 import { defaultTemplate, validateInput } from "../src/core/schema.js";
 import { validateTemplate } from "../src/react/templates.js";
 import { manifests } from "../examples/manifests.js";
+import { jiraOwnerPage } from "../src/server/jira-human.js";
 
 const options = {
   seed: Number(process.env.FUZZ_SEED ?? 20260909),
@@ -162,6 +163,26 @@ test("fuzz: session environment edit sequences match a plain model", (t) => {
         }
       },
     ),
+    { ...options, numRuns: Math.min(options.numRuns, 200) },
+  );
+});
+
+test("fuzz: jira owner HTML keeps one collector script after hostile site fields", async () => {
+  await fc.assert(
+    fc.asyncProperty(fc.string({ maxLength: 200 }), async (injected) => {
+      const html = await jiraOwnerPage(
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          revision: 1,
+          state: "pending",
+          siteUrl: injected,
+          callbackUrl: `https://app.example/${encodeURIComponent(injected)}`,
+          scopes: ["read:jira-user"],
+        },
+        "https://app.example/?connector=jira",
+      ).text();
+      assert.equal([...html.matchAll(/<script/gi)].length, 1);
+    }),
     { ...options, numRuns: Math.min(options.numRuns, 200) },
   );
 });
