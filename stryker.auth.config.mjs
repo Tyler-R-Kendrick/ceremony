@@ -229,6 +229,7 @@ export default {
   tap: {
     ...base.tap,
     testFiles: [
+      "tests/browser-terminal.test.ts",
       "tests/browser-executor.test.ts",
       "tests/auth-runtime-discovery.test.ts",
       "tests/authoring-tools.test.ts",
