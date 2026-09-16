@@ -13,6 +13,86 @@ import { OperationRegistry } from "../src/server/recipes/index.js";
 import { createTeachingRuntime } from "../src/server/teaching-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { ConnectorDrafts } from "../src/server/connector-drafts.js";
+import { ceremonyAgentTools } from "../src/server/agent-tools.js";
+import {
+  saveAuthoredAccountIntent,
+  saveAuthoredBlocker,
+} from "../src/server/authored-operations.js";
+
+test("HTTP tool responses retain human guidance without exposing it through shared agent tools", async (t) => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  t.after(() => store.close());
+  const actor: ActorContext = {
+    tenantId: "routing-tenant",
+    subjectId: "routing-owner",
+    sessionId: "routing-session",
+    actorKind: "human",
+    capabilities: ["executor"],
+  };
+  const origin = "https://routing.example";
+  const runtime = createTeachingRuntime({
+    store,
+    registry: new OperationRegistry(),
+    identity: { authenticate: async () => actor },
+    origin,
+    context: async () => ({
+      provider: "fixture",
+      profile: "authored",
+      target: "fixture",
+      origin,
+      environment: "test",
+      configurationVersion: "1",
+    }),
+    authorize: async () => true,
+  });
+  const run = {
+    id: "fixture-run",
+    revision: 1,
+    provider: "fixture",
+    profile: "authored",
+    status: "active" as const,
+    nodes: [],
+  };
+  runtime.connectForAgent = async () => ({
+    run,
+    actor: { ...actor, actorKind: "agent" as const },
+  });
+  runtime.commands.snapshot = async () => run;
+  await saveAuthoredAccountIntent(store, actor, run.id, {
+    identifier: "chosen@example.test",
+    status: "existing",
+  });
+  await saveAuthoredBlocker(store, actor, run.id, "session");
+  for (const [action, body] of [
+    ["connect", { connectorId: "fixture" }],
+    ["snapshot", { runId: run.id }],
+  ] as const) {
+    const response = await teachingHttp(
+      new Request(`${origin}/api/v1/teaching/tools/${action}`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      runtime,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      ...run,
+      human: {
+        reason: "session",
+        account: "chosen@example.test",
+        fields: ["account", "password"],
+      },
+    });
+    assert.deepEqual(
+      await ceremonyAgentTools(runtime)[action](actor, body),
+      run,
+    );
+  }
+});
 
 test("teaching endpoint families preserve error translation, authoring round trips and unmatched methods", async (t) => {
   const store = new SQLiteCeremonyStore(":memory:", {

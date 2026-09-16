@@ -214,6 +214,14 @@ export const outcomeSchema = z
     connectionRef: z.string().min(1).max(200),
     ownership: z.enum(["authenticated", "anonymous", "claimed"]),
     scopes: z.array(z.string()),
+    /**
+     * A reference to the credential this ceremony established — never the
+     * credential. Without it a completed ceremony is orphaned: the connection
+     * exists and nothing the host owns can name it. The host redeems this
+     * through its own tooling, so the secret never enters a snapshot, an
+     * assistant's context, or this component's markup.
+     */
+    secretRef: z.uuid().optional(),
   })
   .strict();
 export type AuthOutcome = z.infer<typeof outcomeSchema>;

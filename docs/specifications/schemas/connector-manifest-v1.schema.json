@@ -240,6 +240,31 @@
                 "required": ["surface", "recipient", "delegation", "resume"],
                 "additionalProperties": false
               },
+              "registration": {
+                "type": "object",
+                "properties": {
+                  "identifier": {
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["email", "username", "organization"]
+                    }
+                  },
+                  "secret": {
+                    "type": "string",
+                    "enum": ["none", "password", "issued-token", "provider"]
+                  },
+                  "mint": { "type": "boolean" },
+                  "createdBy": {
+                    "type": "string",
+                    "enum": ["this-ceremony", "provider-browser"]
+                  }
+                },
+                "required": ["identifier", "secret", "mint", "createdBy"],
+                "additionalProperties": false
+              },
               "completion": {
                 "type": "object",
                 "properties": {

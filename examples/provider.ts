@@ -44,6 +44,13 @@ export interface ProviderOptions {
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("base64url");
 const secret = () => randomBytes(32).toString("base64url");
+const verificationCode = () => String(randomInt(0, 1_000_000)).padStart(6, "0");
+/** An account this provider knows about, created by signing in with an address it has not seen. */
+interface Account {
+  password: string;
+  verified: boolean;
+  code: string;
+}
 export async function createReferenceProvider(
   options: ProviderOptions,
 ): Promise<Server> {
@@ -54,11 +61,64 @@ export async function createReferenceProvider(
   const deviceCodes = new Map<string, string>();
   const authCodes = new Map<string, Attempt>();
   const claims = new Map<string, Registration>();
+  // Accounts are real here, not one hardcoded pair. An address nobody has used
+  // becomes an account on first sign-in and stays unusable until the code is
+  // entered, which is what makes registration a ceremony somebody can run
+  // rather than a scenario only the test doubles ever reach. The demo account
+  // is seeded already confirmed so the documented credentials still work.
+  const accounts = new Map<string, Account>([
+    [
+      "demo@example.com",
+      { password: "ceremony-demo", verified: true, code: "" },
+    ],
+  ]);
+  /** A stand-in for the person's mailbox, readable at /inbox. */
+  const outbox: { to: string; code: string; at: number }[] = [];
+  const send = (to: string, code: string) => {
+    outbox.unshift({ to, code, at: now() });
+    outbox.length = Math.min(outbox.length, 20);
+  };
+  /** Sign in, or register: the provider decides which, never the caller. */
+  const authenticate = (
+    email: string,
+    password: string,
+    code: string,
+  ):
+    | { ok: true }
+    | { ok: false; status: number; error: string }
+    | { pending: true; created: boolean } => {
+    const existing = accounts.get(email);
+    if (!existing) {
+      const account = { password, verified: false, code: verificationCode() };
+      accounts.set(email, account);
+      send(email, account.code);
+      return { pending: true, created: true };
+    }
+    if (existing.password !== password)
+      return { ok: false, status: 401, error: "invalid_credentials" };
+    if (!existing.verified) {
+      if (
+        code.length === existing.code.length &&
+        timingSafeEqual(Buffer.from(code), Buffer.from(existing.code))
+      )
+        existing.verified = true;
+      else {
+        if (!code) {
+          existing.code = verificationCode();
+          send(email, existing.code);
+        }
+        return { pending: true, created: false };
+      }
+    }
+    return { ok: true };
+  };
   const tokens = new Map<
     string,
     { scope: string; expires: number; registration?: string }
   >();
   const formTokens = new Map<string, { attempt: string; expires: number }>();
+  /** Registration's own one-shot form tokens. Separate: it has no attempt. */
+  const registerTokens = new Map<string, number>();
   const keys = await generateKeyPair("ES256");
   const issue = (scope: string, registration?: string) => {
     const token = secret();
@@ -113,6 +173,36 @@ export async function createReferenceProvider(
       attempt.kind === "oauth" ? options.appOrigin : undefined,
     );
   };
+  /**
+   * Registration, as a page a browser can actually be driven through.
+   *
+   * The account already registered over `POST /credentials`; what it never had
+   * was a surface. Without one there is nothing for a browser — a person's or
+   * an agent's — to do, so "register in a browser" could only ever be described
+   * rather than performed. Same `authenticate`, same code, same mailbox.
+   */
+  const showRegister = (
+    response: Parameters<typeof page>[0],
+    options: { email?: string; awaitingCode?: boolean; alert?: string } = {},
+  ) => {
+    const formToken = secret();
+    registerTokens.set(formToken, now() + ttl * 1000);
+    page(
+      response,
+      options.awaitingCode ? "Confirm your address" : "Create an account",
+      `${options.alert ? `<p role="alert">${escapeHtml(options.alert)}</p>` : ""}` +
+        `<form method="post" action="/register">` +
+        `<input type="hidden" name="csrf" value="${formToken}">` +
+        `<label>Email<input type="email" name="email" required value="${escapeHtml(options.email ?? "")}"${options.awaitingCode ? " readonly" : ""}></label>` +
+        `<label>Password<input type="password" name="password" required minlength="10"></label>` +
+        (options.awaitingCode
+          ? `<label>Verification code<input name="verification_code" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>`
+          : "") +
+        `<button type="submit">${options.awaitingCode ? "Confirm" : "Create account"}</button>` +
+        `</form>`,
+    );
+  };
+
   return createServer(async (request, response) => {
     const fail = (error: string, status = 400) =>
       json(response, { error }, status);
@@ -182,9 +272,11 @@ export async function createReferenceProvider(
           attempt.denied
         )
           return fail("expired_token");
+        const approving = accounts.get(form.get("email") ?? "");
         if (
-          form.get("email") !== "demo@example.com" ||
-          form.get("password") !== "ceremony-demo"
+          !approving ||
+          !approving.verified ||
+          approving.password !== form.get("password")
         )
           return fail("invalid_credentials", 401);
         if (attempt.kind !== "oauth" && form.get("user_code") !== attempt.code)
@@ -230,6 +322,62 @@ export async function createReferenceProvider(
           "<p>You can close this tab and return to Ceremony.</p>",
         );
       }
+      if (request.method === "GET" && url.pathname === "/register")
+        return showRegister(response);
+      if (request.method === "POST" && url.pathname === "/register") {
+        if (request.headers.origin !== options.issuer)
+          return fail("invalid_origin", 403);
+        const form = new URLSearchParams(await readBody(request));
+        const token = form.get("csrf") ?? "";
+        const expires = registerTokens.get(token);
+        registerTokens.delete(token);
+        if (!expires || expires <= now())
+          return showRegister(response, { alert: "That form expired." });
+        const email = form.get("email") ?? "";
+        const password = form.get("password") ?? "";
+        const result = authenticate(
+          email,
+          password,
+          form.get("verification_code") ?? "",
+        );
+        if ("pending" in result)
+          return showRegister(response, {
+            email,
+            awaitingCode: true,
+            alert: result.created
+              ? "Account created. Enter the code sent to that address."
+              : "That address is not confirmed yet. Enter the code sent to it.",
+          });
+        if (!result.ok)
+          return showRegister(response, {
+            email,
+            awaitingCode: Boolean(form.get("verification_code")),
+            alert:
+              result.error === "invalid_user_code"
+                ? "That is not the code."
+                : "Those credentials were rejected.",
+          });
+        return page(
+          response,
+          "Account created",
+          `<p>${escapeHtml(email)} is registered and confirmed.</p>`,
+        );
+      }
+      if (request.method === "GET" && url.pathname === "/inbox") {
+        return page(
+          response,
+          "Verification codes",
+          `<p>A local stand-in for the mailbox this provider would send to. Newest first.</p>` +
+            (outbox.length
+              ? `<ul>${outbox
+                  .map(
+                    (message) =>
+                      `<li><strong>${escapeHtml(message.code)}</strong> &mdash; sent to ${escapeHtml(message.to)}</li>`,
+                  )
+                  .join("")}</ul>`
+              : "<p>No codes sent yet. Start a connection with an address this provider has not seen.</p>"),
+        );
+      }
       if (request.method === "POST" && url.pathname === "/credentials") {
         const auth = request.headers.authorization;
         const basic = `Basic ${Buffer.from("demo:ceremony-demo").toString("base64")}`;
@@ -237,12 +385,23 @@ export async function createReferenceProvider(
         if (auth === basic || auth === jira || auth === "Bearer demo-api-key")
           return json(response, { valid: true });
         const form = new URLSearchParams(await readBody(request));
-        if (
-          !auth &&
-          form.get("email") === "demo@example.com" &&
-          form.get("password") === "ceremony-demo"
-        )
+        const email = form.get("email") ?? "";
+        const password = form.get("password") ?? "";
+        if (!auth && email && password) {
+          const result = authenticate(
+            email,
+            password,
+            form.get("verificationCode") ?? "",
+          );
+          if ("pending" in result)
+            return json(response, {
+              verification_required: true,
+              email,
+              created: result.created,
+            });
+          if (!result.ok) return fail(result.error, result.status);
           return json(response, issue(""));
+        }
         return fail("invalid_credentials", 401);
       }
       if (request.method === "POST" && url.pathname === "/device") {

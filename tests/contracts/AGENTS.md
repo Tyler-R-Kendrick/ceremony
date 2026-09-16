@@ -1,6 +1,8 @@
-# External boundary contract tests
+# Boundary contract tests
 
 Read [the contract-testing guide](../../docs/contract-testing.md) before changing these tests.
+
+The rules below govern the Pact consumer contracts. `auth-scenarios.test.ts` is a ceremony scenario contract driven against self-hosted provider doubles rather than Pact; read [auth scenario doubles](../../docs/auth-scenario-doubles.md) before changing it, and keep its substituted boundary limited to inference.
 
 - Run the real production consumer against Pact's HTTP server. Never replace its API calls with test-written requests or canned fetch responses.
 - Read the provider's official API documentation and existing interactions first. Reuse provider-state names; keep tests independent and fixtures synthetic.

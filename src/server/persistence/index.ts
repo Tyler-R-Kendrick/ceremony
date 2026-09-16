@@ -410,6 +410,18 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
     this.pool.on("error", () => {
       this.idleFailure = true;
     });
+    // The pool's event covers a client sitting idle. A backend torn down while
+    // its client is being connected or checked out — pg_terminate_backend, a
+    // failover, an idle-session timeout — emits on the client instead, outside
+    // that path, and a Client with no error listener makes Node raise an
+    // unhandled 'error' event and take the process down. Every client gets a
+    // listener for its whole life, so the failure is recorded rather than
+    // thrown, and the next successful transaction clears it as before.
+    this.pool.on("connect", (client) => {
+      client.on("error", () => {
+        this.idleFailure = true;
+      });
+    });
   }
   health(): "ready" | "degraded" {
     return this.idleFailure ? "degraded" : "ready";

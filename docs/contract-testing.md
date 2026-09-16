@@ -1,4 +1,8 @@
-# External service contracts
+# Boundary contracts
+
+`tests/contracts` holds two kinds of boundary contract. **Consumer contracts** run the production adapters against Pact's HTTP server and are described below. **Ceremony scenario contracts** (`auth-scenarios.test.ts`, run by `npm run test:scenarios`) drive the isolated-browser ceremony driver against self-hosted provider pages; the Pact rules in this file do not apply to them, and [auth scenario doubles](auth-scenario-doubles.md) documents their boundaries. Neither kind certifies a live provider.
+
+## External service contracts
 
 Run `npm run test:pact` (Node >=22.12). It is also part of `npm run verify` and CI. Pact needs permission to bind a random loopback port; a sandbox socket denial is an environment failure, not a passing or failing API contract.
 

@@ -42,7 +42,7 @@ npm run setup:browsers
 npm run verify
 ```
 
-The deterministic command covers recursive Node/Pact/security/integration tests, coverage, actual local Workflow recovery, critical mutations, builds, browser behavior and packed consumers. The broader mutation matrix runs separately in CI. See [testing](docs/testing.md) and [contributing](CONTRIBUTING.md).
+The deterministic command covers recursive Node/Pact/security/integration tests, coverage, actual local Workflow recovery, critical mutations, builds, browser behavior and packed consumers. Isolated-browser ceremonies are driven against [self-hosted auth scenario pages](docs/auth-scenario-doubles.md) in both Node and a real browser; those doubles are local evidence, not provider certification. The broader mutation matrix runs separately in CI. See [testing](docs/testing.md) and [contributing](CONTRIBUTING.md).
 
 [Commit-bound implementation evidence](docs/implementation-evidence/ceremony-teaching/final-local/README.md) retains failures and separates local proof from live/deployed/device certification. `verify:live` and `verify:release` fail when required authorized configuration or evidence is absent; a successful merge is not production certification.
 

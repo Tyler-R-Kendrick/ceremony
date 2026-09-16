@@ -16,6 +16,7 @@ import {
   snapshotSchema,
   entryContextSchema,
   resolveCeremonyMethod,
+  scopesRequired,
   type EntryContext,
   type MethodAvailability,
 } from "../core/index.js";
@@ -118,6 +119,9 @@ export class CeremonyController {
     input: EntryContext = {},
   ): CeremonySnapshot {
     const context = entryContextSchema.parse(input);
+    // The same scopes the resolver will use, so this pre-filter cannot narrow
+    // on one set and resolve against another.
+    const required = scopesRequired(input);
     const registration = this.registrations.get(connectorId);
     if (!registration) throw new CeremonyError("Unknown connector", 404);
     const usable = registration.manifest.methods.filter(
@@ -125,7 +129,7 @@ export class CeremonyController {
         registration.availability?.(owner, method) !== "unavailable" &&
         (!method.contract ||
           method.contract.surfaces.includes(context.surface)) &&
-        context.requiredScopes.every((scope) => method.scopes.includes(scope)),
+        required.every((scope) => method.scopes.includes(scope)),
     );
     if (!usable.length)
       throw new CeremonyError(
@@ -162,7 +166,7 @@ export class CeremonyController {
       ) {
         if (
           existing.snapshot.outcome &&
-          !context.requiredScopes.every((scope) =>
+          !required.every((scope) =>
             existing.snapshot.outcome!.scopes.includes(scope),
           )
         )
@@ -181,9 +185,7 @@ export class CeremonyController {
     const selected = this.start(owner, connectorId, method.id);
     if (
       selected.outcome &&
-      !context.requiredScopes.every((scope) =>
-        selected.outcome!.scopes.includes(scope),
-      )
+      !required.every((scope) => selected.outcome!.scopes.includes(scope))
     )
       throw new CeremonyError(
         "The existing connection requires reauthorization for the requested access.",

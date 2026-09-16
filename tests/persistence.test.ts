@@ -316,6 +316,16 @@ test("PostgreSQL idle-client failure exposes only safe health state and reconnec
     ring,
   );
   const admin = new Pool(fixture.config);
+  // This pool is the instrument: it terminates backends and it outlives the
+  // fixture's server only by the width of a `finally`. pg reports a lost idle
+  // client by emitting `error` on its pool, and an EventEmitter with no
+  // `error` listener rethrows — synchronously, from inside the socket's data
+  // handler — so a connection this test deliberately disrupted surfaced as an
+  // uncaught exception attributed to whichever assertion happened to be
+  // running. The store's own pool has handled this since it was written; the
+  // instrument needs the same tolerance, and losing this connection proves
+  // nothing either way, so nothing is asserted about it.
+  admin.on("error", () => {});
   try {
     await store.migrate();
     await store.transaction((tx) => tx.now());
