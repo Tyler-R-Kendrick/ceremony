@@ -792,7 +792,7 @@ test("Jira renews expired owner assignments without reviving old links or repeat
     {
       transaction: (work) =>
         f.store.transaction((tx) =>
-          work({ ...tx, now: async () => 1 + 86_400_001 }),
+          work({ ...tx, now: async () => 1 + 86_400_000 }),
         ),
       close: async () => {},
     },
@@ -923,6 +923,7 @@ test("Jira shared setup rejects missing owner policy, wrong recipients and repla
   const assigned = await setup.request(f.actor, run.id, current.revision);
   designated = "changed-owner";
   await assert.rejects(setup.request(f.actor, run.id, current.revision));
+  await assert.rejects(setup.status(f.actor, run.id), /denied/);
   await assert.rejects(
     setup.view({ ...owner, subjectId: designated }, assigned.id),
     /denied/,
@@ -940,6 +941,7 @@ test("Jira shared setup rejects missing owner policy, wrong recipients and repla
     clientSecret: f.config.clientSecret,
   };
   policy.scopes = ["read:jira-user", "read:jira-work"];
+  await assert.rejects(setup.status(f.actor, run.id), /denied/);
   await assert.rejects(
     setup.configure(owner, assigned.id, assigned.revision, values),
     /denied/,
