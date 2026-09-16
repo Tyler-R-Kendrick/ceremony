@@ -118,6 +118,7 @@ export default {
     guard(
       "src/server/recipes/jira.ts",
       "return artifact.scope === this.scope(context) &&",
+      2,
     ),
     guard(
       "src/server/recipes/jira.ts",
