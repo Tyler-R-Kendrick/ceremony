@@ -3,6 +3,9 @@ node_modules/
 .stryker-tmp/
 dist/
 web-dist/
+extension-dist/
+examples/web/public/extension/
+/node_modules
 test-results/
 playwright-report/
 .env

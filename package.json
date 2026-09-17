@@ -62,7 +62,8 @@
     "clean": "node scripts/clean.mjs",
     "clean:apply": "node scripts/clean.mjs --apply",
     "check": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && vite build && node scripts/build-mcp-app.mjs && node scripts/check-bundle.mjs",
+    "build": "npm run build:extension && tsc -p tsconfig.build.json && vite build && node scripts/build-mcp-app.mjs && node scripts/check-bundle.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
     "build:mcp-app": "node scripts/build-mcp-app.mjs",
     "check:mcp-app": "node scripts/build-mcp-app.mjs --check",
     "test": "node scripts/test.mjs all",
@@ -101,6 +102,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.45",
+    "@huggingface/transformers": "4.3.0",
     "@modelcontextprotocol/ext-apps": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@octokit/auth-app": "^8.3.1",

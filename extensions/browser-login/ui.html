@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ceremony browser login</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Browser login</h1>
+      <p>
+        Use a login page you trust. Credentials go to the selected site, never
+        to the model. This preview supports same-origin POST forms; it does not
+        certify third-party sites.
+      </p>
+      <label
+        >Login page URL
+        <input
+          id="target"
+          type="url"
+          placeholder="https://example.com/login"
+          required
+      /></label>
+      <button id="inspect">Allow site and inspect selected page</button>
+      <p id="status" role="status">
+        Enter the URL of an already open login tab.
+      </p>
+      <section id="review" hidden>
+        <h2>Review login mapping</h2>
+        <pre id="mapping"></pre>
+        <label>Username <input id="username" autocomplete="off" /></label>
+        <label
+          >Password <input id="password" type="password" autocomplete="off"
+        /></label>
+        <p>
+          Approve one submission to this destination. For multi-page login,
+          inspect the next step again. CAPTCHA, passkeys and additional consent
+          require you.
+        </p>
+        <button id="approve">Approve and submit</button
+        ><button id="cancel">Cancel</button>
+      </section>
+      <button id="infer" hidden>Try free local AI mapping</button>
+      <p>
+        Optional AI downloads SmolLM2-135M model weights on first use. No API
+        key, paid fallback, or remote inference. Model quality is not certified.
+      </p>
+    </main>
+    <script type="module" src="ui.js"></script>
+  </body>
+</html>
