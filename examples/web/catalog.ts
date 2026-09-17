@@ -128,6 +128,8 @@ export interface CatalogEntry {
   auth: readonly AuthFamily[];
   capabilities: readonly Capability[];
   featured?: boolean;
+  /** Pre-checked in Customize; the reason somebody chose this card. */
+  defaultCapabilities?: readonly Capability[];
   /** Brand colour behind fallback initials. Manifests carry no logo, and should not. */
   tint?: string;
   ink?: string;
@@ -147,7 +149,7 @@ export const customEntries: readonly CatalogEntry[] = [
     summary: "Connect any OAuth 2.0 or 2.1 provider by discovery or by hand.",
     category: "Developer",
     support: "declared",
-    auth: ["oauth-code", "oauth-client-credentials", "device"],
+    auth: ["oauth-code"],
     capabilities: [
       "session-environment",
       "verification",
@@ -158,24 +160,103 @@ export const customEntries: readonly CatalogEntry[] = [
     tint: "#2b2b2b",
   },
   {
-    id: "custom-api-key",
-    name: "API Key",
-    summary: "Store a shared or per-user API key for any service.",
+    id: "custom-client-credentials",
+    name: "OAuth Machine",
+    summary:
+      "Server-to-server access from a client id and secret. Nobody is interrupted.",
     category: "Developer",
     support: "declared",
-    auth: ["api-key", "basic"],
+    auth: ["oauth-client-credentials"],
     capabilities: ["session-environment", "verification", "webmcp"],
+    tint: "#2b2b2b",
+  },
+  {
+    id: "custom-api-key",
+    name: "API Key",
+    summary: "Store a shared key, or ask each person for their own.",
+    category: "Developer",
+    support: "declared",
+    auth: ["api-key"],
+    capabilities: ["session-environment", "verification", "webmcp"],
+    tint: "#2b2b2b",
+  },
+  {
+    id: "custom-basic",
+    name: "HTTP Basic",
+    summary:
+      "An identifier and a provider-issued token, never an account password.",
+    category: "Developer",
+    support: "declared",
+    auth: ["basic"],
+    capabilities: ["session-environment", "verification", "webmcp"],
+    tint: "#2b2b2b",
+  },
+  {
+    id: "custom-device",
+    name: "Device Code",
+    summary:
+      "Approval on a second device, for a CLI, a TV, or anything with no browser.",
+    category: "Developer",
+    support: "declared",
+    auth: ["device"],
+    capabilities: ["session-environment", "verification", "a2h", "webmcp"],
     tint: "#2b2b2b",
   },
   {
     id: "custom-browser-login",
     name: "Browser Login",
     summary:
-      "Sign in to a service that offers no API, in an attended browser session.",
+      "Sign in to a service that publishes no API at all, in an attended session.",
     category: "Developer",
     support: "declared",
-    auth: ["browser-login", "account-registration"],
+    auth: ["browser-login"],
     capabilities: ["teaching", "recipes", "a2h", "verification"],
+    tint: "#2b2b2b",
+  },
+  {
+    /**
+     * The one that has no equivalent anywhere else: show it the way in once,
+     * and it replays without a model afterwards. Teaching is on by default
+     * here, because recording is the entire point of choosing this card.
+     */
+    id: "custom-record",
+    name: "Record a Sign-in",
+    summary:
+      "Demonstrate a sign-in once, review what was captured, then replay it without a model.",
+    category: "Developer",
+    support: "declared",
+    auth: ["browser-login"],
+    capabilities: ["teaching", "recipes", "a2h", "verification", "webmcp"],
+    defaultCapabilities: ["teaching", "recipes", "verification"],
+    tint: "#2b2b2b",
+  },
+  {
+    id: "custom-registration",
+    name: "Create an Account",
+    summary:
+      "Bring an account into being, including minting the password so nobody types one.",
+    category: "Developer",
+    support: "declared",
+    auth: ["account-registration"],
+    capabilities: [
+      "minted-password",
+      "prerequisites",
+      "a2h",
+      "verification",
+      "session-environment",
+    ],
+    defaultCapabilities: ["minted-password", "verification"],
+    tint: "#2b2b2b",
+  },
+  {
+    id: "custom-anonymous",
+    name: "Anonymous",
+    summary:
+      "Complete with nobody's name on it, and transfer ownership at the provider later.",
+    category: "Developer",
+    support: "declared",
+    auth: ["anonymous-claim"],
+    capabilities: ["verification", "a2h", "recipes"],
     tint: "#2b2b2b",
   },
 ];
@@ -648,6 +729,11 @@ export const declaredEntries: readonly CatalogEntry[] = [
     ["teaching", "recipes", "a2h"],
   ),
 ];
+
+/** A protocol card rather than a named service: the person supplies the service. */
+export function isCustomEntry(id: string): boolean {
+  return customEntries.some((entry) => entry.id === id);
+}
 
 export const catalog: readonly CatalogEntry[] = [
   ...serviceEntries,

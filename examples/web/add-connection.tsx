@@ -45,11 +45,14 @@ export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
     family: entry.auth[0]!,
     values: {},
     keyScope: "shared",
-    // Verification is not opt-in: a connection that never reads anything has
-    // not been shown to work, so it starts on and the toggle says why.
-    capabilities: entry.capabilities.includes("verification")
-      ? ["verification"]
-      : [],
+    // A card that exists for one capability starts with it on. Otherwise just
+    // verification, which is not opt-in: a connection that never reads
+    // anything has not been shown to work, and the toggle says why.
+    capabilities: entry.defaultCapabilities
+      ? [...entry.defaultCapabilities]
+      : entry.capabilities.includes("verification")
+        ? ["verification"]
+        : [],
     interruptions: "any",
     identity: "either",
   };
@@ -632,28 +635,34 @@ export function AddConnection({
               Custom
             </button>
           </div>
-          {entry.auth.length > 1 && (
-            <Field
-              label="Auth family"
-              hint="Every family this connector declares. The route a person actually gets is resolved from what you ask for in the next step."
-            >
-              {(id) => (
-                <select
-                  id={id}
-                  value={draft.family}
-                  onChange={(event) =>
-                    set({ family: event.target.value as AuthFamily })
-                  }
-                >
-                  {entry.auth.map((family) => (
-                    <option key={family} value={family}>
-                      {authFamilyLabels[family]}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-          )}
+          {/*
+            Every flow the connector declares, each one selectable and each
+            swapping in the form its protocol actually needs. A connector with
+            one flow still shows it: "which of these am I getting" is a fair
+            question even when the answer is short.
+          */}
+          <fieldset className="flow-list">
+            <legend className="fieldset-legend">
+              Flows this connector supports
+            </legend>
+            {entry.auth.map((family) => {
+              const [title, detail] = authFamilyLabels[family].split(" · ");
+              return (
+                <label className="flow" key={family}>
+                  <input
+                    type="radio"
+                    name="auth-family"
+                    checked={draft.family === family}
+                    onChange={() => set({ family, values: {} })}
+                  />
+                  <div>
+                    <span className="choice-title">{title}</span>
+                    {detail && <span className="choice-note">{detail}</span>}
+                  </div>
+                </label>
+              );
+            })}
+          </fieldset>
           <FamilyForm family={draft.family} draft={draft} set={set} />
           <div className="step-actions">
             <button

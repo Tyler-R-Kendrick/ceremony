@@ -392,11 +392,16 @@ kbd {
   font-size: 20px;
   font-weight: 600;
 }
+.section-note {
+  margin-block-start: 4px;
+  max-width: 68ch;
+  font-size: 13px;
+}
 .carousel-controls {
   display: inline-flex;
   gap: 8px;
 }
-.round-button {
+[data-surface="connect"] .round-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -407,7 +412,7 @@ kbd {
   border: 1px solid var(--c-line-soft);
   border-radius: 50%;
 }
-.round-button:hover:not(:disabled) {
+[data-surface="connect"] .round-button:hover:not(:disabled) {
   color: var(--c-ink);
   background: var(--c-raised);
 }
@@ -524,6 +529,11 @@ kbd {
   padding: 48px 0;
   text-align: center;
 }
+
+/*
+ * Controls that paint themselves, scoped so the surface-wide button reset
+ * above cannot outrank them on specificity.
+ */
 
 /* -------------------------------------------------------------- drawer --- */
 
@@ -755,6 +765,34 @@ kbd {
   font-size: 12.5px;
   line-height: 1.5;
 }
+.flow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.flow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  background: var(--c-raised);
+  border: 1px solid var(--c-line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.flow:has(input:checked) {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.flow:has(input:checked) .choice-title {
+  color: var(--c-accent);
+}
+.flow input {
+  margin: 2px 0 0;
+}
 .toggle-list {
   display: flex;
   flex-direction: column;
@@ -794,7 +832,7 @@ kbd {
 .step-actions .spacer {
   flex: 1;
 }
-.button-secondary {
+[data-surface="connect"] .button-secondary {
   padding: 9px 16px;
   color: var(--c-ink);
   font-size: 13px;
@@ -803,10 +841,10 @@ kbd {
   border: 1px solid var(--c-line);
   border-radius: 8px;
 }
-.button-secondary:hover {
+[data-surface="connect"] .button-secondary:hover {
   background: #232529;
 }
-.button-primary {
+[data-surface="connect"] .button-primary {
   padding: 9px 18px;
   color: #08090a;
   font-size: 13px;
@@ -815,10 +853,10 @@ kbd {
   border: 1px solid var(--c-ink);
   border-radius: 8px;
 }
-.button-primary:hover {
+[data-surface="connect"] .button-primary:hover {
   background: #fff;
 }
-.button-primary:disabled {
+[data-surface="connect"] .button-primary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

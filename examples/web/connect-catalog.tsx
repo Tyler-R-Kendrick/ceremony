@@ -3,6 +3,7 @@ import {
   authFamilyLabels,
   categories,
   categoryCounts,
+  customEntries,
   entriesInCategory,
   searchEntries,
   type Category,
@@ -156,18 +157,14 @@ export function ConnectorCard({
             {support.label}
           </span>
         </li>
-        {entry.auth.slice(0, 2).map((family) => (
+        {/* Every flow, not a count: "+2" is the two a reader most wanted. */}
+        {entry.auth.map((family) => (
           <li key={family}>
             <span className="badge">
               {authFamilyLabels[family].split(" · ")[0]}
             </span>
           </li>
         ))}
-        {entry.auth.length > 2 && (
-          <li>
-            <span className="badge">+{entry.auth.length - 2}</span>
-          </li>
-        )}
       </ul>
     </article>
   );
@@ -386,6 +383,27 @@ export function ConnectCatalog({
               </div>
               <ul className="card-grid">
                 {shown.map((entry) => (
+                  <li key={entry.id}>
+                    <ConnectorCard entry={entry} onOpen={onOpen} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!query && category === "all" && (
+            <section aria-labelledby="byo-heading">
+              <div className="section-head">
+                <div>
+                  <h2 id="byo-heading">Bring your own</h2>
+                  <p className="section-note">
+                    Every protocol this workspace can run. Point one at a
+                    service that is not listed below, or record a sign-in for a
+                    service that publishes no API at all.
+                  </p>
+                </div>
+              </div>
+              <ul className="card-grid">
+                {customEntries.map((entry) => (
                   <li key={entry.id}>
                     <ConnectorCard entry={entry} onOpen={onOpen} />
                   </li>

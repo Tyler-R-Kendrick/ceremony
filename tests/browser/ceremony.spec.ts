@@ -33,12 +33,19 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   await expect(all.getByRole("button", { name: "GitHub" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  // Searching narrows by name, summary and auth family alike.
+  // Searching narrows by name, summary and auth family alike: none of these
+  // rows carries the words "browser login" in its name, and all three are
+  // reached through that family.
   const search = page.getByLabel("Search connectors");
   await search.fill("browser login");
-  await expect(
-    page.getByRole("region", { name: /Results for/ }).getByRole("button"),
-  ).toHaveCount(2);
+  const found = page
+    .getByRole("region", { name: /Results for/ })
+    .getByRole("button");
+  await expect(found).toContainText([
+    "Browser Login",
+    "Record a Sign-in",
+    "Legacy Portal",
+  ]);
   await search.fill("");
 
   // A category narrows the grid and the featured strip steps aside.
@@ -48,6 +55,21 @@ test("the directory filters, searches and hands a chosen service to the drawer",
     page.getByRole("region", { name: "Commerce" }).getByRole("button"),
   ).toContainText(["Stripe"]);
   await page.getByRole("button", { name: /^Any category/ }).click();
+
+  // Every family this workspace can run is offered as its own card, including
+  // the one that records a sign-in rather than collecting a credential.
+  const byo = page.getByRole("region", { name: "Bring your own" });
+  await expect(byo.getByRole("button")).toHaveCount(9);
+  await byo.getByRole("button", { name: "Record a Sign-in" }).click();
+  const recording = page.getByRole("dialog", { name: "Add Connection" });
+  await recording
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  // Teaching is pre-checked: recording is the reason to choose that card.
+  await expect(
+    recording.getByRole("checkbox", { name: /Teach this connection/ }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
 
   // Opening a service starts on Configure, not on somebody's credentials.
   await all.getByRole("button", { name: "Stripe" }).click();

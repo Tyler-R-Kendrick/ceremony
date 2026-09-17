@@ -14,7 +14,13 @@ import { Environment } from "./environment.js";
 import { TeachingConnection } from "./teaching.js";
 import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
-import { catalog, capabilityDetails, type CatalogEntry } from "./catalog.js";
+import {
+  authFamilyLabels,
+  capabilityDetails,
+  catalog,
+  isCustomEntry,
+  type CatalogEntry,
+} from "./catalog.js";
 import { ConnectCatalog } from "./connect-catalog.js";
 import { AddConnection, type ConnectionDraft } from "./add-connection.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
@@ -130,15 +136,19 @@ function App() {
     if (!connector || entry.support === "declared")
       return (
         <div className="ceremony">
-          <h3>Author this connector first</h3>
+          <h3>
+            {isCustomEntry(entry.id)
+              ? "Name the service this protocol belongs to"
+              : "Author this connector first"}
+          </h3>
           <p>
-            {entry.name} has no executable manifest in this workspace yet. The
-            workflow studio creates the connector definition, its authentication
-            methods, Arazzo workflows and human fallbacks; publishing one makes
-            it connectable here.
+            {isCustomEntry(entry.id)
+              ? `You chose ${authFamilyLabels[draft.family]}. The workflow studio turns that into a connector definition — its methods, Arazzo workflows and human fallbacks — against the origin you give it. Publishing one makes it connectable here, and reusable by anyone else in this workspace.`
+              : `${entry.name} has no executable manifest in this workspace yet. The workflow studio creates the connector definition, its authentication methods, Arazzo workflows and human fallbacks; publishing one makes it connectable here.`}
           </p>
           <p className="field-hint">
-            Selected family: {draft.family}. Nothing has been stored.
+            Nothing has been stored. What you entered stays in this draft until
+            a definition is published.
           </p>
           <button
             type="button"
