@@ -13,7 +13,7 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
   test.setTimeout(60000);
   const fixture = await teachingHostedFixture();
   try {
-    await page.goto(fixture.origin);
+    await page.goto(`${fixture.origin}/?connector=github`);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Connect GitHub", exact: true }),

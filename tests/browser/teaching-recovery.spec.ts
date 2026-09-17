@@ -18,7 +18,7 @@ test("AC-20 AC-30: private recovery verifies an existing app after a lost one-sh
   try {
     await fixture.login(context, "recovery-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/`);
+    await page.goto(`${fixture.origin}/?connector=github`);
     await page
       .getByLabel("GitHub account or organization")
       .fill("fixture-owner");

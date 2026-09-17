@@ -110,7 +110,7 @@ for (const policy of ["null", "throw"] as const) {
       }, policy);
       await fixture.login(context, "popup-owner");
       await fixture.providerPages(context);
-      await page.goto(fixture.origin);
+      await page.goto(`${fixture.origin}/?connector=github`);
       await page
         .getByLabel("GitHub account or organization")
         .fill("fixture-owner");
