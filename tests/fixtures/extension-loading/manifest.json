@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Ceremony extension loading fixture",
+  "version": "0.0.1",
+  "permissions": ["scripting"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "worker.js" }
+}

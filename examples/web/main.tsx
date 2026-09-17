@@ -13,6 +13,7 @@ import { Environment } from "./environment.js";
 import { TeachingConnection } from "./teaching.js";
 import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
+const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
 // Simulated providers are an explicit test harness, never the default product.
@@ -391,6 +392,9 @@ function App() {
                 </div>
               </section>
             </div>
+            <Suspense fallback={<p>Loading extension setup…</p>}>
+              <ExtensionSetup />
+            </Suspense>
             <AgentConnectors providers={config.agentProviders} />
           </>
         )}
