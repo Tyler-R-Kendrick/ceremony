@@ -93,6 +93,7 @@ function Glyph({ name }: { name: string }) {
   };
   return (
     <svg
+      className="glyph"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

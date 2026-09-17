@@ -72,6 +72,38 @@
   outline-offset: 2px;
 }
 
+/*
+ * The shared stylesheet sizes `input` as a full-width 44px text field, which
+ * predates this surface having any radios or checkboxes. Left alone, a radio
+ * stretches to 168px and squeezes its own label to one word per line.
+ */
+[data-surface="connect"] input[type="radio"],
+[data-surface="connect"] input[type="checkbox"] {
+  display: inline-block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--c-accent);
+}
+
+/*
+ * An inline SVG with a viewBox and no width/height has no intrinsic size: it
+ * takes the replaced-element default, or stretches to whatever the container
+ * offers. Sizing the component once is the fix; sizing each call site is how
+ * one gets missed and renders 300px wide.
+ */
+.glyph {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
 /* ---------------------------------------------------------------- rail --- */
 
 .connect-rail {
@@ -391,9 +423,6 @@ kbd {
   padding: 0;
   list-style: none;
 }
-.card-grid:last-child {
-  margin-block-end: 0;
-}
 .connector-card {
   position: relative;
   display: flex;
@@ -681,6 +710,12 @@ kbd {
   margin: 0;
   padding: 0;
   border: 0;
+}
+.choice-grid > legend,
+.toggle-list > legend {
+  grid-column: 1 / -1;
+  float: none;
+  padding: 0;
 }
 .choice {
   display: flex;
