@@ -8,7 +8,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # This job's cost is three browser engines, and the cap was already the
+    # binding constraint before anything here changed: on main at d741eed the
+    # job took 22m03s against 25, so under three minutes of headroom, one slow
+    # runner away from failing on its own.
+    #
+    # The connector directory then added to the same job — a test covering the
+    # browse-open-step-through path, and a heavier page on every navigation,
+    # across chromium, firefox and webkit. Measured locally on chromium alone:
+    # 3.8 minutes before, 4.5 after, about 18% more. Eighteen percent on twelve
+    # percent of headroom is the timeout.
+    #
+    # So the ceiling moves rather than the coverage: dropping the one test that
+    # exercises the new surface would buy seconds and lose the only check that
+    # the directory hands a chosen service to the drawer at all. Forty leaves
+    # room for runner variance instead of re-tuning this on the next change.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
