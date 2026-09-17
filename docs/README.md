@@ -6,6 +6,7 @@
 - [Embedding](integration.md): framework-neutral and React interfaces, host-owned styles/navigation and consumer examples.
 - [API and protocol reference](reference.md): detailed library examples, WebMCP hooks and presentation contracts.
 - [Live authentication](live-auth.md), [service support](service-examples.md), and [auth catalog](auth-catalog.md): real adapters versus simulations and unsupported profiles.
+- [Connector directory](connector-directory.md): browsing before committing, and the four-step Add Connection drawer that ends in a real ceremony.
 - [Workflow studio](workflow-studio.md): author new connectors and ceremonies, save drafts, validate and export Arazzo/manifest definitions.
 - [Formal specifications](specifications/README.md): versioned connector manifests, AI decision contracts, Arazzo/A2H profiles and executable conformance.
 
