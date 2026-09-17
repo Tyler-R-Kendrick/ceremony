@@ -1,3 +1,4 @@
+import { snapshotSelectors } from "../../src/core/browser-contracts.js";
 import {
   mappingSchema,
   validateMapping,
@@ -92,9 +93,8 @@ if (!installed.ceremonyAdapterInstalled) {
       document: documentRef,
       origin: location.origin,
       controls: controls.slice(0, 40),
-      challenge: !!document.querySelector(
-        'iframe[src*="captcha"], [data-sitekey], input[autocomplete="one-time-code"]',
-      ),
+      challenge: !!document.querySelector(snapshotSelectors.challenge),
+      passkey: !!document.querySelector(snapshotSelectors.passkey),
     });
   }
   chrome.runtime.onMessage.addListener((raw, sender, reply) => {

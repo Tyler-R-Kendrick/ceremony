@@ -11,6 +11,7 @@ function page(): Observation {
     document: id(1),
     origin,
     challenge: false,
+    passkey: false,
     controls: [
       {
         ref: id(2),

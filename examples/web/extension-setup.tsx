@@ -1,4 +1,5 @@
 import { browserLoginCatalog } from "../../src/browser-login/catalog.js";
+import { attachHandoffPort } from "../../src/browser-login/handoffs.js";
 import { useEffect, useState } from "react";
 
 type Metadata = {
@@ -8,6 +9,12 @@ type Metadata = {
   downloadUrl: string;
   sha256: string;
 };
+type HandoffPort = {
+  postMessage(message: unknown): void;
+  disconnect(): void;
+  onMessage: { addListener(listener: (message: unknown) => void): void };
+  onDisconnect: { addListener(listener: () => void): void };
+};
 type Runtime = {
   lastError?: { message?: string };
   sendMessage(
@@ -15,6 +22,7 @@ type Runtime = {
     message: unknown,
     callback: (reply: unknown) => void,
   ): void;
+  connect?(id: string, info: { name: string }): HandoffPort;
 };
 export default function ExtensionSetup() {
   const [metadata, setMetadata] = useState<Metadata>();
@@ -84,6 +92,18 @@ export default function ExtensionSetup() {
       document.removeEventListener("ceremony-check-extension", handler);
     };
   }, [metadata]);
+  useEffect(() => {
+    if (!connected || !metadata) return;
+    const runtime = (
+      globalThis as typeof globalThis & { chrome?: { runtime?: Runtime } }
+    ).chrome?.runtime;
+    if (!runtime?.connect) return;
+    const port = runtime.connect(metadata.extensionId, {
+      name: "ceremony.handoffs",
+    });
+    const stop = attachHandoffPort(port);
+    return () => stop();
+  }, [connected, metadata]);
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -184,8 +204,10 @@ export default function ExtensionSetup() {
       <p>
         In the extension, enable multi-step mode for identifier → password
         login. An approved run allows at most two submissions to the exact
-        selected origin. CAPTCHA, MFA and consent remain human steps. Advanced
-        frame and popup targeting requires explicit destination approval.
+        selected origin. CAPTCHA, MFA, passkeys and consent emit handoff events
+        the owning app can subscribe to; they stay human unless that app
+        resolves them. Advanced frame and popup targeting requires explicit
+        destination approval.
       </p>
       <details>
         <summary>Building locally</summary>

@@ -12,6 +12,7 @@ export const observationSchema = z.strictObject({
   origin: z.string().url(),
   controls: z.array(controlSchema).max(40),
   challenge: z.boolean(),
+  passkey: z.boolean(),
 });
 export type Observation = z.infer<typeof observationSchema>;
 export type Control = z.infer<typeof controlSchema>;
@@ -32,7 +33,7 @@ export function validateMapping(
   page: Observation,
   mapping: Mapping,
 ): Step | undefined {
-  if (page.challenge) return;
+  if (page.challenge || page.passkey) return;
   const fields = [mapping.identifier, mapping.password].filter(
     (value): value is string => !!value,
   );

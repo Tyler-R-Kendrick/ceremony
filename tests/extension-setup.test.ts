@@ -36,6 +36,15 @@ test("setup offers actual download and instructions, gates opening on versioned 
           calls.push(message.type);
           callback(enabled ? { protocol: 1, version: "0.1.0" } : undefined);
         },
+        connect(id: string, info: { name: string }) {
+          calls.push(`connect:${info.name}:${id}`);
+          return {
+            postMessage() {},
+            disconnect() {},
+            onMessage: { addListener() {} },
+            onDisconnect: { addListener() {} },
+          };
+        },
       },
     },
   };
@@ -84,6 +93,10 @@ test("setup offers actual download and instructions, gates opening on versioned 
       open.click();
     });
     assert.equal(calls.at(-1), "ceremony.open");
+    assert.equal(
+      calls.includes(`connect:ceremony.handoffs:${"a".repeat(32)}`),
+      true,
+    );
   } finally {
     await act(async () => root.unmount());
     for (const [key, descriptor] of originals) {

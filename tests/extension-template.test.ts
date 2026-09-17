@@ -19,6 +19,7 @@ function page(): Observation {
     document: "00000000-0000-4000-8000-000000000005",
     origin: "https://owned.example",
     challenge: false,
+    passkey: false,
     controls: [
       {
         ref: identifier,
@@ -84,6 +85,9 @@ test("ambiguous forms, human challenges, and malformed inference stop", async ()
   const observed = page();
   observed.challenge = true;
   assert.equal(matchTemplate(observed), undefined);
+  const passkey = page();
+  passkey.passkey = true;
+  assert.equal(matchTemplate(passkey), undefined);
   const ambiguous = page();
   ambiguous.controls.push({
     ...ambiguous.controls[0]!,

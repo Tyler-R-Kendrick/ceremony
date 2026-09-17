@@ -370,3 +370,90 @@ export function snapshotPageSource(indexAttribute: string): string {
       element.setAttribute('${indexAttribute}', String(index)));
   })()`;
 }
+
+/**
+ * Why a person, or a future owning-app resolver, has to take part. Read from
+ * the page or the response, never inferred from prose.
+ */
+export const humanStepReasons = [
+  "human-challenge",
+  "passkey",
+  "native-dialog",
+] as const;
+export type HumanStepReason = (typeof humanStepReasons)[number];
+
+/** Named walls a handoff hook may be asked to resolve. */
+export const handoffReasons = [
+  "human-challenge",
+  "passkey-required",
+  "native-dialog",
+  "unsupported-page",
+] as const;
+export const handoffReasonSchema = z.enum(handoffReasons);
+export type HandoffReason = z.infer<typeof handoffReasonSchema>;
+
+/**
+ * A portable handoff notice. No secrets, query strings, or provider DOM.
+ * `completed` from a resolver is a claim: the run resumes and re-reads the
+ * page; verification still needs provider evidence.
+ */
+export const handoffEventSchema = z.strictObject({
+  kind: z.literal("handoff"),
+  runId: z.string().uuid(),
+  reason: handoffReasonSchema,
+  origin: z
+    .string()
+    .url()
+    .refine((value) => {
+      try {
+        return new URL(value).origin === value;
+      } catch {
+        return false;
+      }
+    }, "Expected an exact origin"),
+  attempt: z.number().int().positive().max(8),
+});
+export type HandoffEvent = z.infer<typeof handoffEventSchema>;
+
+export const handoffResolutionSchema = z.enum([
+  "completed",
+  "declined",
+  "unavailable",
+]);
+export type HandoffResolution = z.infer<typeof handoffResolutionSchema>;
+
+export interface HandoffHooks {
+  /** Observer. Cannot change the outcome or authorize a submission. */
+  onHandoff?: ((event: HandoffEvent) => void | Promise<void>) | undefined;
+  /**
+   * Participation. An owning app may resolve a passkey or similar device
+   * ceremony. Missing, invalid, or throwing resolvers are `unavailable`.
+   */
+  resolveHandoff?:
+    | ((event: HandoffEvent) => HandoffResolution | Promise<HandoffResolution>)
+    | undefined;
+}
+
+/** Hooks cannot replay a reserved submission or turn a refusal into success. */
+export async function offerHandoff(
+  event: HandoffEvent,
+  hooks: HandoffHooks = {},
+): Promise<HandoffResolution> {
+  const published = handoffEventSchema.parse(event);
+  try {
+    void Promise.resolve(hooks.onHandoff?.(published)).catch(() => {});
+  } catch {
+    /* Observers cannot change the handoff outcome. */
+  }
+  try {
+    const pending = hooks.resolveHandoff?.(published);
+    const resolution = await Promise.resolve(
+      pending === undefined ? "unavailable" : pending,
+    );
+    return resolution === "completed" || resolution === "declined"
+      ? resolution
+      : "unavailable";
+  } catch {
+    return "unavailable";
+  }
+}

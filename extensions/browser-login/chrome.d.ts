@@ -18,6 +18,20 @@ declare const chrome: {
     onInstalled: { addListener(listener: () => void): void };
     onMessage: { addListener(listener: ExtensionListener): void };
     onMessageExternal: { addListener(listener: ExtensionListener): void };
+    onConnectExternal: {
+      addListener(
+        listener: (port: {
+          name: string;
+          sender?: ExtensionSender;
+          postMessage(message: unknown): void;
+          disconnect(): void;
+          onMessage: {
+            addListener(listener: (message: unknown) => void): void;
+          };
+          onDisconnect: { addListener(listener: () => void): void };
+        }) => void,
+      ): void;
+    };
     sendMessage(message: unknown): Promise<unknown>;
   };
   action: { onClicked: { addListener(listener: () => void): void } };

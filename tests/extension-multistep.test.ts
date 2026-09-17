@@ -21,7 +21,8 @@ const password = "multistep-fixture-password-7!";
 const account = "account-1";
 const deadline = 15_000;
 const quietWindow = 750;
-type Mode = "combined" | "split" | "delayed" | "redirect" | "same-document";
+type Mode =
+  "combined" | "split" | "delayed" | "redirect" | "same-document" | "passkey";
 type Post = { path: string; fields: Record<string, string> };
 
 function form(kind: "identifier" | "password" | "combined", action: string) {
@@ -130,7 +131,12 @@ async function fixture(mode: Mode, redirectOrigin?: string) {
           : "";
       html(response, initial + script);
     } else if (path === "/password")
-      html(response, form("password", "/password"));
+      html(
+        response,
+        mode === "passkey"
+          ? '<label>Account <input autocomplete="username webauthn"></label>'
+          : form("password", "/password"),
+      );
     else if (path === "/account")
       html(
         response,
@@ -410,6 +416,27 @@ test(
             }),
         );
       }
+
+      await t.test(
+        "passkey page after identifier emits a classified handoff and does not send the password",
+        { timeout: 30_000 },
+        () =>
+          scenario("passkey", async (b, site) => {
+            await b.tab.goto(`${site.origin}/login`);
+            await configure(b, b.tab.url());
+            await inspectAndApprove(b);
+            await status(b.ui, /Passkey required/);
+            await b.tab.waitForURL(`${site.origin}/password`);
+            await b.tab.waitForTimeout(quietWindow);
+            assert.deepEqual(site.posts, [
+              { path: "/identifier", fields: { username } },
+            ]);
+            assert.equal(
+              await b.tab.locator('input[autocomplete~="webauthn"]').count(),
+              1,
+            );
+          }),
+      );
 
       await t.test(
         "manual profile submits but does not claim fixture verification",

@@ -7,6 +7,13 @@ import {
   matchTemplate,
 } from "../../src/browser-login/templates.js";
 import { selectInitialStep } from "../../src/browser-login/flows.js";
+import {
+  classifyHandoff,
+  offerHandoff,
+  type HandoffPort,
+  type HandoffReason,
+  type HandoffResolution,
+} from "../../src/browser-login/handoffs.js";
 
 const request = z.discriminatedUnion("type", [
   z.strictObject({
@@ -78,6 +85,37 @@ chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
     reply({ protocol: 1, version: chrome.runtime.getManifest().version });
   })().catch(() => reply({ error: "unavailable" }));
   return true;
+});
+const handoffPorts = new Set<HandoffPort>();
+const handoffResolvers = new Map<string, (value: HandoffResolution) => void>();
+chrome.runtime.onConnectExternal.addListener((port) => {
+  void (async () => {
+    const config = (await (
+      await fetch(chrome.runtime.getURL("config.json"))
+    ).json()) as { appOrigins: string[] };
+    const origin = port.sender?.url && new URL(port.sender.url).origin;
+    if (
+      !origin ||
+      !config.appOrigins.includes(origin) ||
+      port.name !== "ceremony.handoffs"
+    )
+      return port.disconnect();
+    handoffPorts.add(port);
+    port.onMessage.addListener((raw) => {
+      const parsed = z
+        .strictObject({
+          type: z.literal("ceremony.resolve-handoff"),
+          runId: z.string().uuid(),
+          resolution: z.enum(["completed", "declined", "unavailable"]),
+        })
+        .safeParse(raw);
+      if (!parsed.success) return;
+      handoffResolvers.get(parsed.data.runId)?.(parsed.data.resolution);
+    });
+    port.onDisconnect.addListener(() => {
+      handoffPorts.delete(port);
+    });
+  })().catch(() => port.disconnect());
 });
 chrome.runtime.onMessage.addListener((raw, sender, reply) => {
   if (
@@ -192,6 +230,8 @@ type MultiRun = {
   approved: boolean;
   submissions: number;
   usedDocuments: string[];
+  handoffs: number;
+  resume: boolean;
   next: "initial" | "password" | "verification";
   documentId: string;
   page: z.infer<typeof observationSchema>;
@@ -239,6 +279,64 @@ async function checkpoint(id: string, run: MultiRun) {
     throw new Error("cancelled");
   }
 }
+
+async function offerRunHandoff(
+  id: string,
+  run: MultiRun,
+  reason: HandoffReason,
+) {
+  if (run.handoffs >= 2) {
+    run.phase = "done";
+    await checkpoint(id, run);
+    return { status: "handoff" as const, reason, resolution: "unavailable" };
+  }
+  run.handoffs++;
+  const event = {
+    kind: "handoff" as const,
+    runId: id,
+    reason,
+    origin: run.origin,
+    attempt: run.handoffs,
+  };
+  await checkpoint(id, run);
+  const resolution = await offerHandoff(event, {
+    onHandoff(published) {
+      for (const port of handoffPorts)
+        port.postMessage({ type: "ceremony.handoff", event: published });
+    },
+    resolveHandoff: handoffPorts.size
+      ? (published) =>
+          new Promise((resolve) => {
+            const finish = (value: HandoffResolution) => {
+              clearTimeout(timer);
+              if (handoffResolvers.get(published.runId) === finish)
+                handoffResolvers.delete(published.runId);
+              resolve(value);
+            };
+            const timer = setTimeout(
+              () => finish("unavailable"),
+              Math.max(0, run.expires - Date.now()),
+            );
+            handoffResolvers.set(published.runId, finish);
+          })
+      : undefined,
+  });
+  if (cancelled.has(id)) throw new Error("cancelled");
+  if (resolution === "completed") {
+    run.resume = true;
+    if (run.next === "password") run.next = "verification";
+    run.phase = "waiting";
+    await checkpoint(id, run);
+    return { status: "waiting" as const };
+  }
+  run.phase = "done";
+  await checkpoint(id, run);
+  return {
+    status: "handoff" as const,
+    reason,
+    resolution: resolution === "declined" ? "declined" : "unavailable",
+  };
+}
 async function inspectMulti(input: Extract<Input, { type: "multi-inspect" }>) {
   const originalOrigin = admittedOrigin(input.origin);
   if (input.origin !== originalOrigin) throw new Error("exact origin required");
@@ -277,6 +375,8 @@ async function inspectMulti(input: Extract<Input, { type: "multi-inspect" }>) {
     approved: false,
     submissions: 0,
     usedDocuments: [],
+    handoffs: 0,
+    resume: false,
     next: "initial",
     documentId: "",
     page: undefined as unknown as MultiRun["page"],
@@ -317,16 +417,15 @@ async function advanceMulti(
       if (!run.approved || run.phase !== "waiting") throw new Error("phase");
       const fresh = await observeMulti(run);
       if (
-        run.usedDocuments.includes(fresh.documentId) ||
-        fresh.page.document === run.page.document
+        !run.resume &&
+        (run.usedDocuments.includes(fresh.documentId) ||
+          fresh.page.document === run.page.document)
       )
         return { status: "waiting" };
+      run.resume = false;
       Object.assign(run, fresh);
-      if (run.page.challenge) {
-        run.phase = "done";
-        await checkpoint(id, run);
-        return { status: "handoff" };
-      }
+      const classified = classifyHandoff(run.page);
+      if (classified) return offerRunHandoff(id, run, classified);
       if (run.next === "verification") {
         let verified = false;
         if (
@@ -351,11 +450,12 @@ async function advanceMulti(
         };
       }
       const step = matchTemplate(run.page);
-      if (!step?.mapping.password || step.mapping.identifier) {
-        run.phase = "done";
-        await checkpoint(id, run);
-        return { status: "handoff" };
-      }
+      if (!step?.mapping.password || step.mapping.identifier)
+        return offerRunHandoff(
+          id,
+          run,
+          classifyHandoff(run.page) ?? "unsupported-page",
+        );
       run.phase = "ready";
       await checkpoint(id, run);
       return { status: "ready", needs: "password" };

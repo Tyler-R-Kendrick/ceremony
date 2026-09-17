@@ -236,7 +236,7 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
             ? { password }
             : {}),
           username,
-        })) as { status?: string; error?: string };
+        })) as { status?: string; error?: string; reason?: string };
         while (current === epoch && credentials && Date.now() < expires) {
           if (result.error) throw new Error(result.error);
           if (result.status === "waiting") {
@@ -264,7 +264,13 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
               : result.status === "submitted-unverified"
                 ? "Submitted. Verify the account yourself; authentication is unverified."
                 : result.status === "handoff"
-                  ? "Human participation required. Automation stopped."
+                  ? result.reason === "passkey-required"
+                    ? "Passkey required. The owning app can resolve this handoff; automation stopped."
+                    : result.reason === "human-challenge"
+                      ? "Human challenge required. Automation stopped."
+                      : result.reason === "native-dialog"
+                        ? "A browser dialog requires you. Automation stopped."
+                        : "Human participation required. Automation stopped."
                   : "Submission refused. Check the target page.";
           resetRun();
           status.textContent = text;
