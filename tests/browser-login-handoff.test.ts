@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  handoffEventSchema,
-  offerHandoff,
-  type HandoffEvent,
-} from "../src/core/browser-contracts.js";
-import {
   attachHandoffPort,
   classifyHandoff,
   composedHandoffHooks,
+  handoffEventSchema,
+  offerHandoff,
   subscribeHandoffs,
+  type HandoffEvent,
   type HandoffPort,
 } from "../src/browser-login/handoffs.js";
 import {

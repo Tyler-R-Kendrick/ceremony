@@ -9,7 +9,6 @@ import {
   type CeremonyStep,
   type CeremonyStepAction,
   type DriverAction,
-  type HandoffResolution,
   type HumanStepReason,
   type PageSnapshot,
   type SnapshotElement,
@@ -53,7 +52,7 @@ export type HumanParticipationRequest = {
  * needs provider evidence. `declined` is a refusal. `unavailable` means no
  * person could be reached at all.
  */
-export type HumanParticipationResult = HandoffResolution;
+export type HumanParticipationResult = "completed" | "declined" | "unavailable";
 
 export interface HumanParticipation {
   /** The connector's declared participation policy. */

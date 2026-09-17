@@ -1,6 +1,10 @@
-import { browserLoginCatalog } from "../../src/browser-login/catalog.js";
-import { attachHandoffPort } from "../../src/browser-login/handoffs.js";
 import { useEffect, useState } from "react";
+
+const discovery = [
+  ["GitHub", "https://github.com/login"],
+  ["Google", "https://accounts.google.com/ServiceLogin"],
+  ["Microsoft", "https://login.microsoftonline.com/"],
+] as const;
 
 type Metadata = {
   version: string;
@@ -101,8 +105,16 @@ export default function ExtensionSetup() {
     const port = runtime.connect(metadata.extensionId, {
       name: "ceremony.handoffs",
     });
-    const stop = attachHandoffPort(port);
-    return () => stop();
+    port.onMessage.addListener((raw: unknown) => {
+      const message = raw as { type?: string; event?: { runId?: string } };
+      if (message.type !== "ceremony.handoff" || !message.event?.runId) return;
+      port.postMessage({
+        type: "ceremony.resolve-handoff",
+        runId: message.event.runId,
+        resolution: "unavailable",
+      });
+    });
+    return () => port.disconnect();
   }, [connected, metadata]);
   async function copy(text: string) {
     try {
@@ -188,18 +200,16 @@ export default function ExtensionSetup() {
         sequence. Catalog links never grant credential access.
       </p>
       <ul>
-        {browserLoginCatalog
-          .filter((profile) => profile.discoveryOnly)
-          .map((profile) => (
-            <li key={profile.id}>
-              <a href={profile.entry} target="_blank" rel="noopener noreferrer">
-                {profile.provider} sign-in
-              </a>
-              {
-                " — profile pending validation; account completion requires your review."
-              }
-            </li>
-          ))}
+        {discovery.map(([provider, entry]) => (
+          <li key={entry}>
+            <a href={entry} target="_blank" rel="noopener noreferrer">
+              {provider} sign-in
+            </a>
+            {
+              " — profile pending validation; account completion requires your review."
+            }
+          </li>
+        ))}
       </ul>
       <p>
         In the extension, enable multi-step mode for identifier → password
