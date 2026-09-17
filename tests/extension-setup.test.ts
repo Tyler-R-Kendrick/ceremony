@@ -36,6 +36,15 @@ test("setup offers actual download and instructions, gates opening on versioned 
           calls.push(message.type);
           callback(enabled ? { protocol: 1, version: "0.1.0" } : undefined);
         },
+        connect(id: string, info: { name: string }) {
+          calls.push(`connect:${info.name}:${id}`);
+          return {
+            postMessage() {},
+            disconnect() {},
+            onMessage: { addListener() {} },
+            onDisconnect: { addListener() {} },
+          };
+        },
       },
     },
   };
@@ -58,6 +67,19 @@ test("setup offers actual download and instructions, gates opening on versioned 
       document.querySelector("a[download]")?.getAttribute("href"),
       "/extension/ceremony-browser-login.zip",
     );
+    assert.match(document.body.textContent!, /Provider catalog/);
+    assert.match(document.body.textContent!, /pending validation/);
+    assert.match(document.body.textContent!, /multi-step mode/);
+    const catalogHrefs = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        'a[target="_blank"][rel="noopener noreferrer"]',
+      ),
+    ).map((anchor) => anchor.getAttribute("href"));
+    assert.deepEqual(catalogHrefs, [
+      "https://github.com/login",
+      "https://accounts.google.com/ServiceLogin",
+      "https://login.microsoftonline.com/",
+    ]);
     const open = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent === "Open browser login",
     )!;
@@ -71,6 +93,10 @@ test("setup offers actual download and instructions, gates opening on versioned 
       open.click();
     });
     assert.equal(calls.at(-1), "ceremony.open");
+    assert.equal(
+      calls.includes(`connect:ceremony.handoffs:${"a".repeat(32)}`),
+      true,
+    );
   } finally {
     await act(async () => root.unmount());
     for (const [key, descriptor] of originals) {

@@ -18,8 +18,13 @@ let modelTimer: ReturnType<typeof setTimeout> | undefined;
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 let expires = 0;
 let epoch = 0;
+let multi = false;
+let credentials: { username: string; password: string } | undefined;
+const value = (id: string) =>
+  (document.querySelector(`#${id}`) as HTMLInputElement | null)?.value.trim() ??
+  "";
 const infer = document.querySelector("#infer") as HTMLButtonElement;
-async function message(payload: unknown): Promise<unknown> {
+async function message(payload: unknown, timeout = 8000): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -32,7 +37,7 @@ async function message(payload: unknown): Promise<unknown> {
                 "Extension did not reply; check the target tab before retrying.",
               ),
             ),
-          8000,
+          timeout,
         );
       }),
     ]);
@@ -48,6 +53,9 @@ function stopModel() {
   infer.disabled = false;
 }
 function resetRun() {
+  credentials = undefined;
+  multi = false;
+  (document.querySelector("#inspect") as HTMLButtonElement).disabled = false;
   stopModel();
   clearTimeout(expiryTimer);
   expiryTimer = undefined;
@@ -93,11 +101,37 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
     document.querySelector("#target") as HTMLInputElement
   ).value.trim();
   const current = ++epoch;
+  const oldRun = runId;
   resetRun();
+  if (oldRun) void message({ type: "cancel", runId: oldRun }).catch(() => {});
+  multi = !!(document.querySelector("#multistep") as HTMLInputElement | null)
+    ?.checked;
   status.textContent = "Checking…";
   try {
     const origin = admittedOrigin(target);
-    if (!(await chrome.permissions.request({ origins: [`${origin}/*`] })))
+    const frameId = Number(value("frame-id") || "0");
+    const popupUrl = value("popup-url");
+    if (!multi && (frameId !== 0 || popupUrl || value("frame-origin")))
+      throw new Error("Opt in to multi-step mode for frame or popup driving.");
+    const topOrigin = popupUrl ? admittedOrigin(popupUrl) : origin;
+    const frameOrigin =
+      value("frame-origin") || (frameId === 0 ? topOrigin : "");
+    if (
+      multi &&
+      (!Number.isSafeInteger(frameId) ||
+        frameId < 0 ||
+        !frameOrigin ||
+        admittedOrigin(frameOrigin) !== frameOrigin)
+    )
+      throw new Error("Enter a frame ID and exact approved frame origin.");
+    const origins = [
+      ...new Set([origin, ...(multi ? [topOrigin, frameOrigin] : [])]),
+    ];
+    if (
+      !(await chrome.permissions.request({
+        origins: origins.map((item) => `${item}/*`),
+      }))
+    )
       throw new Error("Site permission was not granted.");
     const tabs = (await chrome.tabs.query({})).filter(
       (candidate) => candidate.url === new URL(target).href,
@@ -107,11 +141,34 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
       throw new Error(
         "Open exactly one tab at this login URL first; duplicate tabs are ambiguous.",
       );
-    const result = (await message({
-      type: "inspect",
-      tabId: tab.id,
-      origin,
-    })) as {
+    const popups = popupUrl
+      ? (await chrome.tabs.query({})).filter(
+          (candidate) => candidate.url === new URL(popupUrl).href,
+        )
+      : [];
+    if (popupUrl && (popups.length !== 1 || popups[0]?.id === undefined))
+      throw new Error("Open exactly one popup at the selected URL.");
+    if (current !== epoch) return;
+    const result = (await message(
+      multi
+        ? {
+            type: "multi-inspect",
+            tabId: tab.id,
+            origin,
+            frameId,
+            frameOrigin,
+            ...(popupUrl
+              ? { popupTabId: popups[0]!.id, popupUrl: new URL(popupUrl).href }
+              : {}),
+            profile: value("profile"),
+            expectedAccount: value("expected-account"),
+          }
+        : {
+            type: "inspect",
+            tabId: tab.id,
+            origin,
+          },
+    )) as {
       runId?: string;
       page?: typeof page;
       expires?: number;
@@ -158,6 +215,89 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
       (step.mapping.password && !password)
     )
       throw new Error("Enter the credentials required by the mapping.");
+    if (multi) {
+      if (!password)
+        throw new Error("Enter the password for the approved login sequence.");
+      const current = epoch;
+      const approvedRun = runId;
+      credentials = { username, password };
+      clearSecrets();
+      step = undefined;
+      review.hidden = true;
+      infer.hidden = true;
+      (document.querySelector("#inspect") as HTMLButtonElement).disabled = true;
+      status.textContent = "Running approved login sequence…";
+      const remaining = () => Math.max(1000, expires - Date.now());
+      try {
+        let result = (await message(
+          {
+            type: "multi-submit",
+            runId: approvedRun,
+            approve: true,
+            ...(page.controls.some((c) => c.kind === "password")
+              ? { password }
+              : {}),
+            username,
+          },
+          remaining(),
+        )) as { status?: string; error?: string; reason?: string };
+        while (current === epoch && credentials && Date.now() < expires) {
+          if (result.error) throw new Error(result.error);
+          if (result.status === "waiting") {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            if (current !== epoch || !credentials) return;
+            result = (await message(
+              { type: "multi-observe", runId: approvedRun },
+              remaining(),
+            )) as typeof result;
+            continue;
+          }
+          if (result.status === "ready") {
+            if (current !== epoch || !credentials) return;
+            result = (await message(
+              {
+                type: "multi-submit",
+                runId: approvedRun,
+                approve: false,
+                username: credentials.username,
+                password: credentials.password,
+              },
+              remaining(),
+            )) as typeof result;
+            continue;
+          }
+          const text =
+            result.status === "verified-fixture"
+              ? "Verified fixture account."
+              : result.status === "submitted-unverified"
+                ? "Submitted. Verify the account yourself; authentication is unverified."
+                : result.status === "handoff"
+                  ? result.reason === "passkey-required"
+                    ? "Passkey required. The owning app can resolve this handoff; automation stopped."
+                    : result.reason === "human-challenge"
+                      ? "Human challenge required. Automation stopped."
+                      : result.reason === "native-dialog"
+                        ? "A browser dialog requires you. Automation stopped."
+                        : "Human participation required. Automation stopped."
+                  : "Submission refused. Check the target page.";
+          resetRun();
+          status.textContent = text;
+          return;
+        }
+        if (current === epoch) {
+          resetRun();
+          status.textContent =
+            "Run timed out. Check the page; no submission will be replayed.";
+          await message({ type: "cancel", runId: approvedRun });
+        }
+      } catch (error) {
+        if (current !== epoch) return;
+        resetRun();
+        status.textContent = `Run refused or uncertain: ${error instanceof Error ? error.message : "check the page"}`;
+        await message({ type: "cancel", runId: approvedRun }).catch(() => {});
+      }
+      return;
+    }
     const pending = message({
       type: "submit",
       runId,

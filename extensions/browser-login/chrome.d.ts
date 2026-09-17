@@ -18,6 +18,20 @@ declare const chrome: {
     onInstalled: { addListener(listener: () => void): void };
     onMessage: { addListener(listener: ExtensionListener): void };
     onMessageExternal: { addListener(listener: ExtensionListener): void };
+    onConnectExternal: {
+      addListener(
+        listener: (port: {
+          name: string;
+          sender?: ExtensionSender;
+          postMessage(message: unknown): void;
+          disconnect(): void;
+          onMessage: {
+            addListener(listener: (message: unknown) => void): void;
+          };
+          onDisconnect: { addListener(listener: () => void): void };
+        }) => void,
+      ): void;
+    };
     sendMessage(message: unknown): Promise<unknown>;
   };
   action: { onClicked: { addListener(listener: () => void): void } };
@@ -25,7 +39,9 @@ declare const chrome: {
     query(
       query: object,
     ): Promise<Array<{ id?: number; url?: string; title?: string }>>;
-    get(id: number): Promise<{ id?: number; url?: string }>;
+    get(
+      id: number,
+    ): Promise<{ id?: number; url?: string; openerTabId?: number }>;
     create(options: { url: string }): Promise<unknown>;
     sendMessage(
       tabId: number,
@@ -35,7 +51,7 @@ declare const chrome: {
   };
   scripting: {
     executeScript(options: {
-      target: { tabId: number };
+      target: { tabId: number; frameIds?: number[] };
       files: string[];
     }): Promise<Array<{ documentId: string }>>;
   };

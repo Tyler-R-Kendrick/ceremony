@@ -12,6 +12,7 @@ export const observationSchema = z.strictObject({
   origin: z.string().url(),
   controls: z.array(controlSchema).max(40),
   challenge: z.boolean(),
+  passkey: z.boolean(),
 });
 export type Observation = z.infer<typeof observationSchema>;
 export type Control = z.infer<typeof controlSchema>;

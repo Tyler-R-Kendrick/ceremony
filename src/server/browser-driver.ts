@@ -9,6 +9,7 @@ import {
   type CeremonyStep,
   type CeremonyStepAction,
   type DriverAction,
+  type HumanStepReason,
   type PageSnapshot,
   type SnapshotElement,
 } from "../core/browser-contracts.js";
@@ -16,6 +17,10 @@ import type {
   CeremonyInterpreter,
   InterpreterInput,
 } from "./browser-interpreter.js";
+export {
+  humanStepReasons,
+  type HumanStepReason,
+} from "../core/browser-contracts.js";
 
 /**
  * Drives one isolated-browser ceremony to a reported outcome.
@@ -27,21 +32,6 @@ import type {
  * a value-free transcript; it never waits indefinitely for a page that will
  * not appear.
  */
-
-/**
- * Why a person has to take part. Each is read from the page or the response,
- * never inferred from prose, and none of them is a failure: a ceremony that
- * needs a human is the ordinary case this framework exists to guide.
- */
-export const humanStepReasons = [
-  /** A CAPTCHA or other proof-of-personhood widget. */
-  "human-challenge",
-  /** A platform authenticator this browser cannot drive. */
-  "passkey",
-  /** Credentials demanded by a browser dialog, which has no page to fill. */
-  "native-dialog",
-] as const;
-export type HumanStepReason = (typeof humanStepReasons)[number];
 
 /**
  * What a host is asked for. It carries no value and no secret: the person acts

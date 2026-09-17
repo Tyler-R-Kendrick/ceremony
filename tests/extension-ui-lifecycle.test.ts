@@ -13,6 +13,7 @@ const page = {
   document: form,
   origin: "https://fixture.test",
   challenge: false,
+  passkey: false,
   controls: [
     {
       ref: identifier,

@@ -22,6 +22,44 @@
           placeholder="https://example.com/login"
           required
       /></label>
+      <label
+        ><input id="multistep" type="checkbox" /> Opt in to attended multi-step
+        login</label
+      >
+      <label
+        >Verification profile
+        <select id="profile">
+          <option value="manual">
+            Manual site (submitted, never verified)
+          </option>
+          <option value="owned-fixture-login">Owned loopback fixture</option>
+        </select>
+      </label>
+      <label
+        >Expected fixture account
+        <input id="expected-account" autocomplete="off"
+      /></label>
+      <label
+        >Frame ID (0 = top document)
+        <input id="frame-id" type="number" min="0" step="1" value="0"
+      /></label>
+      <label
+        >Approved frame origin (required for a nonzero frame)
+        <input
+          id="frame-origin"
+          type="url"
+          placeholder="https://login.example.com"
+        />
+      </label>
+      <label
+        >Explicit already-open popup URL (optional)
+        <input id="popup-url" type="url" />
+      </label>
+      <p>
+        Frame and popup driving require multi-step mode. The popup must have
+        been opened by the original login tab above. No other tabs or redirects
+        are adopted.
+      </p>
       <button id="inspect">Allow site and inspect selected page</button>
       <p id="status" role="status">
         Enter the URL of an already open login tab.
@@ -33,14 +71,13 @@
         <label
           >Password <input id="password" type="password" autocomplete="off"
         /></label>
-        <p>
-          Approve one submission to this destination. For multi-page login,
-          inspect the next step again. CAPTCHA, passkeys and additional consent
-          require you.
+        <p id="approval-scope">
+          Approve one submission to this destination. CAPTCHA, passkeys and
+          additional consent require you.
         </p>
-        <button id="approve">Approve and submit</button
-        ><button id="cancel">Cancel</button>
+        <button id="approve">Approve and submit</button>
       </section>
+      <button id="cancel">Cancel</button>
       <button id="infer" hidden>Try free local AI mapping</button>
       <p>
         Optional AI downloads SmolLM2-135M model weights on first use. No API

@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
 
+const discovery = [
+  ["GitHub", "https://github.com/login"],
+  ["Google", "https://accounts.google.com/ServiceLogin"],
+  ["Microsoft", "https://login.microsoftonline.com/"],
+] as const;
+
 type Metadata = {
   version: string;
   protocol: number;
   extensionId: string;
   downloadUrl: string;
   sha256: string;
+};
+type HandoffPort = {
+  postMessage(message: unknown): void;
+  disconnect(): void;
+  onMessage: { addListener(listener: (message: unknown) => void): void };
+  onDisconnect: { addListener(listener: () => void): void };
 };
 type Runtime = {
   lastError?: { message?: string };
@@ -14,6 +26,7 @@ type Runtime = {
     message: unknown,
     callback: (reply: unknown) => void,
   ): void;
+  connect?(id: string, info: { name: string }): HandoffPort;
 };
 export default function ExtensionSetup() {
   const [metadata, setMetadata] = useState<Metadata>();
@@ -83,6 +96,26 @@ export default function ExtensionSetup() {
       document.removeEventListener("ceremony-check-extension", handler);
     };
   }, [metadata]);
+  useEffect(() => {
+    if (!connected || !metadata) return;
+    const runtime = (
+      globalThis as typeof globalThis & { chrome?: { runtime?: Runtime } }
+    ).chrome?.runtime;
+    if (!runtime?.connect) return;
+    const port = runtime.connect(metadata.extensionId, {
+      name: "ceremony.handoffs",
+    });
+    port.onMessage.addListener((raw: unknown) => {
+      const message = raw as { type?: string; event?: { runId?: string } };
+      if (message.type !== "ceremony.handoff" || !message.event?.runId) return;
+      port.postMessage({
+        type: "ceremony.resolve-handoff",
+        runId: message.event.runId,
+        resolution: "unavailable",
+      });
+    });
+    return () => port.disconnect();
+  }, [connected, metadata]);
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -161,6 +194,31 @@ export default function ExtensionSetup() {
           </p>
         </>
       )}
+      <h3>Provider catalog</h3>
+      <p>
+        Open your provider, then use the extension to approve a bounded login
+        sequence. Catalog links never grant credential access.
+      </p>
+      <ul>
+        {discovery.map(([provider, entry]) => (
+          <li key={entry}>
+            <a href={entry} target="_blank" rel="noopener noreferrer">
+              {provider} sign-in
+            </a>
+            {
+              " — profile pending validation; account completion requires your review."
+            }
+          </li>
+        ))}
+      </ul>
+      <p>
+        In the extension, enable multi-step mode for identifier → password
+        login. An approved run allows at most two submissions to the exact
+        selected origin. CAPTCHA, MFA, passkeys and consent emit handoff events
+        the owning app can subscribe to; they stay human unless that app
+        resolves them. Advanced frame and popup targeting requires explicit
+        destination approval.
+      </p>
       <details>
         <summary>Building locally</summary>
         <p>

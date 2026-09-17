@@ -1,3 +1,4 @@
+import { snapshotSelectors } from "../../src/core/browser-contracts.js";
 import {
   mappingSchema,
   validateMapping,
@@ -92,9 +93,8 @@ if (!installed.ceremonyAdapterInstalled) {
       document: documentRef,
       origin: location.origin,
       controls: controls.slice(0, 40),
-      challenge: !!document.querySelector(
-        'iframe[src*="captcha"], [data-sitekey], input[autocomplete="one-time-code"]',
-      ),
+      challenge: !!document.querySelector(snapshotSelectors.challenge),
+      passkey: !!document.querySelector(snapshotSelectors.passkey),
     });
   }
   chrome.runtime.onMessage.addListener((raw, sender, reply) => {
@@ -104,7 +104,24 @@ if (!installed.ceremonyAdapterInstalled) {
       step?: { document?: string; mapping?: unknown };
       username?: string;
       password?: string;
+      origin?: string;
+      expectedAccount?: string;
     };
+    if (message.type === "verify-fixture") {
+      const account = document.querySelector("data#account");
+      reply({
+        verified:
+          location.hostname === "127.0.0.1" &&
+          location.origin === message.origin &&
+          location.pathname === "/account" &&
+          !!message.expectedAccount &&
+          account instanceof HTMLDataElement &&
+          visible(account) &&
+          account.value === message.expectedAccount &&
+          account.textContent?.trim() === message.expectedAccount,
+      });
+      return;
+    }
     if (message.type === "observe") {
       reply(snapshot());
       return;

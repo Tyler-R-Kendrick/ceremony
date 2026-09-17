@@ -370,3 +370,14 @@ export function snapshotPageSource(indexAttribute: string): string {
       element.setAttribute('${indexAttribute}', String(index)));
   })()`;
 }
+
+/**
+ * Why a person, or a future owning-app resolver, has to take part. Read from
+ * the page or the response, never inferred from prose.
+ */
+export const humanStepReasons = [
+  "human-challenge",
+  "passkey",
+  "native-dialog",
+] as const;
+export type HumanStepReason = (typeof humanStepReasons)[number];
