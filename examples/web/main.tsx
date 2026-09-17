@@ -117,9 +117,6 @@ function App() {
             Environment
           </button>
         </nav>
-        <Suspense fallback={<p>Loading extension setup…</p>}>
-          <ExtensionSetup />
-        </Suspense>
         <details className="install-controls">
           <summary>Install app</summary>
           <p>{install.instructions}</p>
@@ -395,6 +392,9 @@ function App() {
                 </div>
               </section>
             </div>
+            <Suspense fallback={<p>Loading extension setup…</p>}>
+              <ExtensionSetup />
+            </Suspense>
             <AgentConnectors providers={config.agentProviders} />
           </>
         )}
