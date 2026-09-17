@@ -102,6 +102,31 @@ test(
       await ui.waitForLoadState("domcontentloaded");
       assert.ok(ui.url().includes("/ui.html"), `UI opened at ${ui.url()}`);
       await ui.locator("#target").fill(loginUrl);
+      // A submitter's method overrides its POST form. Refuse before filling.
+      await tab.locator("button").evaluate((button) => {
+        button.setAttribute("formmethod", "get");
+      });
+      await ui.locator("#inspect").click();
+      await ui.locator("#review").waitFor({ state: "visible", timeout: 10000 });
+      await ui.locator("#username").fill("owner");
+      await ui.locator("#password").fill("fixture-pass");
+      await ui.locator("#approve").click();
+      await ui.waitForFunction(
+        () =>
+          document
+            .querySelector("#status")
+            ?.textContent?.startsWith("Submission refused"),
+        undefined,
+        { timeout: 3000 },
+      );
+      assert.equal(tab.url(), loginUrl);
+      assert.equal(
+        await tab.locator('input[name="password"]').inputValue(),
+        "",
+      );
+      await tab.locator("button").evaluate((button) => {
+        button.removeAttribute("formmethod");
+      });
       await ui.locator("#inspect").click();
       await ui.locator("#review").waitFor({ state: "visible", timeout: 10000 });
       await ui.locator("#username").fill("owner");

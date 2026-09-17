@@ -14,6 +14,9 @@ let runId: string | undefined;
 let page: Observation | undefined;
 let step: Step | undefined;
 let modelWorker: Worker | undefined;
+let modelTimer: ReturnType<typeof setTimeout> | undefined;
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+let expires = 0;
 let epoch = 0;
 const infer = document.querySelector("#infer") as HTMLButtonElement;
 async function message(payload: unknown): Promise<unknown> {
@@ -36,6 +39,35 @@ async function message(payload: unknown): Promise<unknown> {
   } finally {
     clearTimeout(timer);
   }
+}
+function stopModel() {
+  clearTimeout(modelTimer);
+  modelTimer = undefined;
+  modelWorker?.terminate();
+  modelWorker = undefined;
+  infer.disabled = false;
+}
+function resetRun() {
+  stopModel();
+  clearTimeout(expiryTimer);
+  expiryTimer = undefined;
+  expires = 0;
+  runId = undefined;
+  page = undefined;
+  step = undefined;
+  clearSecrets();
+  review.hidden = true;
+  mapping.textContent = "";
+  infer.hidden = true;
+}
+function requireFreshObservation() {
+  if (!page || !runId) return false;
+  if (expires > Date.now()) return true;
+  epoch++;
+  resetRun();
+  status.textContent =
+    "Inspection expired. Inspect again before proposing or approving a mapping.";
+  return false;
 }
 function showMapping() {
   review.hidden = !step;
@@ -61,11 +93,7 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
     document.querySelector("#target") as HTMLInputElement
   ).value.trim();
   const current = ++epoch;
-  modelWorker?.terminate();
-  clearSecrets();
-  step = undefined;
-  review.hidden = true;
-  infer.hidden = true;
+  resetRun();
   status.textContent = "Checking…";
   try {
     const origin = admittedOrigin(target);
@@ -83,11 +111,24 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
       type: "inspect",
       tabId: tab.id,
       origin,
-    })) as { runId?: string; page?: typeof page; error?: string };
-    if (result.error) throw new Error(result.error);
+    })) as {
+      runId?: string;
+      page?: typeof page;
+      expires?: number;
+      error?: string;
+    };
     if (current !== epoch) return;
+    if (result.error) throw new Error(result.error);
     runId = result.runId;
     page = observationSchema.parse(result.page);
+    expires =
+      typeof result.expires === "number" && Number.isFinite(result.expires)
+        ? result.expires
+        : 0;
+    if (!requireFreshObservation()) return;
+    expiryTimer = setTimeout(() => {
+      if (current === epoch) requireFreshObservation();
+    }, expires - Date.now());
     if (page.challenge)
       throw new Error(
         "A human challenge is present. Complete it yourself; this run stops.",
@@ -99,13 +140,14 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
       : "No unambiguous template match. Optional local AI can propose a mapping for your review.";
     infer.hidden = !!step;
   } catch (error) {
+    if (current !== epoch) return;
+    resetRun();
     status.textContent =
       error instanceof Error ? error.message : "Inspection failed.";
-    review.hidden = true;
   }
 });
 document.querySelector("#approve")!.addEventListener("click", async () => {
-  if (!runId || !page || !step) return;
+  if (!requireFreshObservation() || !runId || !page || !step) return;
   try {
     const username = (document.querySelector("#username") as HTMLInputElement)
       .value;
@@ -124,8 +166,11 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
       password,
     });
     clearSecrets();
+    clearTimeout(expiryTimer);
+    expiryTimer = undefined;
     step = undefined;
     review.hidden = true;
+    infer.hidden = true;
     const result = (await pending) as { status?: string; error?: string };
     if (result.error) throw new Error(result.error);
     status.textContent =
@@ -141,20 +186,21 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
   }
 });
 document.querySelector("#cancel")!.addEventListener("click", async () => {
-  epoch++;
-  modelWorker?.terminate();
-  clearSecrets();
-  step = undefined;
-  infer.hidden = true;
-  if (runId) await message({ type: "cancel", runId });
-  runId = undefined;
-  page = undefined;
-  review.hidden = true;
+  const current = ++epoch;
+  const cancelledRun = runId;
+  resetRun();
   status.textContent =
     "Stopped. Cancellation does not undo any submission already sent.";
+  try {
+    if (cancelledRun) await message({ type: "cancel", runId: cancelledRun });
+  } catch {
+    if (current === epoch)
+      status.textContent =
+        "Stopped locally. Cancellation could not be confirmed; check the target tab before inspecting again.";
+  }
 });
 infer.addEventListener("click", () => {
-  if (!page || !runId) return;
+  if (!requireFreshObservation() || !page || !runId || modelWorker) return;
   const current = epoch;
   infer.disabled = true;
   status.textContent =
@@ -163,23 +209,23 @@ infer.addEventListener("click", () => {
     type: "module",
   });
   modelWorker = worker;
-  const timer = setTimeout(
+  modelTimer = setTimeout(
     () => finish("Local model timed out. No submission occurred."),
     180_000,
   );
+  function isCurrent() {
+    return current === epoch && modelWorker === worker;
+  }
   function finish(text: string) {
-    clearTimeout(timer);
-    worker.terminate();
-    infer.disabled = false;
+    if (!isCurrent() || !requireFreshObservation()) return;
+    stopModel();
     status.textContent = text;
   }
-  worker.onerror = () =>
-    finish("Local model unavailable. No submission occurred.");
+  worker.onerror = () => {
+    if (isCurrent()) finish("Local model unavailable. No submission occurred.");
+  };
   worker.onmessage = ({ data }: MessageEvent<{ step?: Step }>) => {
-    if (current !== epoch || !page) {
-      finish("Mapping discarded after selection changed.");
-      return;
-    }
+    if (!isCurrent() || !requireFreshObservation() || !page) return;
     const parsed = mappingSchema.safeParse(data.step?.mapping);
     step = parsed.success ? validateMapping(page, parsed.data) : undefined;
     finish(
@@ -192,6 +238,6 @@ infer.addEventListener("click", () => {
   worker.postMessage(page);
 });
 addEventListener("pagehide", () => {
-  modelWorker?.terminate();
-  clearSecrets();
+  epoch++;
+  resetRun();
 });

@@ -3,6 +3,7 @@ import {
   inferMapping,
   localTextModel,
 } from "../../src/browser-login/inference.js";
+import { finalAssistantText } from "../../src/browser-login/model-output.js";
 import { observationSchema } from "../../src/browser-login/templates.js";
 
 env.allowLocalModels = false;
@@ -33,8 +34,7 @@ self.onmessage = async ({ data }: MessageEvent<unknown>) => {
         return_full_text: false,
       });
       signal?.throwIfAborted();
-      const text = output[0]?.generated_text;
-      return typeof text === "string" ? text : "";
+      return finalAssistantText(output[0]?.generated_text);
     });
     const step = await inferMapping(model, page, AbortSignal.timeout(60_000));
     self.postMessage({ step: step ?? null });

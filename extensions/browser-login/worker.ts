@@ -106,7 +106,7 @@ async function handle(raw: unknown) {
       dispatched: false,
     };
     await chrome.storage.session.set({ [runId]: run });
-    return { runId, page };
+    return { runId, page, expires: run.expires };
   }
   if (active.has(input.runId)) throw new Error("busy");
   if (input.type === "cancel") {

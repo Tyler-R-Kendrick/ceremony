@@ -132,16 +132,19 @@ if (!installed.ceremonyAdapterInstalled) {
       )
         throw new Error("submit");
       const form = submit.form;
-      const recipient = submit.hasAttribute("formaction")
-        ? submit.formAction
-        : form.action;
-      if (
-        recipient !== step.recipient ||
-        form.method.toLowerCase() !== "post" ||
-        ((submit.formTarget || form.target) &&
-          (submit.formTarget || form.target) !== "_self")
-      )
-        throw new Error("recipient");
+      const isApprovedSubmission = () =>
+        submit.form === form &&
+        (submit.hasAttribute("formaction")
+          ? submit.formAction
+          : form.action) === step.recipient &&
+        (submit.hasAttribute("formmethod")
+          ? submit.formMethod
+          : form.method
+        ).toLowerCase() === "post" &&
+        ["", "_self"].includes(
+          submit.hasAttribute("formtarget") ? submit.formTarget : form.target,
+        );
+      if (!isApprovedSubmission()) throw new Error("recipient");
       for (const [role, ref] of Object.entries(mapping)) {
         if (role === "submit" || !ref) continue;
         const element = elements.get(ref);
@@ -169,10 +172,7 @@ if (!installed.ceremonyAdapterInstalled) {
         !submit.isConnected ||
         !visible(submit) ||
         submit.disabled ||
-        (submit.hasAttribute("formaction")
-          ? submit.formAction
-          : form.action) !== recipient ||
-        form.method.toLowerCase() !== "post"
+        !isApprovedSubmission()
       )
         throw new Error("changed");
       observed = undefined;
