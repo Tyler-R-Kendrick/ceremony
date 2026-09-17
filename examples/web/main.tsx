@@ -37,6 +37,22 @@ const liveMode = entryParams.get("mode") !== "test";
  * came to fill in.
  */
 const openedOnConnector = entryParams.get("connector");
+/**
+ * Whether this page load is somebody coming back to a connection they had
+ * already started, rather than arriving to browse.
+ *
+ * A provider round-trip returns to the host's configured path — which the
+ * server requires to carry no query string of its own — with only
+ * `teachingRun` appended. So "Return to connection" arrives here as
+ * `/?teachingRun=…` and nothing else. Recognising just `connector` would land
+ * that person in the directory, which is the one place they were not trying
+ * to go.
+ */
+const returningToRun = Boolean(
+  openedOnConnector ??
+  (entryParams.get("ceremony") || entryParams.get("teachingRun")),
+);
+
 const transport = createHttpTransport(
   liveMode ? "/api/live/ceremonies" : "/api/ceremonies",
 );
@@ -70,11 +86,11 @@ function App() {
   // Only a link that already names a connector opens the drawer. Landing
   // inside a modal would put the scrim over the rail, and a directory whose
   // navigation is unreachable on arrival is not a directory.
-  const [open, setOpen] = useState(Boolean(openedOnConnector));
+  const [open, setOpen] = useState(returningToRun);
   // A link carrying a connector is a resume link: the service is already
   // chosen, so the drawer opens on the run. Picking one from the directory is
   // not, and starts where the choices are.
-  const [resuming, setResuming] = useState(Boolean(openedOnConnector));
+  const [resuming, setResuming] = useState(returningToRun);
   const [resumeId, setResumeId] = useState(
     entryParams.get("ceremony") ?? undefined,
   );
@@ -408,6 +424,22 @@ function App() {
             if (section === "connect") setOpen(false);
             else goTo(section);
           }}
+          topbarExtra={
+            /* This is a PWA, and the install and update controls belong on
+               the page people open rather than behind another section. */
+            <details className="install-controls">
+              <summary>Install app</summary>
+              <p>{install.instructions}</p>
+              {install.canInstall && (
+                <button onClick={() => void install.install()}>
+                  Install Ceremony
+                </button>
+              )}
+              {install.updateAvailable && (
+                <button onClick={install.update}>Update static shell</button>
+              )}
+            </details>
+          }
           footer={
             config && (
               <>

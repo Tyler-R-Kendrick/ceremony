@@ -178,6 +178,8 @@ export interface ConnectCatalogProps {
   workspace: string;
   /** Rendered under the grid: surfaces that belong on the page people open. */
   footer?: ReactNode;
+  /** Controls that belong beside the breadcrumb, such as installing the app. */
+  topbarExtra?: ReactNode;
   onOpen(entry: CatalogEntry): void;
   onNavigate(section: "connect" | "studio" | "environment"): void;
 }
@@ -186,6 +188,7 @@ export function ConnectCatalog({
   entries,
   workspace,
   footer,
+  topbarExtra,
   onOpen,
   onNavigate,
 }: ConnectCatalogProps) {
@@ -324,6 +327,7 @@ export function ConnectCatalog({
             <span aria-current="page">Browse Connectors</span>
           </div>
           <div className="topbar-end">
+            {topbarExtra}
             <button
               type="button"
               className="ghost-button"

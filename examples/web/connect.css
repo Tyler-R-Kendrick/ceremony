@@ -304,6 +304,31 @@ kbd {
   gap: 8px;
   justify-self: end;
 }
+[data-surface="connect"] .install-controls {
+  position: relative;
+  font-size: 13px;
+}
+[data-surface="connect"] .install-controls > summary {
+  padding: 5px 10px;
+  color: var(--c-ink-dim);
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+[data-surface="connect"] .install-controls > summary:hover {
+  color: var(--c-ink);
+  background: var(--c-surface);
+}
+[data-surface="connect"] .install-controls[open] > summary {
+  color: var(--c-ink);
+}
+[data-surface="connect"] .install-controls > :not(summary) {
+  position: relative;
+  z-index: 2;
+}
+[data-surface="connect"] .install-controls[open] {
+  padding-block-end: 8px;
+}
 .ghost-button {
   display: inline-flex;
   align-items: center;
