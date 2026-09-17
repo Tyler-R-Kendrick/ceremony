@@ -114,6 +114,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
     });
     port.onDisconnect.addListener(() => {
       handoffPorts.delete(port);
+      if (handoffPorts.size === 0)
+        for (const finish of [...handoffResolvers.values()])
+          finish("unavailable");
     });
   })().catch(() => port.disconnect());
 });
@@ -172,6 +175,7 @@ async function handle(raw: unknown) {
   }
   if (input.type === "cancel") {
     cancelled.add(input.runId);
+    handoffResolvers.get(input.runId)?.("unavailable");
     await chrome.storage.session.remove(input.runId);
     return { status: "cancelled" };
   }
@@ -299,28 +303,35 @@ async function offerRunHandoff(
     attempt: run.handoffs,
   };
   await checkpoint(id, run);
-  const resolution = await offerHandoff(event, {
-    onHandoff(published) {
-      for (const port of handoffPorts)
-        port.postMessage({ type: "ceremony.handoff", event: published });
-    },
-    resolveHandoff: handoffPorts.size
-      ? (published) =>
-          new Promise((resolve) => {
-            const finish = (value: HandoffResolution) => {
-              clearTimeout(timer);
-              if (handoffResolvers.get(published.runId) === finish)
-                handoffResolvers.delete(published.runId);
-              resolve(value);
-            };
-            const timer = setTimeout(
-              () => finish("unavailable"),
-              Math.max(0, run.expires - Date.now()),
-            );
-            handoffResolvers.set(published.runId, finish);
-          })
-      : undefined,
-  });
+  const waitForPorts =
+    handoffPorts.size > 0
+      ? new Promise<HandoffResolution>((resolve) => {
+          const finish = (value: HandoffResolution) => {
+            clearTimeout(timer);
+            if (handoffResolvers.get(id) === finish)
+              handoffResolvers.delete(id);
+            resolve(value);
+          };
+          const timer = setTimeout(
+            () => finish("unavailable"),
+            Math.max(0, run.expires - Date.now()),
+          );
+          handoffResolvers.set(id, finish);
+        })
+      : undefined;
+  let resolution: HandoffResolution;
+  try {
+    resolution = await offerHandoff(event, {
+      onHandoff(published) {
+        for (const port of handoffPorts)
+          port.postMessage({ type: "ceremony.handoff", event: published });
+      },
+      resolveHandoff: waitForPorts ? () => waitForPorts : undefined,
+    });
+  } catch (error) {
+    handoffResolvers.get(id)?.("unavailable");
+    throw error;
+  }
   if (cancelled.has(id)) throw new Error("cancelled");
   if (resolution === "completed") {
     run.resume = true;
