@@ -104,7 +104,24 @@ if (!installed.ceremonyAdapterInstalled) {
       step?: { document?: string; mapping?: unknown };
       username?: string;
       password?: string;
+      origin?: string;
+      expectedAccount?: string;
     };
+    if (message.type === "verify-fixture") {
+      const account = document.querySelector("data#account");
+      reply({
+        verified:
+          location.hostname === "127.0.0.1" &&
+          location.origin === message.origin &&
+          location.pathname === "/account" &&
+          !!message.expectedAccount &&
+          account instanceof HTMLDataElement &&
+          visible(account) &&
+          account.value === message.expectedAccount &&
+          account.textContent?.trim() === message.expectedAccount,
+      });
+      return;
+    }
     if (message.type === "observe") {
       reply(snapshot());
       return;

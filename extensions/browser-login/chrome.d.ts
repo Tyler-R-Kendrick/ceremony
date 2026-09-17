@@ -25,7 +25,9 @@ declare const chrome: {
     query(
       query: object,
     ): Promise<Array<{ id?: number; url?: string; title?: string }>>;
-    get(id: number): Promise<{ id?: number; url?: string }>;
+    get(
+      id: number,
+    ): Promise<{ id?: number; url?: string; openerTabId?: number }>;
     create(options: { url: string }): Promise<unknown>;
     sendMessage(
       tabId: number,
@@ -35,7 +37,7 @@ declare const chrome: {
   };
   scripting: {
     executeScript(options: {
-      target: { tabId: number };
+      target: { tabId: number; frameIds?: number[] };
       files: string[];
     }): Promise<Array<{ documentId: string }>>;
   };

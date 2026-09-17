@@ -1,3 +1,4 @@
+import { browserLoginCatalog } from "../../src/browser-login/catalog.js";
 import { useEffect, useState } from "react";
 
 type Metadata = {
@@ -161,6 +162,31 @@ export default function ExtensionSetup() {
           </p>
         </>
       )}
+      <h3>Provider catalog</h3>
+      <p>
+        Open your provider, then use the extension to approve a bounded login
+        sequence. Catalog links never grant credential access.
+      </p>
+      <ul>
+        {browserLoginCatalog
+          .filter((profile) => profile.discoveryOnly)
+          .map((profile) => (
+            <li key={profile.id}>
+              <a href={profile.entry} target="_blank" rel="noopener noreferrer">
+                {profile.provider} sign-in
+              </a>
+              {
+                " — profile pending validation; account completion requires your review."
+              }
+            </li>
+          ))}
+      </ul>
+      <p>
+        In the extension, enable multi-step mode for identifier → password
+        login. An approved run allows at most two submissions to the exact
+        selected origin. CAPTCHA, MFA and consent remain human steps. Advanced
+        frame and popup targeting requires explicit destination approval.
+      </p>
       <details>
         <summary>Building locally</summary>
         <p>

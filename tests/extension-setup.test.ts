@@ -58,6 +58,19 @@ test("setup offers actual download and instructions, gates opening on versioned 
       document.querySelector("a[download]")?.getAttribute("href"),
       "/extension/ceremony-browser-login.zip",
     );
+    assert.match(document.body.textContent!, /Provider catalog/);
+    assert.match(document.body.textContent!, /pending validation/);
+    assert.match(document.body.textContent!, /multi-step mode/);
+    const catalogHrefs = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        'a[target="_blank"][rel="noopener noreferrer"]',
+      ),
+    ).map((anchor) => anchor.getAttribute("href"));
+    assert.deepEqual(catalogHrefs, [
+      "https://github.com/login",
+      "https://accounts.google.com/ServiceLogin",
+      "https://login.microsoftonline.com/",
+    ]);
     const open = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent === "Open browser login",
     )!;
