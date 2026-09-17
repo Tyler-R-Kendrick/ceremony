@@ -33,7 +33,7 @@ export function validateMapping(
   page: Observation,
   mapping: Mapping,
 ): Step | undefined {
-  if (page.challenge || page.passkey) return;
+  if (page.challenge) return;
   const fields = [mapping.identifier, mapping.password].filter(
     (value): value is string => !!value,
   );

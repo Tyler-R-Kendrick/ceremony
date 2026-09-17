@@ -9,7 +9,7 @@ import {
 import { selectInitialStep } from "../../src/browser-login/flows.js";
 import {
   classifyHandoff,
-  offerHandoff,
+  handoffEventSchema,
   type HandoffPort,
   type HandoffReason,
   type HandoffResolution,
@@ -87,7 +87,17 @@ chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
   return true;
 });
 const handoffPorts = new Set<HandoffPort>();
-const handoffResolvers = new Map<string, (value: HandoffResolution) => void>();
+type HandoffWait = {
+  finish: (value: HandoffResolution) => void;
+  remaining: Set<HandoffPort>;
+};
+const handoffWaits = new Map<string, HandoffWait>();
+function settleHandoff(id: string, value: HandoffResolution) {
+  const wait = handoffWaits.get(id);
+  if (!wait) return;
+  handoffWaits.delete(id);
+  wait.finish(value);
+}
 chrome.runtime.onConnectExternal.addListener((port) => {
   void (async () => {
     const config = (await (
@@ -110,13 +120,23 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         })
         .safeParse(raw);
       if (!parsed.success) return;
-      handoffResolvers.get(parsed.data.runId)?.(parsed.data.resolution);
+      const wait = handoffWaits.get(parsed.data.runId);
+      if (!wait) return;
+      wait.remaining.delete(port);
+      if (
+        parsed.data.resolution === "completed" ||
+        parsed.data.resolution === "declined"
+      )
+        settleHandoff(parsed.data.runId, parsed.data.resolution);
+      else if (wait.remaining.size === 0)
+        settleHandoff(parsed.data.runId, "unavailable");
     });
     port.onDisconnect.addListener(() => {
       handoffPorts.delete(port);
-      if (handoffPorts.size === 0)
-        for (const finish of [...handoffResolvers.values()])
-          finish("unavailable");
+      for (const [id, wait] of handoffWaits) {
+        wait.remaining.delete(port);
+        if (wait.remaining.size === 0) settleHandoff(id, "unavailable");
+      }
     });
   })().catch(() => port.disconnect());
 });
@@ -175,7 +195,7 @@ async function handle(raw: unknown) {
   }
   if (input.type === "cancel") {
     cancelled.add(input.runId);
-    handoffResolvers.get(input.runId)?.("unavailable");
+    settleHandoff(input.runId, "unavailable");
     await chrome.storage.session.remove(input.runId);
     return { status: "cancelled" };
   }
@@ -295,47 +315,40 @@ async function offerRunHandoff(
     return { status: "handoff" as const, reason, resolution: "unavailable" };
   }
   run.handoffs++;
-  const event = {
-    kind: "handoff" as const,
+  const event = handoffEventSchema.parse({
+    kind: "handoff",
     runId: id,
     reason,
     origin: run.origin,
     attempt: run.handoffs,
-  };
+  });
   await checkpoint(id, run);
-  const waitForPorts =
-    handoffPorts.size > 0
-      ? new Promise<HandoffResolution>((resolve) => {
-          const finish = (value: HandoffResolution) => {
+  let resolution: HandoffResolution = "unavailable";
+  if (handoffPorts.size > 0) {
+    try {
+      resolution = await new Promise<HandoffResolution>((resolve) => {
+        const timer = setTimeout(
+          () => settleHandoff(id, "unavailable"),
+          Math.max(0, run.expires - Date.now()),
+        );
+        handoffWaits.set(id, {
+          remaining: new Set(handoffPorts),
+          finish: (value) => {
             clearTimeout(timer);
-            if (handoffResolvers.get(id) === finish)
-              handoffResolvers.delete(id);
             resolve(value);
-          };
-          const timer = setTimeout(
-            () => finish("unavailable"),
-            Math.max(0, run.expires - Date.now()),
-          );
-          handoffResolvers.set(id, finish);
-        })
-      : undefined;
-  let resolution: HandoffResolution;
-  try {
-    resolution = await offerHandoff(event, {
-      onHandoff(published) {
+          },
+        });
         for (const port of handoffPorts)
-          port.postMessage({ type: "ceremony.handoff", event: published });
-      },
-      resolveHandoff: waitForPorts ? () => waitForPorts : undefined,
-    });
-  } catch (error) {
-    handoffResolvers.get(id)?.("unavailable");
-    throw error;
+          port.postMessage({ type: "ceremony.handoff", event });
+      });
+    } catch (error) {
+      settleHandoff(id, "unavailable");
+      throw error;
+    }
   }
   if (cancelled.has(id)) throw new Error("cancelled");
   if (resolution === "completed") {
     run.resume = true;
-    if (run.next === "password") run.next = "verification";
     run.phase = "waiting";
     await checkpoint(id, run);
     return { status: "waiting" as const };
@@ -435,9 +448,12 @@ async function advanceMulti(
         return { status: "waiting" };
       run.resume = false;
       Object.assign(run, fresh);
+      const step = matchTemplate(run.page);
       const classified = classifyHandoff(run.page);
-      if (classified) return offerRunHandoff(id, run, classified);
-      if (run.next === "verification") {
+      const verifyNow =
+        run.next === "verification" ||
+        (run.next === "password" && !step?.mapping.password && !classified);
+      if (verifyNow) {
         let verified = false;
         if (
           run.profile === "owned-fixture-login" &&
@@ -460,16 +476,14 @@ async function advanceMulti(
           status: verified ? "verified-fixture" : "submitted-unverified",
         };
       }
-      const step = matchTemplate(run.page);
-      if (!step?.mapping.password || step.mapping.identifier)
-        return offerRunHandoff(
-          id,
-          run,
-          classifyHandoff(run.page) ?? "unsupported-page",
-        );
-      run.phase = "ready";
-      await checkpoint(id, run);
-      return { status: "ready", needs: "password" };
+      if (classified && !step?.mapping.password)
+        return offerRunHandoff(id, run, classified);
+      if (step?.mapping.password) {
+        run.phase = "ready";
+        await checkpoint(id, run);
+        return { status: "ready", needs: "password" };
+      }
+      return offerRunHandoff(id, run, classified ?? "unsupported-page");
     }
     if (
       run.phase !== "ready" ||
@@ -484,8 +498,7 @@ async function advanceMulti(
     if (
       !step ||
       (run.next === "initial" && !step.mapping.identifier) ||
-      (run.next === "password" &&
-        (!step.mapping.password || step.mapping.identifier))
+      (run.next === "password" && !step.mapping.password)
     )
       throw new Error("mapping");
     if (

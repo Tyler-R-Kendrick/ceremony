@@ -24,7 +24,7 @@ const value = (id: string) =>
   (document.querySelector(`#${id}`) as HTMLInputElement | null)?.value.trim() ??
   "";
 const infer = document.querySelector("#infer") as HTMLButtonElement;
-async function message(payload: unknown): Promise<unknown> {
+async function message(payload: unknown, timeout = 8000): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -37,7 +37,7 @@ async function message(payload: unknown): Promise<unknown> {
                 "Extension did not reply; check the target tab before retrying.",
               ),
             ),
-          8000,
+          timeout,
         );
       }),
     ]);
@@ -227,35 +227,43 @@ document.querySelector("#approve")!.addEventListener("click", async () => {
       infer.hidden = true;
       (document.querySelector("#inspect") as HTMLButtonElement).disabled = true;
       status.textContent = "Running approved login sequence…";
+      const remaining = () => Math.max(1000, expires - Date.now());
       try {
-        let result = (await message({
-          type: "multi-submit",
-          runId: approvedRun,
-          approve: true,
-          ...(page.controls.some((c) => c.kind === "password")
-            ? { password }
-            : {}),
-          username,
-        })) as { status?: string; error?: string; reason?: string };
+        let result = (await message(
+          {
+            type: "multi-submit",
+            runId: approvedRun,
+            approve: true,
+            ...(page.controls.some((c) => c.kind === "password")
+              ? { password }
+              : {}),
+            username,
+          },
+          remaining(),
+        )) as { status?: string; error?: string; reason?: string };
         while (current === epoch && credentials && Date.now() < expires) {
           if (result.error) throw new Error(result.error);
           if (result.status === "waiting") {
             await new Promise((resolve) => setTimeout(resolve, 250));
             if (current !== epoch || !credentials) return;
-            result = (await message({
-              type: "multi-observe",
-              runId: approvedRun,
-            })) as typeof result;
+            result = (await message(
+              { type: "multi-observe", runId: approvedRun },
+              remaining(),
+            )) as typeof result;
             continue;
           }
           if (result.status === "ready") {
             if (current !== epoch || !credentials) return;
-            result = (await message({
-              type: "multi-submit",
-              runId: approvedRun,
-              approve: false,
-              password: credentials.password,
-            })) as typeof result;
+            result = (await message(
+              {
+                type: "multi-submit",
+                runId: approvedRun,
+                approve: false,
+                username: credentials.username,
+                password: credentials.password,
+              },
+              remaining(),
+            )) as typeof result;
             continue;
           }
           const text =

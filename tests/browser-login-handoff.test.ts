@@ -65,15 +65,20 @@ function event(overrides: Partial<HandoffEvent> = {}): HandoffEvent {
   });
 }
 
-test("classification prefers passkey, then challenge, and refuses mapping", () => {
+test("classification prefers passkey-only pages, then challenge", () => {
   assert.equal(classifyHandoff(page()), undefined);
-  assert.equal(classifyHandoff(page({ challenge: true })), "human-challenge");
-  assert.equal(classifyHandoff(page({ passkey: true })), "passkey-required");
+  assert.equal(classifyHandoff(page({ passkey: true })), undefined);
   assert.equal(
-    classifyHandoff(page({ passkey: true, challenge: true })),
-    "passkey-required",
+    matchTemplate(page({ passkey: true }))?.mapping.password,
+    password,
   );
-  assert.equal(matchTemplate(page({ passkey: true })), undefined);
+  assert.equal(classifyHandoff(page({ challenge: true })), "human-challenge");
+  const passkeyOnly = page({
+    passkey: true,
+    controls: page().controls.filter((control) => control.kind !== "password"),
+  });
+  assert.equal(classifyHandoff(passkeyOnly), "passkey-required");
+  assert.equal(matchTemplate(passkeyOnly)?.mapping.password, undefined);
   assert.equal(matchTemplate(page({ challenge: true })), undefined);
 });
 

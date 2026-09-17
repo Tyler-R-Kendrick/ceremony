@@ -85,9 +85,15 @@ test("ambiguous forms, human challenges, and malformed inference stop", async ()
   const observed = page();
   observed.challenge = true;
   assert.equal(matchTemplate(observed), undefined);
-  const passkey = page();
-  passkey.passkey = true;
-  assert.equal(matchTemplate(passkey), undefined);
+  const passkeyOnly = page();
+  passkeyOnly.passkey = true;
+  passkeyOnly.controls = passkeyOnly.controls.filter(
+    (control) => control.kind !== "password",
+  );
+  assert.equal(matchTemplate(passkeyOnly)?.mapping.password, undefined);
+  const conditional = page();
+  conditional.passkey = true;
+  assert.equal(matchTemplate(conditional)?.mapping.password, password);
   const ambiguous = page();
   ambiguous.controls.push({
     ...ambiguous.controls[0]!,

@@ -60,7 +60,11 @@ export function composedHandoffHooks(): HandoffHooks {
 }
 
 export function classifyHandoff(page: Observation): HandoffReason | undefined {
-  if (page.passkey) return "passkey-required";
+  if (
+    page.passkey &&
+    !page.controls.some((control) => control.kind === "password")
+  )
+    return "passkey-required";
   if (page.challenge) return "human-challenge";
   return;
 }
@@ -72,7 +76,7 @@ export type HandoffPort = {
   onDisconnect: { addListener(listener: () => void): void };
 };
 
-/** Bridge an extension port to in-page subscribers. Replies immediately. */
+/** Bridge an extension port to in-page subscribers. */
 export function attachHandoffPort(port: HandoffPort): () => void {
   const onMessage = (raw: unknown) => {
     const parsed = incoming.safeParse(raw);
