@@ -3,7 +3,10 @@ import test from "node:test";
 import { verificationClaimSchema } from "../../../src/core/connectors/index.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { createMicrosoftCustomConnectorAdapter } from "../../../src/server/connectors/formats/microsoft/adapter.js";
-import { TEST_CONNECTION_LIMITATIONS } from "../../../src/server/connectors/formats/microsoft/read.js";
+import {
+  readCustomConnector,
+  TEST_CONNECTION_LIMITATIONS,
+} from "../../../src/server/connectors/formats/microsoft/read.js";
 import { startHttpFixture } from "../doubles/http-fixture.js";
 import {
   actorFor,
@@ -12,6 +15,7 @@ import {
   connectedPrincipal,
   portsWithFetch,
   readFixtureConnector,
+  swaggerFixture,
 } from "./support.js";
 
 /*
@@ -174,26 +178,10 @@ test("verification is refused when the host has not approved a verifier", async 
 });
 
 test("a testConnection naming an operation the document does not declare offers no candidate", async () => {
-  const swagger = JSON.parse(
-    JSON.stringify(
-      await import("node:fs").then(({ readFileSync }) =>
-        JSON.parse(
-          readFileSync(
-            new URL(
-              "../fixtures/microsoft/apiDefinition.swagger.json",
-              import.meta.url,
-            ),
-            "utf8",
-          ),
-        ),
-      ),
-    ),
-  ) as Record<string, unknown>;
-  (swagger["x-ms-capabilities"] as { testConnection: { operationId: string } })
-    .testConnection.operationId = "NoSuchOperation";
-  const { readCustomConnector } = await import(
-    "../../../src/server/connectors/formats/microsoft/read.js"
-  );
+  const swagger = swaggerFixture() as Record<string, unknown>;
+  (
+    swagger["x-ms-capabilities"] as { testConnection: { operationId: string } }
+  ).testConnection.operationId = "NoSuchOperation";
   const read = await readCustomConnector({ swagger });
   assert.equal(read.verifierCandidate, undefined);
   assert.equal(read.verifierOperation, undefined);

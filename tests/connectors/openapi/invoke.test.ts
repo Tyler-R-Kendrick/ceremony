@@ -788,3 +788,25 @@ test("capabilities report per dimension and never claim evidence for an unsuppor
   assert.equal(adapter.runtime, "hosted-server");
   assert.deepEqual([...adapter.custody], ["host-owned", "no-credential"]);
 });
+
+test("an oversized error response is classified by its status, not by its size", async (t) => {
+  const big = JSON.stringify(
+    Array.from({ length: 5000 }, (_, index) => ({ error: `e-${index}` })),
+  );
+  const fixtureState = await bind(t, {
+    handler: () => ({
+      status: 500,
+      body: big,
+      headers: { "content-type": "application/json" },
+    }),
+    compile: { maxResponseBytes: 512 },
+    credential: { apiKey: "key-value" },
+  });
+  const result = await invokeAdapter(fixtureState.adapter, fixtureState.ctx, {
+    operationRef: fixtureState.refFor("createPet"),
+    input: { body: { name: "Rex" } },
+  });
+  // A 5xx on a write stays indeterminate even when the body was unreadable.
+  assert.equal(result.state, "indeterminate");
+  assert.equal(result.code, "upstream-unavailable");
+});
