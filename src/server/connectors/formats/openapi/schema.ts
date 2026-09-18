@@ -68,6 +68,8 @@ const jsonValue: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
+// Zod's inferred optional keys are `T | undefined`; the parsed value never holds
+// an explicit undefined, so the exact shape is asserted once here.
 export const compiledSchemaSchema: z.ZodType<CompiledSchema> = z.lazy(() =>
   z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("any") }),
@@ -102,7 +104,7 @@ export const compiledSchemaSchema: z.ZodType<CompiledSchema> = z.lazy(() =>
       writeOnly: z.boolean().optional(),
     }),
   ]),
-);
+) as unknown as z.ZodType<CompiledSchema>;
 
 export type SchemaDefinitions = Record<string, CompiledSchema>;
 
@@ -273,7 +275,7 @@ export function compileSchema(
       ctx.problems.push({
         code: "schema.unsupported-keyword",
         pointer: location.pointer,
-        keyword: siblings[0],
+        keyword: siblings[0] ?? "$ref",
       });
     const resolved = ctx.resolver.resolve(raw, location);
     if (!resolved.ok) {

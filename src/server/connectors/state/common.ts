@@ -141,12 +141,15 @@ export function checkActor(actor: unknown): ActorContext {
   return parsed.data;
 }
 
+/** The same shape with `undefined` removed from every property type; optionality is preserved. */
+export type Defined<T> = { [K in keyof T]: Exclude<T[K], undefined> };
+
 /** Drops undefined-valued keys so a record matches its strict schema and exact optional types. */
-export function compact<T extends object>(value: T): T {
+export function compact<T extends object>(value: T): Defined<T> {
   const out: Record<string, unknown> = {};
   for (const [name, item] of Object.entries(value))
     if (item !== undefined) out[name] = item;
-  return out as T;
+  return out as Defined<T>;
 }
 
 export const systemRandom: RandomPort = {

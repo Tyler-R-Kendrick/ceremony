@@ -62,7 +62,8 @@ export interface ConnectorCredentialCustody extends CredentialCustodyPort {
   needsRefresh(scope: CredentialScope, ref: string): Promise<boolean>;
 }
 
-const refPattern = /^cred:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const refPattern =
+  /^cred:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const expiresAtSchema = z.number().int().positive().optional();
 
 function checkScope(scope: unknown): CredentialScope {
@@ -92,6 +93,15 @@ function checkMaterial(
   return Object.freeze({ ...parsed.data });
 }
 
+function checkExpiry(value: unknown): number | undefined {
+  const parsed = expiresAtSchema.safeParse(value);
+  if (!parsed.success)
+    throw new ConnectorError("invalid-request", {
+      detail: "credential.expires-at",
+    });
+  return parsed.data;
+}
+
 function sameScope(a: CredentialScope, b: CredentialScope): boolean {
   return (
     a.tenantId === b.tenantId &&
@@ -101,6 +111,23 @@ function sameScope(a: CredentialScope, b: CredentialScope): boolean {
     a.bindingRef === b.bindingRef &&
     a.custody === b.custody
   );
+}
+
+function rotated(
+  prior: StoredCredential,
+  material: CredentialMaterial,
+  expiresAt: number | undefined,
+  at: number,
+): StoredCredential {
+  const { expiresAt: _previous, ...base } = prior;
+  void _previous;
+  return {
+    ...base,
+    material,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+    generation: prior.generation + 1,
+    rotatedAt: at,
+  };
 }
 
 /**
@@ -118,21 +145,20 @@ export function assertNoMaterial(
     values.some((value) =>
       value.length >= 8 ? text.includes(value) : text === value,
     );
+  const refuse = () => {
+    throw new ConnectorError("denied", {
+      detail: "credential.material-in-result",
+    });
+  };
   const seen = new Set<object>();
   const walk = (value: unknown, depth: number): void => {
     if (depth > 32) return;
     if (typeof value === "string") {
-      if (leaks(value))
-        throw new ConnectorError("denied", {
-          detail: "credential.material-in-result",
-        });
+      if (leaks(value)) refuse();
       return;
     }
     if (value instanceof Uint8Array) {
-      if (leaks(Buffer.from(value).toString("utf8")))
-        throw new ConnectorError("denied", {
-          detail: "credential.material-in-result",
-        });
+      if (leaks(Buffer.from(value).toString("utf8"))) refuse();
       return;
     }
     if (!value || typeof value !== "object" || seen.has(value)) return;
@@ -170,7 +196,10 @@ export function createCredentialCustodyPort(
   if (!Number.isSafeInteger(margin) || margin < 0)
     throw new ConnectorError("invalid-request", { detail: "credential.margin" });
   const waitMs = boundedDuration(options.waitMs ?? 25, "credential.wait", 5000);
-  const refreshing = new Map<string, Promise<{ ref: string; expiresAt?: number }>>();
+  const refreshing = new Map<
+    string,
+    Promise<{ ref: string; expiresAt?: number }>
+  >();
 
   const load = async (
     tx: AsyncTransaction,
@@ -186,7 +215,7 @@ export function createCredentialCustodyPort(
     if (!record || !sameScope(record.value.scope, scope)) return undefined;
     return record;
   };
-  const require = async (
+  const mustLoad = async (
     tx: AsyncTransaction,
     scope: CredentialScope,
     ref: string,
@@ -219,11 +248,7 @@ export function createCredentialCustodyPort(
     async store(rawScope, rawMaterial, opts = {}) {
       const scope = checkScope(rawScope);
       const material = checkMaterial(scope, rawMaterial);
-      const expiresAt = expiresAtSchema.safeParse(opts.expiresAt);
-      if (!expiresAt.success)
-        throw new ConnectorError("invalid-request", {
-          detail: "credential.expires-at",
-        });
+      const expiresAt = checkExpiry(opts.expiresAt);
       if (opts.replaces !== undefined && !refPattern.test(opts.replaces))
         throw new ConnectorError("not-found", { detail: "credential.unknown" });
       const ref = opts.replaces ?? newRef("cred");
@@ -231,36 +256,27 @@ export function createCredentialCustodyPort(
         const at = await time(tx);
         const key = credentialKey(scope.tenantId, ref);
         if (opts.replaces !== undefined) {
-          const prior = await require(tx, scope, ref);
+          const prior = await mustLoad(tx, scope, ref);
           await tx.put(
             key,
-            compact({
-              ...prior.value,
-              material,
-              expiresAt: expiresAt.data,
-              generation: prior.value.generation + 1,
-              rotatedAt: at,
-            } satisfies StoredCredential),
+            rotated(prior.value, material, expiresAt, at),
             prior.revision,
           );
           // A replacement supersedes any refresh still in flight.
           await tx.cancel(key);
           return;
         }
-        await tx.put(
-          key,
-          compact({
-            schemaVersion: SCHEMA_VERSION,
-            ref,
-            scope,
-            material,
-            expiresAt: expiresAt.data,
-            generation: 1,
-            createdAt: at,
-            rotatedAt: at,
-          } satisfies StoredCredential),
-          null,
-        );
+        const record: StoredCredential = {
+          schemaVersion: SCHEMA_VERSION,
+          ref,
+          scope,
+          material,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+          generation: 1,
+          createdAt: at,
+          rotatedAt: at,
+        };
+        await tx.put(key, record, null);
       });
       return ref;
     },
@@ -268,7 +284,7 @@ export function createCredentialCustodyPort(
     async use(rawScope, ref, work) {
       const scope = checkScope(rawScope);
       const material = await transact(store, async (tx) => {
-        const record = await require(tx, scope, ref);
+        const record = await mustLoad(tx, scope, ref);
         const at = await time(tx);
         if (expiring(record.value, at))
           throw new ConnectorError("expired", {
@@ -297,7 +313,7 @@ export function createCredentialCustodyPort(
         const started = Date.now();
         for (;;) {
           const admitted = await transact(store, async (tx) => {
-            const record = await require(tx, scope, ref);
+            const record = await mustLoad(tx, scope, ref);
             try {
               const fence = await tx.claim(key, attemptWorker, leaseMs);
               return {
@@ -327,9 +343,11 @@ export function createCredentialCustodyPort(
             continue;
           }
           if (admitted.generation > baseline) {
-            // Another worker rotated it while we waited; do not rotate again.
+            // Another worker rotated it while this one waited; never rotate twice.
             await releaseLease(scope.tenantId, ref, admitted.fence);
-            const current = await transact(store, (tx) => require(tx, scope, ref));
+            const current = await transact(store, (tx) =>
+              mustLoad(tx, scope, ref),
+            );
             return compact({ ref, expiresAt: current.value.expiresAt });
           }
           let next: { material: CredentialMaterial; expiresAt?: number };
@@ -339,13 +357,14 @@ export function createCredentialCustodyPort(
             await releaseLease(scope.tenantId, ref, admitted.fence);
             throw error;
           }
-          const material = checkMaterial(scope, next?.material);
-          const expiresAt = expiresAtSchema.safeParse(next.expiresAt);
-          if (!expiresAt.success) {
+          let material: CredentialMaterial;
+          let expiresAt: number | undefined;
+          try {
+            material = checkMaterial(scope, next?.material);
+            expiresAt = checkExpiry(next?.expiresAt);
+          } catch (error) {
             await releaseLease(scope.tenantId, ref, admitted.fence);
-            throw new ConnectorError("invalid-request", {
-              detail: "credential.expires-at",
-            });
+            throw error;
           }
           return transact(store, async (tx) => {
             try {
@@ -357,7 +376,7 @@ export function createCredentialCustodyPort(
                 });
               throw error;
             }
-            const record = await require(tx, scope, ref);
+            const record = await mustLoad(tx, scope, ref);
             if (record.value.generation !== admitted.generation)
               throw new ConnectorError("conflict", {
                 detail: "credential.stale-refresh",
@@ -365,17 +384,11 @@ export function createCredentialCustodyPort(
             const at = await time(tx);
             await tx.put(
               key,
-              compact({
-                ...record.value,
-                material,
-                expiresAt: expiresAt.data,
-                generation: record.value.generation + 1,
-                rotatedAt: at,
-              } satisfies StoredCredential),
+              rotated(record.value, material, expiresAt, at),
               record.revision,
             );
             await tx.cancel(key);
-            return compact({ ref, expiresAt: expiresAt.data });
+            return compact({ ref, expiresAt });
           });
         }
       })();
@@ -413,7 +426,7 @@ export function createCredentialCustodyPort(
     async needsRefresh(rawScope, ref) {
       const scope = checkScope(rawScope);
       return transact(store, async (tx) => {
-        const record = await require(tx, scope, ref);
+        const record = await mustLoad(tx, scope, ref);
         return expiring(record.value, await time(tx));
       });
     },

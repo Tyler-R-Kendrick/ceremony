@@ -120,6 +120,32 @@ export const arazzoIssueTable = {
     "A field the specification does not define was preserved for review and is never executed.",
     "Move vendor data under an x- extension.",
   ),
+  "arazzo.structure.too-long": blocking(
+    "structure",
+    "A string exceeds the bound for its field.",
+    undefined,
+    "blocks-operation",
+    "rejected",
+  ),
+  "arazzo.structure.too-many": blocking(
+    "structure",
+    "A list or map exceeds the bound for its field; nothing was truncated.",
+    undefined,
+    "blocks-operation",
+    "rejected",
+  ),
+  "arazzo.definition.unprojectable": blocking(
+    "structure",
+    "The description could not be projected into a normalized definition.",
+    undefined,
+    "blocks-definition",
+    "rejected",
+  ),
+  "arazzo.version.field-ignored": warning(
+    "version",
+    "This field belongs to a later Arazzo version than the document declares; it was preserved and has no effect.",
+    "Declare the Arazzo version that defines the field.",
+  ),
   "arazzo.structure.empty-list": blocking(
     "structure",
     "A list that must have at least one entry is empty.",
@@ -373,6 +399,16 @@ export const arazzoIssueTable = {
     "identity",
     "A step identifier cannot be represented as a recipe node identifier.",
     "Start the identifier with a letter and keep it under 96 characters.",
+  ),
+  "arazzo.identity.name-unrepresentable": blocking(
+    "identity",
+    "An input, output or workflow name cannot be represented as a recipe identifier.",
+    "Start the name with a letter and keep it under 96 characters.",
+  ),
+  "arazzo.criteria.unbound-input": blocking(
+    "structure",
+    "A criterion reads a workflow input that no step binds, so it has no registered contract or classification.",
+    "Bind the input to an operation parameter or remove it from the condition.",
   ),
   "arazzo.binding.unbound-workflow": blocking(
     "identity",

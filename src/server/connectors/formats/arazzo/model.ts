@@ -11,6 +11,8 @@ import type { ArazzoVersion } from "./limits.js";
 export type Extensions = Record<string, unknown>;
 
 export interface PreservedBase {
+  /** JSON pointer of this object in the source document; diagnostics cite it. */
+  pointer: string;
   extensions: Extensions;
   /** Fields outside the specification (or outside the declared version), preserved and never interpreted. */
   unknown: Extensions;

@@ -1,9 +1,8 @@
 import { z } from "zod";
 import type { ConnectorHandoffSummary } from "../../../core/connectors/index.js";
-import {
-  PersistenceConflict,
-  type AsyncCeremonyStore,
-  type AsyncTransaction,
+import type {
+  AsyncCeremonyStore,
+  AsyncTransaction,
 } from "../../persistence/index.js";
 import { ConnectorError } from "../errors.js";
 import type {
@@ -392,5 +391,3 @@ export function createHandoffPort(
     },
   };
 }
-
-export { PersistenceConflict as _handoffPersistenceConflict };

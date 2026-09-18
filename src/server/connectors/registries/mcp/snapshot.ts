@@ -551,7 +551,7 @@ export class RegistrySnapshotStore {
             this.now() - Date.parse(current.pending.startedAt) > this.maxPendingAgeMs)
         ) {
           current.abandonedGenerations.push(current.pending.generation);
-          current.pending = undefined;
+          delete current.pending;
         }
         if (!current.pending) {
           current.pending = this.startPending(current, options.mode);
@@ -599,10 +599,9 @@ export class RegistrySnapshotStore {
           // first page under a new generation number. The served generation is
           // not involved, and the abandoned staging is garbage-collected later.
           header.abandonedGenerations.push(pending.generation);
-          const restarted = this.startPending(
-            { ...header, pending: undefined },
-            pending.mode,
-          );
+          const { pending: _abandoned, ...withoutPending } = header;
+          void _abandoned;
+          const restarted = this.startPending(withoutPending, pending.mode);
           restarted.issues = [...pending.issues];
           restarted.droppedIssues = pending.droppedIssues;
           this.addIssue(
@@ -701,10 +700,11 @@ export class RegistrySnapshotStore {
           }
           shard.record.rows[entry.identityDigest] = this.rowFor(entry, existing, now);
           if (!existing || existing.carried) pending.staged++;
-          pending.watermark = laterTime(
+          const watermark = laterTime(
             pending.watermark,
             entry.official?.updatedAt ?? entry.official?.publishedAt,
           );
+          if (watermark !== undefined) pending.watermark = watermark;
         }
         for (const issue of page.issues)
           this.addIssue(pending, {

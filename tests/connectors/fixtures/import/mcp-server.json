@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.json",
+  "name": "io.example/fixture-server",
+  "description": "Fixture registry entry; nothing here is installed or run.",
+  "version": "1.0.0",
+  "remotes": [{ "type": "streamable-http", "url": "https://mcp.example/sse" }],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@example/fixture-mcp",
+      "version": "1.0.0",
+      "runtimeHint": "npx",
+      "packageArguments": [{ "type": "positional", "value": "--dangerous-flag" }]
+    }
+  ]
+}

@@ -63,13 +63,13 @@ function splitPointer(text: string): { head: string; pointer?: string } {
   return { head: text.slice(0, hash), pointer: text.slice(hash + 1) };
 }
 
-function withPointer<T extends { pointer?: string }>(
-  base: Omit<T, "pointer">,
+function withPointer<T extends RuntimeExpression>(
+  base: T,
   pointer: string | undefined,
 ): T | undefined {
-  if (pointer === undefined) return base as T;
+  if (pointer === undefined) return base;
   if (!validJsonPointer(pointer)) return undefined;
-  return { ...base, pointer } as T;
+  return { ...base, pointer };
 }
 
 function parseSource(
@@ -129,10 +129,7 @@ export function parseRuntimeExpression(
     if (text.startsWith(`$${kind}.`)) {
       const { head, pointer } = splitPointer(text.slice(kind.length + 2));
       if (!IDENTIFIER.test(head)) return undefined;
-      return withPointer<Extract<RuntimeExpression, { kind: "inputs" }>>(
-        { kind, name: head },
-        pointer,
-      );
+      return withPointer({ kind, name: head }, pointer);
     }
   if (text.startsWith("$steps.")) {
     const { head, pointer } = splitPointer(text.slice("$steps.".length));
@@ -144,10 +141,7 @@ export function parseRuntimeExpression(
       return undefined;
     const name = remainder.slice("outputs.".length);
     if (!IDENTIFIER.test(name)) return undefined;
-    return withPointer<Extract<RuntimeExpression, { kind: "steps" }>>(
-      { kind: "steps", stepId, name },
-      pointer,
-    );
+    return withPointer({ kind: "steps", stepId, name }, pointer);
   }
   if (text.startsWith("$workflows.")) {
     const { head, pointer } = splitPointer(text.slice("$workflows.".length));
@@ -161,10 +155,7 @@ export function parseRuntimeExpression(
       !IDENTIFIER.test(name)
     )
       return undefined;
-    return withPointer<Extract<RuntimeExpression, { kind: "workflows" }>>(
-      { kind: "workflows", workflowId, field, name },
-      pointer,
-    );
+    return withPointer({ kind: "workflows", workflowId, field, name }, pointer);
   }
   if (text.startsWith("$sourceDescriptions.")) {
     const rest = text.slice("$sourceDescriptions.".length);

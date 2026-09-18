@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   DEFINITION_LIMITS,
   normalizedDefinitionSchema,
@@ -757,10 +758,7 @@ export async function serverJsonSourceRecord(input: {
   normalizedDigest: string;
   artifactRef?: string;
 }): Promise<SourceRecord> {
-  const digest = Array.from(
-    new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", input.bytes)),
-    (byte) => byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const digest = createHash("sha256").update(input.bytes).digest("hex");
   return sourceRecordSchema.parse({
     sourceRef: input.sourceRef,
     identity: input.identity,
