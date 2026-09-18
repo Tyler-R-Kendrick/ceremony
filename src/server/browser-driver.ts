@@ -17,6 +17,7 @@ import type {
   CeremonyInterpreter,
   InterpreterInput,
 } from "./browser-interpreter.js";
+import { StaleTargetError } from "./browser-targets.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -163,6 +164,20 @@ function originOf(url: string): string {
 }
 
 /**
+ * An adapter refusing to act on something that moved is a named outcome, not a
+ * crash. The page changing under an attempt is ordinary — a provider redirects,
+ * a single-page app re-renders, a framework replaces an input while a model is
+ * still deciding what to do with the old one — and the correct response is to
+ * stop and say which thing moved, never to act on whatever is there instead.
+ */
+function refusalReason(error: unknown): BlockedReason | undefined {
+  if (!(error instanceof StaleTargetError)) return undefined;
+  return error.reason === "target-unavailable"
+    ? "provider-error"
+    : error.reason;
+}
+
+/**
  * Identity of what the user can currently see and do. Two consecutive applied
  * actions producing the same fingerprint mean the attempt is not progressing.
  */
@@ -261,6 +276,24 @@ export async function runCeremony(
     transcript,
     handoffs,
   });
+
+  /**
+   * Read the page, tolerating the one thing that legitimately stops a read: the
+   * browser or tab going away. A fresh observation after an action is expected
+   * to describe a *different* document — that is what the action was for — so
+   * only an unreadable page ends the attempt here.
+   */
+  const observe = async (): Promise<
+    { snapshot: PageSnapshot } | { blocked: CeremonyResult }
+  > => {
+    try {
+      return { snapshot: await page.snapshot() };
+    } catch (error) {
+      const reason = refusalReason(error);
+      if (reason === undefined) throw error;
+      return { blocked: finish({ status: "blocked", reason, steps }) };
+    }
+  };
 
   /**
    * Bring a person into a step the browser cannot complete. The declared
@@ -367,23 +400,49 @@ export async function runCeremony(
       }
       if (secretRoles.includes(role) && !guarded.includes(value))
         guarded.push(value);
-      await page.fill(element, value);
+      // The adapter revalidates the element and its destination here, after the
+      // credential lookup that just awaited. A refusal at this point means the
+      // page moved while the value was being fetched, so nothing is filled.
+      try {
+        await page.fill(element, value);
+      } catch (error) {
+        const reason = refusalReason(error);
+        if (reason === undefined) throw error;
+        record(snapshot, "blocked", { reason });
+        return finish({ status: "blocked", reason, steps });
+      }
       record(snapshot, "fill", {
         role,
         ...(action.note ? { note: action.note } : {}),
       });
     } else if (action.action === "check") {
-      await page.check(element);
+      try {
+        await page.check(element);
+      } catch (error) {
+        const reason = refusalReason(error);
+        if (reason === undefined) throw error;
+        record(snapshot, "blocked", { reason });
+        return finish({ status: "blocked", reason, steps });
+      }
       record(snapshot, "check", action.note ? { note: action.note } : {});
     } else {
-      await page.click(element);
+      try {
+        await page.click(element);
+      } catch (error) {
+        const reason = refusalReason(error);
+        if (reason === undefined) throw error;
+        record(snapshot, "blocked", { reason });
+        return finish({ status: "blocked", reason, steps });
+      }
       record(snapshot, "click", action.note ? { note: action.note } : {});
     }
 
     refusals = 0;
     await page.settle();
     steps++;
-    const current = fingerprint(await page.snapshot());
+    const observed = await observe();
+    if ("blocked" in observed) return observed.blocked;
+    const current = fingerprint(observed.snapshot);
     if (current === previous) {
       if (++unchanged >= stallLimit)
         return finish({ status: "stalled", steps });
@@ -450,7 +509,9 @@ export async function runCeremony(
         await page.goto(link);
       } else await page.settle();
       steps++;
-      const settled = fingerprint(await page.snapshot());
+      const observed = await observe();
+      if ("blocked" in observed) return observed.blocked;
+      const settled = fingerprint(observed.snapshot);
       if (settled === previous) {
         if (++unchanged >= stallLimit)
           return finish({ status: "stalled", steps });
@@ -492,7 +553,9 @@ export async function runCeremony(
       response?.status === 401 &&
       /^(basic|digest)\b/i.test(response.authenticate ?? "");
 
-    const snapshot = await page.snapshot();
+    const observed = await observe();
+    if ("blocked" in observed) return observed.blocked;
+    const snapshot = observed.snapshot;
     // A step needing a person is never handed to an interpreter to solve.
     // A passkey hint beside a password box is conditional UI: the page still
     // accepts a password, so it is driven normally. Only a prompt with nothing

@@ -1,0 +1,336 @@
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import {
+  accountPolicySchema,
+  browserEngineSchema,
+  browserOwnershipSchema,
+  browserTrustModeSchema,
+  loginContinuationSchema,
+  requiredCapabilitySchema,
+  type AccountPolicy,
+  type BackendDescriptor,
+  type RequiredCapabilities,
+} from "../core/browser-session-contracts.js";
+import { unmetCapabilities } from "../core/browser-session-contracts.js";
+
+/**
+ * Turning what a person asked for into what the server will actually do.
+ *
+ * A configuration wizard collects choices. Those choices are a *request*: until
+ * the server has resolved them against its own registrations, checked them
+ * against policy and written down a canonical result, nothing about them is
+ * true. The failure this module exists to prevent is the one where a wizard
+ * renders "interruptions: none" and "key scope: personal", the run then uses
+ * neither, and the interface is describing a plan that was never sent.
+ *
+ * So the compiled plan is the only thing execution reads, it carries a digest,
+ * and approvals, pending effects, leases and evidence are all bound to that
+ * digest. A configuration change under a pending human wait produces a new
+ * digest and therefore cannot authorize the work approved under the old one.
+ */
+
+/**
+ * An origin, canonicalized once, here.
+ *
+ * Scheme, host and effective port; no userinfo, no path, no wildcard, and
+ * never a suffix test. Several places in the codebase need "the same origin"
+ * to mean the same thing, and the way that stops being true is each of them
+ * writing its own comparison.
+ */
+export const exactOriginSchema = z
+  .string()
+  .max(2000)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        url.origin === value &&
+        !url.username &&
+        !url.password &&
+        !url.hostname.includes("*") &&
+        url.port !== "0" &&
+        (url.protocol === "https:" ||
+          // Loopback stays available for owned fixtures and development. It is
+          // an exception for a specific host, not a hole for "local-looking"
+          // names, and production policy is what decides whether it applies.
+          (url.protocol === "http:" &&
+            (url.hostname === "127.0.0.1" || url.hostname === "[::1]")))
+      );
+    } catch {
+      return false;
+    }
+  }, "Expected an exact canonical origin");
+
+/**
+ * What the wizard collected. Every field here is a *request*, and every field
+ * either changes the compiled plan or is rejected — a field that is displayed
+ * and then ignored is the defect, not a harmless nicety.
+ */
+export const connectionDraftSchema = z
+  .strictObject({
+    connectorId: z.string().min(1).max(128),
+    engine: browserEngineSchema,
+    ownership: browserOwnershipSchema,
+    entryUrl: z.string().url().max(2000),
+    navigationOrigins: z.array(exactOriginSchema).min(1).max(16),
+    /**
+     * Where a *secret* may be typed, per role, kept separate from where the
+     * ceremony may navigate. Permission to visit an identity provider is not
+     * permission to type this site's password into it.
+     */
+    credentialRecipients: z
+      .record(z.string().max(32), z.array(exactOriginSchema).max(8))
+      .optional(),
+    frameOrigins: z.array(exactOriginSchema).max(8).optional(),
+    account: accountPolicySchema,
+    continuation: loginContinuationSchema,
+    trustMode: browserTrustModeSchema,
+    /**
+     * How many times this ceremony may ask a person to take part. It counts
+     * rounds Ceremony requests, cumulatively across retries, resumes and
+     * interpreter fallback. It is not, and cannot be, a promise about the
+     * prompts a browser or an operating system decides to show.
+     */
+    interactionRounds: z.number().int().min(0).max(8),
+    /** Verification is required unless the host explicitly permits otherwise. */
+    requireVerification: z.boolean(),
+    verifierOrigin: exactOriginSchema.optional(),
+    required: requiredCapabilitySchema.optional(),
+    /**
+     * References to values held by the private collector. The draft carries
+     * authorized references; it never carries a password.
+     */
+    credentialRefs: z
+      .record(z.string().max(32), z.string().max(128))
+      .optional(),
+    sessionTtlMs: z.number().int().min(60_000).max(86_400_000),
+  })
+  .strict();
+export type ConnectionDraft = z.infer<typeof connectionDraftSchema>;
+
+/** Why a draft could not become a plan. Finite, so a UI can explain it. */
+export const planRejectionReasons = [
+  "unknown-connector",
+  "unsupported-engine",
+  "unsupported-capability",
+  "entry-origin-not-declared",
+  "verifier-origin-not-declared",
+  "recipient-origin-not-declared",
+  "verification-required",
+  "unknown-credential-reference",
+  "ambiguous-account",
+] as const;
+export const planRejectionReasonSchema = z.enum(planRejectionReasons);
+export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
+
+export class PlanRejected extends Error {
+  constructor(
+    readonly reason: PlanRejectionReason,
+    readonly detail?: string,
+  ) {
+    super(`Configuration rejected: ${reason}`);
+    this.name = "PlanRejected";
+  }
+}
+
+/**
+ * The canonical plan. This, and nothing else, is what execution reads.
+ */
+export type EffectiveLoginPlan = {
+  connectorId: string;
+  engine: z.infer<typeof browserEngineSchema>;
+  ownership: z.infer<typeof browserOwnershipSchema>;
+  backendId: string;
+  entryUrl: string;
+  navigationOrigins: readonly string[];
+  credentialRecipients: Readonly<Record<string, readonly string[]>>;
+  frameOrigins: readonly string[];
+  account: AccountPolicy;
+  continuation: z.infer<typeof loginContinuationSchema>;
+  trustMode: z.infer<typeof browserTrustModeSchema>;
+  interactionRounds: number;
+  requireVerification: boolean;
+  verifierOrigin: string | undefined;
+  required: RequiredCapabilities;
+  credentialRefs: Readonly<Record<string, string>>;
+  sessionTtlMs: number;
+  revision: number;
+  digest: string;
+};
+
+/**
+ * Canonical JSON: sorted keys, so two plans that say the same thing digest the
+ * same and two that differ anywhere digest differently.
+ */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
+      .join(",")}}`;
+  return JSON.stringify(value ?? null);
+}
+
+export function planDigest(plan: Omit<EffectiveLoginPlan, "digest">): string {
+  return createHash("sha256").update(canonical(plan)).digest("hex");
+}
+
+function originOf(url: string): string {
+  return new URL(url).origin;
+}
+
+export type CompileOptions = {
+  /** Backends this host actually has, from the runtime, not from the client. */
+  backends: readonly BackendDescriptor[];
+  /** Connectors the server knows. An unknown one never falls back to the first. */
+  knownConnectors: ReadonlySet<string>;
+  /** Credential references this actor may use, resolved by the caller already. */
+  availableCredentialRefs?: ReadonlySet<string>;
+  /** Whether this deployment permits a deliberately unverified attempt. */
+  allowUnverified?: boolean;
+  revision: number;
+};
+
+/**
+ * Compile a draft into the plan the server will execute, or reject it by name.
+ *
+ * Nothing here is silently ignored and nothing is silently defaulted into
+ * existence. A choice the host cannot honour is a rejection the interface can
+ * explain, which is the only way a person can tell the difference between "that
+ * is not supported" and "that quietly did nothing".
+ */
+export function compileLoginPlan(
+  input: unknown,
+  options: CompileOptions,
+): EffectiveLoginPlan {
+  const draft = connectionDraftSchema.parse(input);
+
+  if (!options.knownConnectors.has(draft.connectorId))
+    throw new PlanRejected("unknown-connector", draft.connectorId);
+
+  const backend = options.backends.find(
+    (candidate) =>
+      candidate.engine === draft.engine &&
+      candidate.ownership === draft.ownership,
+  );
+  if (!backend)
+    throw new PlanRejected(
+      "unsupported-engine",
+      `${draft.ownership} ${draft.engine}`,
+    );
+
+  const required: RequiredCapabilities = {
+    ...(draft.required ?? {}),
+    // Retention is not a preference when the caller asked to keep the session;
+    // a backend that cannot retain must refuse rather than return a browser it
+    // is about to close.
+    ...(draft.continuation === "dispose" ? {} : { retainedSession: true }),
+  };
+  const unmet = unmetCapabilities(backend, required);
+  if (unmet.length > 0)
+    throw new PlanRejected("unsupported-capability", unmet.join(","));
+
+  const navigationOrigins = [...new Set(draft.navigationOrigins)];
+  const entryOrigin = originOf(draft.entryUrl);
+  if (!navigationOrigins.includes(entryOrigin))
+    throw new PlanRejected("entry-origin-not-declared", entryOrigin);
+
+  // Every credential recipient must also be a declared navigation origin, but
+  // the converse is deliberately not true: an SSO hop can be admitted for
+  // navigation while receiving no password at all.
+  const credentialRecipients: Record<string, readonly string[]> = {};
+  for (const [role, origins] of Object.entries(
+    draft.credentialRecipients ?? {},
+  )) {
+    for (const origin of origins)
+      if (!navigationOrigins.includes(origin))
+        throw new PlanRejected("recipient-origin-not-declared", origin);
+    credentialRecipients[role] = [...new Set(origins)];
+  }
+
+  for (const origin of draft.frameOrigins ?? [])
+    if (!navigationOrigins.includes(origin))
+      throw new PlanRejected("recipient-origin-not-declared", origin);
+
+  if (draft.verifierOrigin && !navigationOrigins.includes(draft.verifierOrigin))
+    throw new PlanRejected(
+      "verifier-origin-not-declared",
+      draft.verifierOrigin,
+    );
+
+  // Turning verification off is a host decision, not a client one, and even
+  // where it is allowed the attempt gets a different, lesser outcome. There is
+  // no configuration that produces a verified result without evidence.
+  if (!draft.requireVerification && options.allowUnverified !== true)
+    throw new PlanRejected("verification-required");
+
+  const credentialRefs: Record<string, string> = {};
+  for (const [role, reference] of Object.entries(draft.credentialRefs ?? {})) {
+    if (
+      options.availableCredentialRefs &&
+      !options.availableCredentialRefs.has(reference)
+    )
+      throw new PlanRejected("unknown-credential-reference", role);
+    credentialRefs[role] = reference;
+  }
+
+  // "Whichever account is there" has to be said, not assumed. Without an
+  // explicit policy a run would quietly accept the first session it found.
+  if (
+    draft.account.kind === "expect" &&
+    draft.account.accountRef.trim().length === 0
+  )
+    throw new PlanRejected("ambiguous-account");
+
+  const withoutDigest: Omit<EffectiveLoginPlan, "digest"> = {
+    connectorId: draft.connectorId,
+    engine: draft.engine,
+    ownership: draft.ownership,
+    backendId: backend.backendId,
+    entryUrl: draft.entryUrl,
+    navigationOrigins,
+    credentialRecipients,
+    frameOrigins: [...new Set(draft.frameOrigins ?? [])],
+    account: draft.account,
+    continuation: draft.continuation,
+    trustMode: draft.trustMode,
+    interactionRounds: draft.interactionRounds,
+    requireVerification: draft.requireVerification,
+    verifierOrigin: draft.verifierOrigin,
+    required,
+    credentialRefs,
+    sessionTtlMs: draft.sessionTtlMs,
+    revision: options.revision,
+  };
+  return { ...withoutDigest, digest: planDigest(withoutDigest) };
+}
+
+/**
+ * Where a given role's secret may be typed.
+ *
+ * Falling back to the navigation origins would undo the separation the plan
+ * just made, so a role with no declared recipients can be typed nowhere. That
+ * is the safe direction: a missing declaration blocks a login instead of
+ * widening one.
+ */
+export function recipientsFor(
+  plan: EffectiveLoginPlan,
+  role: string,
+): readonly string[] {
+  return plan.credentialRecipients[role] ?? [];
+}
+
+/**
+ * Whether a plan is still the one a decision was made under.
+ *
+ * Used before dispatching anything a person or a policy approved earlier: the
+ * digest changing means the approval was for different work.
+ */
+export function planUnchanged(
+  plan: EffectiveLoginPlan,
+  expect: { digest: string; revision: number },
+): boolean {
+  return plan.digest === expect.digest && plan.revision === expect.revision;
+}

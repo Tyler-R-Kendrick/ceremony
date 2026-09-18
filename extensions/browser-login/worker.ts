@@ -9,7 +9,10 @@ import {
 import { selectInitialStep } from "../../src/browser-login/flows.js";
 import {
   classifyHandoff,
+  createHandoffWaits,
   handoffEventSchema,
+  handoffReplyMessageSchema,
+  mintHandoffRef,
   type HandoffPort,
   type HandoffReason,
   type HandoffResolution,
@@ -87,17 +90,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
   return true;
 });
 const handoffPorts = new Set<HandoffPort>();
-type HandoffWait = {
-  finish: (value: HandoffResolution) => void;
-  remaining: Set<HandoffPort>;
-};
-const handoffWaits = new Map<string, HandoffWait>();
-function settleHandoff(id: string, value: HandoffResolution) {
-  const wait = handoffWaits.get(id);
-  if (!wait) return;
-  handoffWaits.delete(id);
-  wait.finish(value);
-}
+const handoffWaits = createHandoffWaits();
 chrome.runtime.onConnectExternal.addListener((port) => {
   void (async () => {
     const config = (await (
@@ -112,31 +105,15 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       return port.disconnect();
     handoffPorts.add(port);
     port.onMessage.addListener((raw) => {
-      const parsed = z
-        .strictObject({
-          type: z.literal("ceremony.resolve-handoff"),
-          runId: z.string().uuid(),
-          resolution: z.enum(["completed", "declined", "unavailable"]),
-        })
-        .safeParse(raw);
+      const parsed = handoffReplyMessageSchema.safeParse(raw);
       if (!parsed.success) return;
-      const wait = handoffWaits.get(parsed.data.runId);
-      if (!wait) return;
-      wait.remaining.delete(port);
-      if (
-        parsed.data.resolution === "completed" ||
-        parsed.data.resolution === "declined"
-      )
-        settleHandoff(parsed.data.runId, parsed.data.resolution);
-      else if (wait.remaining.size === 0)
-        settleHandoff(parsed.data.runId, "unavailable");
+      // An approved origin earns a channel, not a vote: the registry accepts the
+      // answer only from a port this exact attempt was handed to.
+      handoffWaits.reply(port, parsed.data);
     });
     port.onDisconnect.addListener(() => {
       handoffPorts.delete(port);
-      for (const [id, wait] of handoffWaits) {
-        wait.remaining.delete(port);
-        if (wait.remaining.size === 0) settleHandoff(id, "unavailable");
-      }
+      handoffWaits.dropPort(port);
     });
   })().catch(() => port.disconnect());
 });
@@ -195,7 +172,7 @@ async function handle(raw: unknown) {
   }
   if (input.type === "cancel") {
     cancelled.add(input.runId);
-    settleHandoff(input.runId, "unavailable");
+    handoffWaits.abandonRun(input.runId, "unavailable");
     await chrome.storage.session.remove(input.runId);
     return { status: "cancelled" };
   }
@@ -315,8 +292,12 @@ async function offerRunHandoff(
     return { status: "handoff" as const, reason, resolution: "unavailable" };
   }
   run.handoffs++;
+  // Each ask gets its own identity, so a second attempt is a different thing to
+  // answer than the first rather than a reuse of the run's address.
+  const handoffRef = mintHandoffRef();
   const event = handoffEventSchema.parse({
     kind: "handoff",
+    handoffRef,
     runId: id,
     reason,
     origin: run.origin,
@@ -327,12 +308,16 @@ async function offerRunHandoff(
   if (handoffPorts.size > 0) {
     try {
       resolution = await new Promise<HandoffResolution>((resolve) => {
+        // Scoped to this attempt: an earlier attempt's expiry is not a verdict
+        // on a later one.
         const timer = setTimeout(
-          () => settleHandoff(id, "unavailable"),
+          () => handoffWaits.settle(handoffRef, "unavailable"),
           Math.max(0, run.expires - Date.now()),
         );
-        handoffWaits.set(id, {
-          remaining: new Set(handoffPorts),
+        handoffWaits.open({
+          handoffRef,
+          runId: id,
+          resolvers: handoffPorts,
           finish: (value) => {
             clearTimeout(timer);
             resolve(value);
@@ -342,7 +327,7 @@ async function offerRunHandoff(
           port.postMessage({ type: "ceremony.handoff", event });
       });
     } catch (error) {
-      settleHandoff(id, "unavailable");
+      handoffWaits.settle(handoffRef, "unavailable");
       throw error;
     }
   }
