@@ -1,0 +1,382 @@
+import assert from "node:assert/strict";
+import { after, before, describe, test } from "node:test";
+import { browserEngines } from "../src/core/browser-session-contracts.js";
+import {
+  launchManagedBrowser,
+  managedBackends,
+  type ManagedBrowser,
+} from "../src/server/browser-backends.js";
+import { createBrowserLoginService } from "../src/server/browser-login-service.js";
+import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
+import {
+  createFixtureVerifier,
+  createVerifierRegistry,
+} from "../src/server/browser-verification.js";
+import { compileLoginPlan } from "../src/server/login-plan.js";
+import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import {
+  createIdentityFixture,
+  defaultFixtureAccounts,
+  type IdentityFixture,
+} from "./fixtures/identity-provider.js";
+import type { ActorContext } from "../src/core/operation-contracts.js";
+
+/**
+ * The common login contract, executed on every browser engine this build
+ * claims to support.
+ *
+ * Every assertion here is answered by the fixture *server*, not by the thing
+ * under test. Whether a login worked is decided by whether the provider's own
+ * identity endpoint recognises the browser's cookie; whether exactly one
+ * credential submission happened is decided by what the provider recorded
+ * receiving. An agent reporting success is not evidence of success, and a page
+ * rendering "signed in" is not either — there are cases below for both.
+ *
+ * These are real browsers. A suite that silently reduced to zero executed cases
+ * because an engine would not launch would be worse than useless, so an engine
+ * that cannot start fails its cases rather than skipping them.
+ */
+
+const owner = defaultFixtureAccounts[0]!;
+const deputy = defaultFixtureAccounts[1]!;
+
+const actor: ActorContext = {
+  tenantId: "conformance-tenant",
+  subjectId: "conformance-subject",
+  sessionId: "conformance-session",
+  actorKind: "human",
+  capabilities: ["executor"],
+};
+
+let fixture: IdentityFixture;
+let store: SQLiteCeremonyStore;
+
+/**
+ * One real browser process per engine, shared by that engine's cases.
+ *
+ * Isolation between cases is a *context* boundary, not a process boundary —
+ * cookies and storage belong to the context — so opening a fresh context per
+ * login gives each case exactly the separation it needs. Launching a fresh
+ * process per case instead bought nothing and cost twenty-four spawns in one
+ * file, which is heavy enough to matter when the coverage harness runs four
+ * browser-driving files at once on a small CI machine.
+ */
+const engines = new Map<string, ManagedBrowser>();
+
+before(async () => {
+  fixture = await createIdentityFixture();
+  for (const engine of browserEngines)
+    engines.set(engine, await launchManagedBrowser(engine));
+  store = new SQLiteCeremonyStore(":memory:", {
+    current: "conformance",
+    keys: { conformance: new Uint8Array(32) },
+  });
+});
+
+after(async () => {
+  for (const browser of engines.values()) await browser.dispose();
+  await fixture.close();
+  await store.close();
+});
+
+type PlanOverrides = Partial<Parameters<typeof compileLoginPlan>[0] & object>;
+
+function planFor(
+  engine: (typeof browserEngines)[number],
+  overrides: PlanOverrides = {},
+) {
+  return compileLoginPlan(
+    {
+      connectorId: "owned-fixture-login",
+      engine,
+      ownership: "managed",
+      entryUrl: fixture.url("/signin"),
+      navigationOrigins: [fixture.origin],
+      credentialRecipients: {
+        email: [fixture.origin],
+        password: [fixture.origin],
+      },
+      account: { kind: "expect", accountRef: owner.account },
+      continuation: "retain-for-authorized-agent",
+      trustMode: "constrained-auth",
+      interactionRounds: 0,
+      requireVerification: true,
+      verifierOrigin: fixture.origin,
+      credentialRefs: { email: "ref-email", password: "ref-password" },
+      sessionTtlMs: 600_000,
+      ...overrides,
+    },
+    {
+      backends: managedBackends(),
+      knownConnectors: new Set(["owned-fixture-login"]),
+      revision: 1,
+    },
+  );
+}
+
+/** A service wired to one fresh registry, with the credentials it is allowed. */
+function serviceFor(engine: string, values: Record<string, string>) {
+  const sessions = createBrowserSessionRegistry({ store });
+  const service = createBrowserLoginService({
+    sessions,
+    verifiers: createVerifierRegistry([
+      createFixtureVerifier({ origin: fixture.origin }),
+    ]),
+    credentials: {
+      // Roles resolve inside the trusted path. The value never appears in a
+      // plan, a snapshot, a transcript or a result.
+      resolve: async (_actor, _plan, role) => values[role],
+    },
+    // The real launcher still ran, once, in `before`. What it produced is
+    // handed back here with process teardown withheld, because the suite owns
+    // that and a single case ending must not take the engine away from the
+    // cases after it. Everything the service does with the browser — contexts,
+    // pages, retention, release — is the production path unchanged.
+    launch: (async () => {
+      const shared = engines.get(engine)!;
+      return { ...shared, dispose: async () => {} };
+    }) as typeof launchManagedBrowser,
+  });
+  return { sessions, service };
+}
+
+for (const engine of browserEngines) {
+  describe(`managed ${engine}`, () => {
+    test("AUTH-COMBINED: a combined form logs the expected account in", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
+        if (result.status !== "verified") return;
+        assert.equal(result.evidenceKind, "fixture-verified");
+
+        // The oracle: the provider itself recorded one submission, for this
+        // account, with a password it accepted.
+        const submissions = fixture.submissions();
+        assert.equal(submissions.length, 1);
+        assert.equal(submissions[0]?.account, owner.account);
+        assert.equal(submissions[0]?.passwordMatched, true);
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("LIFE-RETURN: the session still works after the call returns", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(result.status, "verified");
+        if (result.status !== "verified") return;
+
+        // A real authenticated request, through the exact retained context,
+        // after the login call has already returned. This is the deliverable:
+        // not a report that a login happened, but a browser that is logged in.
+        const { session } = await sessions.resolve(actor, result.sessionRef);
+        const context = (
+          session as unknown as {
+            context: {
+              request: {
+                get(
+                  url: string,
+                  options?: { failOnStatusCode?: boolean },
+                ): Promise<{ status(): number; text(): Promise<string> }>;
+              };
+            };
+          }
+        ).context;
+        const response = await context.request.get(fixture.url("/api/whoami"), {
+          failOnStatusCode: false,
+        });
+        assert.equal(response.status(), 200);
+        assert.deepEqual(JSON.parse(await response.text()), {
+          account: owner.account,
+        });
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("AUTH-WRONG: a different account is a mismatch, not a success", async () => {
+      fixture.reset();
+      // The credentials are the deputy's; the plan expects the owner.
+      const { sessions, service } = serviceFor(engine, {
+        email: deputy.identifier,
+        password: deputy.password,
+      });
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(result.status, "blocked");
+        assert.equal(
+          result.status === "blocked" ? result.reason : undefined,
+          "account-mismatch",
+        );
+        // The deputy is still signed in at the provider. Nothing logged them
+        // out, switched accounts, or started a recovery flow on their behalf.
+        assert.equal(fixture.sessionsFor(deputy.account).length, 1);
+        assert.equal(fixture.sessionsFor(owner.account).length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("AUTH-FORGED: a page that only looks signed in is not verified", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        // `/forged` renders a signed-in banner, a logout link and even the
+        // account marker element — and sets no cookie at all.
+        const result = await service.login(actor, {
+          plan: planFor(engine, { entryUrl: fixture.url("/forged") }),
+        });
+        assert.notEqual(
+          result.status,
+          "verified",
+          "a rendered marker must not establish a verified account",
+        );
+        assert.equal(fixture.sessionsFor(owner.account).length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("AUTH-CAPTCHA: a human challenge asks for a person, it is not solved", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, { entryUrl: fixture.url("/challenge") }),
+        });
+        assert.equal(
+          result.status,
+          "requires-human",
+          `expected a handoff, got ${JSON.stringify(result)}`,
+        );
+        assert.equal(
+          result.status === "requires-human" ? result.reason : undefined,
+          "human-challenge",
+        );
+        assert.equal(fixture.submissions().length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("AUTH-PASSKEY: an authenticator-only page hands off rather than inventing an assertion", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, { entryUrl: fixture.url("/passkey") }),
+        });
+        assert.equal(
+          result.status,
+          "requires-human",
+          `expected a handoff, got ${JSON.stringify(result)}`,
+        );
+        assert.equal(
+          result.status === "requires-human" ? result.reason : undefined,
+          "passkey",
+        );
+        assert.equal(fixture.sessionsFor(owner.account).length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("LIFE-MANAGED: disposal ends this session and leaves the provider's alone", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(result.status, "verified");
+        if (result.status !== "verified") return;
+
+        const released = await sessions.release(
+          actor,
+          result.sessionRef,
+          "dispose-managed",
+        );
+        assert.deepEqual(released, {
+          kind: "dispose-managed",
+          automationRevoked: true,
+          managedResourcesDisposed: true,
+          userBrowserPreserved: true,
+          // Ceremony closed a browser it started. The provider never heard
+          // about it, and the result refuses to imply otherwise.
+          upstreamLogout: false,
+        });
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+        await assert.rejects(() => sessions.resolve(actor, result.sessionRef));
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("LIFE-LEGACY: a dispose continuation still verifies and still cleans up", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, { continuation: "dispose" }),
+        });
+        assert.equal(result.status, "verified");
+        if (result.status !== "verified") return;
+        // The account really was verified; the session simply does not outlive
+        // the call, which is the behaviour existing ephemeral flows rely on.
+        await assert.rejects(() => sessions.resolve(actor, result.sessionRef));
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+  });
+}
+
+describe("engine identity", () => {
+  test("ENGINE-REAL: each backend reports the executable that actually ran", async () => {
+    // Asked of the browsers that ran the cases above, not of three fresh ones.
+    // A throwaway launch could only report the version of a browser that
+    // proved nothing; these are the processes the conformance results came
+    // from, which is the version worth recording as evidence. It also keeps
+    // the file from holding six engines open at once.
+    for (const engine of browserEngines) {
+      const browser = engines.get(engine);
+      assert.ok(browser, `${engine} must have been launched for its cases`);
+      assert.equal(browser.descriptor.engine, engine);
+      assert.match(
+        browser.descriptor.engineVersion,
+        /\d+/,
+        `${engine} must report a real version, not a placeholder`,
+      );
+      assert.equal(browser.descriptor.ownership, "managed");
+      assert.equal(browser.alive(), true);
+    }
+  });
+});

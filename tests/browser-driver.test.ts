@@ -26,6 +26,7 @@ import {
 } from "../src/server/browser-interpreter.js";
 import {
   createPlaywrightCeremonyPage,
+  StaleTargetError,
   type PlaywrightPageLike,
 } from "../src/server/browser-page.js";
 
@@ -616,66 +617,313 @@ test("every role the action schema accepts is one the driver can substitute", ()
   );
 });
 
-test("the Playwright adapter addresses exactly the element the snapshot named", async () => {
+/**
+ * A double for the handle graph a real browser hands back.
+ *
+ * It answers exactly the questions the adapter asks — is this element still
+ * usable, does it still belong to this form, where would it deliver now — from
+ * mutable state a test can change *between* the observation and the action.
+ * That is the race the old attribute-selector adapter could not see, so being
+ * able to stage it here is the point of the double.
+ */
+function handleGraph(
+  options: {
+    origin?: string;
+    controls?: number;
+  } = {},
+) {
+  const origin = options.origin ?? "https://provider.example";
+  const count = options.controls ?? 7;
+  const forms = Array.from({ length: count }, (_, index) => ({ form: index }));
+  const state = Array.from({ length: count }, (_, index) => ({
+    connected: true,
+    form: forms[index] as object,
+    destination: {
+      form: true,
+      action: `${origin}/session`,
+      method: "post",
+      target: "",
+    } as Record<string, unknown>,
+  }));
   const calls: string[] = [];
-  const fake: PlaywrightPageLike = {
-    url: () => "https://provider.example/signin",
-    goto: async (target) => {
-      calls.push(`goto ${target}`);
-      return undefined;
+  let pageUrl = `${origin}/signin`;
+  // A real browser replaces the document object on every navigation, which is
+  // what makes a held reference to the old one detectably stale. The double
+  // models that explicitly so the same-origin case is actually exercised.
+  let liveDocument = { document: 0 };
+
+  const elementHandle = (index: number) => ({
+    evaluate: async (source: string, arg?: unknown) => {
+      if (source.includes("isConnected")) return state[index]!.connected;
+      if (source.includes("owner === form"))
+        return state[index]!.form === (arg as { node?: object })?.node;
+      return state[index]!.destination;
     },
-    evaluate: async (source) => {
-      calls.push(source.includes("data-ceremony-index") ? "snapshot" : "other");
-      return snapshot();
+    getProperty: async () => {
+      throw new Error("not used");
     },
-    fill: async (selector, value) => {
-      calls.push(`fill ${selector} ${value}`);
+    asElement: () => elementHandle(index),
+    dispose: async () => {},
+    jsonValue: async () => undefined,
+    fill: async (value: string) => {
+      calls.push(`fill ${index} ${value}`);
     },
-    selectOption: async (selector, value) => {
-      calls.push(`select ${selector} ${value}`);
+    click: async () => {
+      calls.push(`click ${index}`);
+    },
+    check: async () => {
+      calls.push(`check ${index}`);
+    },
+    selectOption: async (value: string) => {
+      calls.push(`select ${index} ${value}`);
       return [];
     },
-    check: async (selector) => {
-      calls.push(`check ${selector}`);
+  });
+
+  const listHandle = (kind: "elements" | "forms") => ({
+    evaluate: async () => undefined,
+    getProperty: async (name: string) => {
+      const index = Number(name);
+      return kind === "elements"
+        ? elementHandle(index)
+        : {
+            node: forms[index],
+            evaluate: async () => undefined,
+            getProperty: async () => listHandle(kind),
+            asElement: () => null,
+            dispose: async () => {},
+            jsonValue: async () => undefined,
+          };
     },
-    click: async (selector) => {
-      calls.push(`click ${selector}`);
+    asElement: () => null,
+    dispose: async () => {},
+    jsonValue: async () => undefined,
+  });
+
+  const page: PlaywrightPageLike = {
+    url: () => pageUrl,
+    goto: async (target) => {
+      calls.push(`goto ${target}`);
+      pageUrl = target;
+      liveDocument = { document: liveDocument.document + 1 };
+      return undefined;
     },
+    evaluateHandle: async (source: string) => {
+      calls.push(source.includes("destinations") ? "observe" : "other");
+      const documentToken = liveDocument;
+      return {
+        documentToken,
+        evaluate: async () => undefined,
+        getProperty: async (name: string) => {
+          if (name === "elements") return listHandle("elements");
+          if (name === "forms") return listHandle("forms");
+          const value =
+            name === "snapshot"
+              ? snapshot()
+              : name === "destinations"
+                ? state.map((entry) => entry.destination)
+                : origin;
+          return {
+            evaluate: async () => undefined,
+            getProperty: async () => listHandle("elements"),
+            asElement: () => null,
+            dispose: async () => {},
+            jsonValue: async () => value,
+          };
+        },
+        asElement: () => null,
+        dispose: async () => {},
+        jsonValue: async () => undefined,
+      };
+    },
+    // Mirrors what a real browser does: the checks are closures living on the
+    // observation object, invoked with the held references as arguments.
+    evaluate: (async (
+      fn: (arg: { root: unknown; index: number }) => unknown,
+      arg: { root: unknown; index: number },
+    ) => {
+      const held = arg.root as { documentToken: object };
+      const bound = {
+        sameDocument: () => held.documentToken === liveDocument,
+        elements: state.map((_, index) => index),
+        forms: state.map((_, index) => index),
+        usable: (index: unknown) => state[index as number]!.connected,
+        sameForm: (index: unknown, formIndex: unknown) =>
+          state[index as number]!.form === forms[formIndex as number],
+        destination: (index: unknown) => state[index as number]!.destination,
+      };
+      return fn({ root: bound, index: arg.index });
+    }) as PlaywrightPageLike["evaluate"],
     waitForLoadState: async (state) => {
       calls.push(`settle ${state}`);
     },
   };
-  const page = createPlaywrightCeremonyPage(fake);
-  const input: SnapshotElement = { index: 3, kind: "input" };
-  const choice: SnapshotElement = { index: 4, kind: "select" };
+  return {
+    page,
+    calls,
+    state,
+    forms,
+    navigate: (url: string) => {
+      pageUrl = url;
+      liveDocument = { document: liveDocument.document + 1 };
+    },
+  };
+}
+
+test("the Playwright adapter acts on the element it observed, not on a selector", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
   assert.equal(await page.url(), "https://provider.example/signin");
-  await page.goto("https://provider.example/confirm");
+  await page.goto("https://provider.example/signin");
   assert.deepEqual(await page.snapshot(), snapshot());
-  await page.fill(input, "value-1");
-  await page.fill(choice, "1990");
-  await page.check({ index: 5, kind: "checkbox" });
-  await page.click({ index: 6, kind: "button" });
+  await page.fill(
+    { index: 0, kind: "input", type: "text", label: "Username" },
+    "value-1",
+  );
+  await page.click({ index: 2, kind: "button", text: "Sign in" });
   await page.settle();
-  assert.deepEqual(calls, [
-    "goto https://provider.example/confirm",
-    "snapshot",
-    'fill [data-ceremony-index="3"] value-1',
-    'select [data-ceremony-index="4"] 1990',
-    'check [data-ceremony-index="5"]',
-    'click [data-ceremony-index="6"]',
+  assert.deepEqual(graph.calls, [
+    "goto https://provider.example/signin",
+    "observe",
+    "fill 0 value-1",
+    "click 2",
     "settle networkidle",
   ]);
 });
 
+test("an element removed after the snapshot is refused, not replaced", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // The page re-renders and swaps the input for a fresh one. A selector would
+  // find the replacement; a held reference reports that its element is gone.
+  graph.state[0]!.connected = false;
+  await assert.rejects(
+    page.fill(
+      { index: 0, kind: "input", type: "text", label: "Username" },
+      "secret",
+    ),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-element",
+  );
+  assert.ok(
+    !graph.calls.some((call) => call.startsWith("fill")),
+    "no value may be typed into a replacement element",
+  );
+});
+
+test("navigation between snapshot and action refuses before anything is typed", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  graph.navigate("https://attacker.example/collect");
+  await assert.rejects(
+    page.fill(
+      { index: 0, kind: "input", type: "text", label: "Username" },
+      "secret",
+    ),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-document",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+test("a form whose destination changed after approval cannot receive the value", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // `formaction` on the submitter, a rewritten `action`, or a changed method
+  // all surface here as a destination that is not the approved one.
+  graph.state[0]!.destination = {
+    form: true,
+    action: "https://collector.example/post",
+    method: "post",
+    target: "",
+  };
+  await assert.rejects(
+    page.fill(
+      { index: 0, kind: "input", type: "text", label: "Username" },
+      "secret",
+    ),
+    (error: unknown) =>
+      error instanceof StaleTargetError &&
+      error.reason === "unapproved-recipient",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+test("a control moved into a different form loses its approval", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // The destination is unchanged, so only form identity catches this.
+  graph.state[0]!.form = { form: 99 };
+  await assert.rejects(
+    page.fill(
+      { index: 0, kind: "input", type: "text", label: "Username" },
+      "secret",
+    ),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-element",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+test("an element whose described shape changed is not the element approved", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await assert.rejects(
+    // The caller asks to fill index 0 but describes a password box; the
+    // snapshot recorded a text field there.
+    page.fill({ index: 0, kind: "input", type: "password" }, "secret"),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-element",
+  );
+});
+
+test("acting before any observation is refused rather than guessed", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await assert.rejects(
+    page.click({ index: 2, kind: "button", text: "Sign in" }),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-document",
+  );
+});
+
+test("the driver reports a stale document instead of failing the run", async () => {
+  const graph = handleGraph();
+  const adapter = createPlaywrightCeremonyPage(graph.page);
+  const result = await runCeremony({
+    page: {
+      ...adapter,
+      // The credential lookup is where real attempts lose the race: the
+      // resolver awaits a broker, and the page moves on while it does.
+      snapshot: adapter.snapshot,
+    },
+    interpreter: async () => ({ action: "fill", element: 0, role: "username" }),
+    goal: "sign-in",
+    secrets: createSecrets({
+      username: async () => {
+        graph.navigate("https://provider.example/expired");
+        return "person@example.com";
+      },
+    }),
+    allowedOrigins: ["https://provider.example"],
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "stale-document",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
+  const graph = handleGraph();
   const page = createPlaywrightCeremonyPage({
-    url: () => "https://provider.example/",
-    goto: async () => undefined,
-    evaluate: async () => snapshot(),
-    fill: async () => undefined,
-    selectOption: async () => [],
-    check: async () => undefined,
-    click: async () => undefined,
+    ...graph.page,
     waitForLoadState: async () => {
       throw new Error("Timeout 5000ms exceeded");
     },

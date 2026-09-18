@@ -7,6 +7,10 @@ import {
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ceremonyAgentTools } from "./agent-tools.js";
+import {
+  browserLoginToolInputs,
+  browserToolFailure,
+} from "./browser-login-tools.js";
 import { AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { registerPrivateCollector } from "./mcp-app.js";
@@ -78,6 +82,17 @@ function refusal(message: string) {
 
 /** A failure tells the model what to do next; it never echoes provider detail. */
 function explain(error: unknown): string {
+  // The browser-session failures are mapped by the shared module, so HTTP and
+  // MCP disagree about nothing: the same exception yields the same finite code
+  // and the same finite reason, and only the wording differs.
+  const browser = browserToolFailure(error);
+  if (browser)
+    return {
+      "plan-rejected": `That connection configuration was rejected: ${browser.reason}.`,
+      "session-lost":
+        "That browser session is no longer available. Log in again.",
+      "lease-conflict": "Another client controls that browser session.",
+    }[browser.code];
   if (error instanceof AuthorizationError)
     return {
       unauthenticated: "Sign in to the ceremony application first.",
@@ -222,6 +237,49 @@ export function createCeremonyMcpHandler(
         ],
       }),
     );
+
+    // The retained-browser operations are registered only where this
+    // deployment actually has a browser executor. A tool that is offered and
+    // always refuses teaches a model to keep trying; an absent tool does not.
+    const browser = runtime.browserLogin;
+    if (browser) {
+      server.registerTool(
+        "browser_login",
+        {
+          description:
+            "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value.",
+          inputSchema: browserLoginToolInputs.login,
+        },
+        async (input) => await run((who) => browser.login(who, input)),
+      );
+      server.registerTool(
+        "browser_session_status",
+        {
+          description:
+            "Read what is known about a retained browser session, including whether you are the client permitted to drive it.",
+          inputSchema: browserLoginToolInputs.sessionStatus,
+        },
+        async (input) => await run((who) => browser.sessionStatus(who, input)),
+      );
+      server.registerTool(
+        "browser_release",
+        {
+          description:
+            "Stop driving a browser session, dispose one this server launched, or cancel its run. None of these logs the account out at the provider.",
+          inputSchema: browserLoginToolInputs.release,
+        },
+        async (input) => await run((who) => browser.release(who, input)),
+      );
+      server.registerTool(
+        "browser_backends",
+        {
+          description:
+            "List the browsers this deployment can offer and what each one actually enforces.",
+          inputSchema: browserLoginToolInputs.backends,
+        },
+        async (input) => await run((who) => browser.backends(who, input)),
+      );
+    }
 
     if (collectorOrigins && collectorAvailable)
       registerPrivateCollector(
