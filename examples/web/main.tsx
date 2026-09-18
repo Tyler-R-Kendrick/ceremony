@@ -531,9 +531,17 @@ function App() {
           )
         }
       />
-      {open && entry && (
+      {/*
+       * Mounted whenever a connector is selected, shown only when opened. The
+       * drawer hosts the live connection, and a connection that unmounts takes
+       * its WebMCP tools with it — so closing the drawer would withdraw
+       * `ceremony_<connector>_connect` from every agent watching the page,
+       * which is the one caller that cannot open a drawer to get it back.
+       */}
+      {entry && (
         <AddConnection
           entry={entry}
+          open={open}
           initialStep={resuming ? 4 : 2}
           key={entry.id}
           renderRun={renderRun}

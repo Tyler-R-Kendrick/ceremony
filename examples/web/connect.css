@@ -1278,3 +1278,16 @@ kbd {
   background: var(--c-surface);
   border: 1px solid var(--c-line);
 }
+
+/*
+ * `hidden` is a user-agent `display: none`, and any author `display` outranks
+ * it. The drawer declares `display: flex`, so without this it would stay on
+ * screen while reporting itself hidden — and the connection it now keeps
+ * mounted would be sitting over the directory. Stated per element rather than
+ * with `!important`, because an attribute plus a class already wins.
+ */
+.connect-drawer[hidden],
+[data-surface="connect"] .drawer-scrim[hidden],
+[data-surface="connect"] .step-body[hidden] {
+  display: none;
+}

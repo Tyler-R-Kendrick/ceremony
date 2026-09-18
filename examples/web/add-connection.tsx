@@ -475,6 +475,7 @@ function Step({
   state,
   onOpen,
   aside,
+  keepMounted,
   children,
 }: {
   index: number;
@@ -482,6 +483,16 @@ function Step({
   state: "active" | "done" | "upcoming";
   onOpen?(): void;
   aside?: ReactNode;
+  /**
+   * Hide this step's body instead of unmounting it.
+   *
+   * Only Complete asks for this, and only because what it hosts is a live
+   * connection: unmounting takes its WebMCP tools with it, so an agent would
+   * lose `ceremony_<connector>_connect` the moment somebody closed a panel.
+   * `hidden` keeps the registration and still takes the step out of the
+   * accessibility tree.
+   */
+  keepMounted?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -511,8 +522,10 @@ function Step({
           {aside}
         </div>
       )}
-      {state === "active" && children && (
-        <div className="step-body">{children}</div>
+      {children && (keepMounted || state === "active") && (
+        <div className="step-body" hidden={state !== "active"}>
+          {children}
+        </div>
       )}
     </section>
   );
@@ -520,6 +533,16 @@ function Step({
 
 export interface AddConnectionProps {
   entry: CatalogEntry;
+  /**
+   * Whether the drawer is on screen.
+   *
+   * Closed, it renders nothing a person can see or reach — but it stays
+   * mounted, because Complete hosts a live connection and unmounting it would
+   * take its WebMCP tools with it. Before this surface existed, Connect
+   * rendered that connection whenever Connect was showing, and an agent could
+   * call `ceremony_<connector>_connect` without a human opening a panel first.
+   */
+  open: boolean;
   /** The live ceremony for this connector, rendered once the draft is settled. */
   renderRun(draft: ConnectionDraft): ReactNode;
   /**
@@ -533,6 +556,7 @@ export interface AddConnectionProps {
 
 export function AddConnection({
   entry,
+  open,
   renderRun,
   initialStep = 2,
   onClose,
@@ -567,6 +591,7 @@ export function AddConnection({
    * document with no idea where they were.
    */
   useEffect(() => {
+    if (!open) return;
     opener.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -600,7 +625,7 @@ export function AddConnection({
       removeEventListener("keydown", onKey);
       if (opener.current?.isConnected) opener.current.focus();
     };
-  }, []);
+  }, [open]);
   const toggle = (capability: Capability) =>
     set({
       capabilities: draft.capabilities.includes(capability)
@@ -615,10 +640,12 @@ export function AddConnection({
         type="button"
         className="drawer-scrim"
         aria-label="Close Add Connection"
+        hidden={!open}
         onClick={onClose}
       />
       <div
         className="connect-drawer"
+        hidden={!open}
         data-step={step}
         data-wide={step === 4 ? "" : undefined}
         data-theme="dark"
@@ -830,7 +857,7 @@ export function AddConnection({
             </button>
           </div>
         </Step>
-        <Step index={4} title="Complete" state={state(4)}>
+        <Step index={4} title="Complete" state={state(4)} keepMounted>
           <details className="summary-disclosure">
             <summary>Connection summary</summary>
             <dl className="summary-list">
