@@ -22,8 +22,14 @@ import {
   type CatalogEntry,
 } from "./catalog.js";
 import { ConnectCatalog } from "./connect-catalog.js";
-import { AddConnection, type ConnectionDraft } from "./add-connection.js";
+import type { ConnectionDraft } from "./add-connection.js";
 import type { CompileOutcome } from "./connection-plan.js";
+// The wizard is opened deliberately and closed again, like the two surfaces
+// below it, so it is fetched when someone asks for it rather than on every load
+// of the page. That is 33 kB raw the directory never needed in order to render.
+const AddConnection = lazy(async () => ({
+  default: (await import("./add-connection.js")).AddConnection,
+}));
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -558,15 +564,19 @@ function App() {
           }
         />
         {open && (
-          <AddConnection
-            entry={entry}
-            initialStep={resuming ? 4 : 2}
-            key={entry.id}
-            renderRun={renderRun}
-            utility={installControls}
-            onClose={() => setOpen(false)}
-            onChangeService={() => setOpen(false)}
-          />
+          <Suspense
+            fallback={<p role="status">Loading the connection setup…</p>}
+          >
+            <AddConnection
+              entry={entry}
+              initialStep={resuming ? 4 : 2}
+              key={entry.id}
+              renderRun={renderRun}
+              utility={installControls}
+              onClose={() => setOpen(false)}
+              onChangeService={() => setOpen(false)}
+            />
+          </Suspense>
         )}
       </div>
     );

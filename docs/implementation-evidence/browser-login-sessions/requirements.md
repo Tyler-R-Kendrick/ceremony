@@ -110,20 +110,21 @@ and accounts are rejected rather than defaulted.
 **Evidence:** `tests/login-plan.test.ts` — 30 cases, including nine that each
 change one operative field and assert the canonical digest changes.
 
-**Not complete.** The PR #39 wizard is **not wired** to this compiler on this
-branch. Integration was attempted and reached a substantially working state —
-the draft compiles against the real `browser-login` tool endpoint — but it
-stopped with directory-UX regressions from PR #39 itself still outstanding, so
-shipping it would have put known-broken UI on a branch whose other work is
-verified. The attempt is preserved rather than discarded or
-half-merged: `claude/pr39-wizard-wip` carries the changes to tracked files and
-`claude/pr39-wizard-wip-newfiles` carries the new ones (the wizard, the catalog,
-the connect surface and its plan client).
+**UI half repaired in:** `examples/web/connection-plan.ts` (new),
+`examples/web/add-connection.tsx`, `examples/web/catalog.ts`,
+`examples/web/connect-catalog.tsx`.
 
-What this means today: the compiler is reachable through the authenticated
-server surface and is fully tested there, and the wizard still renders its own
-draft. The half of F-POLICY that made configuration _effective_ is done; the
-half that makes the wizard _use_ it is not.
+`connection-plan.ts` is the only place a draft is allowed to leave the browser
+and the only place a compiled plan is read out of a response. Every value the
+wizard's Complete step presents as settled comes from the server's answer, never
+from the draft that asked for it, and a rejection carries the reason the
+compiler named rather than the page's guess at one.
+
+**Evidence:** `tests/browser/connection-plan.spec.ts` — four cases in a real
+browser: two wizard configurations put two different plans on the wire, a
+configuration the server rejects shows the reason it named, a browser this host
+does not run is disabled with that reason on it, and the wizard posts to the
+shared `browser-login` tool endpoint rather than to a surface of its own.
 
 ## F-EXTERNAL — the extension is not an agent execution service
 

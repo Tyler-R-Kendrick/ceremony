@@ -41,6 +41,13 @@ const totals = files.reduce(
 // only, which erase at build time, so no server code is shipped to a browser.
 // The ceiling below is the measured total plus about 2% of headroom — enough to
 // absorb a rename, not enough to hide another feature.
+//
+// This is a *total-download* ceiling, and it is worth being clear about what
+// that does and does not say. The wizard is loaded on demand, so the chunk the
+// page fetches to render the directory is 494.8 kB — under the ceiling this
+// number replaced. What grew is the total, by the size of a surface nobody
+// downloads until they open it. The ceiling still counts it, because a total
+// that stops counting the parts it finds inconvenient is not a budget.
 const budget = { raw: 560000, gzip: 173000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });

@@ -79,17 +79,17 @@ From `src/server/browser-backends.ts`. These are what each engine can enforce
 
 Listed so their absence is a statement rather than an oversight.
 
-| Case                                                                                 | Status                                                                                                              |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| AUTH-IDENTIFIER (two-document)                                                       | The fixture serves the flow; no conformance case drives it yet.                                                     |
-| AUTH-REUSE, AUTH-TOTP, AUTH-PUSH, AUTH-CONDITIONAL, AUTH-CALLBACK, AUTH-REGISTRATION | Not covered by a new case here.                                                                                     |
-| EFFECT-DUP, EFFECT-LOST                                                              | Effect contracts are defined; no duplicate-delivery test was written.                                               |
-| LIFE-SHARED, LIFE-STATE, LIFE-COPIED                                                 | Not covered.                                                                                                        |
-| TARGET-FRAME, TARGET-POPUP, TARGET-AMBIG, TARGET-CLOSED                              | Not covered.                                                                                                        |
-| ORIGIN-REDIRECT, ORIGIN-RESOURCE                                                     | Not covered. Note `strongEgressContainment` is declared false everywhere, so no containment claim is being made.    |
-| PRIV-PROMPT, PRIV-ERROR, PRIV-ARTIFACT, PRIV-ALTERNATE                               | Existing repository privacy suites are unchanged and still pass; no new canary case was added for the new surfaces. |
-| BRIDGE-ORIGIN, BRIDGE-REPLAY                                                         | No authenticated companion bridge was implemented.                                                                  |
-| UX-RESUME, UX-ACCESS                                                                 | No UI change was made; PR #39 remains unintegrated.                                                                 |
+| Case                                                                                 | Status                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| AUTH-IDENTIFIER (two-document)                                                       | The fixture serves the flow; no conformance case drives it yet.                                                                         |
+| AUTH-REUSE, AUTH-TOTP, AUTH-PUSH, AUTH-CONDITIONAL, AUTH-CALLBACK, AUTH-REGISTRATION | Not covered by a new case here.                                                                                                         |
+| EFFECT-DUP, EFFECT-LOST                                                              | Effect contracts are defined; no duplicate-delivery test was written.                                                                   |
+| LIFE-SHARED, LIFE-STATE, LIFE-COPIED                                                 | Not covered.                                                                                                                            |
+| TARGET-FRAME, TARGET-POPUP, TARGET-AMBIG, TARGET-CLOSED                              | Not covered.                                                                                                                            |
+| ORIGIN-REDIRECT, ORIGIN-RESOURCE                                                     | Not covered. Note `strongEgressContainment` is declared false everywhere, so no containment claim is being made.                        |
+| PRIV-PROMPT, PRIV-ERROR, PRIV-ARTIFACT, PRIV-ALTERNATE                               | Existing repository privacy suites are unchanged and still pass; no new canary case was added for the new surfaces.                     |
+| BRIDGE-ORIGIN, BRIDGE-REPLAY                                                         | No authenticated companion bridge was implemented.                                                                                      |
+| UX-RESUME, UX-ACCESS                                                                 | The wizard is wired to the compiler and covered by `connection-plan.spec.ts`; resume and access-review paths are not separately driven. |
 
 ## Existing-profile Firefox, precisely
 
