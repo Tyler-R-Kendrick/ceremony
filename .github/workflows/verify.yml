@@ -5,6 +5,14 @@ on:
     branches: [main]
 permissions:
   contents: read
+env:
+  # `onnxruntime-node`'s postinstall downloads a CUDA execution-provider package
+  # from api.nuget.org. No runner here has a GPU, nothing in the suite uses that
+  # provider, and the fetch times out often enough to fail jobs before a single
+  # test body runs — which is a install failure wearing a test failure's clothes.
+  # The CPU runtime ships inside the package, so skipping the download changes
+  # nothing the tests can observe.
+  ONNXRUNTIME_NODE_INSTALL: skip
 jobs:
   verify:
     runs-on: ubuntu-24.04
