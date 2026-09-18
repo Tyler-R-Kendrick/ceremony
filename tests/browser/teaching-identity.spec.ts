@@ -13,7 +13,7 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
   test.setTimeout(60000);
   const fixture = await teachingHostedFixture();
   try {
-    await page.goto(fixture.origin);
+    await page.goto(`${fixture.origin}/?connector=github`);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Connect GitHub", exact: true }),
@@ -27,7 +27,7 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
     const second = await browser.newContext();
     try {
       const other = await second.newPage();
-      await other.goto(fixture.origin);
+      await other.goto(`${fixture.origin}/?connector=github`);
       await expect(
         other.getByRole("button", { name: "Sign in", exact: true }),
       ).toBeVisible();
@@ -57,7 +57,7 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
       });
       expect(actorSummary).toEqual({ subjects: 1, sessions: 2 });
       const sibling = await second.newPage();
-      await sibling.goto(fixture.origin);
+      await sibling.goto(`${fixture.origin}/?connector=github`);
       await expect(
         sibling.getByRole("button", { name: "Connect GitHub", exact: true }),
       ).toBeVisible();

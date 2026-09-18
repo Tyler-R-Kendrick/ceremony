@@ -22,10 +22,84 @@ test.afterEach(({ page }) => {
   expect(browserErrors.get(page)).toEqual([]);
 });
 
-test("every named service renders only its documented methods and clearly identifies local execution", async ({
+test("the directory filters, searches and hands a chosen service to the drawer", async ({
   page,
 }) => {
   await page.goto("/?mode=test");
+  const all = page.getByRole("region", { name: "All Connectors" });
+  await expect(
+    page.getByRole("heading", { name: "Connections" }),
+  ).toBeVisible();
+  await expect(all.getByRole("button", { name: "GitHub" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Searching narrows by name, summary and auth family alike: none of these
+  // rows carries the words "browser login" in its name, and all three are
+  // reached through that family.
+  const search = page.getByLabel("Search connectors");
+  await search.fill("browser login");
+  const found = page
+    .getByRole("region", { name: /Results for/ })
+    .getByRole("button");
+  await expect(found).toContainText([
+    "Browser Login",
+    "Record a Sign-in",
+    "Legacy Portal",
+  ]);
+  await search.fill("");
+
+  // A category narrows the grid and the featured strip steps aside.
+  await page.getByRole("button", { name: /^Commerce/ }).click();
+  await expect(page.getByRole("region", { name: "Featured" })).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Commerce" }).getByRole("button"),
+  ).toContainText(["Stripe"]);
+  await page.getByRole("button", { name: /^Any category/ }).click();
+
+  // Every family this workspace can run is offered as its own card, including
+  // the one that records a sign-in rather than collecting a credential.
+  const byo = page.getByRole("region", { name: "Bring your own" });
+  await expect(byo.getByRole("button")).toHaveCount(9);
+  await byo.getByRole("button", { name: "Record a Sign-in" }).click();
+  const recording = page.getByRole("dialog", { name: "Add Connection" });
+  await recording
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  // Teaching is pre-checked: recording is the reason to choose that card.
+  await expect(
+    recording.getByRole("checkbox", { name: /Teach this connection/ }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // Opening a service starts on Configure, not on somebody's credentials.
+  await all.getByRole("button", { name: "Stripe" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await expect(drawer.getByRole("button", { name: "Managed" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByLabel("Stripe secret key")).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Verification is on before anybody asks, because a connection that reads
+  // nothing has not been shown to work.
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("checkbox", { name: /Verify real access/ }),
+  ).toBeChecked();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByLabel("Stripe secret key")).toBeVisible();
+
+  // Escape closes the drawer and returns the directory, still navigable.
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(all.getByRole("button", { name: "Stripe" })).toBeVisible();
+});
+
+test("every named service renders only its documented methods and clearly identifies local execution", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test&connector=github");
   const services = page.getByRole("complementary", {
     name: "Available services",
     exact: true,
@@ -105,6 +179,21 @@ test("connector entry chooses browser OAuth and preserves progress across servic
     (await (await page.request.get(`/api/ceremonies/${id}`)).json()).method.id,
   ).toBe("oauth");
 });
+/** Browse the directory, open a service, and step the drawer through to its run. */
+async function openFromDirectory(page: Page, service: string | RegExp) {
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: service })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  // The open step's header is not a button — only the ones you may jump back
+  // to are — so the step is identified by its region instead.
+  for (const step of ["Configure", "Customize"]) {
+    await expect(drawer.getByRole("region", { name: step })).toBeVisible();
+    await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  }
+}
+
 async function signIn(page: Page, code?: string, decision = "Approve") {
   await page.getByLabel("Email", { exact: true }).fill("demo@example.com");
   await page.getByLabel("Password", { exact: true }).fill("ceremony-demo");
@@ -192,7 +281,10 @@ test("credentials, rejection/retry, template reuse, secret exclusion and reload"
       .filter((request) => request.data.includes("demo-api-key"))
       .every((request) => request.url.endsWith("/collect")),
   ).toBe(true);
-  await page.getByRole("button", { name: /Stripe/ }).click();
+  await page
+    .getByRole("complementary", { name: "Available services" })
+    .getByRole("button", { name: /Stripe/ })
+    .click();
   await expect(page.getByLabel("Stripe secret key")).toBeVisible();
   await page.getByLabel("Stripe secret key").fill("demo-api-key");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -493,7 +585,7 @@ test("isolated presentation editor generates, exports and imports without applyi
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })
       .click();
-    await page.getByRole("button", { name: /Stripe/ }).click();
+    await openFromDirectory(page, /Stripe/);
     await expect(
       page.getByRole("heading", { name: "Enter your credentials" }),
     ).toBeVisible();

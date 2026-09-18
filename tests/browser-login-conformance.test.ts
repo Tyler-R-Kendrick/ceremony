@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { browserEngines } from "../src/core/browser-session-contracts.js";
-import { managedBackends } from "../src/server/browser-backends.js";
+import {
+  launchManagedBrowser,
+  managedBackends,
+  type ManagedBrowser,
+} from "../src/server/browser-backends.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import {
@@ -47,8 +51,22 @@ const actor: ActorContext = {
 let fixture: IdentityFixture;
 let store: SQLiteCeremonyStore;
 
+/**
+ * One real browser process per engine, shared by that engine's cases.
+ *
+ * Isolation between cases is a *context* boundary, not a process boundary —
+ * cookies and storage belong to the context — so opening a fresh context per
+ * login gives each case exactly the separation it needs. Launching a fresh
+ * process per case instead bought nothing and cost twenty-four spawns in one
+ * file, which is heavy enough to matter when the coverage harness runs four
+ * browser-driving files at once on a small CI machine.
+ */
+const engines = new Map<string, ManagedBrowser>();
+
 before(async () => {
   fixture = await createIdentityFixture();
+  for (const engine of browserEngines)
+    engines.set(engine, await launchManagedBrowser(engine));
   store = new SQLiteCeremonyStore(":memory:", {
     current: "conformance",
     keys: { conformance: new Uint8Array(32) },
@@ -56,6 +74,7 @@ before(async () => {
 });
 
 after(async () => {
+  for (const browser of engines.values()) await browser.dispose();
   await fixture.close();
   await store.close();
 });
@@ -96,7 +115,7 @@ function planFor(
 }
 
 /** A service wired to one fresh registry, with the credentials it is allowed. */
-function serviceFor(values: Record<string, string>) {
+function serviceFor(engine: string, values: Record<string, string>) {
   const sessions = createBrowserSessionRegistry({ store });
   const service = createBrowserLoginService({
     sessions,
@@ -108,6 +127,15 @@ function serviceFor(values: Record<string, string>) {
       // plan, a snapshot, a transcript or a result.
       resolve: async (_actor, _plan, role) => values[role],
     },
+    // The real launcher still ran, once, in `before`. What it produced is
+    // handed back here with process teardown withheld, because the suite owns
+    // that and a single case ending must not take the engine away from the
+    // cases after it. Everything the service does with the browser — contexts,
+    // pages, retention, release — is the production path unchanged.
+    launch: (async () => {
+      const shared = engines.get(engine)!;
+      return { ...shared, dispose: async () => {} };
+    }) as typeof launchManagedBrowser,
   });
   return { sessions, service };
 }
@@ -116,7 +144,7 @@ for (const engine of browserEngines) {
   describe(`managed ${engine}`, () => {
     test("AUTH-COMBINED: a combined form logs the expected account in", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -144,7 +172,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-RETURN: the session still works after the call returns", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -184,7 +212,7 @@ for (const engine of browserEngines) {
     test("AUTH-WRONG: a different account is a mismatch, not a success", async () => {
       fixture.reset();
       // The credentials are the deputy's; the plan expects the owner.
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: deputy.identifier,
         password: deputy.password,
       });
@@ -206,7 +234,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-FORGED: a page that only looks signed in is not verified", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -229,7 +257,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-CAPTCHA: a human challenge asks for a person, it is not solved", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -254,7 +282,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-PASSKEY: an authenticator-only page hands off rather than inventing an assertion", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -279,7 +307,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-MANAGED: disposal ends this session and leaves the provider's alone", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -311,7 +339,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-LEGACY: a dispose continuation still verifies and still cleans up", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor({
+      const { sessions, service } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
