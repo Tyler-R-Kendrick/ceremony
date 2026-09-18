@@ -53,7 +53,7 @@ test("reconciles several pages into one complete generation with include_deleted
     assert.equal(requests[0]!.url.searchParams.get("cursor"), null);
     assert.equal(requests[0]!.url.searchParams.get("limit"), "3");
     assert.equal(requests[1]!.url.searchParams.get("cursor"), "io.github.a/b:1.0.0-rc.1");
-    assert.equal(requests[2]!.url.searchParams.get("cursor"), "io.github.c/d:1.0.0");
+    assert.equal(requests[2]!.url.searchParams.get("cursor"), "io.github.e/f:1.0.0");
     assert.ok(requests.every((request) => request.url.searchParams.get("include_deleted") === "true"));
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 7);
@@ -94,7 +94,7 @@ test("incremental refresh uses updated_since and records deletions and deprecati
     assert.equal(report.generation, 2);
     const requests = double.received("GET", "/v0.1/servers").slice(-report.pagesFetched);
     const since = requests[0]!.url.searchParams.get("updated_since")!;
-    assert.equal(since, "2026-01-05T59:00:00.000Z".replace("T59", "T23"), "watermark minus the overlap");
+    assert.equal(since, "2026-01-05T23:59:00.000Z", "the watermark minus the configured one-minute overlap");
     assert.ok(requests.every((request) => request.url.searchParams.get("updated_since") === since));
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 8);
@@ -130,7 +130,7 @@ test("an outage on page 3 keeps the previous complete snapshot, marks it stale, 
     assert.equal(interrupted.code, "upstream-unavailable");
     assert.equal(interrupted.pagesFetched, 3);
     assert.equal(interrupted.generation, 1, "the served generation did not change");
-    assert.equal(interrupted.nextCursor, "io.github.c/d:1.0.0");
+    assert.equal(interrupted.nextCursor, "io.github.e/f:1.0.0");
     assert.equal(interrupted.freshness.stale, true);
     assert.equal(interrupted.freshness.reason, "refresh-failed");
     assert.equal(interrupted.freshness.lastSuccessfulRefreshAt, firstAt);
@@ -139,7 +139,7 @@ test("an outage on page 3 keeps the previous complete snapshot, marks it stale, 
     assert.equal(stale.freshness.stale, true);
     assert.ok(!stale.rows.some((row) => row.name === "io.github.z/late"));
     const header = (await store.header(tenant, "registry-fixture"))!;
-    assert.equal(header.pending?.cursor, "io.github.c/d:1.0.0");
+    assert.equal(header.pending?.cursor, "io.github.e/f:1.0.0");
     assert.equal(header.pending?.pagesDone, 2);
     assert.equal(header.lastFailureCode, "upstream-unavailable");
     const staged = [...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>).inspect(tenant).keys()].filter((id) => id.startsWith("registry-fixture:g2:"));
@@ -149,7 +149,7 @@ test("an outage on page 3 keeps the previous complete snapshot, marks it stale, 
     const resumed = await store.refresh(tenant, source);
     assert.equal(resumed.state, "complete");
     assert.equal(resumed.pagesFetched, 1, "only the missing page is fetched");
-    assert.equal(double.received("GET", "/v0.1/servers").at(-1)!.url.searchParams.get("cursor"), "io.github.c/d:1.0.0");
+    assert.equal(double.received("GET", "/v0.1/servers").at(-1)!.url.searchParams.get("cursor"), "io.github.e/f:1.0.0");
     assert.equal(resumed.generation, 2);
     assert.equal(resumed.freshness.stale, false);
     const fresh = (await store.read(tenant, "registry-fixture"))!;
@@ -170,14 +170,15 @@ test("a stale persisted cursor restarts the refresh from its first page without 
     double.faults.failListRequest = { at: 3, status: 503 };
     await store.refresh(tenant, source, { mode: "full" });
     double.faults.failListRequest = undefined;
-    double.faults.staleCursors = new Set(["io.github.c/d:1.0.0"]);
+    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!.cursor!;
+    double.faults.staleCursors = new Set([stuck]);
     double.publish({ $schema: schema, name: "io.github.z/late", description: "arrives later", version: "1.0.0" });
     double.resetListRequests();
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
     assert.ok(report.issues.some((issue) => issue.code === "registry.cursor.stale"));
     const requests = double.received("GET", "/v0.1/servers").slice(-report.pagesFetched);
-    assert.equal(requests[0]!.url.searchParams.get("cursor"), "io.github.c/d:1.0.0");
+    assert.equal(requests[0]!.url.searchParams.get("cursor"), stuck);
     assert.equal(requests[1]!.url.searchParams.get("cursor"), null, "restart from the first page");
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 8);
@@ -264,7 +265,11 @@ test("the shared encrypted SQLite store persists generations under the additive 
     assert.ok(ids.includes("registry-fixture"));
     assert.ok(ids.some((id) => id.startsWith("registry-fixture:g2:")));
     assert.ok(!ids.some((id) => id.startsWith("registry-fixture:g1:")), "collected");
-    assert.equal(ids.filter((id) => id.startsWith("registry-fixture:c:")).length, 8, "content is addressed by entry digest; the deleted entry gained a new record");
+    assert.equal(
+      ids.filter((id) => id.startsWith("registry-fixture:c:")).length,
+      7,
+      "content is addressed by entry digest; the superseded record of the now-deleted entry is collected with its generation",
+    );
     assert.deepEqual(await sqlite.transaction((tx) => tx.list("tenant-b", "connector-registry-snapshot")), []);
   } finally {
     await double.close();

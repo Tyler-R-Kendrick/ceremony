@@ -93,7 +93,9 @@ test("remotes become declared servers and bindable candidates; headers become co
   );
   assert.equal(definition.compatibility.dimensions.invoke, "requires-configuration");
   assert.equal(definition.compatibility.dimensions.authorize, "requires-configuration");
-  assert.ok(definition.compatibility.issues.some((issue) => issue.code === "security.remote-authorization-undeclared" && issue.sourcePointer === "remotes[1]"));
+  const undeclared = definition.compatibility.issues.find((issue) => issue.code === "security.remote-authorization-undeclared" && issue.sourcePointer === "remotes[1]")!;
+  assert.equal(undeclared.severity, "warning");
+  assert.equal(undeclared.executionImpact, "blocks-authorization");
   assert.ok(!definition.compatibility.issues.some((issue) => issue.code === "security.remote-authorization-undeclared" && issue.sourcePointer === "remotes[0]"));
 });
 
@@ -141,7 +143,11 @@ test("a malicious package listing imports inert and flagged; nothing runs (AC-MC
   const sources = readdirSync(new URL("../../../src/server/connectors/registries/mcp/", import.meta.url));
   for (const file of sources) {
     const text = readFileSync(new URL(`../../../src/server/connectors/registries/mcp/${file}`, import.meta.url), "utf8");
-    assert.doesNotMatch(text, /child_process|worker_threads|\bexec\(|\bspawn\(|\beval\(|new Function/, `${file} must not execute anything`);
+    assert.doesNotMatch(
+      text,
+      /child_process|worker_threads|node:vm|execSync|execFile|\bspawn\(|spawnSync|\beval\(|new Function/,
+      `${file} must not execute anything`,
+    );
   }
 });
 

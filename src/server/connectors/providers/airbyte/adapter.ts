@@ -1,9 +1,6 @@
 import { z } from "zod";
 import {
   capabilityStatus,
-  destinationFor,
-  destinationUrl,
-  boundOperation,
   type AdapterCallContext,
   type CapabilityStatus,
   type CompletionResult,
@@ -16,7 +13,12 @@ import {
   type InvokeResult,
   type VerificationClaim,
 } from "../../adapter.js";
-import type { BoundOperation } from "../../binding.js";
+import {
+  boundOperation,
+  destinationFor,
+  destinationUrl,
+  type BoundOperation,
+} from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import {
   airbyteConfigurationNames,

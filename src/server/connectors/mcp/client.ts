@@ -21,6 +21,7 @@ import {
   type McpCompatibilityMode,
   type McpEra,
   type McpLimits,
+  type McpLimitsInput,
   type McpProfileId,
 } from "./profiles.js";
 import {
@@ -99,7 +100,7 @@ export type McpClientOptions = {
   endpoint: string | URL;
   fetch: typeof fetch;
   auth: McpAuth;
-  limits?: Partial<McpLimits>;
+  limits?: McpLimitsInput;
   clientInfo?: Implementation;
   now?: () => number;
   cache?: { store: McpResultCache; principal: CachePrincipal };

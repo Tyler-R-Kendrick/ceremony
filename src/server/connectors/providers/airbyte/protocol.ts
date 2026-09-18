@@ -263,12 +263,15 @@ const blocking = (
 /** The stream identity Airbyte uses: name plus optional namespace, spelled exactly. */
 export function streamKey(descriptor: {
   name: string;
-  namespace?: string | null;
+  namespace?: string | null | undefined;
 }): string {
   return JSON.stringify([descriptor.name, descriptor.namespace ?? null]);
 }
 
-function streamNativeId(stream: { name: string; namespace?: string | null }) {
+function streamNativeId(stream: {
+  name: string;
+  namespace?: string | null | undefined;
+}) {
   return stream.namespace ? `${stream.namespace}::${stream.name}` : stream.name;
 }
 
@@ -681,7 +684,10 @@ export type AirbyteMessageReport = {
   ignoredLines: number;
 };
 
-const descriptorOf = (descriptor: StreamDescriptor) => ({
+const descriptorOf = (descriptor: {
+  name: string;
+  namespace?: string | null | undefined;
+}) => ({
   name: descriptor.name,
   ...(typeof descriptor.namespace === "string"
     ? { namespace: descriptor.namespace }

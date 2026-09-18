@@ -266,7 +266,9 @@ export const mcpLimitsSchema = z
   })
   .partial();
 
-export function resolveLimits(partial?: Partial<McpLimits>): McpLimits {
+export type McpLimitsInput = z.infer<typeof mcpLimitsSchema>;
+
+export function resolveLimits(partial?: McpLimitsInput): McpLimits {
   const checked = partial ? mcpLimitsSchema.parse(partial) : {};
   const merged: McpLimits = { ...defaultMcpLimits };
   for (const [key, value] of Object.entries(checked))

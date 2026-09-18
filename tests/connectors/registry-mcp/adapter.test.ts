@@ -52,7 +52,11 @@ test("reports catalog-only support with execution explicitly unsupported", () =>
   assert.equal(byDimension["discover"]!.configuration, "not-applicable");
   assert.equal(adapter.capabilities(new Set(["MCP_REGISTRY_TOKEN"])).find((row) => row.dimension === "discover")!.configuration, "ready");
   const entry = catalogEntryFor(adapter, new Set());
-  assert.equal(entry.support, "catalog-only");
+  // `catalogEntrySchema` reserves "catalog-only" for entries that implement
+  // nothing; this adapter really reads a registry, so the directory row is
+  // provider-backed and the catalog-only boundary lives in its capability rows.
+  assert.equal(entry.support, "provider-backed");
+  assert.ok(entry.capabilities.every((row) => !["live-authorized", "deployed-authorized"].includes(row.evidence)));
   assert.equal(entry.id, "mcp-registry");
   assert.deepEqual(entry.custody, ["no-credential", "host-owned"]);
   assert.equal(entry.configuration[0]!.name, "MCP_REGISTRY_TOKEN");

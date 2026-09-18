@@ -131,9 +131,15 @@ function functionItem(
   };
 }
 
+/**
+ * An opaque continuation. It carries the page size as well as the page
+ * number, so resuming with a different caller-supplied limit cannot skip or
+ * repeat rows; the cursor alone determines the next page.
+ */
 const cursorSchema = z.strictObject({
   integration: z.string().max(512).optional(),
   page: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(NANGO_LIMITS.pageLimit),
 });
 const encodeCursor = (value: z.infer<typeof cursorSchema>) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -155,8 +161,9 @@ export async function discoverNango(
   input: DiscoverInput,
 ): Promise<DiscoverResult> {
   const resolved = await resolveNango(runtime, ctx);
-  const limit = Math.min(Math.max(input.limit ?? 50, 1), NANGO_LIMITS.pageLimit);
   const cursor = decodeCursor(input.cursor);
+  const limit =
+    cursor?.limit ?? Math.min(Math.max(input.limit ?? 50, 1), NANGO_LIMITS.pageLimit);
   const fetchedAt = ctx.environment.now();
   const scopeIntegration = input.scope?.integration ?? cursor?.integration;
   if (scopeIntegration !== undefined) {
@@ -178,7 +185,13 @@ export async function discoverNango(
     return {
       items,
       ...(more
-        ? { nextCursor: encodeCursor({ integration: scopeIntegration, page: page + 1 }) }
+        ? {
+            nextCursor: encodeCursor({
+              integration: scopeIntegration,
+              page: page + 1,
+              limit,
+            }),
+          }
         : {}),
       freshness: { fetchedAt, stale: false, source: "live" },
       issues: [],
