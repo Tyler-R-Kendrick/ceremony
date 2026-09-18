@@ -414,7 +414,7 @@ test("a request for input suspends the intent privately and resumes it once", as
   assert.equal(proposal.presentation, "in-app");
   assert.equal(proposal.intent, "mcp.input-required");
   assert.ok(proposal.private.requestState, "the server's opaque state stays private");
-  assert.ok(proposal.private.inputRequests.includes("github_login"));
+  assert.ok((proposal.private.inputRequests ?? "").includes("github_login"));
   assert.equal(JSON.stringify(started).includes("octocat"), false);
 
   const issue: HandoffIssue = {

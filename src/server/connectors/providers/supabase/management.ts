@@ -219,7 +219,10 @@ export interface SupabaseManagementAdapter extends ConnectorAdapter {
     ctx: AdapterCallContext,
     input: DiscoverInput,
   ): Promise<DiscoverResult>;
-  invoke(ctx: AdapterCallContext, request: InvokeRequest): Promise<InvokeResult>;
+  invoke(
+    ctx: AdapterCallContext,
+    request: InvokeRequest,
+  ): Promise<InvokeResult>;
   disconnect(
     ctx: AdapterCallContext,
     scope: DisconnectScope,
@@ -383,9 +386,8 @@ export function createSupabaseManagementAdapter(
     return readBoundedJson(response, MAX_RESPONSE_BYTES, "supabase.management");
   };
 
-  const boundedArray = <T extends z.ZodType>(
-    item: T,
-  ): z.ZodArray<T> => z.array(item).max(maxInventoryItems);
+  const boundedArray = <T extends z.ZodType>(item: T): z.ZodArray<T> =>
+    z.array(item).max(maxInventoryItems);
 
   const tokenMaterial = (
     token: oauth.TokenEndpointResponse,
@@ -895,9 +897,7 @@ export function createSupabaseManagementAdapter(
     };
   };
 
-  const privateTarget = (
-    record: HandoffRecord,
-  ): SupabaseTarget | undefined =>
+  const privateTarget = (record: HandoffRecord): SupabaseTarget | undefined =>
     record.private.target_kind && record.private.target_id
       ? parseSupabaseTarget({
           kind: record.private.target_kind,
@@ -1467,16 +1467,14 @@ export function createSupabaseManagementAdapter(
         };
       const destination = apiDestination(ctx);
       try {
-        const verification = await withManagementToken(
-          ctx,
-          (token, material) =>
-            verifyTargetWithToken(
-              ctx,
-              destination,
-              token,
-              target,
-              scopeReport(material),
-            ),
+        const verification = await withManagementToken(ctx, (token, material) =>
+          verifyTargetWithToken(
+            ctx,
+            destination,
+            token,
+            target,
+            scopeReport(material),
+          ),
         );
         return {
           state: "complete",
@@ -1668,10 +1666,7 @@ export function createSupabaseManagementAdapter(
           throw new ConnectorError("denied", {
             detail: "supabase.target.out-of-scope",
           });
-        path = spec.pathTemplate.replace(
-          `{${name}}`,
-          encodePathSegment(value),
-        );
+        path = spec.pathTemplate.replace(`{${name}}`, encodePathSegment(value));
       }
       const raw = await withManagementToken(ctx, (token) =>
         getJson(ctx, destination, path, token),

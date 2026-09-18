@@ -558,6 +558,21 @@ function readResponses(
   for (const [status, item] of entriesOf(raw).slice(0, 64)) {
     if (status.startsWith("x-")) continue;
     const responsePointer = `${pointer}/${status}`;
+    // The Responses Object is keyed by status codes and `default`; it is not
+    // itself a Reference Object, so anything else here is not a response and is
+    // not read as one.
+    if (status !== "default" && !/^[1-5](?:[0-9]{2}|XX)$/.test(status)) {
+      ctx.issues.add({
+        code: "structure.invalid-response-key",
+        category: "structure",
+        pointer: responsePointer,
+        dimension: "import",
+        severity: "warning",
+        message:
+          "A responses entry is keyed by something other than a status code or `default` and was not read as a response.",
+      });
+      continue;
+    }
     const resolved = ctx.resolver.resolve(item, { documentKey: "", pointer: responsePointer });
     if (!resolved.ok || !isRecord(resolved.resolved.value)) {
       ctx.issues.add({

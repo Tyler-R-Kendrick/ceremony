@@ -93,7 +93,9 @@ export const supabaseTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type SupabaseTarget = z.infer<typeof supabaseTargetSchema>;
 
-export function parseSupabaseTarget(value: unknown): SupabaseTarget | undefined {
+export function parseSupabaseTarget(
+  value: unknown,
+): SupabaseTarget | undefined {
   const parsed = supabaseTargetSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
@@ -252,7 +254,9 @@ export function upstreamFailure(
       detail: `${detailPrefix}.access-rejected`,
     });
   if (status === 403)
-    return new ConnectorError("denied", { detail: `${detailPrefix}.forbidden` });
+    return new ConnectorError("denied", {
+      detail: `${detailPrefix}.forbidden`,
+    });
   if (status === 404)
     return new ConnectorError("not-found", {
       detail: `${detailPrefix}.not-found`,

@@ -81,7 +81,10 @@ export type PostgrestFilterOperator = (typeof postgrestFilterOperators)[number];
 const tablePolicySchema = z.strictObject({
   columns: z.array(sqlIdentifierSchema).min(1).max(64),
   filters: z
-    .record(sqlIdentifierSchema, z.array(z.enum(postgrestFilterOperators)).min(1).max(12))
+    .record(
+      sqlIdentifierSchema,
+      z.array(z.enum(postgrestFilterOperators)).min(1).max(12),
+    )
     .default({}),
   orderBy: z.array(sqlIdentifierSchema).max(16).optional(),
   maxRows: z.number().int().min(1).max(1000).default(100),
@@ -111,7 +114,11 @@ const scalarSchema = z.union([
 const filterSchema = z.strictObject({
   column: sqlIdentifierSchema,
   operator: z.enum(postgrestFilterOperators),
-  value: z.union([scalarSchema, z.null(), z.array(scalarSchema).min(1).max(100)]),
+  value: z.union([
+    scalarSchema,
+    z.null(),
+    z.array(scalarSchema).min(1).max(100),
+  ]),
 });
 export const supabaseSelectInputSchema = z.strictObject({
   table: sqlIdentifierSchema,
@@ -199,7 +206,10 @@ export function postgrestFilterValue(
     throw new ConnectorError("invalid-request", {
       detail: "supabase.data-api.filter-value",
     });
-  if ((operator === "like" || operator === "ilike") && typeof value !== "string")
+  if (
+    (operator === "like" || operator === "ilike") &&
+    typeof value !== "string"
+  )
     throw new ConnectorError("invalid-request", {
       detail: "supabase.data-api.filter-value",
     });
@@ -335,7 +345,11 @@ export function createSupabaseDataApiAdapter(
 
   const pgrstCode = async (response: Response): Promise<string | undefined> => {
     try {
-      const body = await readBoundedJson(response, 16 * 1024, "supabase.data-api");
+      const body = await readBoundedJson(
+        response,
+        16 * 1024,
+        "supabase.data-api",
+      );
       const code = z
         .object({ code: z.string().regex(/^[A-Za-z0-9]{3,10}$/) })
         .safeParse(body);
@@ -350,16 +364,34 @@ export function createSupabaseDataApiAdapter(
     const detail = code ? `supabase.data-api.${code}` : undefined;
     const withDetail = (fallback: string) => ({ detail: detail ?? fallback });
     if (response.status === 401)
-      return new ConnectorError("expired", withDetail("supabase.data-api.token-rejected"));
+      return new ConnectorError(
+        "expired",
+        withDetail("supabase.data-api.token-rejected"),
+      );
     if (response.status === 403)
-      return new ConnectorError("denied", withDetail("supabase.data-api.forbidden"));
+      return new ConnectorError(
+        "denied",
+        withDetail("supabase.data-api.forbidden"),
+      );
     if (response.status === 404)
-      return new ConnectorError("not-found", withDetail("supabase.data-api.not-exposed"));
+      return new ConnectorError(
+        "not-found",
+        withDetail("supabase.data-api.not-exposed"),
+      );
     if (response.status === 429)
-      return new ConnectorError("rate-limited", withDetail("supabase.data-api.rate-limited"));
+      return new ConnectorError(
+        "rate-limited",
+        withDetail("supabase.data-api.rate-limited"),
+      );
     if (response.status >= 500)
-      return new ConnectorError("upstream-unavailable", withDetail("supabase.data-api.unavailable"));
-    return new ConnectorError("upstream-rejected", withDetail("supabase.data-api.rejected"));
+      return new ConnectorError(
+        "upstream-unavailable",
+        withDetail("supabase.data-api.unavailable"),
+      );
+    return new ConnectorError(
+      "upstream-rejected",
+      withDetail("supabase.data-api.rejected"),
+    );
   };
 
   const adapter: ConnectorAdapter = {
@@ -383,7 +415,10 @@ export function createSupabaseDataApiAdapter(
       const row = (
         dimension: CapabilityStatus["dimension"],
         input: Partial<
-          Pick<CapabilityStatus, "implementation" | "configuration" | "limitations">
+          Pick<
+            CapabilityStatus,
+            "implementation" | "configuration" | "limitations"
+          >
         > = {},
       ) =>
         capabilityStatus(adapter, {
@@ -394,14 +429,18 @@ export function createSupabaseDataApiAdapter(
             input.configuration ??
             (input.implementation === "unsupported" ? "not-applicable" : ready),
           evidence:
-            input.implementation === "unsupported" ? "not-tested" : "protocol-fixture",
+            input.implementation === "unsupported"
+              ? "not-tested"
+              : "protocol-fixture",
           limitations: input.limitations ?? [],
         });
       return [
         row("discover", { implementation: "unsupported" }),
         row("import", { implementation: "unsupported" }),
         row("configure", {
-          limitations: ["Approved tables, columns and filters are binding settings reviewed by the host"],
+          limitations: [
+            "Approved tables, columns and filters are binding settings reviewed by the host",
+          ],
         }),
         row("authorize", {
           limitations: [
@@ -409,7 +448,9 @@ export function createSupabaseDataApiAdapter(
           ],
         }),
         row("verify", {
-          limitations: ["Identity is the project user (GET /auth/v1/user), never a dashboard account"],
+          limitations: [
+            "Identity is the project user (GET /auth/v1/user), never a dashboard account",
+          ],
         }),
         row("invoke", {
           limitations: [
@@ -418,7 +459,9 @@ export function createSupabaseDataApiAdapter(
         }),
         row("events", { implementation: "unsupported" }),
         row("reconnect", {
-          limitations: ["An expired session requires a fresh project sign-in through the existing ceremony"],
+          limitations: [
+            "An expired session requires a fresh project sign-in through the existing ceremony",
+          ],
         }),
         row("disconnect"),
         row("revoke", {
@@ -438,17 +481,24 @@ export function createSupabaseDataApiAdapter(
       const target = { kind: "supabase-project", id: settings.projectRef };
       if (
         (intent.target &&
-          !(intent.target.kind === target.kind && intent.target.id === target.id)) ||
+          !(
+            intent.target.kind === target.kind && intent.target.id === target.id
+          )) ||
         !isPermittedTarget(ctx.binding, target)
       )
-        throw new ConnectorError("denied", { detail: "supabase.target.not-permitted" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.target.not-permitted",
+        });
       projectDestination(ctx.binding, settings);
       const present = await ctx.environment.configuration.present([
         SUPABASE_PUBLISHABLE_KEY,
         SUPABASE_ANON_KEY,
       ]);
       if (!present.size)
-        return { kind: "configuration-required", missing: [SUPABASE_PUBLISHABLE_KEY] };
+        return {
+          kind: "configuration-required",
+          missing: [SUPABASE_PUBLISHABLE_KEY],
+        };
       if (!ctx.connection) return { kind: "verify" };
       const session = await options.sessions.resolve({
         actor: ctx.actor,
@@ -457,7 +507,10 @@ export function createSupabaseDataApiAdapter(
         signal: ctx.signal,
       });
       if (!session || session.expiresAt <= ctx.environment.now())
-        return { kind: "human-required", code: "supabase.project-session.required" };
+        return {
+          kind: "human-required",
+          code: "supabase.project-session.required",
+        };
       return { kind: "verify" };
     },
     async reconnect(ctx, intent) {
@@ -472,46 +525,78 @@ export function createSupabaseDataApiAdapter(
         session = await resolveSession(ctx, settings);
       } catch (error) {
         if (error instanceof ConnectorError && error.code === "expired")
-          return { state: "expired", claims: [], code: "supabase.project-session.expired" };
+          return {
+            state: "expired",
+            claims: [],
+            code: "supabase.project-session.expired",
+          };
         if (error instanceof ConnectorError && error.code === "human-required")
-          return { state: "human-required", claims: [], code: "supabase.project-session.required" };
+          return {
+            state: "human-required",
+            claims: [],
+            code: "supabase.project-session.required",
+          };
         throw error;
       }
-      const userId = await session.use(async (token) => {
-        let response: Response;
-        try {
-          response = await ctx.environment.fetch(destinationUrl(destination, "/auth/v1/user"), {
-            method: "GET",
-            headers: { apikey: key, authorization: `Bearer ${token}`, accept: "application/json" },
-            redirect: "error",
-            signal: boundedSignal(ctx, requestTimeoutMs),
-          });
-        } catch (cause) {
-          throw new ConnectorError("upstream-unavailable", {
-            detail: "supabase.data-api.unreachable",
-            cause,
-          });
-        }
-        if (response.status !== 200) {
-          await discardBody(response);
-          throw response.status === 401
-            ? new ConnectorError("expired", { detail: "supabase.project-session.rejected" })
-            : await failure(response);
-        }
-        const user = z
-          .object({ id: z.string().min(1).max(128) })
-          .safeParse(await readBoundedJson(response, 64 * 1024, "supabase.data-api"));
-        if (!user.success)
-          throw new ConnectorError("upstream-rejected", { detail: "supabase.data-api.user-shape" });
-        return user.data.id;
-      }).catch((error: unknown) => {
-        if (error instanceof ConnectorError && error.code === "expired") return undefined;
-        throw error;
-      });
+      const userId = await session
+        .use(async (token) => {
+          let response: Response;
+          try {
+            response = await ctx.environment.fetch(
+              destinationUrl(destination, "/auth/v1/user"),
+              {
+                method: "GET",
+                headers: {
+                  apikey: key,
+                  authorization: `Bearer ${token}`,
+                  accept: "application/json",
+                },
+                redirect: "error",
+                signal: boundedSignal(ctx, requestTimeoutMs),
+              },
+            );
+          } catch (cause) {
+            throw new ConnectorError("upstream-unavailable", {
+              detail: "supabase.data-api.unreachable",
+              cause,
+            });
+          }
+          if (response.status !== 200) {
+            await discardBody(response);
+            throw response.status === 401
+              ? new ConnectorError("expired", {
+                  detail: "supabase.project-session.rejected",
+                })
+              : await failure(response);
+          }
+          const user = z
+            .object({ id: z.string().min(1).max(128) })
+            .safeParse(
+              await readBoundedJson(response, 64 * 1024, "supabase.data-api"),
+            );
+          if (!user.success)
+            throw new ConnectorError("upstream-rejected", {
+              detail: "supabase.data-api.user-shape",
+            });
+          return user.data.id;
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ConnectorError && error.code === "expired")
+            return undefined;
+          throw error;
+        });
       if (userId === undefined)
-        return { state: "expired", claims: [], code: "supabase.project-session.rejected" };
+        return {
+          state: "expired",
+          claims: [],
+          code: "supabase.project-session.rejected",
+        };
       if (userId !== session.userId)
-        return { state: "denied", claims: [], code: "supabase.project-session.user-mismatch" };
+        return {
+          state: "denied",
+          claims: [],
+          code: "supabase.project-session.user-mismatch",
+        };
       const unverified = Object.entries(settings.tables)
         .filter(([, policy]) => policy.rowLevelSecurity === "unverified")
         .map(([table]) => table);
@@ -520,7 +605,10 @@ export function createSupabaseDataApiAdapter(
           kind: "account-identity",
           target: { kind: "supabase-project-user", id: userId },
           verifierVersion: VERIFIER_VERSION,
-          validForMs: Math.max(1, Math.min(evidenceTtlMs, session.expiresAt - ctx.environment.now())),
+          validForMs: Math.max(
+            1,
+            Math.min(evidenceTtlMs, session.expiresAt - ctx.environment.now()),
+          ),
           limitations: [
             "A project user of this project; not a Supabase dashboard account and not Management API access",
             ...(session.assurance ? [`Assurance ${session.assurance}`] : []),
@@ -530,7 +618,10 @@ export function createSupabaseDataApiAdapter(
           kind: "resource-access",
           target: { kind: "supabase-project", id: settings.projectRef },
           verifierVersion: VERIFIER_VERSION,
-          validForMs: Math.max(1, Math.min(evidenceTtlMs, session.expiresAt - ctx.environment.now())),
+          validForMs: Math.max(
+            1,
+            Math.min(evidenceTtlMs, session.expiresAt - ctx.environment.now()),
+          ),
           permissions: {
             requested: Object.keys(settings.tables).slice(0, 64),
             reported: [],
@@ -539,7 +630,10 @@ export function createSupabaseDataApiAdapter(
           },
           limitations: [
             "Reads are bounded by Row Level Security for the authenticated role; the adapter cannot widen them",
-            ...unverified.map((table) => `Row Level Security review unverified for table ${table}`),
+            ...unverified.map(
+              (table) =>
+                `Row Level Security review unverified for table ${table}`,
+            ),
           ].slice(0, 16),
         }),
       ];
@@ -554,41 +648,70 @@ export function createSupabaseDataApiAdapter(
       const settings = settingsOf(ctx.binding);
       const operation = boundOperation(ctx.binding, request.operationRef);
       if (!operation)
-        throw new ConnectorError("not-found", { detail: "supabase.operation.unknown" });
+        throw new ConnectorError("not-found", {
+          detail: "supabase.operation.unknown",
+        });
       if (
         operation.transport.kind !== "http" ||
         operation.transport.method !== "GET" ||
         operation.transport.pathTemplate !== "/rest/v1/{table}"
       )
-        throw new ConnectorError("denied", { detail: "supabase.binding.transport-mismatch" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.transport-mismatch",
+        });
       if (operation.effect !== "read")
-        throw new ConnectorError("denied", { detail: "supabase.binding.effect-mismatch" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.effect-mismatch",
+        });
       if (operation.outputClassification === "public")
-        throw new ConnectorError("denied", { detail: "supabase.binding.classification-too-low" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.classification-too-low",
+        });
       if (!operation.targetParameters.includes("table"))
-        throw new ConnectorError("denied", { detail: "supabase.binding.target-parameter-undeclared" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.target-parameter-undeclared",
+        });
       const destination = projectDestination(ctx.binding, settings);
       if (destinationFor(ctx.binding, operation).id !== destination.id)
-        throw new ConnectorError("network-policy", { detail: "supabase.data-api.destination-not-pinned" });
+        throw new ConnectorError("network-policy", {
+          detail: "supabase.data-api.destination-not-pinned",
+        });
       const input = supabaseSelectInputSchema.parse(request.input ?? {});
       const policy = Object.hasOwn(settings.tables, input.table)
         ? settings.tables[input.table]
         : undefined;
-      if (!policy || !isPermittedTarget(ctx.binding, { kind: "supabase-table", id: input.table }))
-        throw new ConnectorError("denied", { detail: "supabase.data-api.table-not-approved" });
+      if (
+        !policy ||
+        !isPermittedTarget(ctx.binding, {
+          kind: "supabase-table",
+          id: input.table,
+        })
+      )
+        throw new ConnectorError("denied", {
+          detail: "supabase.data-api.table-not-approved",
+        });
       const columns = input.select ?? policy.columns;
       for (const column of columns)
         if (!policy.columns.includes(column))
-          throw new ConnectorError("denied", { detail: "supabase.data-api.column-not-approved" });
+          throw new ConnectorError("denied", {
+            detail: "supabase.data-api.column-not-approved",
+          });
       for (const filter of input.filters) {
         const operators = Object.hasOwn(policy.filters, filter.column)
           ? policy.filters[filter.column]
           : undefined;
         if (!operators?.includes(filter.operator))
-          throw new ConnectorError("denied", { detail: "supabase.data-api.filter-not-approved" });
+          throw new ConnectorError("denied", {
+            detail: "supabase.data-api.filter-not-approved",
+          });
       }
-      if (input.order && !(policy.orderBy ?? policy.columns).includes(input.order.column))
-        throw new ConnectorError("denied", { detail: "supabase.data-api.order-not-approved" });
+      if (
+        input.order &&
+        !(policy.orderBy ?? policy.columns).includes(input.order.column)
+      )
+        throw new ConnectorError("denied", {
+          detail: "supabase.data-api.order-not-approved",
+        });
       const limit = Math.min(input.limit ?? policy.maxRows, policy.maxRows);
       // Everything above is policy; only now do credentials enter.
       const key = await publishableKey(ctx);
@@ -598,7 +721,8 @@ export function createSupabaseDataApiAdapter(
       query.set("select", columns.join(","));
       for (const filter of input.filters)
         query.append(filter.column, postgrestFilterValue(filter));
-      if (input.order) query.set("order", `${input.order.column}.${input.order.direction}`);
+      if (input.order)
+        query.set("order", `${input.order.column}.${input.order.direction}`);
       query.set("limit", String(limit));
       if (input.offset) query.set("offset", String(input.offset));
       url.search = query.toString();
@@ -625,13 +749,27 @@ export function createSupabaseDataApiAdapter(
           await discardBody(response);
           return [];
         }
-        if (response.status !== 200 && response.status !== 206) throw await failure(response);
-        const body = await readBoundedJson(response, MAX_RESPONSE_BYTES, "supabase.data-api");
-        const parsed = z.array(z.record(z.string(), z.unknown())).max(limit).safeParse(body);
+        if (response.status !== 200 && response.status !== 206)
+          throw await failure(response);
+        const body = await readBoundedJson(
+          response,
+          MAX_RESPONSE_BYTES,
+          "supabase.data-api",
+        );
+        const parsed = z
+          .array(z.record(z.string(), z.unknown()))
+          .max(limit)
+          .safeParse(body);
         if (!parsed.success)
-          throw new ConnectorError("upstream-rejected", { detail: "supabase.data-api.response-shape" });
+          throw new ConnectorError("upstream-rejected", {
+            detail: "supabase.data-api.response-shape",
+          });
         return parsed.data.map((row) =>
-          Object.fromEntries(columns.filter((column) => Object.hasOwn(row, column)).map((column) => [column, row[column]])),
+          Object.fromEntries(
+            columns
+              .filter((column) => Object.hasOwn(row, column))
+              .map((column) => [column, row[column]]),
+          ),
         );
       });
       return {
@@ -653,9 +791,16 @@ export function createSupabaseDataApiAdapter(
     },
     async disconnect(ctx, scope): Promise<DisconnectResult> {
       if (scope === "broker")
-        return { local: "not-attempted", broker: "unsupported", upstream: "not-attempted" };
+        return {
+          local: "not-attempted",
+          broker: "unsupported",
+          upstream: "not-attempted",
+        };
       const connection = requireConnection(ctx);
-      await ctx.environment.handoffs.cancelAll(connection.connectionRef, "supabase.data-api.disconnect");
+      await ctx.environment.handoffs.cancelAll(
+        connection.connectionRef,
+        "supabase.data-api.disconnect",
+      );
       // The session is owned by the project sign-in ceremony; nothing of it is stored here.
       return {
         local: "applied",

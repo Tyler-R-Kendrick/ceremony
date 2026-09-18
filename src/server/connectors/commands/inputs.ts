@@ -143,9 +143,12 @@ export const operationApprovalSchema = z.strictObject({
   nativeId: nativeIdentifierSchema,
   transport: boundOperationSchema.shape.transport.optional(),
   /** Approved destination by index (1-based) or exact origin; defaults to the only approved destination. */
-  destination: z.union([z.number().int().positive(), z.string().max(2048)]).optional(),
+  destination: z
+    .union([z.number().int().positive(), z.string().max(2048)])
+    .optional(),
   effect: boundOperationSchema.shape.effect.optional(),
-  outputClassification: boundOperationSchema.shape.outputClassification.optional(),
+  outputClassification:
+    boundOperationSchema.shape.outputClassification.optional(),
   cost: boundOperationSchema.shape.cost.optional(),
   consent: boundOperationSchema.shape.consent.optional(),
   replay: boundOperationSchema.shape.replay.optional(),

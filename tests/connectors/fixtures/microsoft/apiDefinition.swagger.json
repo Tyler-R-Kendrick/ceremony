@@ -1,0 +1,380 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Contoso Projects",
+    "description": "Creates and tracks work items inside a Contoso project.",
+    "version": "2026-09-01"
+  },
+  "host": "api.contoso.example",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Api-Key"
+    }
+  },
+  "security": [{ "api_key": [] }],
+  "x-ms-capabilities": {
+    "testConnection": {
+      "operationId": "WhoAmI",
+      "parameters": {}
+    }
+  },
+  "x-ms-connector-metadata": [
+    { "propertyName": "Website", "propertyValue": "https://contoso.example/" },
+    { "propertyName": "Categories", "propertyValue": "Productivity" }
+  ],
+  "paths": {
+    "/me": {
+      "get": {
+        "summary": "Test the connection",
+        "description": "Returns 200 when the credential is accepted.",
+        "operationId": "WhoAmI",
+        "x-ms-visibility": "internal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": { "type": "object" }
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "summary": "List projects",
+        "description": "Lists the projects the connection can reach.",
+        "operationId": "GetProjects",
+        "x-ms-visibility": "internal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "properties": {
+                        "type": "object",
+                        "properties": {
+                          "displayName": {
+                            "type": "string",
+                            "example": "ghp_CANARYTOKEN4b2"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/regions": {
+      "get": {
+        "summary": "List regions of a project",
+        "description": "Lists the regions available inside one project.",
+        "operationId": "GetRegions",
+        "x-ms-visibility": "internal",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Project the regions belong to."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "regions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": { "type": "string" },
+                      "label": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/schema": {
+      "get": {
+        "summary": "Get the item schema of a project",
+        "description": "Returns the field schema items of this project use.",
+        "operationId": "GetItemSchema",
+        "x-ms-visibility": "internal",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "x-ms-visibility": "internal",
+            "default": "2.0"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": { "schema": { "type": "object" } }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/items": {
+      "post": {
+        "summary": "Create an item",
+        "description": "Creates a work item inside the selected project.",
+        "operationId": "CreateItem",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "x-ms-summary": "Project",
+            "description": "The project the item belongs to.",
+            "x-ms-dynamic-values": {
+              "operationId": "GetProjects",
+              "value-collection": "value",
+              "value-path": "name",
+              "value-title": "properties/displayName",
+              "parameters": {}
+            }
+          },
+          {
+            "name": "payload",
+            "in": "body",
+            "required": true,
+            "description": "The item to create.",
+            "schema": {
+              "type": "object",
+              "required": ["title"],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "x-ms-summary": "Title"
+                },
+                "region": {
+                  "type": "string",
+                  "x-ms-summary": "Region",
+                  "x-ms-dynamic-values": {
+                    "operationId": "GetRegions",
+                    "value-collection": "regions",
+                    "value-path": "code",
+                    "value-title": "label",
+                    "parameters": {
+                      "projectId": { "parameter": "projectId" }
+                    }
+                  },
+                  "x-ms-dynamic-list": {
+                    "operationId": "GetRegions",
+                    "itemsPath": "regions",
+                    "itemValuePath": "code",
+                    "itemTitlePath": "label",
+                    "parameters": {
+                      "projectId": { "parameterReference": "projectId" }
+                    }
+                  }
+                },
+                "details": {
+                  "type": "object",
+                  "x-ms-summary": "Details",
+                  "x-ms-dynamic-schema": {
+                    "operationId": "GetItemSchema",
+                    "value-path": "schema",
+                    "parameters": {
+                      "projectId": { "parameter": "projectId" },
+                      "version": "2.0"
+                    }
+                  },
+                  "x-ms-dynamic-properties": {
+                    "operationId": "GetItemSchema",
+                    "itemValuePath": "schema",
+                    "parameters": {
+                      "projectId": { "parameterReference": "projectId" },
+                      "version": { "value": "2.0" }
+                    }
+                  }
+                },
+                "apiSecret": {
+                  "type": "string",
+                  "format": "password",
+                  "x-ms-visibility": "internal",
+                  "default": "CANARY_SECRET_9f3"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "type": "object",
+              "properties": { "id": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/subscriptions": {
+      "x-ms-notification-content": {
+        "description": "An item was created",
+        "schema": {
+          "$ref": "#/definitions/ItemCreatedNotification"
+        }
+      },
+      "post": {
+        "summary": "When an item is created",
+        "description": "Triggers when an item is created in the selected project.",
+        "operationId": "OnItemCreated",
+        "x-ms-trigger": "single",
+        "x-ms-trigger-hint": "To see it work, create an item in Contoso Projects.",
+        "parameters": [
+          {
+            "name": "subscription",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "projectId": { "type": "string" },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "x-ms-notification-url": true,
+                      "x-ms-visibility": "internal"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "type": "string",
+                "description": "Path of the created subscription."
+              }
+            },
+            "schema": {
+              "type": "object",
+              "properties": { "id": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/subscriptions/{subscriptionId}": {
+      "delete": {
+        "summary": "Delete a subscription",
+        "description": "Removes a webhook subscription.",
+        "operationId": "DeleteSubscription",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": { "204": { "description": "No content" } }
+      }
+    },
+    "/items": {
+      "get": {
+        "summary": "When an item is updated",
+        "description": "Polls for items updated since the last check.",
+        "operationId": "OnItemUpdated",
+        "x-ms-trigger": "batch",
+        "x-ms-trigger-hint": "To see it work, update an item in Contoso Projects.",
+        "parameters": [
+          {
+            "name": "$filter",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "x-ms-visibility": "internal",
+            "default": "updatedAt gt 0"
+          },
+          {
+            "name": "$orderby",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "x-ms-visibility": "internal",
+            "default": "updatedAt desc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/Item" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Item": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "ItemCreatedNotification": {
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "projectId": { "type": "string" }
+      }
+    }
+  }
+}

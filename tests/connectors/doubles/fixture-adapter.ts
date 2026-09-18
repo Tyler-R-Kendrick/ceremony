@@ -15,10 +15,7 @@ import {
   type InvokeRequest,
   type InvokeResult,
 } from "../../../src/server/connectors/index.js";
-import {
-  startHttpFixture,
-  type RecordedRequest,
-} from "./http-fixture.js";
+import { startHttpFixture, type RecordedRequest } from "./http-fixture.js";
 
 /*
  * A real connector adapter over real HTTP.
@@ -185,7 +182,10 @@ export async function startFixtureProvider(
           body: '{"id":"item-1","stat',
         };
       }
-      return { status: 201, body: { id: `item-${writes.size}`, status: "created" } };
+      return {
+        status: 201,
+        body: { id: `item-${writes.size}`, status: "created" },
+      };
     }
     if (path === "/v1/revoke" && request.method === "POST") {
       const session = authenticated(request);
@@ -378,7 +378,11 @@ export function createFixtureAdapter(
       ).map((dimension) =>
         capabilityStatus(
           { adapterVersion: FIXTURE_ADAPTER_VERSION, runtime: "hosted-server" },
-          { dimension, profile: "fixture-http-1", evidence: "protocol-fixture" },
+          {
+            dimension,
+            profile: "fixture-http-1",
+            evidence: "protocol-fixture",
+          },
         ),
       ),
 
@@ -529,7 +533,10 @@ export function createFixtureAdapter(
               kind: "credential-accepted",
               evidenceRef: "evidence:pending",
               issuer: "provider",
-              target: { kind: "authority", id: ctx.binding.authorityInstance || "fixture" },
+              target: {
+                kind: "authority",
+                id: ctx.binding.authorityInstance || "fixture",
+              },
               observedAt: claimAt(ctx),
               verifierVersion: FIXTURE_ADAPTER_VERSION,
               bindingRevision: ctx.binding.revision,
@@ -608,7 +615,10 @@ export function createFixtureAdapter(
           state: "failed",
           outputClassification: operation.outputClassification,
           effect: operation.effect,
-          code: response.status === 401 ? "credential.rejected" : "upstream.rejected",
+          code:
+            response.status === 401
+              ? "credential.rejected"
+              : "upstream.rejected",
         };
       }
       const body: unknown = await response.json();

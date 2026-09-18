@@ -191,11 +191,7 @@ test("another subject's connection is not found, not denied", async (t) => {
     "/api/v1/connectors/connections/connection:does-not-exist",
     { session: "stranger" },
   );
-  assert.equal(
-    missing.status,
-    404,
-    "and a missing record answers identically",
-  );
+  assert.equal(missing.status, 404, "and a missing record answers identically");
 });
 
 test("a stale expected revision conflicts instead of acting", async (t) => {
@@ -207,7 +203,10 @@ test("a stale expected revision conflicts instead of acting", async (t) => {
   const stale = await harness.fetch(
     `/api/v1/connectors/connections/${encodeURIComponent(connectionRef)}/disconnect`,
     {
-      body: { expectedRevision: (status.revision as number) - 1, scope: "local" },
+      body: {
+        expectedRevision: (status.revision as number) - 1,
+        scope: "local",
+      },
       session: SESSION,
     },
   );
@@ -467,9 +466,12 @@ test("a callback code is one-use: a replay changes nothing", async (t) => {
       session: SESSION,
     }),
   );
-  const redirect = await fetch((connected.presentation as { url: string }).url, {
-    redirect: "manual",
-  });
+  const redirect = await fetch(
+    (connected.presentation as { url: string }).url,
+    {
+      redirect: "manual",
+    },
+  );
   const location = new URL(redirect.headers.get("location")!);
   await redirect.body?.cancel().catch(() => {});
   const callbackPath = `${location.pathname}${location.search}`;
@@ -522,7 +524,11 @@ test("invoke refuses an unapproved operation and an unpermitted target", async (
     SESSION,
     {
       operations: [
-        { nativeId: "listItems", targetParameters: ["project"], consent: "none" },
+        {
+          nativeId: "listItems",
+          targetParameters: ["project"],
+          consent: "none",
+        },
       ],
       permittedTargets: [{ kind: "project", id: "alpha" }],
     },
@@ -928,10 +934,7 @@ test("an upstream disconnect actually revokes, and is refused to a model", async
       },
     ),
   );
-  assert.equal(
-    (applied.result as Record<string, string>).upstream,
-    "applied",
-  );
+  assert.equal((applied.result as Record<string, string>).upstream, "applied");
   assert.equal(harness.provider.received("POST", "/v1/revoke").length, 1);
   assert.equal(
     (applied.connection as Record<string, unknown>).lifecycle,
@@ -990,7 +993,11 @@ test("AC-UX-02: a retained drawer option is enforced by the server, not decorati
     await harness.fetch("/api/v1/connectors/connections", {
       body: {
         bindingRef,
-        intent: { profileId: "oauth", requestedPermissions: [], interruption: "none" },
+        intent: {
+          profileId: "oauth",
+          requestedPermissions: [],
+          interruption: "none",
+        },
       },
       session: SESSION,
     }),

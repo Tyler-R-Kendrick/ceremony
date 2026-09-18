@@ -1,7 +1,14 @@
-import { runtimeBindingSchema, type RuntimeBinding } from "../../../../src/server/connectors/binding.js";
+import {
+  runtimeBindingSchema,
+  type RuntimeBinding,
+} from "../../../../src/server/connectors/binding.js";
 import type { AdapterCallContext } from "../../../../src/server/connectors/adapter.js";
 import type { ConnectionRecord } from "../../../../src/server/connectors/ports.js";
-import { fixtureActor, memoryPorts, type MemoryPorts } from "../../doubles/ports.js";
+import {
+  fixtureActor,
+  memoryPorts,
+  type MemoryPorts,
+} from "../../doubles/ports.js";
 
 /*
  * Binding and call-context fixtures for the four Supabase profiles. Each
@@ -20,7 +27,10 @@ export const HOST_ORIGIN = "https://app.example";
 export const CALLBACK_PATH = "/api/v1/connectors/supabase-management/callback";
 
 export const managementOperationTemplates = {
-  "v1-list-all-projects": { pathTemplate: "/v1/projects", targetParameters: [] },
+  "v1-list-all-projects": {
+    pathTemplate: "/v1/projects",
+    targetParameters: [],
+  },
   "v1-get-project": {
     pathTemplate: "/v1/projects/{ref}",
     targetParameters: ["ref"],
@@ -85,7 +95,9 @@ export function managementBinding(input: {
       cost: "free",
       consent: "none",
       replay: "read-only",
-      targetParameters: [...managementOperationTemplates[nativeId].targetParameters],
+      targetParameters: [
+        ...managementOperationTemplates[nativeId].targetParameters,
+      ],
       authenticationProfile: "oauth-authorization-code",
     })),
     configuration: ["SUPABASE_OAUTH_CLIENT_ID", "SUPABASE_OAUTH_CLIENT_SECRET"],
@@ -290,7 +302,10 @@ export type SupabaseHarness = {
   ctx: AdapterCallContext;
   connection: ConnectionRecord;
   /** Replaces the context's connection and generation, as the command layer would. */
-  with(patch: Partial<ConnectionRecord>, generation?: number): AdapterCallContext;
+  with(
+    patch: Partial<ConnectionRecord>,
+    generation?: number,
+  ): AdapterCallContext;
   close(): void;
 };
 

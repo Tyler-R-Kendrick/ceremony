@@ -1,0 +1,122 @@
+{
+  "swarm": "IMPORT",
+  "workItems": [
+    {
+      "id": "IMP-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/import/parse.ts",
+        "src/server/connectors/import/limits.ts"
+      ],
+      "tests": ["tests/connectors/import/parse.test.ts"],
+      "acceptanceIds": ["AC-IMP-09", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["json-rfc8259", "yaml-1.2-core", "yaml@2.9.0"],
+      "limitations": [
+        "YAML is read only as YAML 1.2 with the core schema. An explicit %YAML 1.1 directive is refused rather than reinterpreted, because 1.1 changes the meaning of unquoted yes/no/on/off and of sexagesimal scalars.",
+        "Explicit !!binary, !!timestamp, !!omap, !!set and !!pairs tags are refused even though the library could resolve them: a connector description has no use for them, and silently keeping the text of an unresolved tag is the reinterpretation import must not do.",
+        "Merge keys (<<) are refused rather than applied; a description that relies on them must be flattened upstream.",
+        "A document is one YAML document; a multi-document stream is refused instead of silently using the first."
+      ],
+      "notes": "parseBoundedDocument is the single entry point. JSON duplicate-key detection uses a strict RFC 8259 scanner over the text (justified in the module comment: JSON.parse silently keeps the last member and a reviver runs only after the collapse). The scanner also bounds depth, nodes, key and string lengths and refuses reserved keys; JSON.parse then builds the graph from already-accepted text. YAML is composed with schema core, uniqueKeys, stringKeys, merge false and resolveKnownTags false, then walked before any JS value exists so alias amplification is priced without expanding it. Every result is rebuilt by sanitizeGraph into a fresh plain-object graph, so aliases become independent values and no parser object reaches a caller."
+    },
+    {
+      "id": "IMP-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/import/network.ts"],
+      "tests": ["tests/connectors/import/network.test.ts"],
+      "acceptanceIds": ["AC-IMP-11", "AC-IMP-12"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["undici-7", "node-22-dns"],
+      "limitations": [
+        "An end-to-end connection to an administrator-approved private origin cannot be demonstrated offline: a loopback fixture binds to 127.0.0.0/8, which classifies as loopback, not private. The approved-private path is covered by policy assertions plus a DNS-level assertion that an approved origin reaches the transport while an unapproved sibling is refused at the lookup.",
+        "Request bodies must be fully buffered (bounded by maxRequestBytes); stream and multipart bodies are refused, because neither can be bounded up front nor replayed across a validated redirect.",
+        "TLS certificate pinning is not part of this fetcher; it inherits the platform trust store through undici."
+      ],
+      "notes": "createApprovedFetch(policy) builds on createPublicAuthLookup so the address check runs inside socket creation on the exact answers the socket uses. Redirects are manual: each hop is revalidated, credentials (authorization, cookie, proxy-authorization) are stripped on every hop including same-origin, 303 and POST 301/302 become bodyless GETs, and cross-origin hops are refused unless the policy lists the target origin. Denial reasons are ordered most specific first. Response bytes are counted while streaming, Content-Length is only used to refuse early, and compressed responses are refused unless explicitly allowed. NetworkPolicy is host configuration: approvedPrivateOrigins is only meaningful in approved-private mode, must be exact HTTPS origins with a plain host (a wildcard is refused), and no document or caller argument can extend it."
+    },
+    {
+      "id": "IMP-03",
+      "status": "implemented",
+      "files": ["src/server/connectors/import/source.ts"],
+      "tests": [
+        "tests/connectors/import/source.test.ts",
+        "tests/connectors/fixtures/import/canary-secrets.yaml",
+        "tests/connectors/fixtures/import/canary-invalid.json"
+      ],
+      "acceptanceIds": ["AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["sourceRecordSchema-v1"],
+      "notes": "captureSource writes the exact bytes to the tenant-scoped SourceArtifactPort and returns a sourceRecordSchema-valid record with the sha256 of those bytes, byteLength, media type, sanitized origin (userinfo, query and fragment removed) and capturedAt. The normalized digest of the parsed value is a separate fact via canonicalDigest. sourceRef is content-addressed over identity, digest, origin and capture time, so a refresh is always a new record and no record is ever updated in place. The record is validated before the artifact is written, so a rejected capture leaves no orphan. The canary fixture carries CANARY_SECRET_9f3 in a description, an example, a default, a signed URL and a server query string; the tests assert it appears in the artifact and the parsed value and in no record, issue, result, diagnostic, projection, error message, detail or stack."
+    },
+    {
+      "id": "IMP-04",
+      "status": "implemented",
+      "files": ["src/server/connectors/import/references.ts"],
+      "tests": ["tests/connectors/import/references.test.ts"],
+      "acceptanceIds": ["AC-IMP-10", "AC-IMP-11"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["json-pointer-rfc6901"],
+      "limitations": [
+        "Only JSON pointer fragments resolve. A plain-name fragment ($anchor, #Pet) and a JSON Schema $id-relative base are reported as unsupported rather than guessed at.",
+        "$id/$anchor rebasing within a document is not implemented; documents are addressed by the identity they were registered under."
+      ],
+      "notes": "ReferenceResolver keeps a bounded registry keyed by document identity. resolve() is lazy and returns the target without expanding it, so a recursive schema resolves indefinitely without growth. expand() is the bounded operation: a cycle stops with a structure.recursive-schema info issue and leaves a reference in place, and an expansion that would exceed the node or depth budget is refused with a blocking reference.expansion-exceeds-bounds issue and complete:false. External documents are reachable only through the explicit fetchExternal hook (built on createApprovedFetch) under document, byte and resolution budgets, with failures remembered so one import does not retry an unreachable location. Failures are distinguished as unresolved, unsupported, unsafe, temporarily-unavailable, external-not-permitted, budget-exceeded and document-invalid, each with its own issue code."
+    },
+    {
+      "id": "IMP-05",
+      "status": "implemented",
+      "files": ["src/server/connectors/import/diff.ts"],
+      "tests": ["tests/connectors/import/refresh.test.ts"],
+      "acceptanceIds": ["AC-IMP-16", "AC-IMP-06"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["openapi-3.1", "openapi-2.0", "asyncapi-3.0"],
+      "limitations": [
+        "The security classification is pointer-pattern based and covers OpenAPI 2/3, AsyncAPI, Arazzo sourceDescriptions and MCP server.json packages/remotes. A format whose security semantics live elsewhere needs its rule added; unmatched changes are reported as structural, never dropped.",
+        "Array comparison is positional, so a reordered servers list reports changes at the moved indexes rather than as a move.",
+        "AC-IMP-06 is covered here only for the source-diff half; overlay application belongs to the FORMATS swarm."
+      ],
+      "notes": "diffSources compares two captures and flags servers/hosts, OAuth issuer/authorization/token/refresh endpoints, security schemes and requirements, scopes, parameter locations, operation and path add/remove, declared packages and data-classification hints as category security with blocking severity. Messages are fixed text per code; only the pointer is document-derived, so a changed server URL or scope name never enters a diagnostic. refreshDecision reports what a previous approval can still rely on: any security change (or a truncated comparison) invalidates approvals, evidence and bindings; other changes make a candidate revision that still needs review. resolvePinnedSource selects strictly by pinned reference and byte digest, so a record marked latest is offered as a candidate and never substituted, and a missing pin is reported rather than replaced."
+    },
+    {
+      "id": "IMP-06",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/import/service.ts",
+        "src/server/connectors/import/common.ts",
+        "src/server/connectors/import/index.ts"
+      ],
+      "tests": ["tests/connectors/import/service.test.ts"],
+      "acceptanceIds": ["AC-IMP-13", "AC-IMP-16"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-connector/2"],
+      "limitations": [
+        "These are pure helpers over ports. HTTP routing, CSRF/origin checks and multipart decoding are the COMMAND swarm's; importUpload takes bytes that the host has already bounded.",
+        "detectDocument recognizes the family and version only. Normalization into a NormalizedDefinition is the FORMATS swarm's, so every result currently returns empty definitions and executableCandidates."
+      ],
+      "notes": "importUpload, importFromUrl, refreshFromUrl, refreshFromUpload and importLocalFixture all derive nothing from their arguments except data: the actor is the host's, checked with requireCapability(author). importFromUrl performs exactly one approved retrieval (asserted against the fixture request log: declared servers, discovery paths and references are not touched), refuses a fetcher that is not an approved one, and records the final URL stripped of userinfo and query. importLocalFixture is the air-gapped path: a bounded fixture name with a JSON/YAML extension, resolved inside tests/connectors/fixtures/import and refused if it escapes."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/index.ts (INT)",
+      "description": "Add `export * from \"./import/index.js\";` to the server connector barrel so other swarms import parseBoundedDocument, createApprovedFetch, ReferenceResolver, captureSource, diffSources and the import command helpers from one path. The import module imports only from ../../core/connectors, ../errors.js, ../ports.js, ../../public-auth-fetch.js, ../../identity.js and node builtins plus `yaml`/`undici`, so the barrel gains no browser-visible code. Not applied by this swarm: the barrel is integrator-owned."
+    },
+    {
+      "target": "src/server/connectors/import/service.ts (COMMAND swarm)",
+      "description": "Mount importUpload(actor, bytes, mediaType, ports, options) and importFromUrl(actor, url, policy, ports, options) behind ProtectedCommandService. The route must call assertRequestBoundary(request, { origin, maxBytes: 4 * 1024 * 1024, contentTypes: [\"application/json\", \"application/yaml\", \"application/x-yaml\", \"application/octet-stream\"] }) and read the body with boundedText/boundedJson before calling these helpers; they bound the bytes again but do not read a Request. Pass the deployment's NetworkPolicy from host configuration, never from the request. Return explainConnectorError(error) on failure: ConnectorError details are already sanitized codes."
+    },
+    {
+      "target": "src/server/connectors/state (STATE swarm)",
+      "description": "SourceArtifactPort.put is called once per accepted capture with { mediaType, digest, retainUntil? }; the digest is the sha256 of the exact bytes. captureSource does not assume the store deduplicates by digest, but a content-addressed store makes repeated identical captures idempotent, which the tests' double models. Artifact reads must stay tenant-scoped: a foreign tenant's read returns undefined, not an error that reveals existence."
+    },
+    {
+      "target": "src/server/connectors/formats/* (FORMATS swarm)",
+      "description": "Consume IngestionResult.document.value (a plain, bounds-checked graph) and source/normalizedDigest rather than re-parsing bytes; use makeIssue/appendPointer from the import module for diagnostics so pointers and severity rules stay consistent. Fill ConnectorImportResult.definitions and executableCandidates at the normalization step; the ingestion path deliberately leaves them empty."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": []
+}

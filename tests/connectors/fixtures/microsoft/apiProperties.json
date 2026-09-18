@@ -1,0 +1,131 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "api_key": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "API Key",
+          "description": "The API key for the Contoso Projects API.",
+          "tooltip": "Provide your Contoso API key",
+          "constraints": {
+            "tabIndex": 2,
+            "clearText": false,
+            "required": "true"
+          }
+        }
+      },
+      "internalSigningKey": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "Signing key",
+          "description": "Reserved for Contoso support.",
+          "constraints": {
+            "tabIndex": 3,
+            "clearText": false,
+            "hidden": true,
+            "required": "false"
+          }
+        }
+      },
+      "environmentName": {
+        "type": "string",
+        "allowedValues": [{ "value": "prod" }, { "value": "test" }],
+        "uiDefinition": {
+          "displayName": "Environment",
+          "description": "Which Contoso environment to reach.",
+          "constraints": {
+            "tabIndex": 1,
+            "required": "true",
+            "allowedValues": [
+              { "text": "Production", "value": "prod" },
+              { "text": "Test", "value": "test" }
+            ]
+          }
+        }
+      }
+    },
+    "connectionParameterSets": {
+      "uiDefinition": {
+        "displayName": "Authentication Type",
+        "description": "Type of authentication to be used."
+      },
+      "values": [
+        {
+          "name": "api-key",
+          "uiDefinition": {
+            "displayName": "API key",
+            "description": "Connect with a Contoso API key."
+          },
+          "metadata": { "allowSharing": true },
+          "parameters": {
+            "api_key": {
+              "type": "securestring",
+              "uiDefinition": {
+                "displayName": "API Key",
+                "description": "The API key for the Contoso Projects API.",
+                "constraints": { "required": "true", "clearText": false }
+              }
+            }
+          }
+        },
+        {
+          "name": "oauth2",
+          "uiDefinition": {
+            "displayName": "Contoso account (OAuth2)",
+            "description": "Sign in with your Contoso account."
+          },
+          "metadata": { "allowSharing": false },
+          "parameters": {
+            "token": {
+              "type": "oauthSetting",
+              "oAuthSettings": {
+                "identityProvider": "oauth2",
+                "clientId": "contoso-connector-client",
+                "scopes": ["projects.read", "items.write"],
+                "redirectMode": "GlobalPerConnector",
+                "customParameters": {
+                  "authorizationUrl": {
+                    "value": "https://login.contoso.example/oauth/authorize"
+                  },
+                  "tokenUrl": {
+                    "value": "https://login.contoso.example/oauth/token"
+                  },
+                  "refreshUrl": {
+                    "value": "https://login.contoso.example/oauth/token"
+                  }
+                }
+              },
+              "uiDefinition": null
+            }
+          }
+        }
+      ]
+    },
+    "policyTemplateInstances": [
+      {
+        "templateId": "setheader",
+        "title": "Add a correlation header",
+        "parameters": {
+          "x-ms-apimTemplateParameter.name": "x-correlation-id",
+          "x-ms-apimTemplateParameter.value": "@{guid()}",
+          "x-ms-apimTemplateParameter.existsAction": "override",
+          "x-ms-apimTemplate-operationName": ["CreateItem"]
+        }
+      },
+      {
+        "templateId": "setqueryparameter",
+        "title": "Force the JSON representation",
+        "parameters": {
+          "x-ms-apimTemplateParameter.name": "format",
+          "x-ms-apimTemplateParameter.value": "json",
+          "x-ms-apimTemplateParameter.existsAction": "override",
+          "x-ms-apimTemplate-operationName": ["CreateItem"]
+        }
+      }
+    ],
+    "iconBrandColor": "#0058a9",
+    "capabilities": ["actions", "triggers"],
+    "publisher": "Contoso",
+    "stackOwner": "Contoso"
+  }
+}

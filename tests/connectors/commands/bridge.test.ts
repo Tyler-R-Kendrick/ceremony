@@ -55,7 +55,10 @@ async function reviewed(
         adapterId: "fixture-http",
         approvals: {
           destinations: [harness.provider.origin],
-          operations: ["listItems", { nativeId: "createItem", consent: "none" }],
+          operations: [
+            "listItems",
+            { nativeId: "createItem", consent: "none" },
+          ],
           profileId: "oauth",
           ...approvals,
         },
@@ -290,7 +293,12 @@ test("CMD-03/AGENT: the tool dependency object exposes catalog, status, connect 
   );
 
   await assert.rejects(
-    () => tools.invoke(actor, { connectionRef, operationRef: "operation:x", commandId: "c1" }),
+    () =>
+      tools.invoke(actor, {
+        connectionRef,
+        operationRef: "operation:x",
+        commandId: "c1",
+      }),
     "an unapproved operation is refused through the tool surface too",
   );
 
@@ -309,9 +317,13 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
   const harness = await createHarness();
   t.after(() => harness.close());
   const actor = human();
-  const { definitionRef, bindingRef, revision } = await reviewed(harness, actor, {
-    operations: ["listItems"],
-  });
+  const { definitionRef, bindingRef, revision } = await reviewed(
+    harness,
+    actor,
+    {
+      operations: ["listItems"],
+    },
+  );
   const connected = await json(
     await harness.fetch("/api/v1/connectors/connections", {
       body: {
@@ -322,9 +334,12 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
     }),
   );
   const connectionRef = connected.connectionRef as string;
-  const redirect = await fetch((connected.presentation as { url: string }).url, {
-    redirect: "manual",
-  });
+  const redirect = await fetch(
+    (connected.presentation as { url: string }).url,
+    {
+      redirect: "manual",
+    },
+  );
   const location = new URL(redirect.headers.get("location")!);
   await redirect.body?.cancel().catch(() => {});
   await harness.fetch(`${location.pathname}${location.search}`, {
@@ -381,7 +396,11 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
           destinations: [harness.provider.origin],
           operations: [
             "listItems",
-            { nativeId: "createItem", consent: "none", outputClassification: "public" },
+            {
+              nativeId: "createItem",
+              consent: "none",
+              outputClassification: "public",
+            },
           ],
           profileId: "oauth",
         },
@@ -389,7 +408,11 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
       session: SESSION,
     }),
   );
-  assert.equal(second.revision, revision + 1, "a review creates a new revision");
+  assert.equal(
+    second.revision,
+    revision + 1,
+    "a review creates a new revision",
+  );
   const newWrite = operationRef(
     harness,
     bindingRef,
@@ -450,7 +473,9 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
 });
 
 test("CMD-04: an interrupted write is indeterminate and never blindly replayed", async (t) => {
-  const harness = await createHarness({ provider: { dropWriteResponse: true } });
+  const harness = await createHarness({
+    provider: { dropWriteResponse: true },
+  });
   t.after(() => harness.close());
   const actor = human();
   const { bindingRef } = await reviewed(harness, actor, {
@@ -474,9 +499,12 @@ test("CMD-04: an interrupted write is indeterminate and never blindly replayed",
     }),
   );
   const connectionRef = connected.connectionRef as string;
-  const redirect = await fetch((connected.presentation as { url: string }).url, {
-    redirect: "manual",
-  });
+  const redirect = await fetch(
+    (connected.presentation as { url: string }).url,
+    {
+      redirect: "manual",
+    },
+  );
   const location = new URL(redirect.headers.get("location")!);
   await redirect.body?.cancel().catch(() => {});
   await harness.fetch(`${location.pathname}${location.search}`, {
@@ -572,7 +600,8 @@ test("CMD-01: the catalog separates fixture, unconfigured and configured entries
   t.after(() => harness.close());
   const actor = human();
   harness.register(SESSION, actor);
-  const { createFixtureAdapter } = await import("../doubles/fixture-adapter.js");
+  const { createFixtureAdapter } =
+    await import("../doubles/fixture-adapter.js");
   const provider = createFixtureAdapter();
   harness.registry.register({
     ...provider,
@@ -588,9 +617,11 @@ test("CMD-01: the catalog separates fixture, unconfigured and configured entries
     ],
   });
 
-  const before = (await json(
-    await harness.fetch("/api/v1/connectors/catalog", { session: SESSION }),
-  )).entries as Array<Record<string, unknown>>;
+  const before = (
+    await json(
+      await harness.fetch("/api/v1/connectors/catalog", { session: SESSION }),
+    )
+  ).entries as Array<Record<string, unknown>>;
   const unconfigured = before.find((entry) => entry.id === "provider-backed");
   assert.equal(
     unconfigured?.support,
@@ -607,9 +638,11 @@ test("CMD-01: the catalog separates fixture, unconfigured and configured entries
   ]);
 
   harness.setConfiguration(actor, "PROVIDER_CLIENT_ID", "abc");
-  const after = (await json(
-    await harness.fetch("/api/v1/connectors/catalog", { session: SESSION }),
-  )).entries as Array<Record<string, unknown>>;
+  const after = (
+    await json(
+      await harness.fetch("/api/v1/connectors/catalog", { session: SESSION }),
+    )
+  ).entries as Array<Record<string, unknown>>;
   assert.equal(
     after.find((entry) => entry.id === "provider-backed")?.support,
     "provider-backed",
@@ -623,9 +656,13 @@ test("CMD-01: the catalog separates fixture, unconfigured and configured entries
 
   const stranger = human({ subjectId: "subject-9", sessionId: "session-9" });
   harness.register("stranger", stranger);
-  const theirs = (await json(
-    await harness.fetch("/api/v1/connectors/catalog", { session: "stranger" }),
-  )).entries as Array<Record<string, unknown>>;
+  const theirs = (
+    await json(
+      await harness.fetch("/api/v1/connectors/catalog", {
+        session: "stranger",
+      }),
+    )
+  ).entries as Array<Record<string, unknown>>;
   assert.equal(
     theirs.find((entry) => entry.id === "provider-backed")?.support,
     "unconfigured",

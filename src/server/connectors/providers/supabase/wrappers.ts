@@ -111,7 +111,9 @@ export const wrappersCatalogSchema = z.strictObject({
         name: pgName,
         server: pgName,
         columns: z
-          .array(z.strictObject({ name: pgName, type: z.string().min(1).max(128) }))
+          .array(
+            z.strictObject({ name: pgName, type: z.string().min(1).max(128) }),
+          )
           .max(LIMITS.columns)
           .default([]),
         options: z.array(optionSchema).max(LIMITS.options).default([]),
@@ -133,7 +135,11 @@ export type WrappersDescriptor = {
   schemaVersion: 1;
   source: "catalog" | "sql";
   wrappers: Array<{ name: string; handler?: string; validator?: string }>;
-  servers: Array<{ name: string; wrapper: string; options: WrappersDescriptorOption[] }>;
+  servers: Array<{
+    name: string;
+    wrapper: string;
+    options: WrappersDescriptorOption[];
+  }>;
   foreignTables: Array<{
     schema: string;
     name: string;
@@ -148,7 +154,9 @@ export type WrappersDescriptor = {
 };
 
 /** Credential-like option names are secret, whether they hold a value or a Vault key id; values are never kept either way. */
-export function classifyWrapperOption(name: string): WrapperOptionClassification {
+export function classifyWrapperOption(
+  name: string,
+): WrapperOptionClassification {
   const lower = name.toLowerCase();
   return /(^|_)(api_?key|secret|token|password|passwd|pwd|access_key|private_key|credentials?|auth|conn_?string|connection_string|dsn|uri|url_with_auth)(_|$)/.test(
     lower,
@@ -160,7 +168,17 @@ export function classifyWrapperOption(name: string): WrapperOptionClassification
 const issue = (
   code: string,
   pointer: string,
-  input: Partial<Pick<CompatibilityIssue, "category" | "dimension" | "disposition" | "severity" | "executionImpact" | "remediation">> & {
+  input: Partial<
+    Pick<
+      CompatibilityIssue,
+      | "category"
+      | "dimension"
+      | "disposition"
+      | "severity"
+      | "executionImpact"
+      | "remediation"
+    >
+  > & {
     message: string;
   },
 ): CompatibilityIssue => ({
@@ -172,11 +190,16 @@ const issue = (
   severity: input.severity ?? "warning",
   executionImpact: input.executionImpact ?? "none",
   message: safeText(input.message, 500),
-  ...(input.remediation ? { remediation: safeText(input.remediation, 500) } : {}),
+  ...(input.remediation
+    ? { remediation: safeText(input.remediation, 500) }
+    : {}),
 });
 
 const stripIdentifier = (raw: string): string =>
-  raw.trim().replace(/^"(.*)"$/s, "$1").replace(/""/g, '"');
+  raw
+    .trim()
+    .replace(/^"(.*)"$/s, "$1")
+    .replace(/""/g, '"');
 
 /** Splits on top-level commas, honouring parentheses and single quotes. */
 function splitTopLevel(text: string): string[] {
@@ -218,7 +241,9 @@ function splitTopLevel(text: string): string[] {
 function optionNames(list: string | undefined): string[] {
   if (!list) return [];
   return splitTopLevel(list)
-    .map((entry) => stripIdentifier(entry.replace(/\s+'(?:[^']|'')*'\s*$/s, "")))
+    .map((entry) =>
+      stripIdentifier(entry.replace(/\s+'(?:[^']|'')*'\s*$/s, "")),
+    )
     .filter((name) => pgName.safeParse(name).success)
     .slice(0, LIMITS.options);
 }
@@ -266,13 +291,23 @@ function splitStatements(sql: string): string[] {
 const qualified = (raw: string): { schema: string; name: string } => {
   const parts = raw.split(".");
   if (parts.length >= 2)
-    return { schema: stripIdentifier(parts[0]!), name: stripIdentifier(parts.slice(1).join(".")) };
+    return {
+      schema: stripIdentifier(parts[0]!),
+      name: stripIdentifier(parts.slice(1).join(".")),
+    };
   return { schema: "public", name: stripIdentifier(raw) };
 };
 
-function readSql(sql: string): { catalog: WrappersCatalog; issues: CompatibilityIssue[] } {
+function readSql(sql: string): {
+  catalog: WrappersCatalog;
+  issues: CompatibilityIssue[];
+} {
   const issues: CompatibilityIssue[] = [];
-  const catalog: WrappersCatalog = { wrappers: [], servers: [], foreignTables: [] };
+  const catalog: WrappersCatalog = {
+    wrappers: [],
+    servers: [],
+    foreignTables: [],
+  };
   if (Buffer.byteLength(sql, "utf8") > LIMITS.sqlBytes) {
     issues.push(
       issue("supabase.wrappers.sql-too-large", "/sql", {
@@ -288,13 +323,17 @@ function readSql(sql: string): { catalog: WrappersCatalog; issues: Compatibility
   if (statements.length > LIMITS.statements)
     issues.push(
       issue("supabase.wrappers.sql-statement-ceiling", "/sql", {
-        message: "Statement count exceeds the reader ceiling; later statements were not read",
+        message:
+          "Statement count exceeds the reader ceiling; later statements were not read",
       }),
     );
   statements.slice(0, LIMITS.statements).forEach((statement, index) => {
     const pointer = `/sql/statements/${index}`;
     const normalized = statement.replace(/\s+/g, " ");
-    let match = /^create foreign data wrapper (\S+)(?: handler (\S+))?(?: validator (\S+))?$/i.exec(normalized);
+    let match =
+      /^create foreign data wrapper (\S+)(?: handler (\S+))?(?: validator (\S+))?$/i.exec(
+        normalized,
+      );
     if (match) {
       if (catalog.wrappers.length < LIMITS.wrappers)
         catalog.wrappers.push({
@@ -304,7 +343,10 @@ function readSql(sql: string): { catalog: WrappersCatalog; issues: Compatibility
         });
       return;
     }
-    match = /^create server (?:if not exists )?(\S+) foreign data wrapper (\S+)(?: options \((.*)\))?$/is.exec(normalized);
+    match =
+      /^create server (?:if not exists )?(\S+) foreign data wrapper (\S+)(?: options \((.*)\))?$/is.exec(
+        normalized,
+      );
     if (match) {
       if (catalog.servers.length < LIMITS.servers)
         catalog.servers.push({
@@ -314,13 +356,19 @@ function readSql(sql: string): { catalog: WrappersCatalog; issues: Compatibility
         });
       return;
     }
-    match = /^create foreign table (?:if not exists )?([\w."]+) \((.*)\) server (\S+)(?: options \((.*)\))?$/is.exec(normalized);
+    match =
+      /^create foreign table (?:if not exists )?([\w."]+) \((.*)\) server (\S+)(?: options \((.*)\))?$/is.exec(
+        normalized,
+      );
     if (match) {
       const { schema, name } = qualified(match[1]!);
       const columns = splitTopLevel(match[2]!)
         .map((column) => {
           const [columnName, ...rest] = column.split(/\s+/);
-          return { name: stripIdentifier(columnName ?? ""), type: rest.join(" ").slice(0, 128) || "unknown" };
+          return {
+            name: stripIdentifier(columnName ?? ""),
+            type: rest.join(" ").slice(0, 128) || "unknown",
+          };
         })
         .filter((column) => pgName.safeParse(column.name).success)
         .slice(0, LIMITS.columns);
@@ -330,41 +378,68 @@ function readSql(sql: string): { catalog: WrappersCatalog; issues: Compatibility
           name,
           server: stripIdentifier(match[3]!),
           columns,
-          options: optionNames(match[4]).map((optionName) => ({ name: optionName })),
+          options: optionNames(match[4]).map((optionName) => ({
+            name: optionName,
+          })),
         });
       return;
     }
-    match = /^import foreign schema (\S+)(?: limit to \(([^)]*)\)| except \(([^)]*)\))? from server (\S+) into (\S+)$/i.exec(normalized);
+    match =
+      /^import foreign schema (\S+)(?: limit to \(([^)]*)\)| except \(([^)]*)\))? from server (\S+) into (\S+)$/i.exec(
+        normalized,
+      );
     if (match) {
       const server = stripIdentifier(match[4]!);
       const schema = stripIdentifier(match[5]!);
-      const listed = match[2] ? splitTopLevel(match[2]).map(stripIdentifier) : [];
+      const listed = match[2]
+        ? splitTopLevel(match[2]).map(stripIdentifier)
+        : [];
       for (const name of listed)
-        if (pgName.safeParse(name).success && catalog.foreignTables.length < LIMITS.tables)
-          catalog.foreignTables.push({ schema, name, server, columns: [], options: [] });
+        if (
+          pgName.safeParse(name).success &&
+          catalog.foreignTables.length < LIMITS.tables
+        )
+          catalog.foreignTables.push({
+            schema,
+            name,
+            server,
+            columns: [],
+            options: [],
+          });
       issues.push(
         issue("supabase.wrappers.import-foreign-schema", pointer, {
           message: listed.length
             ? "import foreign schema lists tables but not columns; catalog metadata is needed for column review"
             : "import foreign schema creates tables not visible from the migration; catalog metadata is needed",
-          remediation: "Read pg_foreign_table and pg_attribute for the imported schema",
+          remediation:
+            "Read pg_foreign_table and pg_attribute for the imported schema",
         }),
       );
       return;
     }
-    if (/^(create|alter|drop|grant|revoke|select|insert|update|delete|comment|set)\b/i.test(normalized))
+    if (
+      /^(create|alter|drop|grant|revoke|select|insert|update|delete|comment|set)\b/i.test(
+        normalized,
+      )
+    )
       issues.push(
         issue("supabase.wrappers.statement-ignored", pointer, {
           severity: "info",
-          message: "Statement is not a wrapper, server or foreign table definition and was not read",
+          message:
+            "Statement is not a wrapper, server or foreign table definition and was not read",
         }),
       );
   });
   return { catalog, issues };
 }
 
-function nameOptions(options: Array<{ name: string; value?: string | undefined }>): WrappersDescriptorOption[] {
-  return options.map((option) => ({ name: option.name, classification: classifyWrapperOption(option.name) }));
+function nameOptions(
+  options: Array<{ name: string; value?: string | undefined }>,
+): WrappersDescriptorOption[] {
+  return options.map((option) => ({
+    name: option.name,
+    classification: classifyWrapperOption(option.name),
+  }));
 }
 
 /**
@@ -441,8 +516,10 @@ export function readWrappersDescriptor(
       issues.push(
         issue("supabase.wrappers.public-schema", `/foreignTables/${index}`, {
           category: "policy",
-          message: "Foreign table lives in the public schema and may be reachable through the Data API without Row Level Security",
-          remediation: "Move wrappers to a private schema and expose host-approved reads only",
+          message:
+            "Foreign table lives in the public schema and may be reachable through the Data API without Row Level Security",
+          remediation:
+            "Move wrappers to a private schema and expose host-approved reads only",
         }),
       );
     issues.push(
@@ -450,14 +527,18 @@ export function readWrappersDescriptor(
         category: "policy",
         dimension: "invoke",
         message: WRAPPERS_RLS_LIMITATION,
-        remediation: "Approve narrow reads per table and column; do not expose the table through the API",
+        remediation:
+          "Approve narrow reads per table and column; do not expose the table through the API",
       }),
     );
     foreignTables.push({
       schema: table.schema,
       name: table.name,
       server: table.server,
-      columns: table.columns.map((column) => ({ name: column.name, type: safeText(column.type, 128) })),
+      columns: table.columns.map((column) => ({
+        name: column.name,
+        type: safeText(column.type, 128),
+      })),
       options: nameOptions(table.options),
       rowLevelSecurity: "not-available",
       limitations: [WRAPPERS_RLS_LIMITATION],
@@ -479,7 +560,9 @@ export function readWrappersDescriptor(
     wrappers: parsed.wrappers.map((wrapper) => ({
       name: wrapper.name,
       ...(wrapper.handler ? { handler: safeText(wrapper.handler, 200) } : {}),
-      ...(wrapper.validator ? { validator: safeText(wrapper.validator, 200) } : {}),
+      ...(wrapper.validator
+        ? { validator: safeText(wrapper.validator, 200) }
+        : {}),
     })),
     servers: parsed.servers.map((server) => ({
       name: server.name,
@@ -503,7 +586,14 @@ export const approvedForeignReadOperators = [
   "is-null",
   "is-not-null",
 ] as const;
-const scalar = z.union([z.string().max(512).regex(/^[^\p{Cc}]*$/u), z.number().finite(), z.boolean()]);
+const scalar = z.union([
+  z
+    .string()
+    .max(512)
+    .regex(/^[^\p{Cc}]*$/u),
+  z.number().finite(),
+  z.boolean(),
+]);
 const foreignFilterSchema = z.strictObject({
   column: sqlIdentifierSchema,
   operator: z.enum(approvedForeignReadOperators),
@@ -513,7 +603,10 @@ export const approvedForeignReadInputSchema = z.strictObject({
   select: z.array(sqlIdentifierSchema).min(1).max(64).optional(),
   filters: z.array(foreignFilterSchema).max(16).default([]),
   order: z
-    .strictObject({ column: sqlIdentifierSchema, direction: z.enum(["asc", "desc"]).default("asc") })
+    .strictObject({
+      column: sqlIdentifierSchema,
+      direction: z.enum(["asc", "desc"]).default("asc"),
+    })
     .optional(),
   limit: z.number().int().min(1).max(1000).optional(),
   offset: z.number().int().min(0).max(1_000_000).default(0),
@@ -542,7 +635,10 @@ export interface ApprovedQueryPort {
 const tablePolicySchema = z.strictObject({
   columns: z.array(sqlIdentifierSchema).min(1).max(64),
   filters: z
-    .record(sqlIdentifierSchema, z.array(z.enum(approvedForeignReadOperators)).min(1).max(9))
+    .record(
+      sqlIdentifierSchema,
+      z.array(z.enum(approvedForeignReadOperators)).min(1).max(9),
+    )
     .default({}),
   orderBy: z.array(sqlIdentifierSchema).max(16).optional(),
   maxRows: z.number().int().min(1).max(1000).default(100),
@@ -551,17 +647,24 @@ export const supabaseWrappersSettingsSchema = z.strictObject({
   projectRef: projectRefSchema.optional(),
   /** Approved reads keyed by `<schema>.<table>`. */
   tables: z
-    .record(z.string().regex(/^[a-z_][a-z0-9_]{0,62}\.[a-z_][a-z0-9_]{0,62}$/), tablePolicySchema)
+    .record(
+      z.string().regex(/^[a-z_][a-z0-9_]{0,62}\.[a-z_][a-z0-9_]{0,62}$/),
+      tablePolicySchema,
+    )
     .refine((value) => Object.keys(value).length <= 64),
 });
-export type SupabaseWrappersSettings = z.output<typeof supabaseWrappersSettingsSchema>;
+export type SupabaseWrappersSettings = z.output<
+  typeof supabaseWrappersSettingsSchema
+>;
 
 export type SupabaseWrappersOptions = {
   query: ApprovedQueryPort;
   evidenceTtlMs?: number;
 };
 
-export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions): ConnectorAdapter {
+export function createSupabaseWrappersAdapter(
+  options: SupabaseWrappersOptions,
+): ConnectorAdapter {
   const evidenceTtlMs = options.evidenceTtlMs ?? 3_600_000;
 
   const settingsOf = (binding: RuntimeBinding): SupabaseWrappersSettings => {
@@ -569,7 +672,9 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
       binding.settings[SUPABASE_WRAPPERS_SETTINGS_KEY],
     );
     if (!parsed.success)
-      throw new ConnectorError("invalid-request", { detail: "supabase.wrappers.settings-invalid" });
+      throw new ConnectorError("invalid-request", {
+        detail: "supabase.wrappers.settings-invalid",
+      });
     return parsed.data;
   };
 
@@ -589,7 +694,10 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
       },
       sourceRef: `supabase-wrappers:src:${digest.slice(0, 32)}`,
       normalizedDigest: sha256Hex(canonicalConnectorJson(descriptor)),
-      importer: { id: "supabase-wrappers-descriptor", version: ADAPTER_VERSION },
+      importer: {
+        id: "supabase-wrappers-descriptor",
+        version: ADAPTER_VERSION,
+      },
       display: {
         name: "Supabase Wrappers foreign tables",
         description:
@@ -646,28 +754,60 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
     capabilities(): CapabilityStatus[] {
       const row = (
         dimension: CapabilityStatus["dimension"],
-        input: Partial<Pick<CapabilityStatus, "implementation" | "limitations">> = {},
+        input: Partial<
+          Pick<CapabilityStatus, "implementation" | "limitations">
+        > = {},
       ) =>
         capabilityStatus(adapter, {
           dimension,
           profile: PROFILE,
           implementation: input.implementation ?? "implemented",
           configuration: "not-applicable",
-          evidence: input.implementation === "unsupported" ? "not-tested" : "protocol-fixture",
+          evidence:
+            input.implementation === "unsupported"
+              ? "not-tested"
+              : "protocol-fixture",
           limitations: [WRAPPERS_RLS_LIMITATION, ...(input.limitations ?? [])],
         });
       return [
-        row("discover", { limitations: ["Catalog metadata read by the host's approved query port"] }),
-        row("import", { limitations: ["Catalog JSON or migration DDL text; option values are dropped, never stored"] }),
-        row("configure", { limitations: ["Approved tables, columns and filters are binding settings"] }),
-        row("authorize", { implementation: "unsupported", limitations: ["Reads run under the host's database role; there is no end-user grant"] }),
-        row("verify", { limitations: ["Confirms approved tables and columns still exist in the catalog"] }),
-        row("invoke", { limitations: ["Parameterized, allowlisted reads through the approved query port; no SQL is accepted"] }),
+        row("discover", {
+          limitations: [
+            "Catalog metadata read by the host's approved query port",
+          ],
+        }),
+        row("import", {
+          limitations: [
+            "Catalog JSON or migration DDL text; option values are dropped, never stored",
+          ],
+        }),
+        row("configure", {
+          limitations: [
+            "Approved tables, columns and filters are binding settings",
+          ],
+        }),
+        row("authorize", {
+          implementation: "unsupported",
+          limitations: [
+            "Reads run under the host's database role; there is no end-user grant",
+          ],
+        }),
+        row("verify", {
+          limitations: [
+            "Confirms approved tables and columns still exist in the catalog",
+          ],
+        }),
+        row("invoke", {
+          limitations: [
+            "Parameterized, allowlisted reads through the approved query port; no SQL is accepted",
+          ],
+        }),
         row("events", { implementation: "unsupported" }),
         row("reconnect", { implementation: "unsupported" }),
         row("disconnect"),
         row("revoke", { implementation: "unsupported" }),
-        row("export", { limitations: ["Exports the descriptor: names and types only"] }),
+        row("export", {
+          limitations: ["Exports the descriptor: names and types only"],
+        }),
         row("delegate", { implementation: "unsupported" }),
       ];
     },
@@ -680,16 +820,26 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
         let parsed: unknown;
         try {
           parsed = JSON.parse(text, (key, value) =>
-            ["__proto__", "constructor", "prototype"].includes(key) ? undefined : value,
+            ["__proto__", "constructor", "prototype"].includes(key)
+              ? undefined
+              : value,
           );
         } catch {
-          throw new ConnectorError("invalid-request", { detail: "supabase.wrappers.metadata-not-json" });
+          throw new ConnectorError("invalid-request", {
+            detail: "supabase.wrappers.metadata-not-json",
+          });
         }
         descriptor = readWrappersDescriptor(parsed as WrappersCatalogMetadata);
-      } else if (mediaType === "application/sql" || mediaType === "text/plain" || mediaType === "text/x-sql") {
+      } else if (
+        mediaType === "application/sql" ||
+        mediaType === "text/plain" ||
+        mediaType === "text/x-sql"
+      ) {
         descriptor = readWrappersDescriptor({ sql: text });
       } else
-        throw new ConnectorError("unsupported", { detail: "supabase.wrappers.media-type" });
+        throw new ConnectorError("unsupported", {
+          detail: "supabase.wrappers.media-type",
+        });
       const source: SourceRecord = sourceRecordSchema.parse({
         sourceRef: `supabase-wrappers:src:${digest.slice(0, 32)}`,
         identity: {
@@ -701,7 +851,8 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
         format: {
           name: "supabase-wrappers",
           version: "1",
-          dialect: descriptor.source === "sql" ? "postgres-ddl" : "catalog-json",
+          dialect:
+            descriptor.source === "sql" ? "postgres-ddl" : "catalog-json",
         },
         origin: input.origin,
         digest: { algorithm: "sha256", value: digest },
@@ -711,19 +862,34 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
         adaptation: [],
         overlays: [],
       });
-      const blocking = descriptor.issues.some((item) => item.severity === "blocking");
+      const blocking = descriptor.issues.some(
+        (item) => item.severity === "blocking",
+      );
       return {
         source,
         definitions: blocking
           ? []
-          : [definitionFor(descriptor, digest, input.identityHint?.authorityNamespace ?? "")],
+          : [
+              definitionFor(
+                descriptor,
+                digest,
+                input.identityHint?.authorityNamespace ?? "",
+              ),
+            ],
         issues: descriptor.issues,
-        executableCandidates: blocking ? [] : descriptor.capabilities.map((item) => item.nativeId),
+        executableCandidates: blocking
+          ? []
+          : descriptor.capabilities.map((item) => item.nativeId),
       };
     },
     async export(_ctx, request): Promise<ExportOutcome> {
-      if (request.format !== "supabase-wrappers-descriptor" && request.format !== "json")
-        throw new ConnectorError("unsupported", { detail: "supabase.wrappers.export-format" });
+      if (
+        request.format !== "supabase-wrappers-descriptor" &&
+        request.format !== "json"
+      )
+        throw new ConnectorError("unsupported", {
+          detail: "supabase.wrappers.export-format",
+        });
       const bytes = new TextEncoder().encode(
         JSON.stringify(
           {
@@ -735,7 +901,9 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
               dataClassification: capability.dataClassification,
               rowLevelSecurity: "not-available",
             })),
-            issues: request.definition.compatibility.issues.map((item) => item.code),
+            issues: request.definition.compatibility.issues.map(
+              (item) => item.code,
+            ),
           },
           null,
           2,
@@ -759,26 +927,51 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
           provenance: {
             server: table.server,
             rowLevelSecurity: "not-available",
-            approved: String(isPermittedTarget(ctx.binding, { kind: "supabase-foreign-table", id: `${table.schema}.${table.name}` })),
+            approved: String(
+              isPermittedTarget(ctx.binding, {
+                kind: "supabase-foreign-table",
+                id: `${table.schema}.${table.name}`,
+              }),
+            ),
           },
           status: "active" as const,
         })),
-        freshness: { fetchedAt: ctx.environment.now(), stale: false, source: "live" },
+        freshness: {
+          fetchedAt: ctx.environment.now(),
+          stale: false,
+          source: "live",
+        },
         issues: descriptor.issues,
       };
     },
     async verify(ctx) {
       const settings = settingsOf(ctx.binding);
       requireConnection(ctx);
-      const descriptor = readWrappersDescriptor(await options.query.catalog({ signal: ctx.signal }));
+      const descriptor = readWrappersDescriptor(
+        await options.query.catalog({ signal: ctx.signal }),
+      );
       const claims: VerificationClaim[] = [];
       for (const [key, policy] of Object.entries(settings.tables)) {
         const [schema, name] = key.split(".");
-        const table = descriptor.foreignTables.find((item) => item.schema === schema && item.name === name);
-        if (!table) return { state: "denied", claims: [], code: "supabase.wrappers.table-missing" };
+        const table = descriptor.foreignTables.find(
+          (item) => item.schema === schema && item.name === name,
+        );
+        if (!table)
+          return {
+            state: "denied",
+            claims: [],
+            code: "supabase.wrappers.table-missing",
+          };
         const columns = new Set(table.columns.map((column) => column.name));
-        const missing = policy.columns.filter((column) => table.columns.length > 0 && !columns.has(column));
-        if (missing.length) return { state: "denied", claims: [], code: "supabase.wrappers.column-missing" };
+        const missing = policy.columns.filter(
+          (column) => table.columns.length > 0 && !columns.has(column),
+        );
+        if (missing.length)
+          return {
+            state: "denied",
+            claims: [],
+            code: "supabase.wrappers.column-missing",
+          };
         claims.push(
           makeClaim(ctx, {
             kind: "resource-access",
@@ -786,8 +979,16 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
             target: { kind: "supabase-foreign-table", id: key },
             verifierVersion: VERIFIER_VERSION,
             validForMs: evidenceTtlMs,
-            permissions: { requested: policy.columns, reported: [...columns].slice(0, 64), observed: [], semantics: "operations" },
-            limitations: [WRAPPERS_RLS_LIMITATION, `Server ${table.server}; reads run under the host's database role`],
+            permissions: {
+              requested: policy.columns,
+              reported: [...columns].slice(0, 64),
+              observed: [],
+              semantics: "operations",
+            },
+            limitations: [
+              WRAPPERS_RLS_LIMITATION,
+              `Server ${table.server}; reads run under the host's database role`,
+            ],
           }),
         );
       }
@@ -797,33 +998,72 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
       const settings = settingsOf(ctx.binding);
       const operation = boundOperation(ctx.binding, request.operationRef);
       if (!operation)
-        throw new ConnectorError("not-found", { detail: "supabase.operation.unknown" });
-      if (operation.transport.kind !== "delegated" || operation.transport.route !== "wrappers-select")
-        throw new ConnectorError("denied", { detail: "supabase.binding.transport-mismatch" });
+        throw new ConnectorError("not-found", {
+          detail: "supabase.operation.unknown",
+        });
+      if (
+        operation.transport.kind !== "delegated" ||
+        operation.transport.route !== "wrappers-select"
+      )
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.transport-mismatch",
+        });
       if (operation.effect !== "read")
-        throw new ConnectorError("denied", { detail: "supabase.binding.effect-mismatch" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.effect-mismatch",
+        });
       if (operation.outputClassification === "public")
-        throw new ConnectorError("denied", { detail: "supabase.binding.classification-too-low" });
+        throw new ConnectorError("denied", {
+          detail: "supabase.binding.classification-too-low",
+        });
       const key = operation.nativeId;
-      const policy = Object.hasOwn(settings.tables, key) ? settings.tables[key] : undefined;
-      if (!policy || !isPermittedTarget(ctx.binding, { kind: "supabase-foreign-table", id: key }))
-        throw new ConnectorError("denied", { detail: "supabase.wrappers.table-not-approved" });
+      const policy = Object.hasOwn(settings.tables, key)
+        ? settings.tables[key]
+        : undefined;
+      if (
+        !policy ||
+        !isPermittedTarget(ctx.binding, {
+          kind: "supabase-foreign-table",
+          id: key,
+        })
+      )
+        throw new ConnectorError("denied", {
+          detail: "supabase.wrappers.table-not-approved",
+        });
       requireConnection(ctx);
       const input = approvedForeignReadInputSchema.parse(request.input ?? {});
       const columns = input.select ?? policy.columns;
       for (const column of columns)
         if (!policy.columns.includes(column))
-          throw new ConnectorError("denied", { detail: "supabase.wrappers.column-not-approved" });
+          throw new ConnectorError("denied", {
+            detail: "supabase.wrappers.column-not-approved",
+          });
       for (const filter of input.filters) {
-        const operators = Object.hasOwn(policy.filters, filter.column) ? policy.filters[filter.column] : undefined;
+        const operators = Object.hasOwn(policy.filters, filter.column)
+          ? policy.filters[filter.column]
+          : undefined;
         if (!operators?.includes(filter.operator))
-          throw new ConnectorError("denied", { detail: "supabase.wrappers.filter-not-approved" });
-        const needsValue = filter.operator !== "is-null" && filter.operator !== "is-not-null";
-        if (needsValue !== (filter.value !== undefined) || (filter.operator === "in") !== Array.isArray(filter.value ?? []) && needsValue)
-          throw new ConnectorError("invalid-request", { detail: "supabase.wrappers.filter-value" });
+          throw new ConnectorError("denied", {
+            detail: "supabase.wrappers.filter-not-approved",
+          });
+        const needsValue =
+          filter.operator !== "is-null" && filter.operator !== "is-not-null";
+        if (
+          needsValue !== (filter.value !== undefined) ||
+          ((filter.operator === "in") !== Array.isArray(filter.value ?? []) &&
+            needsValue)
+        )
+          throw new ConnectorError("invalid-request", {
+            detail: "supabase.wrappers.filter-value",
+          });
       }
-      if (input.order && !(policy.orderBy ?? policy.columns).includes(input.order.column))
-        throw new ConnectorError("denied", { detail: "supabase.wrappers.order-not-approved" });
+      if (
+        input.order &&
+        !(policy.orderBy ?? policy.columns).includes(input.order.column)
+      )
+        throw new ConnectorError("denied", {
+          detail: "supabase.wrappers.order-not-approved",
+        });
       const [schema, table] = key.split(".") as [string, string];
       const limit = Math.min(input.limit ?? policy.maxRows, policy.maxRows);
       const result = await options.query.select({
@@ -838,7 +1078,13 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
       });
       const rows = result.rows
         .slice(0, limit)
-        .map((row) => Object.fromEntries(columns.filter((column) => Object.hasOwn(row, column)).map((column) => [column, row[column]])));
+        .map((row) =>
+          Object.fromEntries(
+            columns
+              .filter((column) => Object.hasOwn(row, column))
+              .map((column) => [column, row[column]]),
+          ),
+        );
       return {
         state: "complete",
         output: {
@@ -856,9 +1102,16 @@ export function createSupabaseWrappersAdapter(options: SupabaseWrappersOptions):
     },
     async disconnect(ctx, scope): Promise<DisconnectResult> {
       if (scope === "broker")
-        return { local: "not-attempted", broker: "unsupported", upstream: "not-attempted" };
+        return {
+          local: "not-attempted",
+          broker: "unsupported",
+          upstream: "not-attempted",
+        };
       const connection = requireConnection(ctx);
-      await ctx.environment.handoffs.cancelAll(connection.connectionRef, "supabase.wrappers.disconnect");
+      await ctx.environment.handoffs.cancelAll(
+        connection.connectionRef,
+        "supabase.wrappers.disconnect",
+      );
       return {
         local: "applied",
         broker: "not-attempted",

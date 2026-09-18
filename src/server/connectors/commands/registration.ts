@@ -177,7 +177,8 @@ export function createConnectorRegistration(
       let stopped = false;
       const actor = (): ActorContext => {
         const found = options.actorFor(owner);
-        if (!found) throw new CeremonyError("Session is not authenticated", 401);
+        if (!found)
+          throw new CeremonyError("Session is not authenticated", 401);
         return found;
       };
       const outcome = (view: ConnectionView): AuthOutcome => ({

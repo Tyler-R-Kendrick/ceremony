@@ -57,6 +57,13 @@ Libraries at the baseline: Zod 4, `oauth4webapi` 3, `jose` 6, `pg` 8, `undici` 7
 - Outbound HTTPS goes through a proxy. Tests must not depend on the internet; use loopback fixture servers on ephemeral ports (`listen(0, "127.0.0.1")`).
 - Run only your own test files while other swarms work: `node --import tsx --test tests/connectors/<area>/*.test.ts`. Do not run `npm test`, `npm run verify` or browser suites concurrently with other swarms (fixed ports collide). Run `npx tsc --noEmit` and `npx prettier --check <your files>` before finishing.
 
+- **Never write a control character into a source file, not even as an escape.** Prettier rewrites a
+  unicode escape such as the one for NUL or unit-separator back into the literal byte, so the file
+  becomes binary on the next format run: grep then reports "binary file matches" and skips it, and
+  diffs and editors mangle it. This was hit independently by two swarms. When you need an
+  unambiguous composite key, length-prefix the parts (`parts.map((p) => p.length + ":" + p).join("|")`)
+  rather than joining on a character that cannot appear in the data.
+
 ## 4. Scope contract and ecosystem coverage
 
 Support dimensions are reported independently: `discover`, `import`, `configure`, `authorize`, `verify`, `invoke`, `events`, `reconnect`, `disconnect`, `revoke`, `export`, `delegate`. Evidence attaches per dimension, protocol profile, runtime class and adapter version.

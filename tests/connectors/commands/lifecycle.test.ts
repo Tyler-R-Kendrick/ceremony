@@ -44,7 +44,11 @@ async function approvedBinding(harness: Harness, actor = human()) {
         destinations: [harness.provider.origin],
         operations: [
           "listItems",
-          { nativeId: "createItem", consent: "confirm", replay: "upstream-idempotency-key" },
+          {
+            nativeId: "createItem",
+            consent: "confirm",
+            replay: "upstream-idempotency-key",
+          },
         ],
         profileId: "oauth",
         permittedTargets: [{ kind: "account", id: "acct-primary" }],
@@ -284,7 +288,7 @@ test("a connector reaches a verified, usable connection through the public API",
   assert.equal(disconnected.status, 200);
   const outcome = await json(disconnected);
   assert.deepEqual(
-    (outcome.result as Record<string, unknown>),
+    outcome.result as Record<string, unknown>,
     {
       local: "applied",
       broker: "not-attempted",

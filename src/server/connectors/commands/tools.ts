@@ -77,7 +77,8 @@ export function connectorToolDependencies(
         await service.connect(actor, connectorToolInputs.connect.parse(input)),
       ),
     invoke: async (actor, input) => {
-      const { connectionRef, ...rest } = connectorToolInputs.invoke.parse(input);
+      const { connectionRef, ...rest } =
+        connectorToolInputs.invoke.parse(input);
       const { presentation: _presentation, ...response } = await service.invoke(
         actor,
         connectionRef,

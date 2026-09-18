@@ -285,36 +285,24 @@ test("importing through the adapter records provenance without approving anythin
   const { binding } = await approve("openapi-3.1-recursive.json");
   const context = await harness({ binding });
   const adapter = createOpenApiHttpAdapter();
-  const bytes = new TextEncoder().encode(
-    JSON.stringify(await import("node:fs").then(() => undefined).then(() => ({}))),
-  );
-  void bytes;
-  const document = JSON.stringify(
-    JSON.parse(
-      new TextDecoder().decode(
-        new TextEncoder().encode(
-          JSON.stringify({
-            openapi: "3.1.0",
-            info: { title: "Imported", version: "1.0.0" },
-            servers: [{ url: "https://imported.example.test" }],
-            paths: {
-              "/a": {
-                get: {
-                  operationId: "a",
-                  responses: {
-                    "200": {
-                      description: "ok",
-                      content: { "application/json": { schema: { type: "object" } } },
-                    },
-                  },
-                },
-              },
+  const document = JSON.stringify({
+    openapi: "3.1.0",
+    info: { title: "Imported", version: "1.0.0" },
+    servers: [{ url: "https://imported.example.test" }],
+    paths: {
+      "/a": {
+        get: {
+          operationId: "a",
+          responses: {
+            "200": {
+              description: "ok",
+              content: { "application/json": { schema: { type: "object" } } },
             },
-          }),
-        ),
-      ),
-    ),
-  );
+          },
+        },
+      },
+    },
+  });
   const outcome = await adapter.import!(context.ctx, {
     bytes: new TextEncoder().encode(document),
     mediaType: "application/json",

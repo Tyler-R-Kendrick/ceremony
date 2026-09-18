@@ -10,7 +10,10 @@ import {
   type WrappersCatalogMetadata,
 } from "../../../src/server/connectors/providers/supabase/index.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
-import { supabaseHarness, wrappersBinding } from "../fixtures/supabase/harness.js";
+import {
+  supabaseHarness,
+  wrappersBinding,
+} from "../fixtures/supabase/harness.js";
 
 /*
  * SB-04 / AC-SB-06. Nothing here executes SQL: the descriptor is read from
@@ -189,19 +192,26 @@ test("AC-SB-06: the descriptor names foreign tables and option names, and never 
     assert.deepEqual(table.limitations, [WRAPPERS_RLS_LIMITATION]);
   }
   assert.ok(
-    fromSql.issues.some((issue) => issue.code === "supabase.wrappers.rls-unavailable"),
+    fromSql.issues.some(
+      (issue) => issue.code === "supabase.wrappers.rls-unavailable",
+    ),
   );
   // A foreign table in the public schema is reachable through the Data API and
   // is called out separately.
   assert.ok(
-    fromSql.issues.some((issue) => issue.code === "supabase.wrappers.public-schema"),
+    fromSql.issues.some(
+      (issue) => issue.code === "supabase.wrappers.public-schema",
+    ),
   );
 
   // Catalog metadata produces the same shape without any SQL at all.
   const fromCatalog = readWrappersDescriptor(CATALOG);
   assert.equal(fromCatalog.source, "catalog");
   assert.equal(fromCatalog.foreignTables.length, 1);
-  assert.equal(fromCatalog.capabilities[0]?.nativeId, "private_stripe.products");
+  assert.equal(
+    fromCatalog.capabilities[0]?.nativeId,
+    "private_stripe.products",
+  );
   assert.equal(fromCatalog.capabilities[0]?.effect, "read");
   assert.equal(fromCatalog.capabilities[0]?.dataClassification, "personal");
   assert.ok(
@@ -220,7 +230,13 @@ test("Option names that carry credentials are classified secret", () => {
     "auth_token",
   ])
     assert.equal(classifyWrapperOption(name), "secret", name);
-  for (const name of ["api_url", "object", "rowid_column", "api_version", "region"])
+  for (const name of [
+    "api_url",
+    "object",
+    "rowid_column",
+    "api_version",
+    "region",
+  ])
     assert.equal(classifyWrapperOption(name), "configuration", name);
 });
 
@@ -242,7 +258,9 @@ test("The reader bounds its input and never evaluates what it cannot parse", () 
   });
   assert.deepEqual(other.foreignTables, []);
   assert.ok(
-    other.issues.every((issue) => issue.code === "supabase.wrappers.statement-ignored"),
+    other.issues.every(
+      (issue) => issue.code === "supabase.wrappers.statement-ignored",
+    ),
   );
 
   // import foreign schema creates tables the migration does not describe; that
@@ -285,7 +303,10 @@ test("AC-SB-06: a foreign table without an approved narrow path cannot be read",
   // The approved read works and states the limitation in its own result.
   const allowed = await adapter.invoke!(h.ctx, {
     operationRef: "operation:private_stripe.products",
-    input: { select: ["id", "name"], filters: [{ column: "active", operator: "eq", value: true }] },
+    input: {
+      select: ["id", "name"],
+      filters: [{ column: "active", operator: "eq", value: true }],
+    },
     commandId: "command-1",
   });
   assert.equal(allowed.state, "complete");
@@ -335,7 +356,11 @@ test("AC-SB-06: a foreign table without an approved narrow path cannot be read",
       error.code === "denied" &&
       error.detail === "supabase.wrappers.table-not-approved",
   );
-  assert.equal(port.reads.length, reads, "an unapproved table never reaches the port");
+  assert.equal(
+    port.reads.length,
+    reads,
+    "an unapproved table never reaches the port",
+  );
 
   // Columns, filters and ordering outside the approved profile are refused too.
   for (const [detail, input] of [

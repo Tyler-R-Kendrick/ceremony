@@ -274,7 +274,11 @@ function intentOf(record: ConnectionRecord): IntentInput {
   const parsed = intentInputSchema.safeParse(record.state.intent);
   return parsed.success
     ? parsed.data
-    : { requestedPermissions: [], accountSwitch: false, interruption: "allowed" };
+    : {
+        requestedPermissions: [],
+        accountSwitch: false,
+        interruption: "allowed",
+      };
 }
 
 function toAdapterIntent(
@@ -390,7 +394,9 @@ export class ConnectorCommandService {
       typeof binding === "string" ? binding : binding.adapterId,
     );
     if (!adapter)
-      throw new ConnectorError("unsupported", { detail: "adapter.unavailable" });
+      throw new ConnectorError("unsupported", {
+        detail: "adapter.unavailable",
+      });
     return adapter;
   }
 
@@ -743,7 +749,9 @@ export class ConnectorCommandService {
     captured: { bytes: Uint8Array; mediaType: string },
     outcome: ImportOutcome,
   ): Promise<ConnectorImportResult> {
-    const byteDigest = createHash("sha256").update(captured.bytes).digest("hex");
+    const byteDigest = createHash("sha256")
+      .update(captured.bytes)
+      .digest("hex");
     const sourceRef = `source:${sha256Hex([actor.tenantId, byteDigest]).slice(0, 40)}`;
     const artifactRef = await this.ports.artifacts.put(
       actor.tenantId,
@@ -844,12 +852,16 @@ export class ConnectorCommandService {
         )
       : undefined;
     if (approvals.profileId && !profile)
-      throw new ConnectorError("invalid-request", { detail: "profile.unknown" });
+      throw new ConnectorError("invalid-request", {
+        detail: "profile.unknown",
+      });
     if (profile?.kind === "unsupported")
       throw new ConnectorError("denied", { detail: "profile.unsupported" });
     const custody = approvals.custody ?? adapter.custody[0];
     if (!custody || !adapter.custody.includes(custody))
-      throw new ConnectorError("invalid-request", { detail: "custody.unknown" });
+      throw new ConnectorError("invalid-request", {
+        detail: "custody.unknown",
+      });
 
     const destinations = await this.approveDestinations(
       actor,
@@ -952,7 +964,8 @@ export class ConnectorCommandService {
           server.url === entry ||
           (URL.canParse(server.url) &&
             new URL(server.url).origin === url.origin &&
-            (url.pathname === "/" || new URL(server.url).pathname === url.pathname)),
+            (url.pathname === "/" ||
+              new URL(server.url).pathname === url.pathname)),
       );
       const pathPrefix =
         url.pathname !== "/" ? url.pathname.replace(/\/+$/, "") : undefined;
@@ -997,7 +1010,9 @@ export class ConnectorCommandService {
       (item) => item.nativeId === approval.nativeId,
     );
     if (!capability)
-      throw new ConnectorError("invalid-request", { detail: "operation.unknown" });
+      throw new ConnectorError("invalid-request", {
+        detail: "operation.unknown",
+      });
     const extensions = capability.nativeExtensions ?? {};
     const declaredTransport = extensions[TRANSPORT_EXTENSION];
     const transport = approval.transport
@@ -1027,10 +1042,15 @@ export class ConnectorCommandService {
         : undefined);
     if (
       authenticationProfile &&
-      !definition.authentication.some((item) => item.id === authenticationProfile)
+      !definition.authentication.some(
+        (item) => item.id === authenticationProfile,
+      )
     )
-      throw new ConnectorError("invalid-request", { detail: "profile.unknown" });
-    const replay = approval.replay ?? (effect === "read" ? "read-only" : "none");
+      throw new ConnectorError("invalid-request", {
+        detail: "profile.unknown",
+      });
+    const replay =
+      approval.replay ?? (effect === "read" ? "read-only" : "none");
     return {
       operationRef: `operation:${sha256Hex([approval.nativeId, index]).slice(0, 32)}`,
       nativeId: approval.nativeId,
@@ -1093,7 +1113,9 @@ export class ConnectorCommandService {
     const input: ConfigureInput = configureInputSchema.parse(rawInput);
     const writer = this.options.configure;
     if (!writer)
-      throw new ConnectorError("unsupported", { detail: "configure.unavailable" });
+      throw new ConnectorError("unsupported", {
+        detail: "configure.unavailable",
+      });
     await this.authorize(actor, { kind: "catalog" }, "configure");
     const values = await writer.consume(actor, input.secretRef);
     if (!values)
@@ -1105,14 +1127,19 @@ export class ConnectorCommandService {
       names.some((name) => !configurationName.test(name)) ||
       (input.names && names.some((name) => !input.names!.includes(name)))
     )
-      throw new ConnectorError("invalid-request", { detail: "configure.names" });
+      throw new ConnectorError("invalid-request", {
+        detail: "configure.names",
+      });
     const written = await writer.write(actor, values);
     return { names: names.sort(), revision: written.revision };
   }
 
   // ---------------------------------------------------------------- connect
 
-  async connect(actor: ActorContext, rawInput: unknown): Promise<ConnectionView> {
+  async connect(
+    actor: ActorContext,
+    rawInput: unknown,
+  ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const input: ConnectInput = connectInputSchema.parse(rawInput);
     if (input.intent.accountSwitch)
@@ -1152,7 +1179,9 @@ export class ConnectorCommandService {
       profileId &&
       !definition.authentication.some((item) => item.id === profileId)
     )
-      throw new ConnectorError("invalid-request", { detail: "profile.unknown" });
+      throw new ConnectorError("invalid-request", {
+        detail: "profile.unknown",
+      });
 
     const existing = (
       await port(() =>
@@ -1413,7 +1442,10 @@ export class ConnectorCommandService {
         ) {
           // A different account came back. Nothing is rebound: the new
           // material is discarded and a person must ask for the switch.
-          if (result.credentialRef && result.credentialRef !== record.credentialRef)
+          if (
+            result.credentialRef &&
+            result.credentialRef !== record.credentialRef
+          )
             await this.ports.credentials
               .revoke(scope, result.credentialRef)
               .catch(() => {});
@@ -1471,11 +1503,15 @@ export class ConnectorCommandService {
         await finish("completed");
         patch.lifecycle = "active";
         patch.lastOutcome =
-          mode === "verify" ? "verification.complete" : "authorization.complete";
+          mode === "verify"
+            ? "verification.complete"
+            : "authorization.complete";
         return { patch };
       }
       case "pending":
-        return { patch: { lastOutcome: code(result.code, "authorization.pending") } };
+        return {
+          patch: { lastOutcome: code(result.code, "authorization.pending") },
+        };
       case "denied":
         await finish("denied");
         patch.lifecycle =
@@ -1484,7 +1520,8 @@ export class ConnectorCommandService {
         return { patch };
       case "expired":
         await finish("expired");
-        patch.lifecycle = mode === "verify" ? "expired" : "authorization-required";
+        patch.lifecycle =
+          mode === "verify" ? "expired" : "authorization-required";
         patch.lastOutcome = code(result.code, "handoff.expired");
         return { patch };
       case "indeterminate":
@@ -1616,7 +1653,11 @@ export class ConnectorCommandService {
       throw new ConnectorError("expired", { detail: "handoff.expired" });
     }
     const binding = this.approved(
-      await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision),
+      await this.binding(
+        actor.tenantId,
+        record.bindingRef,
+        record.bindingRevision,
+      ),
     );
     const adapter = this.adapterFor(binding);
     if (!adapter.complete)
@@ -1626,7 +1667,11 @@ export class ConnectorCommandService {
     await this.authorize(
       actor,
       { kind: "connection", connection: record, binding },
-      input.kind === "event" ? "event" : input.kind === "input" ? "input" : "callback",
+      input.kind === "event"
+        ? "event"
+        : input.kind === "input"
+          ? "input"
+          : "callback",
     );
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
@@ -1680,7 +1725,9 @@ export class ConnectorCommandService {
     return this.project(actor, updated, applied.presentation);
   }
 
-  private effectOutcome(result: CompletionResult | InvokeResult): EffectOutcome {
+  private effectOutcome(
+    result: CompletionResult | InvokeResult,
+  ): EffectOutcome {
     const status: EffectOutcome["status"] =
       result.state === "complete"
         ? "applied"
@@ -1732,13 +1779,19 @@ export class ConnectorCommandService {
     const handoff = await this.ports.handoffs.present(actor, handoffRef);
     if (!handoff || handoff.connectionRef !== connectionRef)
       throw new ConnectorError("not-found", { detail: "handoff.unknown" });
-    if (handoff.kind !== "input-required" && handoff.kind !== "private-collector")
+    if (
+      handoff.kind !== "input-required" &&
+      handoff.kind !== "private-collector"
+    )
       throw new ConnectorError("invalid-request", { detail: "handoff.kind" });
     void entry;
     return this.complete(actor, handoff, { kind: "input", values });
   }
 
-  async poll(actor: ActorContext, connectionRef: string): Promise<ConnectionView> {
+  async poll(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const entry = await this.connection(actor, connectionRef);
     const record = entry.record;
@@ -1760,7 +1813,11 @@ export class ConnectorCommandService {
       return this.project(actor, updated);
     }
     const binding = this.approved(
-      await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision),
+      await this.binding(
+        actor.tenantId,
+        record.bindingRef,
+        record.bindingRevision,
+      ),
     );
     const adapter = this.adapterFor(binding);
     await this.authorize(
@@ -1792,7 +1849,10 @@ export class ConnectorCommandService {
     return this.project(actor, updated, presentation);
   }
 
-  async status(actor: ActorContext, connectionRef: string): Promise<ConnectionView> {
+  async status(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const entry = await this.connection(actor, connectionRef);
     const handoff = await this.pendingHandoff(actor, entry.record);
@@ -1810,14 +1870,19 @@ export class ConnectorCommandService {
     filter?: Parameters<ConnectionStorePort["list"]>[1],
   ): Promise<ConnectionView[]> {
     requireCapability(actor, "executor");
-    const entries = await port(() => this.ports.connections.list(actor, filter));
+    const entries = await port(() =>
+      this.ports.connections.list(actor, filter),
+    );
     return entries
       .filter((entry) => !deleted(entry.record))
       .map((entry) => this.project(actor, entry));
   }
 
   /** Fresh evidence for an existing grant; never a way to obtain one. */
-  async verify(actor: ActorContext, connectionRef: string): Promise<ConnectionView> {
+  async verify(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const entry = await this.connection(actor, connectionRef);
     const record = entry.record;
@@ -1830,7 +1895,11 @@ export class ConnectorCommandService {
         detail: `connection.${record.lifecycle}`,
       });
     const binding = this.approved(
-      await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision),
+      await this.binding(
+        actor.tenantId,
+        record.bindingRef,
+        record.bindingRevision,
+      ),
     );
     const adapter = this.adapterFor(binding);
     if (!adapter.verify)
@@ -1894,7 +1963,11 @@ export class ConnectorCommandService {
       throw new ConnectorError("conflict", { detail: "configuration.changed" });
     }
     const binding = this.approved(
-      await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision),
+      await this.binding(
+        actor.tenantId,
+        record.bindingRef,
+        record.bindingRevision,
+      ),
     );
     const adapter = this.adapterFor(binding);
     await this.authorize(
@@ -1912,7 +1985,9 @@ export class ConnectorCommandService {
     for (const name of operation.targetParameters) {
       const value = input.input[name];
       if (typeof value !== "string" || !value)
-        throw new ConnectorError("invalid-request", { detail: "target.missing" });
+        throw new ConnectorError("invalid-request", {
+          detail: "target.missing",
+        });
       const permitted =
         binding.permittedTargets.some(
           (target) => target.kind === name && target.id === value,
@@ -1920,12 +1995,28 @@ export class ConnectorCommandService {
         (record.target?.kind === name && record.target.id === value);
       if (!permitted)
         throw new ConnectorError("denied", { detail: "target.not-permitted" });
-      if (!(await this.policy.allowTarget(actor, { kind: name, id: value }, binding)))
+      if (
+        !(await this.policy.allowTarget(
+          actor,
+          { kind: name, id: value },
+          binding,
+        ))
+      )
         throw new ConnectorError("denied", { detail: "target.policy" });
     }
-    if (!(await this.policy.allowOutput(actor, operation.outputClassification, operation)))
+    if (
+      !(await this.policy.allowOutput(
+        actor,
+        operation.outputClassification,
+        operation,
+      ))
+    )
       throw new ConnectorError("denied", { detail: "output.classification" });
-    const consentRequired = await this.policy.requireConsent(actor, operation, record);
+    const consentRequired = await this.policy.requireConsent(
+      actor,
+      operation,
+      record,
+    );
     if (consentRequired && !(actor.actorKind === "human" && input.confirm))
       return {
         state: "human-required",
@@ -1950,7 +2041,12 @@ export class ConnectorCommandService {
       connectionRef,
       bindingRef: binding.bindingRef,
       operation: "connector.command",
-      digest: sha256Hex([actor.tenantId, actor.subjectId, connectionRef, input.commandId]),
+      digest: sha256Hex([
+        actor.tenantId,
+        actor.subjectId,
+        connectionRef,
+        input.commandId,
+      ]),
       commandId: input.commandId,
     });
     if (!command.prior)
@@ -1966,7 +2062,12 @@ export class ConnectorCommandService {
       operation: "connector.invoke",
       digest: intentDigest,
       ...(operation.replay === "upstream-idempotency-key"
-        ? { idempotency: { key: intentDigest.slice(0, 32), scope: binding.authorityInstance || "binding" } }
+        ? {
+            idempotency: {
+              key: intentDigest.slice(0, 32),
+              scope: binding.authorityInstance || "binding",
+            },
+          }
         : {}),
       commandId: input.commandId,
     });
@@ -2041,7 +2142,11 @@ export class ConnectorCommandService {
       ...(result.code ? { code: code(result.code, "adapter.code") } : {}),
     };
     if (result.output !== undefined) {
-      const allowed = await this.policy.allowOutput(actor, classification, operation);
+      const allowed = await this.policy.allowOutput(
+        actor,
+        classification,
+        operation,
+      );
       const size = Buffer.byteLength(JSON.stringify(result.output) ?? "");
       if (!allowed || size > MAX_OUTPUT_BYTES) {
         response.outputWithheld = true;
@@ -2061,7 +2166,8 @@ export class ConnectorCommandService {
         lifecycle: record.lifecycle,
       });
       const summary = pending(updated.record);
-      if (summary) response.handoff = { kind: summary.kind, state: summary.state };
+      if (summary)
+        response.handoff = { kind: summary.kind, state: summary.state };
       if (issued.presentation && actor.actorKind === "human")
         response.presentation = issued.presentation;
     }
@@ -2095,7 +2201,9 @@ export class ConnectorCommandService {
     );
     if (input.accountSwitch) {
       if (actor.actorKind !== "human")
-        throw new ConnectorError("denied", { detail: "account-switch.human-only" });
+        throw new ConnectorError("denied", {
+          detail: "account-switch.human-only",
+        });
       await this.authorize(
         actor,
         { kind: "connection", connection: record, binding },
@@ -2137,7 +2245,10 @@ export class ConnectorCommandService {
       policyRevision: binding.policyRevision,
       lifecycle: "authorization-required",
     };
-    let current: ConnectionEntry = { record: fenced, revision: advanced.revision };
+    let current: ConnectionEntry = {
+      record: fenced,
+      revision: advanced.revision,
+    };
     current = await this.update(actor, current, {
       lifecycle: "authorization-required",
       bindingRevision: binding.revision,
@@ -2172,7 +2283,10 @@ export class ConnectorCommandService {
   }
 
   /** Cancels pending handoffs without touching any grant. */
-  async cancelPending(actor: ActorContext, connectionRef: string): Promise<ConnectionView> {
+  async cancelPending(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const entry = await this.connection(actor, connectionRef);
     const summary = pending(entry.record);
@@ -2230,11 +2344,21 @@ export class ConnectorCommandService {
       `${action}.denied`,
     );
     const sharedWith = await this.sharedWith(record);
-    if (input.scope !== "local" && sharedWith.length && !input.acknowledgeSharedImpact)
-      throw new ConnectorError("conflict", { detail: "disconnect.shared-grant" });
+    if (
+      input.scope !== "local" &&
+      sharedWith.length &&
+      !input.acknowledgeSharedImpact
+    )
+      throw new ConnectorError("conflict", {
+        detail: "disconnect.shared-grant",
+      });
 
     const advanced = await port(() =>
-      this.ports.connections.advanceGeneration(actor, connectionRef, entry.revision),
+      this.ports.connections.advanceGeneration(
+        actor,
+        connectionRef,
+        entry.revision,
+      ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "disconnect");
     let current: ConnectionEntry = {
@@ -2250,7 +2374,10 @@ export class ConnectorCommandService {
       const adapter = this.registry.get(binding.adapterId);
       if (adapter?.disconnect)
         remote = await adapterCall(() =>
-          adapter.disconnect!(this.context(actor, binding, current.record), input.scope),
+          adapter.disconnect!(
+            this.context(actor, binding, current.record),
+            input.scope,
+          ),
         );
       else remote = { ...remote, [input.scope]: "unsupported" };
     }
@@ -2266,12 +2393,18 @@ export class ConnectorCommandService {
       broker: remote.broker,
       upstream: remote.upstream,
       ...(sharedWith.length || remote.sharedWith?.length
-        ? { sharedWith: [...new Set([...sharedWith, ...(remote.sharedWith ?? [])])] }
+        ? {
+            sharedWith: [
+              ...new Set([...sharedWith, ...(remote.sharedWith ?? [])]),
+            ],
+          }
         : {}),
     };
     current = await this.update(actor, current, {
       lifecycle:
-        result.upstream === "applied" ? "upstream-revoked" : "locally-disconnected",
+        result.upstream === "applied"
+          ? "upstream-revoked"
+          : "locally-disconnected",
       lastOutcome: `disconnect.${input.scope}`,
     });
     return { result, connection: this.project(actor, current) };
@@ -2306,12 +2439,18 @@ export class ConnectorCommandService {
     requireCapability(actor, "admin");
     if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
       throw new ConnectorError("denied", { detail: "revoke.admin-only" });
-    const input = z.strictObject({ expectedRevision: z.number().int().positive() }).parse(rawInput);
+    const input = z
+      .strictObject({ expectedRevision: z.number().int().positive() })
+      .parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
-    const binding = await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision);
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
     await this.authorize(
       actor,
       { kind: "connection", connection: record, binding },
@@ -2319,7 +2458,11 @@ export class ConnectorCommandService {
       "revoke.denied",
     );
     const advanced = await port(() =>
-      this.ports.connections.advanceGeneration(actor, connectionRef, entry.revision),
+      this.ports.connections.advanceGeneration(
+        actor,
+        connectionRef,
+        entry.revision,
+      ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "revoke");
     let current: ConnectionEntry = {
@@ -2328,17 +2471,35 @@ export class ConnectorCommandService {
     };
     const adapter = this.registry.get(binding.adapterId);
     const remote: DisconnectResult = adapter?.revoke
-      ? await adapterCall(() => adapter.revoke!(this.context(actor, binding, current.record)))
-      : { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" };
+      ? await adapterCall(() =>
+          adapter.revoke!(this.context(actor, binding, current.record)),
+        )
+      : {
+          local: "not-attempted",
+          broker: "not-attempted",
+          upstream: "unsupported",
+        };
     if (record.credentialRef)
-      await this.ports.credentials.revoke(this.scope(record), record.credentialRef).catch(() => {});
-    await this.ports.evidence.invalidate(actor, connectionRef, "revoke").catch(() => {});
+      await this.ports.credentials
+        .revoke(this.scope(record), record.credentialRef)
+        .catch(() => {});
+    await this.ports.evidence
+      .invalidate(actor, connectionRef, "revoke")
+      .catch(() => {});
     current = await this.update(actor, current, {
-      lifecycle: remote.upstream === "applied" ? "upstream-revoked" : "locally-disconnected",
+      lifecycle:
+        remote.upstream === "applied"
+          ? "upstream-revoked"
+          : "locally-disconnected",
       lastOutcome:
-        remote.upstream === "applied" ? "revoke.applied" : `revoke.${remote.upstream}`,
+        remote.upstream === "applied"
+          ? "revoke.applied"
+          : `revoke.${remote.upstream}`,
     });
-    return { result: { ...remote, local: "applied" }, connection: this.project(actor, current) };
+    return {
+      result: { ...remote, local: "applied" },
+      connection: this.project(actor, current),
+    };
   }
 
   /** Administrative purge of a disconnected connection's local record; never an upstream effect. */
@@ -2350,14 +2511,22 @@ export class ConnectorCommandService {
     requireCapability(actor, "admin");
     if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
       throw new ConnectorError("denied", { detail: "delete.admin-only" });
-    const input = z.strictObject({ expectedRevision: z.number().int().positive() }).parse(rawInput);
+    const input = z
+      .strictObject({ expectedRevision: z.number().int().positive() })
+      .parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
     if (!closed(record))
-      throw new ConnectorError("conflict", { detail: "delete.requires-disconnect" });
-    const binding = await this.binding(actor.tenantId, record.bindingRef, record.bindingRevision);
+      throw new ConnectorError("conflict", {
+        detail: "delete.requires-disconnect",
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
     await this.authorize(
       actor,
       { kind: "connection", connection: record, binding },
@@ -2366,8 +2535,12 @@ export class ConnectorCommandService {
     );
     await this.ports.handoffs.cancelAll(connectionRef, "delete");
     if (record.credentialRef)
-      await this.ports.credentials.revoke(this.scope(record), record.credentialRef).catch(() => {});
-    await this.ports.evidence.invalidate(actor, connectionRef, "delete").catch(() => {});
+      await this.ports.credentials
+        .revoke(this.scope(record), record.credentialRef)
+        .catch(() => {});
+    await this.ports.evidence
+      .invalidate(actor, connectionRef, "delete")
+      .catch(() => {});
     await this.update(actor, entry, {
       state: { deleted: true },
       lastOutcome: "delete.applied",
@@ -2376,20 +2549,50 @@ export class ConnectorCommandService {
   }
 }
 
-function boundOperationTransport(value: unknown): BoundOperation["transport"] | undefined {
+function boundOperationTransport(
+  value: unknown,
+): BoundOperation["transport"] | undefined {
   const parsed = z
     .discriminatedUnion("kind", [
       z.strictObject({
         kind: z.literal("http"),
-        method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]),
-        pathTemplate: z.string().max(1024).regex(/^\/[^\p{Cc}?#]*$/u),
+        method: z.enum([
+          "GET",
+          "HEAD",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE",
+          "OPTIONS",
+        ]),
+        pathTemplate: z
+          .string()
+          .max(1024)
+          .regex(/^\/[^\p{Cc}?#]*$/u),
       }),
-      z.strictObject({ kind: z.literal("mcp-tool"), toolName: z.string().min(1).max(512) }),
-      z.strictObject({ kind: z.literal("mcp-resource"), uriTemplate: z.string().max(2048) }),
-      z.strictObject({ kind: z.literal("mcp-prompt"), promptName: z.string().min(1).max(512) }),
-      z.strictObject({ kind: z.literal("broker-action"), action: z.string().min(1).max(512) }),
-      z.strictObject({ kind: z.literal("delegated"), route: z.string().min(1).max(256) }),
+      z.strictObject({
+        kind: z.literal("mcp-tool"),
+        toolName: z.string().min(1).max(512),
+      }),
+      z.strictObject({
+        kind: z.literal("mcp-resource"),
+        uriTemplate: z.string().max(2048),
+      }),
+      z.strictObject({
+        kind: z.literal("mcp-prompt"),
+        promptName: z.string().min(1).max(512),
+      }),
+      z.strictObject({
+        kind: z.literal("broker-action"),
+        action: z.string().min(1).max(512),
+      }),
+      z.strictObject({
+        kind: z.literal("delegated"),
+        route: z.string().min(1).max(256),
+      }),
     ])
     .safeParse(value);
-  return parsed.success ? (parsed.data as BoundOperation["transport"]) : undefined;
+  return parsed.success
+    ? (parsed.data as BoundOperation["transport"])
+    : undefined;
 }

@@ -540,3 +540,22 @@ export function negativeCapabilities(
   }
   return issues;
 }
+
+/** Raw auth-config rows for this binding's toolkit; used by the capability report. */
+export async function fetchAuthConfigs(
+  call: ComposioCall,
+): Promise<ComposioAuthConfig[]> {
+  const response = await call.client.send({
+    method: "GET",
+    path: call.client.path("/auth_configs"),
+    query: {
+      limit: String(LIST_LIMIT),
+      toolkit_slug: call.settings.toolkit.slug,
+    },
+    timeoutMs: call.options.timeouts.read,
+    consequential: false,
+  });
+  return expectJson(response, authConfigListSchema).items.filter(
+    (config) => composioAuthConfigIdSchema.safeParse(config.id).success,
+  );
+}

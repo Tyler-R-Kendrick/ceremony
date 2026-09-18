@@ -206,9 +206,15 @@ function DynamicField({
     field.options,
   );
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  // Length-prefixed rather than separated: a dependency value may contain any
+  // character, so no separator is safe on its own, and a control byte has no
+  // business being in a source file.
   const dependency = (field.dynamic?.dependsOn ?? [])
-    .map((name) => values[name] ?? "")
-    .join("\u0000");
+    .map((name) => {
+      const value = values[name] ?? "";
+      return `${value.length}:${value}`;
+    })
+    .join("|");
   const missing = (field.dynamic?.dependsOn ?? []).filter(
     (name) => !values[name],
   );

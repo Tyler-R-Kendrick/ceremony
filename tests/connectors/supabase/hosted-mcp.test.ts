@@ -45,7 +45,10 @@ function fakeClient(
     /** When set, the client really dials the session URL so a double can observe it. */
     dial?: boolean;
   } = {},
-): McpClientPort & { sessions: McpServerSession[]; calls: Array<{ name: string; arguments: Record<string, unknown> }> } {
+): McpClientPort & {
+  sessions: McpServerSession[];
+  calls: Array<{ name: string; arguments: Record<string, unknown> }>;
+} {
   const sessions: McpServerSession[] = [];
   const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
   const dial = async (session: McpServerSession, body: unknown) => {
@@ -76,9 +79,11 @@ function fakeClient(
       return {
         tools:
           options.tools ??
-          [...supabaseMcpTools.database, ...supabaseMcpTools.docs].map((name) => ({
-            name,
-          })),
+          [...supabaseMcpTools.database, ...supabaseMcpTools.docs].map(
+            (name) => ({
+              name,
+            }),
+          ),
       };
     },
     async callTool(session, call) {
@@ -99,7 +104,10 @@ test("AC-SB-04: approved restrictions become the server URL, and the URL is neve
   const seen: URL[] = [];
   const double = await startHttpFixture(async (request) => {
     seen.push(request.url);
-    return { status: 200, body: { jsonrpc: "2.0", id: 1, result: { tools: [] } } };
+    return {
+      status: 200,
+      body: { jsonrpc: "2.0", id: 1, result: { tools: [] } },
+    };
   });
   t.after(() => double.close());
   const client = fakeClient({ dial: true });
@@ -204,7 +212,11 @@ test("An arbitrary URL carrying read_only=true cannot be supplied in place of th
 test("Overbroad feature requests and host policy are enforced when the binding resolves", async (t) => {
   const profile = createSupabaseHostedMcpProfile({
     client: fakeClient(),
-    policy: { allowedFeatures: ["database", "docs"], requireReadOnly: true, requireProjectScope: true },
+    policy: {
+      allowedFeatures: ["database", "docs"],
+      requireReadOnly: true,
+      requireProjectScope: true,
+    },
   });
 
   const overbroad = await supabaseHarness({
@@ -217,7 +229,12 @@ test("Overbroad feature requests and host policy are enforced when the binding r
       },
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -235,10 +252,19 @@ test("Overbroad feature requests and host policy are enforced when the binding r
   const writable = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: false, features: ["database"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: false,
+        features: ["database"],
+      },
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -258,7 +284,12 @@ test("Overbroad feature requests and host policy are enforced when the binding r
       settings: { read_only: true, features: ["database"] },
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -276,10 +307,19 @@ test("Overbroad feature requests and host policy are enforced when the binding r
   const foreignProject = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: OTHER_PROJECT_REF, read_only: true, features: ["database"] },
+      settings: {
+        project_ref: OTHER_PROJECT_REF,
+        read_only: true,
+        features: ["database"],
+      },
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -297,10 +337,19 @@ test("Overbroad feature requests and host policy are enforced when the binding r
   const accountScoped = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["account"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["account"],
+      },
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -322,11 +371,20 @@ test("A read-only binding cannot bind or invoke a mutating tool", async (t) => {
   const h = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["database"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["database"],
+      },
       tools: [{ name: "apply_migration", effect: "write" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -345,11 +403,20 @@ test("A read-only binding cannot bind or invoke a mutating tool", async (t) => {
   const outsideFeatures = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["docs"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["docs"],
+      },
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -370,11 +437,20 @@ test("Approved tools invoke through the delegated client; project arguments stay
   const h = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["database", "docs"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["database", "docs"],
+      },
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -427,17 +503,30 @@ test("Verification refuses a server that does not honour the approved restrictio
   // The binding says read_only and project scope; the server advertises a
   // mutating tool and an account tool anyway.
   const dishonest = fakeClient({
-    tools: [{ name: "list_tables" }, { name: "apply_migration" }, { name: "list_projects" }],
+    tools: [
+      { name: "list_tables" },
+      { name: "apply_migration" },
+      { name: "list_projects" },
+    ],
   });
   const profile = createSupabaseHostedMcpProfile({ client: dishonest });
   const h = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["database"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["database"],
+      },
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -451,16 +540,27 @@ test("Verification refuses a server that does not honour the approved restrictio
 });
 
 test("Verification records what the server advertises as a permission observation, not as access", async (t) => {
-  const client = fakeClient({ tools: [{ name: "list_tables" }, { name: "search_docs" }] });
+  const client = fakeClient({
+    tools: [{ name: "list_tables" }, { name: "search_docs" }],
+  });
   const profile = createSupabaseHostedMcpProfile({ client });
   const h = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["database", "docs"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["database", "docs"],
+      },
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -480,7 +580,10 @@ test("Verification records what the server advertises as a permission observatio
     claim.limitations.some((item) => item.includes("advertises")),
     "advertisement is not access",
   );
-  assert.deepEqual(result.target, { kind: "supabase-project", id: PROJECT_REF });
+  assert.deepEqual(result.target, {
+    kind: "supabase-project",
+    id: PROJECT_REF,
+  });
 
   // Default feature groups follow the documented set: everything except storage.
   assert.deepEqual([...supabaseMcpDefaultFeatureGroups].sort(), [
@@ -499,11 +602,20 @@ test("Without a registered authorization profile, authorize reports unsupported 
   const h = await supabaseHarness({
     binding: mcpBinding({
       origin: "https://mcp.supabase.com",
-      settings: { project_ref: PROJECT_REF, read_only: true, features: ["database"] },
+      settings: {
+        project_ref: PROJECT_REF,
+        read_only: true,
+        features: ["database"],
+      },
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),
@@ -561,7 +673,12 @@ test("The authorization profile receives the pinned resource and the documented 
       tools: [{ name: "list_tables" }],
       overrides: {
         destinations: [
-          { id: "mcp", origin: "https://mcp.supabase.com", pathPrefix: "/mcp", network: "public" },
+          {
+            id: "mcp",
+            origin: "https://mcp.supabase.com",
+            pathPrefix: "/mcp",
+            network: "public",
+          },
         ],
       },
     }),

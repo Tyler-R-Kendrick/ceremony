@@ -233,14 +233,17 @@ export function createCredentialCustodyPort(
     ref: string,
     fence: Fence,
   ): Promise<void> => {
+    const key = credentialKey(tenantId, ref);
     await transact(store, async (tx) => {
+      // The owning record first, then the lease: the one order every path uses.
+      await tx.get(key);
       try {
         await tx.assertFence(fence);
       } catch (error) {
         if (error instanceof PersistenceConflict) return;
         throw error;
       }
-      await tx.cancel(credentialKey(tenantId, ref));
+      await tx.cancel(key);
     }).catch(() => {});
   };
 
@@ -367,6 +370,9 @@ export function createCredentialCustodyPort(
             throw error;
           }
           return transact(store, async (tx) => {
+            // Lock the credential record before its lease, in the same order
+            // every other path takes, so two rotating workers cannot deadlock.
+            const record = await mustLoad(tx, scope, ref);
             try {
               await tx.assertFence(admitted.fence);
             } catch (error) {
@@ -376,7 +382,6 @@ export function createCredentialCustodyPort(
                 });
               throw error;
             }
-            const record = await mustLoad(tx, scope, ref);
             if (record.value.generation !== admitted.generation)
               throw new ConnectorError("conflict", {
                 detail: "credential.stale-refresh",

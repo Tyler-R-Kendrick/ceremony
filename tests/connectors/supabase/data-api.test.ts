@@ -82,9 +82,7 @@ async function startProject(
       },
       {
         name: "wide_open",
-        rows: [
-          { id: 1, title: "everyone sees this", owner: "project-user-2" },
-        ],
+        rows: [{ id: 1, title: "everyone sees this", owner: "project-user-2" }],
         rlsDisabled: true,
       },
       { name: "internal", rows: [], notExposed: true },
@@ -478,7 +476,9 @@ test("A table whose Row Level Security review is unverified is flagged on every 
 
   const verified = await adapter.verify!(h.ctx);
   assert.equal(verified.state, "complete");
-  const access = verified.claims.find((claim) => claim.kind === "resource-access")!;
+  const access = verified.claims.find(
+    (claim) => claim.kind === "resource-access",
+  )!;
   assert.ok(
     access.limitations.some((item) =>
       item.includes("Row Level Security review unverified for table wide_open"),
@@ -504,16 +504,14 @@ test("Session expiry maps to reconnect-required and a wrong project is refused",
   });
   t.after(() => h.close());
 
-  const expired = await adapter
-    .invoke!(h.ctx, {
-      operationRef: "operation:select",
-      input: { table: "notes" },
-      commandId: "command-1",
-    })
-    .then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+  const expired = await adapter.invoke!(h.ctx, {
+    operationRef: "operation:select",
+    input: { table: "notes" },
+    commandId: "command-1",
+  }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
   assert.ok(expired instanceof ConnectorError);
   assert.equal((expired as ConnectorError).code, "expired");
   assert.equal(supabaseLifecycleFor(expired), "reconnect-required");
@@ -606,7 +604,11 @@ test("PostgREST filter values follow the documented operator.value grammar", () 
     "eq.4",
   );
   assert.equal(
-    postgrestFilterValue({ column: "title", operator: "ilike", value: "*draft*" }),
+    postgrestFilterValue({
+      column: "title",
+      operator: "ilike",
+      value: "*draft*",
+    }),
     "ilike.*draft*",
   );
   assert.equal(
@@ -673,7 +675,11 @@ test("Authorization reports what is missing instead of inventing a project sign-
   });
   t.after(() => noSession.close());
   const without = createSupabaseDataApiAdapter({
-    sessions: { async resolve() { return undefined; } },
+    sessions: {
+      async resolve() {
+        return undefined;
+      },
+    },
   });
   const human = await without.authorize!(noSession.ctx, intentFor());
   assert.equal(human.kind, "human-required");
@@ -682,9 +688,9 @@ test("Authorization reports what is missing instead of inventing a project sign-
     "supabase.project-session.required",
   );
   assert.equal(
-    without.capabilities(new Set(["SUPABASE_PUBLISHABLE_KEY"])).find(
-      (row) => row.dimension === "revoke",
-    )?.implementation,
+    without
+      .capabilities(new Set(["SUPABASE_PUBLISHABLE_KEY"]))
+      .find((row) => row.dimension === "revoke")?.implementation,
     "unsupported",
     "signing out belongs to the project sign-in ceremony",
   );

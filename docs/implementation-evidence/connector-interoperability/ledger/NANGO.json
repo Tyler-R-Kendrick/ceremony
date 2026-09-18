@@ -64,7 +64,14 @@
         "src/server/connectors/providers/nango/context.ts"
       ],
       "tests": ["tests/connectors/nango/sessions.test.ts"],
-      "acceptanceIds": ["AC-NG-01", "AC-NG-02", "AC-NG-05", "AC-AUTH-01", "AC-AUTH-08", "AC-AUTH-09"],
+      "acceptanceIds": [
+        "AC-NG-01",
+        "AC-NG-02",
+        "AC-NG-05",
+        "AC-AUTH-01",
+        "AC-AUTH-08",
+        "AC-AUTH-09"
+      ],
       "evidenceLevel": "protocol-fixture",
       "sourceProfileIds": ["nango-http-api-2026-09"],
       "limitations": [
@@ -135,7 +142,13 @@
         "tests/connectors/nango/webhooks.test.ts",
         "tests/connectors/nango/syncs.test.ts"
       ],
-      "acceptanceIds": ["AC-NG-07", "AC-AUTH-01", "AC-STATE-03", "AC-STATE-04", "AC-STATE-07"],
+      "acceptanceIds": [
+        "AC-NG-07",
+        "AC-AUTH-01",
+        "AC-STATE-03",
+        "AC-STATE-04",
+        "AC-STATE-07"
+      ],
       "evidenceLevel": "protocol-fixture",
       "sourceProfileIds": ["nango-http-api-2026-09"],
       "limitations": [

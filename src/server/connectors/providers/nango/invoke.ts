@@ -11,7 +11,7 @@ import type {
 import { boundOperation, type BoundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { ConnectionRecord, EffectOutcome } from "../../ports.js";
-import { nangoFailure, type RawResponse } from "./api.js";
+import type { RawResponse } from "./api.js";
 import {
   brokerReference,
   credentialScope,
@@ -595,9 +595,7 @@ export async function invokeNango(
     };
   }
   await finish("failed", outcome.code);
-  if (outcome.status === 429) {
-    void nangoFailure;
+  if (outcome.status === 429)
     return { ...base, state: "failed", code: "nango.upstream.rate-limited" };
-  }
   return { ...base, state: "failed", code: outcome.code };
 }

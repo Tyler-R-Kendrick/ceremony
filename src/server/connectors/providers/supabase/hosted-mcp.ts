@@ -88,48 +88,54 @@ export const supabaseMcpDefaultFeatureGroups: readonly SupabaseMcpFeatureGroup[]
   ];
 
 /** Tool names per group as published at https://supabase.com/mcp (available tools). */
-export const supabaseMcpTools: Record<SupabaseMcpFeatureGroup, readonly string[]> =
-  {
-    account: [
-      "list_projects",
-      "get_project",
-      "create_project",
-      "pause_project",
-      "restore_project",
-      "list_organizations",
-      "get_organization",
-      "get_cost",
-      "confirm_cost",
-    ],
-    database: [
-      "list_tables",
-      "list_extensions",
-      "list_migrations",
-      "apply_migration",
-      "execute_sql",
-    ],
-    debugging: ["query_logs", "get_advisors"],
-    development: [
-      "get_project_url",
-      "get_publishable_keys",
-      "generate_typescript_types",
-    ],
-    docs: ["search_docs"],
-    functions: [
-      "list_edge_functions",
-      "get_edge_function",
-      "deploy_edge_function",
-    ],
-    branching: [
-      "create_branch",
-      "list_branches",
-      "delete_branch",
-      "merge_branch",
-      "reset_branch",
-      "rebase_branch",
-    ],
-    storage: ["list_storage_buckets", "get_storage_config", "update_storage_config"],
-  };
+export const supabaseMcpTools: Record<
+  SupabaseMcpFeatureGroup,
+  readonly string[]
+> = {
+  account: [
+    "list_projects",
+    "get_project",
+    "create_project",
+    "pause_project",
+    "restore_project",
+    "list_organizations",
+    "get_organization",
+    "get_cost",
+    "confirm_cost",
+  ],
+  database: [
+    "list_tables",
+    "list_extensions",
+    "list_migrations",
+    "apply_migration",
+    "execute_sql",
+  ],
+  debugging: ["query_logs", "get_advisors"],
+  development: [
+    "get_project_url",
+    "get_publishable_keys",
+    "generate_typescript_types",
+  ],
+  docs: ["search_docs"],
+  functions: [
+    "list_edge_functions",
+    "get_edge_function",
+    "deploy_edge_function",
+  ],
+  branching: [
+    "create_branch",
+    "list_branches",
+    "delete_branch",
+    "merge_branch",
+    "reset_branch",
+    "rebase_branch",
+  ],
+  storage: [
+    "list_storage_buckets",
+    "get_storage_config",
+    "update_storage_config",
+  ],
+};
 
 /** Tools whose purpose is a mutation; a read-only binding never invokes them, whatever the server advertises. */
 export const supabaseMcpMutatingTools: ReadonlySet<string> = new Set([
@@ -174,9 +180,9 @@ export const supabaseHostedMcpSettingsSchema = z.strictObject({
     .refine(unique, "Feature groups repeat")
     .optional(),
   /** How the MCP client obtains a token; the hosted server documents dynamic client registration as the default. */
-  authorization: z.enum(supabaseMcpAuthorizationModes).default(
-    "dynamic-client-registration",
-  ),
+  authorization: z
+    .enum(supabaseMcpAuthorizationModes)
+    .default("dynamic-client-registration"),
   protocol: z.enum(supabaseMcpProtocolProfiles).default("mcp-2026-07-28"),
 });
 export type SupabaseHostedMcpSettings = z.output<
@@ -230,7 +236,8 @@ export function resolveSupabaseHostedMcpBinding(
   const allowed = new Set(
     policy.allowedFeatures ?? supabaseMcpDefaultFeatureGroups,
   );
-  const effectiveFeatures = settings.features ?? supabaseMcpDefaultFeatureGroups;
+  const effectiveFeatures =
+    settings.features ?? supabaseMcpDefaultFeatureGroups;
   for (const group of effectiveFeatures)
     if (!allowed.has(group))
       throw new ConnectorError("denied", {
@@ -477,7 +484,9 @@ export function createSupabaseHostedMcpProfile(
           };
       return [
         row("discover", {
-          limitations: ["tools/list of the hosted server; advertisement is not access"],
+          limitations: [
+            "tools/list of the hosted server; advertisement is not access",
+          ],
         }),
         row("import", { implementation: "unsupported" }),
         row("configure", {
@@ -642,7 +651,9 @@ export function createSupabaseHostedMcpProfile(
               },
             }
           : {}),
-        ...(missing.length ? { code: "supabase.mcp.approved-tool-missing" } : {}),
+        ...(missing.length
+          ? { code: "supabase.mcp.approved-tool-missing" }
+          : {}),
       };
     },
     async discover(ctx, _input: DiscoverInput): Promise<DiscoverResult> {
@@ -760,7 +771,10 @@ export function createSupabaseHostedMcpProfile(
         : undefined;
       if (effect?.prior)
         return {
-          state: effect.prior.status === "applied" ? "indeterminate" : "indeterminate",
+          state:
+            effect.prior.status === "applied"
+              ? "indeterminate"
+              : "indeterminate",
           outputClassification: operation.outputClassification,
           effect: operation.effect,
           code: "supabase.mcp.effect-already-attempted",
@@ -779,10 +793,13 @@ export function createSupabaseHostedMcpProfile(
             at: ctx.environment.now(),
           });
         if (cause instanceof ConnectorError) throw cause;
-        throw new ConnectorError(mutating ? "indeterminate" : "upstream-unavailable", {
-          detail: "supabase.mcp.call-failed",
-          cause,
-        });
+        throw new ConnectorError(
+          mutating ? "indeterminate" : "upstream-unavailable",
+          {
+            detail: "supabase.mcp.call-failed",
+            cause,
+          },
+        );
       }
       if (effect)
         await ctx.environment.effects.complete(effect.effectRef, {
@@ -810,10 +827,7 @@ export function createSupabaseHostedMcpProfile(
         ...(effect ? { effectRef: effect.effectRef } : {}),
       };
     },
-    async disconnect(
-      ctx,
-      scope: DisconnectScope,
-    ): Promise<DisconnectResult> {
+    async disconnect(ctx, scope: DisconnectScope): Promise<DisconnectResult> {
       if (scope === "broker")
         return {
           local: "not-attempted",

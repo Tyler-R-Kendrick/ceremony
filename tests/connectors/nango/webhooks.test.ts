@@ -21,7 +21,6 @@ import {
   SECRET_KEY,
   SIGNING_KEY,
   stringsIn,
-  syncOperation,
 } from "./harness.js";
 
 /*
@@ -582,5 +581,4 @@ test("NG-06: verified event payloads never carry the signing key or API key", as
   const strings = stringsIn(event);
   assert.equal(strings.includes(SIGNING_KEY), false);
   assert.equal(strings.includes(SECRET_KEY), false);
-  void syncOperation;
 });

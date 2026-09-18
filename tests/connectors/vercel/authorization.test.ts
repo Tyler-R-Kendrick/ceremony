@@ -53,12 +53,15 @@ const userSettings = (
   ...overrides,
 });
 
-async function fixture(options: { authorizationLifetimeMs?: number } = {}) {
+async function fixture(
+  options: { authorizationLifetimeMs?: number; now?: () => number } = {},
+) {
   return startVercelConnect({
     teamId: TEAM,
     ...(options.authorizationLifetimeMs !== undefined
       ? { authorizationLifetimeMs: options.authorizationLifetimeMs }
       : {}),
+    ...(options.now ? { now: options.now } : {}),
     connectors: [
       {
         uid: USER_CONNECTOR,
@@ -474,13 +477,34 @@ test("a hijacked or mis-stated callback cannot complete a handoff", async (t) =>
   assert.equal(wrongOrigin.state, "denied");
   assert.equal(wrongOrigin.code, "vercel.return.untrusted");
 
+  // Another authenticated subject cannot see this handoff at all, so the
+  // flow simply stays pending for them; nothing is disclosed.
   const otherActor = { ...fixtureActor, subjectId: "subject-2" };
   const foreignActor = await adapter.complete!(
     h.context({ binding, connection: linked, actor: otherActor }),
     { kind: "redirect", url: returnUrl(start.handoff.private["state"]!) },
   );
-  assert.equal(foreignActor.state, "denied");
+  assert.equal(foreignActor.state, "pending");
   assert.equal(foreignActor.code, "vercel.handoff.unresolved");
+
+  // Nor by naming the real correlation key: the record is bound to the
+  // subject that started it.
+  const stolen = await adapter.complete!(
+    h.context({ binding, connection: linked, actor: otherActor }),
+    {
+      kind: "redirect",
+      url: returnUrl(start.handoff.private["state"]!, {
+        request: start.handoff.private["request"]!,
+      }),
+    },
+  );
+  assert.equal(stolen.state, "denied");
+  assert.equal(stolen.code, "vercel.handoff.foreign");
+  assert.equal(
+    double.routed("connect.token").length,
+    0,
+    "no token was requested for a hijacked callback",
+  );
 
   const stale = await adapter.complete!(
     h.context({
@@ -512,7 +536,10 @@ test("a hijacked or mis-stated callback cannot complete a handoff", async (t) =>
 
 test("an expired authorization request fails safely", async (t) => {
   let clock = Date.parse("2026-09-18T10:00:00.000Z");
-  const double = await fixture({ authorizationLifetimeMs: 60_000 });
+  const double = await fixture({
+    authorizationLifetimeMs: 60_000,
+    now: () => clock,
+  });
   t.after(double.close);
   const h = harness({ now: () => clock });
   h.ports.configuration.set("VERCEL_TEAM_ID", TEAM);

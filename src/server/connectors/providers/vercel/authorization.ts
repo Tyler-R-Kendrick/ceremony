@@ -840,6 +840,18 @@ export async function completeAuthorization(
     return { state: "denied", claims: [], code: "vercel.handoff.foreign" };
   if (handoff.generation !== ctx.generation)
     return { state: "denied", claims: [], code: "vercel.handoff.stale-generation" };
+  const now = ctx.environment.now();
+  const issuedExpiry = Number(handoff.private["expiresAt"]);
+  // Expiry is decided before anything else a stale record could look like:
+  // a store that marks an overdue handoff expired must not read as a denial.
+  if (
+    handoff.state === "expired" ||
+    handoff.expiresAt <= now ||
+    (Number.isFinite(issuedExpiry) && issuedExpiry <= now)
+  ) {
+    await settle(ctx, handoff, "expired");
+    return { state: "expired", claims: [], code: "vercel.authorization.expired" };
+  }
   if (handoff.state !== "issued" && handoff.state !== "waiting")
     return {
       state: "denied",
@@ -849,15 +861,6 @@ export async function completeAuthorization(
           ? "vercel.handoff.consumed"
           : `vercel.handoff.${handoff.state}`,
     };
-  const now = ctx.environment.now();
-  const issuedExpiry = Number(handoff.private["expiresAt"]);
-  if (
-    handoff.expiresAt <= now ||
-    (Number.isFinite(issuedExpiry) && issuedExpiry <= now)
-  ) {
-    await settle(ctx, handoff, "expired");
-    return { state: "expired", claims: [], code: "vercel.authorization.expired" };
-  }
   const { id: profileId, profile } = vercelProfile(
     settings,
     handoff.private["profileId"],

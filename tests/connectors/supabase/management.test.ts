@@ -151,7 +151,10 @@ test("AC-SB-02: Management OAuth uses the documented endpoints, S256 PKCE and ap
   assert.equal(proposal.correlationKey, proposal.private.state);
   assert.match(proposal.private.state!, /^[A-Za-z0-9_-]{43}$/);
   assert.ok(proposal.private.code_verifier);
-  assert.equal(proposal.private.code_verifier === proposal.private.state, false);
+  assert.equal(
+    proposal.private.code_verifier === proposal.private.state,
+    false,
+  );
 
   await issue(h, proposal);
   const callback = await followAuthorization(proposal.private.url!);
@@ -179,7 +182,9 @@ test("AC-SB-02: Management OAuth uses the documented endpoints, S256 PKCE and ap
   assert.ok(kinds.includes("credential-accepted"));
   assert.ok(kinds.includes("resource-access"));
   assert.ok(kinds.includes("account-identity"));
-  const resource = result.claims.find((claim) => claim.kind === "resource-access")!;
+  const resource = result.claims.find(
+    (claim) => claim.kind === "resource-access",
+  )!;
   assert.deepEqual(resource.target, {
     kind: "supabase-project",
     id: PROJECT_REF,
@@ -339,7 +344,10 @@ test("A target outside the binding or outside the grant never yields a stored cr
       adapter.authorize(
         h.ctx,
         intentFor({
-          target: { kind: "supabase-organization", id: OTHER_ORGANIZATION_SLUG },
+          target: {
+            kind: "supabase-organization",
+            id: OTHER_ORGANIZATION_SLUG,
+          },
         }),
       ),
     (error: unknown) =>
@@ -385,7 +393,11 @@ test("AC-SB-03: changing the target invalidates evidence and fences the old gene
       { kind: "supabase-organization", id: OTHER_ORGANIZATION_SLUG },
     ],
   });
-  const h = await supabaseHarness({ binding, fetch, configuration: CONFIGURATION });
+  const h = await supabaseHarness({
+    binding,
+    fetch,
+    configuration: CONFIGURATION,
+  });
   t.after(() => h.close());
 
   const connected = await connect(h, {
@@ -421,7 +433,10 @@ test("AC-SB-03: changing the target invalidates evidence and fences the old gene
     }),
   )) as SupabaseAuthorizationStart;
   assert.equal(switched.kind, "handoff");
-  assert.ok(switched.supersedes, "a target change must report what it superseded");
+  assert.ok(
+    switched.supersedes,
+    "a target change must report what it superseded",
+  );
   assert.ok(switched.supersedes!.invalidatedClaims > 0);
   assert.ok(switched.supersedes!.cancelledHandoffs > 0);
   assert.deepEqual(
@@ -479,7 +494,9 @@ test("Inventory lists organizations and projects and marks which targets the bin
   const kinds = all.items.map((item) => item.provenance?.kind);
   assert.ok(kinds.includes("supabase-organization"));
   assert.ok(kinds.includes("supabase-project"));
-  const permitted = all.items.find((item) => item.identity.nativeId === PROJECT_REF);
+  const permitted = all.items.find(
+    (item) => item.identity.nativeId === PROJECT_REF,
+  );
   assert.equal(permitted?.provenance?.permitted, "true");
   const notPermitted = all.items.find(
     (item) => item.identity.nativeId === OTHER_PROJECT_REF,
@@ -730,7 +747,10 @@ test("Revoke calls the documented endpoint; without a refresh token it reports u
     issued_at: String(Date.now()),
   });
   const withoutRefresh = await adapter.revoke(
-    h.with({ credentialRef: ref, target: { kind: "supabase-project", id: PROJECT_REF } }),
+    h.with({
+      credentialRef: ref,
+      target: { kind: "supabase-project", id: PROJECT_REF },
+    }),
   );
   assert.equal(withoutRefresh.upstream, "unsupported");
   assert.equal(withoutRefresh.local, "applied");

@@ -206,10 +206,7 @@ export async function startSupabaseManagementDouble(
   const tokenResponse = (record: TokenRecord) => ({
     access_token: record.accessToken,
     refresh_token: record.refreshToken,
-    expires_in: Math.max(
-      1,
-      Math.round((record.expiresAt - Date.now()) / 1000),
-    ),
+    expires_in: Math.max(1, Math.round((record.expiresAt - Date.now()) / 1000)),
     token_type: "Bearer",
     ...(grant.reportScopeInTokenResponse
       ? { scope: grant.scopes.join(" ") }
@@ -478,7 +475,11 @@ export async function startSupabaseManagementDouble(
     }
 
     if (path === "/v1/profile") {
-      const admitted = bearerGrant(path, request.headers.authorization, "projects:read");
+      const admitted = bearerGrant(
+        path,
+        request.headers.authorization,
+        "projects:read",
+      );
       if ("error" in admitted) return admitted.error;
       if (options.denyProfile)
         return reject(path, "profile-denied", {
@@ -505,7 +506,9 @@ export async function startSupabaseManagementDouble(
       return {
         status: 200,
         body: organizations
-          .filter((organization) => grant.organizations.includes(organization.slug))
+          .filter((organization) =>
+            grant.organizations.includes(organization.slug),
+          )
           .map((organization) => ({
             id: organization.id,
             slug: organization.slug,
@@ -514,7 +517,9 @@ export async function startSupabaseManagementDouble(
       };
     }
 
-    const organizationMatch = /^\/v1\/organizations\/([^/]+)(\/members)?$/.exec(path);
+    const organizationMatch = /^\/v1\/organizations\/([^/]+)(\/members)?$/.exec(
+      path,
+    );
     if (organizationMatch) {
       const admitted = bearerGrant(
         path,
@@ -544,17 +549,27 @@ export async function startSupabaseManagementDouble(
     }
 
     if (path === "/v1/projects") {
-      const admitted = bearerGrant(path, request.headers.authorization, "projects:read");
+      const admitted = bearerGrant(
+        path,
+        request.headers.authorization,
+        "projects:read",
+      );
       if ("error" in admitted) return admitted.error;
       return {
         status: 200,
-        body: projects.filter((project) => grant.projects.includes(project.ref)),
+        body: projects.filter((project) =>
+          grant.projects.includes(project.ref),
+        ),
       };
     }
 
     const projectMatch = /^\/v1\/projects\/([^/]+)$/.exec(path);
     if (projectMatch) {
-      const admitted = bearerGrant(path, request.headers.authorization, "projects:read");
+      const admitted = bearerGrant(
+        path,
+        request.headers.authorization,
+        "projects:read",
+      );
       if ("error" in admitted) return admitted.error;
       const ref = decodeURIComponent(projectMatch[1]!);
       const project = projects.find((item) => item.ref === ref);

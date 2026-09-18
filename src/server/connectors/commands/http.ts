@@ -213,7 +213,9 @@ export function createConnectorHttp(
       if (path === "/definitions")
         return post
           ? methodNotAllowed("GET")
-          : connectorReply({ definitions: await service.listDefinitions(actor) });
+          : connectorReply({
+              definitions: await service.listDefinitions(actor),
+            });
       const definition = /^\/definitions\/([^/]+)$/.exec(path);
       if (definition)
         return post
@@ -234,7 +236,8 @@ export function createConnectorHttp(
           ? connectorReply(await service.configure(actor, body))
           : methodNotAllowed("POST");
       if (path === "/connections") {
-        if (post) return connectorReply(await service.connect(actor, body), 201);
+        if (post)
+          return connectorReply(await service.connect(actor, body), 201);
         const filter = z
           .strictObject({
             ecosystem: z

@@ -59,9 +59,9 @@ export async function startSupabaseProjectDouble(
   const publishableKey = options.publishableKey ?? "sb_publishable_fixture_key";
   const secretKey = "sb_secret_fixture_key";
   const users = new Map(
-    (options.users ?? [{ id: "project-user-1", email: "user@example.test" }]).map(
-      (user) => [user.id, user],
-    ),
+    (
+      options.users ?? [{ id: "project-user-1", email: "user@example.test" }]
+    ).map((user) => [user.id, user]),
   );
   const tables = new Map(
     (options.tables ?? []).map((table) => [table.name, table]),
@@ -167,11 +167,7 @@ export async function startSupabaseProjectDouble(
     return { userId: session.userId };
   };
 
-  const compare = (
-    operator: string,
-    left: unknown,
-    right: string,
-  ): boolean => {
+  const compare = (operator: string, left: unknown, right: string): boolean => {
     const asNumber = Number(right);
     const numeric = typeof left === "number" && !Number.isNaN(asNumber);
     switch (operator) {
@@ -189,7 +185,10 @@ export async function startSupabaseProjectDouble(
         return numeric ? left <= asNumber : String(left) <= right;
       case "like":
       case "ilike": {
-        const pattern = right.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*").replace(/%/g, ".*");
+        const pattern = right
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+          .replace(/\\\*/g, ".*")
+          .replace(/%/g, ".*");
         return new RegExp(`^${pattern}$`, operator === "ilike" ? "i" : "").test(
           String(left),
         );
@@ -290,7 +289,10 @@ export async function startSupabaseProjectDouble(
       const total = rows.length;
       const offset = Number(query.get("offset") ?? "0");
       const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
-      rows = rows.slice(offset, limit === undefined ? undefined : offset + limit);
+      rows = rows.slice(
+        offset,
+        limit === undefined ? undefined : offset + limit,
+      );
       const projected = rows.map((row) =>
         select.includes("*")
           ? { ...row }
