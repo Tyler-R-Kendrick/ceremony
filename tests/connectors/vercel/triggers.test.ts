@@ -137,7 +137,10 @@ test("a Vercel-forwarded trigger is accepted and recorded as a forwarder hop", a
   assert.ok(verified, "a token from the published key is accepted");
   assert.equal(verified.verification.method, "forwarder-signature");
   assert.equal(verified.verification.keyId, s.issuer.keyId);
-  assert.equal(verified.authority, `vercel-connect:${TEAM}:${PROJECT}:production`);
+  assert.equal(
+    verified.authority,
+    `vercel-connect:${TEAM}:${PROJECT}:production`,
+  );
   assert.equal(verified.providerEventType, "event_callback");
   assert.equal(verified.eventId, "vercel:iad1::abc123");
   assert.equal(verified.payloadClassification, "personal");
@@ -270,7 +273,9 @@ test("an event is only accepted for a registered trigger destination", async (t)
     projectId: PROJECT,
     environment: "production",
   });
-  assert.ok(await adapter.events!.verify(withoutTriggers.ctx, delivery(token, event)));
+  assert.ok(
+    await adapter.events!.verify(withoutTriggers.ctx, delivery(token, event)),
+  );
 
   const elsewhere = await scenario({
     triggers: {

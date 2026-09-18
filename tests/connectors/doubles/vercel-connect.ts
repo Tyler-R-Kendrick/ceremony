@@ -223,8 +223,7 @@ export async function startVercelConnect(
     connectorUid: string,
     subjectKey: string,
     installationId?: string,
-  ) =>
-    [connectorUid, subjectKey, installationId ?? ""].join(SEPARATOR);
+  ) => [connectorUid, subjectKey, installationId ?? ""].join(SEPARATOR);
 
   const connectorByPathSegment = (segment: string) => {
     const decoded = decodeSegment(segment);
@@ -650,7 +649,9 @@ export async function startVercelConnect(
     ) {
       if (version !== "v2") {
         route = "version-mismatch";
-        note(`GET ${request.url.pathname}: this listing is published under /v2`);
+        note(
+          `GET ${request.url.pathname}: this listing is published under /v2`,
+        );
         return failure(404, "not_found", "Could not find the endpoint");
       }
       route = "connect.connectors.projects";
@@ -676,7 +677,9 @@ export async function startVercelConnect(
     ) {
       if (version !== "v2") {
         route = "version-mismatch";
-        note(`GET ${request.url.pathname}: this listing is published under /v2`);
+        note(
+          `GET ${request.url.pathname}: this listing is published under /v2`,
+        );
         return failure(404, "not_found", "Could not find the endpoint");
       }
       route = "connect.projects.connectors";
@@ -791,7 +794,10 @@ export async function startVercelConnect(
         typeof body["installationId"] === "string"
           ? body["installationId"]
           : undefined;
-      if (installationId !== undefined && !(connector.supportsInstallation ?? false))
+      if (
+        installationId !== undefined &&
+        !(connector.supportsInstallation ?? false)
+      )
         return failure(
           400,
           "bad_request",
@@ -897,7 +903,10 @@ export async function startVercelConnect(
         typeof body["installationId"] === "string"
           ? body["installationId"]
           : undefined;
-      if (installationId !== undefined && !(connector.supportsInstallation ?? false))
+      if (
+        installationId !== undefined &&
+        !(connector.supportsInstallation ?? false)
+      )
         return failure(
           400,
           "bad_request",
