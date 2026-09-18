@@ -1806,4 +1806,5 @@ The [source lock](source-lock.md) pins 67 records as of 2026-09-18, each with it
 ## Ledger problems
 
 - ledger/AUTOMATION.json: does not match the ledger shape
+- ledger/BINDINGS.json: does not match the ledger shape
 - ledger/IDENTITY-BROKERS.json: no `workItems` array, so its requirements cannot be joined and are reported as having no ledger entry
