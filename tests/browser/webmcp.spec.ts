@@ -83,8 +83,14 @@ test("AC-40 real native registration collision recovers and abort only removes o
     page.getByRole("button", { name: "Connect GitHub", exact: true }),
   ).toBeEnabled();
   await page.evaluate(() => Reflect.get(window, "removeNativeCollision")());
-  // The connection opens in a modal drawer; the rail is behind it.
-  await page.keyboard.press("Escape");
+  // The connection opens in a modal drawer; the rail is behind it. Closed by
+  // the drawer's own control, which is what a person reaches for and what the
+  // runner agrees is a close — a key press here left the scrim up and spent
+  // the whole timeout on every CI run.
+  await page
+    .getByRole("dialog", { name: "Add Connection" })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Workflow studio", exact: true })
     .click();
@@ -213,9 +219,13 @@ for (const surface of ["document", "navigator"] as const)
         ok: true,
         state: { provider: "github", status: "active" },
       });
-      // This one fills the connection's own field, so it needs the drawer;
-      // the rail it finishes on is behind the drawer's scrim until it closes.
-      await page.keyboard.press("Escape");
+      // This one fills the connection's own field, so it needs the drawer; the
+      // rail it finishes on is behind the drawer's scrim until it closes, and
+      // the drawer's own control is what reliably closes it.
+      await page
+        .getByRole("dialog", { name: "Add Connection" })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "Workflow studio", exact: true })
         .click();

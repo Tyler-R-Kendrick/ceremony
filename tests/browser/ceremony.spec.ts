@@ -84,7 +84,11 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   await expect(
     recording.getByRole("checkbox", { name: /Teach this connection/ }),
   ).toBeChecked();
-  await page.keyboard.press("Escape");
+  // Closed by its own control rather than by a key. Escape is asserted on its
+  // own at the end of this test; reaching the directory behind the scrim is a
+  // different claim, and pinning it on a key press is what made this test — and
+  // three others — spend their whole timeout on the runner rather than here.
+  await recording.getByRole("button", { name: "Close", exact: true }).click();
 
   // Opening a service starts on Configure, not on somebody's credentials.
   await all.getByRole("button", { name: "Stripe" }).click();
