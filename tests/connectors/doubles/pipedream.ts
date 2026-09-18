@@ -137,8 +137,12 @@ export type DoubleFaults = {
   actionDelayMs: number;
   /** Milliseconds the deploy endpoint waits after creating the trigger. */
   deployDelayMs: number;
+  /** Status the deploy endpoint returns INSTEAD of creating a trigger. */
+  deployStatus: number | undefined;
   /** Status the proxy returns instead of calling the upstream handler. */
   proxyStatus: number | undefined;
+  /** Status the account listings return instead of a result. */
+  accountsStatus: number | undefined;
   /** The oauth token endpoint rejects the configured secret. */
   rejectClientCredentials: boolean;
 };
@@ -154,7 +158,10 @@ export type PipedreamDoubleOptions = {
 
 const fixture = (name: string): Json =>
   JSON.parse(
-    readFileSync(new URL(`../fixtures/pipedream/${name}`, import.meta.url), "utf8"),
+    readFileSync(
+      new URL(`../fixtures/pipedream/${name}`, import.meta.url),
+      "utf8",
+    ),
   ) as Json;
 
 /** Documented request headers the proxy rejects with a 400. */
@@ -201,7 +208,8 @@ export async function startPipedreamDouble(
   const projectId = options.projectId ?? "proj_fixture01";
   const clientId = options.clientId ?? "fixture-client-id";
   const clientSecret = options.clientSecret ?? "fixture-client-secret";
-  const accessTokenLifetime = (options.accessTokenLifetimeSeconds ?? 3600) * 1000;
+  const accessTokenLifetime =
+    (options.accessTokenLifetimeSeconds ?? 3600) * 1000;
   const connectTokenLifetime =
     (options.connectTokenLifetimeSeconds ?? 4 * 60 * 60) * 1000;
   const now = options.now ?? Date.now;
@@ -213,7 +221,10 @@ export async function startPipedreamDouble(
     Json & { key: string; component_type?: string }
   >;
 
-  const accessTokens = new Map<string, { expiresAt: number; issuedAt: number }>();
+  const accessTokens = new Map<
+    string,
+    { expiresAt: number; issuedAt: number }
+  >();
   const connectTokens = new Map<string, DoubleConnectToken>();
   const accounts = new Map<string, DoubleAccount>();
   const triggers = new Map<string, DoubleTrigger>();
@@ -230,7 +241,9 @@ export async function startPipedreamDouble(
     throttle: false,
     actionDelayMs: 0,
     deployDelayMs: 0,
+    deployStatus: undefined,
     proxyStatus: undefined,
+    accountsStatus: undefined,
     rejectClientCredentials: false,
   };
   let upstream: (call: ProxyCall) => FixtureReply = () => ({
@@ -269,7 +282,9 @@ export async function startPipedreamDouble(
     request: RecordedRequest,
   ): DoubleEnvironment | undefined => {
     const value = request.headers["x-pd-environment"];
-    return value === "development" || value === "production" ? value : undefined;
+    return value === "development" || value === "production"
+      ? value
+      : undefined;
   };
 
   const jsonBody = (request: RecordedRequest): Json | undefined => {
@@ -304,7 +319,10 @@ export async function startPipedreamDouble(
     };
   };
 
-  const publicAccount = (account: DoubleAccount, includeCredentials: boolean) => {
+  const publicAccount = (
+    account: DoubleAccount,
+    includeCredentials: boolean,
+  ) => {
     const { environment: _environment, credentials, ...rest } = account;
     void _environment;
     return includeCredentials ? { ...rest, credentials } : rest;
@@ -442,6 +460,8 @@ export async function startPipedreamDouble(
     // GET /v1/connect/{project_id}/accounts
     if (resource === "accounts" && segments.length === 4) {
       if (request.method !== "GET") return error(405, "Method not allowed");
+      if (faults.accountsStatus !== undefined)
+        return error(faults.accountsStatus, "Forbidden");
       const app = url.searchParams.get("app");
       const externalUserId = url.searchParams.get("external_user_id");
       const includeCredentials =
@@ -456,7 +476,9 @@ export async function startPipedreamDouble(
       return {
         status: 200,
         body: {
-          data: page.map((account) => publicAccount(account, includeCredentials)),
+          data: page.map((account) =>
+            publicAccount(account, includeCredentials),
+          ),
           page_info,
         },
       };
@@ -490,6 +512,8 @@ export async function startPipedreamDouble(
     // GET /v1/connect/{project_id}/users/{external_user_id}/accounts
     if (resource === "users" && segments[5] === "accounts") {
       if (request.method !== "GET") return error(405, "Method not allowed");
+      if (faults.accountsStatus !== undefined)
+        return error(faults.accountsStatus, "Forbidden");
       const externalUserId = decodeURIComponent(segments[4]!);
       const app = url.searchParams.get("app");
       const includeCredentials =
@@ -521,7 +545,10 @@ export async function startPipedreamDouble(
           name.toLowerCase().startsWith("proxy-") ||
           name.toLowerCase().startsWith("sec-"),
       );
-      if (offending && !["host", "connection", "content-length"].includes(offending))
+      if (
+        offending &&
+        !["host", "connection", "content-length"].includes(offending)
+      )
         return error(400, `Header not allowed: ${offending}`);
       const account = ownedAccount(accountId, environment);
       if (!account || account.external_id !== externalUserId)
@@ -625,6 +652,8 @@ export async function startPipedreamDouble(
         return error(400, "id and external_user_id are required");
       const component = components.find((item) => item.key === id);
       if (!component) return error(404, "Component not found");
+      if (faults.deployStatus !== undefined)
+        return error(faults.deployStatus, "Deploy failed");
       const configured = (body?.configured_props ?? {}) as Json;
       const webhookUrl =
         typeof body?.webhook_url === "string" ? body.webhook_url : null;
@@ -687,7 +716,12 @@ export async function startPipedreamDouble(
           status: 200,
           body: {
             data: page.map(
-              ({ webhook_url: _u, external_user_id: _e, environment: _v, ...rest }) => {
+              ({
+                webhook_url: _u,
+                external_user_id: _e,
+                environment: _v,
+                ...rest
+              }) => {
                 void _u;
                 void _e;
                 void _v;
@@ -708,8 +742,12 @@ export async function startPipedreamDouble(
       }
       if (request.method === "GET") {
         if (!trigger) return error(404, "Deployed trigger not found");
-        const { webhook_url: _u, external_user_id: _e, environment: _v, ...rest } =
-          trigger;
+        const {
+          webhook_url: _u,
+          external_user_id: _e,
+          environment: _v,
+          ...rest
+        } = trigger;
         void _u;
         void _e;
         void _v;
@@ -829,8 +867,11 @@ export async function startPipedreamDouble(
     connectionWebhookPayload(token: string, account: DoubleAccount): Json {
       const record = connectTokens.get(token);
       if (!record) throw new Error("Unknown connect token");
-      const { environment: _environment, credentials: _credentials, ...rest } =
-        account;
+      const {
+        environment: _environment,
+        credentials: _credentials,
+        ...rest
+      } = account;
       void _environment;
       void _credentials;
       return {

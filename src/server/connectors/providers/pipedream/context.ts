@@ -99,9 +99,17 @@ export function preparePipedreamCall(
     config,
     settings,
     owner,
-    externalUserId: pipedreamExternalUserId(owner, deps.options.externalUserKey),
+    externalUserId: pipedreamExternalUserId(
+      owner,
+      deps.options.externalUserKey,
+    ),
     authority: pipedreamAuthorityInstance(config.projectId, config.environment),
-    client: new PipedreamClient(ctx, config, deps.shared, deps.options.timeouts),
+    client: new PipedreamClient(
+      ctx,
+      config,
+      deps.shared,
+      deps.options.timeouts,
+    ),
     options: deps.options,
     adapterVersion: deps.adapterVersion,
   };

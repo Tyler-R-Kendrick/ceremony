@@ -56,7 +56,9 @@ test("STATE-02: material is stored once, used in a callback and never returned t
     );
 
     // Returning the material — directly, nested, or inside a URL — is refused.
-    for (const leak of [
+    const leaks: Array<
+      (material: Readonly<Record<string, string>>) => Promise<unknown>
+    > = [
       async (material: Readonly<Record<string, string>>) =>
         material.accessToken,
       async (material: Readonly<Record<string, string>>) => ({
@@ -70,7 +72,8 @@ test("STATE-02: material is stored once, used in a callback and never returned t
         new Set([material.accessToken]),
       async (material: Readonly<Record<string, string>>) =>
         new TextEncoder().encode(material.accessToken),
-    ])
+    ];
+    for (const leak of leaks)
       await assert.rejects(
         ports.credentials.use(scope, ref, leak),
         (error: unknown) => {
@@ -167,7 +170,7 @@ test("STATE-02: expiry has a safety margin and refresh rotates under single flig
       await ports.credentials.use(
         scope,
         ref,
-        async (m) => m.accessToken.length,
+        async (m) => m.accessToken!.length,
       ),
       `${CANARY}-1`.length,
     );

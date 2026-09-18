@@ -13,7 +13,11 @@ import {
 import { ConnectorError } from "../../errors.js";
 import type { ConnectionRecord } from "../../ports.js";
 import type { PipedreamResponse } from "./client.js";
-import { connectionScope, guardConnection, type PipedreamCall } from "./context.js";
+import {
+  connectionScope,
+  guardConnection,
+  type PipedreamCall,
+} from "./context.js";
 import {
   checkJsonBounds,
   invalidInput,
@@ -59,7 +63,10 @@ const pathValueSchema = z
   .regex(/^[^\p{Cc}]+$/u)
   .refine((value) => value !== "." && value !== "..", "Traversal segment");
 const queryValueSchema = z.union([
-  z.string().max(2048).regex(/^[^\p{Cc}]*$/u),
+  z
+    .string()
+    .max(2048)
+    .regex(/^[^\p{Cc}]*$/u),
   z.number().finite(),
   z.boolean(),
 ]);
@@ -210,8 +217,18 @@ function proxyOutcome(
   )
     // The proxy reached the provider and then lost it: a write may have landed.
     return readOnly
-      ? { ...base, state: "failed", code: "pipedream.proxy.unavailable", output }
-      : { ...base, state: "indeterminate", code: "pipedream.proxy.lost", output };
+      ? {
+          ...base,
+          state: "failed",
+          code: "pipedream.proxy.unavailable",
+          output,
+        }
+      : {
+          ...base,
+          state: "indeterminate",
+          code: "pipedream.proxy.lost",
+          output,
+        };
   return {
     ...base,
     state: "failed",
@@ -359,7 +376,9 @@ function actionOutcome(
     const data = parsed.data;
     if (data.error !== undefined && data.error !== null) {
       const attribution =
-        data.error && typeof data.error === "object" && "attribution" in data.error
+        data.error &&
+        typeof data.error === "object" &&
+        "attribution" in data.error
           ? attributionCodes[
               String((data.error as { attribution?: unknown }).attribution)
             ]
@@ -367,7 +386,9 @@ function actionOutcome(
       // Only a failure inside component code, before any provider request,
       // is known not to have applied. Everything else may have.
       const state =
-        readOnly || attribution === "component-code" ? "failed" : "indeterminate";
+        readOnly || attribution === "component-code"
+          ? "failed"
+          : "indeterminate";
       return {
         ...base,
         state,
@@ -375,7 +396,9 @@ function actionOutcome(
       };
     }
     if (
-      (data.os ?? []).some((entry) => entry.err !== undefined && entry.err !== null)
+      (data.os ?? []).some(
+        (entry) => entry.err !== undefined && entry.err !== null,
+      )
     )
       return {
         ...base,
@@ -388,7 +411,9 @@ function actionOutcome(
       output: {
         ret: data.ret ?? null,
         exports: data.exports ?? {},
-        ...(typeof data.stash_id === "string" ? { stashId: data.stash_id } : {}),
+        ...(typeof data.stash_id === "string"
+          ? { stashId: data.stash_id }
+          : {}),
       },
     };
   }
@@ -529,7 +554,14 @@ export async function pipedreamInvoke(
       detail: "pipedream.replay.unsupported",
     });
   if (route.kind === "proxy")
-    return runProxy(call, connection, operation, route, request, commandId.data);
+    return runProxy(
+      call,
+      connection,
+      operation,
+      route,
+      request,
+      commandId.data,
+    );
   return runAction(
     call,
     connection,

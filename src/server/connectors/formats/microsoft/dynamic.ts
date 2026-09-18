@@ -687,7 +687,12 @@ export function extractDynamicFields(
   }
   // The newer form wins when both are declared on one field.
   const key = (contract: DynamicFieldContract) =>
-    `${contract.hostOperationId} ${contract.field.location} ${contract.field.name} ${contract.field.pathString}`;
+    JSON.stringify([
+      contract.hostOperationId,
+      contract.field.location,
+      contract.field.name,
+      contract.field.pathString,
+    ]);
   const newer = new Set(
     contracts
       .filter(
@@ -696,7 +701,7 @@ export function extractDynamicFields(
       )
       .map(
         (contract) =>
-          `${key(contract)} ${contract.kind === "list" ? "options" : "schema"}`,
+          `${key(contract)}|${contract.kind === "list" ? "options" : "schema"}`,
       ),
   );
   return contracts.map((contract) => {
@@ -706,7 +711,7 @@ export function extractDynamicFields(
         : "schema";
     const superseded =
       (contract.kind === "values" || contract.kind === "schema") &&
-      newer.has(`${key(contract)} ${family}`);
+      newer.has(`${key(contract)}|${family}`);
     return superseded ? { ...contract, preferred: false } : contract;
   });
 }

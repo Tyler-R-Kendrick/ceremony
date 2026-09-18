@@ -68,11 +68,13 @@ export function pipedreamExternalUserId(
   owner: PipedreamOwner,
   key?: Uint8Array,
 ): string {
-  const message = `${PIPEDREAM_EXTERNAL_USER_VERSION}\n${canonicalConnectorJson({
-    tenantId: owner.tenantId,
-    ownerKind: owner.ownerKind,
-    ownerId: owner.ownerId,
-  })}`;
+  const message = `${PIPEDREAM_EXTERNAL_USER_VERSION}\n${canonicalConnectorJson(
+    {
+      tenantId: owner.tenantId,
+      ownerKind: owner.ownerKind,
+      ownerId: owner.ownerId,
+    },
+  )}`;
   const digest =
     key && key.byteLength > 0
       ? createHmac("sha256", key).update(message).digest("hex")

@@ -365,7 +365,7 @@ test("refuses poisoned identities and version ranges with sanitized codes", asyn
     "../x",
     "io.github.a/b/c",
     "flat",
-    "io.github.a/b",
+    `io.github.a/${String.fromCharCode(7)}b`,
     "io.github.a/b c",
   ])
     await assert.rejects(

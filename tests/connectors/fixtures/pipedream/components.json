@@ -45,7 +45,12 @@
       "component_type": "action",
       "configurable_props": [
         { "name": "slack", "type": "app", "app": "slack" },
-        { "name": "types", "type": "string[]", "label": "Types", "optional": true }
+        {
+          "name": "types",
+          "type": "string[]",
+          "label": "Types",
+          "optional": true
+        }
       ],
       "annotations": { "readOnlyHint": true, "openWorldHint": true }
     },

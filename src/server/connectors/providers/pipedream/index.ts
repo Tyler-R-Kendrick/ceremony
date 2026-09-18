@@ -154,7 +154,8 @@ export const pipedreamConfiguration: readonly ConfigurationRequirement[] =
       source: "session-environment",
       classification: "public",
       required: true,
-      description: "Workspace OAuth client id used for the client-credentials grant.",
+      description:
+        "Workspace OAuth client id used for the client-credentials grant.",
     },
     {
       name: pipedreamConfigurationNames.clientSecret,
@@ -204,7 +205,9 @@ const dimensionLimitations: Partial<Record<SupportDimension, string[]>> = {
     "Pipedream documents no endpoint that revokes the end user's grant at the third-party provider.",
   ],
   delegate: ["Pipedream workflow delegation is not bound by this adapter."],
-  export: ["Component descriptions are imported but not re-exported by this adapter."],
+  export: [
+    "Component descriptions are imported but not re-exported by this adapter.",
+  ],
 };
 
 const unsupportedDimensions = new Set<SupportDimension>([
@@ -283,7 +286,10 @@ export function createPipedreamConnectAdapter(
         (dimension) => {
           const unsupported = unsupportedDimensions.has(dimension);
           return capabilityStatus(
-            { adapterVersion: PIPEDREAM_ADAPTER_VERSION, runtime: "hosted-server" },
+            {
+              adapterVersion: PIPEDREAM_ADAPTER_VERSION,
+              runtime: "hosted-server",
+            },
             {
               dimension,
               profile: dimensionProfiles[dimension] ?? "pipedream-connect",
@@ -391,8 +397,8 @@ export function createPipedreamConnectAdapter(
           upstream: "not-attempted",
         };
       const triggers = Object.values(
-        (connection.state as { pipedreamTriggers?: unknown }).pipedreamTriggers ??
-          {},
+        (connection.state as { pipedreamTriggers?: unknown })
+          .pipedreamTriggers ?? {},
       ).filter(
         (value): value is string =>
           typeof value === "string" &&

@@ -185,7 +185,9 @@ export function pipedreamRoute(operation: BoundOperation): PipedreamRoute {
     const separator = rest.indexOf(":");
     if (separator <= 0) throw unsupported();
     const action = rest.slice(0, separator);
-    const key = pipedreamComponentKeySchema.safeParse(rest.slice(separator + 1));
+    const key = pipedreamComponentKeySchema.safeParse(
+      rest.slice(separator + 1),
+    );
     if (!key.success || !(triggerActions as readonly string[]).includes(action))
       throw unsupported();
     return {
@@ -200,7 +202,8 @@ export function pipedreamRoute(operation: BoundOperation): PipedreamRoute {
   if (separator <= 0) throw unsupported();
   const method = rest.slice(0, separator);
   const template = rest.slice(separator + 1);
-  if (!(proxyMethods as readonly string[]).includes(method)) throw unsupported();
+  if (!(proxyMethods as readonly string[]).includes(method))
+    throw unsupported();
   if (!/^https:\/\/[^\s{}]+(?:\/[^\s]*)?$/u.test(template)) throw unsupported();
   const probe = template.replace(placeholderPattern, "x");
   if (!URL.canParse(probe)) throw unsupported();

@@ -706,7 +706,7 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
                 : {}),
             }
           : undefined;
-        parameters.set(`${location} ${name}`, {
+        parameters.set(JSON.stringify([location, name]), {
           name,
           in: location as SwaggerParameterLocation,
           required: parameter.required === true || location === "path",
@@ -756,7 +756,7 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           );
       }
       for (const templateName of templateParameters)
-        if (!parameters.has(`path ${templateName}`))
+        if (!parameters.has(JSON.stringify(["path", templateName])))
           issues.push({
             code: "structure.path-parameter-undeclared",
             category: "structure",

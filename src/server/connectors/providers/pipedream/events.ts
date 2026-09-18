@@ -34,9 +34,7 @@ const keyRefSchema = z
  * trigger was deployed. They are references, not keys; the key itself only
  * ever exists inside a custody callback.
  */
-export function triggerSigningKeyRefs(
-  connection: ConnectionRecord,
-): string[] {
+export function triggerSigningKeyRefs(connection: ConnectionRecord): string[] {
   const state = connection.state as {
     pipedreamTriggerKeys?: unknown;
   };

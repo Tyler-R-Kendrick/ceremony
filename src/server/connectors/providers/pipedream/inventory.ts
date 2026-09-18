@@ -70,10 +70,11 @@ function appAuthentication(app: PipedreamApp): string {
 function appItem(
   call: PipedreamCall,
   app: PipedreamApp,
-  accounts: AccountView[],
+  accounts: AccountView[] | undefined,
 ): DiscoveredItem {
   const slug = pipedreamAppSlugSchema.safeParse(app.name_slug);
-  const mine = accounts.filter((account) => account.app === app.name_slug);
+  // An unavailable listing is unknown, not zero: the counts are left out.
+  const mine = accounts?.filter((account) => account.app === app.name_slug);
   return {
     identity: {
       ecosystem: "pipedream",
@@ -94,10 +95,14 @@ function appItem(
         .slice(0, 8)
         .join(",")
         .slice(0, 500),
-      connectedAccounts: String(mine.length),
-      healthyAccounts: String(
-        mine.filter((account) => account.healthy && !account.dead).length,
-      ),
+      ...(mine
+        ? {
+            connectedAccounts: String(mine.length),
+            healthyAccounts: String(
+              mine.filter((account) => account.healthy && !account.dead).length,
+            ),
+          }
+        : { connectedAccounts: "unknown" }),
       // Ownership is the host's derived external user, never a broker-supplied identity.
       ownerScope: sha256Hex(call.externalUserId).slice(0, 16),
       bound: call.settings.app === app.name_slug ? "binding-app" : "catalogue",
@@ -137,7 +142,10 @@ export async function pipedreamDiscover(
       detail: "pipedream.discover.invalid",
     });
   const requested = parsed.data.scope?.app;
-  if (requested !== undefined && !pipedreamAppSlugSchema.safeParse(requested).success)
+  if (
+    requested !== undefined &&
+    !pipedreamAppSlugSchema.safeParse(requested).success
+  )
     throw new ConnectorError("invalid-request", {
       detail: "pipedream.discover.app",
     });
@@ -163,7 +171,9 @@ export async function pipedreamDiscover(
       const wrapped = z
         .looseObject({ data: appSchema })
         .safeParse(response.json);
-      const bare = wrapped.success ? undefined : appSchema.safeParse(response.json);
+      const bare = wrapped.success
+        ? undefined
+        : appSchema.safeParse(response.json);
       if (!wrapped.success && !bare?.success)
         throw new ConnectorError("upstream-rejected", {
           detail: "pipedream.response.malformed",
@@ -186,7 +196,7 @@ export async function pipedreamDiscover(
       nextCursor = cursor;
   }
 
-  let accounts: AccountView[] = [];
+  let accounts: AccountView[] | undefined;
   try {
     accounts = await listOwnAccounts(call, requested);
   } catch (error) {
@@ -282,7 +292,11 @@ function componentIssues(
         "This component requires Pipedream's File Stash, which this adapter does not bind.",
       remediation: "Bind a component that does not require file stashing.",
     });
-  if ((component.configurable_props ?? []).some((prop) => prop.reloadProps === true))
+  if (
+    (component.configurable_props ?? []).some(
+      (prop) => prop.reloadProps === true,
+    )
+  )
     issues.push({
       code: "pipedream.component.dynamic-props",
       category: "schema",
@@ -366,7 +380,10 @@ export async function pipedreamImport(
   const body = {
     schemaVersion: 1 as const,
     identity,
-    importer: { id: "pipedream-connect-components", version: call.adapterVersion },
+    importer: {
+      id: "pipedream-connect-components",
+      version: call.adapterVersion,
+    },
     display: {
       name: `Pipedream Connect: ${app}`,
       description:
@@ -448,7 +465,10 @@ export async function pipedreamImport(
     source: {
       sourceRef,
       identity,
-      format: { name: "pipedream-component", version: PIPEDREAM_SOURCE_PROFILE },
+      format: {
+        name: "pipedream-component",
+        version: PIPEDREAM_SOURCE_PROFILE,
+      },
       origin: input.origin,
       digest: { algorithm: "sha256", value: digest },
       byteLength: input.bytes.byteLength,

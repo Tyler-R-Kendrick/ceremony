@@ -36,7 +36,8 @@ async function connected(
   h: Harness,
   options: { binding?: RuntimeBinding; accountId?: string } = {},
 ): Promise<{ binding: RuntimeBinding; connection: ConnectionRecord }> {
-  const binding = options.binding ?? makeBinding({ apiOrigin: h.double.origin });
+  const binding =
+    options.binding ?? makeBinding({ apiOrigin: h.double.origin });
   const account = h.double.seedAccount({
     externalUserId: h.externalUserId(),
     app: "slack",
@@ -55,7 +56,9 @@ async function connected(
 
 test("a proxied write goes to the bound URL with the connection's account", async () => {
   const h = await harness();
-  const { binding, connection } = await connected(h, { accountId: "apn_bound" });
+  const { binding, connection } = await connected(h, {
+    accountId: "apn_bound",
+  });
   h.double.setUpstream((call) => ({
     status: 200,
     body: { ok: true, echo: JSON.parse(call.body || "{}") },
@@ -127,7 +130,11 @@ test("a read that names a permitted target reaches it and an unpermitted one doe
       error.code === "denied" &&
       error.detail === "pipedream.target.not-permitted",
   );
-  assert.equal(h.double.proxyCalls.length, 1, "nothing left for the other team");
+  assert.equal(
+    h.double.proxyCalls.length,
+    1,
+    "nothing left for the other team",
+  );
 });
 
 test("input cannot become a destination, a query parameter or a header", async () => {
@@ -408,8 +415,9 @@ test("a read is replayable and is not journaled as an effect", async () => {
     });
   assert.equal(h.double.proxyCalls.length, 2);
   assert.equal(
-    h.ports.inspect.effects().filter((entry) => entry.intent.operation === "pipedream.proxy")
-      .length,
+    h.ports.inspect
+      .effects()
+      .filter((entry) => entry.intent.operation === "pipedream.proxy").length,
     0,
   );
 });

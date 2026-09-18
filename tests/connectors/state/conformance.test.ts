@@ -108,7 +108,7 @@ async function scenario(ports: Ports) {
   });
   const ref = await ports.credentials.store(scope, { accessToken: "token-1" });
   assert.equal(
-    await ports.credentials.use(scope, ref, async (m) => m.accessToken.length),
+    await ports.credentials.use(scope, ref, async (m) => m.accessToken!.length),
     7,
   );
   await assert.rejects(

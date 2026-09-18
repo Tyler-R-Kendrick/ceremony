@@ -53,8 +53,12 @@ function connectContext(
     binding,
     actor,
     lifecycle: "authorization-required",
-    ...(overrides.connectionRef ? { connectionRef: overrides.connectionRef } : {}),
-    ...(overrides.credentialRef ? { credentialRef: overrides.credentialRef } : {}),
+    ...(overrides.connectionRef
+      ? { connectionRef: overrides.connectionRef }
+      : {}),
+    ...(overrides.credentialRef
+      ? { credentialRef: overrides.credentialRef }
+      : {}),
     ...(overrides.handoff ? { handoff: overrides.handoff } : {}),
     externalIds: overrides.externalIds ?? {
       projectId: h.double.projectId,
@@ -102,7 +106,9 @@ test("a connect token names the derived external user, this app and this origin 
   // allowed_origins is the deployment origin and nothing else.
   assert.deepEqual(token.allowed_origins, [DEPLOYMENT_ORIGIN]);
   assert.equal(
-    token.success_redirect_uri?.startsWith(`${DEPLOYMENT_ORIGIN}${RETURN_PATH}?`),
+    token.success_redirect_uri?.startsWith(
+      `${DEPLOYMENT_ORIGIN}${RETURN_PATH}?`,
+    ),
     true,
   );
   assert.equal(
@@ -366,12 +372,10 @@ test("a completion link cannot be replayed and a wrong state is refused", async 
   );
   assert.equal(first.state, "complete");
 
-  const replay = await h.adapter
-    .complete!(
-      makeContext({ harness: h, binding, connection: bound }),
-      redirect(material.returnState!),
-    )
-    .catch((error: unknown) => error);
+  const replay = await h.adapter.complete!(
+    makeContext({ harness: h, binding, connection: bound }),
+    redirect(material.returnState!),
+  ).catch((error: unknown) => error);
   assert.ok(
     replay instanceof ConnectorError && replay.code === "expired",
     "a completed handoff cannot be completed a second time",

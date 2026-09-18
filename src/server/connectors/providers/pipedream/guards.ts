@@ -40,14 +40,16 @@ export function checkJsonBounds(
       if (!Number.isFinite(item)) throw invalidInput(detail);
       return;
     }
-    if (item === null || typeof item === "boolean" || item === undefined) return;
+    if (item === null || typeof item === "boolean" || item === undefined)
+      return;
     if (Array.isArray(item)) {
       for (const entry of item) walk(entry, depth + 1);
       return;
     }
     if (typeof item === "object") {
       for (const key of Object.keys(item as Record<string, unknown>)) {
-        if (reservedKeys.has(key) || key.length > 120) throw invalidInput(detail);
+        if (reservedKeys.has(key) || key.length > 120)
+          throw invalidInput(detail);
         walk((item as Record<string, unknown>)[key], depth + 1);
       }
       return;

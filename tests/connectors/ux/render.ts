@@ -91,13 +91,35 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
     },
     async fill(selector: string, value: string) {
       const field = document.querySelector(selector) as
-        | { value: string; dispatchEvent(event: unknown): unknown }
+        | (Record<string, unknown> & {
+            tagName: string;
+            value?: string;
+            dispatchEvent(event: unknown): unknown;
+            querySelectorAll(selector: string): Iterable<Record<string, unknown>>;
+          })
         | null;
       if (!field) throw new Error(`No field matching ${selector}`);
       await act(async () => {
-        field.value = value;
+        if (field.tagName === "SELECT") {
+          // linkedom's select value is read-only; selecting the option is how
+          // a person changes one anyway.
+          for (const option of field.querySelectorAll("option"))
+            option.selected = option.value === value;
+        } else field.value = value;
+        // React remembers the last value it saw on the node and ignores an
+        // event when the node still matches it. An assignment updates that
+        // memory, so it is reset afterwards — which is what a keystroke
+        // effectively does.
+        const tracker = field._valueTracker as
+          | { setValue(value: string): void }
+          | undefined;
+        tracker?.setValue("ceremony-test-unset-sentinel");
         field.dispatchEvent(new window.Event("input", { bubbles: true }));
         field.dispatchEvent(new window.Event("change", { bubbles: true }));
+        // React decides at load time whether the browser has a usable `input`
+        // event. Under linkedom it decides no and watches key events instead,
+        // so a text field only reports a change when one arrives.
+        field.dispatchEvent(new window.Event("keyup", { bubbles: true }));
       });
     },
     async submit(selector = "form") {

@@ -147,7 +147,10 @@ export async function pipedreamAuthorize(
   mode: "authorize" | "reconnect",
 ): Promise<AuthorizationStart> {
   const { ctx, settings, config } = call;
-  if (intent.profileId !== undefined && intent.profileId !== PIPEDREAM_PROFILE_ID)
+  if (
+    intent.profileId !== undefined &&
+    intent.profileId !== PIPEDREAM_PROFILE_ID
+  )
     return { kind: "unsupported", code: "pipedream.profile.unknown" };
   if (ctx.connection) guardConnection(call);
   else if (mode === "reconnect")
@@ -177,7 +180,10 @@ export async function pipedreamAuthorize(
     requestedAccountId !== bound &&
     !intent.accountSwitch
   )
-    return { kind: "human-required", code: "pipedream.account.switch-required" };
+    return {
+      kind: "human-required",
+      code: "pipedream.account.switch-required",
+    };
 
   const origin = deploymentOrigin(ctx.environment.origin);
   const state = Buffer.from(ctx.environment.random.bytes(32)).toString(
@@ -258,7 +264,8 @@ export async function pipedreamAuthorize(
       kind: "connect-widget",
       presentation: "popup",
       expiresAt,
-      intent: mode === "reconnect" ? "pipedream.reconnect" : "pipedream.connect",
+      intent:
+        mode === "reconnect" ? "pipedream.reconnect" : "pipedream.connect",
       // The routing index holds a digest, not the token: correlation needs to
       // recognise a completion, not to be able to complete one.
       correlationKey: sha256Hex(data.token),
@@ -324,7 +331,8 @@ async function loadHandoff(
   const material = record.private;
   if (material.externalUserId !== call.externalUserId)
     throw denied("pipedream.external-user.mismatch");
-  if (material.app !== call.settings.app) throw denied("pipedream.app.mismatch");
+  if (material.app !== call.settings.app)
+    throw denied("pipedream.app.mismatch");
   if (
     material.environment !== call.config.environment ||
     material.projectId !== call.config.projectId
@@ -361,9 +369,7 @@ async function fetchAccount(
 ): Promise<AccountView | undefined> {
   const response = await call.client.send({
     method: "GET",
-    path: call.client.projectPath(
-      `/accounts/${encodePathSegment(accountId)}`,
-    ),
+    path: call.client.projectPath(`/accounts/${encodePathSegment(accountId)}`),
     timeoutMs: call.options.timeouts.read,
     consequential: false,
   });
@@ -380,10 +386,7 @@ function ownAccount(call: PipedreamCall, account: AccountView): boolean {
   );
 }
 
-function decideBound(
-  record: HandoffRecord,
-  account: AccountView,
-): Decision {
+function decideBound(record: HandoffRecord, account: AccountView): Decision {
   const bound = record.private.boundAccountId;
   if (bound && bound !== account.id && record.private.accountSwitch !== "true")
     return { kind: "switch-required" };
@@ -505,7 +508,11 @@ function completion(
   call: PipedreamCall,
   account: AccountView,
   observedAt: number,
-  extra: { credentialRef?: string; code?: string; state: "complete" | "human-required" },
+  extra: {
+    credentialRef?: string;
+    code?: string;
+    state: "complete" | "human-required";
+  },
 ): CompletionResult {
   return {
     state: extra.state,
@@ -631,7 +638,11 @@ export async function pipedreamComplete(
     : await decideByListing(call, record);
   switch (decision.kind) {
     case "pending":
-      return { state: "pending", claims: [], code: "pipedream.connect.pending" };
+      return {
+        state: "pending",
+        claims: [],
+        code: "pipedream.connect.pending",
+      };
     case "selection-required":
       return {
         state: "human-required",
@@ -658,7 +669,11 @@ export async function pipedreamVerify(
   const connection = guardConnection(call);
   const boundId = connection.externalIds.accountId;
   if (!connection.credentialRef || !boundId)
-    return { state: "pending", claims: [], code: "pipedream.connection.unbound" };
+    return {
+      state: "pending",
+      claims: [],
+      code: "pipedream.connection.unbound",
+    };
   const looked = await ctx.environment.credentials.use(
     connectionScope(ctx, "external-credential-broker"),
     connection.credentialRef,

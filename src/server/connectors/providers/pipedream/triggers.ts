@@ -51,6 +51,18 @@ const listInputSchema = z.strictObject({
 const invalid = (detail: string) =>
   new ConnectorError("invalid-request", { detail });
 
+/**
+ * A server-side failure of a write that reached the broker leaves the effect
+ * unknown: the trigger may exist. It is reported uncertain so the caller
+ * reconciles instead of deploying again.
+ */
+const writeFailure = (status: number): ConnectorError =>
+  status >= 500
+    ? new ConnectorError("indeterminate", {
+        detail: "pipedream.transport.lost",
+      })
+    : upstreamFailure(status);
+
 export type TriggerView = {
   id: string;
   componentKey: string | undefined;
@@ -236,7 +248,11 @@ async function deploy(
           at: ctx.environment.now(),
         });
       return {
-        ...deployResult(operation, existing, "pipedream.trigger.already-deployed"),
+        ...deployResult(
+          operation,
+          existing,
+          "pipedream.trigger.already-deployed",
+        ),
         effectRef: begun.effectRef,
       };
     }
@@ -263,7 +279,11 @@ async function deploy(
         at: ctx.environment.now(),
       });
       return {
-        ...deployResult(operation, existing, "pipedream.trigger.already-deployed"),
+        ...deployResult(
+          operation,
+          existing,
+          "pipedream.trigger.already-deployed",
+        ),
         effectRef: begun.effectRef,
       };
     }
@@ -296,7 +316,7 @@ async function deploy(
           consequential: true,
         });
         if (response.status < 200 || response.status >= 300)
-          throw upstreamFailure(response.status);
+          throw writeFailure(response.status);
         const data = expectJson(response, deployedTriggerEnvelopeSchema).data;
         const result = deployResult(operation, data);
         const signingKey = data.webhook_signing_key;
@@ -432,7 +452,10 @@ async function remove(
       // anyone else is simply not there to delete.
       const { items } = await listTriggers(call);
       const owned = items.find((item) => item.id === triggerId.data);
-      if (!owned || (owned.component_key ?? owned.component_id) !== componentKey)
+      if (
+        !owned ||
+        (owned.component_key ?? owned.component_id) !== componentKey
+      )
         return {
           ...meta,
           state: "failed",
@@ -454,8 +477,12 @@ async function remove(
           output: { deleted: triggerId.data },
         };
       if (response.status === 404)
-        return { ...meta, state: "complete", output: { deleted: triggerId.data } };
-      throw upstreamFailure(response.status);
+        return {
+          ...meta,
+          state: "complete",
+          output: { deleted: triggerId.data },
+        };
+      throw writeFailure(response.status);
     },
   );
 }
@@ -481,6 +508,20 @@ export async function pipedreamTriggerInvoke(
       detail: "pipedream.replay.unsupported",
     });
   return route.action === "deploy"
-    ? deploy(call, connection, operation, route.componentKey, request, commandId)
-    : remove(call, connection, operation, route.componentKey, request, commandId);
+    ? deploy(
+        call,
+        connection,
+        operation,
+        route.componentKey,
+        request,
+        commandId,
+      )
+    : remove(
+        call,
+        connection,
+        operation,
+        route.componentKey,
+        request,
+        commandId,
+      );
 }

@@ -101,6 +101,8 @@ export interface CustomConnectorReadResult {
   /** Bound-operation candidates for the dynamic operations; a reviewer approves them, importing does not. */
   dynamicOperations: BoundOperation[];
   verifierCandidate?: VerifierCandidate;
+  /** The test-connection operation as a bound-operation candidate, when one resolved. */
+  verifierOperation?: BoundOperation;
   /** Native ids a reviewer may bind: operations with no blocking diagnostic. */
   executableCandidates: string[];
   /** Native id to the codes blocking it, for the review screen. */
@@ -1463,6 +1465,7 @@ function compileDynamicOperations(
   fields: readonly DynamicFieldContract[],
   blocked: Record<string, string[]>,
   issues: IssueList,
+  destinationId: string,
 ): BoundOperation[] {
   const byRef = new Map<string, BoundOperation>();
   for (const field of fields) {
@@ -1497,11 +1500,12 @@ function compileDynamicOperations(
     byRef.set(field.operation.operationRef, {
       operationRef: field.operation.operationRef,
       nativeId: operation.nativeId,
-      destinationId: "api",
+      destinationId,
       transport: {
         kind: "http",
         method: operation.method,
-        pathTemplate: operation.path,
+        // Swagger 2.0 keys `paths` without `basePath`; the wire path is both.
+        pathTemplate: joinBasePath(walk.basePath, operation.path),
       },
       effect: readOnly ? "read" : "unknown",
       outputClassification: "personal",

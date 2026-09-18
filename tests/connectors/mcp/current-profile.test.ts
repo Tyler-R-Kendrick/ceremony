@@ -259,6 +259,25 @@ test("input_required suspends and resumes the same call, and the answers reach t
   );
 });
 
+test("headers a server suggests through annotations or _meta are ignored", async () => {
+  const outcome = await client().callTool({
+    name: "suggests_headers",
+    arguments: { text: "hi" },
+    effect: "read",
+  });
+  assert.equal(outcome.kind, "complete");
+  const report = await fixture.report();
+  const call = mcpRequests(report).find(
+    (entry) => (entry.body as { method?: string }).method === "tools/call",
+  );
+  assert.equal(call!.headers.authorization, `Bearer ${TOKEN}`, "the host's credential is unchanged");
+  assert.equal(
+    Object.keys(call!.headers).some((name) => name.startsWith("mcp-param-")),
+    false,
+    "a suggested parameter header is not invented",
+  );
+});
+
 test("an unsafe sampling request is reported, never answered", async () => {
   const outcome = await client().callTool({
     name: "needs_sampling",

@@ -96,6 +96,18 @@ function binding(overrides: Partial<RuntimeBinding> = {}): RuntimeBinding {
         targetParameters: [],
       },
       {
+        operationRef: "op:connect-elsewhere",
+        nativeId: "needs_url",
+        destinationId: "server",
+        transport: { kind: "mcp-tool", toolName: "needs_url" },
+        effect: "write",
+        outputClassification: "personal",
+        cost: "free",
+        consent: "confirm",
+        replay: "none",
+        targetParameters: [],
+      },
+      {
         operationRef: "op:sample",
         nativeId: "needs_sampling",
         destinationId: "server",
@@ -506,6 +518,37 @@ test("values that do not match the requested schema are refused before the retry
   );
   const report = await fixture.report();
   assert.equal(report.inputsSeen?.length ?? 0, 0);
+});
+
+test("a server-suggested URL is kept private, shown to nobody else and never fetched", async () => {
+  const h = await harness();
+  const started = await h.adapter.invoke!(h.ctx, {
+    operationRef: "op:connect-elsewhere",
+    input: {},
+    commandId: "c1",
+  });
+  assert.equal(started.state, "human-required");
+  const proposal = started.handoff!;
+  // An out-of-band interaction is a browser handoff for the initiating human.
+  assert.equal(proposal.kind, "provider-browser");
+  assert.equal(proposal.presentation, "popup");
+  assert.equal(proposal.private.url, `${fixture.origin}/out-of-band/connect`);
+  // The URL is private material: the model-visible result carries none of it.
+  assert.equal(JSON.stringify({ state: started.state, code: started.code, output: started.output }).includes("out-of-band"), false);
+  const { summary } = await h.ports.handoffs.issue({
+    ...proposal,
+    actor: h.ctx.actor,
+    connectionRef: h.connection.connectionRef,
+    bindingRef: h.connection.bindingRef,
+    generation: h.ctx.generation,
+  });
+  assert.equal(JSON.stringify(summary).includes("out-of-band"), false);
+  const report = await fixture.report();
+  assert.equal(
+    report.wire.some((entry) => entry.path.startsWith("/out-of-band")),
+    false,
+    "the client must not follow a URL a server suggested",
+  );
 });
 
 test("an implicit sampling request is denied and leaves no effect", async () => {

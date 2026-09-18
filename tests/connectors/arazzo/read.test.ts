@@ -518,12 +518,13 @@ test("AC-IMP-10 a recursive workflow input schema is preserved inertly without e
 
 test("display text is sanitized while identifiers keep their exact spelling", () => {
   const document = storeWorkflow101();
-  (document.info as Record<string, unknown>).title = "Store  ‮connection";
+  (document.info as Record<string, unknown>).title =
+    `Store${String.fromCharCode(0)} ${String.fromCharCode(0x202e)}connection`;
   const read = readArazzo(document);
   assert.equal(read.definition!.display.name, "Store   connection");
   assert.equal(
     read.document!.info.title,
-    "Store  ‮connection",
+    `Store${String.fromCharCode(0)} ${String.fromCharCode(0x202e)}connection`,
     "the preserved document keeps the exact bytes",
   );
 });

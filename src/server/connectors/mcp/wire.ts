@@ -564,10 +564,14 @@ export class SseParser {
       const frame = this.line(line);
       if (frame) frames.push(frame);
     }
-    if (final && this.buffer.length) {
-      const frame = this.line(this.buffer);
-      this.buffer = "";
-      if (frame) frames.push(frame);
+    if (final) {
+      // A server that closes without the final blank line still meant to send
+      // what it wrote; a truncated frame fails to parse as JSON anyway.
+      if (this.buffer.length) {
+        const frame = this.line(this.buffer);
+        this.buffer = "";
+        if (frame) frames.push(frame);
+      }
       const last = this.dispatch();
       if (last) frames.push(last);
     }

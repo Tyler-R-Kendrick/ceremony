@@ -31,8 +31,7 @@ export const pipedreamEndpoints = Object.freeze({
   proxy: "{METHOD} /v1/connect/{project_id}/proxy/{url_64}",
   runAction: "POST /v1/connect/{project_id}/actions/run",
   listComponents: "GET /v1/connect/{project_id}/components",
-  retrieveComponent:
-    "GET /v1/connect/{project_id}/components/{component_id}",
+  retrieveComponent: "GET /v1/connect/{project_id}/components/{component_id}",
   deployTrigger: "POST /v1/connect/{project_id}/triggers/deploy",
   listDeployedTriggers: "GET /v1/connect/{project_id}/deployed-triggers",
   getDeployedTrigger:

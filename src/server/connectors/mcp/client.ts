@@ -97,7 +97,12 @@ export type McpClientOptions = {
   profile: McpProfileId;
   compatibility?: McpCompatibilityMode;
   /** Exact MCP endpoint: origin and path, no query, fragment or userinfo. */
-  endpoint: string | URL;
+  endpoint?: string | URL;
+  /**
+   * The approved destination instead of a whole URL: an exact origin and the
+   * path the binding pinned. Exactly one of `endpoint` or `destination` is given.
+   */
+  destination?: { origin: string; endpointPath?: string };
   fetch: typeof fetch;
   auth: McpAuth;
   limits?: McpLimitsInput;
@@ -341,9 +346,17 @@ export interface McpClient {
 }
 
 export function createMcpClient(options: McpClientOptions): McpClient {
-  const endpoint = new URL(options.endpoint);
+  const located =
+    options.endpoint ??
+    (options.destination
+      ? new URL(options.destination.endpointPath ?? "/mcp", options.destination.origin)
+      : undefined);
+  if (!located) throw new ConnectorError("invalid-request", { detail: "mcp.endpoint.missing" });
+  const endpoint = new URL(located);
   if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
     throw new ConnectorError("invalid-request", { detail: "mcp.endpoint.invalid" });
+  if (options.destination && endpoint.origin !== new URL(options.destination.origin).origin)
+    throw new ConnectorError("network-policy", { detail: "mcp.endpoint.escaped-destination" });
   const limits = resolveLimits(options.limits);
   const now = options.now ?? Date.now;
   const compatibility = options.compatibility ?? "pinned";

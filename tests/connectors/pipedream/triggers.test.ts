@@ -131,32 +131,65 @@ test("deploying the same trigger twice does not create a second trigger", async 
   assert.equal(h.double.triggers.size, 2);
 });
 
-test("a deploy whose response is lost is reconciled instead of deployed again", async () => {
+test("a deploy whose response is lost is reconciled, not deployed again", async () => {
   const h = await harness({ adapter: { timeouts: { write: 60 } } });
   const { binding, connection } = await connected(h);
   const ctx = () => makeContext({ harness: h, binding, connection });
   h.double.faults.deployDelayMs = 400;
 
+  // The broker created the trigger and the response never arrived.
   const lost = await h.adapter.invoke!(ctx(), deployRequest("cmd-lost"));
-  assert.equal(lost.state, "indeterminate");
-  assert.equal(lost.code, "pipedream.trigger.indeterminate");
+  assert.equal(h.double.triggers.size, 1);
+  assert.equal(lost.state, "complete");
   assert.equal(
-    h.double.triggers.size,
-    1,
-    "the broker did create the trigger before the response was lost",
+    lost.code,
+    "pipedream.trigger.reconciled",
+    "the trigger the lost call created is found rather than made twice",
   );
+  assert.equal(h.double.deployCalls.length, 1);
 
   h.double.faults.deployDelayMs = 0;
-  const reconciled = await h.adapter.invoke!(ctx(), deployRequest("cmd-lost"));
-  assert.equal(reconciled.state, "complete");
-  assert.equal(reconciled.code, "pipedream.trigger.reconciled");
-  assert.equal(h.double.deployCalls.length, 1, "no second deploy was sent");
+  const again = await h.adapter.invoke!(ctx(), deployRequest("cmd-lost-2"));
+  assert.equal(again.state, "complete");
+  assert.equal(again.code, "pipedream.trigger.already-deployed");
+  assert.equal(h.double.deployCalls.length, 1);
   assert.equal(h.double.triggers.size, 1);
+
+  const journal = h.ports.inspect
+    .effects()
+    .filter((entry) => entry.intent.operation === "pipedream.trigger.deploy");
+  assert.equal(journal.length, 1, "both attempts are one effect");
+  assert.equal(journal[0]!.outcome?.status, "reconciled");
+});
+
+test("a deploy that cannot be reconciled stays uncertain rather than retrying", async () => {
+  const h = await harness();
+  const { binding, connection } = await connected(h);
+  const ctx = () => makeContext({ harness: h, binding, connection });
+  // The broker answers a server error: it may or may not have created it.
+  h.double.faults.deployStatus = 503;
+
+  const uncertain = await h.adapter.invoke!(ctx(), deployRequest("cmd-503"));
+  assert.equal(uncertain.state, "indeterminate");
+  assert.equal(uncertain.code, "pipedream.trigger.indeterminate");
+  assert.equal(h.double.triggers.size, 0);
+
+  // Even with the broker healthy again, the uncertain effect is not repeated
+  // behind the caller's back: it needs reconciliation, not a retry.
+  h.double.faults.deployStatus = undefined;
+  const repeat = await h.adapter.invoke!(ctx(), deployRequest("cmd-503-again"));
+  assert.equal(repeat.state, "indeterminate");
+  assert.equal(h.double.triggers.size, 0);
+  assert.equal(
+    h.double.deployCalls.length,
+    0,
+    "the broker was never asked to deploy a second time",
+  );
   const journal = h.ports.inspect
     .effects()
     .filter((entry) => entry.intent.operation === "pipedream.trigger.deploy");
   assert.equal(journal.length, 1);
-  assert.equal(journal[0]!.outcome?.status, "reconciled");
+  assert.equal(journal[0]!.outcome?.status, "indeterminate");
 });
 
 test("a binding without an approved webhook destination cannot deploy", async () => {
@@ -274,13 +307,16 @@ test("a delivery is an event only when it carries the documented signature", asy
     trigger: { id: string };
     delivery: { signingKeyRef: string };
   };
-  const signingKey = h.double.triggers.get(output.trigger.id)!
-    .webhook_signing_key!;
+  const signingKey = h.double.triggers.get(
+    output.trigger.id,
+  )!.webhook_signing_key!;
   // The command layer records the reference on the connection.
   const receiving = {
     ...connection,
     state: {
-      pipedreamTriggerKeys: { [output.trigger.id]: output.delivery.signingKeyRef },
+      pipedreamTriggerKeys: {
+        [output.trigger.id]: output.delivery.signingKeyRef,
+      },
     },
   };
   const ctx = () => makeContext({ harness: h, binding, connection: receiving });

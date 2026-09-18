@@ -91,6 +91,11 @@ function toolsFor(token: string) {
       inputSchema: { type: "object", properties: { repo: { type: "string" } } },
     },
     {
+      name: "needs_url",
+      description: "Sends the person somewhere out of band before it can finish.",
+      inputSchema: { type: "object", additionalProperties: false },
+    },
+    {
       name: "needs_sampling",
       description: "Wants the client to run a model for it.",
       inputSchema: { type: "object", additionalProperties: false },
@@ -520,6 +525,28 @@ const server = createServer(async (req, res) => {
             },
           },
         );
+        return;
+      }
+
+      if (name === "needs_url") {
+        send(res, 200, {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            resultType: "input_required",
+            inputRequests: {
+              connect_account: {
+                method: "elicitation/create",
+                params: {
+                  mode: "url",
+                  url: `${origin}/out-of-band/connect`,
+                  message: "Please finish connecting your account.",
+                },
+              },
+            },
+            requestState: "url-state",
+          },
+        });
         return;
       }
 
