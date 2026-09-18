@@ -213,6 +213,9 @@ for (const surface of ["document", "navigator"] as const)
         ok: true,
         state: { provider: "github", status: "active" },
       });
+      // This one fills the connection's own field, so it needs the drawer;
+      // the rail it finishes on is behind the drawer's scrim until it closes.
+      await page.keyboard.press("Escape");
       await page
         .getByRole("button", { name: "Workflow studio", exact: true })
         .click();
@@ -270,7 +273,7 @@ async function call(
   return result ? JSON.parse(result) : null;
 }
 async function mount(page: Page, connectorId = "github") {
-  await page.goto("/?mode=test&connector=github");
+  await page.goto("/?mode=test");
   await expect.poll(() => names(page)).toContain("ceremony_github_read");
   await page.evaluate(
     async ({ entry, connectorId }) => {

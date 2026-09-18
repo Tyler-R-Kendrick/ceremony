@@ -553,7 +553,16 @@ function App() {
   );
   return (
     <>
-      {tab === "connect" && connectSurface}
+      {/*
+       * The studio comes first, and the order is load-bearing rather than
+       * cosmetic. It and the connection both register `ceremony_author_*`
+       * under the same names, and a second registration of a name already
+       * taken is refused — so whichever mounts first owns them. With the
+       * connection first, the studio's registration was refused and aborted
+       * its own lifetime, and leaving Connect then took the names away with
+       * the connection, leaving an authoring surface with no authoring tools.
+       * Hidden either way; only the effect order changes.
+       */}
       <div className="app-shell" hidden={tab === "connect"}>
         <header className="site-header">
           <a href="/" className="brand">
@@ -626,6 +635,7 @@ function App() {
           <span>Ceremony / 0.1</span>
         </footer>
       </div>
+      {tab === "connect" && connectSurface}
     </>
   );
 }
