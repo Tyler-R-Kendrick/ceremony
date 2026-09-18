@@ -118,6 +118,51 @@ for (const command of commands) {
       // Inventory failure must not prevent retaining the original failed stage.
       record.failedTestFiles = [];
     }
+    /*
+     * Say which gate was missed and by how much.
+     *
+     * This stage fails for two quite different reasons -- a test failed, or
+     * every test passed and a coverage threshold was not met -- and the counts
+     * alone cannot tell them apart. Reported as "FAIL (3261 passed, 0 failed)"
+     * it reads like a contradiction, and finding out which metric fell short
+     * meant re-running the whole stage somewhere else. The measurement is
+     * already on disk by the time the thresholds are enforced, so print it: the
+     * percentages, the gates they are compared against, and the shortfall.
+     *
+     * Percentages only, from the summary the run just wrote. Nothing here
+     * reaches into diagnostics, which is the one thing this script must not
+     * retain.
+     */
+    try {
+      const summary = coverageTotals(
+        JSON.parse(
+          readFileSync("artifacts/coverage/coverage-summary.json", "utf8"),
+        ),
+      );
+      const script =
+        JSON.parse(readFileSync("package.json", "utf8")).scripts?.[command] ??
+        "";
+      let missed = false;
+      for (const metric of ["lines", "statements", "branches", "functions"]) {
+        const pct = summary[metric]?.pct;
+        const gate = new RegExp(`--${metric}\\s+([0-9.]+)`).exec(script)?.[1];
+        if (pct === undefined || gate === undefined) continue;
+        const short = pct < Number(gate);
+        missed ||= short;
+        console.log(
+          `  ${metric}: ${pct} against a gate of ${gate}` +
+            (short ? ` -- short by ${(Number(gate) - pct).toFixed(2)}` : ""),
+        );
+      }
+      if (!missed)
+        console.log(
+          "  Every coverage gate is met, so this stage failed on a test rather than on coverage.",
+        );
+    } catch {
+      console.log(
+        "  No coverage summary was written, so this stage failed before the gates were reached.",
+      );
+    }
   }
   if (command === "test:e2e" && record.exitCode === 0) {
     try {
