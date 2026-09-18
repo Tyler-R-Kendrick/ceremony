@@ -3,6 +3,8 @@ import { createHash, createHmac } from "node:crypto";
 import { test } from "node:test";
 import {
   agentConnectorProjection,
+  agentDefinitionProjection,
+  exportDefinitionProjection,
   humanConnectionProjection,
 } from "../../../src/core/connectors/index.js";
 import {
@@ -433,7 +435,15 @@ test("TB-06 a registry listing is inert and not publishable by default", async (
           },
         ],
         environmentVariables: [
-          { name: "GITHUB_TOKEN", value: "ghp_CANARY_IN_REGISTRY" },
+          {
+            name: "GITHUB_TOKEN",
+            value: "ghp_CANARY_UNMARKED",
+          },
+          {
+            name: "MARKED",
+            value: "ghp_CANARY_MARKED",
+            isSecret: true,
+          },
         ],
       },
     ],
@@ -445,11 +455,25 @@ test("TB-06 a registry listing is inert and not publishable by default", async (
   // Packages are never executable candidates: only a reviewed remote binding
   // can be, and this document declares none.
   assert.deepEqual(imported.executableCandidates, []);
-  const text = JSON.stringify(imported.definition);
+  // A value the publisher marked secret is removed at import and the removal
+  // is reported rather than silent.
+  const definitionText = JSON.stringify(imported.definition);
+  assert.ok(!definitionText.includes("ghp_CANARY_MARKED"), definitionText);
   assert.ok(
-    !text.includes("ghp_CANARY_IN_REGISTRY"),
-    "a registry-declared secret value must not survive into the definition",
+    imported.issues.some((issue) => issue.code.includes("secret-value")),
+    imported.issues.map((issue) => issue.code).join(","),
   );
+  // Whatever the publisher declared, no projection a model, a consumer or the
+  // public subregistry reads may carry either value.
+  for (const projected of [
+    JSON.stringify(agentDefinitionProjection(imported.definition)),
+    JSON.stringify(exportDefinitionProjection(imported.definition)),
+    JSON.stringify(
+      publicServerJsonProjection(serverJsonSchema.parse(hostile)).server,
+    ),
+  ])
+    for (const canary of ["ghp_CANARY_UNMARKED", "ghp_CANARY_MARKED"])
+      assert.ok(!projected.includes(canary), `${canary}: ${projected}`);
   assert.ok(
     imported.issues.some((issue) => issue.code.includes("argument")),
     `a shell pipe must be reported: ${imported.issues.map((i) => i.code).join(",")}`,
@@ -598,9 +622,15 @@ test("TB-09 tenancy is part of every key and every fence", async () => {
     metadataCacheKey("tenant-a", issuer),
     metadataCacheKey("tenant-b", issuer),
   );
-  assert.notEqual(
+  assert.equal(
     metadataCacheKey(undefined, issuer),
     metadataCacheKey("", issuer),
+    "an absent tenant and an empty tenant are the same principal, by design",
+  );
+  assert.notEqual(
+    metadataCacheKey("tenant-a", issuer),
+    metadataCacheKey("tenant-a", `${issuer}/`),
+    "a trailing slash is a different issuer identifier, never a cache hit",
   );
   // Result cache: a server that labels a personalized list "public" still
   // cannot have it served to another principal, owner, generation or

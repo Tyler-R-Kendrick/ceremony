@@ -56,3 +56,8 @@ src/plugins/impeccable-live.client.ts
 .nitro/
 .workflow-data/
 .workflow-vitest/
+
+# Ad-hoc verification scratch scripts written by agents during development.
+# These carry absolute paths and are not part of the project; keep them out of
+# commits. Durable checks belong in tests/.
+/.probe/

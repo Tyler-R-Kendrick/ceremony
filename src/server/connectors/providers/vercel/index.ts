@@ -43,7 +43,13 @@ export {
   type WorkloadCredential,
   type WorkloadTokenSource,
 } from "./credentials.js";
-export { callVercel, operationPath, operationUrl } from "./client.js";
+export {
+  callVercel,
+  operationPath,
+  operationUrl,
+  requestTimeoutMs,
+  VERCEL_REQUEST_TIMEOUT_MS,
+} from "./client.js";
 export {
   acquireToken,
   connectionState,

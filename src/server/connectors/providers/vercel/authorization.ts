@@ -31,7 +31,7 @@ import {
   callVercel,
   operationUrl,
   readBounded,
-  VERCEL_REQUEST_TIMEOUT_MS,
+  requestTimeoutMs,
 } from "./client.js";
 import {
   connectAuthorizeResponseSchema,
@@ -1573,7 +1573,7 @@ export async function invokeProviderOperation(
         redirect: "error",
         signal: AbortSignal.any([
           ctx.signal,
-          AbortSignal.timeout(VERCEL_REQUEST_TIMEOUT_MS),
+          AbortSignal.timeout(requestTimeoutMs(ctx)),
         ]),
       });
     });

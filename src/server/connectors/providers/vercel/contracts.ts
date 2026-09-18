@@ -662,6 +662,8 @@ export const vercelSettingsSchema = z
       })
       .optional(),
     revocation: z.enum(["unsupported", "sdk-observed-endpoint"]).optional(),
+    /** Per-request bound for calls to Vercel; raise it behind a slow egress proxy. */
+    requestTimeoutMs: z.number().int().min(1_000).max(120_000).optional(),
   })
   .refine(
     (settings) => Object.hasOwn(settings.profiles, settings.defaultProfile),

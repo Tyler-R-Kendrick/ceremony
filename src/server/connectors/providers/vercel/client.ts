@@ -11,6 +11,7 @@ import {
   upstreamFailure,
   vercelConnectOperationTable,
   vercelDestinationIds,
+  vercelSettingsSchema,
   type VercelCredentialRole,
   type VercelOperationId,
 } from "./contracts.js";
@@ -26,6 +27,14 @@ import { withBearer, type RoleCredential } from "./credentials.js";
  */
 
 export const VERCEL_REQUEST_TIMEOUT_MS = 15_000;
+
+/** The binding's approved per-request bound, or the default. */
+export function requestTimeoutMs(ctx: AdapterCallContext): number {
+  const parsed = vercelSettingsSchema.safeParse(ctx.binding.settings["vercel"]);
+  return parsed.success
+    ? (parsed.data.requestTimeoutMs ?? VERCEL_REQUEST_TIMEOUT_MS)
+    : VERCEL_REQUEST_TIMEOUT_MS;
+}
 export const VERCEL_RESPONSE_LIMIT_BYTES = 1_048_576;
 
 export type VercelCall<T> = {
@@ -176,7 +185,7 @@ export async function callVercel<T>(
           redirect: "error",
           signal: AbortSignal.any([
             ctx.signal,
-            AbortSignal.timeout(VERCEL_REQUEST_TIMEOUT_MS),
+            AbortSignal.timeout(requestTimeoutMs(ctx)),
           ]),
         });
       } catch (error) {

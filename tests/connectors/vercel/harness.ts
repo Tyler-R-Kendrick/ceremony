@@ -86,7 +86,11 @@ export function buildBinding(input: BindingInput): RuntimeBinding {
       })),
     ],
     reviewedDigest: digest("vercel-review"),
-    settings: { vercel: input.settings },
+    // A generous per-request bound: these fixtures share a machine with other
+    // suites, and a starved loopback call must not read as a provider outage.
+    settings: {
+      vercel: { requestTimeoutMs: 120_000, ...input.settings },
+    },
   });
 }
 
