@@ -16,8 +16,8 @@ One record per external specification, standards draft or vendor document that a
 
 - Records: 67, pinned 2026-09-18.
 - Ledgers this lock claims to cover completely: COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 73.
-- Cited identifiers with no lock record: 6 (`docker-mcp-catalog-v2`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`).
+- Source profile identifiers cited by the ledgers on disk: 77.
+- Cited identifiers with no lock record: 10 (`aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `docker-mcp-catalog-v2`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
@@ -32,6 +32,10 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 | CATALOGS | `pulsemcp-v0beta` | no — pinned after this lock |
 | CATALOGS | `smithery-connect-2026-09` | no — pinned after this lock |
 | CATALOGS | `smithery-registry-2026-09` | no — pinned after this lock |
+| CLOUD | `aws-agentcore-control-2023-06-05` | no — pinned after this lock |
+| CLOUD | `aws-agentcore-gateway-mcp-2026-07-28` | no — pinned after this lock |
+| CLOUD | `google-connectors-v1-20260907` | no — pinned after this lock |
+| CLOUD | `google-connectors-v2-20260907` | no — pinned after this lock |
 | MICROSOFT | `microsoft-custom-connector-2026-06` | no — pinned after this lock |
 
 ## Records

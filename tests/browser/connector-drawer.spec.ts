@@ -13,8 +13,6 @@ import { startConnectorHarness } from "../connectors/ux/harness-server.js";
  * this flow wanted.
  */
 
-test.describe.configure({ mode: "serial" });
-
 test("focus enters the drawer, stays inside it, and returns to the card", async ({
   page,
 }) => {
@@ -116,10 +114,12 @@ test("inline validation and the intent controls are announced, not only coloured
     await drawer.getByRole("button", { name: "Connect Petstore" }).click();
     // A field whose options depend on another says so before it is reached.
     await expect(drawer.getByText("Choose region first")).toBeVisible();
-    await drawer.getByLabel("Region").selectOption("eu");
-    await expect(drawer.getByLabel("Project")).toBeEnabled();
-    await expect(drawer.getByLabel("Project")).toContainText("EU main");
-    const secret = drawer.getByLabel("Petstore API key");
+    await drawer.getByLabel("Region (required)").selectOption("eu");
+    await expect(drawer.getByLabel("Project (required)")).toBeEnabled();
+    await expect(drawer.getByLabel("Project (required)")).toContainText(
+      "EU main",
+    );
+    const secret = drawer.getByLabel("Petstore API key (required)");
     await expect(secret).toHaveAttribute("type", "password");
     await expect(drawer).toContainText("replaced by a reference");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);

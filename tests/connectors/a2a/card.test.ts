@@ -69,7 +69,11 @@ const card03 = (overrides: Record<string, unknown> = {}) => ({
   url: "https://legacy.example/a2a",
   preferredTransport: "JSONRPC",
   additionalInterfaces: [
-    { url: "https://legacy.example/grpc", transport: "GRPC", protocolVersion: "0.3" },
+    {
+      url: "https://legacy.example/grpc",
+      transport: "GRPC",
+      protocolVersion: "0.3",
+    },
   ],
   capabilities: { streaming: false },
   securitySchemes: {
@@ -79,7 +83,12 @@ const card03 = (overrides: Record<string, unknown> = {}) => ({
   defaultInputModes: ["text/plain"],
   defaultOutputModes: ["text/plain"],
   skills: [
-    { id: "translate", name: "Translate", description: "Translates text.", tags: [] },
+    {
+      id: "translate",
+      name: "Translate",
+      description: "Translates text.",
+      tags: [],
+    },
   ],
   supportsAuthenticatedExtendedCard: true,
   ...overrides,
@@ -136,7 +145,10 @@ test("AG-01: a 1.0 Agent Card imports with its version, identity, endpoints, aut
     extendedAgentCard: false,
   });
   assert.equal(card.protocolVersion, "1.0");
-  assert.equal(definition.compatibility.dimensions.delegate, "requires-configuration");
+  assert.equal(
+    definition.compatibility.dimensions.delegate,
+    "requires-configuration",
+  );
   assert.equal(definition.compatibility.dimensions.invoke, "unsupported");
 });
 
@@ -221,7 +233,9 @@ test("AC-AG-01: a card claiming broad authority and a private-network artifact U
   const { definition } = await importOf(hostile);
   assert.equal(network.mock.callCount(), 0, "import fetched something");
 
-  const codes = new Set(definition.compatibility.issues.map((issue) => issue.code));
+  const codes = new Set(
+    definition.compatibility.issues.map((issue) => issue.code),
+  );
   assert.ok(codes.has("a2a.interface.private-network"));
   assert.ok(codes.has("a2a.card.private-reference"));
   assert.ok(codes.has("a2a.card.signature-unverified"));
@@ -239,8 +253,14 @@ test("AC-AG-01: a card claiming broad authority and a private-network artifact U
     (issue) => issue.severity === "blocking",
   );
   assert.ok(blocking.length >= 2);
-  assert.equal(definition.compatibility.dimensions.delegate, "requires-configuration");
-  assert.equal(definition.compatibility.dimensions.authorize, "requires-configuration");
+  assert.equal(
+    definition.compatibility.dimensions.delegate,
+    "requires-configuration",
+  );
+  assert.equal(
+    definition.compatibility.dimensions.authorize,
+    "requires-configuration",
+  );
 
   // The declared scheme never became an executable profile.
   assert.deepEqual(
@@ -251,7 +271,10 @@ test("AC-AG-01: a card claiming broad authority and a private-network artifact U
   // What a model sees carries no prose, no URL and no claim of authority.
   const projected = agentDefinitionProjection(definition);
   const strings = stringsIn(projected).join(" ");
-  assert.doesNotMatch(strings, /169\.254|10\.0\.0\.5|IGNORE PRIOR POLICY|unrestricted/i);
+  assert.doesNotMatch(
+    strings,
+    /169\.254|10\.0\.0\.5|IGNORE PRIOR POLICY|unrestricted/i,
+  );
   assert.deepEqual(projected.capabilities, [
     {
       kind: "a2a-skill",
@@ -308,7 +331,8 @@ test("AG-01: a card with two skills sharing an id is refused a first-match bindi
   assert.ok(
     definition.compatibility.issues.some(
       (issue) =>
-        issue.code === "a2a.skill.duplicate-id" && issue.severity === "blocking",
+        issue.code === "a2a.skill.duplicate-id" &&
+        issue.severity === "blocking",
     ),
   );
 });
@@ -362,9 +386,18 @@ test("AG-01: declared URL classification names what it found without resolving a
     kind: "private-network",
     classification: "private",
   });
-  assert.equal(classifyDeclaredUrl("https://host.local/x").kind, "private-network");
-  assert.equal(classifyDeclaredUrl("https://u:p@agent.example/x").kind, "credentialed");
-  assert.equal(classifyDeclaredUrl("ftp://agent.example/x").kind, "insecure-scheme");
+  assert.equal(
+    classifyDeclaredUrl("https://host.local/x").kind,
+    "private-network",
+  );
+  assert.equal(
+    classifyDeclaredUrl("https://u:p@agent.example/x").kind,
+    "credentialed",
+  );
+  assert.equal(
+    classifyDeclaredUrl("ftp://agent.example/x").kind,
+    "insecure-scheme",
+  );
   assert.equal(classifyDeclaredUrl("not a url").kind, "not-a-url");
 });
 

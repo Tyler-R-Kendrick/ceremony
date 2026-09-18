@@ -39,7 +39,9 @@ const stringsIn = (value: unknown, out: string[] = []): string[] => {
 
 function deps(
   overrides: Partial<AgentConnectorDependencies> = {},
-  record: { calls: Array<{ name: string; actor: ActorContext; input: unknown }> } = {
+  record: {
+    calls: Array<{ name: string; actor: ActorContext; input: unknown }>;
+  } = {
     calls: [],
   },
 ): AgentConnectorDependencies & { calls: typeof record.calls } {
@@ -119,7 +121,10 @@ test("AG-03: all seven intents exist, are named once and do not collide with the
   // The five this module adds to the existing MCP server take no name the
   // MCP swarm already registered.
   for (const name of agentConnectorToolNames)
-    assert.ok(!(connectorServerToolNames as readonly string[]).includes(name), name);
+    assert.ok(
+      !(connectorServerToolNames as readonly string[]).includes(name),
+      name,
+    );
   assert.equal(agentConnectorToolNames.length, 5);
 });
 
@@ -150,7 +155,9 @@ test("AG-03: list and status project connections through agentConnectorProjectio
   });
   assert.deepEqual(status, connection);
   assert.deepEqual(
-    await intents.get("status")!.run(fixtureActor, { connectionRef: "connection:9" }),
+    await intents
+      .get("status")!
+      .run(fixtureActor, { connectionRef: "connection:9" }),
     { connection: "not-found" },
   );
 });
@@ -168,7 +175,13 @@ test("AG-03: inspect projects definitions through agentDefinitionProjection and 
     ],
     nativeExtensions: { note: canaries.secret },
   });
-  const intents = intentsOf(deps({ async definition() { return hostile; } }));
+  const intents = intentsOf(
+    deps({
+      async definition() {
+        return hostile;
+      },
+    }),
+  );
   const inspected = (await intents.get("inspect")!.run(fixtureActor, {
     definitionRef: "definition:petstore",
   })) as Record<string, unknown>;
@@ -247,7 +260,9 @@ test("AG-03: disconnect reports shared impact as a count, never as other people'
 });
 
 test("AG-03: an intent argument can never name a tenant, a subject, a session or an unknown field", async () => {
-  const record = { calls: [] as Array<{ name: string; actor: ActorContext; input: unknown }> };
+  const record = {
+    calls: [] as Array<{ name: string; actor: ActorContext; input: unknown }>,
+  };
   const intents = intentsOf(deps({}, record));
   for (const [name, input] of [
     ["status", { connectionRef: "connection:1", tenantId: "tenant-b" }],
@@ -256,7 +271,10 @@ test("AG-03: an intent argument can never name a tenant, a subject, a session or
     ["connect", { bindingRef: "binding:petstore", ownerKind: "organization" }],
     ["connect", { bindingRef: "https://evil.invalid/callback" }],
     ["reconnect", { connectionRef: "connection:1", expectedRevision: 0 }],
-    ["disconnect", { connectionRef: "connection:1", expectedRevision: 3, scope: "upstream" }],
+    [
+      "disconnect",
+      { connectionRef: "connection:1", expectedRevision: 3, scope: "upstream" },
+    ],
     ["inspect", { definitionRef: "../../etc/passwd" }],
   ] as const) {
     const before = record.calls.length;
@@ -264,12 +282,16 @@ test("AG-03: an intent argument can never name a tenant, a subject, a session or
     assert.equal(record.calls.length, before, `${name} reached the service`);
   }
   // The actor is passed through from the transport, never from the argument.
-  await intents.get("status")!.run(fixtureActor, { connectionRef: "connection:1" });
+  await intents
+    .get("status")!
+    .run(fixtureActor, { connectionRef: "connection:1" });
   assert.equal(record.calls.at(-1)?.actor, fixtureActor);
 });
 
 test("AG-03: an invalid tool prefix is refused rather than sanitized", () => {
-  assert.throws(() => createAgentConnectorIntents(deps(), { prefix: "bad prefix" }));
+  assert.throws(() =>
+    createAgentConnectorIntents(deps(), { prefix: "bad prefix" }),
+  );
   assert.throws(() => createAgentConnectorIntents(deps(), { prefix: "" }));
   assert.deepEqual(
     createAgentConnectorIntents(deps(), { prefix: "ceremony_connector" })

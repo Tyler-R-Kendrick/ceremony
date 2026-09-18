@@ -264,14 +264,20 @@ export class A2aClient {
     if (this.options.profile === A2A_PROFILE_1_0) {
       // 1.0 wraps the one-of in a member name.
       if (value.task !== undefined)
-        return { kind: "task", task: readTask(this.options.profile, value.task) };
+        return {
+          kind: "task",
+          task: readTask(this.options.profile, value.task),
+        };
       if (value.message !== undefined)
         return { kind: "message", parts: value.message };
       throw new ConnectorError("upstream-rejected", {
         detail: "a2a.response.unrecognized",
       });
     }
-    if (value.kind === "task" || (value.status !== undefined && value.id !== undefined))
+    if (
+      value.kind === "task" ||
+      (value.status !== undefined && value.id !== undefined)
+    )
       return { kind: "task", task: readTask(this.options.profile, value) };
     if (value.kind === "message") return { kind: "message", parts: value };
     throw new ConnectorError("upstream-rejected", {
@@ -292,10 +298,13 @@ export class A2aClient {
   }
 
   async cancelTask(input: { id: string }): Promise<A2aTaskView> {
-    const result = await this.call(jsonRpcMethods[this.options.profile].cancel, {
-      id: input.id,
-      ...(this.options.tenant ? { tenant: this.options.tenant } : {}),
-    });
+    const result = await this.call(
+      jsonRpcMethods[this.options.profile].cancel,
+      {
+        id: input.id,
+        ...(this.options.tenant ? { tenant: this.options.tenant } : {}),
+      },
+    );
     return readTask(this.options.profile, result);
   }
 
@@ -337,6 +346,9 @@ export class A2aClient {
       throw new ConnectorError("upstream-rejected", {
         detail: "a2a.card.status",
       });
-    return readBounded(response, Math.min(this.options.maxResponseBytes, A2A_LIMITS.cardBytes));
+    return readBounded(
+      response,
+      Math.min(this.options.maxResponseBytes, A2A_LIMITS.cardBytes),
+    );
   }
 }

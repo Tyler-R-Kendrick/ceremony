@@ -38,6 +38,8 @@ Then add `https://your-tunnel.trycloudflare.com/mcp` as a connector in your chat
 | `ceremony_advance`    | Advance one step, at the revision you last read                                               |
 | `ceremony_cancel`     | Cancel a run; this does not revoke access an earlier ceremony already granted                 |
 
+Four further tools — `connector_catalog`, `connector_status`, `connector_connect` and `connector_invoke` — are registered only when the host passes the optional `connectors` option to `createCeremonyMcpHandler`. The reference application does not, so a chat client pointed at it sees the five tools above and no more.
+
 `ceremony_connectors` reports `privateCollection`, which tells a client where credential entry happens: `in-chat` when the collector is mounted, `web-application-only` when it is not. That is not cosmetic — a client that assumes the wrong one will either ask for a credential where it cannot be collected, or offer to collect one in a place that is not carrying it.
 
 ## What is not wired yet

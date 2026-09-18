@@ -176,7 +176,9 @@ export async function resolveTaskHandle(
 ): Promise<ResolvedTask> {
   const parsed = taskRefSchema.safeParse(reference);
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "a2a.task.reference" });
+    throw new ConnectorError("invalid-request", {
+      detail: "a2a.task.reference",
+    });
   const ctx = resolved.ctx;
   const record = await ctx.environment.handoffs.resolveCorrelation(
     ctx.actor.tenantId,
@@ -204,7 +206,9 @@ export async function resolveTaskHandle(
     record,
     taskRef: parsed.data,
     taskId,
-    ...(record.private.contextId ? { contextId: record.private.contextId } : {}),
+    ...(record.private.contextId
+      ? { contextId: record.private.contextId }
+      : {}),
     skillId,
   };
 }
@@ -346,13 +350,20 @@ function stateToResult(state: A2aTaskState): InvokeResult["state"] {
 function priorResult(
   operation: BoundOperation,
   prior: EffectOutcome,
-  base: { outputClassification: InvokeResult["outputClassification"]; effect: InvokeResult["effect"] },
+  base: {
+    outputClassification: InvokeResult["outputClassification"];
+    effect: InvokeResult["effect"];
+  },
 ): InvokeResult | undefined {
   if (operation.replay === "read-only") return undefined;
   if (prior.status === "applied" || prior.status === "reconciled")
     return { ...base, state: "complete", code: "a2a.effect.already-applied" };
   if (prior.status === "indeterminate")
-    return { ...base, state: "indeterminate", code: "a2a.effect.indeterminate" };
+    return {
+      ...base,
+      state: "indeterminate",
+      code: "a2a.effect.indeterminate",
+    };
   return undefined;
 }
 
@@ -371,7 +382,11 @@ export async function delegateA2a(
   };
 
   if (request.action === "status") {
-    const handle = await resolveTaskHandle(resolved, connection, request.taskRef);
+    const handle = await resolveTaskHandle(
+      resolved,
+      connection,
+      request.taskRef,
+    );
     if (handle.skillId !== skill.skillId)
       throw new ConnectorError("denied", { detail: "a2a.task.skill-mismatch" });
     const task = await resolved.client.getTask({
@@ -390,7 +405,9 @@ export async function delegateA2a(
   const text =
     request.action === "cancel"
       ? ""
-      : delegateTextSchema.parse(request.input).text.slice(0, skill.maxInputChars);
+      : delegateTextSchema
+          .parse(request.input)
+          .text.slice(0, skill.maxInputChars);
   if (request.action !== "cancel" && text.length === 0)
     throw new ConnectorError("invalid-request", { detail: "a2a.input.empty" });
 
@@ -444,7 +461,10 @@ export async function delegateA2a(
 
   try {
     if (request.action === "cancel") {
-      if (!handle) throw new ConnectorError("invalid-request", { detail: "a2a.task.reference" });
+      if (!handle)
+        throw new ConnectorError("invalid-request", {
+          detail: "a2a.task.reference",
+        });
       const task = await resolved.client.cancelTask({ id: handle.taskId });
       await settleHandle(resolved, handle, task.state);
       await finish("applied", "a2a.task.cancel-requested");
@@ -471,17 +491,28 @@ export async function delegateA2a(
         ...withRef,
         state: "complete",
         code: "a2a.message.no-task",
-        output: { taskRef: handle?.taskRef ?? "", state: "completed", artifacts: [] },
+        output: {
+          taskRef: handle?.taskRef ?? "",
+          state: "completed",
+          artifacts: [],
+        },
       };
     }
     const taskRef = handle
       ? handle.taskRef
       : await issueTaskHandle(resolved, connection, sent.task, skill);
-    if (handle && taskReferenceFor(resolved.authority, sent.task.id) !== handle.taskRef) {
+    if (
+      handle &&
+      taskReferenceFor(resolved.authority, sent.task.id) !== handle.taskRef
+    ) {
       // A continuation that comes back about a different task is a routing
       // failure, not a result: nothing about the caller's task is known now.
       await finish("indeterminate", "a2a.task.identity-drift");
-      return { ...withRef, state: "indeterminate", code: "a2a.task.identity-drift" };
+      return {
+        ...withRef,
+        state: "indeterminate",
+        code: "a2a.task.identity-drift",
+      };
     }
     await settleHandle(resolved, handle, sent.task.state);
     await finish("applied", `a2a.task.${sent.task.state}`);
@@ -506,10 +537,7 @@ export async function delegateA2a(
       }
       // The request may have reached the agent. A delegation is not a read,
       // so a lost response is uncertain rather than a failure to retry.
-      if (
-        error.code === "upstream-unavailable" ||
-        error.code === "cancelled"
-      ) {
+      if (error.code === "upstream-unavailable" || error.code === "cancelled") {
         await finish("indeterminate", "a2a.transport.lost-response");
         return {
           ...withRef,
@@ -518,7 +546,11 @@ export async function delegateA2a(
         };
       }
       await finish("failed", error.detail ?? "a2a.upstream.error");
-      return { ...withRef, state: "failed", code: error.detail ?? "a2a.upstream.error" };
+      return {
+        ...withRef,
+        state: "failed",
+        code: error.detail ?? "a2a.upstream.error",
+      };
     }
     await finish("failed", "a2a.upstream.error");
     return { ...withRef, state: "failed", code: "a2a.upstream.error" };
@@ -563,7 +595,9 @@ export async function retrieveA2aArtifact(
   const connection = requireConnection(ctx);
   const retrieval = resolved.settings.artifactRetrieval;
   if (!retrieval.enabled)
-    throw new ConnectorError("unsupported", { detail: "a2a.artifact.disabled" });
+    throw new ConnectorError("unsupported", {
+      detail: "a2a.artifact.disabled",
+    });
   approvalSchema.parse(input.approval);
   const handle = await resolveTaskHandle(resolved, connection, input.taskRef);
   const task = await resolved.client.getTask({
@@ -587,7 +621,8 @@ export async function retrieveA2aArtifact(
     });
   const destination = ctx.binding.destinations.find(
     (item) =>
-      item.id === (retrieval.destinationId ?? resolved.settings.agent.destinationId),
+      item.id ===
+      (retrieval.destinationId ?? resolved.settings.agent.destinationId),
   );
   if (!destination || destination.origin !== url.origin)
     throw new ConnectorError("network-policy", {
@@ -630,7 +665,8 @@ export async function retrieveA2aArtifact(
       detail: "a2a.artifact.too-large",
     });
   return {
-    mediaType: response.headers.get("content-type") ?? "application/octet-stream",
+    mediaType:
+      response.headers.get("content-type") ?? "application/octet-stream",
     byteLength: buffer.byteLength,
     digest: createHash("sha256").update(buffer).digest("hex"),
     bytes: buffer,

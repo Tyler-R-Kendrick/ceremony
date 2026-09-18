@@ -95,24 +95,35 @@ const stringProperty = (description?: string): JsonSchema => ({
  */
 const intentSchemas: Readonly<Record<AgentIntentName, JsonSchema>> =
   Object.freeze({
-    list: { type: "object", additionalProperties: false, properties: {}, required: [] },
+    list: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+      required: [],
+    },
     inspect: {
       type: "object",
       additionalProperties: false,
-      properties: { definitionRef: stringProperty("An imported connector description.") },
+      properties: {
+        definitionRef: stringProperty("An imported connector description."),
+      },
       required: ["definitionRef"],
     },
     status: {
       type: "object",
       additionalProperties: false,
-      properties: { connectionRef: stringProperty("One of this person's connections.") },
+      properties: {
+        connectionRef: stringProperty("One of this person's connections."),
+      },
       required: ["connectionRef"],
     },
     connect: {
       type: "object",
       additionalProperties: false,
       properties: {
-        bindingRef: stringProperty("An approved binding from the connector catalog."),
+        bindingRef: stringProperty(
+          "An approved binding from the connector catalog.",
+        ),
         accountSwitch: {
           type: "boolean",
           description:
@@ -227,9 +238,10 @@ export function createConnectorWebmcpTools(
             throw new Error("Invalid input");
           // Parsed here so a malformed call fails in the page rather than
           // travelling; the server parses it again and is the authority.
-          const parsed = agentIntentInputs[intent].parse(
-            input ?? {},
-          ) as Record<string, unknown>;
+          const parsed = agentIntentInputs[intent].parse(input ?? {}) as Record<
+            string,
+            unknown
+          >;
           const result = await dispatch({ intent, input: parsed, signal });
           return { ok: true, ...(result as object) };
         } catch {

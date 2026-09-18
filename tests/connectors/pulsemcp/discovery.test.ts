@@ -654,10 +654,14 @@ test("integrations are listed as PulseMCP documents them", async () => {
   }
 });
 
-test("catalog-only support stays visible in the capability rows", async () => {
+test("the catalog boundary stays visible in the capability rows", async () => {
   const { double, adapter } = await harness();
   try {
-    assert.equal(adapter.support, "catalog-only");
+    // provider-backed, because this adapter really implements discovery and
+    // import; the contract reserves catalog-only for implementing nothing.
+    // The catalog boundary is reported per dimension instead, which the
+    // assertions below check.
+    assert.equal(adapter.support, "provider-backed");
     const rows = adapter.capabilities(new Set());
     const native = rows.find(
       (row) =>

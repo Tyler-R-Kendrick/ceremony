@@ -13,7 +13,11 @@ import {
   createA2aAdapter,
   type A2aAdapter,
 } from "../../../src/server/connectors/providers/a2a/index.js";
-import { fixtureActor, memoryPorts, type MemoryPorts } from "../doubles/ports.js";
+import {
+  fixtureActor,
+  memoryPorts,
+  type MemoryPorts,
+} from "../doubles/ports.js";
 import {
   startA2aAgentDouble,
   type A2aDouble,
@@ -117,7 +121,8 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
         name: agentName,
         cardVersion: overrides.cardVersion ?? "2.3.1",
         profile,
-        protocolVersion: overrides.protocolVersion ?? (profile === "a2a-1.0" ? "1.0" : "0.3"),
+        protocolVersion:
+          overrides.protocolVersion ?? (profile === "a2a-1.0" ? "1.0" : "0.3"),
         destinationId: "agent",
         rpcPath: overrides.rpcPath ?? "/a2a/v1",
       },
@@ -249,7 +254,8 @@ export async function harness(
         actor: overrides.actor ?? fixtureActor,
         binding: overrides.binding ?? binding,
         ...(overrides.connection ? { connection: overrides.connection } : {}),
-        generation: overrides.generation ?? overrides.connection?.generation ?? 0,
+        generation:
+          overrides.generation ?? overrides.connection?.generation ?? 0,
         signal: overrides.signal ?? new AbortController().signal,
         environment: ports.environment({ fetch: overrides.fetch ?? fetch }),
       };

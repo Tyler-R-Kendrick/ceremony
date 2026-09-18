@@ -35,7 +35,12 @@ export type A2aDoubleOptions = {
   rpcPath?: string;
   agentName?: string;
   agentVersion?: string;
-  skills?: Array<{ id: string; name: string; description?: string; tags?: string[] }>;
+  skills?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    tags?: string[];
+  }>;
   /** What each skill does when a task is started for it. */
   script?: Record<string, SkillScript>;
   /** Absolute URL the "artifact-url" script points at; defaults to a private address. */
@@ -78,7 +83,11 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
   const agentName = options.agentName ?? "Fixture Agent";
   const agentVersion = options.agentVersion ?? "2.3.1";
   const skills = options.skills ?? [
-    { id: "summarize", name: "Summarize", description: "Summarizes a document." },
+    {
+      id: "summarize",
+      name: "Summarize",
+      description: "Summarizes a document.",
+    },
   ];
   const script = options.script ?? {};
   const violations: string[] = [];
@@ -206,7 +215,9 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
         ...(profile === "0.3" ? { kind: "message" } : {}),
         messageId: `${record.id}-auth`,
         role: profile === "1.0" ? "ROLE_AGENT" : "agent",
-        parts: [textPart("Authorize access to the document store to continue.")],
+        parts: [
+          textPart("Authorize access to the document store to continue."),
+        ],
       };
     return {
       ...(profile === "0.3" ? { kind: "task" } : {}),
@@ -226,7 +237,9 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
     const value = message as Record<string, unknown>;
     const expectedRole = profile === "1.0" ? "ROLE_USER" : "user";
     if (value.role !== expectedRole)
-      note(`message.role must be ${expectedRole}, received ${String(value.role)}`);
+      note(
+        `message.role must be ${expectedRole}, received ${String(value.role)}`,
+      );
     if (typeof value.messageId !== "string" || !value.messageId)
       note("message.messageId is required");
     if (profile === "1.0" && "kind" in value)
@@ -263,7 +276,10 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
     if (profile === "1.0") {
       if ("blocking" in value)
         note("A2A 1.0 replaced blocking with returnImmediately");
-      if ("returnImmediately" in value && typeof value.returnImmediately !== "boolean")
+      if (
+        "returnImmediately" in value &&
+        typeof value.returnImmediately !== "boolean"
+      )
         note("returnImmediately must be a boolean");
     } else {
       if ("returnImmediately" in value)
@@ -288,7 +304,10 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
   });
 
   const fixture = await startHttpFixture((request) => {
-    if (request.method === "GET" && request.url.pathname === "/.well-known/agent-card.json") {
+    if (
+      request.method === "GET" &&
+      request.url.pathname === "/.well-known/agent-card.json"
+    ) {
       cardRequests.push(request);
       return { status: 200, body: card() };
     }
@@ -300,7 +319,10 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
       note("JSON-RPC requests declare content-type application/json");
     let envelope: Record<string, unknown>;
     try {
-      envelope = JSON.parse(request.body.toString("utf8")) as Record<string, unknown>;
+      envelope = JSON.parse(request.body.toString("utf8")) as Record<
+        string,
+        unknown
+      >;
     } catch {
       return rpcError(null, -32700, "Invalid JSON payload");
     }
@@ -320,8 +342,16 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
       if (message.taskId) {
         const existing = tasks.get(message.taskId);
         if (!existing) return rpcError(envelope.id, -32001, "Task not found");
-        if (["completed", "failed", "canceled", "rejected"].includes(existing.state))
-          return rpcError(envelope.id, -32004, "This operation is not supported");
+        if (
+          ["completed", "failed", "canceled", "rejected"].includes(
+            existing.state,
+          )
+        )
+          return rpcError(
+            envelope.id,
+            -32004,
+            "This operation is not supported",
+          );
         existing.turns++;
         existing.state = "completed";
         return rpcResult(
@@ -366,17 +396,21 @@ export async function startA2aAgentDouble(options: A2aDoubleOptions) {
     }
 
     if (method === expected.get) {
-      if (typeof params.id !== "string") return rpcError(envelope.id, -32602, "Invalid parameters");
+      if (typeof params.id !== "string")
+        return rpcError(envelope.id, -32602, "Invalid parameters");
       const record = tasks.get(params.id);
       if (!record) return rpcError(envelope.id, -32001, "Task not found");
       return rpcResult(envelope.id, taskBody(record));
     }
 
     if (method === expected.cancel) {
-      if (typeof params.id !== "string") return rpcError(envelope.id, -32602, "Invalid parameters");
+      if (typeof params.id !== "string")
+        return rpcError(envelope.id, -32602, "Invalid parameters");
       const record = tasks.get(params.id);
       if (!record) return rpcError(envelope.id, -32001, "Task not found");
-      if (["completed", "failed", "canceled", "rejected"].includes(record.state))
+      if (
+        ["completed", "failed", "canceled", "rejected"].includes(record.state)
+      )
         return rpcError(envelope.id, -32002, "Task cannot be canceled");
       record.state = "canceled";
       return rpcResult(envelope.id, taskBody(record));

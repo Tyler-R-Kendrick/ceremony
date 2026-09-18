@@ -293,11 +293,11 @@ test("reconnect requires explicit account-switch intent", async () => {
 
     const checkbox = view.query(
       "[data-connector-reconnect] input[type='checkbox']",
-    );
+    ) as unknown as { checked: boolean } | null;
     assert.ok(checkbox);
+    // A checkbox reports its state on the click, so the state comes first.
+    checkbox.checked = true;
     await view.clickElement(checkbox as never);
-    (checkbox as unknown as { checked: boolean }).checked = true;
-    await view.fill("[data-connector-reconnect] input[type='checkbox']", "on");
     await view.click("Start reconnect");
     await view.waitFor(() => lifecycle(view) === "human-required");
     const reconnects = fixture.requests.filter((item) =>

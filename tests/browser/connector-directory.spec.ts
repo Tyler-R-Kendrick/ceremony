@@ -14,8 +14,6 @@ import { startConnectorHarness } from "../connectors/ux/harness-server.js";
  * server, reads something with it, reconnects and unlinks.
  */
 
-test.describe.configure({ mode: "serial" });
-
 test("the application opens on the directory, and only a connector link opens the drawer", async ({
   page,
 }) => {
@@ -52,15 +50,16 @@ test("AC-UX-06: the directory separates implementation, configuration and eviden
     await expect(
       page.locator('[data-connector-entry="github-via-broker"]'),
     ).toContainText("Local fixture");
-    await expect(
-      page.locator('[data-connector-entry="vercel-connect"]'),
-    ).toContainText("Needs configuration");
-    await expect(
-      page.locator('[data-connector-entry="vercel-connect"]'),
-    ).toContainText("VERCEL_TEAM_ID");
+    // The rows that say what this deployment cannot do are a facet away.
+    await page.getByLabel("Support level").selectOption("unconfigured");
+    const unconfigured = page.locator('[data-connector-entry="vercel-connect"]');
+    await expect(unconfigured).toContainText("Needs configuration");
+    await expect(unconfigured).toContainText("VERCEL_TEAM_ID");
+    await page.getByLabel("Support level").selectOption("catalog-only");
     await expect(
       page.locator('[data-connector-entry="smithery-registry"]'),
     ).toContainText("Described only");
+    await page.getByLabel("Support level").selectOption("");
 
     // Search reaches rows the current page has not rendered.
     await page.getByLabel("Search connectors").fill("Sample 26");

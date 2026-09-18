@@ -109,7 +109,12 @@ export function createSmitheryRegistryAdapter(
     description:
       "Reads Smithery's server catalog: qualified names, namespaces, declared configuration and tools, as descriptions only.",
     service: "smithery",
-    support: "catalog-only",
+    // Reports provider-backed, not catalog-only: this adapter really does
+    // implement discovery and import against its source, and the contract
+    // defines catalog-only as implementing nothing. The dimensions it does
+    // not implement are marked unsupported individually, which is the honest
+    // shape. Matches the precedent set by the official registry adapter.
+    support: "provider-backed",
     custody: ["no-credential"],
     configuration: [
       {

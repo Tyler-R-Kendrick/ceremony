@@ -70,18 +70,22 @@ test("AC-MCP-03 / AC-STATE-02: a lost response leaves an uncertain effect, and t
     "qa-lost-1",
   );
   assert.equal(
-    first.state,
+    first.error,
     "indeterminate",
-    "a truncated answer is uncertain, not a failure",
+    "a truncated answer is uncertain, not a failure and not a success",
   );
   assert.equal(
-    harness.provider.writeCount("lost-response"),
+    harness.provider.received("POST", "/v1/items").length,
     1,
     "the effect really did happen upstream",
   );
   const journal = harness.ports.inspect
     .effects()
-    .filter((entry) => entry.intent.commandId === "qa-lost-1");
+    .filter(
+      (entry) =>
+        entry.intent.operation === "connector.invoke" &&
+        entry.intent.commandId === "qa-lost-1",
+    );
   assert.equal(journal.length, 1, "intent was journaled before the call");
   assert.equal(journal[0]!.outcome?.status, "indeterminate");
 
@@ -94,11 +98,22 @@ test("AC-MCP-03 / AC-STATE-02: a lost response leaves an uncertain effect, and t
     "qa-lost-1",
   );
   assert.equal(
-    harness.provider.writeCount("lost-response"),
+    harness.provider.received("POST", "/v1/items").length,
     1,
     "no blind replay of a mutation whose outcome is unknown",
   );
   assert.notEqual(repeat.state, "complete");
+  assert.equal(
+    harness.ports.inspect
+      .effects()
+      .filter(
+        (entry) =>
+          entry.intent.operation === "connector.invoke" &&
+          entry.intent.commandId === "qa-lost-1",
+      ).length,
+    1,
+    "and no second effect was journaled",
+  );
 });
 
 test("AC-STATE-01: two concurrent workers issuing one command produce one upstream effect", async (t) => {
@@ -112,15 +127,22 @@ test("AC-STATE-01: two concurrent workers issuing one command produce one upstre
     confirmedWrite(harness, connectionRef, writeRef, "once", "qa-race-1"),
   ]);
   assert.equal(
-    harness.provider.writeCount("once"),
+    harness.provider.received("POST", "/v1/items").length,
     1,
-    "the effect journal collapses the duplicate command",
+    "the effect journal collapses the duplicate command into one upstream write",
   );
   const completed = [a, b].filter((result) => result.state === "complete");
-  assert.ok(completed.length >= 1, "at least one caller learns the outcome");
+  assert.equal(completed.length, 1, "exactly one caller applied the effect");
+  const loser = [a, b].find((result) => result.state !== "complete");
+  assert.ok(loser, "the other caller did not also report success");
+  assert.equal(loser.replayed, true, "it was told the command was a replay");
   const journal = harness.ports.inspect
     .effects()
-    .filter((entry) => entry.intent.commandId === "qa-race-1");
+    .filter(
+      (entry) =>
+        entry.intent.operation === "connector.invoke" &&
+        entry.intent.commandId === "qa-race-1",
+    );
   assert.equal(journal.length, 1, "one journal entry, not two");
 });
 

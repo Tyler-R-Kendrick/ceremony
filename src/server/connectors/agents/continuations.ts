@@ -36,15 +36,16 @@ export type ContinuationIntent = (typeof continuationIntents)[number];
 export type Capability = ActorContext["capabilities"][number];
 
 /** What each intent needs from the host's current grant, not from the caller's claim. */
-export const intentCapability: Readonly<Record<ContinuationIntent, Capability>> =
-  Object.freeze({
-    read: "executor",
-    connect: "executor",
-    operate: "executor",
-    delegate: "executor",
-    disconnect: "executor",
-    administer: "admin",
-  });
+export const intentCapability: Readonly<
+  Record<ContinuationIntent, Capability>
+> = Object.freeze({
+  read: "executor",
+  connect: "executor",
+  operate: "executor",
+  delegate: "executor",
+  disconnect: "executor",
+  administer: "admin",
+});
 
 export type ObservedRevisions = {
   generation?: number | undefined;

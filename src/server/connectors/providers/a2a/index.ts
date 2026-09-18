@@ -133,13 +133,19 @@ export function createA2aAdapter(options: A2aAdapterOptions = {}): A2aAdapter {
     profiles: [A2A_PROFILE_1_0, A2A_PROFILE_0_3],
     capabilities(present) {
       const configured = present.has(A2A_CONFIGURATION_NAMES.credential);
-      const configuration = configured ? ("ready" as const) : ("missing" as const);
+      const configuration = configured
+        ? ("ready" as const)
+        : ("missing" as const);
       const row = (
         dimension: CapabilityStatus["dimension"],
         input: Partial<
           Pick<
             CapabilityStatus,
-            "implementation" | "configuration" | "limitations" | "evidence" | "profile"
+            | "implementation"
+            | "configuration"
+            | "limitations"
+            | "evidence"
+            | "profile"
           >
         > = {},
       ) => {

@@ -48,7 +48,8 @@ export function authorizeA2a(
         kind: "unsupported" as const,
         code: "a2a.owner.unsupported",
       };
-    if (resolved.settings.security.kind === "none") return { kind: "verify" as const };
+    if (resolved.settings.security.kind === "none")
+      return { kind: "verify" as const };
     const name = resolved.settings.security.configurationName;
     const present = await ctx.environment.configuration.present([name]);
     if (!present.has(name))
@@ -90,7 +91,9 @@ export async function verifyA2a(
   const bytes = await resolved.client.fetchCard(A2A_WELL_KNOWN_CARD_PATH);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
   } catch {
     return { state: "denied", claims: [], code: "a2a.card.not-json" };
   }
@@ -157,7 +160,9 @@ export async function verifyA2a(
           "The agent served its card to this deployment's credential; it did not report a scope.",
         ],
         permissions: {
-          requested: resolved.settings.approvedSkills.map((skill) => skill.skillId),
+          requested: resolved.settings.approvedSkills.map(
+            (skill) => skill.skillId,
+          ),
           reported: [],
           observed: [],
           semantics: "operations",
@@ -231,7 +236,11 @@ export async function disconnectA2a(
 }
 
 export async function revokeA2a(): Promise<DisconnectResult> {
-  return { local: "not-attempted", broker: "unsupported", upstream: "unsupported" };
+  return {
+    local: "not-attempted",
+    broker: "unsupported",
+    upstream: "unsupported",
+  };
 }
 
 export const a2aOwnerKindSchema = z.enum(["user", "organization"]);

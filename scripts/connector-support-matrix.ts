@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
+import { requiredWorkItems } from "./connector-evidence.js";
 
 /*
  * Generates the public connector support matrix, the human-readable source
@@ -127,11 +128,25 @@ export function loadLedgers(): { ledgers: Ledger[]; problems: string[] } {
   for (const name of readdirSync(ledgerDirectory).sort()) {
     if (!name.endsWith(".json")) continue;
     try {
-      const parsed = ledgerSchema.safeParse(
-        JSON.parse(readFileSync(join(ledgerDirectory, name), "utf8")),
+      const raw: unknown = JSON.parse(
+        readFileSync(join(ledgerDirectory, name), "utf8"),
       );
-      if (parsed.success) ledgers.push(parsed.data);
-      else problems.push(`ledger/${name}: does not match the ledger shape`);
+      const parsed = ledgerSchema.safeParse(raw);
+      if (!parsed.success) {
+        problems.push(`ledger/${name}: does not match the ledger shape`);
+        continue;
+      }
+      // A ledger with no `workItems` array cannot be joined to the charter's
+      // required items at all, so its requirements read as undelivered. That
+      // is reported rather than silently treated as an empty delivery.
+      if (
+        !Array.isArray((raw as Record<string, unknown>)["workItems"]) &&
+        parsed.data.workItems.length === 0
+      )
+        problems.push(
+          `ledger/${name}: no \`workItems\` array, so its requirements cannot be joined and are reported as having no ledger entry`,
+        );
+      ledgers.push(parsed.data);
     } catch {
       problems.push(`ledger/${name}: unreadable JSON`);
     }
@@ -671,6 +686,66 @@ function loadReport(): Report | null {
   }
 }
 
+/** One required work item, joined to the ledger that delivered it (or to nothing). */
+type Joined = {
+  id: string;
+  swarm: string;
+  status: "implemented" | "partial" | "unmet" | "not-delivered";
+  files: string[];
+  tests: string[];
+  acceptanceIds: string[];
+  evidenceLevel: string;
+  sourceProfileIds: string[];
+  limitations: string[];
+};
+
+/**
+ * Joins every required work item in the charter to the ledger entry that
+ * claims it. An item nobody delivered is reported `not-delivered`, not
+ * omitted: that is the whole point of listing requirements rather than
+ * listing what happened to be done.
+ */
+export function joinRequirements(ledgers: Ledger[]): Joined[] {
+  const delivered = new Map<
+    string,
+    { swarm: string; item: z.infer<typeof ledgerItemSchema> }
+  >();
+  for (const ledger of ledgers)
+    for (const item of ledger.workItems)
+      delivered.set(item.id, { swarm: ledger.swarm, item });
+  const joined: Joined[] = [];
+  for (const [swarm, ids] of Object.entries(requiredWorkItems))
+    for (const id of ids) {
+      const match = delivered.get(id);
+      if (!match) {
+        joined.push({
+          id,
+          swarm,
+          status: "not-delivered",
+          files: [],
+          tests: [],
+          acceptanceIds: [],
+          evidenceLevel: "not-tested",
+          sourceProfileIds: [],
+          limitations: ["No ledger entry was produced for this work item."],
+        });
+        continue;
+      }
+      joined.push({
+        id,
+        swarm,
+        status: match.item.status,
+        files: match.item.files,
+        tests: match.item.tests,
+        acceptanceIds: match.item.acceptanceIds,
+        evidenceLevel: match.item.evidenceLevel,
+        sourceProfileIds: match.item.sourceProfileIds,
+        limitations: match.item.limitations,
+      });
+    }
+  return joined;
+}
+
 export function renderEvidenceReport(input: {
   lock: SourceLock;
   ledgers: Ledger[];
@@ -680,18 +755,22 @@ export function renderEvidenceReport(input: {
   report: Report | null;
 }): string {
   const report = input.report;
-  const requirements = report?.requirements ?? [];
-  const unmet = report?.unmetRequirements ?? [];
-  const suites = report?.suites ?? [];
-  const blocked = requirements.flatMap((requirement) =>
-    requirement.checks
-      .filter((check) => check.result === "blocked")
-      .map((check) => ({
-        id: requirement.id,
-        swarm: requirement.swarm,
-        command: check.command,
-        reason: check.reason ?? "blocked",
-      })),
+  const suites = new Map(
+    (report?.suites ?? []).map((suite) => [suite.file, suite]),
+  );
+  const joined = joinRequirements(input.ledgers);
+  const notDelivered = joined.filter((item) => item.status === "not-delivered");
+  const partial = joined.filter(
+    (item) => item.status === "partial" || item.status === "unmet",
+  );
+  const blockedPattern = /\blive\b|\bblocked\b|credential|authorized account/i;
+  const blocked = joined.flatMap((item) =>
+    item.limitations
+      .filter(
+        (limitation) =>
+          blockedPattern.test(limitation) && item.status !== "not-delivered",
+      )
+      .map((limitation) => ({ id: item.id, swarm: item.swarm, limitation })),
   );
   const security = input.ledgers.flatMap((ledger) =>
     ledger.securityFindings.map((finding) => ({
@@ -704,108 +783,158 @@ export function renderEvidenceReport(input: {
       (effect) => `${ledger.swarm}: ${effect}`,
     ),
   );
+  const recordedTests = joined.flatMap((item) =>
+    item.tests.map((file) => ({ item: item.id, file, suite: suites.get(file) })),
+  );
+  const withResults = recordedTests.filter((entry) => entry.suite);
   const lines: string[] = [
     "# Connector interoperability: implementation evidence report",
     "",
-    "Status: **generated**. Do not edit this file. `node --import tsx scripts/connector-support-matrix.ts` writes it from the swarm ledgers, the source lock, the registered adapters and the machine-readable report that `npm run evidence:connectors` produces.",
+    "Status: **generated**. Do not edit this file. `node --import tsx scripts/connector-support-matrix.ts` writes it from the swarm ledgers, the charter's required work items, the source lock, the registered adapters and whatever machine-readable run `npm run evidence:connectors` last recorded.",
     "",
-    "This report joins requirements to files, to test commands, to results, to pinned sources and to blocked live prerequisites. It complements [README.md](README.md) and [report.json](report.json), which `scripts/connector-evidence.ts` generates from a recorded JUnit run; this document adds the source lock, the adapter inventory and a narrative of what is **not** done.",
+    "It complements [README.md](README.md) and [report.json](report.json), which `scripts/connector-evidence.ts` produces from a JUnit-recorded run. Requirement status here is read from the ledgers **at generation time**, so it does not go stale when a ledger lands after the last recorded test run; test results still come only from that recorded run, and the section below says when it was taken.",
     "",
     "## The honest summary first",
     "",
     "- **No live or vendor-certified evidence exists anywhere in this work.** There are no authorized vendor credentials in this environment. Every adapter's evidence is `unit`, `protocol-fixture` or `local-integration` against loopback doubles written from published documentation. A double that enforces a documented contract is good evidence of wire correctness and no evidence at all about a real account.",
     "- **Forwarded-delivery verification for Vercel Connect triggers is deliberately incomplete.** Vercel's documentation states that Connect signs the request it forwards and publishes a per-connector signing key, but does not publish the outbound header name or algorithm. `verifyForwardedDelivery` therefore takes the forwarder's verifier as an injected dependency, and the verifier used in tests is a stand-in — not a claim about Vercel's wire format.",
+    "- **One provider's webhook verification uses a separate signing key.** Nango's `X-Nango-Hmac-Sha256` is an HMAC-SHA256 over the raw body keyed with the environment **webhook signing key**, which is a different secret from the Environment API key; the legacy plain-digest `X-Nango-Signature` is documented as not to be used and is ignored even when it is correct.",
     "- **Several providers document no pagination for particular list endpoints.** Nango's `GET /integrations` and Supabase's `GET /v1/organizations` and `GET /v1/projects` are the recorded cases. Those adapters window one bounded response and report the absence as a discover issue rather than inventing page parameters.",
     "- **The MCP registry adapter reports `provider-backed`, not `catalog-only`.** It genuinely implements discovery, import and export against a registry. The catalog-only boundary is reported per dimension instead: every execution dimension is `unsupported` with the limitation \"execution requires an MCP binding\".",
     "",
+    "## Requirement coverage",
+    "",
+    `- Required work items in the charter: ${joined.length}.`,
+    `- Delivered with a ledger entry: ${joined.length - notDelivered.length}.`,
+    `- Implemented: ${joined.filter((item) => item.status === "implemented").length}. Partial or unmet: ${partial.length}. No ledger entry at all: ${notDelivered.length}.`,
+    `- Ledgers read: ${input.ledgers.length} (${input.ledgers.map((ledger) => ledger.swarm).join(", ")}).`,
+    "",
   ];
-  if (report) {
+  if (report)
     lines.push(
-      "## Recorded run",
+      "## Recorded test run",
       "",
-      `- Generated: ${report.generatedAt ?? "unknown"}`,
+      `- Recorded: ${report.generatedAt ?? "unknown"}`,
       `- Tested commit: \`${report.git?.testedCommit ?? "unknown"}\``,
       `- Environment: ${JSON.stringify(report.environment ?? {})}`,
-      `- Test files recorded: ${suites.length}; passed ${suites.reduce((sum, suite) => sum + suite.passed, 0)}, failed ${suites.reduce((sum, suite) => sum + suite.failed, 0)}, skipped ${suites.reduce((sum, suite) => sum + suite.skipped, 0)}`,
+      `- Test files in that run: ${suites.size}; passed ${[...suites.values()].reduce((sum, suite) => sum + suite.passed, 0)}, failed ${[...suites.values()].reduce((sum, suite) => sum + suite.failed, 0)}, skipped ${[...suites.values()].reduce((sum, suite) => sum + suite.skipped, 0)}`,
+      `- Ledger-named test files covered by that run: ${withResults.length} of ${recordedTests.length}.`,
+      "",
+      withResults.length < recordedTests.length
+        ? `**This run is older than the ledgers.** ${recordedTests.length - withResults.length} test files named by a ledger have no result in it, so their rows below read \`not in the recorded run\`. Re-run \`npm run evidence:connectors\` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.`
+        : "Every test file a ledger names has a result in that run.",
       "",
     );
-  } else {
+  else
     lines.push(
-      "## Recorded run",
+      "## Recorded test run",
       "",
-      "No `report.json` was found. Run `npm run evidence:connectors` to record one; this document then joins it. Until then the requirement table below is empty and that absence is the finding.",
+      "No `report.json` was found. Run `npm run evidence:connectors` to record one; this document then joins it. Until then every test row reads `not in the recorded run`, and that absence is the finding.",
       "",
     );
-  }
   lines.push(
-    "## Unmet and partial requirements",
+    "## Requirements with no ledger entry",
     "",
-    "Named directly. A swarm that produced no ledger entry for a required work item has not delivered it, and it is listed here rather than folded into a claim that every swarm completed.",
+    "Named directly. These are required work items nobody delivered. They are listed here rather than folded into a claim that every swarm completed.",
     "",
   );
-  if (unmet.length === 0)
-    lines.push(
-      report
-        ? "- No unmet or partial requirement is recorded in the current report."
-        : "- Not computed: no report.json.",
-      "",
-    );
+  if (notDelivered.length === 0)
+    lines.push("- Every required work item has a ledger entry.", "");
   else {
-    lines.push("| Item | Swarm | Why |", "| --- | --- | --- |");
-    for (const item of unmet)
+    lines.push("| Item | Swarm |", "| --- | --- |");
+    for (const item of notDelivered)
+      lines.push(`| ${item.id} | ${item.swarm} |`);
+    lines.push("");
+  }
+  lines.push("## Partial and unmet requirements", "");
+  if (partial.length === 0) lines.push("- None recorded.", "");
+  else {
+    lines.push("| Item | Swarm | Status | Why |", "| --- | --- | --- | --- |");
+    for (const item of partial)
       lines.push(
-        `| ${item.id} | ${item.swarm} | ${item.reason.replace(/\|/g, "/").slice(0, 400)} |`,
+        `| ${item.id} | ${item.swarm} | ${item.status} | ${(item.limitations.join("; ") || "see the ledger").replace(/\|/g, "/").slice(0, 400)} |`,
       );
     lines.push("");
   }
   lines.push(
     "## Blocked live prerequisites",
     "",
-    "Each of these is fail-closed and stays `blocked`. None is relabelled as a fixture pass.",
+    "Each of these stays `blocked` and fails closed. None is relabelled as a fixture pass, and `verify:live` and `verify:release` will keep reporting them until the exact prerequisite exists.",
     "",
   );
   if (blocked.length === 0) lines.push("- None recorded.", "");
   else {
-    lines.push("| Item | Swarm | Command | Exact prerequisite |", "| --- | --- | --- | --- |");
+    lines.push(
+      "| Item | Swarm | Exact prerequisite |",
+      "| --- | --- | --- |",
+    );
     for (const item of blocked)
       lines.push(
-        `| ${item.id} | ${item.swarm} | \`${item.command}\` | ${item.reason.replace(/\|/g, "/").slice(0, 300)} |`,
+        `| ${item.id} | ${item.swarm} | ${item.limitation.replace(/\|/g, "/").slice(0, 320)} |`,
       );
     lines.push("");
   }
-  lines.push("## Requirements, files, tests and results", "");
-  if (requirements.length === 0) lines.push("Not computed: no report.json.", "");
-  else {
+  lines.push(
+    "## Requirements, files, tests, results and pinned sources",
+    "",
+    "One row per required work item. `Result` is `pass`, `fail` or `not in the recorded run`, taken from the recorded JUnit counts and never from a ledger's own claim.",
+    "",
+    "| Item | Swarm | Status | Evidence | Files | Acceptance | Pinned sources | Tests (result) |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  );
+  for (const item of joined) {
+    const tests = item.tests.map((file) => {
+      const suite = suites.get(file);
+      const outcome = !suite
+        ? "not in the recorded run"
+        : suite.failed > 0
+          ? `fail ${suite.failed}`
+          : suite.passed > 0
+            ? `pass ${suite.passed}`
+            : "no cases";
+      return `\`${file}\` (${outcome})`;
+    });
     lines.push(
-      "| Item | Swarm | Status | Evidence | Files | Test commands | Pass/fail |",
-      "| --- | --- | --- | --- | --- | --- | --- |",
+      `| ${item.id} | ${item.swarm} | ${item.status} | ${item.evidenceLevel} | ${item.files.length} | ${item.acceptanceIds.join(", ") || "—"} | ${item.sourceProfileIds.map((id) => `\`${id}\``).join(", ") || "—"} | ${tests.join("<br>") || "none"} |`,
     );
-    for (const requirement of requirements) {
-      const checks = requirement.checks.filter(
-        (check) => check.result !== "blocked",
-      );
-      const pass = checks.filter((check) => check.result === "pass").length;
-      const fail = checks.filter((check) => check.result === "fail").length;
-      lines.push(
-        `| ${requirement.id} | ${requirement.swarm} | ${requirement.implementationStatus} | ${requirement.checks[0]?.evidenceLevel ?? "not-tested"} | ${requirement.files.length} | ${checks.length ? checks.map((check) => `\`${check.testId}\``).join("<br>") : "none"} | ${pass}/${fail} |`,
-      );
-    }
-    lines.push("");
   }
-  lines.push("## Security findings recorded by the swarms", "");
+  lines.push(
+    "",
+    "The command that produces every result above is one recorded run over every discovered connector test file:",
+    "",
+    "```sh",
+    'export NODE_OPTIONS="--max-old-space-size=8192"',
+    "npm run evidence:connectors",
+    "```",
+    "",
+    "A single file can be re-run on its own with `node --import tsx --test <file>`.",
+    "",
+    "## Native limitations reported by the delivered work",
+    "",
+    "Every limitation any ledger recorded, kept verbatim. These are the boundaries an integrator inherits.",
+    "",
+  );
+  for (const item of joined) {
+    if (item.status === "not-delivered" || item.limitations.length === 0)
+      continue;
+    lines.push(`- **${item.id}** (${item.swarm})`);
+    for (const limitation of item.limitations) lines.push(`  - ${limitation}`);
+  }
+  lines.push("", "## Security findings recorded by the swarms", "");
   if (security.length === 0)
     lines.push(
-      "- No swarm recorded a `securityFindings` entry in its ledger. That is the absence of a recorded finding, not a clean-security claim: the security review is its own work item.",
+      "- No swarm recorded a `securityFindings` entry in its ledger. That is the absence of a recorded finding, not a clean-security claim: the security review is its own required work item, and its status is in the tables above.",
       "",
     );
-  else
+  else {
     for (const item of security)
       lines.push(`- ${item.swarm}: ${JSON.stringify(item.finding)}`);
-  if (security.length > 0) lines.push("");
+    lines.push("");
+  }
   lines.push("## External effects performed", "");
   if (effects.length === 0)
     lines.push(
-      "- None. No account was created, no integration installed, no package published, no production service deployed, no upstream grant revoked and no paid resource created.",
+      "- None recorded. No account was created, no integration installed, no package published, no production service deployed, no upstream grant revoked and no paid resource created.",
       "",
     );
   else {
@@ -815,11 +944,11 @@ export function renderEvidenceReport(input: {
   lines.push(
     "## Pinned sources",
     "",
-    `The [source lock](source-lock.md) pins ${input.lock.records.length} records as of ${input.lock.pinnedAt}, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. Read it before trusting any wire fact in this repository.`,
+    `The [source lock](source-lock.md) pins ${input.lock.records.length} records as of ${input.lock.pinnedAt}, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. It also reports its own coverage gaps. Read it before trusting any wire fact in this repository.`,
     "",
     "## Adapter inventory read for this report",
     "",
-    `${input.adapters.length} adapter factories construct with no host configuration and report their own capability rows; ${input.adapterProblems.length} module${input.adapterProblems.length === 1 ? "" : "s"} could not be introspected and are named in the [support matrix](../../specifications/connector-support-matrix.md).`,
+    `${input.adapters.length} adapter factories construct with no host configuration and report their own capability rows; ${input.adapterProblems.length} module${input.adapterProblems.length === 1 ? "" : "s"} could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).`,
     "",
   );
   if (input.ledgerProblems.length > 0) {

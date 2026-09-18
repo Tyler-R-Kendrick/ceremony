@@ -182,7 +182,12 @@ export function createPulseMcpAdapter(
     description:
       "Discovers MCP servers through PulseMCP's own API, with PulseMCP's pagination, provenance and freshness. Descriptions only.",
     service: "pulsemcp",
-    support: "catalog-only",
+    // Reports provider-backed, not catalog-only: this adapter really does
+    // implement discovery and import against its source, and the contract
+    // defines catalog-only as implementing nothing. The dimensions it does
+    // not implement are marked unsupported individually, which is the honest
+    // shape. Matches the precedent set by the official registry adapter.
+    support: "provider-backed",
     custody: ["no-credential"],
     configuration: [
       {

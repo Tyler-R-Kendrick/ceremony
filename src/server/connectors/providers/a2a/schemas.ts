@@ -35,11 +35,12 @@ export const a2aProfileSchema = z.enum(a2aProfiles);
 export type A2aProfile = z.infer<typeof a2aProfileSchema>;
 
 /** Protocol versions each profile answers for, as an interface may declare them. */
-export const A2A_PROTOCOL_VERSIONS: Readonly<Record<A2aProfile, readonly string[]>> =
-  Object.freeze({
-    [A2A_PROFILE_1_0]: ["1.0", "1.0.0"],
-    [A2A_PROFILE_0_3]: ["0.3", "0.3.0"],
-  });
+export const A2A_PROTOCOL_VERSIONS: Readonly<
+  Record<A2aProfile, readonly string[]>
+> = Object.freeze({
+  [A2A_PROFILE_1_0]: ["1.0", "1.0.0"],
+  [A2A_PROFILE_0_3]: ["0.3", "0.3.0"],
+});
 
 /** The one transport binding this adapter implements; the others are reported unsupported. */
 export const A2A_SUPPORTED_BINDING = "JSONRPC";
@@ -82,7 +83,8 @@ export const A2A_CONFIGURATION: readonly ConfigurationRequirement[] =
 
 const noControl = /^[^\p{Cc}]*$/u;
 const boundedText = (max: number) => z.string().max(max).regex(noControl);
-const requiredText = (max: number) => z.string().min(1).max(max).regex(noControl);
+const requiredText = (max: number) =>
+  z.string().min(1).max(max).regex(noControl);
 /** A declared URL. Not parsed into a destination here: declared is not approved. */
 const declaredUrl = z
   .string()
@@ -104,7 +106,10 @@ const agentSkillSchema = z.object({
   examples: z.array(boundedText(1024)).max(32).optional(),
   inputModes: modeList.optional(),
   outputModes: modeList.optional(),
-  security: z.array(z.record(boundedText(120), z.array(boundedText(200)).max(64))).max(16).optional(),
+  security: z
+    .array(z.record(boundedText(120), z.array(boundedText(200)).max(64)))
+    .max(16)
+    .optional(),
   securityRequirements: z
     .array(z.record(boundedText(120), z.array(boundedText(200)).max(64)))
     .max(16)
@@ -271,7 +276,10 @@ function normalizeRequirements(
 }
 
 /** Reads a parsed card into the common view; throws a Zod error on a card it cannot read. */
-export function readAgentCard(profile: A2aProfile, value: unknown): A2aCardView {
+export function readAgentCard(
+  profile: A2aProfile,
+  value: unknown,
+): A2aCardView {
   if (profile === A2A_PROFILE_1_0) {
     const card = agentCard10Schema.parse(value);
     const interfaces = card.supportedInterfaces.map((entry, index) => ({
@@ -297,7 +305,7 @@ export function readAgentCard(profile: A2aProfile, value: unknown): A2aCardView 
       ...(card.provider
         ? {
             provider: {
-              ...(card.provider.organization ?? card.provider.name
+              ...((card.provider.organization ?? card.provider.name)
                 ? {
                     organization: (card.provider.organization ??
                       card.provider.name) as string,
@@ -326,7 +334,8 @@ export function readAgentCard(profile: A2aProfile, value: unknown): A2aCardView 
     .filter(
       (entry) =>
         entry.url !== main.url ||
-        (entry.transport ?? entry.protocolBinding ?? "JSONRPC") !== main.binding,
+        (entry.transport ?? entry.protocolBinding ?? "JSONRPC") !==
+          main.binding,
     )
     .map((entry) => ({
       url: entry.url,
@@ -351,7 +360,7 @@ export function readAgentCard(profile: A2aProfile, value: unknown): A2aCardView 
     ...(card.provider
       ? {
           provider: {
-            ...(card.provider.organization ?? card.provider.name
+            ...((card.provider.organization ?? card.provider.name)
               ? {
                   organization: (card.provider.organization ??
                     card.provider.name) as string,
@@ -361,7 +370,9 @@ export function readAgentCard(profile: A2aProfile, value: unknown): A2aCardView 
           },
         }
       : {}),
-    ...(card.documentationUrl ? { documentationUrl: card.documentationUrl } : {}),
+    ...(card.documentationUrl
+      ? { documentationUrl: card.documentationUrl }
+      : {}),
     ...(card.iconUrl ? { iconUrl: card.iconUrl } : {}),
     signatures: card.signatures?.length ?? 0,
     extendedCard:
@@ -426,7 +437,12 @@ export type A2aPartView =
   | { kind: "text"; text: string }
   | { kind: "data"; data: unknown }
   | { kind: "file-url"; url: string; mediaType?: string; filename?: string }
-  | { kind: "file-bytes"; byteLength: number; mediaType?: string; filename?: string }
+  | {
+      kind: "file-bytes";
+      byteLength: number;
+      mediaType?: string;
+      filename?: string;
+    }
   | { kind: "unsupported" };
 
 export type A2aArtifactView = {
@@ -448,7 +464,10 @@ export type A2aTaskView = {
 
 const rawPartSchema = z.object({
   kind: z.string().max(32).optional(),
-  text: z.string().max(A2A_LIMITS.textChars * 8).optional(),
+  text: z
+    .string()
+    .max(A2A_LIMITS.textChars * 8)
+    .optional(),
   data: z.unknown().optional(),
   raw: z.string().max(A2A_LIMITS.artifactBytes).optional(),
   url: z.string().max(2048).optional(),
@@ -481,7 +500,11 @@ function readPart(profile: A2aProfile, value: unknown): A2aPartView {
       if (typeof part.file.uri === "string")
         return { kind: "file-url", url: part.file.uri, ...meta };
       if (typeof part.file.bytes === "string")
-        return { kind: "file-bytes", byteLength: part.file.bytes.length, ...meta };
+        return {
+          kind: "file-bytes",
+          byteLength: part.file.bytes.length,
+          ...meta,
+        };
     }
     return { kind: "unsupported" };
   }
@@ -504,7 +527,11 @@ const rawTaskSchema = z.object({
   status: z
     .object({
       state: z.unknown().optional(),
-      message: z.object({ parts: z.array(z.unknown()).max(A2A_LIMITS.parts).optional() }).optional(),
+      message: z
+        .object({
+          parts: z.array(z.unknown()).max(A2A_LIMITS.parts).optional(),
+        })
+        .optional(),
       timestamp: z.string().max(64).optional(),
     })
     .optional(),
@@ -553,16 +580,24 @@ const configurationNameSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,95}$/);
  */
 export const approvedSkillSchema = z.strictObject({
   skillId: z.string().min(1).max(256).regex(noControl),
-  operationRef: z
-    .string()
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$/),
+  operationRef: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$/),
   /** Ceiling on the text a caller may send to this skill. */
-  maxInputChars: z.number().int().min(1).max(A2A_LIMITS.textChars).default(2048),
-  acceptedOutputModes: z.array(boundedText(120)).max(16).default(["text/plain"]),
+  maxInputChars: z
+    .number()
+    .int()
+    .min(1)
+    .max(A2A_LIMITS.textChars)
+    .default(2048),
+  acceptedOutputModes: z
+    .array(boundedText(120))
+    .max(16)
+    .default(["text/plain"]),
   /** What of the agent's own words may reach the caller. */
   outputPolicy: z.enum(["text", "data", "none"]).default("text"),
   /** Artifacts are always described; "descriptor-only" never inlines their content. */
-  artifactPolicy: z.enum(["descriptor-only", "inline-text"]).default("descriptor-only"),
+  artifactPolicy: z
+    .enum(["descriptor-only", "inline-text"])
+    .default("descriptor-only"),
 });
 export type ApprovedSkill = z.infer<typeof approvedSkillSchema>;
 
@@ -592,12 +627,21 @@ export const a2aBindingSettingsSchema = z.strictObject({
     z.strictObject({
       kind: z.literal("api-key"),
       configurationName: configurationNameSchema,
-      headerName: z.string().min(1).max(120).regex(/^[A-Za-z0-9-]+$/),
+      headerName: z
+        .string()
+        .min(1)
+        .max(120)
+        .regex(/^[A-Za-z0-9-]+$/),
     }),
     z.strictObject({ kind: z.literal("none") }),
   ]),
   approvedSkills: z.array(approvedSkillSchema).max(64),
-  deadlineMs: z.number().int().min(100).max(120_000).default(A2A_LIMITS.deadlineMs),
+  deadlineMs: z
+    .number()
+    .int()
+    .min(100)
+    .max(120_000)
+    .default(A2A_LIMITS.deadlineMs),
   maxResponseBytes: z
     .number()
     .int()
@@ -659,7 +703,10 @@ export const a2aErrorCodes: Readonly<Record<number, string>> = Object.freeze({
 });
 
 export const jsonRpcMethods: Readonly<
-  Record<A2aProfile, Readonly<Record<"send" | "get" | "cancel" | "extendedCard", string>>>
+  Record<
+    A2aProfile,
+    Readonly<Record<"send" | "get" | "cancel" | "extendedCard", string>>
+  >
 > = Object.freeze({
   [A2A_PROFILE_1_0]: {
     send: "SendMessage",

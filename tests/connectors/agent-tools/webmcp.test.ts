@@ -51,7 +51,10 @@ function withDocument(t: { after(fn: () => void): void }, value: unknown) {
   });
 }
 
-const dispatcher = () => {
+const dispatcher = (): {
+  seen: ConnectorDispatchRequest[];
+  dispatch: (request: ConnectorDispatchRequest) => Promise<unknown>;
+} => {
   const seen: ConnectorDispatchRequest[] = [];
   return {
     seen,
@@ -80,10 +83,7 @@ test("AC-AG-03: a browser without the native API gets ordinary UI, no polyfill a
   mount.unmount();
 
   // Nothing was installed anywhere: the absent API is still absent.
-  assert.equal(
-    (globalThis as { document?: unknown }).document,
-    undefined,
-  );
+  assert.equal((globalThis as { document?: unknown }).document, undefined);
   assert.equal(
     (globalThis.navigator as { modelContext?: unknown } | undefined)
       ?.modelContext,
@@ -96,7 +96,9 @@ test("AC-AG-03: a browser without the native API gets ordinary UI, no polyfill a
   // The tool definitions still exist, so the application can render the same
   // capabilities as ordinary controls without a model context.
   assert.equal(tools.length, 7);
-  t.diagnostic(`fallback-browser evidence: ${tools.length} tools built, 0 registered`);
+  t.diagnostic(
+    `fallback-browser evidence: ${tools.length} tools built, 0 registered`,
+  );
 });
 
 test("AG-04: feature detection is the existing one and still prefers the current document API", (t) => {
@@ -132,12 +134,17 @@ test("AG-04: mounting registers exactly the declared tools, with a signal and no
   const native = nativeContext();
   withDocument(t, { modelContext: native.context });
   const { dispatch } = dispatcher();
-  const tools = createConnectorWebmcpTools(dispatch, { prefix: "ceremony_connector" });
+  const tools = createConnectorWebmcpTools(dispatch, {
+    prefix: "ceremony_connector",
+  });
   const mount = await mountConnectorWebmcpTools(tools);
   t.after(() => mount.unmount());
   assert.equal(mount.available, true);
   assert.equal(mount.api, "document");
-  assert.deepEqual(mount.registered, tools.map((tool) => tool.name));
+  assert.deepEqual(
+    mount.registered,
+    tools.map((tool) => tool.name),
+  );
   for (const registration of native.registrations) {
     // Only `signal`. Passing `exposedTo` would be a claim to drive another
     // origin's frame, and this page makes no such claim.
@@ -226,7 +233,9 @@ test("AG-04: an outer abort unmounts, and an already-aborted signal registers no
   assert.equal(mount.registered.length, 7);
   page.abort();
   assert.ok(
-    native.registrations.every((r) => (r.options.signal as AbortSignal).aborted),
+    native.registrations.every(
+      (r) => (r.options.signal as AbortSignal).aborted,
+    ),
   );
   assert.deepEqual(ownedConnectorToolNames(), []);
   mount.unmount();
@@ -274,11 +283,15 @@ test("AG-04: connector tools go through the authenticated dispatcher, and an ann
     "text",
     { intent: "disconnect" },
     { actor: { subjectId: "other" }, connectionRef: "connection:1" },
-    { connectionRef: "connection:1", expectedRevision: 3, tenantId: "tenant-b" },
+    {
+      connectionRef: "connection:1",
+      expectedRevision: 3,
+      tenantId: "tenant-b",
+    },
     { connectionRef: "connection:1", expectedRevision: 3, scope: "upstream" },
     { connectionRef: "connection:1" },
   ]) {
-    const before = seen.length;
+    const before: number = seen.length;
     const failed = await disconnect.execute(input);
     assert.equal(Reflect.get(Object(failed), "ok"), false);
     assert.equal(seen.length, before, JSON.stringify(input));
@@ -308,7 +321,8 @@ test("AG-04: connector tools have the same shape as the ceremony tools already r
     new AbortController().signal,
   );
   const shapeOf = (tool: CeremonyTool) => Object.keys(tool).sort();
-  for (const tool of connector) assert.deepEqual(shapeOf(tool), shapeOf(ceremony[0]!));
+  for (const tool of connector)
+    assert.deepEqual(shapeOf(tool), shapeOf(ceremony[0]!));
   // Every input schema is a closed object, so an unknown field is a refusal
   // rather than something a client may hope the server ignores.
   for (const tool of connector) {
@@ -316,5 +330,7 @@ test("AG-04: connector tools have the same shape as the ceremony tools already r
     assert.equal(tool.inputSchema.additionalProperties, false);
     assert.ok(tool.description.length > 20);
   }
-  assert.throws(() => createConnectorWebmcpTools(dispatch, { prefix: "bad prefix" }));
+  assert.throws(() =>
+    createConnectorWebmcpTools(dispatch, { prefix: "bad prefix" }),
+  );
 });

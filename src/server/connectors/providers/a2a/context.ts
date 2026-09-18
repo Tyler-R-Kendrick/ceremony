@@ -80,7 +80,9 @@ export function requireConnection(ctx: AdapterCallContext): ConnectionRecord {
   if (connection.ownerId !== ctx.actor.subjectId)
     throw new ConnectorError("denied", { detail: "a2a.connection.owner" });
   if (connection.generation !== ctx.generation)
-    throw new ConnectorError("conflict", { detail: "a2a.connection.generation" });
+    throw new ConnectorError("conflict", {
+      detail: "a2a.connection.generation",
+    });
   return connection;
 }
 

@@ -290,7 +290,11 @@ test("AC-EXT-08: importing in a hosted deployment works and local execution is e
     assert.equal(invoke.configuration, "missing");
     assert.equal(invoke.evidence, "not-tested");
     assert.ok(invoke.limitations.includes(NO_RUNNER_CONFIGURED));
-    assert.equal(adapter.support, "catalog-only");
+    // provider-backed, because this adapter really implements discovery and
+    // import; the contract reserves catalog-only for implementing nothing.
+    // The catalog boundary is reported per dimension instead, which the
+    // assertions below check.
+    assert.equal(adapter.support, "provider-backed");
 
     await assert.rejects(
       () =>

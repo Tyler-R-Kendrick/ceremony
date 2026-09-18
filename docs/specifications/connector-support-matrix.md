@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 27 constructible adapters and 20 ledgers.
+Generated from 27 constructible adapters and 21 ledgers.
 
 ## Support by dimension
 
@@ -85,12 +85,12 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `a2a` | 1.0.0 | `A2A_AGENT_CREDENTIAL` (secret) | not-recorded | no ledger entry | `a2a-1.0`, `a2a-0.3` |
 | `airbyte` | 2026.09.18 | `AIRBYTE_API_URL` (public), `AIRBYTE_API_KEY` (secret) | protocol-fixture | DATA | `http-bearer` |
 | `auth0-token-vault` | 2026.09.18 | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret) | not-recorded | no ledger entry | `external-broker`, `auth0-token-vault-exchange` |
-| `aws-agentcore-gateway` | 1.0.0 | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret) | not-recorded | no ledger entry | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28` |
+| `aws-agentcore-gateway` | 1.0.0 | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret) | protocol-fixture | CLOUD | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28` |
 | `camel-kamelet` | 1.0.0 | none | not-recorded | no ledger entry | `camel-kamelet-v1` |
 | `composio` | 1.0.0 | `COMPOSIO_API_KEY` (secret) | protocol-fixture | COMPOSIO | `composio-hosted-authorization`, `external-broker` |
 | `dapr` | 1.0.0 | none | not-recorded | no ledger entry | `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `api-key` |
 | `docker-mcp-catalog` | 1.0.0 | none | protocol-fixture | CATALOGS | `docker-mcp-catalog-v2` |
-| `google-integration-connectors` | 1.0.0 | `GOOGLE_CONNECTORS_ACCESS_TOKEN` (secret) | not-recorded | no ledger entry | `google-connectors-v1-20260907`, `google-connectors-v2-20260907` |
+| `google-integration-connectors` | 1.0.0 | `GOOGLE_CONNECTORS_ACCESS_TOKEN` (secret) | protocol-fixture | CLOUD | `google-connectors-v1-20260907`, `google-connectors-v2-20260907` |
 | `hasura-ndc` | 2026.09.18 | none | protocol-fixture | DATA | `http-bearer` |
 | `mcp-registry` | 1.0.0 | none | protocol-fixture | REGISTRY | `mcp-registry-api-v0.1`, `server-json-2025-12-11` |
 | `mcp-remote` | 1.0.0 | none | protocol-fixture | MCP | `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `http-bearer`, `oauth-authorization-code`, `none` |

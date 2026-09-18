@@ -240,12 +240,21 @@ function DynamicField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field.name, dependency]);
   const id = `connector-field-${field.name}`;
+  // The label is the field's name and nothing else; hints and states are
+  // described separately, so a screen reader announces "Project" rather than
+  // "Project required choose region first loading choices".
+  const described = [
+    missing.length > 0 || state !== "idle" ? `${id}-hint` : "",
+    field.description ? `${id}-description` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <label htmlFor={id} className="connector-field">
-      <span>
+    <div className="connector-field">
+      <label htmlFor={id}>
         {field.label}
         {field.required ? " (required)" : ""}
-      </span>
+      </label>
       {missing.length > 0 ? (
         <p className="connector-muted" id={`${id}-hint`}>
           Choose {missing.join(", ")} first; this list depends on it.
@@ -266,9 +275,7 @@ function DynamicField({
         required={field.required}
         disabled={state === "loading" || missing.length > 0}
         defaultValue=""
-        aria-describedby={
-          missing.length > 0 || state !== "idle" ? `${id}-hint` : undefined
-        }
+        {...(described ? { "aria-describedby": described } : {})}
       >
         <option value="">Select…</option>
         {(options ?? []).map((option) => (
@@ -278,9 +285,11 @@ function DynamicField({
         ))}
       </select>
       {field.description && (
-        <span className="connector-muted">{field.description}</span>
+        <p className="connector-muted" id={`${id}-description`}>
+          {field.description}
+        </p>
       )}
-    </label>
+    </div>
   );
 }
 
@@ -334,15 +343,11 @@ function HandoffInputForm({
             loadOptions={loadOptions}
           />
         ) : (
-          <label
-            key={field.name}
-            htmlFor={`connector-field-${field.name}`}
-            className="connector-field"
-          >
-            <span>
+          <div key={field.name} className="connector-field">
+            <label htmlFor={`connector-field-${field.name}`}>
               {field.label}
               {field.required ? " (required)" : ""}
-            </span>
+            </label>
             <input
               id={`connector-field-${field.name}`}
               name={field.name}
@@ -353,18 +358,18 @@ function HandoffInputForm({
               }
               spellCheck={false}
               maxLength={1024}
+              aria-describedby={`connector-field-${field.name}-description`}
             />
-            {field.description && (
-              <span className="connector-muted">{field.description}</span>
-            )}
-            {field.classification === "secret" && (
-              <span className="connector-muted">
-                Sent straight to the private collector and replaced by a
-                reference. It is never kept in this page, its address or its
-                history.
-              </span>
-            )}
-          </label>
+            <p
+              className="connector-muted"
+              id={`connector-field-${field.name}-description`}
+            >
+              {field.description ? `${field.description} ` : ""}
+              {field.classification === "secret"
+                ? "Sent straight to the private collector and replaced by a reference. It is never kept in this page, its address or its history."
+                : ""}
+            </p>
+          </div>
         ),
       )}
       {error && (
@@ -838,17 +843,25 @@ export function ConnectorConnection({
     event.preventDefault();
     const form = event.currentTarget;
     const fields = connection?.presentation?.fields ?? [];
-    const data = new FormData(form);
+    // Read by name from the form's own controls: a field name is a bounded
+    // identifier, so the lookup needs no escaping, and this works the same
+    // whether or not the host's DOM implements FormData.
+    const read = (name: string) => {
+      const control = form.querySelector(`[name="${name}"]`) as
+        | { value?: string }
+        | null;
+      return control?.value ?? "";
+    };
     const secrets: Record<string, string> = {};
     const values: Record<string, string> = {};
     for (const field of fields) {
-      const value = String(data.get(field.name) ?? "");
+      const value = read(field.name);
       if (field.classification === "secret") secrets[field.name] = value;
       else values[field.name] = value;
     }
-    // The form is the only place a secret exists in this page, and it is reset
-    // before the network call settles.
-    form.reset();
+    // The form is the only place a secret exists in this page, and it is
+    // cleared before the network call settles.
+    form.reset?.();
     void act(async () => {
       const view = current.current;
       const handoff = view?.handoff;

@@ -346,10 +346,14 @@ test("a stdio bundle listing is preserved and blocked, never turned into an exec
   }
 });
 
-test("catalog-only support and its capability rows stay visible", async () => {
+test("the catalog boundary and its capability rows stay visible", async () => {
   const { double, adapter } = await harness();
   try {
-    assert.equal(adapter.support, "catalog-only");
+    // provider-backed, because this adapter really implements discovery and
+    // import; the contract reserves catalog-only for implementing nothing.
+    // The catalog boundary is reported per dimension instead, which the
+    // assertions below check.
+    assert.equal(adapter.support, "provider-backed");
     const configured = adapter.capabilities(new Set([SMITHERY_API_KEY]));
     const missing = adapter.capabilities(new Set());
     assert.equal(

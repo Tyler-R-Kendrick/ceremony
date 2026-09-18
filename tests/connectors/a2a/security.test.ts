@@ -18,7 +18,9 @@ const output = (result: InvokeResult) => result.output as A2aDelegationOutput;
 const approval = { approvedBy: "subject-1", approvedAt: 1_760_000_000_000 };
 
 test("AC-AG-01: an artifact pointing at a private IP is described and never fetched", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "artifact-url" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "artifact-url" } },
+  });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
     // Every outbound request the adapter can make goes through this fetch.
@@ -27,12 +29,15 @@ test("AC-AG-01: an artifact pointing at a private IP is described and never fetc
       targets.push(String(args[0] instanceof Request ? args[0].url : args[0]));
       return fetch(...(args as Parameters<typeof fetch>));
     };
-    const result = await kit.adapter.delegate!(kit.context({ connection, fetch: watched }), {
-      action: "start",
-      skill: SKILL,
-      input: { text: "Produce the report." },
-      commandId: "cmd-1",
-    });
+    const result = await kit.adapter.delegate!(
+      kit.context({ connection, fetch: watched }),
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "Produce the report." },
+        commandId: "cmd-1",
+      },
+    );
     const view = output(result);
     const [part] = view.artifacts[0]!.parts;
     assert.ok(part);
@@ -109,7 +114,11 @@ test("AC-AG-01: enabling retrieval does not approve the agent's chosen origin", 
 test("AG-02: an approved artifact origin can be retrieved once, explicitly, by a person", async () => {
   const store = await startHttpFixture((request) =>
     request.url.pathname === "/report.pdf"
-      ? { status: 200, headers: { "content-type": "application/pdf" }, body: "PDF-BYTES" }
+      ? {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+          body: "PDF-BYTES",
+        }
       : { status: 404, body: { error: "not_found" } },
   );
   const kit = await harness({
@@ -119,7 +128,11 @@ test("AG-02: an approved artifact origin can be retrieved once, explicitly, by a
     },
     binding: {
       artifactOrigin: store.origin,
-      artifactRetrieval: { enabled: true, destinationId: "artifacts", maxBytes: 65536 },
+      artifactRetrieval: {
+        enabled: true,
+        destinationId: "artifacts",
+        maxBytes: 65536,
+      },
     },
   });
   try {
@@ -192,7 +205,8 @@ test("AC-AG-01: an instruction inside a task message cannot expand what may be d
         commandId: "cmd-2",
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "a2a.skill.unapproved",
+        error instanceof ConnectorError &&
+        error.detail === "a2a.skill.unapproved",
     );
     // A reference bound to one skill cannot be continued under another
     // approved skill either.
@@ -271,7 +285,8 @@ test("AG-02: a task reference cannot be continued under a different approved ski
         commandId: "cmd-2",
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "a2a.task.skill-mismatch",
+        error instanceof ConnectorError &&
+        error.detail === "a2a.task.skill-mismatch",
     );
   } finally {
     await kit.close();
@@ -328,15 +343,17 @@ test("AG-02: verification compares the served card with the reviewed one and cla
     assert.equal(result.state, "complete");
     assert.ok(result.credentialRef);
     assert.equal(result.target?.kind, "a2a-agent");
-    assert.deepEqual(
-      result.claims.map((item) => item.kind).sort(),
-      ["credential-accepted", "resource-access"],
-    );
+    assert.deepEqual(result.claims.map((item) => item.kind).sort(), [
+      "credential-accepted",
+      "resource-access",
+    ]);
     // No account identity is asserted: an Agent Card is the agent's own word.
     assert.ok(!result.claims.some((item) => item.kind === "account-identity"));
     assert.ok(
       result.claims.some((item) =>
-        item.limitations.some((line) => /own statement about itself/.test(line)),
+        item.limitations.some((line) =>
+          /own statement about itself/.test(line),
+        ),
       ),
     );
     assert.equal(kit.double.cardRequests.length, 1);
@@ -344,7 +361,10 @@ test("AG-02: verification compares the served card with the reviewed one and cla
       kit.double.cardRequests[0]?.headers.authorization,
       `Bearer ${CREDENTIAL}`,
     );
-    assert.doesNotMatch(stringsIn(result.claims).join(" "), new RegExp(CREDENTIAL));
+    assert.doesNotMatch(
+      stringsIn(result.claims).join(" "),
+      new RegExp(CREDENTIAL),
+    );
   } finally {
     await kit.close();
   }
@@ -389,7 +409,9 @@ test("AG-02: a card that renamed itself, changed profile or moved its interface 
 });
 
 test("AG-02: disconnect is local only, cancels pending tasks and revokes the stored credential", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "input-required" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "input-required" } },
+  });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
     await kit.adapter.delegate!(kit.context({ connection }), {
@@ -431,12 +453,20 @@ test("AG-02: a binding for another adapter, tenant or authority is refused befor
       [{ adapterId: "nango" }, "a2a.binding.adapter"],
       [{ tenantId: "tenant-b" }, "a2a.binding.tenant"],
       [{ status: "suspended" as const }, "a2a.binding.not-approved"],
-      [{ authorityInstance: "a2a:a2a-1.0:https://elsewhere:Other" }, "a2a.binding.authority"],
+      [
+        { authorityInstance: "a2a:a2a-1.0:https://elsewhere:Other" },
+        "a2a.binding.authority",
+      ],
     ] as const)
       await assert.rejects(
         kit.adapter.delegate!(
           kit.context({ connection, binding: { ...kit.binding, ...patch } }),
-          { action: "start", skill: SKILL, input: { text: "go" }, commandId: "c" },
+          {
+            action: "start",
+            skill: SKILL,
+            input: { text: "go" },
+            commandId: "c",
+          },
         ),
         (error: unknown) =>
           error instanceof ConnectorError && error.detail === detail,
@@ -457,7 +487,11 @@ test("AG-02: the catalog report distinguishes what is implemented, configured an
     const delegate = configured.filter((row) => row.dimension === "delegate");
     assert.equal(delegate.length, 2, "one row per protocol profile");
     assert.deepEqual(
-      delegate.map((row) => [row.profile, row.implementation, row.configuration]),
+      delegate.map((row) => [
+        row.profile,
+        row.implementation,
+        row.configuration,
+      ]),
       [
         ["a2a-1.0", "implemented", "ready"],
         ["a2a-0.3", "implemented", "ready"],
@@ -467,7 +501,13 @@ test("AG-02: the catalog report distinguishes what is implemented, configured an
       bare.find((row) => row.dimension === "delegate")?.configuration,
       "missing",
     );
-    for (const dimension of ["invoke", "events", "revoke", "export", "discover"])
+    for (const dimension of [
+      "invoke",
+      "events",
+      "revoke",
+      "export",
+      "discover",
+    ])
       assert.equal(
         configured.find((row) => row.dimension === dimension)?.implementation,
         "unsupported",

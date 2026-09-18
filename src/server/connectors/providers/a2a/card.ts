@@ -11,7 +11,11 @@ import {
   type NormalizedDefinition,
   type SourceRecord,
 } from "../../../../core/connectors/index.js";
-import type { AdapterCallContext, ImportInput, ImportOutcome } from "../../adapter.js";
+import type {
+  AdapterCallContext,
+  ImportInput,
+  ImportOutcome,
+} from "../../adapter.js";
 import { ConnectorError } from "../../errors.js";
 import { classifyAddress } from "../../import/network.js";
 import { makeIssue } from "../../import/common.js";
@@ -106,19 +110,17 @@ export function classifyDeclaredUrl(value: string): UrlExposure {
   return { kind: "ok", origin: url.origin };
 }
 
-const profileIdSchema = z
-  .string()
-  .regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$/);
+const profileIdSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$/);
 
 type SchemeInput = Record<string, unknown> | undefined;
 
 function readOauthFlows(scheme: Record<string, unknown>): {
-  kind: "oauth-authorization-code" | "oauth-client-credentials" | "oauth-device";
+  kind:
+    "oauth-authorization-code" | "oauth-client-credentials" | "oauth-device";
   scopes: string[];
 } {
   const flows = (scheme.flows ?? scheme.oauth2SecurityScheme) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const container = (
     flows && typeof flows === "object" && "flows" in flows
       ? (flows as { flows?: Record<string, unknown> }).flows
@@ -127,7 +129,8 @@ function readOauthFlows(scheme: Record<string, unknown>): {
   const scopesOf = (flow: unknown): string[] => {
     if (!flow || typeof flow !== "object") return [];
     const scopes = (flow as { scopes?: unknown }).scopes;
-    if (!scopes || typeof scopes !== "object" || Array.isArray(scopes)) return [];
+    if (!scopes || typeof scopes !== "object" || Array.isArray(scopes))
+      return [];
     return Object.keys(scopes as Record<string, unknown>).slice(0, 64);
   };
   if (container?.authorizationCode)
@@ -175,11 +178,12 @@ function readSecurityScheme(
             : scheme.mtlsSecurityScheme !== undefined
               ? "mutualTLS"
               : undefined;
-  const inner = (wrapped
-    ? ((scheme as Record<string, unknown>)[
-        `${wrapped === "mutualTLS" ? "mtls" : wrapped === "openIdConnect" ? "openIdConnect" : wrapped === "apiKey" ? "apiKey" : wrapped === "http" ? "httpAuth" : "oauth2"}SecurityScheme`
-      ] as Record<string, unknown> | undefined)
-    : undefined) ?? {};
+  const inner =
+    (wrapped
+      ? ((scheme as Record<string, unknown>)[
+          `${wrapped === "mutualTLS" ? "mtls" : wrapped === "openIdConnect" ? "openIdConnect" : wrapped === "apiKey" ? "apiKey" : wrapped === "http" ? "httpAuth" : "oauth2"}SecurityScheme`
+        ] as Record<string, unknown> | undefined)
+      : undefined) ?? {};
   const type = wrapped ?? (typeof scheme.type === "string" ? scheme.type : "");
   const merged = { ...scheme, ...inner };
   if (type === "apiKey") {
@@ -252,7 +256,10 @@ function readSecurityScheme(
     };
   }
   if (type === "openIdConnect") {
-    const url = typeof merged.openIdConnectUrl === "string" ? merged.openIdConnectUrl : "";
+    const url =
+      typeof merged.openIdConnectUrl === "string"
+        ? merged.openIdConnectUrl
+        : "";
     const exposure = classifyDeclaredUrl(url);
     if (exposure.kind !== "ok") {
       issues.push(
@@ -266,7 +273,8 @@ function readSecurityScheme(
           impact: "blocks-authorization",
           message:
             "The OpenID Connect discovery URL this card declares cannot be used as an issuer by this runtime.",
-          remediation: "Bind an approved authentication profile for this agent instead.",
+          remediation:
+            "Bind an approved authentication profile for this agent instead.",
         }),
       );
       return { profile: unsupported("openIdConnect"), issues };
@@ -286,7 +294,8 @@ function skillCapability(
   knownProfiles: Set<string>,
   cardRequirements: Array<Record<string, string[]>>,
 ): NativeCapability {
-  const declared = skill.securityRequirements ?? skill.security ?? cardRequirements;
+  const declared =
+    skill.securityRequirements ?? skill.security ?? cardRequirements;
   const authentication = [
     ...new Set(
       declared
@@ -298,9 +307,7 @@ function skillCapability(
     kind: "a2a-skill",
     nativeId: skill.id,
     ...(skill.name ? { label: skill.name.slice(0, 200) } : {}),
-    ...(skill.description
-      ? { summary: skill.description.slice(0, 500) }
-      : {}),
+    ...(skill.description ? { summary: skill.description.slice(0, 500) } : {}),
     // A2A says nothing about whether a skill mutates anything, what it may
     // read, or what it costs. Claiming otherwise from a name or a tag would
     // be guessing; the host's binding states the effect it approved.
@@ -334,14 +341,18 @@ export async function readAgentCardBytes(
   options: { capturedAt: string },
 ): Promise<AgentCardImport> {
   if (input.bytes.byteLength > A2A_LIMITS.cardBytes)
-    throw new ConnectorError("invalid-request", { detail: "a2a.card.too-large" });
+    throw new ConnectorError("invalid-request", {
+      detail: "a2a.card.too-large",
+    });
   let parsed: unknown;
   try {
     parsed = JSON.parse(
       new TextDecoder("utf-8", { fatal: true }).decode(input.bytes),
     ) as unknown;
   } catch {
-    throw new ConnectorError("invalid-request", { detail: "a2a.card.not-json" });
+    throw new ConnectorError("invalid-request", {
+      detail: "a2a.card.not-json",
+    });
   }
   const profile = detectCardProfile(parsed);
   if (!profile)
@@ -364,7 +375,11 @@ export async function readAgentCardBytes(
 
   // Endpoints. Every interface is preserved as declared; the diagnostics say
   // which one this runtime could execute and why the others could not.
-  const declaredServers: Array<{ url: string; description?: string; status: "declared" }> = [];
+  const declaredServers: Array<{
+    url: string;
+    description?: string;
+    status: "declared";
+  }> = [];
   let executableInterfaces = 0;
   card.interfaces.forEach((entry, index) => {
     const pointer =
@@ -372,7 +387,10 @@ export async function readAgentCardBytes(
         ? "/url"
         : `/${profile === A2A_PROFILE_0_3 ? "additionalInterfaces" : "supportedInterfaces"}/${index}/url`;
     const exposure = classifyDeclaredUrl(entry.url);
-    if (/^[^\p{Cc}?#]+$/u.test(entry.url) && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*@/.test(entry.url))
+    if (
+      /^[^\p{Cc}?#]+$/u.test(entry.url) &&
+      !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*@/.test(entry.url)
+    )
       declaredServers.push({
         url: entry.url,
         description: `${entry.binding} ${entry.protocolVersion}`.slice(0, 500),
@@ -540,7 +558,9 @@ export async function readAgentCardBytes(
   Object.entries(card.securitySchemes)
     .slice(0, A2A_LIMITS.securitySchemes)
     .forEach(([name, scheme], index) => {
-      let id = profileIdSchema.safeParse(name).success ? name : `scheme-${index}`;
+      let id = profileIdSchema.safeParse(name).success
+        ? name
+        : `scheme-${index}`;
       while (used.has(id)) id = `${id}-${index}`;
       used.add(id);
       idByScheme.set(name, id);
@@ -613,9 +633,11 @@ export async function readAgentCardBytes(
       );
     seenSkills.add(capability.nativeId);
   }
-  const unique = capabilities.filter((capability, index) =>
-    capabilities.findIndex((other) => other.nativeId === capability.nativeId) ===
-    index,
+  const unique = capabilities.filter(
+    (capability, index) =>
+      capabilities.findIndex(
+        (other) => other.nativeId === capability.nativeId,
+      ) === index,
   );
   // Remap capability authentication ids to the sanitized profile ids.
   const remapped = unique.map((capability) => ({
@@ -729,7 +751,9 @@ export async function readAgentCardBytes(
       defaultOutputModes: card.defaultOutputModes,
       securityRequirements: card.securityRequirements,
       ...(card.provider ? { provider: card.provider } : {}),
-      ...(card.documentationUrl ? { documentationUrl: card.documentationUrl } : {}),
+      ...(card.documentationUrl
+        ? { documentationUrl: card.documentationUrl }
+        : {}),
       ...(card.iconUrl ? { iconUrl: card.iconUrl } : {}),
       signatures: card.signatures,
       extensions: (card.capabilities.extensions ?? []).map((extension) => ({

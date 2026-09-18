@@ -26,7 +26,11 @@ test("AG-02: a configured delegation starts a task on the 1.0 wire and reports i
       input: { text: "Summarize the quarterly report." },
       commandId: "cmd-1",
     });
-    assert.equal(kit.double.violations.length, 0, kit.double.violations.join("; "));
+    assert.equal(
+      kit.double.violations.length,
+      0,
+      kit.double.violations.join("; "),
+    );
     assert.equal(result.state, "complete");
     assert.equal(result.effect, "write");
     assert.equal(result.outputClassification, "personal");
@@ -73,7 +77,11 @@ test("AG-02: the 0.3 profile speaks its own wire and is never mixed with 1.0", a
       input: { text: "Summarize." },
       commandId: "cmd-0.3",
     });
-    assert.equal(kit.double.violations.length, 0, kit.double.violations.join("; "));
+    assert.equal(
+      kit.double.violations.length,
+      0,
+      kit.double.violations.join("; "),
+    );
     assert.equal(result.state, "complete");
     assert.deepEqual(
       kit.double.rpcCalls.map((call) => call.method),
@@ -90,7 +98,9 @@ test("AG-02: the 0.3 profile speaks its own wire and is never mixed with 1.0", a
 });
 
 test("AG-02: an input-required task suspends, resumes on the same reference and then settles", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "input-required" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "input-required" } },
+  });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
     const started = await kit.adapter.delegate!(kit.context({ connection }), {
@@ -124,7 +134,11 @@ test("AG-02: an input-required task suspends, resumes on the same reference and 
     });
     assert.equal(answered.state, "complete");
     assert.equal(output(answered).taskRef, view.taskRef);
-    assert.equal(kit.double.violations.length, 0, kit.double.violations.join("; "));
+    assert.equal(
+      kit.double.violations.length,
+      0,
+      kit.double.violations.join("; "),
+    );
 
     // The continuation carried the upstream task id, which the caller never held.
     const followUp = kit.double.rpcCalls.at(-1)!.params as {
@@ -138,7 +152,12 @@ test("AG-02: an input-required task suspends, resumes on the same reference and 
 
 test("AG-02: only skills the binding approved may be delegated, whatever the card advertises", async () => {
   const kit = await harness({
-    double: { skills: [{ id: "summarize", name: "Summarize" }, { id: "wire-money", name: "Wire money" }] },
+    double: {
+      skills: [
+        { id: "summarize", name: "Summarize" },
+        { id: "wire-money", name: "Wire money" },
+      ],
+    },
   });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
@@ -168,7 +187,10 @@ test("AG-02: an approved skill whose operation is not a matching delegated route
   const kit = await harness({
     binding: {
       operations: [
-        { ...summarizeOperation, transport: { kind: "delegated", route: "a2a-skill:other" } },
+        {
+          ...summarizeOperation,
+          transport: { kind: "delegated", route: "a2a-skill:other" },
+        },
       ],
     },
   });
@@ -182,7 +204,8 @@ test("AG-02: an approved skill whose operation is not a matching delegated route
         commandId: "cmd-1",
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "a2a.operation.route",
+        error instanceof ConnectorError &&
+        error.detail === "a2a.operation.route",
     );
   } finally {
     await kit.close();
@@ -190,19 +213,24 @@ test("AG-02: an approved skill whose operation is not a matching delegated route
 });
 
 test("AC-AG-02: cancelling one task never reaches another principal's task", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "input-required" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "input-required" } },
+  });
   try {
     const mine = await activeConnection(kit.ports, kit.binding);
     const theirs = await activeConnection(kit.ports, kit.binding, {
       connectionRef: "conn:a2a-2",
       ownerId: otherActor.subjectId,
     });
-    const started = await kit.adapter.delegate!(kit.context({ connection: mine }), {
-      action: "start",
-      skill: SKILL,
-      input: { text: "Mine." },
-      commandId: "cmd-mine",
-    });
+    const started = await kit.adapter.delegate!(
+      kit.context({ connection: mine }),
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "Mine." },
+        commandId: "cmd-mine",
+      },
+    );
     const theirStart = await kit.adapter.delegate!(
       kit.context({ connection: theirs, actor: otherActor }),
       {
@@ -218,13 +246,16 @@ test("AC-AG-02: cancelling one task never reaches another principal's task", asy
 
     // The other principal holds my reference and tries to cancel with it.
     await assert.rejects(
-      kit.adapter.delegate!(kit.context({ connection: theirs, actor: otherActor }), {
-        action: "cancel",
-        skill: SKILL,
-        input: {},
-        taskRef: mineRef,
-        commandId: "cmd-cross",
-      }),
+      kit.adapter.delegate!(
+        kit.context({ connection: theirs, actor: otherActor }),
+        {
+          action: "cancel",
+          skill: SKILL,
+          input: {},
+          taskRef: mineRef,
+          commandId: "cmd-cross",
+        },
+      ),
       (error: unknown) =>
         error instanceof ConnectorError &&
         error.code === "not-found" &&
@@ -232,14 +263,18 @@ test("AC-AG-02: cancelling one task never reaches another principal's task", asy
     );
     // Even with the right connection record but the wrong actor.
     await assert.rejects(
-      kit.adapter.delegate!(kit.context({ connection: mine, actor: otherActor }), {
-        action: "cancel",
-        skill: SKILL,
-        input: {},
-        taskRef: mineRef,
-        commandId: "cmd-cross-2",
-      }),
-      (error: unknown) => error instanceof ConnectorError && error.code === "denied",
+      kit.adapter.delegate!(
+        kit.context({ connection: mine, actor: otherActor }),
+        {
+          action: "cancel",
+          skill: SKILL,
+          input: {},
+          taskRef: mineRef,
+          commandId: "cmd-cross-2",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof ConnectorError && error.code === "denied",
     );
 
     // Neither task was cancelled upstream.
@@ -247,16 +282,21 @@ test("AC-AG-02: cancelling one task never reaches another principal's task", asy
       kit.double.tasks().map((task) => task.state),
       ["input-required", "input-required"],
     );
-    assert.ok(!kit.double.rpcCalls.some((call) => call.method === "CancelTask"));
+    assert.ok(
+      !kit.double.rpcCalls.some((call) => call.method === "CancelTask"),
+    );
 
     // The owner can still cancel their own, and only their own, task.
-    const cancelled = await kit.adapter.delegate!(kit.context({ connection: mine }), {
-      action: "cancel",
-      skill: SKILL,
-      input: {},
-      taskRef: mineRef,
-      commandId: "cmd-cancel",
-    });
+    const cancelled = await kit.adapter.delegate!(
+      kit.context({ connection: mine }),
+      {
+        action: "cancel",
+        skill: SKILL,
+        input: {},
+        taskRef: mineRef,
+        commandId: "cmd-cancel",
+      },
+    );
     assert.equal(output(cancelled).state, "canceled");
     assert.deepEqual(
       kit.double.tasks().map((task) => task.state),
@@ -268,7 +308,9 @@ test("AC-AG-02: cancelling one task never reaches another principal's task", asy
 });
 
 test("AC-AG-02: a continuation after the connection generation advances is fenced and not sent", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "input-required" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "input-required" } },
+  });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
     const started = await kit.adapter.delegate!(kit.context({ connection }), {
@@ -297,7 +339,11 @@ test("AC-AG-02: a continuation after the connection generation advances is fence
           error.code === "conflict" &&
           error.detail === "a2a.task.generation",
       );
-    assert.equal(kit.double.rpcCalls.length, before, "nothing was sent upstream");
+    assert.equal(
+      kit.double.rpcCalls.length,
+      before,
+      "nothing was sent upstream",
+    );
   } finally {
     await kit.close();
   }
@@ -313,9 +359,15 @@ test("AG-02: a repeated start with the same command id returns the journaled out
       input: { text: "Summarize." },
       commandId: "cmd-same",
     };
-    const first = await kit.adapter.delegate!(kit.context({ connection }), request);
+    const first = await kit.adapter.delegate!(
+      kit.context({ connection }),
+      request,
+    );
     assert.equal(first.state, "complete");
-    const second = await kit.adapter.delegate!(kit.context({ connection }), request);
+    const second = await kit.adapter.delegate!(
+      kit.context({ connection }),
+      request,
+    );
     assert.equal(second.state, "complete");
     assert.equal(second.code, "a2a.effect.already-applied");
     assert.equal(kit.double.tasks().length, 1, "no second task was created");
@@ -333,7 +385,12 @@ test("AG-02: a lost response on a delegation is uncertain, not a failure to retr
     };
     const result = await kit.adapter.delegate!(
       kit.context({ connection, fetch: failing }),
-      { action: "start", skill: SKILL, input: { text: "go" }, commandId: "cmd-lost" },
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "go" },
+        commandId: "cmd-lost",
+      },
     );
     assert.equal(result.state, "indeterminate");
     assert.equal(result.code, "a2a.transport.lost-response");
@@ -351,12 +408,15 @@ test("AG-02: output and artifact policy decide what the caller sees, and a rejec
   });
   try {
     const connection = await activeConnection(quiet.ports, quiet.binding);
-    const started = await quiet.adapter.delegate!(quiet.context({ connection }), {
-      action: "start",
-      skill: SKILL,
-      input: { text: "go" },
-      commandId: "cmd-1",
-    });
+    const started = await quiet.adapter.delegate!(
+      quiet.context({ connection }),
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "go" },
+        commandId: "cmd-1",
+      },
+    );
     // The agent's own words are withheld; the fact that it is waiting is not.
     assert.equal(output(started).prompt, undefined);
     assert.equal(output(started).awaiting, "input");
@@ -367,12 +427,15 @@ test("AG-02: output and artifact policy decide what the caller sees, and a rejec
   const inline = await harness({ binding: { artifactPolicy: "inline-text" } });
   try {
     const connection = await activeConnection(inline.ports, inline.binding);
-    const done = await inline.adapter.delegate!(inline.context({ connection }), {
-      action: "start",
-      skill: SKILL,
-      input: { text: "go" },
-      commandId: "cmd-1",
-    });
+    const done = await inline.adapter.delegate!(
+      inline.context({ connection }),
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "go" },
+        commandId: "cmd-1",
+      },
+    );
     assert.equal(
       output(done).artifacts[0]?.parts[0]?.text,
       "The document says three things.",
@@ -384,12 +447,15 @@ test("AG-02: output and artifact policy decide what the caller sees, and a rejec
   const refused = await harness({ double: { script: { [SKILL]: "reject" } } });
   try {
     const connection = await activeConnection(refused.ports, refused.binding);
-    const result = await refused.adapter.delegate!(refused.context({ connection }), {
-      action: "start",
-      skill: SKILL,
-      input: { text: "go" },
-      commandId: "cmd-1",
-    });
+    const result = await refused.adapter.delegate!(
+      refused.context({ connection }),
+      {
+        action: "start",
+        skill: SKILL,
+        input: { text: "go" },
+        commandId: "cmd-1",
+      },
+    );
     assert.equal(result.state, "denied");
     assert.equal(output(result).state, "rejected");
   } finally {
@@ -411,7 +477,8 @@ test("AG-02: an inactive connection, a foreign binding and oversized input are r
         commandId: "cmd-1",
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "a2a.connection.inactive",
+        error instanceof ConnectorError &&
+        error.detail === "a2a.connection.inactive",
     );
     const connection = await activeConnection(kit.ports, kit.binding);
     await assert.rejects(
@@ -440,7 +507,9 @@ test("AG-02: an inactive connection, a foreign binding and oversized input are r
 });
 
 test("AG-02: an agent that answers without a task leaves nothing to poll or cancel", async () => {
-  const kit = await harness({ double: { script: { [SKILL]: "message-only" } } });
+  const kit = await harness({
+    double: { script: { [SKILL]: "message-only" } },
+  });
   try {
     const connection = await activeConnection(kit.ports, kit.binding);
     const result = await kit.adapter.delegate!(kit.context({ connection }), {
@@ -494,7 +563,8 @@ test("AG-02: a delegation for a connection that is not this actor's is refused",
         commandId: "cmd-1",
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "a2a.connection.owner",
+        error instanceof ConnectorError &&
+        error.detail === "a2a.connection.owner",
     );
   } finally {
     await kit.close();
