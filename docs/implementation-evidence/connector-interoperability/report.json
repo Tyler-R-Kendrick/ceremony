@@ -1,10 +1,10 @@
 {
   "reportVersion": 1,
-  "generatedAt": "2026-09-18T19:31:11.821Z",
+  "generatedAt": "2026-09-18T19:35:43.719Z",
   "git": {
     "baseCommit": "d741eed0de296950def366d0a92fa63b77070abc",
-    "testedCommit": "93c13991dd314e6903037e21932bbd6039d077d7+dirty",
-    "workingTreeDigest": "22a2a86a9543807e9bdeb76b1db49aaa52e2a7960c5e95d1edd55854aefa059c",
+    "testedCommit": "9f93d215c546045e21c289011a65bdd094604582+dirty",
+    "workingTreeDigest": "0ccbd775f443e3b0d4db88124b7564bd2695face285913ca8c9b965f2aeaed84",
     "lockfileDigest": "b46daa4bf6dfcacd3769eda9118f6d9906f339ce4acb49291daef822497fe72e"
   },
   "environment": {
@@ -6611,7 +6611,8 @@
       "acceptanceIds": ["AC-STATE-06"],
       "impact": "createConnectorHttp checks path.startsWith('/events/') before assertRequestBoundary and before reserveRequest. That is correct for an unauthenticated provider delivery authenticated by signature, and this swarm confirmed the route cannot reach any command route: '/events/nango/extra', '/events/', '/events/../connections' and '/events/%2e%2e/connections' all fall through to undefined, a GET is 405, and a malformed authority is 404. The consequence is that this layer applies no rate limit to the events path, so whatever bound exists must come from the mounted receiver.",
       "reproduction": "tests/connectors/security/command-boundary.test.ts 'the event mount point authenticates by signature and reaches nothing else'.",
-      "proposedPatch": "Integrator: confirm the events receiver supplied at mount time carries its own per-authority bound, or add an authority-scoped budget to createConnectorEventsHttp. No code change proposed here because the receiver is not this swarm's module."
+      "proposedPatch": "Integrator: confirm the events receiver supplied at mount time carries its own per-authority bound, or add an authority-scoped budget to createConnectorEventsHttp. No code change proposed here because the receiver is not this swarm's module.",
+      "integratorConfirmation": "Confirmed by the integrator, and the answer is partly no. The receiver has its own body bound: it refuses a declared content-length over the ceiling before reading, and reads the stream bounded regardless, so an oversized delivery cannot be used to exhaust memory. Dedupe prevents reprocessing. What it does not have is a request-rate ceiling of its own, so the observation stands: the events path bypasses the per-subject budget and nothing replaces it, and an unauthenticated flood costs one signature verification per delivery before anything rejects it. Not fixed here, deliberately. The only correct key is the authority the route names, since there is no subject on this path, and the ceiling has to be chosen against real delivery volume for the busiest provider a deployment subscribes to. Picking one blind, at the end of this work, on a production request path, to close an informational finding, trades a modest gain for a real risk of refusing legitimate deliveries. Recommended shape for whoever sets it: a per-authority bound in the receiver policy, applied after the route resolves and before verification, answering 429."
     },
     {
       "id": "SEC-F7",
