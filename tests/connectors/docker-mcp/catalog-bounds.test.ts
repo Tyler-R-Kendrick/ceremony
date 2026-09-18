@@ -1043,3 +1043,58 @@ test("the reader's ceilings apply inside a remote block and an oauth block too",
   );
   assert.deepEqual(server.remote?.headers, { "X-First": "one" });
 });
+
+test("a scalar list written in the wrong shape is reported, not read as absent", () => {
+  /*
+   * The defect this pins. `readStringList` answers `{ items: [], dropped: 1 }`
+   * for a value that is not a list, and the call sites read only `items`. So a
+   * command written as a plain string -- a plausible hand-written value, and
+   * the shape the `mcpServers` configuration uses -- was described as an entry
+   * that declares no command at all, with no diagnostic anywhere.
+   *
+   * A reader of the report has to be able to tell "declares nothing" from
+   * "declared something this reader refused", because those call for different
+   * actions: the first is a catalogue that cannot run, the second is a
+   * catalogue that may run once its author is told what the reader wanted.
+   */
+  const { server } = readEntry(
+    `    type: server\n    image: ${PINNED}\n    command: npx -y @scope/server\n`,
+  );
+  assert.deepEqual(server.command, [], "the string is never split into argv");
+  assert.ok(
+    issueAt(server, "docker-mcp.command.not-a-list"),
+    "a refused command must be reported, not read as absent",
+  );
+});
+
+test("a per-entry list that stopped at the reader's limit says so", () => {
+  /*
+   * `readTools` announced its own truncation; secrets, environment variables,
+   * configuration, OAuth providers and remote headers each stopped silently.
+   * A catalogue declaring more secrets than the reader keeps was described as
+   * declaring only the prefix, and nothing in the report said a prefix was
+   * what it was. One issue per list is enough; repeating it for every dropped
+   * entry would bury the rest of the report.
+   */
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    secrets:\n` +
+      `      - {name: ONE, env: ONE}\n` +
+      `      - {name: TWO, env: TWO}\n` +
+      `      - {name: THREE, env: THREE}\n`,
+    { limits: { secrets: 1 } },
+  );
+  assert.equal(server.secrets.length, 1, "the prefix is kept");
+  assert.ok(
+    issueAt(server, "docker-mcp.secrets.too-many"),
+    "a truncated secret list must be announced",
+  );
+  // Exactly once, at the entry where the limit was reached.
+  assert.equal(
+    codesOf(server.issues).filter(
+      (code) => code === "docker-mcp.secrets.too-many",
+    ).length,
+    1,
+  );
+});

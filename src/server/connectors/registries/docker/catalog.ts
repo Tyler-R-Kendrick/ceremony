@@ -382,6 +382,74 @@ function inertJson(
   return { ok: true, value: structuredClone(value) };
 }
 
+/*
+ * Announce a per-entry list that stopped at the reader's limit.
+ *
+ * `readTools` already did this; secrets, environment variables, configuration,
+ * OAuth providers and remote headers each returned or broke without a word. A
+ * catalogue declaring 200 secrets was therefore described as declaring 64, and
+ * the report said nothing, so a prefix was presented as the whole. One issue
+ * per list, at the entry where the limit was reached, because repeating it for
+ * every dropped entry would bury the rest of the report.
+ */
+function reportTruncated(
+  field: string,
+  pointer: string,
+  issues: CompatibilityIssue[],
+): void {
+  if (issues.some((item) => item.code === `docker-mcp.${field}.too-many`))
+    return;
+  issues.push(
+    warning(
+      `docker-mcp.${field}.too-many`,
+      "structure",
+      pointer,
+      `The ${field} list exceeds the reader limit; the remainder was dropped and what is described is a prefix.`,
+    ),
+  );
+}
+
+/*
+ * Report what a scalar list lost.
+ *
+ * `readStringList` answers `{ items: [], dropped: 1 }` for a value that is not
+ * a list at all, and the call sites used only `items`. So a `command` written
+ * as a plain string -- a plausible hand-written value, and the shape the
+ * `mcpServers` configuration uses -- came back as an empty list and the report
+ * said the entry declared no command. A reader then cannot tell "this entry
+ * declares nothing" from "this entry declared something the reader refused",
+ * which is the one distinction this file's contract exists to preserve: the
+ * reader decides only what the document says, and it has to say so.
+ *
+ * Two different losses, two different messages. A value that is not a list was
+ * refused whole. A list that was too long, or carried an entry this reader
+ * cannot represent, was kept as a prefix.
+ */
+function reportListLoss(
+  field: string,
+  value: unknown,
+  read: { items: string[]; dropped: number },
+  pointer: string,
+  issues: CompatibilityIssue[],
+): void {
+  if (read.dropped === 0) return;
+  issues.push(
+    value !== undefined && value !== null && !Array.isArray(value)
+      ? warning(
+          `docker-mcp.${field}.not-a-list`,
+          "structure",
+          pointer,
+          `The ${field} field is not a list of scalars, so the reader carried none of it; the entry is not describing an absent ${field}.`,
+        )
+      : warning(
+          `docker-mcp.${field}.truncated`,
+          "structure",
+          pointer,
+          `The ${field} list lost ${read.dropped} entr${read.dropped === 1 ? "y" : "ies"} to the reader's limits or to a value it cannot represent; what remains is a prefix, not the whole.`,
+        ),
+  );
+}
+
 function readStringList(
   value: unknown,
   max: number,
@@ -622,7 +690,10 @@ function readSecrets(
   const seen = new Set<string>();
   value.forEach((item, index) => {
     const at = `${pointer}/${index}`;
-    if (secrets.length >= limits.secrets) return;
+    if (secrets.length >= limits.secrets) {
+      reportTruncated("secrets", at, issues);
+      return;
+    }
     if (!isPlainObject(item)) {
       issues.push(
         warning(
@@ -755,7 +826,10 @@ function readEnv(
   const seen = new Set<string>();
   value.forEach((item, index) => {
     const at = `${pointer}/${index}`;
-    if (env.length >= limits.env) return;
+    if (env.length >= limits.env) {
+      reportTruncated("env", at, issues);
+      return;
+    }
     if (!isPlainObject(item) || typeof item.name !== "string") {
       issues.push(
         warning(
@@ -860,7 +934,10 @@ function readConfig(
   const config: DockerCatalogServer["config"] = [];
   list.forEach((item, index) => {
     const at = `${pointer}/${index}`;
-    if (config.length >= limits.configs) return;
+    if (config.length >= limits.configs) {
+      reportTruncated("configs", at, issues);
+      return;
+    }
     if (!isPlainObject(item)) {
       issues.push(
         warning(
@@ -993,8 +1070,11 @@ function readOauth(
   }
   const read: NonNullable<DockerCatalogServer["oauth"]>["providers"] = [];
   providers.forEach((item, index) => {
-    if (read.length >= limits.providers) return;
     const at = `${pointer}/providers/${index}`;
+    if (read.length >= limits.providers) {
+      reportTruncated("providers", at, issues);
+      return;
+    }
     if (
       !isPlainObject(item) ||
       typeof item.provider !== "string" ||
@@ -1103,7 +1183,10 @@ function readRemote(
       let count = 0;
       for (const [name, raw] of Object.entries(value.headers)) {
         const at = `${pointer}/headers/${escapePointerSegment(name)}`;
-        if (++count > limits.headers) break;
+        if (++count > limits.headers) {
+          reportTruncated("remote.headers", pointer, issues);
+          break;
+        }
         if (!headerNamePattern.test(name)) {
           issues.push(
             warning(
@@ -1313,6 +1396,13 @@ function readServer(
   server.env = readEnv(value.env, `${pointer}/env`, limits, issues, redactions);
   const command = readStringList(value.command, limits.command, 512);
   server.command = command.items;
+  reportListLoss(
+    "command",
+    value.command,
+    command,
+    `${pointer}/command`,
+    issues,
+  );
   if (command.controls)
     issues.push(
       blocking(
@@ -1326,6 +1416,13 @@ function readServer(
     );
   const volumes = readStringList(value.volumes, limits.volumes, 512);
   server.volumes = volumes.items;
+  reportListLoss(
+    "volumes",
+    value.volumes,
+    volumes,
+    `${pointer}/volumes`,
+    issues,
+  );
   for (const [index, volume] of volumes.items.entries())
     if (
       !isTemplateValue(volume) &&
@@ -1342,6 +1439,13 @@ function readServer(
         ),
       );
   const allowHosts = readStringList(value.allowHosts, limits.allowHosts, 300);
+  reportListLoss(
+    "allowHosts",
+    value.allowHosts,
+    allowHosts,
+    `${pointer}/allowHosts`,
+    issues,
+  );
   for (const [index, host] of allowHosts.items.entries())
     if (allowHostPattern.test(host)) server.allowHosts.push(host);
     else
