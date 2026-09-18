@@ -23,6 +23,7 @@ import {
 import { AgentCoordinator } from "./agent/coordinator.js";
 import { configuredModel, type ModelConfiguration } from "./agent/model.js";
 import type { RecipeDefinition } from "../core/recipe-contracts.js";
+import type { BrowserLoginTools } from "./browser-login-tools.js";
 import {
   authoredAccountIntentKey,
   saveAuthoredAccountIntent,
@@ -139,6 +140,14 @@ export interface TeachingRuntimeOptions {
   /** Private, authenticated integration-owner contribution; never an agent tool. */
   ownerSetup?: (actor: ActorContext, request: Request) => Promise<Response>;
   cancel?: (actor: ActorContext, runId: string) => Promise<void>;
+  /**
+   * Retained-browser login tools, when this deployment has a browser executor.
+   *
+   * Left undefined otherwise, and both transports then decline to offer the
+   * operations at all: a route that exists and always refuses is a worse answer
+   * than a host that says plainly it cannot do this.
+   */
+  browserLogin?: BrowserLoginTools;
   /** Trusted original host task, never selected by a browser/tool argument. Consumer deduplicates deliveryId. */
   continuation?: {
     id: string;
@@ -532,6 +541,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     ownerSetup: options.ownerSetup,
     cancel: options.cancel,
     selectTarget: options.selectTarget,
+    browserLogin: options.browserLogin,
     flushContinuations,
   };
 }
