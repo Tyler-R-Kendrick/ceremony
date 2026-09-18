@@ -762,6 +762,16 @@ export function upstreamFailure(
       });
     case "no_token":
       return new ConnectorError("expired", { detail: "vercel.no-valid-token" });
+    // The SDK names these as typed error classes; the wire code is the
+    // snake_case spelling of the class name.
+    case "client_not_linked_to_project":
+      return new ConnectorError("denied", {
+        detail: "vercel.project.not-linked",
+      });
+    case "client_not_enabled_for_environment":
+      return new ConnectorError("denied", {
+        detail: "vercel.environment.not-enabled",
+      });
     case "rate_limited":
       return new ConnectorError("rate-limited", { detail: "vercel.rate-limited" });
     case "not_found":

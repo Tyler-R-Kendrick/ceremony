@@ -558,6 +558,17 @@ function completionFromFailure(
     };
   if (error.detail === "vercel.no-valid-token")
     return { state: "denied", claims: [], code: "vercel.grant.unavailable" };
+  // A deployment whose project link is missing, or whose environment the link
+  // omits, is a recoverable state for this connection - not an adapter fault,
+  // and never a reason to try a different credential.
+  if (error.detail === "vercel.project.not-linked")
+    return { state: "denied", claims: [], code: "vercel.project.not-linked" };
+  if (error.detail === "vercel.environment.not-enabled")
+    return {
+      state: "denied",
+      claims: [],
+      code: "vercel.environment.not-enabled",
+    };
   return undefined;
 }
 

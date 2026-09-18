@@ -271,3 +271,61 @@ export function assertConnectionId(value: string): string {
 export function segment(value: string): string {
   return encodePathSegment(value);
 }
+
+/**
+ * Builds a request URL inside an approved destination from a base path and
+ * pre-encoded path segments.
+ *
+ * `destinationUrl` refuses any `%2F`, because an encoded slash inside a path
+ * *template* is how a caller smuggles an extra segment. Smithery's documented
+ * detail endpoint is the opposite case: the qualified name is one segment that
+ * legitimately contains a slash, and Smithery documents encoding it as `%2F`.
+ * So the segments are encoded here, exactly once, by the caller, and this
+ * helper repeats every other check `destinationUrl` performs: the base path is
+ * absolute and free of encoded slashes, each segment is a single segment, the
+ * result stays on the destination's origin, and no `..` survives decoding.
+ */
+export function smitheryUrl(
+  destination: { origin: string; pathPrefix?: string | undefined },
+  basePath: string,
+  segments: readonly string[] = [],
+): URL {
+  if (!basePath.startsWith("/") || basePath.startsWith("//") || /%2f/i.test(basePath))
+    throw new ConnectorError("invalid-request", {
+      detail: "smithery.path.invalid",
+    });
+  for (const part of segments)
+    if (
+      !part ||
+      part.length > 512 ||
+      /[/?#]/.test(part) ||
+      decodeURIComponent(part).split("/").includes("..")
+    )
+      throw new ConnectorError("invalid-request", {
+        detail: "smithery.segment.invalid",
+      });
+  const path = segments.length
+    ? `${basePath.replace(/\/$/, "")}/${segments.join("/")}`
+    : basePath;
+  const url = new URL(path, destination.origin);
+  if (url.origin !== destination.origin)
+    throw new ConnectorError("network-policy", {
+      detail: "smithery.destination.escaped",
+    });
+  const prefix = destination.pathPrefix ?? "/";
+  if (
+    prefix !== "/" &&
+    !(
+      url.pathname === prefix ||
+      url.pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
+    )
+  )
+    throw new ConnectorError("network-policy", {
+      detail: "smithery.destination.prefix",
+    });
+  if (decodeURIComponent(url.pathname).split("/").includes(".."))
+    throw new ConnectorError("invalid-request", {
+      detail: "smithery.path.traversal",
+    });
+  return url;
+}

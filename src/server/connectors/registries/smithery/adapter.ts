@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  boundOperation,
-  destinationFor,
-  destinationUrl,
-} from "../../binding.js";
+import { boundOperation, destinationFor } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import {
   capabilityStatus,
@@ -19,6 +15,7 @@ import {
   readBoundedJson,
   segment,
   smitheryFailure,
+  smitheryUrl,
   smitheryServerDetailSchema,
   smitheryServerListSchema,
   SMITHERY_ADAPTER_VERSION,
@@ -78,11 +75,10 @@ async function request(
       detail: "smithery.operation.method",
     });
   const destination = destinationFor(ctx.binding, operation);
-  const url = destinationUrl(
+  const url = smitheryUrl(
     destination,
-    pathSuffix
-      ? `${operation.transport.pathTemplate.replace(/\/$/, "")}/${pathSuffix}`
-      : operation.transport.pathTemplate,
+    operation.transport.pathTemplate,
+    pathSuffix ? [pathSuffix] : [],
   );
   build(url);
   const key = requireKey(

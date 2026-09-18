@@ -614,17 +614,28 @@ test("a normalized Cloud Search descriptor evaluates end to end with its parent 
     ...readerOptions,
     item: items.containerItem,
   });
-  const port = portFor(
-    {
-      groups: [
-        { kind: "group", identitySource: "", id: "engineering@acme.test" },
-      ],
-      domains: ["acme.test"],
-      resolvedAt: NOW - 1000,
-      complete: true,
+  // Membership is answered per principal, as a real directory would: only Ada
+  // is in the engineering group the container grants.
+  const port: MembershipPort = {
+    async membershipOf(principal) {
+      return {
+        groups:
+          principal.kind !== "domain" && principal.id === "ada@acme.test"
+            ? [{ kind: "group", identitySource: "", id: "engineering@acme.test" }]
+            : [],
+        domains: ["acme.test"],
+        resolvedAt: NOW - 1000,
+        complete: true,
+      };
     },
-    { "datasources/drive/items/design-folder": parent.acl },
-  );
+    async aclOf(documentId) {
+      return documentId === "datasources/drive/items/design-folder"
+        ? parent.acl
+        : undefined;
+    },
+  };
+
+  // Ada is a reader at both levels, so PARENT_OVERRIDE permits.
   const allowed = await evaluateAccess(
     descriptor,
     { kind: "user", identitySource: "", id: "ada@acme.test" },
@@ -632,9 +643,13 @@ test("a normalized Cloud Search descriptor evaluates end to end with its parent 
     { now: NOW },
   );
   assert.equal(allowed.allowed, true);
+  assert.deepEqual(allowed.evaluated, [
+    "datasources/drive/items/design-doc",
+    "datasources/drive/items/design-folder",
+  ]);
 
-  // The denied reader stays denied even though the parent container grants
-  // the engineering group they belong to.
+  // The contractor is denied on the child and matches nothing on the parent,
+  // so the parent is silent and the child's denial stands.
   const denied = await evaluateAccess(
     descriptor,
     { kind: "user", identitySource: "", id: "contractor@acme.test" },
@@ -643,4 +658,54 @@ test("a normalized Cloud Search descriptor evaluates end to end with its parent 
   );
   assert.equal(denied.allowed, false);
   assert.equal(denied.reason, "denied-reader");
+});
+
+test("PARENT_OVERRIDE lets a container grant override a document denial, as documented", async () => {
+  // Quoted from the ACL guide: "PARENT_OVERRIDE - The parent ACL takes
+  // precedence over the child ACL in case of conflict." A host that does not
+  // want that must index the document with CHILD_OVERRIDE or BOTH_PERMIT.
+  const descriptor = descriptorFor({
+    documentId: "doc-child",
+    acl: {
+      readers: [],
+      deniedReaders: [{ kind: "user", identitySource: "corp", id: "u-ada" }],
+      inheritFrom: "folder-open",
+      inheritanceType: "PARENT_OVERRIDE",
+    },
+  });
+  const port = portFor(
+    { groups: [], domains: ["acme.test"], resolvedAt: NOW - 1000, complete: true },
+    {
+      "folder-open": {
+        readers: [{ kind: "user", identitySource: "corp", id: "u-ada" }],
+        deniedReaders: [],
+        owners: [],
+        inheritanceType: "NOT_APPLICABLE",
+      },
+    },
+  );
+  const parentOverride = await evaluateAccess(
+    descriptor,
+    { kind: "user", identitySource: "corp", id: "u-ada" },
+    port,
+    { now: NOW },
+  );
+  assert.equal(parentOverride.allowed, true);
+
+  // With BOTH_PERMIT the same pair refuses, because the child does not permit.
+  const bothPermit = await evaluateAccess(
+    descriptorFor({
+      documentId: "doc-child",
+      acl: {
+        readers: [],
+        deniedReaders: [{ kind: "user", identitySource: "corp", id: "u-ada" }],
+        inheritFrom: "folder-open",
+        inheritanceType: "BOTH_PERMIT",
+      },
+    }),
+    { kind: "user", identitySource: "corp", id: "u-ada" },
+    port,
+    { now: NOW },
+  );
+  assert.equal(bothPermit.allowed, false);
 });

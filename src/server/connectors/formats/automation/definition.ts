@@ -135,6 +135,23 @@ export function automationCapabilityRows(input: {
   };
 }
 
+/**
+ * What a description alone can claim about `authorize`. A profile this
+ * runtime can execute means authorization is possible once configured; a
+ * description whose only profile is `none` needs no authorization at all; and
+ * a profile the runtime cannot execute is unsupported, not optimistic.
+ */
+export function authenticationDisposition(
+  profiles: readonly AuthenticationProfile[],
+): MappingDisposition {
+  if (!profiles.length) return "unsupported";
+  if (profiles.every((profile) => profile.kind === "none")) return "exact";
+  const executable = profiles.some(
+    (profile) => profile.kind !== "none" && profile.kind !== "unsupported",
+  );
+  return executable ? "requires-configuration" : "unsupported";
+}
+
 export type AutomationExportResult = {
   mediaType: string;
   bytes: Uint8Array;

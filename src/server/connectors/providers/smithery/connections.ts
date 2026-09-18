@@ -3,7 +3,6 @@ import { canonicalDigest } from "../../../../core/connectors/identity.js";
 import {
   boundOperation,
   destinationFor,
-  destinationUrl,
   type ApprovedDestination,
   type RuntimeBinding,
 } from "../../binding.js";
@@ -31,6 +30,7 @@ import {
   smitheryConnectionSchema,
   smitheryFailure,
   smitheryTokenSchema,
+  smitheryUrl,
   SMITHERY_ADAPTER_VERSION,
   SMITHERY_API_KEY,
   SMITHERY_CONNECT_PROFILE,
@@ -133,9 +133,10 @@ function operationUrl(
       detail: "smithery.operation.method",
     });
   const destination = destinationFor(ctx.binding, operation);
-  const base = operation.transport.pathTemplate.replace(/\/$/, "");
-  const path = suffix.length ? `${base}/${suffix.join("/")}` : base;
-  return { url: destinationUrl(destination, path), destination };
+  return {
+    url: smitheryUrl(destination, operation.transport.pathTemplate, suffix),
+    destination,
+  };
 }
 
 async function apiKey(ctx: AdapterCallContext): Promise<string> {
@@ -585,10 +586,9 @@ export function createSmitheryConnectionsAdapter(
         });
       // The endpoint is the binding's approved origin plus the approved
       // namespace; no part of it comes from the caller or from Smithery.
-      const endpoint = destinationUrl(
-        destination,
-        `/${segment(settings.namespace)}`,
-      );
+      const endpoint = smitheryUrl(destination, "/", [
+        segment(settings.namespace),
+      ]);
       const token = await mintToken(ctx, settings, ["read", "execute"]);
       const digest = await canonicalDigest({
         operation: request.operationRef,

@@ -535,7 +535,10 @@ test("the configured team must also be an approved target", async (t) => {
   const adapter = createVercelConnectAdapter();
   await assert.rejects(
     adapter.verify!(
-      h.context({ binding, connection: buildConnection({ binding }) }),
+      h.context({
+        binding,
+        connection: buildConnection({ binding, ownerKind: "workload" }),
+      }),
     ),
     (error: unknown) =>
       error instanceof ConnectorError &&
