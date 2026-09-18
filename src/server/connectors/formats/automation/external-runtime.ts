@@ -162,7 +162,15 @@ export function validateRuntimeValue(
         for (const key of current.required ?? [])
           if (!Object.hasOwn(source, key)) return `${path}/${key}`;
         for (const key of Object.keys(source)) {
-          const child = current.properties[key];
+          // `properties` is data, so it is read as data: an own-property
+          // lookup. A plain `properties[key]` would find `Object.prototype`
+          // for a key like `__proto__` and treat a pollution attempt as a
+          // declared field.
+          if (["__proto__", "prototype", "constructor"].includes(key))
+            return `${path}/${key}`;
+          const child = Object.hasOwn(current.properties, key)
+            ? current.properties[key]
+            : undefined;
           if (!child) {
             if (current.additionalProperties === false) return `${path}/${key}`;
             continue;

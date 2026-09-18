@@ -554,14 +554,13 @@ export function createOpenApiHttpAdapter(
         ctx.signal.removeEventListener("abort", onAbort);
 
         const { bytes, exceeded } = await readBoundedBody(response, limit);
-        if (exceeded) {
-          const applied = response.ok && bound.effect !== "read";
+        // A body over the bound is a failure, never a truncation: half a JSON
+        // document is not the response the operation described. The upstream
+        // still acted, though, so a successful status is journalled as applied.
+        // An error status is classified below by its status, not by its size.
+        if (exceeded && response.ok) {
           await ctx.environment.effects.complete(effectRef, {
-            status: applied
-              ? "applied"
-              : response.ok
-                ? "applied"
-                : "not-applied",
+            status: "applied",
             code: "openapi.response-too-large",
             at: ctx.environment.now(),
           });
