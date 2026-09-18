@@ -78,10 +78,7 @@ export interface BoundPageLike {
 
 /** One observation: what was seen, and the references that were seen. */
 type Observation = {
-  /** Issued by this module. A page cannot mint or read it. */
-  documentRef: string;
   origin: string;
-  revision: number;
   snapshot: PageSnapshot;
   root: JsHandleLike;
   elements: JsHandleLike;
@@ -116,8 +113,6 @@ function originOf(url: string): string {
     return "";
   }
 }
-
-let documentCounter = 0;
 
 /**
  * Bind observations and actions to one document.
@@ -180,9 +175,7 @@ export function createBoundTargets(page: BoundPageLike) {
         originHandle.dispose().catch(() => {}),
       ]);
       current = {
-        documentRef: `doc-${++documentCounter}`,
         origin,
-        revision: documentCounter,
         snapshot,
         root,
         elements,
@@ -341,21 +334,6 @@ export function createBoundTargets(page: BoundPageLike) {
   return {
     observe,
     act,
-    /** The destination approved for a control, for a caller's own origin policy. */
-    destinationFor(element: SnapshotElement): ElementDestination | undefined {
-      return current?.destinations[element.index];
-    },
-    /** Identity of the document actions are currently bound to. */
-    binding():
-      { documentRef: string; origin: string; revision: number } | undefined {
-      return current
-        ? {
-            documentRef: current.documentRef,
-            origin: current.origin,
-            revision: current.revision,
-          }
-        : undefined;
-    },
     /** Release held references; the next action must observe again. */
     async release() {
       await discard();

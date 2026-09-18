@@ -1,8 +1,4 @@
-import {
-  type ElementDestination,
-  type PageSnapshot,
-  type SnapshotElement,
-} from "../core/browser-contracts.js";
+import { type PageSnapshot } from "../core/browser-contracts.js";
 import {
   createBoundTargets,
   StaleTargetError,
@@ -80,23 +76,4 @@ export function createPlaywrightCeremonyPage(
       }
     },
   };
-}
-
-/**
- * Where a control's form would deliver, as approved at observation time.
- *
- * Exposed so a caller with its own origin policy — the driver's rule that a
- * secret may only reach an allowed origin — can consult the destination the
- * adapter actually validated rather than re-deriving it from a snapshot field.
- */
-export function approvedDestination(
-  bound: ReturnType<typeof createBoundTargets>,
-  element: SnapshotElement,
-): ElementDestination | undefined {
-  return bound.destinationFor(element);
-}
-
-/** Whether a thrown value is this adapter refusing, rather than a real fault. */
-export function isStaleTarget(error: unknown): error is StaleTargetError {
-  return error instanceof StaleTargetError;
 }

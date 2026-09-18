@@ -1,3 +1,4 @@
+import { createPlatform } from "./platform.js";
 import {
   admittedOrigin,
   matchTemplate,
@@ -7,6 +8,10 @@ import {
   type Observation,
   type Step,
 } from "../../src/browser-login/templates.js";
+
+// The trusted page talks to its own worker through the same seam the worker
+// uses, so one dialect difference cannot make the UI and the worker disagree.
+const platform = createPlatform();
 const status = document.querySelector("#status") as HTMLParagraphElement;
 const review = document.querySelector("#review") as HTMLElement;
 const mapping = document.querySelector("#mapping") as HTMLPreElement;
@@ -28,7 +33,7 @@ async function message(payload: unknown, timeout = 8000): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      chrome.runtime.sendMessage(payload),
+      platform.runtime.sendMessage(payload),
       new Promise((_, reject) => {
         timer = setTimeout(
           () =>
@@ -128,12 +133,12 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
       ...new Set([origin, ...(multi ? [topOrigin, frameOrigin] : [])]),
     ];
     if (
-      !(await chrome.permissions.request({
+      !(await platform.permissions.request({
         origins: origins.map((item) => `${item}/*`),
       }))
     )
       throw new Error("Site permission was not granted.");
-    const tabs = (await chrome.tabs.query({})).filter(
+    const tabs = (await platform.tabs.query({})).filter(
       (candidate) => candidate.url === new URL(target).href,
     );
     const tab = tabs.length === 1 ? tabs[0] : undefined;
@@ -142,7 +147,7 @@ document.querySelector("#inspect")!.addEventListener("click", async () => {
         "Open exactly one tab at this login URL first; duplicate tabs are ambiguous.",
       );
     const popups = popupUrl
-      ? (await chrome.tabs.query({})).filter(
+      ? (await platform.tabs.query({})).filter(
           (candidate) => candidate.url === new URL(popupUrl).href,
         )
       : [];
@@ -345,7 +350,7 @@ infer.addEventListener("click", () => {
   infer.disabled = true;
   status.textContent =
     "Loading free local model; first download may take several minutes…";
-  const worker = new Worker(chrome.runtime.getURL("inference.worker.js"), {
+  const worker = new Worker(platform.runtime.getURL("inference.worker.js"), {
     type: "module",
   });
   modelWorker = worker;

@@ -257,57 +257,6 @@ export function unmetCapabilities(
 }
 
 /* ------------------------------------------------------------------ *
- * Target binding
- * ------------------------------------------------------------------ */
-
-/**
- * Exactly where an action is allowed to land, down to the document, plus the
- * generations that make a stale reference detectable.
- *
- * `browserGeneration` changes when the browser process is replaced;
- * `observationRevision` changes when the document mutated after it was
- * observed. Both are issued by the backend. A page cannot mint either, which is
- * the whole point: a `data-*` attribute the page can rewrite is not identity.
- */
-export const targetBindingSchema = z
-  .strictObject({
-    executorRef: executorRefSchema,
-    browserGeneration: z.string().max(64),
-    contextRef: contextRefSchema,
-    targetRef: targetRefSchema,
-    frameRef: frameRefSchema,
-    documentRef: documentRefSchema,
-    observationRevision: z.number().int().nonnegative(),
-    /** Exact origin of the bound document; no suffix matching, ever. */
-    origin: z.string().max(2000),
-    /** Exact origin of the top-level document the frame belongs to. */
-    topOrigin: z.string().max(2000),
-  })
-  .readonly();
-export type TargetBinding = z.infer<typeof targetBindingSchema>;
-
-/**
- * Whether two bindings name the same live document at the same revision.
- *
- * Used immediately before a consequential action, after every await. A model
- * call and a credential lookup are both awaits, and a page is free to navigate
- * during either.
- */
-export function sameBinding(a: TargetBinding, b: TargetBinding): boolean {
-  return (
-    a.executorRef === b.executorRef &&
-    a.browserGeneration === b.browserGeneration &&
-    a.contextRef === b.contextRef &&
-    a.targetRef === b.targetRef &&
-    a.frameRef === b.frameRef &&
-    a.documentRef === b.documentRef &&
-    a.observationRevision === b.observationRevision &&
-    a.origin === b.origin &&
-    a.topOrigin === b.topOrigin
-  );
-}
-
-/* ------------------------------------------------------------------ *
  * Login intent
  * ------------------------------------------------------------------ */
 
@@ -327,29 +276,6 @@ export const accountPolicySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("require-selection") }),
 ]);
 export type AccountPolicy = z.infer<typeof accountPolicySchema>;
-
-/**
- * A login request.
- *
- * A URL is not an API here. `targetRef` is a server-resolved browser
- * registration, never a socket, profile path or CDP endpoint supplied by a
- * caller, and `configurationRef`/`configurationRevision` bind the request to
- * one canonical effective plan so a configuration change under a pending human
- * wait cannot authorize the old work.
- */
-export const loginIntentSchema = z
-  .strictObject({
-    connectorId: z.string().min(1).max(128),
-    account: accountPolicySchema,
-    targetRef: targetRefSchema,
-    configurationRef: z.string().min(1).max(128),
-    configurationRevision: z.number().int().nonnegative(),
-    continuation: loginContinuationSchema,
-    trustMode: browserTrustModeSchema,
-    required: requiredCapabilitySchema.optional(),
-  })
-  .strict();
-export type LoginIntent = z.infer<typeof loginIntentSchema>;
 
 /* ------------------------------------------------------------------ *
  * Evidence
@@ -468,46 +394,12 @@ export type LoginResult = z.infer<typeof loginResultSchema>;
  * alone is what lets a reply to an abandoned first attempt settle a second one,
  * so the attempt is the unit here and a resolution names it explicitly.
  */
-export const handoffAttemptSchema = z
-  .strictObject({
-    handoffRef: handoffRefSchema,
-    runRef: runRefSchema,
-    /** Fenced against the lease that authorized the run. */
-    leaseGeneration: z.number().int().nonnegative(),
-    reason: z.enum([
-      "human-challenge",
-      "passkey",
-      "native-dialog",
-      "push-approval",
-      "account-selection",
-      "unsupported-page",
-    ]),
-    /** Which resolvers were assigned. Nobody else may answer this attempt. */
-    resolverRefs: z.array(z.string().min(1).max(128)).min(0).max(16),
-    origin: z.string().max(2000),
-    attempt: z.number().int().positive().max(8),
-    expiresAt: z.string().datetime(),
-  })
-  .readonly();
-export type HandoffAttempt = z.infer<typeof handoffAttemptSchema>;
-
 export const handoffResolutionSchema = z.enum([
   "completed",
   "declined",
   "unavailable",
 ]);
 export type HandoffOutcome = z.infer<typeof handoffResolutionSchema>;
-
-/** A reply. It names the attempt it answers; a run reference is not enough. */
-export const handoffReplySchema = z
-  .strictObject({
-    handoffRef: handoffRefSchema,
-    runRef: runRefSchema,
-    resolverRef: z.string().min(1).max(128),
-    resolution: handoffResolutionSchema,
-  })
-  .strict();
-export type HandoffReply = z.infer<typeof handoffReplySchema>;
 
 /* ------------------------------------------------------------------ *
  * Sessions and leases
@@ -581,50 +473,6 @@ export const sessionReleaseResultSchema = z
   })
   .readonly();
 export type SessionReleaseResult = z.infer<typeof sessionReleaseResultSchema>;
-
-/* ------------------------------------------------------------------ *
- * Effects
- * ------------------------------------------------------------------ */
-
-/**
- * A consequential action, journalled before dispatch.
- *
- * "One action dispatched" is not a promise of exactly-once processing at the
- * provider, so an effect that was sent and not acknowledged settles as
- * `indeterminate` and is reconciled by observation — never resent by a
- * different interpreter or backend.
- */
-export const effectStates = [
-  "reserved",
-  "dispatched",
-  "acknowledged",
-  "indeterminate",
-  "abandoned",
-] as const;
-export const effectStateSchema = z.enum(effectStates);
-export type EffectState = z.infer<typeof effectStateSchema>;
-
-export const effectRecordSchema = z
-  .strictObject({
-    effectRef: effectRefSchema,
-    runRef: runRefSchema,
-    sessionRef: browserSessionRefSchema,
-    leaseGeneration: z.number().int().nonnegative(),
-    kind: z.enum(["credential-submit", "activate", "navigate"]),
-    binding: targetBindingSchema,
-    state: effectStateSchema,
-    createdAt: z.string().datetime(),
-  })
-  .readonly();
-export type EffectRecord = z.infer<typeof effectRecordSchema>;
-
-/**
- * States from which a duplicate delivery of the same effect must not dispatch
- * again. Reserving before dispatch is what makes this decidable at all.
- */
-export function effectIsSpent(state: EffectState): boolean {
-  return state !== "reserved";
-}
 
 /* ------------------------------------------------------------------ *
  * Public projections

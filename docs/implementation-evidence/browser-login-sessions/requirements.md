@@ -21,6 +21,7 @@ connectivity and usability, its owning **form node**, and its full submission
 destination including `formaction`/`formmethod`/`formtarget`.
 
 **Evidence:**
+
 - `tests/browser-targets.e2e.test.ts` — 15 cases, **real Chromium, Firefox and
   WebKit**. Each stages the race inside a paused resolver and then asks a
   recording HTTP server whether the canary arrived. It never did. This is the
@@ -31,12 +32,12 @@ destination including `formaction`/`formmethod`/`formtarget`.
 
 **Residual, stated plainly:** this does not protect a password from the site it
 was typed into. Entering a credential trusts that site as its recipient. What is
-excluded is the value reaching a *different* element or destination.
+excluded is the value reaching a _different_ element or destination.
 
 ## F-LIFETIME — a successful run always closed the browser
 
 **Confirmed at source.** `browser-executor.ts`'s `finish()` preserved a session
-only for selected *blocked* outcomes; success always called `close()`.
+only for selected _blocked_ outcomes; success always called `close()`.
 
 **Repaired in:** `src/server/browser-sessions.ts` (new) and
 `src/server/browser-login-service.ts` (new). Retention is explicit and carries
@@ -48,8 +49,9 @@ explicit `dispose` continuation rather than being changed underneath callers.
 path, so existing isolated-account and OAuth flows keep their exact behaviour.
 
 **Evidence:**
+
 - `tests/browser-login-conformance.test.ts` LIFE-RETURN on all three engines — a
-  real authenticated request through the retained context *after* the login call
+  real authenticated request through the retained context _after_ the login call
   returned, answered `200 {"account": …}`.
 - LIFE-MANAGED, LIFE-LEGACY on all three engines.
 - `tests/browser-session-lifetime.test.ts` — 16 cases: ownership, LIFE-RESTART,
@@ -91,7 +93,7 @@ describes that browser and no other. Evidence kinds never promote:
 only the first two can produce a `verified` status.
 
 **Evidence:** AUTH-FORGED on all three engines — the fixture's `/forged` page
-renders a signed-in banner, a logout link *and* the account marker element while
+renders a signed-in banner, a logout link _and_ the account marker element while
 setting no cookie, and no engine produces a verified result from it.
 AUTH-WRONG on all three engines — a different account is reported as
 `account-mismatch`, and the fixture confirms nobody was logged out and no second

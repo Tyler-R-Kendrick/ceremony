@@ -13,13 +13,13 @@ Conflating any two of these is how a harness ends up believing it is logged in
 when it is not, so they are separate values in the API and stay separate in
 every consumer.
 
-| Outcome                              | What it means                                                                                    |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Provider access established          | An API credential or grant was verified for its declared provider, subject and permissions.       |
-| Browser session authenticated        | The expected account was verified **in the exact selected context**, with evidence and freshness.  |
-| Browser control delegated            | An identified client may perform a bounded set of operations against that session.                 |
-| Human-attested login                 | A person reports the session is logged in. Recorded, but it is a claim, not evidence.              |
-| Submission dispatched, unverified    | A bounded login action was sent; completion and identity were never established.                   |
+| Outcome                           | What it means                                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Provider access established       | An API credential or grant was verified for its declared provider, subject and permissions.       |
+| Browser session authenticated     | The expected account was verified **in the exact selected context**, with evidence and freshness. |
+| Browser control delegated         | An identified client may perform a bounded set of operations against that session.                |
+| Human-attested login              | A person reports the session is logged in. Recorded, but it is a claim, not evidence.             |
+| Submission dispatched, unverified | A bounded login action was sent; completion and identity were never established.                  |
 
 An OAuth callback is not a verified account. An API grant is not a logged-in
 dashboard. A completed tool call is not a completed login. A logged-in browser
@@ -48,17 +48,17 @@ session-bound verification                    src/server/browser-verification.ts
 
 ## Backend support, honestly
 
-| Target                        | State                                                                                                                   |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Managed Chromium              | **Implemented and tested.** Runs the common login contract; session retained and usable after the call returns.           |
-| Managed Firefox               | **Implemented and tested.** Same contract, real Firefox engine, no protection skipped and no Chromium substituted.        |
-| Managed WebKit                | **Implemented and tested.** Playwright's WebKit build. **Not** installed Safari, not iCloud Keychain, not mobile Safari.  |
-| Existing-profile Chromium     | The existing extension logs in inside the person's own profile. It is not yet driven by an authenticated Ceremony request. |
-| Existing-profile Firefox      | See `browser-login-extension.md` for the current artifact state and its limits.                                            |
-| Installed Safari attachment   | **Not implemented.** No supported adapter exists; nothing reports it as available.                                        |
+| Target                      | State                                                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Managed Chromium            | **Implemented and tested.** Runs the common login contract; session retained and usable after the call returns.            |
+| Managed Firefox             | **Implemented and tested.** Same contract, real Firefox engine, no protection skipped and no Chromium substituted.         |
+| Managed WebKit              | **Implemented and tested.** Playwright's WebKit build. **Not** installed Safari, not iCloud Keychain, not mobile Safari.   |
+| Existing-profile Chromium   | The existing extension logs in inside the person's own profile. It is not yet driven by an authenticated Ceremony request. |
+| Existing-profile Firefox    | See `browser-login-extension.md` for the current artifact state and its limits.                                            |
+| Installed Safari attachment | **Not implemented.** No supported adapter exists; nothing reports it as available.                                         |
 
 Capabilities are declared per engine in `browser-backends.ts` and are what each
-engine can actually enforce *in this driver*, not an upstream feature list. In
+engine can actually enforce _in this driver_, not an upstream feature list. In
 particular `strongEgressContainment` is **false on every backend**: Chromium's
 `Fetch` interception covers document requests, which is navigation control, not
 containment of every subresource. A plan that requires containment is refused
@@ -96,7 +96,7 @@ Any of these failing ends the step with a named refusal —`stale-document`,
 **What this does not do.** It does not protect a password from the site it was
 typed into. Entering a credential means trusting that site as its recipient;
 DOM isolation does not hide a filled value from the page's own scripts. What is
-excluded is the value reaching a *different* element or a *different*
+excluded is the value reaching a _different_ element or a _different_
 destination than the one approved.
 
 ## Sessions, leases and what release actually does
@@ -112,10 +112,10 @@ merely shows the same URL is never adopted.
 
 Three release operations, deliberately not interchangeable:
 
-| Operation         | Effect                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| `cancel-run`      | Stops future dispatch. Destroys nothing. Cannot retract a request already on the wire. |
-| `release-control` | Revokes automation. The person's browser, tabs and cookies are untouched.              |
+| Operation         | Effect                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `cancel-run`      | Stops future dispatch. Destroys nothing. Cannot retract a request already on the wire.        |
+| `release-control` | Revokes automation. The person's browser, tabs and cookies are untouched.                     |
 | `dispose-managed` | Destroys only the context and browser this executor created. Refused for an attached browser. |
 
 **No release path logs anyone out of anything.** `upstreamLogout` is `false` on

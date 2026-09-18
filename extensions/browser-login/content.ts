@@ -4,6 +4,7 @@ import {
   validateMapping,
   type Observation,
 } from "../../src/browser-login/templates.js";
+import { createPlatform } from "./platform.js";
 
 // An isolated-world closure owns element references; page attributes are not authority.
 const installed = globalThis as typeof globalThis & {
@@ -11,6 +12,7 @@ const installed = globalThis as typeof globalThis & {
 };
 if (!installed.ceremonyAdapterInstalled) {
   installed.ceremonyAdapterInstalled = true;
+  const platform = createPlatform();
   const documentRef = crypto.randomUUID();
   let elements = new Map<string, HTMLElement>();
   let observed: Observation | undefined;
@@ -97,16 +99,25 @@ if (!installed.ceremonyAdapterInstalled) {
       passkey: !!document.querySelector(snapshotSelectors.passkey),
     });
   }
-  chrome.runtime.onMessage.addListener((raw, sender, reply) => {
-    if (sender.id !== chrome.runtime.id || sender.tab) return;
+  platform.runtime.onMessage((raw, sender, reply) => {
+    if (sender.id !== platform.runtime.id || sender.tab) return;
     const message = raw as {
       type?: string;
+      document?: string;
       step?: { document?: string; mapping?: unknown };
       username?: string;
       password?: string;
       origin?: string;
       expectedAccount?: string;
     };
+    // Engines that cannot address a document let the worker name the one it
+    // observed instead, and this document answers only to its own name. The
+    // reference is minted here and never published to the page, so naming it is
+    // evidence that the worker is talking to the document it looked at.
+    if (message.document !== undefined && message.document !== documentRef) {
+      reply({ status: "refused" });
+      return;
+    }
     if (message.type === "verify-fixture") {
       const account = document.querySelector("data#account");
       reply({

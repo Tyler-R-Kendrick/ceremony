@@ -5,13 +5,13 @@ was observed in this checkout, not carried over from a prior report.
 
 ## Repository identity
 
-| Item                              | Value                                      |
-| --------------------------------- | ------------------------------------------ |
+| Item                              | Value                                          |
+| --------------------------------- | ---------------------------------------------- |
 | Remote                            | `https://github.com/Tyler-R-Kendrick/ceremony` |
-| `origin/main` at start            | `d741eed0de296950def366d0a92fa63b77070abc` |
-| Working branch                    | `claude/eloquent-hamilton-2bi18f`          |
-| Branch tip at start               | `d741eed` (identical to `main`)            |
-| PR #39 head (fetched, not merged) | `96b43e983797415201e76f69cb8abedb77f7a0ab` |
+| `origin/main` at start            | `d741eed0de296950def366d0a92fa63b77070abc`     |
+| Working branch                    | `claude/eloquent-hamilton-2bi18f`              |
+| Branch tip at start               | `d741eed` (identical to `main`)                |
+| PR #39 head (fetched, not merged) | `96b43e983797415201e76f69cb8abedb77f7a0ab`     |
 
 ### Correction to the brief's baseline
 
@@ -30,15 +30,15 @@ PR #39 was fetched to a read-only remote-tracking ref for inspection. It was
 
 ## Runtime
 
-| Item              | Value                                       |
-| ----------------- | ------------------------------------------- |
-| Node              | `v22.22.2`                                  |
-| Platform          | `linux` / `x64`                             |
-| npm               | `10.9.7`                                    |
-| `playwright-core` | `1.63.0` (as locked)                        |
-| Chromium          | `153.0.8010.12`                             |
-| Firefox           | `155.0`                                     |
-| WebKit            | `26.6`                                      |
+| Item              | Value                |
+| ----------------- | -------------------- |
+| Node              | `v22.22.2`           |
+| Platform          | `linux` / `x64`      |
+| npm               | `10.9.7`             |
+| `playwright-core` | `1.63.0` (as locked) |
+| Chromium          | `153.0.8010.12`      |
+| Firefox           | `155.0`              |
+| WebKit            | `26.6`               |
 
 ### Deviations from the project convention, and why
 
@@ -82,11 +82,11 @@ no test was skipped.**
 
 `node scripts/test.mjs all`, same container, same dependency tree.
 
-| Run                                                | Tests | Pass | Fail |
-| -------------------------------------------------- | ----- | ---- | ---- |
-| Baseline `origin/main` `d741eed` (separate worktree) | 1135  | 1106 | 29   |
-| This work, before the fixture repair                | 1205  | 1176 | 29   |
-| This work, after the fixture repair                 | see `verification.md` | | |
+| Run                                                  | Tests                 | Pass | Fail |
+| ---------------------------------------------------- | --------------------- | ---- | ---- |
+| Baseline `origin/main` `d741eed` (separate worktree) | 1135                  | 1106 | 29   |
+| This work, before the fixture repair                 | 1205                  | 1176 | 29   |
+| This work, after the fixture repair                  | see `verification.md` |      |      |
 
 The 29 failures are identical in both of the first two runs and are all
 PostgreSQL/mounted-runtime tests. They were reproduced at the pristine baseline

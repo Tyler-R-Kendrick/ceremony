@@ -14,11 +14,11 @@ what that means for these results.
 node scripts/test.mjs all
 ```
 
-| Run                                       | Tests | Pass | Fail | Skipped | Exit |
-| ----------------------------------------- | ----- | ---- | ---- | ------- | ---- |
-| Baseline `d741eed` (separate worktree)    | 1135  | 1106 | 29   | 0       | 1    |
-| This work, before the PostgreSQL repair   | 1205  | 1176 | 29   | 0       | 1    |
-| **This work, after the PostgreSQL repair**| **1251** | **1251** | **0** | **0** | **0** |
+| Run                                        | Tests    | Pass     | Fail  | Skipped | Exit  |
+| ------------------------------------------ | -------- | -------- | ----- | ------- | ----- |
+| Baseline `d741eed` (separate worktree)     | 1135     | 1106     | 29    | 0       | 1     |
+| This work, before the PostgreSQL repair    | 1205     | 1176     | 29    | 0       | 1     |
+| **This work, after the PostgreSQL repair** | **1251** | **1251** | **0** | **0**   | **0** |
 
 The 29 failures in the first two runs are the same set, all PostgreSQL /
 mounted-runtime tests, reproduced at the pristine baseline. `baseline.md`
@@ -30,6 +30,7 @@ or excluded in any run.
 ```
 npx tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts
 ```
+
 ```
 1..4
 # tests 25
@@ -40,12 +41,14 @@ npx tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts
 # skipped 0
 # todo 0
 ```
+
 Eight cases on each of Chromium, Firefox and WebKit, plus one engine-identity
 case. Every assertion is answered by the fixture server's own records.
 
 ```
 npx tsx --test --test-concurrency=1 tests/browser-targets.e2e.test.ts
 ```
+
 ```
 1..3
 # tests 15
@@ -56,12 +59,14 @@ npx tsx --test --test-concurrency=1 tests/browser-targets.e2e.test.ts
 # skipped 0
 # todo 0
 ```
+
 Five cases on each engine. Each stages the race inside a paused resolver and
 then asks a recording server whether the canary arrived. It never did.
 
 ```
 npx tsx --test tests/browser-session-lifetime.test.ts
 ```
+
 ```
 1..4
 # tests 16
@@ -73,6 +78,7 @@ npx tsx --test tests/browser-session-lifetime.test.ts
 ```
 npx tsx --test tests/login-plan.test.ts
 ```
+
 ```
 1..6
 # tests 30
@@ -84,6 +90,7 @@ npx tsx --test tests/login-plan.test.ts
 ```
 npx tsx --test tests/browser-driver.test.ts
 ```
+
 ```
 # tests 32
 # suites 0
@@ -94,12 +101,14 @@ npx tsx --test tests/browser-driver.test.ts
 ```
 npx tsx --test tests/persistence.test.ts
 ```
+
 ```
 # tests 6
 # suites 0
 # pass 6
 # fail 0
 ```
+
 (2 of these 6 failed at the pristine baseline in this container.)
 
 ## Static gates
