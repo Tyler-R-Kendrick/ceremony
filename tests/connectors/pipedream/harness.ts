@@ -352,6 +352,53 @@ export function makeContext(options: ContextOptions): AdapterCallContext {
   };
 }
 
+/**
+ * Records a connected account on a connection the way the command layer would
+ * after a completion: a broker reference in custody, and the external ids that
+ * pin the connection to this project, environment, external user and app.
+ */
+export async function bindAccount(
+  harness: Harness,
+  connection: ConnectionRecord,
+  input: {
+    accountId: string;
+    externalUserId: string;
+    projectId: string;
+    environment: string;
+    app: string;
+  },
+): Promise<ConnectionRecord> {
+  const credentialRef = await harness.ports.credentials.store(
+    {
+      tenantId: connection.tenantId,
+      ownerKind: connection.ownerKind,
+      ownerId: connection.ownerId,
+      connectionRef: connection.connectionRef,
+      bindingRef: connection.bindingRef,
+      custody: "external-credential-broker",
+    },
+    {
+      accountId: input.accountId,
+      externalUserId: input.externalUserId,
+      projectId: input.projectId,
+      environment: input.environment,
+      app: input.app,
+    },
+  );
+  return {
+    ...connection,
+    credentialRef,
+    externalIds: {
+      ...connection.externalIds,
+      accountId: input.accountId,
+      externalUserId: input.externalUserId,
+      projectId: input.projectId,
+      environment: input.environment,
+      app: input.app,
+    },
+  };
+}
+
 /** Issues a handoff the way the command layer would, from the adapter's proposal. */
 export async function issueHandoff(
   harness: Harness,

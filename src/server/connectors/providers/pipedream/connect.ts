@@ -435,8 +435,19 @@ async function decideByListing(
   );
   const bound = record.private.boundAccountId;
   if (bound) {
-    const same = fresh.find((account) => account.id === bound);
-    if (same) return { kind: "bind", account: same };
+    // A connection that already names an account only ever reconnects that
+    // account. Any other account the handoff produced is a replacement, and a
+    // replacement needs an explicit human account-switch intent.
+    const others = fresh.filter((account) => account.id !== bound);
+    if (!others.length) {
+      const same = fresh.find((account) => account.id === bound);
+      return same ? { kind: "bind", account: same } : { kind: "pending" };
+    }
+    if (record.private.accountSwitch !== "true")
+      return { kind: "switch-required" };
+    return others.length === 1
+      ? { kind: "bind", account: others[0]! }
+      : { kind: "selection-required" };
   }
   if (fresh.length === 1) return decideBound(record, fresh[0]!);
   if (fresh.length > 1) return { kind: "selection-required" };

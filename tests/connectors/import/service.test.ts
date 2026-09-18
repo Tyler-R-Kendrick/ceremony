@@ -99,6 +99,7 @@ test("each supported family is recognized, and an unknown one is stored as opaqu
     ["asyncapi-3.yaml", "application/yaml", "asyncapi", "3.0.0"],
     ["mcp-server.json", "application/json", "mcp-registry", "2025-07-09"],
   ] as const;
+  const imported = new Map<string, Awaited<ReturnType<typeof importUpload>>>();
   for (const [name, mediaType, ecosystem, version] of expectations) {
     const outcome = await importUpload(
       importActor,
@@ -107,19 +108,14 @@ test("each supported family is recognized, and an unknown one is stored as opaqu
       ports,
       { fileName: name },
     );
+    imported.set(name, outcome);
     assert.equal(outcome.document.detected.ecosystem, ecosystem, name);
     assert.equal(outcome.document.detected.version, version, name);
     assert.equal(outcome.issues.length, 0, name);
   }
   // A registry entry naming an npm package and arguments is inert data: it is
   // recorded, and nothing installs, spawns or pulls anything.
-  const registry = await importUpload(
-    importActor,
-    await fixtureBytes("mcp-server.json"),
-    "application/json",
-    ports,
-    { fileName: "mcp-server.json" },
-  );
+  const registry = imported.get("mcp-server.json")!;
   const packages = (registry.document.value as { packages: Array<{ identifier: string }> })
     .packages;
   assert.equal(packages[0]?.identifier, "@example/fixture-mcp");
