@@ -536,6 +536,17 @@ export function createWorkOsPipesAdapter(
       };
     if (account.state !== "connected")
       return { state: "pending", claims: [], code: "workos.state-unknown" };
+    // Ownership is checked against what was asked for, not against what came
+    // back: an organization's shared connection returned on a user lookup is
+    // still the organization's grant, and a user's connection is never
+    // presented as an organization's.
+    const returnedOrganization = account.organization_id ?? undefined;
+    const ownedByPerson = Boolean(account.user_id);
+    if (
+      returnedOrganization !== resolved.principal.organizationId ||
+      ownedByPerson !== (resolved.connectionOwner === "user")
+    )
+      return { state: "denied", claims: [], code: "workos.owner-mismatch" };
     if (!allowAccountSwitch && accountChanged(ctx, account))
       return { state: "denied", claims: [], code: "workos.account-changed" };
     const { claims, target } = claimsFor(ctx, resolved, account);

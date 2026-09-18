@@ -326,10 +326,13 @@ function readCredential(
         category: "security",
         pointer: at("authenticate"),
         dimension: "authorize",
-        severity: "warning",
+        severity: "blocking",
         disposition: "unsupported",
+        executionImpact: "blocks-authorization",
         message:
           "The credential does not declare how it is applied to a request, so no authentication method could be read from it.",
+        remediation:
+          "Declare the placement explicitly before approving a binding that uses this credential.",
       });
     return result;
   }
@@ -684,6 +687,7 @@ export async function readN8nNode(
       dimension: "authorize",
       severity: "warning",
       disposition: "requires-configuration",
+      executionImpact: "blocks-authorization",
       message: `The node requires the credential type "${token(credentialNames[0]!.name)}", whose description was not part of this import.`,
       remediation:
         "Import the credential description alongside the node to establish how it authenticates.",

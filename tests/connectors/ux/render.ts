@@ -100,22 +100,18 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         | null;
       if (!field) throw new Error(`No field matching ${selector}`);
       await act(async () => {
-        if (field.tagName === "SELECT") {
-          // linkedom's select has no value setter and reads its value from the
-          // option carrying the `selected` attribute, so choosing an option is
-          // both how a person does it and the only thing that works here.
-          for (const option of field.querySelectorAll("option") as Iterable<{
-            value: string;
-            selected: boolean;
-            setAttribute(name: string, value: string): void;
-            removeAttribute(name: string): void;
-          }>) {
-            const chosen = option.value === value;
-            option.selected = chosen;
-            if (chosen) option.setAttribute("selected", "");
-            else option.removeAttribute("selected");
-          }
-        } else field.value = value;
+        // A select outside a browser has no settable value and React restores
+        // the option state it owns after every event, so the chosen value is
+        // presented on the node for the duration of the dispatch and then
+        // handed back to React, which re-renders it from its own state.
+        const isSelect = field.tagName === "SELECT";
+        if (isSelect)
+          Object.defineProperty(field, "value", {
+            configurable: true,
+            writable: true,
+            value,
+          });
+        else field.value = value;
         // React remembers the last value it saw on the node and ignores an
         // event when the node still matches it. An assignment updates that
         // memory, so it is reset afterwards — which is what a keystroke
@@ -128,6 +124,7 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         // delivers the first of them for a text field.
         field.dispatchEvent(new window.Event("input", { bubbles: true }));
         field.dispatchEvent(new window.Event("change", { bubbles: true }));
+        if (isSelect) Reflect.deleteProperty(field, "value");
       });
     },
     async submit(selector = "form") {
