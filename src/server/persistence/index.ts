@@ -25,6 +25,21 @@ export const recordKinds = [
   "session",
   "audit",
   "connector-registry-snapshot",
+  // Connector interoperability state (STATE swarm). Additive: the encrypted
+  // record table is generic, so new kinds need no SQL migration; every value
+  // under these kinds carries `schemaVersion` for forward-compatible reads.
+  "connector-source",
+  "connector-definition",
+  "connector-binding",
+  "connector-connection",
+  "connector-connection-index",
+  "connector-evidence",
+  "connector-handoff",
+  "connector-effect",
+  "connector-credential",
+  "connector-artifact",
+  "connector-budget",
+  "connector-support",
 ] as const;
 export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };

@@ -24,6 +24,7 @@ import type {
   EvidenceStorePort,
   HandoffIssue,
   HandoffPort,
+  HandoffRecord,
   RandomPort,
   VerifiedEventEnvelope,
 } from "./ports.js";
@@ -69,6 +70,14 @@ export interface AdapterCallContext {
   actor: ActorContext;
   binding: RuntimeBinding;
   connection?: ConnectionRecord;
+  /**
+   * The pending handoff a completion continues, resolved by the command layer
+   * (private human surface or tenant-scoped correlation); it carries the
+   * protected transient material (PKCE verifier, device code, widget token).
+   * Absent when the caller could not be shown it, in which case an adapter
+   * that needs it reports `pending`, never an error that leaks it.
+   */
+  handoff?: HandoffRecord;
   /** Current connection generation; stale completions are fenced against it. */
   generation: number;
   signal: AbortSignal;
