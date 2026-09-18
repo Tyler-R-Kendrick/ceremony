@@ -7,7 +7,7 @@ import {
 } from "./browser-targets.js";
 import type { CeremonyPage } from "./browser-driver.js";
 
-export { StaleTargetError } from "./browser-targets.js";
+export { StaleTargetError, DispatchUncertain } from "./browser-targets.js";
 
 /**
  * The part of a Playwright page this adapter uses. Declaring it structurally
@@ -65,7 +65,26 @@ export function createPlaywrightCeremonyPage(
       await targets.act(element, (handle) => handle.check());
     },
     click: async (element) => {
-      await targets.act(element, (handle) => handle.click());
+      // The only action that can send something. `dispatches` turns on the
+      // post-action destination re-read, so a form re-pointed during
+      // Playwright's actionability wait is reported as uncertainty rather than
+      // as a step that went where it was approved to go.
+      await targets.act(element, (handle) => handle.click(), {
+        dispatches: true,
+      });
+    },
+    submissionTarget: async (element) => {
+      const destination = targets.destinationOf(element);
+      if (!destination?.form) return undefined;
+      if (!destination.action) return "unknown";
+      // The origin, never the URL: a login action can carry an identifier, a
+      // continuation or a token in its query string, and an effect record is
+      // read by callers who are not entitled to any of that.
+      try {
+        return new URL(destination.action).origin;
+      } catch {
+        return "unknown";
+      }
     },
     settle: async () => {
       try {
