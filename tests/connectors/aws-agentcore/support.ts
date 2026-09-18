@@ -5,11 +5,12 @@ import {
   AGENTCORE_ADAPTER_ID,
   agentCoreConfigurationNames,
 } from "../../../src/server/connectors/providers/aws-agentcore/index.js";
+import { buildBinding, buildConnectionSummary } from "../fixtures/builders.js";
 import {
-  buildBinding,
-  buildConnectionSummary,
-} from "../fixtures/builders.js";
-import { fixtureActor, memoryPorts, type MemoryPorts } from "../doubles/ports.js";
+  fixtureActor,
+  memoryPorts,
+  type MemoryPorts,
+} from "../doubles/ports.js";
 
 /* Shared fixtures for the AgentCore tests: bindings that pin both legs, and a call context. */
 

@@ -200,7 +200,9 @@ test("a target permission failure stays denied and names nothing from the provid
       identities: [MANAGEMENT_IDENTITY],
       region,
       gateways,
-      targets: { [GATEWAY_ID]: [{ targetId: "AbCdEf1234", name: "OrdersApi" }] },
+      targets: {
+        [GATEWAY_ID]: [{ targetId: "AbCdEf1234", name: "OrdersApi" }],
+      },
       denied: [GATEWAY_ID],
     },
     async (double) => {
@@ -219,7 +221,12 @@ test("a target permission failure stays denied and names nothing from the provid
 
 test("throttling and missing resources keep their own codes", async () => {
   await withDouble(
-    { identities: [MANAGEMENT_IDENTITY], region, gateways, throttleFirst: true },
+    {
+      identities: [MANAGEMENT_IDENTITY],
+      region,
+      gateways,
+      throttleFirst: true,
+    },
     async (double) => {
       const client = clientFor(double.origin, async () => MANAGEMENT_IDENTITY);
       await assert.rejects(
@@ -249,8 +256,7 @@ test("a caller-shaped gateway or target identifier that is not documented never 
         await assert.rejects(
           attempt(),
           (error: unknown) =>
-            error instanceof ConnectorError &&
-            error.code === "invalid-request",
+            error instanceof ConnectorError && error.code === "invalid-request",
         );
       assert.equal(double.requests.length, 0);
     },
@@ -263,7 +269,10 @@ test("a region the destination contradicts is a confusion, not a preference", ()
     origin: "https://bedrock-agentcore-control.us-east-1.amazonaws.com",
     network: "public" as const,
   };
-  assert.equal(controlRegionForDestination(destination, "us-east-1"), "us-east-1");
+  assert.equal(
+    controlRegionForDestination(destination, "us-east-1"),
+    "us-east-1",
+  );
   assert.throws(
     () => controlRegionForDestination(destination, "eu-west-1"),
     (error: unknown) =>

@@ -156,7 +156,9 @@ const tools = [
     name: TOOL,
     description: "List orders",
     call: (args: Record<string, unknown>) => ({
-      content: [{ type: "text", text: `orders since ${String(args["since"])}` }],
+      content: [
+        { type: "text", text: `orders since ${String(args["since"])}` },
+      ],
       structuredContent: { orders: [] },
     }),
   },
@@ -185,8 +187,7 @@ async function withDoubles<T>(
         gatewayId: GATEWAY_ID,
         name: "OrdersGateway",
         accountId: ACCOUNT,
-        discoveryUrl:
-          "https://idp.example/.well-known/openid-configuration",
+        discoveryUrl: "https://idp.example/.well-known/openid-configuration",
         ...(options.supportedVersions
           ? { supportedVersions: options.supportedVersions }
           : {}),
@@ -227,7 +228,10 @@ function contextFor(
 test("the catalog entry is provider-backed and says per dimension what it cannot do", () => {
   const registry = new ConnectorAdapterRegistry();
   registry.register(adapter);
-  assert.equal(registry.require(AGENTCORE_ADAPTER_ID).ecosystem, "aws-agentcore");
+  assert.equal(
+    registry.require(AGENTCORE_ADAPTER_ID).ecosystem,
+    "aws-agentcore",
+  );
   const configured = new Set([
     agentCoreConfigurationNames.accessKeyId,
     agentCoreConfigurationNames.secretAccessKey,
@@ -236,7 +240,13 @@ test("the catalog entry is provider-backed and says per dimension what it cannot
   const rows = adapter.capabilities(configured);
   assert.equal(rows.length, 12);
   const byDimension = new Map(rows.map((row) => [row.dimension, row]));
-  for (const dimension of ["discover", "import", "verify", "invoke", "disconnect"] as const)
+  for (const dimension of [
+    "discover",
+    "import",
+    "verify",
+    "invoke",
+    "disconnect",
+  ] as const)
     assert.equal(byDimension.get(dimension)?.implementation, "implemented");
   for (const dimension of [
     "configure",
@@ -416,7 +426,8 @@ test("import reports incompatible OpenAPI, Lambda and synchronized targets inste
         authorizerType: "CUSTOM_JWT",
         authorizerConfiguration: {
           customJWTAuthorizer: {
-            discoveryUrl: "https://idp.example/.well-known/openid-configuration",
+            discoveryUrl:
+              "https://idp.example/.well-known/openid-configuration",
           },
         },
         protocolType: "MCP",
@@ -474,7 +485,8 @@ test("import reports incompatible OpenAPI, Lambda and synchronized targets inste
     ] as const)
       assert.ok(codes.includes(code), `expected issue ${code}`);
     const security = outcome.issues.filter(
-      (issue) => issue.category === "security" && issue.disposition === "unsupported",
+      (issue) =>
+        issue.category === "security" && issue.disposition === "unsupported",
     );
     assert.ok(
       security.every((issue) => issue.severity === "blocking"),

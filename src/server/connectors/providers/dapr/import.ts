@@ -142,7 +142,7 @@ export async function importDaprComponent(
       sourcePointer: "/spec/type",
       dimension: "invoke",
       disposition: "unsupported",
-      severity: "warning",
+      severity: "blocking",
       executionImpact: "blocks-definition",
       message:
         "This component belongs to a Dapr building block other than bindings; it is imported as description only and has no approved invocation profile here.",
@@ -163,10 +163,10 @@ export async function importDaprComponent(
         sourcePointer: `/spec/metadata/${entry.name}`,
         dimension: "configure",
         disposition: "rejected",
-        severity: "warning",
+        severity: "blocking",
         executionImpact: "blocks-authorization",
         message:
-          "A credential-bearing component metadata entry declared an inline value; the value is dropped rather than imported.",
+          "A credential-bearing component metadata entry declared an inline value; the value is dropped rather than imported, so the component cannot authenticate until it is supplied privately.",
         remediation:
           "Resolve the entry from a Dapr secret store with secretKeyRef, or supply it through host configuration.",
       });

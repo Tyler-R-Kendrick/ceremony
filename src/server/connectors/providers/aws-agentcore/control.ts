@@ -178,7 +178,9 @@ export function controlError(
   if (type === "ResourceNotFoundException" || status === 404)
     return new ConnectorError("not-found", { detail: "agentcore.not-found" });
   if (type === "ThrottlingException" || status === 429)
-    return new ConnectorError("rate-limited", { detail: "agentcore.throttled" });
+    return new ConnectorError("rate-limited", {
+      detail: "agentcore.throttled",
+    });
   if (status === 401)
     return new ConnectorError("denied", {
       detail: "agentcore.credentials.rejected",

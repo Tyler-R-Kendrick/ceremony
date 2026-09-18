@@ -187,11 +187,20 @@ export function expectedOperation(
 ): { method: "GET" | "POST"; path: string } {
   switch (kind) {
     case "entityTypes.list":
-      return { method: "GET", path: runtimeConnectionPath(resource, "/entityTypes") };
+      return {
+        method: "GET",
+        path: runtimeConnectionPath(resource, "/entityTypes"),
+      };
     case "actions.list":
-      return { method: "GET", path: runtimeConnectionPath(resource, "/actions") };
+      return {
+        method: "GET",
+        path: runtimeConnectionPath(resource, "/actions"),
+      };
     case "connection.checkStatus":
-      return { method: "GET", path: runtimeConnectionPath(resource, ":checkStatus") };
+      return {
+        method: "GET",
+        path: runtimeConnectionPath(resource, ":checkStatus"),
+      };
     case "entities.list":
       return {
         method: "GET",
@@ -303,7 +312,10 @@ async function withIdentity<T>(
     throw new ConnectorError("configuration-required", {
       detail: "google-connectors.end-user-credential.missing",
     });
-  if (identity.requireNoAdminFallback && connection.state["adminFallback"] === true)
+  if (
+    identity.requireNoAdminFallback &&
+    connection.state["adminFallback"] === true
+  )
     throw new ConnectorError("denied", {
       detail: "google-connectors.admin-fallback",
     });
@@ -606,7 +618,10 @@ export function createGoogleConnectorsAdapter(): ConnectorAdapter {
           connection: z.unknown(),
           entityTypes: z.array(z.unknown()).max(4096).default([]),
           actions: z.array(z.unknown()).max(4096).default([]),
-          unsupportedTypeNames: z.array(z.string().max(200)).max(1000).optional(),
+          unsupportedTypeNames: z
+            .array(z.string().max(200))
+            .max(1000)
+            .optional(),
           unsupportedActionNames: z
             .array(z.string().max(200))
             .max(1000)
@@ -744,7 +759,8 @@ export function createGoogleConnectorsAdapter(): ConnectorAdapter {
           origin: input.origin,
           digest: { algorithm: "sha256", value: digest },
           byteLength: input.bytes.byteLength,
-          mediaType: input.mediaType.split(";")[0]!.trim() || "application/json",
+          mediaType:
+            input.mediaType.split(";")[0]!.trim() || "application/json",
           capturedAt: new Date(ctx.environment.now()).toISOString(),
           adaptation: [],
           overlays: [],

@@ -163,6 +163,9 @@ const disconnectScopeCopy: Record<
   },
 };
 
+/** One name, so a second attempt reuses the window instead of stacking them. */
+const HANDOFF_WINDOW = "ceremony-connector-handoff";
+
 const outcomeCopy: Record<string, string> = {
   applied: "Done",
   unsupported: "Not offered by this provider",
@@ -759,29 +762,56 @@ export function ConnectorConnection({
     if (autoFocus && connection?.connectionRef) heading.current?.focus();
   }, [connection?.connectionRef, autoFocus]);
 
-  const present = useCallback((view: ConnectionView) => {
-    const url = view.presentation?.url;
-    const presentation = view.handoff?.presentation;
-    if (!url || presentation !== "popup") return;
-    setPopupBlocked(false);
-    setPopupClosed(false);
-    let opened: Window | null = null;
+  /*
+   * The window is opened on the click, before the server is asked, and
+   * navigated once there is somewhere to go. A browser only lets a page open
+   * a window while a person's click is still fresh, so opening it after a
+   * round trip is how a working flow turns into a blocked one on a slow
+   * network. An opened window with nowhere to go is closed again.
+   */
+  const openPlaceholder = useCallback((): Window | null => {
     try {
-      opened = openWindow
-        ? openWindow(url, "ceremony-connector-handoff")
-        : typeof window === "undefined"
-          ? null
-          : window.open(url, "ceremony-connector-handoff", "noopener=no");
+      if (openWindow) return openWindow("about:blank", HANDOFF_WINDOW);
+      if (typeof window === "undefined") return null;
+      return window.open("about:blank", HANDOFF_WINDOW, "noopener=no");
     } catch {
-      opened = null;
+      return null;
     }
-    popup.current = opened;
-    // A blocked popup is a normal browser configuration, not a failure. The
-    // same authorization continues in this window instead.
-    if (!opened) setPopupBlocked(true);
   }, [openWindow]);
 
-  const connect = () =>
+  const present = useCallback(
+    (view: ConnectionView, placeholder: Window | null) => {
+      const url = view.presentation?.url;
+      const presentation = view.handoff?.presentation;
+      if (!url || presentation !== "popup") {
+        try {
+          placeholder?.close();
+        } catch {
+          /* Already gone. */
+        }
+        popup.current = null;
+        return;
+      }
+      setPopupClosed(false);
+      if (placeholder) {
+        setPopupBlocked(false);
+        popup.current = placeholder;
+        try {
+          placeholder.location.replace(url);
+        } catch {
+          /* A window that closed in the meantime needs nothing further. */
+        }
+        return;
+      }
+      // A blocked popup is a normal browser configuration, not a failure. The
+      // same authorization continues in this window instead.
+      popup.current = null;
+      setPopupBlocked(true);
+    },
+    [],
+  );
+
+  const connect = (placeholder: Window | null) =>
     act(async () => {
       if (!chosenBinding)
         throw new Error(
@@ -801,7 +831,7 @@ export function ConnectorConnection({
         },
       });
       remember(view);
-      present(view);
+      present(view, placeholder);
     });
 
   const submitHandoff = (event: FormEvent<HTMLFormElement>) => {
@@ -973,7 +1003,7 @@ export function ConnectorConnection({
           className="connector-intent"
           onSubmit={(event) => {
             event.preventDefault();
-            void connect();
+            void connect(openPlaceholder());
           }}
         >
           {profiles.length > 1 && (
@@ -1316,7 +1346,8 @@ export function ConnectorConnection({
                     type="button"
                     className="primary"
                     disabled={busy}
-                    onClick={() =>
+                    onClick={() => {
+                      const placeholder = openPlaceholder();
                       void act(async () => {
                         const next = await client.reconnect(
                           connection.connectionRef,
@@ -1328,9 +1359,15 @@ export function ConnectorConnection({
                         remember(next);
                         setConfirmReconnect(false);
                         setAccountSwitch(false);
-                        present(next);
-                      })
-                    }
+                        present(next, placeholder);
+                      }).catch(() => {
+                        try {
+                          placeholder?.close();
+                        } catch {
+                          /* Already gone. */
+                        }
+                      });
+                    }}
                   >
                     Start reconnect
                   </button>

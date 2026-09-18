@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   agentConnectorProjection,
   agentDefinitionProjection,
+  connectorReferenceSchema,
   type ConnectionSummary,
   type NormalizedDefinition,
 } from "../../../core/connectors/index.js";
@@ -27,11 +28,18 @@ import { ConnectorError } from "../errors.js";
  * choose an operation, and nothing about how it is carried out.
  */
 
-const identifier = z
-  .string()
-  .min(1)
-  .max(200)
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]*$/);
+/**
+ * A reference this deployment issued. The core alphabet admits `:` and `/`
+ * because upstream identifiers do, which also admits a string shaped like a
+ * URL; a reference is never a location, so anything carrying a scheme, an
+ * authority or a dot segment is refused here rather than handed to a lookup.
+ */
+const identifier = connectorReferenceSchema
+  .refine((value) => !value.includes("//"), "A reference is not a URL")
+  .refine(
+    (value) => !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value),
+    "A reference is not a URL",
+  );
 
 export const agentIntentInputs = {
   list: z.strictObject({}),

@@ -225,7 +225,9 @@ function destination(
   binding: RuntimeBinding,
   destinationId: string,
 ): ApprovedDestination {
-  const approved = binding.destinations.find((item) => item.id === destinationId);
+  const approved = binding.destinations.find(
+    (item) => item.id === destinationId,
+  );
   if (!approved)
     throw new ConnectorError("network-policy", {
       detail: "agentcore.destination.unapproved",
@@ -378,7 +380,8 @@ async function withCallerAuthorization<T>(
       return work({ kind: "bearer", token });
     });
   }
-  const name = inbound.configurationName ?? agentCoreConfigurationNames.gatewayToken;
+  const name =
+    inbound.configurationName ?? agentCoreConfigurationNames.gatewayToken;
   const token = await ctx.environment.configuration.read(name);
   if (!token)
     throw new ConnectorError("configuration-required", {
@@ -424,10 +427,7 @@ function authenticationForGateway(
       gateway.authorizerConfiguration?.customJWTAuthorizer?.discoveryUrl;
     const issuer =
       discoveryUrl?.endsWith("/.well-known/openid-configuration") === true
-        ? discoveryUrl.slice(
-            0,
-            -"/.well-known/openid-configuration".length,
-          )
+        ? discoveryUrl.slice(0, -"/.well-known/openid-configuration".length)
         : undefined;
     if (issuer)
       return {
@@ -714,7 +714,10 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
           "export",
           "A gateway binding is account-specific and is not exportable metadata",
         ),
-        unsupported("delegate", "The gateway exposes tools, not delegated tasks"),
+        unsupported(
+          "delegate",
+          "The gateway exposes tools, not delegated tasks",
+        ),
       ];
     },
 
@@ -810,7 +813,9 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
       );
       const search = input.query?.toLowerCase();
       const items = page.gateways
-        .filter((gateway) => !search || gateway.name.toLowerCase().includes(search))
+        .filter(
+          (gateway) => !search || gateway.name.toLowerCase().includes(search),
+        )
         .map((gateway) => ({
           identity: gatewayIdentity(
             management.region,
@@ -848,7 +853,10 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
         .object({
           gateway: z.unknown(),
           targets: z.array(z.unknown()).max(256).default([]),
-          region: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
+          region: z
+            .string()
+            .regex(/^[a-z0-9-]{1,32}$/)
+            .optional(),
         })
         .safeParse(value);
       if (!document.success)
@@ -863,9 +871,10 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
       const region =
         document.data.region ??
         (() => {
-          const match = /^arn:aws(?:|-cn|-us-gov):bedrock-agentcore:([a-z0-9-]+):/.exec(
-            gateway.data.gatewayArn,
-          );
+          const match =
+            /^arn:aws(?:|-cn|-us-gov):bedrock-agentcore:([a-z0-9-]+):/.exec(
+              gateway.data.gatewayArn,
+            );
           return match?.[1] ?? "unknown";
         })();
       const issues: CompatibilityIssue[] = gatewayIssues(gateway.data);
@@ -909,7 +918,10 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
           gateway: gateway.data.gatewayId,
           capabilities: capabilities.map((capability) => capability.nativeId),
         }),
-        importer: { id: "aws-agentcore-importer", version: AGENTCORE_ADAPTER_VERSION },
+        importer: {
+          id: "aws-agentcore-importer",
+          version: AGENTCORE_ADAPTER_VERSION,
+        },
         display: {
           name: gateway.data.name,
           description: (gateway.data.description ?? "AgentCore gateway").slice(
@@ -973,7 +985,8 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
           origin: input.origin,
           digest: { algorithm: "sha256", value: digest },
           byteLength: bytes.byteLength,
-          mediaType: input.mediaType.split(";")[0]!.trim() || "application/json",
+          mediaType:
+            input.mediaType.split(";")[0]!.trim() || "application/json",
           capturedAt,
           adaptation: [],
           overlays: [],
@@ -1014,7 +1027,8 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
           if (!(await ctx.environment.configuration.read(name)))
             missing.push(name);
       }
-      if (missing.length > 0) return { kind: "configuration-required", missing };
+      if (missing.length > 0)
+        return { kind: "configuration-required", missing };
       /*
        * There is nothing for Ceremony to start: the caller's token is issued
        * by the gateway's own identity provider and configured by the host.
@@ -1062,11 +1076,14 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
         return { state: "pending", claims, code: "agentcore.caller.unbound" };
       }
       const gateway = resolveGateway(ctx.binding);
-      const listing = await withCallerAuthorization(ctx, gateway, (authorization) =>
-        gatewayClientFor(ctx, gateway, authorization).listTools(
-          { requestId: ctx.environment.random.uuid() },
-          { signal: ctx.signal },
-        ),
+      const listing = await withCallerAuthorization(
+        ctx,
+        gateway,
+        (authorization) =>
+          gatewayClientFor(ctx, gateway, authorization).listTools(
+            { requestId: ctx.environment.random.uuid() },
+            { signal: ctx.signal },
+          ),
       );
       claims.push({
         kind: "credential-accepted",

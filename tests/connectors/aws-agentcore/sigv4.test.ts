@@ -103,7 +103,10 @@ test("a signed request carries the documented Authorization header and canonical
       now: AT,
     },
   );
-  assert.equal(signed.credentialScope, "20260918/us-east-1/bedrock-agentcore/aws4_request");
+  assert.equal(
+    signed.credentialScope,
+    "20260918/us-east-1/bedrock-agentcore/aws4_request",
+  );
   assert.match(
     signed.headers["authorization"]!,
     new RegExp(
@@ -189,7 +192,10 @@ test("a caller cannot smuggle an Authorization or Host header into the signature
 
 test("a malformed access key id or region is refused rather than signed", () => {
   const bad = [
-    { credentials: { ...credentials, accessKeyId: "short" }, region: "us-east-1" },
+    {
+      credentials: { ...credentials, accessKeyId: "short" },
+      region: "us-east-1",
+    },
     { credentials, region: "US-EAST-1" },
   ];
   for (const attempt of bad)

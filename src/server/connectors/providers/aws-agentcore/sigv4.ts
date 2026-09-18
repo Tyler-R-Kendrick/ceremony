@@ -183,8 +183,11 @@ export function signRequest(
     credentials.expiresAt !== undefined &&
     credentials.expiresAt <= context.now
   )
-    throw new ConnectorError("expired", { detail: "sigv4.credentials.expired" });
-  if (!regionPattern.test(context.region)) throw invalid("sigv4.region.invalid");
+    throw new ConnectorError("expired", {
+      detail: "sigv4.credentials.expired",
+    });
+  if (!regionPattern.test(context.region))
+    throw invalid("sigv4.region.invalid");
   if (!servicePattern.test(context.service))
     throw invalid("sigv4.service.invalid");
 

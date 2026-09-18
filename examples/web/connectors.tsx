@@ -1,13 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  BindingReference,
+  CatalogEntry,
+  NormalizedDefinition,
+} from "../../src/core/connectors/index.js";
+// The typed browser client is imported directly: the core barrel does not
+// export it yet, and that addition is the integrator's to make.
 import {
   createConnectorClient,
   readConnectorReturn,
-  type BindingReference,
-  type CatalogEntry,
   type ConnectorClient,
   type ConnectorViewer,
-  type NormalizedDefinition,
-} from "../../src/core/connectors/index.js";
+} from "../../src/core/connectors/client.js";
 import { ConnectorDirectory } from "../../src/react/connector-directory.js";
 import { ConnectorDrawer } from "../../src/react/connector-drawer.js";
 import { ConnectorConnection } from "../../src/react/connector-connection.js";

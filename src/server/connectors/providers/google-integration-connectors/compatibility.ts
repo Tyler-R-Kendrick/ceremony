@@ -240,7 +240,9 @@ export function reportConnectionCapabilities(
   for (const entity of input.entityTypes ?? []) {
     if (unsupportedTypes.has(entity.entity)) continue;
     const operations = (entity.operations ?? []).filter((operation) =>
-      (ENTITY_OPERATIONS as readonly string[]).includes(operation.toUpperCase()),
+      (ENTITY_OPERATIONS as readonly string[]).includes(
+        operation.toUpperCase(),
+      ),
     );
     if (operations.length === 0) {
       issues.push(
@@ -299,7 +301,9 @@ export function reportConnectionCapabilities(
       kind: "action",
       nativeId: action.action,
       label: (action.displayName ?? action.action).slice(0, 200),
-      ...(action.description ? { summary: action.description.slice(0, 500) } : {}),
+      ...(action.description
+        ? { summary: action.description.slice(0, 500) }
+        : {}),
       /*
        * An action is "a first class function ... [that] enables changes to
        * entities". Which of them write is connector-specific and is not

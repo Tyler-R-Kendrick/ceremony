@@ -38,7 +38,11 @@ import {
  */
 
 const adapter = createGoogleConnectorsAdapter();
-const resource = { project: PROJECT, location: LOCATION, connection: CONNECTION };
+const resource = {
+  project: PROJECT,
+  location: LOCATION,
+  connection: CONNECTION,
+};
 
 async function withDouble<T>(
   options: Partial<GoogleDoubleOptions>,
@@ -194,10 +198,7 @@ test("discovery lists connections and reports capability availability per connec
       [ENTITY_TYPE, ACTION],
       "an entity type with no operations is not offered as a capability",
     );
-    assert.equal(
-      capabilities.items[0]?.provenance?.["operations"],
-      "LIST,GET",
-    );
+    assert.equal(capabilities.items[0]?.provenance?.["operations"], "LIST,GET");
     const codes = capabilities.issues.map((issue) => issue.code);
     for (const code of [
       "google-connectors.entity-type.unsupported-datatype",
@@ -272,10 +273,9 @@ test("import records what the connection can do and what it cannot", async () =>
       "google-connectors.action.unsupported-datatype",
     ])
       assert.ok(codes.includes(code), `expected issue ${code}`);
-    assert.deepEqual(
-      definition.nativeExtensions["entityOperations"],
-      { [ENTITY_TYPE]: ["LIST", "GET"] },
-    );
+    assert.deepEqual(definition.nativeExtensions["entityOperations"], {
+      [ENTITY_TYPE]: ["LIST", "GET"],
+    });
     assert.ok(
       definition.capabilities.every(
         (capability) => capability.dataClassification === "unknown",
@@ -482,9 +482,13 @@ test("an async-enabled connection never has its action result reported as settle
     { connection: { asyncOperationsEnabled: true } },
     async (double) => {
       const ports = googlePorts();
-      const ctx = googleContext(googleBinding({ origin: double.origin }), ports, {
-        connection: googleConnection({ state: { asyncOperations: true } }),
-      });
+      const ctx = googleContext(
+        googleBinding({ origin: double.origin }),
+        ports,
+        {
+          connection: googleConnection({ state: { asyncOperations: true } }),
+        },
+      );
       const result = await adapter.invoke!(ctx, {
         operationRef: "operation:sendEmail",
         input: { parameters: {} },
@@ -500,11 +504,16 @@ test("caller-supplied resource names, execution config and unapproved targets ar
   await withDouble({}, async (double) => {
     const ctx = contextFor(double.origin);
     const substitutions: Array<[Record<string, unknown>, string]> = [
-      [{ name: "projects/other/locations/l/connections/c" }, "google-connectors.resource.substituted"],
+      [
+        { name: "projects/other/locations/l/connections/c" },
+        "google-connectors.resource.substituted",
+      ],
       [{ project: "other-project" }, "google-connectors.resource.substituted"],
       [{ parent: "projects/other" }, "google-connectors.resource.substituted"],
       [
-        { executionConfig: { headers: '{"x-integration-connectors-auth":"x"}' } },
+        {
+          executionConfig: { headers: '{"x-integration-connectors-auth":"x"}' },
+        },
         "google-connectors.execution-config.denied",
       ],
     ];

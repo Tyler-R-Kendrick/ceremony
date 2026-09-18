@@ -216,7 +216,8 @@ export function createGoogleConnectorsClient(
       "user-agent":
         options.userAgent ?? "ceremony-connectors-google-integration/1.0.0",
     };
-    const body = init.body === undefined ? undefined : JSON.stringify(init.body);
+    const body =
+      init.body === undefined ? undefined : JSON.stringify(init.body);
     if (body !== undefined) headers["content-type"] = "application/json";
     const timeout = AbortSignal.timeout(limits.requestTimeoutMs);
     const signal = init.signal
@@ -261,9 +262,7 @@ export function createGoogleConnectorsClient(
           status = undefined;
         }
       if (init.consequential && response.status >= 500)
-        throw new GoogleTransportUncertain(
-          "google-connectors.upstream-status",
-        );
+        throw new GoogleTransportUncertain("google-connectors.upstream-status");
       throw googleError(response.status, status);
     }
     if (bytes.byteLength === 0) return {};

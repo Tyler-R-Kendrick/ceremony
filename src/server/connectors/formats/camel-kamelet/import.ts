@@ -203,10 +203,10 @@ export async function importKamelet(
           sourcePointer: `/spec/definition/properties/${name}/default`,
           dimension: "configure",
           disposition: "rejected",
-          severity: "warning",
+          severity: "blocking",
           executionImpact: "blocks-authorization",
           message:
-            "A credential parameter declared a default value; the default is dropped rather than imported.",
+            "A credential parameter declared a default value; the default is dropped rather than imported, so the parameter has no value until one is configured.",
           remediation:
             "Supply the credential through host configuration for the configured runner.",
         }),

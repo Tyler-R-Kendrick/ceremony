@@ -252,7 +252,9 @@ export function createGatewayMcpClient(options: GatewayClientOptions) {
        * means; this client never reports a network failure as "not applied".
        */
       throw new GatewayTransportUncertain(
-        timeout.aborted ? "agentcore.gateway.timeout" : "agentcore.gateway.network",
+        timeout.aborted
+          ? "agentcore.gateway.timeout"
+          : "agentcore.gateway.network",
       );
     }
     const text = await readBoundedText(response, limits.maxResponseBytes);
@@ -277,7 +279,9 @@ export function createGatewayMcpClient(options: GatewayClientOptions) {
           detail: "agentcore.gateway.throttled",
         });
       if (response.status >= 500)
-        throw new GatewayTransportUncertain("agentcore.gateway.upstream-status");
+        throw new GatewayTransportUncertain(
+          "agentcore.gateway.upstream-status",
+        );
       throw new ConnectorError("upstream-rejected", {
         detail: "agentcore.gateway.rejected",
       });
@@ -318,7 +322,10 @@ export function createGatewayMcpClient(options: GatewayClientOptions) {
       const result = await call(
         "tools/list",
         input.cursor ? { cursor: input.cursor } : {},
-        { id: input.requestId, ...(request.signal ? { signal: request.signal } : {}) },
+        {
+          id: input.requestId,
+          ...(request.signal ? { signal: request.signal } : {}),
+        },
       );
       const parsed = listResultSchema.safeParse(result);
       if (!parsed.success)
@@ -334,7 +341,9 @@ export function createGatewayMcpClient(options: GatewayClientOptions) {
       }
       return {
         tools,
-        ...(parsed.data.nextCursor ? { nextCursor: parsed.data.nextCursor } : {}),
+        ...(parsed.data.nextCursor
+          ? { nextCursor: parsed.data.nextCursor }
+          : {}),
         searchToolPresent: tools.some(
           (tool) => tool.name === AGENTCORE_SEARCH_TOOL,
         ),
@@ -352,7 +361,10 @@ export function createGatewayMcpClient(options: GatewayClientOptions) {
       const result = await call(
         "tools/call",
         { name: input.name, arguments: input.arguments },
-        { id: input.requestId, ...(request.signal ? { signal: request.signal } : {}) },
+        {
+          id: input.requestId,
+          ...(request.signal ? { signal: request.signal } : {}),
+        },
       );
       const parsed = callResultSchema.safeParse(result);
       if (!parsed.success)

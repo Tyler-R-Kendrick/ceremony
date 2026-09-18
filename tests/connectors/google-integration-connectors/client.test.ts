@@ -108,10 +108,7 @@ test("reads connections, schema metadata and runtime metadata on their documente
       ],
     );
     for (const request of double.requests)
-      assert.equal(
-        request.headers["authorization"],
-        `Bearer ${ACCESS_TOKEN}`,
-      );
+      assert.equal(request.headers["authorization"], `Bearer ${ACCESS_TOKEN}`);
   });
 });
 
@@ -174,10 +171,9 @@ test("executing an action sends only its parameters and never an executionConfig
     assert.deepEqual(double.executed, [
       { action: ACTION, parameters: { to: "person@example.invalid" } },
     ]);
-    const body = JSON.parse(double.requests.at(-1)!.body.toString("utf8")) as Record<
-      string,
-      unknown
-    >;
+    const body = JSON.parse(
+      double.requests.at(-1)!.body.toString("utf8"),
+    ) as Record<string, unknown>;
     assert.deepEqual(Object.keys(body), ["parameters"]);
   });
 });
@@ -250,7 +246,11 @@ test("a connection in another project is refused by the service and never assume
 test("resource names and regional endpoints are checked before a request is built", () => {
   assert.equal(connectionResourceName(resource), RESOURCE_NAME);
   assert.throws(
-    () => assertResourceMatches(resource, "projects/other/locations/x/connections/y"),
+    () =>
+      assertResourceMatches(
+        resource,
+        "projects/other/locations/x/connections/y",
+      ),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.code === "denied" &&
@@ -270,7 +270,11 @@ test("resource names and regional endpoints are checked before a request is buil
       error.detail === "google-connectors.location.mismatch",
   );
   assertEndpointLocation(
-    { id: "admin", origin: "https://connectors.googleapis.com", network: "public" },
+    {
+      id: "admin",
+      origin: "https://connectors.googleapis.com",
+      network: "public",
+    },
     "europe-west1",
   );
 });

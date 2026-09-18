@@ -405,7 +405,7 @@ export function analyzeTarget(
   const outbound = target.credentialProviderConfigurations?.[0];
   const privateEndpoint = Boolean(
     target.privateEndpoint ??
-      (target.privateEndpointManagedResources?.length ?? 0) > 0,
+    (target.privateEndpointManagedResources?.length ?? 0) > 0,
   );
   if (privateEndpoint)
     issues.push(
@@ -600,8 +600,7 @@ export function analyzeTarget(
       }
       const definition = parsed.data;
       const input = definition.inputSchema as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       if (!definition.description) {
         lambdaIssues.push(
           issue({

@@ -76,10 +76,19 @@ export function verifySignature(
     );
   if (!parsed) return { ok: false, errorType: "IncompleteSignatureException" };
   const [, accessKeyId, date, region, service, signedHeaders, signature] =
-    parsed as unknown as [string, string, string, string, string, string, string];
+    parsed as unknown as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
   const identity = identities.find((item) => item.accessKeyId === accessKeyId);
   if (!identity) return { ok: false, errorType: "UnrecognizedClientException" };
-  if (identity.expired) return { ok: false, errorType: "ExpiredTokenException" };
+  if (identity.expired)
+    return { ok: false, errorType: "ExpiredTokenException" };
   if (region !== expected.region || service !== expected.service)
     return { ok: false, errorType: "InvalidSignatureException" };
   const amzDate = request.headers["x-amz-date"];
@@ -114,7 +123,9 @@ export function verifySignature(
       encodeSegment(name),
       encodeSegment(value),
     ])
-    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1))
+    .sort((a, b) =>
+      a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1,
+    )
     .map(([name, value]) => `${name}=${value}`)
     .join("&");
   const canonicalRequest = [
@@ -199,12 +210,16 @@ export async function startAgentCoreControlDouble(
     `arn:aws:bedrock-agentcore:${gateway.region ?? options.region}:${gateway.accountId ?? "123456789012"}:gateway/${gateway.gatewayId}`;
 
   const fixture = await startHttpFixture((request) => {
-    if (request.method !== "GET")
-      return errorReply(400, "ValidationException");
-    const check = verifySignature(request, options.identities, {
-      region: options.region,
-      service,
-    }, "");
+    if (request.method !== "GET") return errorReply(400, "ValidationException");
+    const check = verifySignature(
+      request,
+      options.identities,
+      {
+        region: options.region,
+        service,
+      },
+      "",
+    );
     if (!check.ok)
       return errorReply(
         check.errorType === "ExpiredTokenException" ? 403 : 403,
@@ -215,7 +230,9 @@ export async function startAgentCoreControlDouble(
       return errorReply(429, "ThrottlingException");
     }
     const path = request.url.pathname;
-    const limit = Number(request.url.searchParams.get("maxResults") ?? pageSize);
+    const limit = Number(
+      request.url.searchParams.get("maxResults") ?? pageSize,
+    );
     const cursor = request.url.searchParams.get("nextToken");
 
     if (path === "/gateways/") {
@@ -228,7 +245,9 @@ export async function startAgentCoreControlDouble(
           items: slice.map((gateway) => ({
             gatewayId: gateway.gatewayId,
             name: gateway.name,
-            ...(gateway.description ? { description: gateway.description } : {}),
+            ...(gateway.description
+              ? { description: gateway.description }
+              : {}),
             status: gateway.status ?? "READY",
             authorizerType: gateway.authorizerType ?? "CUSTOM_JWT",
             protocolType: gateway.protocolType ?? "MCP",
@@ -286,7 +305,8 @@ export async function startAgentCoreControlDouble(
     const targetsMatch = /^\/gateways\/([^/]+)\/targets\/$/.exec(path);
     if (targetsMatch) {
       const gatewayId = targetsMatch[1]!;
-      if (denied.has(gatewayId)) return errorReply(403, "AccessDeniedException");
+      if (denied.has(gatewayId))
+        return errorReply(403, "AccessDeniedException");
       const list = options.targets?.[gatewayId];
       if (!list) return errorReply(404, "ResourceNotFoundException");
       const start = cursor ? Number(cursor) : 0;
@@ -311,7 +331,8 @@ export async function startAgentCoreControlDouble(
     const targetMatch = /^\/gateways\/([^/]+)\/targets\/([^/]+)\/$/.exec(path);
     if (targetMatch) {
       const gatewayId = targetMatch[1]!;
-      if (denied.has(gatewayId)) return errorReply(403, "AccessDeniedException");
+      if (denied.has(gatewayId))
+        return errorReply(403, "AccessDeniedException");
       const target = options.targets?.[gatewayId]?.find(
         (item) => item.targetId === targetMatch[2],
       );
@@ -381,10 +402,10 @@ export type GatewayDoubleFaults = {
 export type GatewayDoubleOptions = {
   tools: DoubleTool[];
   /** Bearer tokens the gateway's inbound JWT authorizer accepts. */
-  bearerTokens?: string[];
+  bearerTokens?: string[] | undefined;
   /** Callers accepted for IAM inbound authorization. */
-  sigv4Callers?: DoubleAwsIdentity[];
-  sigv4?: { region: string; service: string };
+  sigv4Callers?: DoubleAwsIdentity[] | undefined;
+  sigv4?: { region: string; service: string } | undefined;
   supportedVersions?: string[];
   pageSize?: number;
   faults?: GatewayDoubleFaults;
@@ -442,8 +463,7 @@ export async function startAgentCoreGatewayDouble(
       if (request.headers["mcp-method"] !== message.method)
         return { status: 400, body: { message: "mcp-method header" } };
       const meta = message.params?.["_meta"] as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       if (
         meta?.["io.modelcontextprotocol/protocolVersion"] !== "2026-07-28" ||
         typeof meta["io.modelcontextprotocol/clientInfo"] !== "object"

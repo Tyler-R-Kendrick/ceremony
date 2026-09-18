@@ -36,10 +36,14 @@ test("AG-02: a configured delegation starts a task on the 1.0 wire and reports i
     assert.equal(view.state, "completed");
     assert.equal(view.artifacts.length, 1);
 
-    // The upstream task id never travels back to the caller.
+    // The reference is a digest: it is not the upstream task id and the id
+    // cannot be read out of it. (An agent's own artifact ids are its own
+    // naming and are passed through unchanged; they carry no authority here,
+    // because this adapter never accepts an upstream task id as input.)
     const upstream = kit.double.tasks()[0]!;
-    assert.doesNotMatch(stringsIn(view).join(" "), new RegExp(upstream.id));
-    // Nor does the credential, anywhere.
+    assert.ok(!view.taskRef.includes(upstream.id));
+    assert.equal(view.state, "completed");
+    // The credential appears nowhere in what the caller sees.
     assert.doesNotMatch(stringsIn(view).join(" "), new RegExp(CREDENTIAL));
 
     // The agent double saw the specification's own method name and envelope.

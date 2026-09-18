@@ -159,7 +159,11 @@ export async function startGoogleConnectorsDouble(
       request.headers["authorization"] ?? "",
     )?.[1];
     if (!token || !options.tokens.includes(token))
-      return error(401, "UNAUTHENTICATED", "invalid authentication credentials");
+      return error(
+        401,
+        "UNAUTHENTICATED",
+        "invalid authentication credentials",
+      );
     if (faults.permissionDenied) return error(403, "PERMISSION_DENIED");
     // Each segment is decoded on its own: an entity id containing `/` arrives
     // percent-encoded and must stay one segment.

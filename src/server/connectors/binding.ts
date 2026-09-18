@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   bindingReferenceSchema,
   connectorReferenceSchema,
+  encodePathSegment,
   identifierSchema,
   nativeIdentifierSchema,
   safeTextSchema,
@@ -201,6 +202,73 @@ export function destinationUrl(
     !(
       normalized === prefix ||
       normalized.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`) ||
+      prefix === "/"
+    )
+  )
+    throw new Error("Operation path is outside the approved prefix");
+  return url;
+}
+
+/**
+ * Build a destination URL whose path carries values that legitimately contain
+ * a slash.
+ *
+ * `destinationUrl` refuses an encoded slash outright, which is right for a
+ * path *template*: a `%2F` there means the template's own shape is in doubt,
+ * and containment inside the approved prefix cannot be proven across
+ * intermediaries that may decode differently. But some upstream identifiers
+ * really do contain a slash inside one segment, and encoding it is the only
+ * correct spelling. Two providers hit this and each grew a local copy of the
+ * surrounding checks, which is how a check quietly drifts.
+ *
+ * So the template is still validated by `destinationUrl` with inert
+ * placeholders, and only then are the caller's values substituted, each
+ * encoded exactly once. A value is data, never structure: it may not
+ * introduce a path segment of its own, and the result is re-checked against
+ * the destination.
+ */
+export function destinationUrlFromSegments(
+  destination: ApprovedDestination,
+  template: string,
+  segments: readonly string[],
+): URL {
+  const placeholders = template.match(/\{\}/g)?.length ?? 0;
+  if (placeholders !== segments.length)
+    throw new Error("Segment count does not match the path template");
+  // Validate the template's shape first, with placeholders that cannot alter it.
+  let index = 0;
+  const probe = template.replace(/\{\}/g, () => `p${index++}`);
+  const checked = destinationUrl(destination, probe);
+  let resolved = 0;
+  const pathname = template.replace(/\{\}/g, () => {
+    const value = segments[resolved++] ?? "";
+    if (value === "") throw new Error("Path segment must not be empty");
+    // encodePathSegment escapes "/", so a value cannot open a new segment.
+    const encoded = encodePathSegment(value);
+    // A dot is unreserved, so "." and ".." survive encoding unchanged and the
+    // URL parser would then normalize them away, moving the request somewhere
+    // the reviewer never approved. Refuse them as values outright.
+    if (encoded === "." || encoded === "..")
+      throw new Error("Path segment must not be a dot segment");
+    return encoded;
+  });
+  const url = new URL(pathname, destination.origin);
+  if (url.origin !== checked.origin)
+    throw new Error("Operation path escaped its destination");
+  // Nothing may have been normalized away: the path we asked for is the path
+  // we send. This is what catches any future spelling that the parser would
+  // quietly rewrite, not just the dot segments handled above.
+  if (url.pathname !== pathname)
+    throw new Error("Operation path was rewritten while resolving");
+  const prefix = destination.pathPrefix ?? "/";
+  if (
+    url.pathname.split("/").includes("..") ||
+    // A value that is inert now but traverses once an intermediary decodes it
+    // is the very risk the plain builder refuses an encoded slash for.
+    decodeURIComponent(url.pathname).split("/").includes("..") ||
+    !(
+      url.pathname === prefix ||
+      url.pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`) ||
       prefix === "/"
     )
   )

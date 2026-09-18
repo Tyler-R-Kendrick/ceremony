@@ -186,7 +186,10 @@ export const listGatewayTargetsResponseSchema = z.object({
 
 /** `ApiSchemaConfiguration`: a union of an inline document and an S3 location. */
 export const apiSchemaConfigurationSchema = z.object({
-  inlinePayload: z.string().max(4 * 1024 * 1024).optional(),
+  inlinePayload: z
+    .string()
+    .max(4 * 1024 * 1024)
+    .optional(),
   s3: z
     .object({
       uri: z.string().max(2048).optional(),
@@ -223,7 +226,10 @@ export const mcpTargetConfigurationSchema = z.object({
     .optional(),
   mcpServer: z
     .object({
-      endpoint: z.string().max(2048).regex(/^https:\/\/.*$/),
+      endpoint: z
+        .string()
+        .max(2048)
+        .regex(/^https:\/\/.*$/),
       listingMode: z.enum(["DEFAULT", "DYNAMIC"]).optional(),
       resourcePriority: z.number().int().min(0).max(1000).optional(),
       mcpToolSchema: z.unknown().optional(),
