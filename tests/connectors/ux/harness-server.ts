@@ -155,7 +155,10 @@ export async function startConnectorHarness(options: FixtureOptions = {}) {
         200,
         "text/html; charset=utf-8",
         page(
-          '<div id="root"></div><script type="module" src="/harness.js"></script>',
+          // The landmark and the page heading belong to the host, exactly as
+          // they do in the reference application; the components supply the
+          // labelled regions inside them.
+          '<main><h1>Connections</h1><div id="root"></div></main><script type="module" src="/harness.js"></script>',
           '<link rel="stylesheet" href="/connectors.css"><link rel="stylesheet" href="/harness.css">',
         ),
       );

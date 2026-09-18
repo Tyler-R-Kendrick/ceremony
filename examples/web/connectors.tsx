@@ -93,7 +93,13 @@ export function ConnectorWorkspace({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const [openId, setOpenId] = useState(initial.connector);
-  const [connectionRef, setConnectionRef] = useState(initial.connection ?? "");
+  /*
+   * Only the connection this page was *opened* on is a resume. A connection
+   * created here must not become one: feeding it back as the drawer's key
+   * would remount the surface mid-flow and throw away what it knows about the
+   * window it just opened.
+   */
+  const [resumeRef, setResumeRef] = useState(initial.connection ?? "");
   const [importing, setImporting] = useState(false);
   const [reload, setReload] = useState(0);
 
@@ -167,7 +173,7 @@ export function ConnectorWorkspace({
 
   const close = useCallback(() => {
     setOpenId("");
-    setConnectionRef("");
+    setResumeRef("");
     rewrite({});
   }, [rewrite]);
 
@@ -181,7 +187,7 @@ export function ConnectorWorkspace({
         onRetry={() => setReload((value) => value + 1)}
         onOpen={(chosen) => {
           setOpenId(chosen.id);
-          setConnectionRef("");
+          setResumeRef("");
           rewrite({ connector: chosen.id });
         }}
         toolbar={
@@ -218,7 +224,7 @@ export function ConnectorWorkspace({
       >
         {entry && (
           <ConnectorConnection
-            key={`${entry.id}:${connectionRef}`}
+            key={`${entry.id}:${resumeRef}`}
             client={client}
             entry={entry}
             bindings={bindings}
@@ -226,7 +232,7 @@ export function ConnectorWorkspace({
               ? { definition: definitions[entry.definitionRef] }
               : {})}
             {...(viewer ? { viewer } : {})}
-            {...(connectionRef ? { connectionRef } : {})}
+            {...(resumeRef ? { connectionRef: resumeRef } : {})}
             {...(openWindow ? { openWindow } : {})}
             {...(pollIntervalMs ? { pollIntervalMs } : {})}
             readOperations={[
@@ -236,7 +242,8 @@ export function ConnectorWorkspace({
               },
             ]}
             onConnectionChange={(connection) => {
-              setConnectionRef(connection.connectionRef);
+              // The address is updated so a reload or a provider round trip
+              // comes back to this connection; the surface keeps running.
               rewrite({
                 connector: entry.id,
                 connection: connection.connectionRef,

@@ -221,10 +221,12 @@ test("AC-AUTH-15: closing the provider window without approving leaves the flow 
   try {
     await page.goto(harness.url({ connector: "github-app" }));
     const drawer = page.getByRole("dialog");
+    const connect = drawer.getByRole("button", {
+      name: "Connect GitHub (native app)",
+    });
+    await expect(connect).toBeEnabled();
     const popupOpened = page.waitForEvent("popup");
-    await drawer
-      .getByRole("button", { name: "Connect GitHub (native app)" })
-      .click();
+    await connect.click();
     const provider = await popupOpened;
     await provider.waitForLoadState();
     await provider.close();
@@ -251,6 +253,11 @@ test("AC-UX-04: offline disables connecting, and no connection status is cached"
   try {
     await page.goto(harness.url({ connector: "github-app" }));
     const drawer = page.getByRole("dialog");
+    // Offline after the inventory has loaded: the case is a person inside the
+    // drawer who loses connectivity, not a page that never loaded.
+    await expect(
+      drawer.getByRole("button", { name: "Connect GitHub (native app)" }),
+    ).toBeEnabled();
     await context.setOffline(true);
     await expect(drawer.locator("[data-connector-offline]")).toBeVisible();
     await expect(

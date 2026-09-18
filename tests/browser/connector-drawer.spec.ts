@@ -111,7 +111,9 @@ test("inline validation and the intent controls are announced, not only coloured
   try {
     await page.goto(harness.url({ connector: "petstore-api-key" }));
     const drawer = page.getByRole("dialog");
-    await drawer.getByRole("button", { name: "Connect Petstore" }).click();
+    const connect = drawer.getByRole("button", { name: "Connect Petstore" });
+    await expect(connect).toBeEnabled();
+    await connect.click();
     // A field whose options depend on another says so before it is reached.
     await expect(drawer.getByText("Choose region first")).toBeVisible();
     await drawer.getByLabel("Region (required)").selectOption("eu");
@@ -135,9 +137,11 @@ test("AC-UX-04: a blocked popup completes in the same window and comes back", as
   try {
     await page.goto(harness.url({ connector: "github-app", popup: "blocked" }));
     const drawer = page.getByRole("dialog");
-    await drawer
-      .getByRole("button", { name: "Connect GitHub (native app)" })
-      .click();
+    const connect = drawer.getByRole("button", {
+      name: "Connect GitHub (native app)",
+    });
+    await expect(connect).toBeEnabled();
+    await connect.click();
     await expect(
       drawer.locator("[data-connector-popup-blocked]"),
     ).toBeVisible();
