@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "bindingRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "definitionRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "adapterId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "adapterVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]+$" },
+        { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+      ]
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["browser", "hosted-server", "trusted-local-runner"]
+    },
+    "custody": {
+      "type": "string",
+      "enum": [
+        "host-owned",
+        "external-credential-broker",
+        "external-execution-broker",
+        "attended-browser",
+        "no-credential"
+      ]
+    },
+    "authorityInstance": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]*$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["approved", "suspended", "retired"]
+    },
+    "approvedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "policyRevision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\p{Cc}]+$"
+    }
+  },
+  "required": [
+    "bindingRef",
+    "definitionRef",
+    "revision",
+    "adapterId",
+    "adapterVersion",
+    "runtime",
+    "custody",
+    "authorityInstance",
+    "status",
+    "approvedAt",
+    "policyRevision"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:binding-reference-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isReservedObjectKey } from "./json-bounds.js";
 
 /**
  * Vocabulary shared by every connector ecosystem adapter.
@@ -116,11 +117,23 @@ export const knownEcosystems = [
 export const ecosystemSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 export type Ecosystem = z.infer<typeof ecosystemSchema>;
 
+/** Length ceilings for opaque upstream values; the only local constraint besides control characters. */
+export const IDENTIFIER_LIMITS = Object.freeze({
+  nativeId: 512,
+  nativeVersion: 128,
+  authorityNamespace: 256,
+  safeText: 500,
+  reference: 200,
+});
+
 // Control characters (C0 and DEL) never belong in an identifier, a version or
 // a message that will be shown to a person or written to a log.
 const noControlCharacters = /^[^\p{Cc}]+$/u;
 const noControlCharactersOrEmpty = /^[^\p{Cc}]*$/u;
-const reservedObjectKeys = new Set(["__proto__", "prototype", "constructor"]);
+// Explicit bidirectional controls can make one identifier read as another in
+// a review screen; nothing upstream needs them in an identifier or a version.
+const noBidiControls = /^[^\u{202A}-\u{202E}\u{2066}-\u{2069}]*$/u;
+const notBlank = (value: string) => value.trim().length > 0;
 const traversal = /(^|[\\/])\.\.?([\\/]|$)/;
 
 /**
@@ -134,10 +147,12 @@ const traversal = /(^|[\\/])\.\.?([\\/]|$)/;
 export const nativeIdentifierSchema = z
   .string()
   .min(1)
-  .max(512)
+  .max(IDENTIFIER_LIMITS.nativeId)
   .regex(noControlCharacters, "Identifier contains control characters")
+  .regex(noBidiControls, "Identifier contains bidirectional controls")
+  .refine(notBlank, "Identifier is blank")
   .refine(
-    (value) => !reservedObjectKeys.has(value),
+    (value) => !isReservedObjectKey(value),
     "Identifier is a reserved object key",
   )
   .refine((value) => !traversal.test(value), "Identifier looks like a path");
@@ -147,21 +162,31 @@ export type NativeIdentifier = z.infer<typeof nativeIdentifierSchema>;
 export const nativeVersionSchema = z
   .string()
   .min(1)
-  .max(128)
+  .max(IDENTIFIER_LIMITS.nativeVersion)
   .regex(noControlCharacters, "Version contains control characters")
-  .refine((value) => !reservedObjectKeys.has(value));
+  .regex(noBidiControls, "Version contains bidirectional controls")
+  .refine(notBlank, "Version is blank")
+  .refine(
+    (value) => !isReservedObjectKey(value),
+    "Version is a reserved object key",
+  );
 export type NativeVersion = z.infer<typeof nativeVersionSchema>;
 
 /** Human-readable text that may be displayed or logged: bounded, no control characters. */
 export const safeTextSchema = z
   .string()
-  .max(500)
-  .regex(noControlCharactersOrEmpty, "Text contains control characters");
+  .max(IDENTIFIER_LIMITS.safeText)
+  .regex(noControlCharactersOrEmpty, "Text contains control characters")
+  .regex(noBidiControls, "Text contains bidirectional controls");
 
 export const connectorSourceIdentitySchema = z.strictObject({
   ecosystem: ecosystemSchema,
   /** Registry namespace, broker environment, tenant or publisher; "" when the ecosystem has none. */
-  authorityNamespace: z.string().max(256).regex(noControlCharactersOrEmpty),
+  authorityNamespace: z
+    .string()
+    .max(IDENTIFIER_LIMITS.authorityNamespace)
+    .regex(noControlCharactersOrEmpty)
+    .regex(noBidiControls),
   nativeId: nativeIdentifierSchema,
   nativeVersion: nativeVersionSchema,
 });
@@ -172,7 +197,12 @@ export type ConnectorSourceIdentity = z.infer<
 /** Internal references are opaque, bounded and safe for persistence keys. */
 export const connectorReferenceSchema = z
   .string()
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$/);
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$/)
+  .refine(
+    (value) => !isReservedObjectKey(value),
+    "Reference is a reserved object key",
+  )
+  .refine((value) => !traversal.test(value), "Reference looks like a path");
 export type SourceRef = string;
 export type DefinitionRef = string;
 export type BindingRef = string;
@@ -194,13 +224,19 @@ export function encodePathSegment(value: string): string {
   );
 }
 
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
+const CANONICAL_DEPTH = 256;
+
+function canonical(value: unknown, depth = 0): unknown {
+  // Bounded parsers keep documents shallow; anything deeper is refused with a
+  // clear error instead of a stack overflow inside a digest.
+  if (depth > CANONICAL_DEPTH)
+    throw new RangeError("Value is nested too deeply to canonicalize");
+  if (Array.isArray(value)) return value.map((item) => canonical(item, depth + 1));
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, item]) => [key, canonical(item)]),
+        .map(([key, item]) => [key, canonical(item, depth + 1)]),
     );
   return value;
 }

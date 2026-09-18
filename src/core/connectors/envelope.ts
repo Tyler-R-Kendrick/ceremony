@@ -3,12 +3,14 @@ import {
   connectorProjectSchema,
   type ConnectorProject,
 } from "../connector-authoring.js";
+import { identifierSchema } from "../operation-contracts.js";
 import {
   authenticationProfileSchema,
   compatibilityIssueSchema,
   normalizedDefinitionShape,
   refineNormalizedDefinition,
-  sourceRecordSchema,
+  refineSourceRecord,
+  sourceRecordShape,
   type AuthenticationProfile,
   type CompatibilityIssue,
   type NormalizedDefinition,
@@ -44,9 +46,10 @@ export const portableDefinitionSchema = z
 export type PortableDefinition = z.infer<typeof portableDefinitionSchema>;
 
 /** A source record as exported: provenance stays, the protected artifact handle does not. */
-export const portableSourceSchema = sourceRecordSchema
+export const portableSourceSchema = z
+  .strictObject(sourceRecordShape)
   .omit({ sourceRef: true, artifactRef: true })
-  .strict();
+  .superRefine(refineSourceRecord);
 export type PortableSource = z.infer<typeof portableSourceSchema>;
 
 export const connectorEnvelopeSchema = z
@@ -56,7 +59,11 @@ export const connectorEnvelopeSchema = z
     profile: z.strictObject({
       id: z.literal(CEREMONY_CONNECTOR_PROFILE),
       producer: z.strictObject({
-        id: z.string().min(1).max(120),
+        id: z
+          .string()
+          .min(1)
+          .max(120)
+          .regex(/^[^\p{Cc}]+$/u),
         version: nativeVersionSchema,
       }),
     }),
@@ -112,6 +119,30 @@ export function parseConnectorEnvelope(text: string): ParsedConnectorDocument {
   return { version: 2, envelope: connectorEnvelopeSchema.parse(value) };
 }
 
+/**
+ * The canonical digest of a definition's portable content: persistence
+ * references and the digest field itself are excluded, so a stored definition
+ * and its export agree, and an import can prove it received what was sent.
+ */
+export async function normalizedDigestOf(definition: object): Promise<string> {
+  const {
+    normalizedDigest: _digest,
+    definitionRef: _definitionRef,
+    sourceRef: _sourceRef,
+    ...body
+  } = definition as Record<string, unknown>;
+  void _digest;
+  void _definitionRef;
+  void _sourceRef;
+  return canonicalDigest(body);
+}
+
+export async function verifyNormalizedDigest(
+  definition: { normalizedDigest: string } & object,
+): Promise<boolean> {
+  return (await normalizedDigestOf(definition)) === definition.normalizedDigest;
+}
+
 const v1Dimensions: Record<SupportDimension, MappingDisposition> = {
   discover: "unsupported",
   import: "exact",
@@ -127,6 +158,13 @@ const v1Dimensions: Record<SupportDimension, MappingDisposition> = {
   delegate: "unsupported",
 };
 
+// Version 1 text fields accept any string; the description derived from them
+// is display text and must not, so controls are blanked. The project itself
+// travels unchanged.
+const displayText = (value: string, max: number) =>
+  value.replace(/\p{Cc}|[\u{202A}-\u{202E}\u{2066}-\u{2069}]/gu, " ").slice(0, max);
+const serviceKey = /^[a-z0-9][a-z0-9._-]*$/;
+
 /**
  * Wraps a v1 project in a v2 envelope without changing it. Every method
  * becomes a `ceremony-method` profile that points back at the method; the
@@ -139,10 +177,23 @@ export async function upgradeConnectorProject(
 ): Promise<ConnectorEnvelope> {
   const project = connectorProjectSchema.parse(input);
   const manifest = project.manifest;
+  // A v1 method id may start with a digit or hyphen, which a profile id may
+  // not; the profile then carries a prefix while methodId keeps the truth.
+  const methodIds = new Set(manifest.methods.map((method) => method.id));
+  const used = new Set<string>();
+  const profileId = (id: string) => {
+    let candidate = identifierSchema.safeParse(id).success
+      ? id
+      : `ceremony-${id}`;
+    while (used.has(candidate) || (candidate !== id && methodIds.has(candidate)))
+      candidate = `${candidate}-alt`;
+    used.add(candidate);
+    return candidate;
+  };
   const authentication: AuthenticationProfile[] = manifest.methods.map(
     (method) => ({
-      id: method.id,
-      label: method.label,
+      id: profileId(method.id),
+      label: displayText(method.label, 100),
       kind: "ceremony-method",
       flowKind: method.kind,
       methodId: method.id,
@@ -181,10 +232,10 @@ export async function upgradeConnectorProject(
     },
     importer: { id: "ceremony-connector-v1", version: producer.version },
     display: {
-      name: manifest.name,
-      description: manifest.description,
+      name: displayText(manifest.name, 200),
+      description: displayText(manifest.description, 500),
       ecosystem: "ceremony",
-      service: manifest.id,
+      ...(serviceKey.test(manifest.id) ? { service: manifest.id } : {}),
     },
     authentication,
     configuration: uniqueConfiguration,
@@ -196,7 +247,7 @@ export async function upgradeConnectorProject(
   };
   const definition: PortableDefinition = portableDefinitionSchema.parse({
     ...definitionBody,
-    normalizedDigest: await canonicalDigest(definitionBody),
+    normalizedDigest: await normalizedDigestOf(definitionBody),
   });
   return connectorEnvelopeSchema.parse({
     format: "ceremony-connector",
@@ -224,6 +275,7 @@ export async function upgradeConnectorProject(
  * Produces the v1 view of a v2 envelope. Only an embedded, unchanged project is
  * a faithful v1 document; a description without one has no v1 spelling, and
  * saying so is the deliverable. A public API is reported as exactly that.
+ * Everything version 1 cannot carry is named in the diagnostics.
  */
 export function downgradeConnectorEnvelope(input: unknown): {
   project?: ConnectorProject;
@@ -236,6 +288,9 @@ export function downgradeConnectorEnvelope(input: unknown): {
     message: string,
     severity: CompatibilityIssue["severity"],
     pointer: string,
+    disposition: MappingDisposition = severity === "blocking"
+      ? "unsupported"
+      : "adapted",
   ) =>
     diagnostics.push(
       compatibilityIssueSchema.parse({
@@ -243,14 +298,15 @@ export function downgradeConnectorEnvelope(input: unknown): {
         category: "version",
         sourcePointer: pointer,
         dimension: "export",
-        disposition: severity === "blocking" ? "unsupported" : "adapted",
+        disposition,
         severity,
         executionImpact: severity === "blocking" ? "blocks-definition" : "none",
         message,
       }),
     );
+  const definition = envelope.definition;
   if (!envelope.project) {
-    const publicOnly = envelope.definition.authentication.every(
+    const publicOnly = definition.authentication.every(
       (profile) => profile.kind === "none",
     );
     issue(
@@ -263,26 +319,83 @@ export function downgradeConnectorEnvelope(input: unknown): {
     );
     return { diagnostics };
   }
-  if (envelope.definition.capabilities.length)
+  const project = envelope.project;
+  const foreign = definition.authentication.filter(
+    (profile) => profile.kind !== "ceremony-method",
+  );
+  if (foreign.length)
+    issue(
+      "envelope.v1.profiles-dropped",
+      `Version 1 carries only Ceremony methods; ${foreign.length} other authentication profile(s) are omitted from the downgraded project.`,
+      "warning",
+      "/definition/authentication",
+      "unsupported",
+    );
+  const projectConfiguration = new Set(
+    project.manifest.methods.flatMap((method) =>
+      method.contract.configuration.map((item) => item.name),
+    ),
+  );
+  const extraConfiguration = definition.configuration.filter(
+    (item) => !projectConfiguration.has(item.name),
+  );
+  if (extraConfiguration.length)
+    issue(
+      "envelope.v1.configuration-dropped",
+      `${extraConfiguration.length} configuration requirement(s) are not declared by any project method and are omitted.`,
+      "warning",
+      "/definition/configuration",
+      "unsupported",
+    );
+  if (definition.capabilities.length)
     issue(
       "envelope.v1.capabilities-dropped",
       "Version 1 carries no capability descriptions; they are omitted from the downgraded project.",
       "warning",
       "/definition/capabilities",
     );
-  if (envelope.definition.events.length)
+  if (definition.events.length)
     issue(
       "envelope.v1.events-dropped",
       "Version 1 carries no event descriptions; they are omitted from the downgraded project.",
       "warning",
       "/definition/events",
     );
-  if (Object.keys(envelope.definition.nativeExtensions).length)
+  if (Object.keys(definition.nativeExtensions).length)
     issue(
       "envelope.v1.extensions-dropped",
       "Native extensions are not part of a version 1 project.",
       "warning",
       "/definition/nativeExtensions",
+    );
+  const projectServers = new Set(
+    project.workflows.flatMap((document) =>
+      document.sourceDescriptions.map((source) => source.url),
+    ),
+  );
+  if (definition.declaredServers.some((server) => !projectServers.has(server.url)))
+    issue(
+      "envelope.v1.servers-dropped",
+      "Declared servers beyond the project's source descriptions are not part of a version 1 project.",
+      "info",
+      "/definition/declaredServers",
+    );
+  if (definition.compatibility.issues.length)
+    issue(
+      "envelope.v1.diagnostics-dropped",
+      "Version 1 has no carrier for compatibility diagnostics; review them before relying on the downgraded project.",
+      "info",
+      "/definition/compatibility/issues",
+    );
+  if (
+    definition.identity.ecosystem !== "ceremony" ||
+    definition.identity.nativeId !== project.manifest.id
+  )
+    issue(
+      "envelope.v1.identity-dropped",
+      "Version 1 identifies a connector by its manifest id only; the source identity is not carried.",
+      "info",
+      "/definition/identity",
     );
   if (envelope.sources.length)
     issue(
@@ -291,7 +404,7 @@ export function downgradeConnectorEnvelope(input: unknown): {
       "info",
       "/sources",
     );
-  return { project: envelope.project, diagnostics };
+  return { project, diagnostics };
 }
 
 /** Dimensions a description alone claims, defaulting anything unstated to unsupported. */

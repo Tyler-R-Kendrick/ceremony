@@ -190,6 +190,47 @@ export function agentConnectorProjection(summary: ConnectionSummary) {
   };
 }
 
+/**
+ * What a model or tool sees of a definition: identifiers, kinds and declared
+ * classifications, never source prose, endpoints, pointers, extensions or
+ * diagnostics text. A capability listed here is something the host may later
+ * bind, not something the caller can invoke.
+ */
+export function agentDefinitionProjection(definition: NormalizedDefinition) {
+  const checked = normalizedDefinitionSchema.parse(definition);
+  return {
+    definitionRef: checked.definitionRef,
+    identity: {
+      ecosystem: checked.identity.ecosystem,
+      authorityNamespace: checked.identity.authorityNamespace,
+      nativeId: checked.identity.nativeId,
+      nativeVersion: checked.identity.nativeVersion,
+    },
+    displayName: checked.display.name,
+    ...(checked.display.service ? { service: checked.display.service } : {}),
+    authentication: checked.authentication.map((profile) => ({
+      id: profile.id,
+      kind: profile.kind,
+    })),
+    capabilities: checked.capabilities.map((capability) => ({
+      kind: capability.kind,
+      nativeId: capability.nativeId,
+      effect: capability.effect,
+      dataClassification: capability.dataClassification,
+      cost: capability.cost,
+      authentication: [...(capability.authentication ?? [])],
+    })),
+    dimensions: { ...checked.compatibility.dimensions },
+    blocked: checked.compatibility.issues
+      .filter((issue) => issue.severity === "blocking")
+      .map((issue) => ({
+        code: issue.code,
+        dimension: issue.dimension,
+        executionImpact: issue.executionImpact,
+      })),
+  };
+}
+
 /** What an authorized author or operator reviews before approving a binding. */
 export function authorReviewProjection(
   definition: NormalizedDefinition,

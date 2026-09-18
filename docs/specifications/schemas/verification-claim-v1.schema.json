@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "credential-accepted",
+        "account-identity",
+        "resource-access",
+        "ownership-claimed",
+        "permission-observed"
+      ]
+    },
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "issuer": {
+      "type": "string",
+      "enum": [
+        "provider",
+        "external-broker",
+        "host-policy",
+        "ceremony-verifier"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]+$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        }
+      },
+      "required": ["kind", "id"],
+      "additionalProperties": false
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "validUntil": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "verifierVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]+$" },
+        { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+      ]
+    },
+    "bindingRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "policyRevision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\p{Cc}]+$"
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "reported": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "observed": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "semantics": {
+          "type": "string",
+          "enum": ["provider-scopes", "operations", "unknown"]
+        }
+      },
+      "required": ["requested", "reported", "observed", "semantics"],
+      "additionalProperties": false
+    },
+    "limitations": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500,
+        "allOf": [
+          { "pattern": "^[^\\p{Cc}]*$" },
+          { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+        ]
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "evidenceRef",
+    "issuer",
+    "target",
+    "observedAt",
+    "verifierVersion",
+    "bindingRevision",
+    "policyRevision",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:verification-claim-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

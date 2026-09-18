@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "ecosystem": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "authorityNamespace": {
+          "type": "string",
+          "maxLength": 256,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]*$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        },
+        "nativeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]+$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        },
+        "nativeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]+$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        }
+      },
+      "required": [
+        "ecosystem",
+        "authorityNamespace",
+        "nativeId",
+        "nativeVersion"
+      ],
+      "additionalProperties": false
+    },
+    "format": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]+$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        },
+        "dialect": {
+          "type": "string",
+          "maxLength": 120,
+          "pattern": "^[^\\p{Cc}]*$"
+        }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "origin": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "upload",
+            "url",
+            "registry",
+            "provider-api",
+            "builtin-fixture",
+            "host-configuration"
+          ]
+        },
+        "location": { "type": "string", "maxLength": 2048 }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "digest": {
+      "type": "object",
+      "properties": {
+        "algorithm": { "type": "string", "const": "sha256" },
+        "value": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "required": ["algorithm", "value"],
+      "additionalProperties": false
+    },
+    "byteLength": { "type": "integer", "minimum": 0, "maximum": 67108864 },
+    "mediaType": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "license": {
+      "type": "object",
+      "properties": {
+        "spdx": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[^\\p{Cc}]*$"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]*$" },
+            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+          ]
+        },
+        "redistributable": {
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "string", "const": "unknown" }
+          ]
+        }
+      },
+      "required": ["redistributable"],
+      "additionalProperties": false
+    },
+    "artifactRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "adaptation": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[^\\p{Cc}]+$"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "allOf": [
+              { "pattern": "^[^\\p{Cc}]+$" },
+              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            ]
+          },
+          "inputDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "outputDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        },
+        "required": ["step", "version", "inputDigest", "outputDigest"],
+        "additionalProperties": false
+      }
+    },
+    "overlays": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        },
+        "required": ["sourceRef", "digest"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "sourceRef",
+    "identity",
+    "format",
+    "origin",
+    "digest",
+    "byteLength",
+    "mediaType",
+    "capturedAt",
+    "adaptation",
+    "overlays"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:connector-source-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

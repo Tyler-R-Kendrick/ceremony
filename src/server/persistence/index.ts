@@ -24,6 +24,7 @@ export const recordKinds = [
   "budget",
   "session",
   "audit",
+  "connector-registry-snapshot",
 ] as const;
 export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };
