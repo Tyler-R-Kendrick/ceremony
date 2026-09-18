@@ -101,10 +101,20 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
       if (!field) throw new Error(`No field matching ${selector}`);
       await act(async () => {
         if (field.tagName === "SELECT") {
-          // linkedom's select value is read-only; selecting the option is how
-          // a person changes one anyway.
-          for (const option of field.querySelectorAll("option"))
-            option.selected = option.value === value;
+          // linkedom's select has no value setter and reads its value from the
+          // option carrying the `selected` attribute, so choosing an option is
+          // both how a person does it and the only thing that works here.
+          for (const option of field.querySelectorAll("option") as Iterable<{
+            value: string;
+            selected: boolean;
+            setAttribute(name: string, value: string): void;
+            removeAttribute(name: string): void;
+          }>) {
+            const chosen = option.value === value;
+            option.selected = chosen;
+            if (chosen) option.setAttribute("selected", "");
+            else option.removeAttribute("selected");
+          }
         } else field.value = value;
         // React remembers the last value it saw on the node and ignores an
         // event when the node still matches it. An assignment updates that
