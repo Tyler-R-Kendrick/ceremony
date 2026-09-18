@@ -110,10 +110,18 @@ and accounts are rejected rather than defaulted.
 **Evidence:** `tests/login-plan.test.ts` — 30 cases, including nine that each
 change one operative field and assert the canonical digest changes.
 
-**Not complete:** the PR #39 wizard itself is **not yet wired** to this
-compiler. PR #39 remains open and unmerged, and the UI integration is separate
-work. Until it lands, the compiler is reachable through the server surface but
-the wizard still renders its local draft. This is stated rather than implied.
+**Not complete.** The PR #39 wizard is **not wired** to this compiler on this
+branch. Integration was attempted and reached a substantially working state —
+the draft compiles against the real `browser-login` tool endpoint — but it
+stopped with directory-UX regressions from PR #39 itself still outstanding, so
+shipping it would have put known-broken UI on a branch whose other work is
+verified. The attempt is preserved on `claude/pr39-wizard-wip` rather than
+discarded or half-merged.
+
+What this means today: the compiler is reachable through the authenticated
+server surface and is fully tested there, and the wizard still renders its own
+draft. The half of F-POLICY that made configuration _effective_ is done; the
+half that makes the wizard _use_ it is not.
 
 ## F-EXTERNAL — the extension is not an agent execution service
 

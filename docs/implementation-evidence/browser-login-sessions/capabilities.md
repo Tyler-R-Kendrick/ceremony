@@ -18,8 +18,8 @@ Evidence classes used below:
 | Managed Chromium          | `153.0.8010.12` | pass            | pass             | pass          | pass          | pass              | pass     | fixture                          |
 | Managed Firefox           | `155.0`         | pass            | pass             | pass          | pass          | pass              | pass     | fixture                          |
 | Managed WebKit            | `26.6`          | pass            | pass             | pass          | pass          | pass              | pass     | fixture                          |
-| Existing-profile Chromium | n/a             | —               | —                | —             | —             | —                 | —        | see `browser-login-extension.md` |
-| Existing-profile Firefox  | n/a             | —               | —                | —             | —             | —                 | —        | see `browser-login-extension.md` |
+| Existing-profile Chromium | n/a             | partial         | —                | —             | —             | —                 | —        | see `browser-login-extension.md` |
+| Existing-profile Firefox  | Firefox `155.0` | artifact only   | —                | —             | —             | —                 | —        | real-Firefox load, see below     |
 | Installed Safari          | n/a             | not implemented |                  |               |               |                   |          |                                  |     |
 
 Source: `tests/browser-login-conformance.test.ts` — 25 cases, 8 per engine plus
@@ -90,6 +90,35 @@ Listed so their absence is a statement rather than an oversight.
 | PRIV-PROMPT, PRIV-ERROR, PRIV-ARTIFACT, PRIV-ALTERNATE                               | Existing repository privacy suites are unchanged and still pass; no new canary case was added for the new surfaces. |
 | BRIDGE-ORIGIN, BRIDGE-REPLAY                                                         | No authenticated companion bridge was implemented.                                                                  |
 | UX-RESUME, UX-ACCESS                                                                 | No UI change was made; PR #39 remains unintegrated.                                                                 |
+
+## Existing-profile Firefox, precisely
+
+The Gecko artifact is built from the same sources as the Chromium one and is
+**installed into a real Firefox** by `tests/extension-firefox-load.test.ts`,
+which drives Firefox's remote debugging `installTemporaryAddon` — the same call
+`web-ext run` makes — against a Playwright-launched Firefox 155.
+
+**Proven in a real Firefox:** the built directory installs as a temporary
+add-on with zero manifest warnings; the MV3 event page reaches `RUNNING` and is
+non-persistent; the app bridge round-trips end to end (a page on the exact
+configured app origin reaches the event page and gets its version back); and an
+identical page on the same host at a _different port_ gets nothing, so the
+exact-origin check rather than the match pattern is doing the work.
+
+**Implemented and unit-tested, not exercised in a browser:** the Gecko
+document-binding fallback (Firefox has no `documentId` option on
+`tabs.sendMessage`), reserve-before-dispatch on that path, and worker-side
+relay admission.
+
+**Implemented but UNPROVEN on Firefox:** the login flow itself — the trusted UI
+page, the permission prompt, inspect → observe → mapping review → apply, the
+multi-step sequence, fixture verification and the handoff port. Playwright's
+Firefox cannot navigate to `moz-extension:` pages, so the UI cannot be driven.
+These paths are proven on Chromium only.
+
+**Not implemented and not claimed:** signing, AMO review, store distribution.
+A permanent install on Firefox release requires a signed add-on; the tested
+route is the temporary add-on, which needs no security setting changed.
 
 ## Not exercised at all
 
