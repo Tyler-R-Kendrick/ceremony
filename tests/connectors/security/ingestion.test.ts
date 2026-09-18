@@ -38,7 +38,9 @@ function refused(work: () => unknown): ConnectorError {
   throw new Error("expected a refusal");
 }
 
-async function refusedAsync(work: () => Promise<unknown>): Promise<ConnectorError> {
+async function refusedAsync(
+  work: () => Promise<unknown>,
+): Promise<ConnectorError> {
   try {
     await work();
   } catch (error) {
@@ -115,7 +117,10 @@ test("prototype pollution cannot survive any reader or the post-parse walk", () 
   const before = Object.keys(Object.prototype).length;
   for (const [text, mediaType] of [
     ['{"__proto__":{"polluted":true}}', "application/json"],
-    ['{"a":{"constructor":{"prototype":{"polluted":true}}}}', "application/json"],
+    [
+      '{"a":{"constructor":{"prototype":{"polluted":true}}}}',
+      "application/json",
+    ],
     ['{"\\u005f\\u005fproto\\u005f\\u005f":1}', "application/json"],
     ["__proto__:\n  polluted: true\n", "application/yaml"],
     ["a:\n  prototype:\n    polluted: true\n", "application/yaml"],
@@ -164,9 +169,12 @@ test("schema complexity is bounded in depth, breadth, size and time", () => {
   );
   assert.equal(
     refused(() =>
-      parseBoundedDocument(enc(JSON.stringify(Array.from({ length: 50 }, () => 1))), {
-        limits: { maxNodes: 10 },
-      }),
+      parseBoundedDocument(
+        enc(JSON.stringify(Array.from({ length: 50 }, () => 1))),
+        {
+          limits: { maxNodes: 10 },
+        },
+      ),
     ).detail,
     "document.too-many-nodes",
   );
@@ -283,7 +291,9 @@ test("a recursive schema is valid, and expansion stops at the cycle", async () =
   );
   assert.equal(expanded.complete, true);
   assert.ok(
-    expanded.issues.some((issue) => issue.code === "structure.recursive-schema"),
+    expanded.issues.some(
+      (issue) => issue.code === "structure.recursive-schema",
+    ),
     expanded.issues.map((issue) => issue.code).join(","),
   );
   assert.ok(JSON.stringify(expanded.value).length < 4096);
@@ -419,7 +429,10 @@ test("the approved fetcher refuses rebinding, cross-origin hops and travelling c
         body: { authorization: request.headers["authorization"] ?? null },
       };
     if (request.url.pathname === "/big")
-      return { body: "x".repeat(8192), headers: { "content-type": "text/plain" } };
+      return {
+        body: "x".repeat(8192),
+        headers: { "content-type": "text/plain" },
+      };
     return { body: { ok: true } };
   });
   t.after(() => upstream.close());
@@ -546,8 +559,7 @@ test("an overlay cannot approve an endpoint, an issuer or a wider grant", () => 
     actions: [
       { target: "$.servers", update: [{ url: "https://exfil.example" }] },
       {
-        target:
-          "$.components.securitySchemes.oauth.flows.authorizationCode",
+        target: "$.components.securitySchemes.oauth.flows.authorizationCode",
         update: {
           authorizationUrl: "https://attacker.example/authorize",
           tokenUrl: "https://attacker.example/token",
@@ -578,7 +590,9 @@ test("an overlay cannot approve an endpoint, an issuer or a wider grant", () => 
   for (const version of ["2.0.0", "1.2.0", "latest", undefined]) {
     const result = applyOverlay(approvedDocument, {
       ...(version === undefined ? {} : { overlay: version }),
-      actions: [{ target: "$.servers", update: [{ url: "https://x.example" }] }],
+      actions: [
+        { target: "$.servers", update: [{ url: "https://x.example" }] },
+      ],
     });
     assert.equal(result.applied, false, String(version));
     assert.deepEqual(result.document, approvedDocument);
@@ -600,7 +614,8 @@ test("an overlay cannot approve an endpoint, an issuer or a wider grant", () => 
 test("catalog pagination is bounded even when a registry never stops", async (t) => {
   let pages = 0;
   const forever = await startHttpFixture((request) => {
-    if (!request.url.pathname.endsWith("/servers")) return { status: 404, body: {} };
+    if (!request.url.pathname.endsWith("/servers"))
+      return { status: 404, body: {} };
     pages++;
     return {
       body: {
@@ -641,7 +656,8 @@ test("catalog pagination is bounded even when a registry never stops", async (t)
   // reports it rather than spinning.
   pages = 0;
   const loop = await startHttpFixture((request) => {
-    if (!request.url.pathname.endsWith("/servers")) return { status: 404, body: {} };
+    if (!request.url.pathname.endsWith("/servers"))
+      return { status: 404, body: {} };
     pages++;
     const cursor = request.url.searchParams.get("cursor") ?? "start";
     return {
@@ -663,7 +679,8 @@ test("catalog pagination is bounded even when a registry never stops", async (t)
   await assert.rejects(
     () => looping.list({ limit: 1000 }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "registry.limit.invalid",
+      error instanceof ConnectorError &&
+      error.detail === "registry.limit.invalid",
   );
   assert.throws(
     () =>
@@ -673,6 +690,7 @@ test("catalog pagination is bounded even when a registry never stops", async (t)
         limits: { pageLimit: 5000 },
       }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "registry.limit.invalid",
+      error instanceof ConnectorError &&
+      error.detail === "registry.limit.invalid",
   );
 });

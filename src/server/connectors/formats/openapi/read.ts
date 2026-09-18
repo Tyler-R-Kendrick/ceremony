@@ -1349,20 +1349,27 @@ function buildDefinition(input: {
     capabilities,
     events,
     declaredServers,
-    compatibility: {
-      issues: [] as NormalizedDefinition["compatibility"]["issues"],
-      dimensions,
-    },
+    compatibility: { issues: issues.issues, dimensions },
     nativeExtensions: extensionsOf(input.document),
   };
-  const normalizedDigest = sha256(canonicalConnectorJson(body));
+  // Digest the finished body, diagnostics included, and exclude exactly the
+  // fields `normalizedDigestOf` excludes: the digest itself and the two
+  // persistence references. Digesting before the compatibility issues were
+  // attached made this disagree with every sibling reader and with
+  // `verifyNormalizedDigest`. Worse, it left the digest unchanged when only
+  // the diagnostics changed, which is the security-sensitive difference a
+  // reviewer relies on when a re-import downgrades a security finding.
+  // `canonicalDigest` is SHA-256 over the same canonical JSON, so the
+  // synchronous hash here produces the identical value.
+  const { sourceRef: _sourceRef, ...digestBody } = body;
+  void _sourceRef;
+  const normalizedDigest = sha256(canonicalConnectorJson(digestBody));
   const definitionRef =
     options.definitionRef ?? `openapi:def:${normalizedDigest.slice(0, 32)}`;
   return normalizedDefinitionSchema.parse({
     ...body,
     definitionRef,
     normalizedDigest,
-    compatibility: { issues: issues.issues, dimensions },
   });
 }
 

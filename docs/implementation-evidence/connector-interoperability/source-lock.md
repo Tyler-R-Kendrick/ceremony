@@ -14,32 +14,16 @@ One record per external specification, standards draft or vendor document that a
 
 ## Coverage
 
-- Records: 67, pinned 2026-09-18.
-- Ledgers this lock claims to cover completely: COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
+- Records: 80, pinned 2026-09-18.
+- Ledgers this lock claims to cover completely: AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
 - Source profile identifiers cited by the ledgers on disk: 80.
-- Cited identifiers with no lock record: 13 (`a2a-0.3`, `a2a-1.0`, `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `docker-mcp-catalog-v2`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`, `webmcp-cg-draft-2026-09-17`).
+- Cited identifiers with no lock record: 0.
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
 A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden. A gap from a ledger inside the covered set is a defect in this lock; a gap from a ledger delivered after the lock was pinned is work the integrator must finish.
 
 Ledgers landed while this lock was being written. `coversLedgers` names the ledgers whose every cited source profile identifier has a record here. A ledger delivered after this lock was pinned may cite identifiers this lock does not yet hold; the generator reports those as a coverage gap in source-lock.md rather than hiding them, and the integrator should extend this file when the remaining ledgers land.
-
-| Ledger         | Cited identifier                       | Inside the covered set      |
-| -------------- | -------------------------------------- | --------------------------- |
-| AGENT-SURFACES | `a2a-0.3`                              | no — pinned after this lock |
-| AGENT-SURFACES | `a2a-1.0`                              | no — pinned after this lock |
-| AGENT-SURFACES | `webmcp-cg-draft-2026-09-17`           | no — pinned after this lock |
-| CATALOGS       | `docker-mcp-catalog-v2`                | no — pinned after this lock |
-| CATALOGS       | `pulsemcp-subregistry-v0.1`            | no — pinned after this lock |
-| CATALOGS       | `pulsemcp-v0beta`                      | no — pinned after this lock |
-| CATALOGS       | `smithery-connect-2026-09`             | no — pinned after this lock |
-| CATALOGS       | `smithery-registry-2026-09`            | no — pinned after this lock |
-| CLOUD          | `aws-agentcore-control-2023-06-05`     | no — pinned after this lock |
-| CLOUD          | `aws-agentcore-gateway-mcp-2026-07-28` | no — pinned after this lock |
-| CLOUD          | `google-connectors-v1-20260907`        | no — pinned after this lock |
-| CLOUD          | `google-connectors-v2-20260907`        | no — pinned after this lock |
-| MICROSOFT      | `microsoft-custom-connector-2026-06`   | no — pinned after this lock |
 
 ## Records
 
@@ -1111,3 +1095,211 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 - Modules: `tests/connectors/doubles/fixture-adapter.ts`
 - Recorded by: COMMAND
 - Notes: Internal profile identifier.
+
+### `a2a-1.0` — A2A Protocol Specification, version 1.0.0
+
+- Kind: specification
+- URL: <https://a2a-protocol.org/latest/specification/>
+- Retrieved at: 2026-09-18
+- Upstream version: 1.0.0
+- Revision: sections 3.2, 4.1, 4.4, 5.3, 5.4, 8.2, 8.4 and 9.4 read
+- Digest: none captured — not captured; the ledger records per-section verified statements instead
+- Licence: not established in this execution. The A2A specification's licence was not read here. No specification text is copied; the Agent Card model and the JSON-RPC method and error mappings are implemented. (Established: not-read-here.)
+- Reuse: Agent Card import and a versioned, host-approved task delegation profile. An Agent Card's claims are untrusted data: delegation is limited by host policy and an artifact URL is never automatically fetched.
+- Dependent adapters: `a2a`
+- Dependent profile identifiers: `a2a-1.0`
+- Modules: `src/server/connectors/providers/a2a/`
+- Recorded by: AGENT-SURFACES
+- Notes: Agent Cards MAY be JWS-signed, and the specification does not define the trust policy that would make a signature meaningful; Ceremony therefore treats a signature as a signer's statement under host trust policy, not as authority. gRPC and HTTP+JSON bindings, SSE stream framing and push-notification webhooks are not implemented and so are not exercised.
+
+### `a2a-0.3` — A2A Protocol Specification, version 0.3.0
+
+- Kind: specification
+- URL: <https://a2a-protocol.org/v0.3.0/specification/>
+- Retrieved at: 2026-09-18
+- Upstream version: 0.3.0
+- Revision: sections 3.2.1, 3.5.1, 5.5, 6.x, 7.1 and 8.2 read
+- Digest: none captured
+- Licence: not established in this execution. See a2a-1.0. (Established: not-read-here.)
+- Reuse: Implemented as a separate version profile. 0.3 spells task states, method names, part kinds and one error name differently from 1.0; the declared version decides which, and nothing is translated across versions.
+- Dependent adapters: `a2a`
+- Dependent profile identifiers: `a2a-0.3`
+- Modules: `src/server/connectors/providers/a2a/`
+- Recorded by: AGENT-SURFACES
+- Notes: 0.3 streaming and push-notification behaviour is not implemented.
+
+### `webmcp-cg-draft-2026-09-17` — WebMCP API, Draft Community Group Report
+
+- Kind: draft
+- URL: <https://webmachinelearning.github.io/webmcp/>
+- Retrieved at: 2026-09-18
+- Upstream version: Draft Community Group Report published 17 September 2026
+- Revision: draft of 2026-09-17
+- Digest: none captured
+- Licence: W3C Community Group draft; licence not read here. Not read here. No specification text is copied. (Established: not-read-here.)
+- Reuse: Feature detection and tool ownership are preserved. This is a Community Group draft and **not** a W3C Recommendation; no standards status is claimed, and the ordinary browser UI works with no WebMCP present rather than a fake implementation being provided.
+- Dependent adapters: `webmcp surface`
+- Dependent profile identifiers: `webmcp-cg-draft-2026-09-17`
+- Modules: `src/core/webmcp.ts`
+- Recorded by: AGENT-SURFACES
+- Notes: A browser-local API, not a remote MCP transport. It is a transport, never extra permission.
+
+### `docker-mcp-catalog-v2` — Docker MCP Catalog and Toolkit, catalog format version 2
+
+- Kind: vendor-catalog
+- URL: <https://docs.docker.com/ai/mcp-catalog-and-toolkit/>
+- Retrieved at: 2026-09-18
+- Upstream version: catalog document `version: 2`, `name: docker-mcp`
+- Revision: documentation pages plus https://desktop.docker.com/mcp/catalog/v2/catalog.yaml and the docker/mcp-registry server.yaml contributing guide, all read 2026-09-18; 270 entries observed (237 server, 30 remote, 3 poci)
+- Digest: none captured — no digest captured for the published catalog document; entry counts were observed instead
+- Licence: proprietary vendor documentation and a curated vendor catalog. Docker's documentation is the vendor's copyrighted publication and the catalog is a curated vendor asset. No open licence is offered for either and none is assumed. The catalog's own contents are not redistributed or embedded: entries are imported into tenant-scoped host state on request, and per-entry `metadata.license` describes the listed server, not this catalog. (Established: not-read-here.)
+- Reuse: Versioned catalog import and descriptor export only. Docker Desktop is not required, no image is pulled and nothing is installed; local execution is an optional, explicitly configured host runner.
+- Dependent adapters: `docker-mcp-catalog`
+- Dependent profile identifiers: `docker-mcp-catalog-v2`
+- Modules: `src/server/connectors/registries/docker/`
+- Recorded by: CATALOGS
+- Notes: Images, commands, arguments, volumes and environment values are imported as inert metadata and are never approved for execution.
+
+### `pulsemcp-v0beta` — PulseMCP public API, v0beta
+
+- Kind: vendor-api
+- URL: <https://www.pulsemcp.com/api>
+- Retrieved at: 2026-09-18
+- Upstream version: v0beta
+- Revision: https://www.pulsemcp.com/api/docs/v0beta read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation and a curated vendor catalog. PulseMCP's documentation and directory content are the vendor's publication; no open licence is offered and none is assumed. Directory entries are not redistributed. (Established: not-read-here.)
+- Reuse: A source-native discovery adapter with its own pagination, caching and provenance. Its contract is deliberately **not** presumed compatible with the official MCP registry.
+- Dependent adapters: `pulsemcp`
+- Dependent profile identifiers: `pulsemcp-v0beta`
+- Modules: `src/server/connectors/registries/pulsemcp/`
+- Recorded by: CATALOGS
+- Notes: The vendor documents this API as deprecated with a sunset by September 2026 and staged failures from January 2026. That deprecation is part of the record: it is a reason to pin the sub-registry profile, not a reason to assume either will keep working.
+
+### `pulsemcp-subregistry-v0.1` — PulseMCP Sub-Registry API 0.1.9
+
+- Kind: vendor-api
+- URL: <https://api.pulsemcp.com/api/openapi_v01.yaml>
+- Retrieved at: 2026-09-18
+- Upstream version: 0.1.9, path prefix /v0.1
+- Revision: OpenAPI document read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. See pulsemcp-v0beta. (Established: not-read-here.)
+- Reuse: Read as its own contract. Its `_meta` keys are vendor-namespaced (`com.pulsemcp/...`) and are preserved as provenance, never treated as official-registry fields.
+- Dependent adapters: `pulsemcp`
+- Dependent profile identifiers: `pulsemcp-subregistry-v0.1`
+- Modules: `src/server/connectors/registries/pulsemcp/`
+- Recorded by: CATALOGS
+- Notes: Requires X-API-Key, and X-Tenant-ID on data endpoints. A registry status value is provenance, not code safety.
+
+### `smithery-registry-2026-09` — Smithery registry API
+
+- Kind: vendor-api
+- URL: <https://smithery.ai/docs/api-reference/servers/list-all-servers>
+- Retrieved at: 2026-09-18
+- Upstream version: unversioned documentation set; API base https://api.smithery.ai
+- Revision: list-all-servers and get-a-server reference pages read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation and a curated vendor catalog. Smithery's documentation and server directory are the vendor's publication; no open licence is offered and none is assumed. Directory entries, icons and owner data are not redistributed. (Established: not-read-here.)
+- Reuse: Catalog metadata import with its own pagination. A qualified name containing a slash is percent-encoded exactly once at the boundary and preserved verbatim for lookup.
+- Dependent adapters: `smithery-registry`
+- Dependent profile identifiers: `smithery-registry-2026-09`
+- Modules: `src/server/connectors/registries/smithery/`
+- Recorded by: CATALOGS
+- Notes: A `verified` flag and a `security.scanPassed` flag are publisher provenance, not execution approval.
+
+### `smithery-connect-2026-09` — Smithery managed connections and token scoping
+
+- Kind: vendor-api
+- URL: <https://smithery.ai/docs/use/connect>
+- Retrieved at: 2026-09-18
+- Upstream version: unversioned documentation set; namespace MCP endpoint https://mcp.smithery.run/{namespace}
+- Revision: use/connect, use/token-scoping and the api-reference/connect pages read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. See smithery-registry-2026-09. (Established: not-read-here.)
+- Reuse: Managed connection status and an approved remote execution profile. Namespace and service-token restrictions stay authoritative: a scoped child token cannot exceed its parent's scope, and there is no broad-token fallback, silent new namespace or account leak.
+- Dependent adapters: `smithery`
+- Dependent profile identifiers: `smithery-connect-2026-09`
+- Modules: `src/server/connectors/providers/smithery/`
+- Recorded by: CATALOGS
+- Notes: The API key is backend-only and service tokens are the scoped client credential; credentials are encrypted and write-only upstream, which is why this is external-execution-broker custody and not an exportable credential. Unverified: the page describes denial without a status-code table, so no specific code is asserted per denial reason.
+
+### `aws-agentcore-control-2023-06-05` — Amazon Bedrock AgentCore Gateway control plane
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway.html>
+- Retrieved at: 2026-09-18
+- Upstream version: control-plane API version 2023-06-05
+- Revision: developer guide read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used for this adapter and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Discovery of gateways and targets the host has already approved, plus SigV4-signed control-plane reads. Nothing is deployed, no IAM is created or escalated and no universal target-schema claim is made.
+- Dependent adapters: `aws-agentcore-gateway`
+- Dependent profile identifiers: `aws-agentcore-control-2023-06-05`
+- Modules: `src/server/connectors/providers/aws-agentcore/`
+- Recorded by: CLOUD
+- Notes: Two named unverified points: the control-plane endpoint host is never composed by the adapter, because the AWS General Reference endpoint table could not be retrieved (it is JavaScript-rendered), so the binding's approved destination is used instead; and the SigV4 signing service name defaults to `bedrock-agentcore` and is overridable in binding settings, unverified against a published endpoint table. Schemas stored in Amazon S3 are not fetched, because S3 is not an approved destination, and such targets are reported unverifiable rather than assumed compatible.
+
+### `aws-agentcore-gateway-mcp-2026-07-28` — Amazon Bedrock AgentCore Gateway MCP surface
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway.html>
+- Retrieved at: 2026-09-18
+- Upstream version: MCP revision 2026-07-28 only
+- Revision: developer guide read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. See aws-agentcore-control-2023-06-05. (Established: not-read-here.)
+- Reuse: An MCP invocation profile with inbound and outbound identity kept separate. The gateway's legacy MCP revisions (2025-11-25, 2025-06-18, 2025-03-26) use the initialize handshake and belong to the MCP runtime client; this profile reports a blocking version issue rather than downgrading.
+- Dependent adapters: `aws-agentcore-gateway`
+- Dependent profile identifiers: `aws-agentcore-gateway-mcp-2026-07-28`
+- Modules: `src/server/connectors/providers/aws-agentcore/gateway.ts`
+- Recorded by: CLOUD
+- Notes: Targets synchronized by the gateway (Smithy model, MCP server, API Gateway, built-in connector) expose tool identities only through tools/list, so they are reported requires-configuration rather than invented. Swagger 2.0 is rejected outright, matching the documented support for OpenAPI 3.0 and 3.1 only.
+
+### `google-connectors-v1-20260907` — Google Integration Connectors API v1
+
+- Kind: vendor-api
+- URL: <https://docs.cloud.google.com/integration-connectors/docs/overview>
+- Retrieved at: 2026-09-18
+- Upstream version: v1, discovery document dated 2026-09-07
+- Revision: discovery document and overview read 2026-09-18; host pattern connectors.<region>.rep.googleapis.com
+- Digest: none captured
+- Licence: proprietary vendor documentation. Google Cloud documentation and discovery documents are the vendor's copyrighted publication; no open licence is offered and none is assumed. (Established: not-read-here.)
+- Reuse: Discovery of connections the host has configured, plus bounded entity list/get, action execute and metadata reads through an authorized service identity. Project, location and connection are binding facts, never caller-supplied authority.
+- Dependent adapters: `google-integration-connectors`
+- Dependent profile identifiers: `google-connectors-v1-20260907`
+- Modules: `src/server/connectors/providers/google-connectors/`
+- Recorded by: CLOUD
+- Notes: Entity writes, executeSqlQuery, executeHttpRequest and eventing are deliberately not bound. Named unverified point: the completion and polling mechanism for a long-running action is connector-specific and could not be verified from the discovery documents or the public documentation, so an action result on an async-enabled connection returns google-connectors.async-result-unreconciled and is never reported as settled work. Connections are never created, updated, suspended or deleted.
+
+### `google-connectors-v2-20260907` — Google Integration Connectors API v2
+
+- Kind: vendor-api
+- URL: <https://docs.cloud.google.com/integration-connectors/docs/overview>
+- Retrieved at: 2026-09-18
+- Upstream version: v2, discovery document dated 2026-09-07
+- Revision: discovery document read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. See google-connectors-v1-20260907. (Established: not-read-here.)
+- Reuse: Read so the version difference is explicit. The v2 tools surface is deliberately not bound; only the v1 entity and action operations above are.
+- Dependent adapters: `google-integration-connectors`
+- Dependent profile identifiers: `google-connectors-v2-20260907`
+- Modules: `src/server/connectors/providers/google-connectors/`
+- Recorded by: CLOUD
+- Notes: Pinning both versions separately is the point: a v2 surface existing is not authority to call it.
+
+### `microsoft-custom-connector-2026-06` — Microsoft custom connectors: OpenAPI extensions and definition guidance
+
+- Kind: vendor-doc
+- URL: <https://learn.microsoft.com/en-us/connectors/custom-connectors/openapi-extensions>
+- Retrieved at: 2026-09-18
+- Upstream version: documentation dated 2026-06-03, last updated 2026-08-27
+- Revision: openapi-extensions and define-openapi-definition pages read 2026-09-18
+- Digest: none captured
+- Licence: proprietary vendor documentation. Microsoft Learn documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. (Established: not-read-here.)
+- Reuse: The documented `x-ms-*` extension vocabulary is read from a Swagger 2.0 document and preserved. Dynamic-value, dynamic-list, dynamic-schema and dynamic-properties lookups are protected operations under host authorization; testConnection is bound as a connectivity check only.
+- Dependent adapters: `microsoft-custom-connector`
+- Dependent profile identifiers: `microsoft-custom-connector-2026-06`, `swagger-2.0`
+- Modules: `src/server/connectors/formats/microsoft/`
+- Recorded by: MICROSOFT
+- Notes: No claim is made to run Power Platform policies or custom code: imported policies and automation code are inert and execution-blocked while their useful metadata is preserved. A testConnection returning 200 with no account or permission evidence records demonstrated connectivity only, never account identity.

@@ -386,7 +386,7 @@ export function ConnectorEntryCard({
         {entry.displayName.slice(0, 2).toUpperCase()}
       </span>
       <div className="connector-head">
-        <h4 className="connector-name">{entry.displayName}</h4>
+        <h3 className="connector-name">{entry.displayName}</h3>
         <SupportBadge entry={entry} />
       </div>
       <p className="connector-summary">{entry.description}</p>
@@ -668,7 +668,7 @@ export function ConnectorDirectory({
               aria-label={`${group.group} connectors`}
               data-connector-group={group.group}
             >
-              <h3 className="connector-group-name">
+              <h2 className="connector-group-name">
                 {group.group}
                 {group.entries.length > 1 && (
                   <span className="connector-muted">
@@ -676,7 +676,7 @@ export function ConnectorDirectory({
                     · {group.entries.length} alternatives, kept separate
                   </span>
                 )}
-              </h3>
+              </h2>
               <div data-ceremony-grid="" role="list">
                 {group.entries.map((entry) => (
                   <div role="listitem" key={entry.id}>

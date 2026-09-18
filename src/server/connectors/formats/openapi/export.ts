@@ -360,6 +360,45 @@ export function exportOpenApi(
           "The description preserves an authentication scheme this runtime cannot execute; it is not published as a usable security scheme, and operations that require it stay blocked.",
       });
 
+  // A profile the runtime *can* execute but that still did not reach the
+  // exported document is the quieter danger: nothing marks it, so the export
+  // reads as though the service accepts fewer ways in than it does. An
+  // operator comparing the export against the original sees an alternative
+  // missing and no reason why.
+  //
+  // Which profiles reached the document is `schemeNameFor`, keyed by profile
+  // id on both the bound and unbound paths. `usedSchemes` is keyed by the
+  // scheme *name* the binding chose, which is not the profile id, so it
+  // cannot answer this question.
+  //
+  // There are two reasons an alternative goes missing, and the message says
+  // which: no approved operation uses it, or it has no OpenAPI spelling at
+  // all. Neither is informational. The narrowing may be deliberate policy,
+  // but the resulting document still understates the service's
+  // authentication surface, and a consumer filtering the report for security
+  // losses is exactly the reader who needs to know.
+  //
+  // `adapted`, never `unsupported`: the profile survives in the normalized
+  // definition and stays executable, it simply has no place in this document.
+  // `compatibilityIssueSchema` requires an unsupported *security* requirement
+  // to be blocking, so spelling it `unsupported` would make every such export
+  // throw.
+  for (const profile of definition.authentication) {
+    if (profile.kind === "unsupported" || schemeNameFor.has(profile.id))
+      continue;
+    losses.add({
+      code: "security.profile-not-exported",
+      category: "security",
+      pointer: "#/authentication",
+      dimension: "export",
+      severity: "warning",
+      disposition: "adapted",
+      message: securitySchemeFor(profile)
+        ? "The description carries an authentication alternative that no approved operation uses, so it is absent from the export and the document understates how this service may be authenticated."
+        : "A normalized authentication alternative has no OpenAPI security scheme spelling, so the export understates the ways this service may be authenticated.",
+    });
+  }
+
   const schemas: Record<string, unknown> = {};
   for (const plan of plans)
     for (const [key, schema] of Object.entries(plan.definitions)) {

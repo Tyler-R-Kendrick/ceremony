@@ -84,52 +84,25 @@ Named directly. These are required work items nobody delivered. They are listed 
 
 Each of these stays `blocked` and fails closed. None is relabelled as a fixture pass, and `verify:live` and `verify:release` will keep reporting them until the exact prerequisite exists.
 
-- **IMP-05** (IMPORT): The security classification is pointer-pattern based and covers OpenAPI 2/3, AsyncAPI, Arazzo sourceDescriptions and MCP server.json packages/remotes. A format whose security semantics live elsewhere needs its rule added; unmatched changes are reported as structural, never dropped.
-- **HTTP-01** (HTTP): External $ref resolution happens only through the caller's resolveExternal hook; without one, constructs behind an external reference are reported unresolved and blocked, never guessed.
-- **HTTP-01** (HTTP): Examples, defaults and credential-named vendor keys are dropped from preserved extensions at the import boundary; a vendor extension with a neutral key that embeds a secret in an unnamed field would still be preserved for reviewers.
-- **HTTP-02** (HTTP): The OAuth implicit and password flows are preserved as unsupported profiles with blocking issues (RFC 9700); no usable credential path is invented for them.
-- **HTTP-03** (HTTP): Blocked with serialization.* issues: multipart, form-urlencoded, XML, streaming and any other media type; cookie parameters; 3.2 querystring parameters; parameters described by content; deepObject, spaceDelimited, pipeDelimited, matrix and label styles.
-- **HTTP-04** (HTTP): Credentials come from ctx.environment.credentials.use only. The adapter reads apiKey/username/password/accessToken (optionally suffixed ':<profileId>' when several profiles are presented together); the integrator's credential layer must write those names.
-- **HTTP-04** (HTTP): Verification is available only when the host names an approved read operation as verifier, and it claims credential-accepted against the destination origin — never account identity.
-- **WF-02** (WORKFLOW): Executable profile only: parallel semantics, goto branching, conditional end, failure goto, channel/async steps, payload replacements, querystring parameters, non-JSON request bodies, selector objects, embedded {$...} templates and pointer extraction inside bindings are preserved and blocked, never approximated.
-- **WF-03** (WORKFLOW): Only `simple` criteria are evaluated. regex, jsonpath and xpath criteria are parsed for their embedded expressions, preserved and blocked; this runtime implements none of those languages.
-- **WF-05** (WORKFLOW): The provider is a loopback HTTP fixture on an ephemeral port; no live provider evidence is claimed.
 - **REG-01** (REGISTRY): Live evidence blocked: tests never reach the network; the loopback double is authored from the published API documents.
-- **REG-05** (REGISTRY): No live publication: the official registry source ships with publication disabled and no deployment token exists here.
 - **MCP-06** (MCP): Live authorized evidence is blocked: no credentials for a deployed MCP server are available in this environment.
-- **MCP-06** (MCP): verify establishes that the credential was accepted by the origin and says explicitly that server identity is not attested beyond TLS.
 - **VC-01** (VERCEL): Live account evidence blocked: no authorized Vercel team credentials
-- **VC-01** (VERCEL): Connector create/update bodies are carried as a bounded opaque `data` object per connector type; the adapter does not validate provider-specific credential shapes (16 type variants in the OpenAPI document)
 - **VC-02** (VERCEL): Live account evidence blocked: no authorized Vercel credentials
 - **VC-03** (VERCEL): Live account evidence blocked: no authorized Vercel credentials
-- **VC-06** (VERCEL): Because the credential authenticates the forwarder rather than the bytes, the recorded forwarderHops entry sets bodyBound:false; there is no nonce or delivery de-duplication, exactly as the Chat SDK page states
-- **VC-06** (VERCEL): No live Vercel delivery was observed: every trigger is a locally minted token over loopback
 - **SB-01** (SUPABASE): Live account evidence blocked: no authorized Supabase OAuth app or dashboard account in this environment
 - **SB-03** (SUPABASE): Live project evidence blocked: no authorized Supabase project in this environment
-- **NG-01** (NANGO): Integration client credentials are never requested (include=credentials is never sent), so discovery cannot report OAuth client ids or scopes configured in Nango.
 - **PD-01** (PIPEDREAM): Live account evidence blocked: no authorized Pipedream project credentials in this environment.
-- **PD-03** (PIPEDREAM): Component descriptions are imported as inert NativeCapability descriptors; no component source is fetched or evaluated. File Stash components are execution-blocked with a precise diagnostic.
-- **PD-04** (PIPEDREAM): The signing key returned by a deploy is stored in credential custody, and the reference is returned in the invoke output as output.delivery.signingKeyRef. EventPort.verify reads references from connection.state.pipedreamTriggerKeys, so the command layer must copy that reference onto the connection (see integrationPatches).
 - **CO-01** (COMPOSIO): Live account evidence blocked: no authorized Composio project credentials in this execution.
-- **CO-02** (COMPOSIO): Only hosted OAuth auth configs are driven. An API_KEY auth config returns {kind: "unsupported", code: "composio.auth-scheme.not-hosted"} because completing it would require submitting the end user's credential to Composio.
-- **CO-02** (COMPOSIO): connection.state.val is sent as an empty object: it carries per-scheme dynamic fields and this adapter collects no provider credential.
-- **CO-03** (COMPOSIO): POST /api/v3/tool_router/session/{id}/proxy_execute is deliberately not bound: a credentialed generic proxy is a confused deputy.
 - **CAT-01** (CATALOGS): Live evidence blocked: no authorized Smithery account or API key in this environment.
 - **CAT-02** (CATALOGS): Live evidence blocked: no authorized Smithery namespace or service token in this environment.
 - **CAT-04** (CATALOGS): Live evidence blocked: no PulseMCP tenant API key in this environment.
-- **DATA-01** (DATA): The public Airbyte API documents no source check_connection operation; verify() infers reachability from a live (ignoreCache=true) stream-properties discovery and records that limitation on the claim. The deprecated Configuration API (/api/v1/sources/check_connection, discover_schema) is deliberately not called: Airbyte documents it as internal and unsupported.
 - **DATA-01** (DATA): Live account evidence blocked: no authorized Airbyte deployment credentials in this environment.
-- **DATA-02** (DATA): Pinned to ndc-spec ^0.2.0, implemented against 0.2.5 (latest in the published changelog on 2026-09-18). A connector declaring 0.1.x is blocked with a version diagnostic rather than downgraded.
 - **DATA-02** (DATA): Live evidence blocked: no authorized NDC connector deployment.
 - **DATA-03** (DATA): Live account evidence blocked: no authorized Merge account, no real Link session.
 - **CLOUD-01** (CLOUD): Live account evidence blocked: no authorized AWS credentials and no gateway in this environment
 - **CLOUD-03** (CLOUD): Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment
-- **AG-02** (AGENT-SURFACES): Verification compares the served card with the reviewed one (name, profile, interface URL, protocol version) and records `credential-accepted` plus `resource-access`. It deliberately asserts no account identity: an Agent Card is the agent's own statement.
-- **AG-04** (AGENT-SURFACES): Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.
-- **CMD-06** (COMMAND): The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour.
-- **DOC-01** (DOCS): Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere
 - **DOC-04** (DOCS): It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment
-- **DOC-05** (DOCS): No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record
+- **DOC-05** (DOCS): No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now read 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record and is not a live claim
 
 ## Requirements, files, tests, results and pinned sources
 
@@ -1760,7 +1733,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - **DOC-02** (DOCS)
   - Licences were established for seven specification families by reading the published document or its LICENSE file on 2026-09-18; for every other record the licence field says `not-read-here` and claims no reuse beyond citation
   - Only one record carries a captured document digest (server-json-2025-12-11); no other swarm captured one, and the lock says so per record rather than inventing digests
-  - The lock is pinned as of the ledgers named in `coversLedgers`. A ledger delivered afterwards may cite an unpinned identifier; the generator reports that as a coverage gap and the test asserts the gap is visible rather than silently accepted
+  - The lock is pinned as of the ledgers named in `coversLedgers`, which at the time of writing is every ledger on disk with a resolvable source list and a coverage report of zero gaps. A ledger delivered afterwards may cite an unpinned identifier; the generator reports that as a coverage gap and the test asserts the gap is visible rather than silently accepted
 - **DOC-03** (DOCS)
   - An adapter factory that cannot be constructed with no host configuration has no machine-readable row; the generator names the module and the reason instead of guessing at its dimensions
   - Rows are measured with `capabilities(new Set())`, which is what a deployment holding no configuration sees; a configured deployment's directory can legitimately differ
@@ -1770,7 +1743,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment
 - **DOC-05** (DOCS)
   - Only claims that were verified false against the code were changed. Statements that are still accurate were left alone, including that generation and discovery are not exposed over MCP and that the reference application does not mount the in-chat collector
-  - No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record
+  - No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now read 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record and is not a live claim
   - docs/architecture.md was read and left unchanged: nothing in it was found to be factually stale
 - **DOC-06** (DOCS)
   - Test results come only from the JUnit run that scripts/connector-evidence.ts last recorded in report.json. At generation time that run recorded zero suites, so every test row reads 'not in the recorded run' and the report says so in bold rather than implying a pass
@@ -1797,7 +1770,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 
 ## Pinned sources
 
-The [source lock](source-lock.md) pins 67 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. It also reports its own coverage gaps. Read it before trusting any wire fact in this repository.
+The [source lock](source-lock.md) pins 80 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. It also reports its own coverage gaps. Read it before trusting any wire fact in this repository.
 
 ## Adapter inventory read for this report
 

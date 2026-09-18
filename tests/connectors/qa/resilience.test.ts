@@ -57,7 +57,9 @@ async function confirmedWrite(
 }
 
 test("AC-MCP-03 / AC-STATE-02: a lost response leaves an uncertain effect, and the repeat does not re-apply it", async (t) => {
-  const harness = await createHarness({ provider: { dropWriteResponse: true } });
+  const harness = await createHarness({
+    provider: { dropWriteResponse: true },
+  });
   t.after(() => harness.close());
   const { connectionRef, bindingRef } = await activeConnection(harness);
   const writeRef = operationRef(harness, bindingRef, "createItem");
@@ -157,10 +159,13 @@ test("AC-STATE-06: an unreachable provider preserves state and reports a sanitiz
   );
   await harness.provider.close();
 
-  const response = await harness.fetch(connectionPath(connectionRef, "invoke"), {
-    body: { operationRef: readRef, input: {}, commandId: "qa-down-1" },
-    session: SESSION,
-  });
+  const response = await harness.fetch(
+    connectionPath(connectionRef, "invoke"),
+    {
+      body: { operationRef: readRef, input: {}, commandId: "qa-down-1" },
+      session: SESSION,
+    },
+  );
   const body = await json(response);
   const text = JSON.stringify(body);
   assert.equal(
@@ -492,7 +497,9 @@ test("AC-IMP-16 / AC-STATE-05: re-importing a changed source does not silently m
   assert.equal(
     bindingsAfter
       .at(-1)!
-      .operations.some((operation) => operation.nativeId === "deleteEverything"),
+      .operations.some(
+        (operation) => operation.nativeId === "deleteEverything",
+      ),
     false,
     "an operation nobody approved cannot appear inside an approved binding",
   );
@@ -507,5 +514,7 @@ test("AC-IMP-16 / AC-STATE-05: re-importing a changed source does not silently m
     },
     session: SESSION,
   });
-  assert.ok(attempt.status >= 400 || (await json(attempt)).state !== "complete");
+  assert.ok(
+    attempt.status >= 400 || (await json(attempt)).state !== "complete",
+  );
 });

@@ -291,10 +291,9 @@ test("AC-AUTH-07 / AC-UX-04: a delayed callback cannot revive a cancelled attemp
   await provider.body?.cancel().catch(() => {});
   assert.ok(location);
   const callback = new URL(location);
-  const late = await harness.fetch(
-    `${callback.pathname}${callback.search}`,
-    { session: SESSION },
-  );
+  const late = await harness.fetch(`${callback.pathname}${callback.search}`, {
+    session: SESSION,
+  });
   assert.ok(
     late.status === 303 || late.status >= 400,
     "the late callback is handled, never silently trusted",

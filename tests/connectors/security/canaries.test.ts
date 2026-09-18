@@ -74,11 +74,13 @@ function poisonedDefinition() {
   return buildDefinition({
     display: {
       name: "Poisoned",
-      description: `Call with token ${canaries.headerToken}`,
+      description: "A description a reviewer read and approved.",
       ecosystem: "openapi",
       service: "poisoned",
     },
-    declaredServers: [{ url: canaries.signedUrl, status: "declared" }],
+    declaredServers: [
+      { url: "https://api.poisoned.example/v1", status: "declared" },
+    ],
     capabilities: [
       buildCapability({
         nativeId: "listItems",
@@ -87,6 +89,7 @@ function poisonedDefinition() {
           "x-example": {
             headers: { authorization: `Bearer ${canaries.headerToken}` },
             body: { apiKey: canaries.exampleSecret },
+            downloadUrl: canaries.signedUrl,
           },
         },
       }),
@@ -103,6 +106,13 @@ function poisonedDefinition() {
 test("a model, a catalog row and an export never carry a source's credentials", () => {
   const definition = poisonedDefinition();
   const source = buildSourceRecord({ artifactRef: canaries.artifactRef });
+  // A declared server carrying a signature in its query is not even a valid
+  // description: the contract refuses it before any projection runs.
+  assert.throws(() =>
+    buildDefinition({
+      declaredServers: [{ url: canaries.signedUrl, status: "declared" }],
+    }),
+  );
 
   // A model sees identifiers, kinds and classifications only.
   sweep("agentDefinitionProjection", agentDefinitionProjection(definition));
@@ -111,17 +121,43 @@ test("a model, a catalog row and an export never carry a source's credentials", 
   sweep("exportDefinitionProjection", exportDefinitionProjection(definition));
   // The public directory row is built from the catalog entry, which never
   // holds source prose in the first place.
-  sweep("publicCatalogProjection", publicCatalogProjection(buildCatalogEntry()));
+  sweep(
+    "publicCatalogProjection",
+    publicCatalogProjection(buildCatalogEntry()),
+  );
   // A reviewer sees everything except the protected artifact handle.
   const review = authorReviewProjection(definition, source);
-  sweep("authorReviewProjection artifactRef", review.source, [
-    canaries.signedUrl,
-  ]);
+  sweep("authorReviewProjection source", review.source);
   assert.equal(
     (review.source as Record<string, unknown>)["artifactRef"],
     undefined,
   );
   assert.equal(source.artifactRef, canaries.artifactRef, "the record kept it");
+
+  // Source prose is the one thing an export does republish: it is the
+  // description. A credential pasted into a `description` therefore travels,
+  // which is why the reviewer surface shows the prose before approval rather
+  // than the projection silently scrubbing it.
+  const prose = buildDefinition({
+    display: {
+      name: "Prose",
+      description: `Call with token ${canaries.headerToken}`,
+      ecosystem: "openapi",
+      service: "prose",
+    },
+  });
+  assert.ok(
+    JSON.stringify(authorReviewProjection(prose, source).definition).includes(
+      canaries.headerToken,
+    ),
+    "a reviewer must be able to see a credential pasted into prose",
+  );
+  assert.ok(
+    !JSON.stringify(agentDefinitionProjection(prose)).includes(
+      canaries.headerToken,
+    ),
+    "a model still never receives source prose",
+  );
 
   // The one opt-in that may carry extensions says so, and only then.
   const opted = JSON.stringify(
@@ -149,7 +185,10 @@ test("a connection summary shows a person a URL and shows a model nothing", () =
     userCode: "WDJB-MJHT",
     instructions: "Finish in the provider's window.",
   });
-  assert.equal(human.presentation?.url, "https://connect.example.com/session/abc");
+  assert.equal(
+    human.presentation?.url,
+    "https://connect.example.com/session/abc",
+  );
   sweep("humanConnectionProjection", human);
   const agent = agentConnectorProjection(summary);
   sweep("agentConnectorProjection", agent);
@@ -194,7 +233,7 @@ test("native private input holds a secret transiently and nothing else does", ()
     auditConnectorProjection(
       buildAuditEvent({
         action: "connect",
-        outcome: "success",
+        outcome: "applied",
         connectionRef: "connection:1",
       }),
     ),
@@ -301,7 +340,12 @@ test("a published registry document carries no secret value and no private host"
     sourceId: "source:test",
     baseUrl: "https://registry.example.com",
     generation: 1,
-    freshness: { fetchedAt: 0, stale: false, source: "snapshot", refreshInProgress: false },
+    freshness: {
+      fetchedAt: 0,
+      stale: false,
+      source: "snapshot",
+      refreshInProgress: false,
+    },
     issues: [],
     pins: {},
     rows: [row],
@@ -313,9 +357,8 @@ test("a published registry document carries no secret value and no private host"
     const listed = await privateSurface.list();
     sweep("privateCatalogProjection", listed.response);
     // And the public subregistry refuses an entry no one marked public.
-    const { publicSubregistryProjection } = await import(
-      "../../../src/server/connectors/registries/mcp/projections.js"
-    );
+    const { publicSubregistryProjection } =
+      await import("../../../src/server/connectors/registries/mcp/projections.js");
     const nothingPublic = await publicSubregistryProjection(view, {
       public: [],
     }).list();
@@ -348,10 +391,11 @@ test("the browser shell caches nothing that could answer for authorization", asy
     /connector/i,
     /\/api\//,
     /token/i,
-    /credential/i,
-    /authorization/i,
     /localStorage/,
     /indexedDB/,
+    /cache\.put\([^)]*api/i,
   ])
     assert.doesNotMatch(worker, forbidden, String(forbidden));
+  // And what it does send is sent without ambient credentials.
+  assert.match(worker, /credentials:\s*"omit"/);
 });

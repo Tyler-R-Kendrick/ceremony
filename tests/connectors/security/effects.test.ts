@@ -323,7 +323,8 @@ test("a proxy call cannot carry a caller's URL, header, connection or operation"
   assert.throws(
     () => expandPathTemplate("/admin/{x}", { x: "1" }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.operation.path",
+      error instanceof ConnectorError &&
+      error.detail === "nango.operation.path",
   );
   assert.throws(
     () => expandPathTemplate("/proxy/{x}", { x: "1", extra: "2" }),

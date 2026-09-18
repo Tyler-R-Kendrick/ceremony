@@ -33,8 +33,10 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 
 /** Wraps a policy so every consultation is recorded and one action can be denied. */
 function watched(base: ConnectorPolicy, deny?: ConnectorAction) {
-  const seen: Array<{ action: ConnectorAction; subject: PolicySubject["kind"] }> =
-    [];
+  const seen: Array<{
+    action: ConnectorAction;
+    subject: PolicySubject["kind"];
+  }> = [];
   const policy: ConnectorPolicy = {
     ...base,
     authorize: async (actor, subject, action) => {
@@ -286,7 +288,10 @@ test("mutating routes keep the same-origin, content-type and size boundary", asy
   t.after(() => harness.close());
   const flow = await connected(harness);
   const mutations: Array<[string, unknown]> = [
-    ["/api/v1/connectors/import", { kind: "upload", mediaType: "application/json", text: "{}" }],
+    [
+      "/api/v1/connectors/import",
+      { kind: "upload", mediaType: "application/json", text: "{}" },
+    ],
     ["/api/v1/connectors/configure", {}],
     ["/api/v1/connectors/connections", { bindingRef: flow.bindingRef }],
     [`/api/v1/connectors/connections/${flow.connectionRef}/verify`, {}],
@@ -364,9 +369,8 @@ test("the event mount point authenticates by signature and reaches nothing else"
   const deliveries: Array<{ authority: string; hasSession: boolean }> = [];
   const harness = await createHarness();
   t.after(() => harness.close());
-  const { createConnectorEventsHttp } = await import(
-    "../../../src/server/connectors/commands/http.js"
-  );
+  const { createConnectorEventsHttp } =
+    await import("../../../src/server/connectors/commands/http.js");
   const events = createConnectorEventsHttp({
     receiveEvent: async ({ authority, request }) => {
       deliveries.push({

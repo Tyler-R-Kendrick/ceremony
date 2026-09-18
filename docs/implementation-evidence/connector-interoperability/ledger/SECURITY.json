@@ -1,0 +1,347 @@
+{
+  "swarm": "SECURITY",
+  "workItems": [
+    {
+      "id": "SEC-01",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/security/threat-model.ts",
+        "tests/connectors/security/threat-model.test.ts"
+      ],
+      "tests": ["tests/connectors/security/threat-model.test.ts"],
+      "acceptanceIds": [
+        "AC-AUTH-01",
+        "AC-AUTH-02",
+        "AC-AUTH-14",
+        "AC-AUTH-15",
+        "AC-IMP-09",
+        "AC-IMP-11",
+        "AC-MCP-05",
+        "AC-MCP-08",
+        "AC-MCP-10",
+        "AC-EXT-08",
+        "AC-STATE-07"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "openapi-3.1",
+        "server-json-2025-12-11",
+        "mcp-registry-api-v0.1",
+        "standard-webhooks-1.0.0",
+        "nango-webhooks-2026-09"
+      ],
+      "limitations": [
+        "Nine trust boundaries are modelled: imported data, hosted browser, private collector, Ceremony host to upstream, external broker, registry, event sender, optional runner, and tenant-to-tenant. Each carries an executable refusal against the real module; none is covered by a success stub.",
+        "The A2A delegation boundary and the WebMCP browser-local boundary are described in the ecosystem table but were not modelled here: their modules were still being written while this swarm tested (src/server/connectors/providers/a2a/* appeared untracked at 14:13 UTC).",
+        "Live-authorized evidence is blocked everywhere: no authorized provider credentials exist in this environment and tests have no internet."
+      ],
+      "notes": "threat-model.ts is the model as data (from, to, authority withheld, concrete confused-deputy or cross-tenant path, enforcing modules, the named negative test, and whether the module was implemented when tested). A first test enumerates the model so a boundary cannot be silently dropped and an unimplemented boundary may not claim a passing refusal. TB-01 drives parseBoundedDocument with prototype keys, duplicate members, a merge key and a language-specific tag; TB-02 drives validatePopupCompletion and the human/agent projections; TB-03 sweeps humanHandoffPresentation for state, verifier, widget token, device code and collector reference; TB-04 drives evaluateNetworkTarget with metadata, mapped, decimal and octal literals plus a redirect hop; TB-05 drives verifyNangoSignature including the documented legacy plain-digest header and the API key; TB-06 imports a hostile server.json and checks publication; TB-07 drives verifyStandardWebhook replay, downgrade and tamper; TB-08 drives unavailableHostRunner; TB-09 drives metadataCacheKey, McpResultCache and assertHandoffCurrent."
+    },
+    {
+      "id": "SEC-02",
+      "status": "implemented",
+      "files": ["tests/connectors/security/ingestion.test.ts"],
+      "tests": ["tests/connectors/security/ingestion.test.ts"],
+      "acceptanceIds": [
+        "AC-IMP-06",
+        "AC-IMP-09",
+        "AC-IMP-10",
+        "AC-IMP-11",
+        "AC-IMP-12",
+        "AC-MCP-07"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "openapi-3.1",
+        "openapi-overlay-1.1.0",
+        "mcp-registry-api-v0.1"
+      ],
+      "limitations": [
+        "XML entity expansion was not exercised: no XML reader is reachable from src/server/connectors/import, so there is nothing to attack there yet.",
+        "The parse-time budget (maxParseMs) is checked after the work rather than interrupting it; the structural bounds are what actually make pathological input impossible. Reported as designed, not as a defect."
+      ],
+      "notes": "Format ambiguity: a specific declared media type is authoritative (YAML bytes announced as JSON fail as json.syntax), an unowned media type is refused rather than sniffed, JSON and YAML readers agree on the same bytes, and both refuse the duplicate that would let them disagree. YAML 1.2 core is confirmed (no 1.1 boolean or sexagesimal reinterpretation; an explicit %YAML 1.1 directive is refused). Prototype pollution is refused by the reader and again by sanitizeGraph, and Object.prototype is asserted unchanged afterwards. Complexity: depth, node, key-count, string and key-length bounds, caller limits that can only narrow, a gzip bomb refused twice over, and YAML alias amplification measured before expansion. Reference recursion: a recursive schema resolves 200 times without growth, expand reports structure.recursive-schema once and stops, pointers cannot walk into prototype machinery, non-http schemes never become a fetch, and a userinfo reference is unsafe with no echo of the credential. SSRF: external references go through createApprovedFetch and a metadata, public or private target is refused; live loopback fixtures prove cross-origin redirect denial, credential stripping on same-origin and listed-origin hops, the streaming response ceiling, and DNS rebinding refused inside the socket lookup (single private answer and mixed answer set). Overlay: a hostile overlay that adds a server, swaps the issuer endpoints and widens scopes applies structurally but the diff marks every security change blocking; an unsupported overlay version changes nothing; a pinned extends mismatch refuses. Pagination: a fixture registry that never stops paginating is bounded at maxPages with complete=false and a resumable cursor, a cursor echo is reported as registry.cursor.loop, and the page limit cannot be raised past the client ceiling."
+    },
+    {
+      "id": "SEC-03",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/security/authority.test.ts",
+        "tests/connectors/security/command-boundary.test.ts"
+      ],
+      "tests": [
+        "tests/connectors/security/authority.test.ts",
+        "tests/connectors/security/command-boundary.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-AUTH-01",
+        "AC-AUTH-02",
+        "AC-AUTH-03",
+        "AC-AUTH-04",
+        "AC-AUTH-05",
+        "AC-AUTH-10",
+        "AC-AUTH-11",
+        "AC-AUTH-17",
+        "AC-EXT-06",
+        "AC-MCP-05"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc-8414",
+        "rfc-9207",
+        "rfc-8693",
+        "rfc-7591",
+        "rfc-9728",
+        "mcp-2026-07-28-authorization"
+      ],
+      "limitations": [
+        "Integration and environment confusion for brokers is covered for Nango only (SEC-04); Composio, Pipedream, WorkOS and Smithery were still being written when this swarm tested and were not attacked.",
+        "RFC 8414 signed_metadata and signed RFC 9728 resource metadata are read but not signature-verified (OAUTH swarm's own unmet item OA-01-signed-metadata); this swarm confirms the gap rather than closing it."
+      ],
+      "notes": "Issuer mix-up: metadata naming another issuer is refused with oauth.metadata.issuer-mismatch, and a trailing slash or a dotted-decimal respelling of the same host does not resolve to the honest issuer. Callback binding: an iss the fixture minted for another issuer is refused; a handoff record whose issuer, client id or redirect URI was swapped is refused before the code reaches any endpoint; a different path on the same origin is refused; two state parameters is not 'pick the matching one'. Registration hijack: an issuer that advertises its registration endpoint on an attacker origin has that endpoint removed from the resolved metadata and recorded in refused[], dynamic registration then fails, the store records zero writes and the attacker fixture records zero requests; trustedEndpoint refuses the same origin for registration even with acceptIssuerDeclaredOrigins, and accepts it only when the host lists it. A host-pinned token endpoint that disagrees with discovery is a conflict, not a choice. Wrong audience: an audience outside policy, an un-negotiated ID-JAG token type and an exchange with no target are all refused before the network; the honest exchange succeeds so the refusals are not a broken setup; a port cannot be constructed at all when policy leaves exchange off. Permission escalation: a broker that grants more than requested is reported ceremony-enforced with the excess named, silence is unknown rather than 'everything', and the review baseline is what was requested at review time, not what was granted. Public-cache contamination: two tenants configuring the same fixture issuer each fetch their own metadata document and the fixture's request counter proves it. Command layer (claims attacked directly, not taken on trust): a recording policy proves catalog, import, approve, connect, callback and verify are each authorized with a server-side subject; denying exactly 'callback' refuses a flow that had already been authorized and whose provider had already redirected; denying 'invoke' refuses use of a connection that reached active; a policy hook that throws denies and its message never reaches the caller. IDOR: another subject's connection is 404 not 403, another tenant sees neither the connection nor the definition, and an encoded path segment cannot be smuggled."
+    },
+    {
+      "id": "SEC-04",
+      "status": "implemented",
+      "files": ["tests/connectors/security/effects.test.ts"],
+      "tests": [
+        "tests/connectors/security/effects.test.ts",
+        "tests/connectors/security/command-boundary.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-AUTH-06",
+        "AC-AUTH-07",
+        "AC-NG-04",
+        "AC-NG-06",
+        "AC-NG-07",
+        "AC-STATE-01",
+        "AC-STATE-07",
+        "AC-MCP-03"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc-6749-refresh",
+        "rfc-7636",
+        "nango-http-api-2026-09",
+        "nango-webhooks-2026-09"
+      ],
+      "limitations": [
+        "Shared-grant revocation across several local connections (AC-STATE-04) is asserted by the STATE and COMMAND swarms' own suites; this swarm did not add an independent reproduction because the shared-grant record shape lives in src/server/connectors/state and was still moving during the run.",
+        "Broker token leakage is covered for Nango's credential-bearing connection read through the canary sweep and the NANGO swarm's AC-NG-03 test; no other broker adapter was stable enough to attack."
+      ],
+      "notes": "Code replay: the fixture issuer is configured to accept the same authorization code twice, so only the effect journal stands between a replay and a second grant. The replay is a conflict, the issuer's token counter does not move, and exactly one credential exists; presenting the same code under a freshly issued handoff is also caught because the journal digest covers issuer, client, redirect URI and code. Stale callback: an older generation is oauth.handoff.stale-generation and a cancelled handoff is cancelled, both storing nothing. A foreign tenant's actor cannot complete a handoff. Refresh race: three concurrent refreshes produce exactly one token request at the fixture and two callers report shared=true. Custody switch: the same credential reference read under another connection, owner, tenant, binding or custody mode is rejected, and describe is scoped too. Proxy injection: nine shapes of base-URL, header, connection, integration, retry and credential override are refusals rather than validation errors; an unapproved operation is denied with the broker double recording no request at all; the path template can only produce a /proxy path and a parameter value is percent-encoded so it cannot add a segment. Lost response: a 502 on a write with replay=none is indeterminate, and the same command replayed is answered from the journal with the upstream attempt counter still at one. Duplicate webhook: a second delivery of the same signed body is a duplicate that changes no state; an event attributed to another authority instance, an event labelled with a verification this adapter did not perform, an edited body, a signature made with another key and a delivery naming another integration are each refused."
+    },
+    {
+      "id": "SEC-05",
+      "status": "implemented",
+      "files": ["tests/connectors/security/canaries.test.ts"],
+      "tests": ["tests/connectors/security/canaries.test.ts"],
+      "acceptanceIds": ["AC-IMP-13", "AC-MCP-10", "AC-UX-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["openapi-3.1", "server-json-2025-12-11"],
+      "limitations": [
+        "Logs and traces have no connector-specific sink in this checkout, so the canary sweep covers the projections, the error explanation, the audit row, the published registry document and the service worker rather than a log transport. The invariant enforced instead is that every structured value that could reach a log is built by an allowlist projection.",
+        "Browser storage is asserted negatively at the source level (no localStorage, sessionStorage or indexedDB use anywhere under src/), not by driving a browser; the UX swarm owns the browser assertions."
+      ],
+      "notes": "Eight canaries (an example secret, a header token, a signed URL, a userinfo URL, a provider error message, an artifact reference, a collector reference and a configuration value) are planted where an untrusted source can put them and swept across every unauthorized surface. Findings that fell out of this: a declared server carrying a signature in its query is refused by the contract before any projection runs; authorReviewProjection removes the artifact handle while the record keeps it; the audit projection drops a field a caller adds; a presentation URL carrying credentials or a javascript: scheme is refused outright rather than shown; an error payload names a code and the provider's words stay on the cause; an over-long or prose-shaped detail is refused by the ConnectorError constructor. Native private input is confirmed to hold the material transiently (the handoff private block does contain the collector reference and the seed) while every surface built from it does not. The one thing an export does republish is display.description: a credential pasted into an OpenAPI description travels, which is recorded here as a reviewer responsibility with a test proving the reviewer surface shows it and the agent surface does not."
+    },
+    {
+      "id": "SEC-06",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/security/mutations.ts",
+        "tests/connectors/security/mutations.test.ts"
+      ],
+      "tests": [
+        "tests/connectors/security/mutations.test.ts",
+        "tests/connectors/security/command-boundary.test.ts"
+      ],
+      "acceptanceIds": ["AC-PKG-04"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": [],
+      "limitations": [
+        "stryker.security.config.mjs and .github/workflows/verify.yml are integrator-owned; the exact patch is in integrationPatches and was not applied by this swarm.",
+        "Until that patch lands, the killers run in the canonical suite through `npm run test:security` (scripts/test.mjs profile 'security' selects tests/connectors/security/*.test.ts by path) and through `npm test` / `test:coverage`, but the Stryker security matrix does not yet mutate the connector guards."
+      ],
+      "notes": "Nine mutation operators, one per guard class the charter names: owner check, issuer binding, resource binding, destination approval, effect fencing, signature verification, permission recheck and positive-allowlist projection (twice). Each is recorded in mutations.ts with the exact marker text stryker's guard() helper would match, and a test asserts the marker still appears in the source exactly once, so a refactor that moves a guard fails loudly instead of quietly dropping it from the matrix. Every operator was verified by actually applying the mutation to the source, running the named test file, and restoring the file byte-for-byte (sha256 checked before and after; the working tree was confirmed clean afterwards). Result: 9 of 9 SURVIVED=0, KILLED=9. SEC-MUT-07 (permission recheck) is killed by two tests in command-boundary.test.ts rather than by mutations.test.ts, because the guard only matters at a real HTTP boundary."
+    },
+    {
+      "id": "SEC-07",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/mcp/projections.ts"],
+      "tests": [
+        "tests/connectors/security/mutations.test.ts",
+        "tests/connectors/security/threat-model.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-10", "AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["server-json-2025-12-11"],
+      "limitations": [
+        "Excluding the whole entry is the existing policy for a private remote URL and is now applied to every published URL field. It is fail-closed and may over-exclude an entry whose websiteUrl or repository URL is plain http; the exclusion is reported with its reason, so an operator can see why. The REGISTRY swarm may prefer to drop the offending field instead for the non-executable fields."
+      ],
+      "notes": "Fix for finding SEC-F1. publicServerJsonProjection now checks websiteUrl, repository.url, every icons[].src, every packages[].transport.url and every packages[].registryBaseUrl against isPubliclyRoutableUrl, in addition to remotes[].url, and reports them through the existing privateRemoteUrls channel that publicSubregistryProjection already uses to exclude an entry. The field keeps its name so no consumer changes. The 44 existing tests/connectors/registry-mcp tests still pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "SEC-F1",
+      "severity": "medium",
+      "status": "resolved",
+      "title": "The public MCP subregistry published private-network URLs declared outside remotes[]",
+      "component": "src/server/connectors/registries/mcp/projections.ts",
+      "acceptanceIds": ["AC-MCP-10"],
+      "impact": "Internal network topology disclosure on a surface whose whole purpose is publication to the world. An entry an operator marked public could carry https://10.10.4.7:8443/internal/mcp under packages[0].transport.url, or an intranet websiteUrl, repository URL, icon source or registryBaseUrl, and the public subregistry served all of them verbatim. Not a credential leak, so not critical; it is a real contradiction of the module's own documented guarantee.",
+      "reproduction": "Before the fix: parse a server.json with packages[0].transport = { type: 'streamable-http', url: 'https://10.10.4.7:8443/internal/mcp' } and websiteUrl 'https://intranet.corp/secret', call publicServerJsonProjection(document). privateRemoteUrls came back empty and both URLs appeared in the projected server object. isPubliclyRoutableUrl already returned false for both; only remotes[].url was ever passed to it. Now covered by tests/connectors/security/threat-model.test.ts 'TB-06 a registry listing is inert and not publishable by default' and tests/connectors/security/mutations.test.ts 'SEC-MUT-09'.",
+      "claimDisproved": "REGISTRY ledger REG-04 claims AC-MCP-10 as implemented, and the module docstring says the public subregistry 'refuses to publish anything that names a private network'. That was true only for remotes[].",
+      "resolution": "Fixed in place in this run (work item SEC-07) and guarded by SEC-MUT-09."
+    },
+    {
+      "id": "SEC-F2",
+      "severity": "low",
+      "status": "open",
+      "title": "metadataCacheKey composes its parts with the length after the part, so the composition is not injective",
+      "component": "src/server/connectors/auth/discovery.ts",
+      "acceptanceIds": ["AC-AUTH-02"],
+      "impact": "Defence in depth only. The key is `${tenantId ?? ''}#${tenantId?.length ?? 0}#${issuer}`. Because the length follows its part rather than preceding it, ('a', '3#x') and ('a#1', 'x') both produce 'a#1#3#x'. Two tenants would then share one cached authorization-server metadata document. Not reachable today: tenant identifiers match /^[a-zA-Z0-9_.:@/-]{1,200}$/ and so cannot contain '#', and assertIssuerIdentifier runs before the key is built and rejects an issuer with a fragment. No exploit exists; the composition should still be the injective one.",
+      "reproduction": "metadataCacheKey('a', '3#x') === metadataCacheKey('a#1', 'x'). tests/connectors/security/threat-model.test.ts asserts the reachable properties (distinct tenants differ, a trailing-slash issuer is a different key) and deliberately does not assert the unreachable collision away.",
+      "proposedPatch": "In src/server/connectors/auth/discovery.ts, replace the body of metadataCacheKey with: return `${(tenantId ?? '').length}:${tenantId ?? ''}|${issuer}`; This is the length-prefixed form charter section 3.1 recommends. It changes cache keys, which only invalidates an in-process cache."
+    },
+    {
+      "id": "SEC-F3",
+      "severity": "low",
+      "status": "open",
+      "title": "The registry importer redacts a declared value only when the publisher set isSecret",
+      "component": "src/server/connectors/registries/mcp/import.ts",
+      "acceptanceIds": ["AC-IMP-13", "AC-MCP-08"],
+      "impact": "A publisher who pastes a credential into environmentVariables[].value and forgets isSecret gets that value stored verbatim in the normalized definition and republished by exportDefinitionProjection(definition, { includeNativeExtensions: true }). The public subregistry projection does apply a name heuristic (sensitiveName matches token, secret, api-key, password, credential, authorization, cookie, private), so the two surfaces in the same module disagree about what a secret is. No public leak today: the default export, the agent projection and the public subregistry all exclude it, and includeNativeExtensions is an operator opt-in the export docstring already warns about.",
+      "reproduction": "importServerJson with packages[0].environmentVariables = [{ name: 'GITHUB_TOKEN', value: 'ghp_CANARY_PLAIN' }, { name: 'MARKED', value: 'ghp_CANARY_MARKED', isSecret: true }]. The marked value is removed with a security.secret-value-redacted issue and a redaction record; the unmarked one survives into definition.nativeExtensions and into the native-extension export.",
+      "proposedPatch": "Apply the same name heuristic at import that projections.ts already applies at publication: treat a value as secret when isSecret is true OR the input's name matches /authorization|cookie|token|secret|api[-_]?key|password|credential|passwd|private/i, and record the redaction the same way. Owner: REGISTRY swarm."
+    },
+    {
+      "id": "SEC-F4",
+      "severity": "informational",
+      "status": "accepted",
+      "title": "An export republishes display.description verbatim",
+      "component": "src/core/connectors/projections.ts",
+      "acceptanceIds": ["AC-IMP-13"],
+      "impact": "A credential pasted into an OpenAPI or server.json description travels into exportDefinitionProjection, because the description is the thing an export exists to carry. It is visible to a reviewer in authorReviewProjection before approval and is absent from agentDefinitionProjection, so this is a review responsibility rather than a projection bypass. Recorded so it is a decision rather than an oversight.",
+      "reproduction": "tests/connectors/security/canaries.test.ts 'a model, a catalog row and an export never carry a source's credentials' asserts both halves: the reviewer surface shows the pasted token, the agent surface does not."
+    },
+    {
+      "id": "SEC-F5",
+      "severity": "low",
+      "status": "resolved-by-another-swarm",
+      "title": "A test harness contained literal NUL bytes, the hazard charter section 3.1 forbids",
+      "component": "tests/connectors/commands/harness.ts",
+      "acceptanceIds": [],
+      "impact": "Nine literal U+0000 bytes were used as composite-key separators, which made the file binary: grep reported 'binary file matches' and skipped it, so a security-relevant harness could not be reviewed with the repository's own search tooling, and diffs would mangle it. Observed at 14:18 UTC during this run.",
+      "reproduction": "A repository-wide byte scan for C0 control characters other than tab, LF and CR found exactly this file, at offsets 1889, 2693, 2989, 3011, 4342, 4576, 4778, 10998 and 12500.",
+      "resolution": "The COMMAND swarm replaced the separators with a joinKey() helper at about 14:25 UTC. A re-scan of every .ts, .tsx, .mjs, .js, .json and .md file in the repository is now clean. Reported because the hazard recurred after the charter warned about it, and a scan is worth adding to format:check."
+    },
+    {
+      "id": "SEC-F6",
+      "severity": "informational",
+      "status": "open",
+      "title": "The event mount point is evaluated before the request boundary and before the request budget",
+      "component": "src/server/connectors/commands/http.ts",
+      "acceptanceIds": ["AC-STATE-06"],
+      "impact": "createConnectorHttp checks path.startsWith('/events/') before assertRequestBoundary and before reserveRequest. That is correct for an unauthenticated provider delivery authenticated by signature, and this swarm confirmed the route cannot reach any command route: '/events/nango/extra', '/events/', '/events/../connections' and '/events/%2e%2e/connections' all fall through to undefined, a GET is 405, and a malformed authority is 404. The consequence is that this layer applies no rate limit to the events path, so whatever bound exists must come from the mounted receiver.",
+      "reproduction": "tests/connectors/security/command-boundary.test.ts 'the event mount point authenticates by signature and reaches nothing else'.",
+      "proposedPatch": "Integrator: confirm the events receiver supplied at mount time carries its own per-authority bound, or add an authority-scoped budget to createConnectorEventsHttp. No code change proposed here because the receiver is not this swarm's module."
+    },
+    {
+      "id": "SEC-F7",
+      "severity": "informational",
+      "status": "open",
+      "title": "Identifier validation rejects bidi overrides but not the bidi marks",
+      "component": "src/core/connectors/identity.ts",
+      "acceptanceIds": ["AC-IMP-03"],
+      "impact": "nativeIdentifierSchema and nativeVersionSchema reject C0/DEL controls and U+202A-202E and U+2066-2069, but not U+200E, U+200F or U+061C, which are format characters that can also reorder how an identifier reads in a review screen. Low: the identifier still round-trips exactly and is never used as a path, so the risk is confined to a human misreading a reviewed name.",
+      "reproduction": "nativeIdentifierSchema.parse('a\\u200Fb') succeeds today.",
+      "proposedPatch": "Extend the noBidiControls character class to include \\u200E, \\u200F and \\u061C. Owner: CONTRACT swarm."
+    }
+  ],
+  "claimsTested": [
+    {
+      "claim": "IMPORT IMP-01: parseBoundedDocument is the single entry point and detects JSON duplicate keys by scanning the text.",
+      "verdict": "upheld",
+      "evidence": "Independently reproduced: duplicate members, escaped __proto__ spellings, merge keys, language-specific tags, an explicit %YAML 1.1 directive and a media type neither reader owns are all refused with distinct sanitized codes."
+    },
+    {
+      "claim": "IMPORT IMP-02: the address check runs inside socket creation on the exact answers the socket uses, and credentials are stripped on every redirect hop.",
+      "verdict": "upheld",
+      "evidence": "Reproduced with an injected lookup returning 127.0.0.1 for a public hostname and with a mixed public/link-local answer set; both refused as network.dns-forbidden-address. Credential stripping proven on a same-origin hop and on a listed cross-origin hop against two loopback fixtures."
+    },
+    {
+      "claim": "IMPORT IMP-04: a recursive schema resolves indefinitely without growth and expansion stops at the cycle.",
+      "verdict": "upheld",
+      "evidence": "200 resolutions of a self-referential schema, then one bounded expansion reporting structure.recursive-schema once."
+    },
+    {
+      "claim": "OAUTH OA-01/OA-02/OA-03/OA-06: exact issuer comparison, private handoff material, registration profile chosen by host policy, and exchange only under host policy.",
+      "verdict": "upheld",
+      "evidence": "Reproduced against the fixture issuer double with issuerMismatch, callbackIssuer and registrationEndpointOrigin misbehaviours; and against token exchange with an audience outside policy, an un-negotiated ID-JAG type and a policy with exchange disabled."
+    },
+    {
+      "claim": "NANGO NG-06: X-Nango-Hmac-Sha256 is verified in constant time over the exact raw bytes and the legacy plain-digest header is ignored even when correct.",
+      "verdict": "upheld",
+      "evidence": "Reproduced independently: the documented legacy construction sha256(key || body) is refused, the API key as signing key is refused, a one-character body edit is refused, and a one-nibble signature change is refused."
+    },
+    {
+      "claim": "MCP MCP-02: a list a server labelled public is never served to another principal.",
+      "verdict": "upheld",
+      "evidence": "A cacheScope 'public' entry is a miss for a different tenant, owner, connection, generation, credential or profile, and the returned value is a structured clone so a caller cannot mutate the cache."
+    },
+    {
+      "claim": "COMMAND: host policy is re-checked at every boundary, and the callback route deliberately sits outside the same-origin check.",
+      "verdict": "upheld, with the reason made explicit",
+      "evidence": "A recording policy shows catalog, import, approve, connect, callback and verify each consulted with a server-side subject; denying exactly one action refuses exactly that boundary after the rest succeeded; a throwing hook denies. The callback is a GET, and assertRequestBoundary returns early for GET/HEAD, so the origin check genuinely does not apply to it. What stands in its place is the state correlation plus an exact tenant, subject and session match in ConnectorCommandService.callback: another subject, another session and another tenant were each driven at a real callback URL produced by the fixture provider and none of them activated the connection. The 303 return is always built from the configured origin and return path, so a provider-supplied return_to or redirect_uri is ignored, and POST is 405."
+    },
+    {
+      "claim": "REGISTRY REG-01: pagination is bounded per refresh.",
+      "verdict": "upheld",
+      "evidence": "A fixture registry that always returns a nextCursor is stopped at maxPages with complete=false, reason 'pages' and a resumable cursor; a cursor echo is reported as registry.cursor.loop."
+    },
+    {
+      "claim": "REGISTRY REG-04: the public subregistry refuses to publish anything that names a private network (AC-MCP-10).",
+      "verdict": "overstated",
+      "evidence": "See finding SEC-F1. True only for remotes[].url before this run; now true for every published URL field."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "stryker.security.config.mjs (integrator-owned)",
+      "description": "Add the nine connector guards to `mutate` and add the connector security tests to `tap.testFiles`. Each guard's marker was verified to appear exactly once in its file, and each mutation was verified to be killed by the named test.",
+      "patch": "In the `mutate: [...]` array, before the closing `].flat(),`, add the nine guards below. Each marker was verified to appear exactly once in its file; the `lines`/`offset` arguments cover the whole guard, and `guard()` recomputes the line number from the marker so a shift does not break them.\n\n    guard(\n      \"src/server/connectors/auth/handoff.ts\",\n      \"handoff.tenantId !== ctx.actor.tenantId ||\",\n      8,\n      -1,\n    ),\n    guard(\n      \"src/server/connectors/auth/authorization-code.ts\",\n      \"open.issuer !== input.server.issuer ||\",\n      7,\n      -1,\n    ),\n    guard(\n      \"src/server/connectors/auth/authorization-code.ts\",\n      \"if (begun.prior)\",\n      3,\n    ),\n    guard(\n      \"src/server/connectors/auth/discovery.ts\",\n      'if (fetched.json[\"issuer\"] !== issuer)',\n      3,\n    ),\n    guard(\n      \"src/server/connectors/import/network.ts\",\n      'if (!(policy.mode === \"approved-private\" && approved))',\n      1,\n    ),\n    guard(\n      \"src/server/connectors/providers/nango/webhooks.ts\",\n      \"timingSafeEqual(provided, expected)\",\n      1,\n      -2,\n    ),\n    guard(\n      \"src/server/connectors/commands/service.ts\",\n      'if (!allowed) throw new ConnectorError(\"denied\", { detail });',\n      0,\n    ),\n    guard(\n      \"src/core/connectors/projections.ts\",\n      \"export function agentConnectorProjection(\",\n      20,\n    ),\n    guard(\n      \"src/server/connectors/registries/mcp/projections.ts\",\n      \"if (projected.privateRemoteUrls.length)\",\n      1,\n    ),\n\nand in `tap.testFiles`, after \"tests/security/*.test.ts\", add:\n\n      \"tests/connectors/security/*.test.ts\",\n\nVerified line ranges at the time of writing: handoff.ts 329-337, authorization-code.ts 375-382 and 430-433, discovery.ts 339-342, network.ts 287-288, webhooks.ts 92-93 (the whole return expression), service.ts 362, core projections.ts 171-191, registry projections.ts 603-604.\n\nCost note: the connector security tests start loopback fixtures and take about 3 s wall clock per run; with `concurrency: 1` that is added to every mutant. If the budget is a problem, take only the four guards whose killers need no HTTP fixture at all (SEC-MUT-04 network, SEC-MUT-06 webhook signature, SEC-MUT-08 projection, SEC-MUT-09 publication)."
+    },
+    {
+      "target": ".github/workflows/verify.yml (integrator-owned)",
+      "description": "No change is required for the killers to run: the `security` job runs `npm run test:security`, and scripts/test.mjs profile 'security' selects any path containing 'security', which includes tests/connectors/security/*.test.ts. Verified with `node scripts/test.mjs security --inventory`. Optionally, add whole-file connector targets to the `mutation` matrix once the runtime budget allows:\n\n          - target: connector-network\n            file: src/server/connectors/import/network.ts\n          - target: connector-auth-handoff\n            file: src/server/connectors/auth/handoff.ts\n          - target: connector-projections\n            file: src/core/connectors/projections.ts\n\nThose three files are small, have no browser dependency and are entirely covered by tests/connectors/security and tests/connectors/import."
+    },
+    {
+      "target": "scripts (format:check or a lint stage)",
+      "description": "Add a byte scan for C0 control characters other than tab, LF and CR across *.ts, *.tsx, *.mjs, *.js, *.json and *.md. The hazard charter section 3.1 warns about recurred in tests/connectors/commands/harness.ts during this run (finding SEC-F5) and was only noticed because grep reported the file as binary. A scan makes it a build failure instead of a review accident."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "SEC-01-a2a-webmcp",
+      "description": "The A2A delegation boundary (AC-AG-01, AC-AG-02) and the WebMCP browser-local boundary (AC-AG-03) are named in the threat model as ecosystem rows but carry no executable negative test from this swarm: src/server/connectors/providers/a2a/* was still untracked and changing at 14:13 UTC, and WebMCP is browser-driven. The threat-model entries for them were therefore not added rather than added with implemented=true, so nothing claims coverage it does not have."
+    },
+    {
+      "id": "SEC-03-other-brokers",
+      "description": "Integration and environment confusion, account substitution and account switch on reconnect were attacked for Nango and for the generic command layer only. Composio, Pipedream, WorkOS, Smithery, Auth0 and Merge were incomplete or still moving during this run; their own swarms' tests are the only evidence for those rows and this swarm did not independently corroborate them."
+    },
+    {
+      "id": "SEC-04-shared-grant",
+      "description": "AC-STATE-04 (disconnecting one local connection of a shared grant must not revoke the others) has no independent reproduction here; the shared-grant record shape in src/server/connectors/state was still being written."
+    },
+    {
+      "id": "SEC-06-matrix",
+      "description": "The Stryker security matrix does not yet mutate any connector guard. The nine operators were each verified killed by hand, but until the integrator applies the stryker.security.config.mjs patch the mutation suite itself does not enforce them. The killers do run in the canonical verification suite through `npm run test:security` and `npm test`."
+    }
+  ],
+  "externalEffectsPerformed": []
+}

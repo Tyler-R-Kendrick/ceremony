@@ -138,126 +138,132 @@ test("QA-01: the Nango contract double refuses every wrong request instead of ac
   const post = (init: RequestInit, path = "/connect/sessions") =>
     fetch(`${double.origin}${path}`, { method: "POST", ...init });
 
-  const cases: Array<{ code: string; status: number; run(): Promise<Response> }> =
-    [
-      {
-        code: "nango.auth.missing-bearer",
-        status: 401,
-        run: () =>
-          post({
-            headers: { accept: "application/json", "content-type": "application/json" },
-            body: JSON.stringify(body),
+  const cases: Array<{
+    code: string;
+    status: number;
+    run(): Promise<Response>;
+  }> = [
+    {
+      code: "nango.auth.missing-bearer",
+      status: 401,
+      run: () =>
+        post({
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+    },
+    {
+      code: "nango.auth.wrong-secret",
+      status: 401,
+      run: () =>
+        post({
+          headers: {
+            authorization: "Bearer not-the-secret",
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+    },
+    {
+      code: "nango.headers.accept",
+      status: 400,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "text/html",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+    },
+    {
+      code: "nango.sessions.content-type",
+      status: 400,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+            "content-type": "text/plain",
+          },
+          body: JSON.stringify(body),
+        }),
+    },
+    {
+      code: "nango.sessions.deprecated-inputs",
+      status: 400,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ ...body, end_user: { id: "u" } }),
+        }),
+    },
+    {
+      code: "nango.sessions.unrestricted",
+      status: 400,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ ...body, allowed_integrations: [] }),
+        }),
+    },
+    {
+      code: "nango.sessions.unknown-integration",
+      status: 404,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            ...body,
+            allowed_integrations: ["not-approved"],
           }),
-      },
-      {
-        code: "nango.auth.wrong-secret",
-        status: 401,
-        run: () =>
-          post({
-            headers: {
-              authorization: "Bearer not-the-secret",
-              accept: "application/json",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(body),
+        }),
+    },
+    {
+      code: "nango.sessions.webhook-override",
+      status: 400,
+      run: () =>
+        post({
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            ...body,
+            webhook_url_override: "https://attacker.example/hook",
           }),
-      },
-      {
-        code: "nango.headers.accept",
-        status: 400,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "text/html",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(body),
-          }),
-      },
-      {
-        code: "nango.sessions.content-type",
-        status: 400,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-              "content-type": "text/plain",
-            },
-            body: JSON.stringify(body),
-          }),
-      },
-      {
-        code: "nango.sessions.deprecated-inputs",
-        status: 400,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({ ...body, end_user: { id: "u" } }),
-          }),
-      },
-      {
-        code: "nango.sessions.unrestricted",
-        status: 400,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({ ...body, allowed_integrations: [] }),
-          }),
-      },
-      {
-        code: "nango.sessions.unknown-integration",
-        status: 404,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              ...body,
-              allowed_integrations: ["not-approved"],
-            }),
-          }),
-      },
-      {
-        code: "nango.sessions.webhook-override",
-        status: 400,
-        run: () =>
-          post({
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              ...body,
-              webhook_url_override: "https://attacker.example/hook",
-            }),
-          }),
-      },
-      {
-        code: "nango.connection.provider-config-key",
-        status: 400,
-        run: () =>
-          fetch(`${double.origin}/connections/${CONNECTION_ID}`, {
-            headers: {
-              authorization: `Bearer ${SECRET_KEY}`,
-              accept: "application/json",
-            },
-          }),
-      },
-    ];
+        }),
+    },
+    {
+      code: "nango.connection.provider-config-key",
+      status: 400,
+      run: () =>
+        fetch(`${double.origin}/connections/${CONNECTION_ID}`, {
+          headers: {
+            authorization: `Bearer ${SECRET_KEY}`,
+            accept: "application/json",
+          },
+        }),
+    },
+  ];
 
   for (const entry of cases) {
     const response = await entry.run();
@@ -272,7 +278,11 @@ test("QA-01: the Nango contract double refuses every wrong request instead of ac
       `${entry.code} must be recorded as a contract violation`,
     );
   }
-  assert.equal(double.sessions.length, 0, "no wrong request produced a session");
+  assert.equal(
+    double.sessions.length,
+    0,
+    "no wrong request produced a session",
+  );
 });
 
 test("QA-01/AC-NG-03: verification reads the correlated list, never a credential-bearing route", async (t) => {
@@ -698,7 +708,9 @@ test("QA-01/AC-AUTH-03: the code exchange satisfies RFC 7636 against an independ
 test("QA-01/AC-AUTH-06: a replayed authorization code is refused by both sides", async (t) => {
   const h = await oauthAgainstContract(t);
   const { record } = await begin(h);
-  const callback = await followAuthorization(record.private["authorizationUrl"]!);
+  const callback = await followAuthorization(
+    record.private["authorizationUrl"]!,
+  );
 
   const first = await completeAuthorizationCode(h.ctx, {
     url: callback,
@@ -842,8 +854,6 @@ test("QA-01: a mismatched verifier is rejected by the contract server", async (t
   // Independently: the digest really is what RFC 7636 says it is.
   assert.equal(
     createS256(verifier),
-    createHash("sha256")
-      .update(verifier, "ascii")
-      .digest("base64url"),
+    createHash("sha256").update(verifier, "ascii").digest("base64url"),
   );
 });

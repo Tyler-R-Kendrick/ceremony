@@ -777,7 +777,15 @@ export function renderEvidenceReport(input: {
   const partial = joined.filter(
     (item) => item.status === "partial" || item.status === "unmet",
   );
-  const blockedPattern = /\blive\b|\bblocked\b|credential|authorized account/i;
+  /*
+   * A live prerequisite, not any limitation that happens to say "credential".
+   * A statement qualifies when it names live or deployed evidence as blocked
+   * or unavailable, or when it says outright that no authorized account,
+   * credential or deployment exists. Every other native limitation belongs in
+   * the limitations section, not here.
+   */
+  const blockedPattern =
+    /\b(live|deployed)[ -]\w*\s*(evidence|account|proof)?[^.]{0,60}\b(blocked|unavailable|not available)\b|\bblocked\b[^.]{0,40}\b(live|deployed|credential|account|deployment)\b|\bno authorized\b|\bnot live\b/i;
   const blocked = joined.flatMap((item) =>
     item.limitations
       .filter(

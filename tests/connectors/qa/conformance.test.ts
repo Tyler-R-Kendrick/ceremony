@@ -568,7 +568,8 @@ test("QA-04/AC-IMP-15: an n8n node with expressions is read statically", async (
           name: "computed",
           type: "string",
           // An n8n expression: data, never something to evaluate.
-          default: "={{$json[\"id\"] + require('fs').readFileSync('/etc/passwd')}}",
+          default:
+            "={{$json[\"id\"] + require('fs').readFileSync('/etc/passwd')}}",
         },
       ],
     },
@@ -683,37 +684,54 @@ test("QA-04: the automation readers publish a digest that verifies", async () =>
   );
 });
 
-test("QA-04 known defect: an OpenAPI-imported definition's digest does not verify", async () => {
-  // Locked in so the defect stays visible. `formats/openapi/read.ts` computes
-  // `sha256(canonicalConnectorJson(body))` over a body that still carries
-  // `sourceRef` and whose `compatibility.issues` is still empty, then replaces
-  // the issues afterwards. Every sibling reader (automation, microsoft,
-  // camel-kamelet, dapr, open-service-broker) uses the core
-  // `normalizedDigestOf`, which strips `definitionRef`/`sourceRef` and digests
-  // the final body. Consequences: the digest cannot be checked with
-  // `verifyNormalizedDigest`, it changes when only the storage reference
-  // changes, and it does not change when only the compatibility diagnostics
-  // change — which is exactly the security-sensitive diff AC-IMP-16 relies on.
+test("QA-04/AC-IMP-16: the digest changes when only a diagnostic changes", async () => {
+  // This was the defect the pair below recorded, now fixed: the reader used
+  // to digest a body that still carried `sourceRef` and whose compatibility
+  // issues were still empty, so the digest could not be verified, moved when
+  // only a storage reference moved, and — the part that matters — stayed the
+  // same when only the diagnostics changed. A reviewer comparing digests
+  // across a re-import relies on exactly that difference to notice a
+  // downgraded security finding.
   const read = await importedPetstore();
-  assert.equal(
-    await verifyNormalizedDigest(read.definition),
-    false,
-    "current, defective behaviour",
-  );
+  const withFinding = {
+    ...read.definition,
+    compatibility: {
+      ...read.definition.compatibility,
+      issues: [
+        ...read.definition.compatibility.issues,
+        {
+          code: "security.scheme-unsupported",
+          category: "security" as const,
+          dimension: "authorize" as const,
+          disposition: "unsupported" as const,
+          severity: "blocking" as const,
+          executionImpact: "blocks-authorization" as const,
+          sourcePointer: "#/components/securitySchemes/extra",
+        },
+      ],
+    },
+  };
   assert.notEqual(
-    await normalizedDigestOf(read.definition),
+    await normalizedDigestOf(withFinding),
+    read.definition.normalizedDigest,
+    "a changed diagnostic set must change the digest",
+  );
+  // And a storage reference is excluded, so it cannot move the digest.
+  assert.equal(
+    await normalizedDigestOf({ ...read.definition, sourceRef: "other:src" }),
     read.definition.normalizedDigest,
   );
 });
 
-test(
-  "QA-04/AC-IMP-16: an OpenAPI definition's digest should be the canonical normalized digest",
-  { todo: "formats/openapi/read.ts must use normalizedDigestOf; see the known-defect test above" },
-  async () => {
-    const read = await importedPetstore();
-    assert.equal(await verifyNormalizedDigest(read.definition), true);
-  },
-);
+test("QA-04/AC-IMP-16: an OpenAPI definition's digest is the canonical normalized digest", async () => {
+  // QA reported this as a defect on 2026-09-18 (the reader digested a body
+  // that still carried `sourceRef` and had no compatibility issues attached)
+  // and the HTTP swarm fixed `formats/openapi/read.ts` while this suite was
+  // being written. The assertion stays so the reader cannot drift away from
+  // the shared core helper again.
+  const read = await importedPetstore();
+  assert.equal(await verifyNormalizedDigest(read.definition), true);
+});
 
 test("QA-04: a digest is sensitive to the declared server it covers", async () => {
   const read = await importedPetstore();
@@ -730,13 +748,13 @@ test("QA-04: a digest is sensitive to the declared server it covers", async () =
   );
 });
 
-test("QA-04 known gap: an omitted authentication alternative is not reported as a loss", async () => {
-  // Locked in so the gap stays visible. The petstore describes two
-  // alternatives, OAuth and an API key. The export carries only the profile
-  // the approved operations use, which is the right policy, but `losses`
-  // mentions only the declared servers. AC-IMP-14 requires losses to be
-  // explicit, so a consumer re-importing the export cannot tell that an
-  // authentication alternative existed.
+test("QA-04/AC-IMP-14: an omitted authentication alternative is reported as a loss", async () => {
+  // QA reported this gap on 2026-09-18: the petstore describes two
+  // alternatives, OAuth and an API key, and the export carried only the
+  // profile the approved operations use — the right policy — while `losses`
+  // mentioned nothing but the declared servers, so a consumer re-importing
+  // the export could not tell that an alternative had existed. The HTTP swarm
+  // added `security.profile-not-exported` while this suite was being written.
   const read = await importedPetstore();
   const compiled = compileOperations(read.definition, read, {
     destinationId: DESTINATION.id,
@@ -752,38 +770,18 @@ test("QA-04 known gap: an omitted authentication alternative is not reported as 
     definition: read.definition,
   });
   const exported = exportOpenApi(read.definition, { binding });
-  assert.deepEqual(
-    exported.losses.map((loss) => loss.code),
-    ["network.declared-servers-not-exported"],
-    "current, incomplete loss report",
+  assert.ok(
+    exported.losses.some((loss) => loss.sourcePointer === "#/authentication"),
+    "the omitted api-key alternative is named in the loss report",
   );
+  // The two reasons are reported distinctly: a profile narrowed away by
+  // policy is policy working, a profile with no spelling at all is a
+  // representational gap in the document.
+  for (const loss of exported.losses)
+    if (loss.category === "security")
+      assert.notEqual(
+        loss.severity,
+        "info",
+        "an unmapped security requirement is never informational",
+      );
 });
-
-test(
-  "QA-04/AC-IMP-14: an omitted authentication alternative should be reported",
-  {
-    todo:
-      "formats/openapi/export.ts should add a loss when a normalized authentication profile is not exported",
-  },
-  async () => {
-    const read = await importedPetstore();
-    const compiled = compileOperations(read.definition, read, {
-      destinationId: DESTINATION.id,
-      destination: DESTINATION,
-    });
-    const binding = makeOpenApiBinding({
-      destination: DESTINATION,
-      operations: compiled.operations,
-      settings: {
-        ...compiled.settings,
-        "openapi-http-profiles": read.definition.authentication,
-      },
-      definition: read.definition,
-    });
-    const exported = exportOpenApi(read.definition, { binding });
-    assert.ok(
-      exported.losses.some((loss) => loss.category === "security"),
-      "the dropped api-key alternative is named in the loss report",
-    );
-  },
-);

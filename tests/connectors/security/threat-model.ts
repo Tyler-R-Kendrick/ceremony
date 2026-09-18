@@ -117,7 +117,8 @@ export const trustBoundaries: readonly TrustBoundary[] = Object.freeze([
       "src/server/connectors/registries/mcp/import.ts",
       "src/server/connectors/registries/mcp/projections.ts",
     ],
-    negativeTest: "TB-06 a registry listing is inert and not publishable by default",
+    negativeTest:
+      "TB-06 a registry listing is inert and not publishable by default",
     implemented: true,
   },
   {

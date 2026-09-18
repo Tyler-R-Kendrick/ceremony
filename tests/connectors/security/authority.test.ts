@@ -89,7 +89,9 @@ test("issuer mix-up: metadata that names another issuer is refused, not adapted"
 test("a callback for another issuer or another client never binds a credential", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
-    server: { misbehave: { callbackIssuer: "https://issuer.attacker.example" } },
+    server: {
+      misbehave: { callbackIssuer: "https://issuer.attacker.example" },
+    },
   });
   const { beginAuthorizationCode, completeAuthorizationCode, issueHandoff } =
     await import("../../../src/server/connectors/auth/index.js");
@@ -155,7 +157,11 @@ test("a callback delivered under a record for a different association is refused
   // The handoff remembers the association; a record whose issuer or client
   // was swapped is refused before the code is presented anywhere.
   for (const [field, value, detail] of [
-    ["issuer", "https://issuer.other.example", "oauth.callback.binding-mismatch"],
+    [
+      "issuer",
+      "https://issuer.other.example",
+      "oauth.callback.binding-mismatch",
+    ],
     ["clientId", "another-client", "oauth.callback.binding-mismatch"],
     [
       "redirectUri",
@@ -422,8 +428,7 @@ test("wrong audience: an exchanged token aimed elsewhere is refused", async (t) 
     allowLoopbackHttp: true,
   });
   assert.throws(
-    () =>
-      hostAuthorizedTokenExchange(closed, harness.resolved, harness.client),
+    () => hostAuthorizedTokenExchange(closed, harness.resolved, harness.client),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.detail === "oauth.exchange.not-enabled",
@@ -474,10 +479,7 @@ test("a broker that ignores downscoping is recorded, not believed", () => {
     reviewPermissionEscalation(baseline, ["read"]).decision,
     "unchanged",
   );
-  assert.equal(
-    reviewPermissionEscalation(baseline, []).decision,
-    "narrowed",
-  );
+  assert.equal(reviewPermissionEscalation(baseline, []).decision, "narrowed");
   assert.equal(
     reviewPermissionEscalation(undefined, ["read"]).decision,
     "no-baseline",

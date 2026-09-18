@@ -540,7 +540,10 @@ export async function startRegistryContract(
         `Accept was ${request.headers.accept ?? "(absent)"}`,
         problem(406, "accept application/json"),
       );
-    if (options.readToken !== undefined && bearer(request) !== options.readToken)
+    if (
+      options.readToken !== undefined &&
+      bearer(request) !== options.readToken
+    )
       return fail(
         request,
         "registry.auth",

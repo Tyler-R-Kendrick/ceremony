@@ -141,7 +141,11 @@ export async function startConnection(
     interruption?: "allowed" | "none";
     accountSwitch?: boolean;
   } = {},
-): Promise<{ connectionRef: string; presentationUrl?: string; body: Record<string, unknown> }> {
+): Promise<{
+  connectionRef: string;
+  presentationUrl?: string;
+  body: Record<string, unknown>;
+}> {
   const session = options.session ?? SESSION;
   const response = await harness.fetch("/api/v1/connectors/connections", {
     body: {
@@ -170,7 +174,11 @@ export async function startConnection(
 export async function activeConnection(
   harness: Harness,
   options: { session?: string } = {},
-): Promise<{ connectionRef: string; bindingRef: string; definitionRef: string }> {
+): Promise<{
+  connectionRef: string;
+  bindingRef: string;
+  definitionRef: string;
+}> {
   const session = options.session ?? SESSION;
   const approved = await approveFixtureBinding(harness, { session });
   const started = await startConnection(harness, approved.bindingRef, {
