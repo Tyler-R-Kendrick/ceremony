@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 27 constructible adapters and 17 ledgers.
+Generated from 27 constructible adapters and 20 ledgers.
 
 ## Support by dimension
 
@@ -87,22 +87,22 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `auth0-token-vault` | 2026.09.18 | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret) | not-recorded | no ledger entry | `external-broker`, `auth0-token-vault-exchange` |
 | `aws-agentcore-gateway` | 1.0.0 | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret) | not-recorded | no ledger entry | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28` |
 | `camel-kamelet` | 1.0.0 | none | not-recorded | no ledger entry | `camel-kamelet-v1` |
-| `composio` | 1.0.0 | `COMPOSIO_API_KEY` (secret) | not-recorded | no ledger entry | `composio-hosted-authorization`, `external-broker` |
+| `composio` | 1.0.0 | `COMPOSIO_API_KEY` (secret) | protocol-fixture | COMPOSIO | `composio-hosted-authorization`, `external-broker` |
 | `dapr` | 1.0.0 | none | not-recorded | no ledger entry | `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `api-key` |
-| `docker-mcp-catalog` | 1.0.0 | none | not-recorded | no ledger entry | `docker-mcp-catalog-v2` |
+| `docker-mcp-catalog` | 1.0.0 | none | protocol-fixture | CATALOGS | `docker-mcp-catalog-v2` |
 | `google-integration-connectors` | 1.0.0 | `GOOGLE_CONNECTORS_ACCESS_TOKEN` (secret) | not-recorded | no ledger entry | `google-connectors-v1-20260907`, `google-connectors-v2-20260907` |
 | `hasura-ndc` | 2026.09.18 | none | protocol-fixture | DATA | `http-bearer` |
 | `mcp-registry` | 1.0.0 | none | protocol-fixture | REGISTRY | `mcp-registry-api-v0.1`, `server-json-2025-12-11` |
 | `mcp-remote` | 1.0.0 | none | protocol-fixture | MCP | `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `http-bearer`, `oauth-authorization-code`, `none` |
 | `merge` | 2026.09.18 | `MERGE_API_KEY` (secret) | protocol-fixture | DATA | `external-broker` |
-| `microsoft-custom-connector` | 1.0.0 | none | not-recorded | no ledger entry | `microsoft-custom-connector-2026-06`, `swagger-2.0` |
+| `microsoft-custom-connector` | 1.0.0 | none | protocol-fixture | MICROSOFT | `microsoft-custom-connector-2026-06`, `swagger-2.0` |
 | `nango` | 1.0.0 | `NANGO_SECRET_KEY` (secret), `NANGO_ENVIRONMENT` (public) | protocol-fixture | NANGO | `external-broker` |
 | `open-service-broker` | 1.0.0 | none | not-recorded | no ledger entry | `osb-2.17`, `http-basic` |
 | `openapi-http` | 1.0.0 | none | protocol-fixture | HTTP | `swagger-2.0`, `openapi-3.0`, `openapi-3.1`, `openapi-3.2` |
 | `pipedream-connect` | 1.0.0 | `PIPEDREAM_PROJECT_ID` (public), `PIPEDREAM_ENVIRONMENT` (public), `PIPEDREAM_CLIENT_ID` (public), `PIPEDREAM_CLIENT_SECRET` (secret) | protocol-fixture | PIPEDREAM | `external-broker`, `oauth-client-credentials` |
-| `pulsemcp` | 1.0.0 | none | not-recorded | no ledger entry | `pulsemcp-v0beta`, `pulsemcp-subregistry-v0.1` |
-| `smithery` | 1.0.0 | `SMITHERY_API_KEY` (secret) | not-recorded | no ledger entry | `smithery-connect-2026-09`, `external-broker` |
-| `smithery-registry` | 1.0.0 | `SMITHERY_API_KEY` (secret) | not-recorded | no ledger entry | `smithery-registry-2026-09` |
+| `pulsemcp` | 1.0.0 | none | protocol-fixture | CATALOGS | `pulsemcp-v0beta`, `pulsemcp-subregistry-v0.1` |
+| `smithery` | 1.0.0 | `SMITHERY_API_KEY` (secret) | protocol-fixture | CATALOGS | `smithery-connect-2026-09`, `external-broker` |
+| `smithery-registry` | 1.0.0 | `SMITHERY_API_KEY` (secret) | protocol-fixture | CATALOGS | `smithery-registry-2026-09` |
 | `supabase-data-api` | 1.0.0 | none | protocol-fixture | SUPABASE | `postgrest-select-v1`, `http-bearer` |
 | `supabase-management` | 1.0.0 | `SUPABASE_OAUTH_CLIENT_ID` (public), `SUPABASE_OAUTH_CLIENT_SECRET` (secret) | protocol-fixture | SUPABASE | `oauth-authorization-code`, `supabase-management-api-v1` |
 | `supabase-mcp` | 1.0.0 | none | protocol-fixture | SUPABASE | `mcp-2026-07-28`, `mcp-2025-11-25`, `oauth-authorization-code` |

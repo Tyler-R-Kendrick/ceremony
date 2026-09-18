@@ -161,7 +161,9 @@ export async function startGoogleConnectorsDouble(
     if (!token || !options.tokens.includes(token))
       return error(401, "UNAUTHENTICATED", "invalid authentication credentials");
     if (faults.permissionDenied) return error(403, "PERMISSION_DENIED");
-    const path = decodeURIComponent(request.url.pathname);
+    // Each segment is decoded on its own: an entity id containing `/` arrives
+    // percent-encoded and must stay one segment.
+    const path = request.url.pathname;
     const body = request.body.length
       ? (JSON.parse(request.body.toString("utf8")) as Record<string, unknown>)
       : undefined;
@@ -199,7 +201,9 @@ export async function startGoogleConnectorsDouble(
         : undefined;
     if (scoped === undefined)
       return error(404, "NOT_FOUND", "unknown resource path");
-    const [head, ...rest] = scoped.split("/");
+    const [head, ...rest] = scoped
+      .split("/")
+      .map((part) => decodeURIComponent(part));
     if (head === undefined) return error(404, "NOT_FOUND");
     const [connectionId, verb] = head.split(":");
     if (connectionId !== connection)

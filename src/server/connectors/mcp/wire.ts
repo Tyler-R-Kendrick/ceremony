@@ -597,7 +597,7 @@ export class SseParser {
         this.pending.event = value;
         break;
       case "id":
-        if (!value.includes(" ")) this.pending.id = value;
+        if (!value.includes(String.fromCharCode(0))) this.pending.id = value;
         break;
       case "retry":
         if (/^\d{1,9}$/.test(value)) this.pending.retry = Number(value);

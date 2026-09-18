@@ -60,6 +60,9 @@ const sourceLockSchema = z.object({
   lockVersion: z.number(),
   pinnedAt: z.string(),
   about: z.string(),
+  /** Ledgers whose every cited source profile identifier has a record here. */
+  coversLedgers: z.array(z.string()).default([]),
+  coversNote: z.string().default(""),
   rules: z.array(z.string()),
   records: z.array(
     z.object({
@@ -540,13 +543,35 @@ export function renderSupportMatrix(input: {
   return lines.join("\n") + "\n";
 }
 
+/** Source profile identifiers a ledger cites with no record in the lock. */
+export function citationGaps(
+  lock: SourceLock,
+  ledgers: Ledger[],
+): Array<{ swarm: string; id: string; covered: boolean }> {
+  const known = new Set(lock.records.map((record) => record.id));
+  const covered = new Set(lock.coversLedgers);
+  const gaps: Array<{ swarm: string; id: string; covered: boolean }> = [];
+  const seen = new Set<string>();
+  for (const ledger of ledgers)
+    for (const item of ledger.workItems)
+      for (const id of item.sourceProfileIds) {
+        if (known.has(id)) continue;
+        const key = `${ledger.swarm}:${id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        gaps.push({ swarm: ledger.swarm, id, covered: covered.has(ledger.swarm) });
+      }
+  return gaps.sort((a, b) => `${a.swarm}:${a.id}`.localeCompare(`${b.swarm}:${b.id}`));
+}
+
 export function renderSourceLock(lock: SourceLock, ledgers: Ledger[]): string {
   const cited = new Set<string>();
   for (const ledger of ledgers)
     for (const item of ledger.workItems)
       for (const id of item.sourceProfileIds) cited.add(id);
   const known = new Set(lock.records.map((record) => record.id));
-  const missing = [...cited].filter((id) => !known.has(id)).sort();
+  const gaps = citationGaps(lock, ledgers);
+  const missing = [...new Set(gaps.map((gap) => gap.id))].sort();
   const unused = [...known].filter((id) => !cited.has(id)).sort();
   const lines: string[] = [
     "# Connector source lock",
@@ -562,12 +587,26 @@ export function renderSourceLock(lock: SourceLock, ledgers: Ledger[]): string {
     "## Coverage",
     "",
     `- Records: ${lock.records.length}, pinned ${lock.pinnedAt}.`,
-    `- Source profile identifiers cited by the ledgers: ${cited.size}.`,
+    `- Ledgers this lock claims to cover completely: ${lock.coversLedgers.length ? lock.coversLedgers.join(", ") : "none declared"}.`,
+    `- Source profile identifiers cited by the ledgers on disk: ${cited.size}.`,
     `- Cited identifiers with no lock record: ${missing.length}${missing.length ? ` (${missing.map((id) => `\`${id}\``).join(", ")})` : ""}.`,
+    `- Of those, from a ledger this lock claims to cover: ${gaps.filter((gap) => gap.covered).length}.`,
     `- Lock records no ledger currently cites: ${unused.length}${unused.length ? ` (${unused.map((id) => `\`${id}\``).join(", ")})` : ""}.`,
     "",
-    "A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden.",
+    "A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden. A gap from a ledger inside the covered set is a defect in this lock; a gap from a ledger delivered after the lock was pinned is work the integrator must finish.",
     "",
+    ...(lock.coversNote ? [lock.coversNote, ""] : []),
+    ...(gaps.length
+      ? [
+          "| Ledger | Cited identifier | Inside the covered set |",
+          "| --- | --- | --- |",
+          ...gaps.map(
+            (gap) =>
+              `| ${gap.swarm} | \`${gap.id}\` | ${gap.covered ? "yes — defect in this lock" : "no — pinned after this lock"} |`,
+          ),
+          "",
+        ]
+      : []),
     "## Records",
     "",
   ];

@@ -221,6 +221,19 @@ async function readBounded(
   return out;
 }
 
+/**
+ * Build an unambiguous composite key from its parts.
+ *
+ * Each part is length-prefixed rather than joined on a separator, so no part
+ * can forge a boundary by containing the separator itself. A control
+ * character would do the same job, but a literal control byte in a source
+ * file makes the file binary and prettier rewrites a unicode escape back into
+ * that byte, so the separator has to be printable.
+ */
+function joinKey(parts: readonly string[]): string {
+  return parts.map((part) => `${part.length}:${part}`).join("|");
+}
+
 export class PipedreamClient {
   readonly authority: string;
   constructor(
@@ -384,7 +397,7 @@ export class PipedreamClient {
   }
 
   private holdKey(): string {
-    return `${this.ctx.actor.tenantId} ${this.authority}`;
+    return joinKey([this.ctx.actor.tenantId, this.authority]);
   }
 
   private assertNotHeld(): void {
@@ -409,13 +422,13 @@ export class PipedreamClient {
   }
 
   private tokenKey(): string {
-    return [
+    return joinKey([
       this.ctx.actor.tenantId,
       this.ctx.binding.bindingRef,
       this.config.projectId,
       this.config.environment,
       this.config.clientId,
-    ].join(" ");
+    ]);
   }
 
   private tokenScope(): CredentialScope {

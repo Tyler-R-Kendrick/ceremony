@@ -217,7 +217,7 @@
     },
     {
       "target": "runtime binding settings.vercel",
-      "description": "vercelSettingsSchema: { project:{id,environment}, profiles:{<id>:{connector,subject,installation,scopes,resources?,audience?,authorizationDetails?,prompt?,expiresInMs?,validityBufferMs?,presentation?}}, defaultProfile, returnPath, triggers?:{destinations,audience?,payloadClassification?}, revocation? }. permittedTargets must name kinds vercel-team, vercel-connector, vercel-project, vercel-environment and (when pinned) vercel-installation."
+      "description": "vercelSettingsSchema: { project:{id,environment}, profiles:{<id>:{connector,subject,installation,scopes,resources?,audience?,authorizationDetails?,prompt?,expiresInMs?,validityBufferMs?,presentation?}}, defaultProfile, returnPath, triggers?:{destinations,audience?,payloadClassification?}, revocation?, requestTimeoutMs? }. requestTimeoutMs (1s-120s, default 15s) bounds every call to Vercel and exists so a deployment behind a slow egress proxy can raise it without patching the adapter. permittedTargets must name kinds vercel-team, vercel-connector, vercel-project, vercel-environment and (when pinned) vercel-installation."
     },
     {
       "target": "bound operations",
@@ -228,6 +228,14 @@
       "description": "The host must serve settings.returnPath on the deployment origin and hand the full callback URL to complete({kind:'redirect'}). The adapter validates origin, path and the one-use state itself."
     }
   ],
+  "evidence": {
+    "command": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/vercel/*.test.ts",
+    "result": "53 tests, 53 pass, 0 fail (six files: authorization 12, lifecycle 8, management 11, provider-conformance 5, tokens 10, triggers 7)",
+    "typeCheck": "npx tsc --noEmit with the project's compiler options over src/server/connectors/providers/vercel/*.ts, tests/connectors/doubles/vercel-connect.ts and tests/connectors/vercel/*.ts: clean. A whole-project check was not run: fourteen concurrent swarms exhausted the machine, and the integrator owns that reading.",
+    "format": "npx prettier --check over the same paths plus tests/connectors/fixtures/vercel and this ledger: clean.",
+    "independence": "tests/connectors/doubles/vercel-connect.ts imports nothing from src/server/connectors/providers/vercel. It asserts the version prefix, method, path encoding, team-scope query, credential class and documented body fields of every request, and records each as an ObservedCall; a run that violated the contract would leave entries in `violations` or route to `version-mismatch`, both asserted empty.",
+    "notLive": "Every result above is protocol-fixture evidence over loopback. No Vercel account, team, connector, project or workload identity was used, and no request left the machine except the documentation reads listed in externalEffectsPerformed."
+  },
   "dependenciesProposed": [],
   "unmet": [
     "Live-authorized evidence for every dimension (no authorized Vercel team, connector, project or workload identity is available in this environment)",

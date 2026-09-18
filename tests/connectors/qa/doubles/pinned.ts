@@ -480,6 +480,15 @@ export type RegistryContractOptions = {
   readToken?: string;
   /** Requests that answer with the documented problem+json outage instead. */
   outageAt?: number;
+  /**
+   * Spelling of the continuation marker inside `metadata`. The checked-in
+   * client and the registry swarm's double both read `nextCursor`; the
+   * registry's own REST examples have also been published with
+   * `next_cursor`. The spelling could not be confirmed from this offline
+   * host, so the double can serve either and a test records what the client
+   * does with the one it does not recognise.
+   */
+  cursorField?: "nextCursor" | "next_cursor";
 };
 
 /**
@@ -590,7 +599,10 @@ export async function startRegistryContract(
           metadata: {
             count: page.length,
             ...(next
-              ? { next_cursor: `${next.server.name}:${next.server.version}` }
+              ? {
+                  [options.cursorField ?? "nextCursor"]:
+                    `${next.server.name}:${next.server.version}`,
+                }
               : {}),
           },
         },

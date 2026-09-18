@@ -18,6 +18,7 @@ import { mount } from "./render.js";
 const review = {
   definition: blockedDefinition(),
   source: {
+    sourceRef: "source:legacy-signed",
     identity: blockedDefinition().identity,
     format: { name: "openapi", version: "3.1.0" },
     origin: {
@@ -71,7 +72,7 @@ test("publish controls appear only when the server grants the role", async () =>
   try {
     assert.equal(reader.query("[data-connector-publish]"), null);
     assert.ok(reader.query("[data-connector-readonly]"));
-    assert.match(reader.text, /needs an operator role/);
+    assert.match(reader.text, /need an operator role/);
   } finally {
     await reader.close();
   }
@@ -137,9 +138,15 @@ test("an import shows diagnostics without echoing the document", async () => {
     assert.match(view.text, /1 description read/);
     assert.match(view.text, /Nothing executable was registered/);
     assert.match(view.text, /openapi\.security\.unsupported-scheme/);
-    // The rejected content never reaches the page, only the codes and pointers.
-    assert.doesNotMatch(view.text, /CANARY-IMPORT-SECRET/);
-    assert.match(view.text, /components\/securitySchemes\/vendorHmac/);
+    // The document a person pasted stays in the field they pasted it into.
+    // What the server sent back carries codes and pointers and nothing else,
+    // so a key sitting in an example value cannot arrive with its diagnostic.
+    const reviewed = [
+      view.query("[data-connector-issues]")?.textContent ?? "",
+      view.query("[data-connector-definition]")?.textContent ?? "",
+    ].join(" ");
+    assert.doesNotMatch(reviewed, /CANARY-IMPORT-SECRET/);
+    assert.match(reviewed, /components\/securitySchemes\/vendorHmac/);
   } finally {
     await view.close();
   }

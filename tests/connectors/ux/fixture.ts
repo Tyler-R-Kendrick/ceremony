@@ -665,6 +665,7 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       return json({
         definition: found,
         source: {
+          sourceRef: found.sourceRef,
           identity: found.identity,
           format: { name: "openapi", version: "3.1.0" },
           origin: { kind: "upload" },

@@ -626,14 +626,36 @@ export async function readAgentCardBytes(
   }));
 
   const digest = createHash("sha256").update(input.bytes).digest("hex");
-  const origin =
-    URL.canParse(preferred.url) && classifyDeclaredUrl(preferred.url).kind === "ok"
-      ? new URL(preferred.url).origin
-      : "";
+  // Identity names the interface this runtime could actually reach. A card
+  // whose preferred interface is a metadata address, a private host or a
+  // credentialed URL does not get that URL promoted into an identifier: the
+  // agent projection carries native ids, and a navigable private URL has no
+  // business in a model's context. Every declared interface is still kept, in
+  // `declaredServers` and in the inert extensions, for a reviewer to see.
+  const usable = card.interfaces.find(
+    (entry) => classifyDeclaredUrl(entry.url).kind === "ok",
+  );
+  const origin = usable ? new URL(usable.url).origin : "";
+  if (!usable)
+    issues.push(
+      issue({
+        code: "a2a.card.identity-synthesized",
+        category: "identity",
+        pointer: "/",
+        dimension: "import",
+        disposition: "adapted",
+        severity: "warning",
+        impact: "blocks-operation",
+        message:
+          "No interface on this card is a reachable HTTPS endpoint, so the connector identity is a digest of the card rather than one of its URLs.",
+      }),
+    );
   const identity = {
     ecosystem: "a2a" as const,
     authorityNamespace: origin.slice(0, 256),
-    nativeId: preferred.url.slice(0, 512),
+    nativeId: usable
+      ? usable.url.slice(0, 512)
+      : `a2a-card:${digest.slice(0, 32)}`,
     nativeVersion: card.version.slice(0, 128),
   };
   const source = sourceRecordSchema.parse({

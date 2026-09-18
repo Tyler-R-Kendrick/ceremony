@@ -350,6 +350,7 @@ Each of these is fail-closed and stays `blocked`. None is relabelled as a fixtur
 
 ## External effects performed
 
+- COMPOSIO: None. No Composio account, project, auth config or connected account was created, modified or deleted. All traffic in tests goes to a loopback fixture on an ephemeral port; documentation pages were read over HTTPS only.
 - DATA: Read-only documentation fetches over the agent proxy: docs.airbyte.com, reference.airbyte.com, hasura.github.io/ndc-spec, docs.merge.dev, developers.google.com (Cloud Search). No vendor account was used, created or modified; no API key was exercised against any live service.
 - PIPEDREAM: None. No Pipedream account, project, OAuth client, connect token, connected account or deployed trigger was created. All traffic in tests goes to a loopback fixture on 127.0.0.1. Documentation pages were read over HTTPS.
 - REGISTRY: Read-only GET of https://registry.modelcontextprotocol.io/v0.1/servers?limit=2, https://registry.modelcontextprotocol.io/openapi.yaml, the published server.schema.json and public documentation pages, to pin the API and schema versions. No writes, no publication, no credentials used.
@@ -360,7 +361,7 @@ Each of these is fail-closed and stays `blocked`. None is relabelled as a fixtur
 
 ## Pinned sources
 
-The [source lock](source-lock.md) pins 66 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. Read it before trusting any wire fact in this repository.
+The [source lock](source-lock.md) pins 67 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. Read it before trusting any wire fact in this repository.
 
 ## Adapter inventory read for this report
 

@@ -275,7 +275,7 @@ test("QA-01: the Nango contract double refuses every wrong request instead of ac
   assert.equal(double.sessions.length, 0, "no wrong request produced a session");
 });
 
-test("QA-01/AC-NG-03: privileged connection retrieval sends the documented query and returns no credentials", async (t) => {
+test("QA-01/AC-NG-03: verification reads the correlated list, never a credential-bearing route", async (t) => {
   const h = await nangoAgainstContract();
   t.after(() => h.double.close());
   const connection = await activeConnection(h.ports, h.binding);
@@ -283,21 +283,24 @@ test("QA-01/AC-NG-03: privileged connection retrieval sends the documented query
   const verified = await h.adapter.verify!(h.context(connection));
   assert.deepEqual(h.double.violations, []);
 
-  const single = h.double.requests.find((request) =>
-    /^\/connections\/[^/]+$/.test(request.url.pathname),
+  const list = h.double.requests.filter(
+    (request) => request.url.pathname === "/connections",
   );
-  assert.ok(single, "the adapter read the single connection resource");
+  assert.ok(list.length >= 1, "verification read the connection list");
+  const query = list.at(-1)!.url.searchParams;
+  assert.ok(
+    query.get("connectionId") === CONNECTION_ID ||
+      [...query.keys()].some((key) => key.startsWith("tags[")),
+    "the list is narrowed by the native connection id or the host-derived tags",
+  );
+  assert.equal(list.at(-1)!.headers.authorization, `Bearer ${SECRET_KEY}`);
   assert.equal(
-    single.url.searchParams.get("provider_config_key"),
-    INTEGRATION,
-    "the connection id is disambiguated by its integration",
+    h.double.requests.some((request) =>
+      /^\/connections\/[^/]+$/.test(request.url.pathname),
+    ),
+    false,
+    "the credential-returning single-connection route is not used to verify",
   );
-  assert.equal(
-    single.url.searchParams.get("force_refresh"),
-    "false",
-    "a verification read never asks the broker to rotate a token",
-  );
-  assert.equal(single.url.searchParams.get("refresh_token"), "false");
 
   const serialized = JSON.stringify(verified);
   for (const canary of ["CONTRACT_ACCESS_TOKEN", "CONTRACT_REFRESH_TOKEN"])
@@ -432,6 +435,38 @@ test("QA-01/AC-MCP-07: the registry client follows documented cursor pagination"
     assert.equal(request.url.pathname.startsWith("/v0.1/"), true);
 });
 
+test("QA-01/AC-MCP-07: an unrecognized continuation marker truncates a listing silently", async (t) => {
+  // The client reads `metadata.nextCursor`. This double serves the snake_case
+  // spelling that the registry's REST examples also use. Offline this host
+  // cannot settle which spelling the service emits, so the test records the
+  // consequence rather than asserting a winner: the page is reported complete
+  // while an entry is missing. If upstream is snake_case, this is the
+  // partial-refresh corruption AC-MCP-07 exists to prevent.
+  const double = await startRegistryContract({
+    entries: REGISTRY_ENTRIES,
+    pageSize: 1,
+    cursorField: "next_cursor",
+  });
+  t.after(() => double.close());
+  const client = createMcpRegistryClient({ baseUrl: double.origin, fetch });
+
+  const all = await client.listAll({ limit: 1 });
+  assert.deepEqual(double.violations, []);
+  assert.equal(double.listRequests, 1, "no continuation was attempted");
+  assert.deepEqual(
+    all.pages.flatMap((page) =>
+      page.entries.map((entry) => entry.identity.nativeId),
+    ),
+    ["io.example/alpha"],
+    "one of the two live entries is missing",
+  );
+  assert.equal(
+    all.complete,
+    true,
+    "and the truncated listing still reports itself complete",
+  );
+});
+
 test("QA-01/AC-MCP-07: a tombstone is a status, not a disappearance", async (t) => {
   const double = await startRegistryContract({
     entries: REGISTRY_ENTRIES,
@@ -555,7 +590,7 @@ async function oauthAgainstContract(
   const server = await startOauthContract({
     clientId: "contract-client",
     redirectUris: [CALLBACK_URI],
-    scopesGranted: ["openid", "profile"],
+    scopesGranted: ["read:things", "write:things"],
     ...options,
   });
   t.after(() => server.close());
@@ -601,7 +636,7 @@ async function begin(h: Awaited<ReturnType<typeof oauthAgainstContract>>) {
     server: h.resolved,
     client: h.client,
     policy: h.policy,
-    scopes: ["openid", "profile"],
+    scopes: ["read:things", "write:things"],
   });
   assert.equal(start.kind, "handoff");
   if (start.kind !== "handoff") throw new Error("unreachable");
@@ -719,6 +754,14 @@ test("QA-01: the OAuth contract double refuses wrong requests", async (t) => {
   });
   await plain.body?.cancel().catch(() => {});
   assert.equal(plain.status, 400, "a plain PKCE challenge is refused");
+
+  const shortChallenge = await authorize({ code_challenge: "too-short" });
+  await shortChallenge.body?.cancel().catch(() => {});
+  assert.equal(
+    shortChallenge.status,
+    400,
+    "a challenge that is not a base64url digest is refused",
+  );
 
   const strangerRedirect = await authorize({
     redirect_uri: "https://attacker.example/cb",

@@ -14,12 +14,25 @@ One record per external specification, standards draft or vendor document that a
 
 ## Coverage
 
-- Records: 66, pinned 2026-09-18.
-- Source profile identifiers cited by the ledgers: 66.
-- Cited identifiers with no lock record: 0.
+- Records: 67, pinned 2026-09-18.
+- Ledgers this lock claims to cover completely: COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
+- Source profile identifiers cited by the ledgers on disk: 73.
+- Cited identifiers with no lock record: 6 (`docker-mcp-catalog-v2`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`).
+- Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
-A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden.
+A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden. A gap from a ledger inside the covered set is a defect in this lock; a gap from a ledger delivered after the lock was pinned is work the integrator must finish.
+
+Ledgers landed while this lock was being written. `coversLedgers` names the ledgers whose every cited source profile identifier has a record here. A ledger delivered after this lock was pinned may cite identifiers this lock does not yet hold; the generator reports those as a coverage gap in source-lock.md rather than hiding them, and the integrator should extend this file when the remaining ledgers land.
+
+| Ledger | Cited identifier | Inside the covered set |
+| --- | --- | --- |
+| CATALOGS | `docker-mcp-catalog-v2` | no — pinned after this lock |
+| CATALOGS | `pulsemcp-subregistry-v0.1` | no — pinned after this lock |
+| CATALOGS | `pulsemcp-v0beta` | no — pinned after this lock |
+| CATALOGS | `smithery-connect-2026-09` | no — pinned after this lock |
+| CATALOGS | `smithery-registry-2026-09` | no — pinned after this lock |
+| MICROSOFT | `microsoft-custom-connector-2026-06` | no — pinned after this lock |
 
 ## Records
 
@@ -502,6 +515,22 @@ A cited identifier with no record is a real gap: it means an adapter depends on 
 - Modules: `src/server/connectors/providers/pipedream/`
 - Recorded by: PIPEDREAM
 - Notes: Named unverified areas: the query parameters Pipedream appends to success_redirect_uri / error_redirect_uri are not documented, so the return is treated purely as a correlation signal and the account is always established by a trusted server query; no documented idempotency key exists for POST /actions/run or POST /triggers/deploy, so the double models the conservative case and the adapter deduplicates host-side.
+
+### `composio-platform-v3-2026-09` — Composio platform documentation and v3 API reference
+
+- Kind: vendor-api
+- URL: <https://docs.composio.dev/docs/authentication>
+- Retrieved at: 2026-09-18
+- Upstream version: /api/v3 at https://backend.composio.dev (frozen); /api/v3.1 is current and differs in the default toolkit version, not in the paths this adapter uses
+- Revision: 13 documentation and reference pages read; toolkit versions are YYYYMMDD_NN strings with a `latest` alias
+- Digest: none captured
+- Licence: proprietary vendor documentation. Composio's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Composio SDK is installed and no Composio source is vendored. (Established: not-read-here.)
+- Reuse: Documented routes, id prefixes, status values and toolkit-version semantics are restated in code and in the independent double. Composio's toolkit catalog, tool registry content and app assets are not redistributed or embedded.
+- Dependent adapters: `composio`
+- Dependent profile identifiers: `composio-platform-v3-2026-09`
+- Modules: `src/server/connectors/providers/composio/`
+- Recorded by: COMPOSIO
+- Notes: Named unverified areas the adapter refuses to guess at: the list envelope shape is documented for two endpoints and assumed for two more; the connected-account status enum is truncated in the v3 reference, so REVOKED and DELETED come from SDK references only; POST /connected_accounts/link and PATCH /connected_accounts/{id}/status have undocumented bodies and are deliberately not implemented. Toolkit versions are pinned rather than tracking `latest`, and a broad connection-management meta-tool is never exposed.
 
 ### `airbyte-protocol-v0` — Airbyte protocol
 

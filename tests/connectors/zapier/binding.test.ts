@@ -116,7 +116,7 @@ function runtimeBindingFor(
 type Harness = Awaited<ReturnType<typeof harness>>;
 
 async function harness(options: {
-  behaviour?: Parameters<typeof startExternalRuntime>[0]["behaviour"];
+  behaviour?: NonNullable<Parameters<typeof startExternalRuntime>[0]>["behaviour"];
   bindingOverrides?: Partial<ExternalRuntimeBinding>;
   externalIds?: Record<string, string>;
 } = {}) {

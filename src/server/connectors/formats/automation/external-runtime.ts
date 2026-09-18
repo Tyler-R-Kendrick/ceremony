@@ -63,17 +63,29 @@ export const SIGNING_KEY_ID_FIELD = "externalRuntimeSigningKeyId";
  * small enough to validate in bounded time.
  */
 export type RuntimeFieldSchema =
-  | { type: "string"; enum?: string[]; maxLength?: number }
-  | { type: "number"; minimum?: number; maximum?: number }
-  | { type: "integer"; minimum?: number; maximum?: number }
+  | { type: "string"; enum?: string[] | undefined; maxLength?: number | undefined }
+  | {
+      type: "number";
+      minimum?: number | undefined;
+      maximum?: number | undefined;
+    }
+  | {
+      type: "integer";
+      minimum?: number | undefined;
+      maximum?: number | undefined;
+    }
   | { type: "boolean" }
   | { type: "null" }
-  | { type: "array"; items: RuntimeFieldSchema; maxItems?: number }
+  | {
+      type: "array";
+      items: RuntimeFieldSchema;
+      maxItems?: number | undefined;
+    }
   | {
       type: "object";
       properties: Record<string, RuntimeFieldSchema>;
-      required?: string[];
-      additionalProperties?: false;
+      required?: string[] | undefined;
+      additionalProperties?: false | undefined;
     };
 
 const fieldSchema: z.ZodType<RuntimeFieldSchema> = z.lazy(() =>
