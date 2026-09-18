@@ -171,12 +171,16 @@ test("duplicates inside one source are not suggested unless asked for", () => {
   const first = item({
     ecosystem: "pulsemcp",
     nativeId: "Notion",
-    provenance: { repositoryUrl: "https://github.com/makenotion/notion-mcp-server" },
+    provenance: {
+      repositoryUrl: "https://github.com/makenotion/notion-mcp-server",
+    },
   });
   const second = item({
     ecosystem: "pulsemcp",
     nativeId: "Notion (beta)",
-    provenance: { repositoryUrl: "https://github.com/makenotion/notion-mcp-server" },
+    provenance: {
+      repositoryUrl: "https://github.com/makenotion/notion-mcp-server",
+    },
   });
   assert.deepEqual(suggestEquivalences([first, second]), []);
   const included = suggestEquivalences([first, second], {

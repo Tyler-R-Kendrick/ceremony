@@ -229,7 +229,10 @@ export function createDockerMcpCatalogAdapter(
           issues,
         };
       const offset = decodeCursor(input.cursor);
-      const limit = Math.min(Math.max(input.limit ?? DEFAULT_PAGE, 1), MAX_PAGE);
+      const limit = Math.min(
+        Math.max(input.limit ?? DEFAULT_PAGE, 1),
+        MAX_PAGE,
+      );
       const filtered = catalog.servers.filter((server) =>
         matches(input.query, server),
       );

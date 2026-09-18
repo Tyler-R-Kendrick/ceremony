@@ -37,12 +37,17 @@ export const SMITHERY_UNVERSIONED = "unversioned";
 
 export function text(value: unknown, max: number): string {
   return typeof value === "string"
-    ? value.replace(controlOrBidi, " ").replace(/\s+/g, " ").trim().slice(0, max)
+    ? value
+        .replace(controlOrBidi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, max)
     : "";
 }
 
 function safeUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value.length > 2048) return undefined;
+  if (typeof value !== "string" || !value || value.length > 2048)
+    return undefined;
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
@@ -57,7 +62,8 @@ export function smitheryIdentity(
   return {
     ecosystem: SMITHERY_ECOSYSTEM,
     authorityNamespace:
-      namespace ?? (qualifiedName.includes("/") ? qualifiedName.split("/")[0]! : ""),
+      namespace ??
+      (qualifiedName.includes("/") ? qualifiedName.split("/")[0]! : ""),
     nativeId: qualifiedName,
     nativeVersion: SMITHERY_UNVERSIONED,
   };
@@ -118,7 +124,11 @@ function issue(
   };
 }
 
-type ConfigProperty = { name: string; from: "header" | "query"; required: boolean };
+type ConfigProperty = {
+  name: string;
+  from: "header" | "query";
+  required: boolean;
+};
 
 /**
  * Reads a Smithery session `configSchema`. Smithery documents `x-from` as the
@@ -138,7 +148,11 @@ export function readConfigSchema(schema: unknown): ConfigProperty[] {
   });
   if (!bounded.ok) return [];
   const properties = (schema as { properties?: unknown }).properties;
-  if (!properties || typeof properties !== "object" || Array.isArray(properties))
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  )
     return [];
   const required = new Set(
     Array.isArray((schema as { required?: unknown }).required)
@@ -162,7 +176,10 @@ export function readConfigSchema(schema: unknown): ConfigProperty[] {
       from && typeof from === "object" && !Array.isArray(from)
         ? (from as { query?: unknown }).query
         : undefined;
-    if (typeof header === "string" && /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,128}$/.test(header))
+    if (
+      typeof header === "string" &&
+      /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,128}$/.test(header)
+    )
       read.push({ name: header, from: "header", required: required.has(name) });
     else
       read.push({

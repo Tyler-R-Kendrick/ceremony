@@ -151,7 +151,9 @@ export async function startPulseMcpDouble(options: PulseMcpDoubleOptions = {}) {
           : {
               servers: truncated.map((server) => ({
                 name: server.name,
-                url: server.url ?? `https://www.pulsemcp.com/servers/${server.name}`,
+                url:
+                  server.url ??
+                  `https://www.pulsemcp.com/servers/${server.name}`,
                 external_url: server.external_url ?? null,
                 short_description: server.short_description ?? null,
                 source_code_url: server.source_code_url ?? null,
@@ -213,7 +215,10 @@ export async function startPulseMcpDouble(options: PulseMcpDoubleOptions = {}) {
         return {
           status: 400,
           headers: rateHeaders,
-          body: { error: "limit must be between 1 and 100", code: "invalid_limit" },
+          body: {
+            error: "limit must be between 1 and 100",
+            code: "invalid_limit",
+          },
         };
       const cursorRaw = query.get("cursor");
       if (cursorRaw !== null && !/^[0-9]+$/.test(cursorRaw))

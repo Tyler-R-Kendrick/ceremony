@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { boundOperation, destinationFor, destinationUrl } from "../../binding.js";
+import {
+  boundOperation,
+  destinationFor,
+  destinationUrl,
+} from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import {
   capabilityStatus,
@@ -270,7 +274,8 @@ export function createPulseMcpAdapter(
       input: DiscoverInput,
     ): Promise<DiscoverResult> {
       const profile = profileOf(ctx);
-      const configurationRevision = await ctx.environment.configuration.revision();
+      const configurationRevision =
+        await ctx.environment.configuration.revision();
       const key = JSON.stringify([
         ctx.actor.tenantId,
         ctx.binding.bindingRef,
@@ -377,7 +382,8 @@ export function createPulseMcpAdapter(
         const source = pulseMcpSourceRecord({
           bytes: input.bytes,
           name:
-            (document as { name?: string } | undefined)?.name ?? "unknown/server",
+            (document as { name?: string } | undefined)?.name ??
+            "unknown/server",
           origin: input.origin,
           capturedAt,
         });
@@ -448,7 +454,9 @@ export function createPulseMcpAdapter(
         ? Boolean(parsed.data.next)
         : offset + items.length < total;
     const issues =
-      total !== undefined && items.length < count && offset + items.length < total
+      total !== undefined &&
+      items.length < count &&
+      offset + items.length < total
         ? [
             {
               code: "pulsemcp.page.short",
@@ -482,9 +490,11 @@ export function createPulseMcpAdapter(
       PULSEMCP_LIMITS.subregistryLimit,
     );
     url.searchParams.set("limit", String(limit));
-    if (input.cursor !== undefined) url.searchParams.set("cursor", input.cursor);
+    if (input.cursor !== undefined)
+      url.searchParams.set("cursor", input.cursor);
     if (input.query) url.searchParams.set("search", input.query);
-    if (input.scope?.version) url.searchParams.set("version", input.scope.version);
+    if (input.scope?.version)
+      url.searchParams.set("version", input.scope.version);
     if (input.scope?.updatedSince)
       url.searchParams.set("updated_since", input.scope.updatedSince);
     const payload = await fetchJson(
@@ -512,7 +522,10 @@ export function createPulseMcpAdapter(
 export async function listPulseMcpIntegrations(
   ctx: AdapterCallContext,
 ): Promise<Array<{ name: string; slug: string; url?: string }>> {
-  const operation = boundOperation(ctx.binding, PULSEMCP_OPERATIONS.nativeIntegrations);
+  const operation = boundOperation(
+    ctx.binding,
+    PULSEMCP_OPERATIONS.nativeIntegrations,
+  );
   if (!operation || operation.transport.kind !== "http")
     throw new ConnectorError("configuration-required", {
       detail: "pulsemcp.operation.unbound",

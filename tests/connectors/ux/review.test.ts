@@ -1,0 +1,161 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createElement } from "react";
+import { createConnectorClient } from "../../../src/core/connectors/client.js";
+import {
+  ConnectorImport,
+  DefinitionReviewPanel,
+} from "../../../src/react/connector-review.js";
+import { blockedDefinition, createConnectorFixture } from "./fixture.js";
+import { mount } from "./render.js";
+
+/*
+ * Import review. The two things worth proving here are that a reviewer sees
+ * the blocking losses before anything else, and that the page says only what
+ * the diagnostics said — never the document those diagnostics point at.
+ */
+
+const review = {
+  definition: blockedDefinition(),
+  source: {
+    identity: blockedDefinition().identity,
+    format: { name: "openapi", version: "3.1.0" },
+    origin: {
+      kind: "url" as const,
+      location: "https://vendor.test/openapi.json",
+    },
+    digest: { algorithm: "sha256" as const, value: "c".repeat(64) },
+    byteLength: 8192,
+    mediaType: "application/json",
+    capturedAt: "2026-09-18T09:00:00.000Z",
+    license: { spdx: "NOASSERTION", redistributable: "unknown" as const },
+    adaptation: [],
+    overlays: [],
+  },
+};
+
+test("AC-UX-03: blocking security losses come first and say what they block", async () => {
+  const view = await mount(
+    createElement(DefinitionReviewPanel, { review, busy: false }),
+  );
+  try {
+    const groups = view.all("[data-connector-issue-group]");
+    assert.equal(groups[0]?.getAttribute("data-connector-issue-group"), "security");
+    assert.match(groups[0]?.textContent ?? "", /1 blocking/);
+    assert.match(view.text, /security-relevant loss/);
+    assert.match(view.text, /blocks authorization/);
+    assert.match(view.text, /openapi\.security\.unsupported-scheme/);
+    // The unsupported profile is shown as exactly that, not as a method.
+    assert.match(view.text, /not executable/);
+    // Provenance a reviewer needs to decide anything at all.
+    const provenance = view.query("[data-connector-provenance]");
+    assert.match(provenance?.textContent ?? "", /openapi 3\.1\.0/);
+    assert.match(provenance?.textContent ?? "", /vendor\.test/);
+    assert.match(provenance?.textContent ?? "", /NOASSERTION/);
+    assert.match(provenance?.textContent ?? "", /sha256:cccccccccccccccc…/);
+    // Every dimension is stated, including the ones that did not survive.
+    assert.match(view.text, /Not supported by this runtime/);
+  } finally {
+    await view.close();
+  }
+});
+
+test("publish controls appear only when the server grants the role", async () => {
+  const reader = await mount(
+    createElement(DefinitionReviewPanel, {
+      review,
+      viewer: { capabilities: ["executor"], ownerKinds: ["user"] },
+      onBind: () => assert.fail("a reader must not be able to bind"),
+    }),
+  );
+  try {
+    assert.equal(reader.query("[data-connector-publish]"), null);
+    assert.ok(reader.query("[data-connector-readonly]"));
+    assert.match(reader.text, /needs an operator role/);
+  } finally {
+    await reader.close();
+  }
+
+  const operator = await mount(
+    createElement(DefinitionReviewPanel, {
+      review,
+      viewer: { capabilities: ["publisher"], ownerKinds: ["user"] },
+      onBind: () => assert.fail("binding stays blocked while a blocker stands"),
+    }),
+  );
+  try {
+    assert.ok(operator.query("[data-connector-publish]"));
+    const bind = operator.button("Propose a runtime binding") as unknown as {
+      disabled: boolean;
+    };
+    // The role is present; the blocking issue still refuses the binding, and
+    // the copy says the server refuses it too.
+    assert.equal(bind.disabled, true);
+    assert.match(operator.text, /The server refuses it too/);
+  } finally {
+    await operator.close();
+  }
+});
+
+test("an operator can propose a binding for a description with nothing blocking", async () => {
+  const fixture = createConnectorFixture();
+  const clean = fixture.definitions.find(
+    (item) => item.definitionRef === "definition:github-app",
+  )!;
+  const proposals: string[] = [];
+  const view = await mount(
+    createElement(DefinitionReviewPanel, {
+      review: { definition: clean, source: review.source },
+      viewer: { capabilities: ["admin"], ownerKinds: ["user"] },
+      onBind: (chosen, profileId) =>
+        proposals.push(`${chosen.definition.definitionRef}:${profileId}`),
+    }),
+  );
+  try {
+    await view.fill("#connector-bind-profile", "oauth");
+    await view.click("Propose a runtime binding");
+    assert.deepEqual(proposals, ["definition:github-app:oauth"]);
+  } finally {
+    await view.close();
+  }
+});
+
+test("an import shows diagnostics without echoing the document", async () => {
+  const fixture = createConnectorFixture();
+  const client = createConnectorClient({ fetch: fixture.fetch });
+  const canary = '{"info":{"x-key":"CANARY-IMPORT-SECRET"}}';
+  const view = await mount(
+    createElement(ConnectorImport, {
+      client,
+      viewer: { capabilities: ["executor"], ownerKinds: ["user"] },
+    }),
+  );
+  try {
+    await view.fill("#connector-import-text", canary);
+    await view.submit("[data-connector-import] form");
+    await view.waitFor(() => view.text.includes("Legacy signed API"));
+    assert.match(view.text, /1 description read/);
+    assert.match(view.text, /Nothing executable was registered/);
+    assert.match(view.text, /openapi\.security\.unsupported-scheme/);
+    // The rejected content never reaches the page, only the codes and pointers.
+    assert.doesNotMatch(view.text, /CANARY-IMPORT-SECRET/);
+    assert.match(view.text, /components\/securitySchemes\/vendorHmac/);
+  } finally {
+    await view.close();
+  }
+});
+
+test("an invalid document reports its issues, not its contents", async () => {
+  const fixture = createConnectorFixture();
+  const client = createConnectorClient({ fetch: fixture.fetch });
+  const view = await mount(createElement(ConnectorImport, { client }));
+  try {
+    await view.fill("#connector-import-text", "{}");
+    await view.submit("[data-connector-import] form");
+    await view.waitFor(() => view.text.includes("could not be read"));
+    assert.doesNotMatch(view.text, /Legacy signed API/);
+    assert.equal(view.query("[data-connector-publish]"), null);
+  } finally {
+    await view.close();
+  }
+});

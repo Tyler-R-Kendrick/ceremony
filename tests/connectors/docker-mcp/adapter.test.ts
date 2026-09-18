@@ -28,7 +28,9 @@ import { ConnectorError } from "../../../src/server/connectors/errors.js";
 
 const catalogText = () =>
   readFile(
-    fileURLToPath(new URL("../fixtures/docker-mcp/catalog.yaml", import.meta.url)),
+    fileURLToPath(
+      new URL("../fixtures/docker-mcp/catalog.yaml", import.meta.url),
+    ),
     "utf8",
   );
 
@@ -206,8 +208,8 @@ test("import produces inert definitions with secrets as named configuration", as
   // The image reference is carried as data, never as an instruction to pull.
   assert.equal(
     (
-      (brave.nativeExtensions as { entry: { image: string } }).entry
-    ).image.startsWith("mcp/brave-search@sha256:"),
+      brave.nativeExtensions as { entry: { image: string } }
+    ).entry.image.startsWith("mcp/brave-search@sha256:"),
     true,
   );
 });
@@ -266,7 +268,10 @@ test("AC-EXT-08: importing in a hosted deployment works and local execution is e
     const outcome = await adapter.import!(ctx, {
       bytes,
       mediaType: "application/yaml",
-      origin: { kind: "url", location: "https://desktop.docker.com/catalog.yaml" },
+      origin: {
+        kind: "url",
+        location: "https://desktop.docker.com/catalog.yaml",
+      },
     });
     assert.equal(outcome.definitions.length, 7);
     assert.deepEqual(outcome.executableCandidates, []);
@@ -372,7 +377,16 @@ test("the default runner refuses to run and reports the exact reason", async () 
   await assert.rejects(
     () =>
       runner.run(
-        { catalogName: "c", id: "a", type: "server", command: [], environment: [], secrets: [], volumes: [], allowHosts: [] },
+        {
+          catalogName: "c",
+          id: "a",
+          type: "server",
+          command: [],
+          environment: [],
+          secrets: [],
+          volumes: [],
+          allowHosts: [],
+        },
         {} as AdapterCallContext,
       ),
     (error: unknown) =>
@@ -419,7 +433,9 @@ test("export reproduces a catalog entry, reports losses and refuses foreign defi
 
 test("an export never reconstructs a value the reader removed", async () => {
   const hostile = await readFile(
-    fileURLToPath(new URL("../fixtures/docker-mcp/hostile.yaml", import.meta.url)),
+    fileURLToPath(
+      new URL("../fixtures/docker-mcp/hostile.yaml", import.meta.url),
+    ),
     "utf8",
   );
   const { fixture, ctx, adapter } = await harness({ body: hostile });
@@ -462,7 +478,8 @@ test("an unreachable or oversized catalog fails closed", async () => {
     await assert.rejects(
       () => failing.adapter.discover!(failing.ctx, {}),
       (error: unknown) =>
-        error instanceof ConnectorError && error.code === "upstream-unavailable",
+        error instanceof ConnectorError &&
+        error.code === "upstream-unavailable",
     );
   } finally {
     await failing.fixture.close();

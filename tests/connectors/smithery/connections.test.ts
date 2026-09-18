@@ -211,7 +211,11 @@ function recordingClient(outcome?: McpToolOutcome) {
 }
 
 async function noConnectionsCreated(double: SmitheryDouble) {
-  assert.deepEqual(double.state.namespaceWrites, [], "no namespace was created");
+  assert.deepEqual(
+    double.state.namespaceWrites,
+    [],
+    "no namespace was created",
+  );
 }
 
 test("a connected managed connection authorizes straight to verification", async () => {
@@ -241,7 +245,9 @@ test("a connected managed connection authorizes straight to verification", async
 test("an auth_required connection yields a private handoff, never a public link", async () => {
   const { double, ctx, adapter } = await harness({
     connections: [
-      connectedSeed({ status: { state: "auth_required", setupUrl: SETUP_URL } }),
+      connectedSeed({
+        status: { state: "auth_required", setupUrl: SETUP_URL },
+      }),
     ],
   });
   try {
@@ -251,10 +257,7 @@ test("an auth_required connection yields a private handoff, never a public link"
     assert.equal(start.handoff.kind, "provider-browser");
     assert.equal(start.handoff.presentation, "popup");
     assert.equal(start.handoff.private.url, SETUP_URL);
-    assert.equal(
-      start.handoff.correlationKey,
-      "smithery:acme:notes-personal",
-    );
+    assert.equal(start.handoff.correlationKey, "smithery:acme:notes-personal");
     const { private: _private, ...public_ } = start.handoff;
     assert.ok(
       !JSON.stringify(public_).includes("CANARY_SETUP_9f3"),
@@ -269,7 +272,9 @@ test("an auth_required connection yields a private handoff, never a public link"
 test("a policy against interruption yields human-required, never a bypass", async () => {
   const { double, ctx, adapter } = await harness({
     connections: [
-      connectedSeed({ status: { state: "auth_required", setupUrl: SETUP_URL } }),
+      connectedSeed({
+        status: { state: "auth_required", setupUrl: SETUP_URL },
+      }),
     ],
   });
   try {
@@ -323,7 +328,10 @@ test("verification records what Smithery states and what it cannot state", async
       namespace: "acme",
       connectionId: "notes-personal",
     });
-    assert.deepEqual(result.target, { kind: "connection", id: "notes-personal" });
+    assert.deepEqual(result.target, {
+      kind: "connection",
+      id: "notes-personal",
+    });
     const kinds = result.claims.map((claim) => claim.kind);
     assert.deepEqual(kinds, ["credential-accepted", "resource-access"]);
     for (const claim of result.claims) {
@@ -489,7 +497,10 @@ test("AC-EXT-07: a key without the selected namespace fails closed with no fallb
     assert.equal(double.state.created.length, 0);
     // Every request used the configured backend key exactly once per call;
     // nothing tried a second, broader credential.
-    assert.deepEqual(new Set(double.state.bearers()), new Set([canaries.token]));
+    assert.deepEqual(
+      new Set(double.state.bearers()),
+      new Set([canaries.token]),
+    );
   } finally {
     await double.close();
   }
@@ -517,7 +528,11 @@ test("AC-EXT-07: a scoped token that does not match the connection's metadata ca
           body: JSON.stringify(request.arguments),
         });
         if (!response.ok)
-          return { kind: "failed", code: `http-${response.status}`, applied: "no" };
+          return {
+            kind: "failed",
+            code: `http-${response.status}`,
+            applied: "no",
+          };
         return {
           kind: "complete",
           payload: { content: [], isError: false },
@@ -595,7 +610,11 @@ test("AC-EXT-07: a broker that refuses to mint a token ends the attempt", async 
       (error: unknown) =>
         error instanceof ConnectorError && error.code === "denied",
     );
-    assert.equal(client.calls.length, 0, "no runtime call without a scoped token");
+    assert.equal(
+      client.calls.length,
+      0,
+      "no runtime call without a scoped token",
+    );
   } finally {
     await double.close();
   }
@@ -614,7 +633,11 @@ test("a repeated invocation returns the journaled outcome instead of calling twi
     const second = await adapter.invoke!(ctx, request);
     assert.equal(first.state, "complete");
     assert.equal(second.state, "complete");
-    assert.equal(client.calls.length, 1, "the second attempt replayed the journal");
+    assert.equal(
+      client.calls.length,
+      1,
+      "the second attempt replayed the journal",
+    );
   } finally {
     await double.close();
   }
@@ -629,7 +652,11 @@ test("local disconnect, broker deletion and upstream revocation are distinct", a
       broker: "not-attempted",
       upstream: "unsupported",
     });
-    assert.equal(double.requests.length, 0, "a local unlink touches nothing upstream");
+    assert.equal(
+      double.requests.length,
+      0,
+      "a local unlink touches nothing upstream",
+    );
 
     const broker = await adapter.disconnect!(ctx, "broker");
     assert.equal(broker.broker, "applied");
@@ -637,7 +664,11 @@ test("local disconnect, broker deletion and upstream revocation are distinct", a
     assert.deepEqual(double.state.deleted, ["acme/notes-personal"]);
 
     const again = await adapter.disconnect!(ctx, "broker");
-    assert.equal(again.broker, "not-attempted", "deleting twice is not an effect");
+    assert.equal(
+      again.broker,
+      "not-attempted",
+      "deleting twice is not an effect",
+    );
 
     const revoked = await adapter.revoke!(ctx);
     assert.equal(

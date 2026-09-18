@@ -33,23 +33,22 @@ function serverOf(
 }
 
 test("reads the documented catalog format with images, secrets, env and tools", async () => {
-  const { catalog, issues } = readDockerMcpCatalog(await fixture("catalog.yaml"));
+  const { catalog, issues } = readDockerMcpCatalog(
+    await fixture("catalog.yaml"),
+  );
   assert.ok(catalog);
   assert.equal(catalog.name, "ceremony-fixture");
   assert.equal(catalog.displayName, "Ceremony Fixture Catalog");
   assert.equal(catalog.version, "2");
-  assert.deepEqual(
-    catalog.servers.map((server) => server.id).sort(),
-    [
-      "brave",
-      "context7",
-      "couchbase",
-      "curl",
-      "desktop-commander",
-      "github-official",
-      "unpinned-tag",
-    ],
-  );
+  assert.deepEqual(catalog.servers.map((server) => server.id).sort(), [
+    "brave",
+    "context7",
+    "couchbase",
+    "curl",
+    "desktop-commander",
+    "github-official",
+    "unpinned-tag",
+  ]);
   const brave = serverOf(catalog.servers, "brave");
   assert.equal(brave.type, "server");
   assert.equal(brave.title, "Brave Search");
@@ -58,11 +57,10 @@ test("reads the documented catalog format with images, secrets, env and tools", 
     "sha256:f58a5c22c1196ec7bd1ca586ce216f2334fc298550ddcf652c0e8adb6d256d78",
   );
   assert.equal(brave.image?.repository, "mcp/brave-search");
-  assert.deepEqual(brave.tools.map((tool) => tool.name), [
-    "brave_image_search",
-    "brave_news_search",
-    "brave_web_search",
-  ]);
+  assert.deepEqual(
+    brave.tools.map((tool) => tool.name),
+    ["brave_image_search", "brave_news_search", "brave_web_search"],
+  );
   assert.deepEqual(brave.secrets, [
     {
       name: "brave.api_key",
@@ -81,7 +79,10 @@ test("reads the documented catalog format with images, secrets, env and tools", 
   // A reader that dropped unknown structures silently would hide them; the
   // catalog's own vocabulary is known, so nothing is reported here.
   assert.deepEqual(brave.unknownKeys, []);
-  assert.equal(issues.some((issue) => issue.severity === "blocking"), false);
+  assert.equal(
+    issues.some((issue) => issue.severity === "blocking"),
+    false,
+  );
 });
 
 test("preserves config schemas, remote transports, oauth providers and poci tools", async () => {
@@ -148,7 +149,9 @@ test("reports an unpinned image without blocking the entry", async () => {
 });
 
 test("forged identifiers, unsafe variables and literal credentials are refused, and valid entries survive", async () => {
-  const { catalog, issues } = readDockerMcpCatalog(await fixture("hostile.yaml"));
+  const { catalog, issues } = readDockerMcpCatalog(
+    await fixture("hostile.yaml"),
+  );
   assert.ok(catalog);
   const ids = catalog.servers.map((server) => server.id);
   assert.ok(!ids.includes("../../etc/passwd"));
@@ -267,9 +270,10 @@ test("prototype-polluting keys are refused and never mutate a runtime object", a
 test("catalog bounds are enforced before interpretation", () => {
   const deep = readDockerMcpCatalog(
     "version: 2\nname: deep\nregistry:\n" +
-      Array.from({ length: 40 }, (_, index) => `${" ".repeat(index + 2)}k:`).join(
-        "\n",
-      ) +
+      Array.from(
+        { length: 40 },
+        (_, index) => `${" ".repeat(index + 2)}k:`,
+      ).join("\n") +
       " v\n",
   );
   assert.equal(deep.catalog, undefined);

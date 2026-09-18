@@ -28,6 +28,10 @@ import {
  * generation. None of it is ever an unauthenticated browser fetch.
  */
 
+/** Built at runtime: a formatter rewrites these escapes into literal bytes. */
+const NUL = String.fromCharCode(0);
+const RIGHT_TO_LEFT_OVERRIDE = String.fromCharCode(0x202e);
+
 const REGION_CONTRACT = "list:CreateItem:body:payload/region";
 const PROJECT_CONTRACT = "values:CreateItem:path:projectId";
 const SCHEMA_CONTRACT = "properties:CreateItem:body:payload/details";
@@ -399,7 +403,7 @@ test("hostile option titles are sanitized and option values are bounded", async 
       regions: [
         {
           code: "eu-west",
-          label: "<img src=x onerror=alert(1)>Europe  West‮",
+          label: `<img src=x onerror=alert(1)>Europe${NUL} West${RIGHT_TO_LEFT_OVERRIDE}`,
         },
         { code: overLong, label: "Too long to be a value" },
         { code: { nested: "object" }, label: "Not a primitive" },
@@ -640,7 +644,10 @@ test("a dynamic schema lookup returns a bounded, cleaned schema", async (t) => {
           schema: {
             type: "object",
             properties: {
-              "owner Name": { type: "string", title: "Owner‮Name" },
+              [`owner${NUL}Name`]: {
+                type: "string",
+                title: `Owner${RIGHT_TO_LEFT_OVERRIDE}Name`,
+              },
             },
           },
         },

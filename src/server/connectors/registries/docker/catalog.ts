@@ -119,7 +119,9 @@ export type DockerCatalogServer = {
     license?: string;
     owner?: string;
   };
-  oauth?: { providers: Array<{ provider: string; secret: string; env: string }> };
+  oauth?: {
+    providers: Array<{ provider: string; secret: string; env: string }>;
+  };
   remote?: {
     url: string;
     transportType?: string;
@@ -199,7 +201,8 @@ export const unsafeEnvironmentNames: ReadonlySet<string> = new Set([
   "IFS",
 ]);
 
-const credentialLikeName = /(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|AUTH)/i;
+const credentialLikeName =
+  /(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL|AUTH)/i;
 const sensitiveHeaderName =
   /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|apikey)$|(token|secret|key|password|credential)/i;
 const liveCredentialShape =
@@ -269,7 +272,8 @@ export function parseImageReference(
 }
 
 function declaredUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value.length > 2048) return undefined;
+  if (typeof value !== "string" || !value || value.length > 2048)
+    return undefined;
   if (controlOrBidi.test(value) || !URL.canParse(value)) return undefined;
   const url = new URL(value);
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
@@ -416,7 +420,9 @@ function readStringList(
 
 function scalarText(value: unknown, max: number): string | undefined {
   if (typeof value === "string")
-    return value.length <= max && !controlOrBidi.test(value) ? value : undefined;
+    return value.length <= max && !controlOrBidi.test(value)
+      ? value
+      : undefined;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   if (typeof value === "boolean") return String(value);
   return undefined;
@@ -956,7 +962,9 @@ function readMetadata(
   if (owner) metadata.owner = owner;
   const tags = readStringList(value.tags, limits.tags, 64);
   if (tags.items.length)
-    metadata.tags = tags.items.map((tag) => displayText(tag, 64) ?? "").filter(Boolean);
+    metadata.tags = tags.items
+      .map((tag) => displayText(tag, 64) ?? "")
+      .filter(Boolean);
   return metadata;
 }
 
@@ -1261,9 +1269,16 @@ function readServer(
         ),
       ],
     };
-  const ref = typeof value.ref === "string" ? displayText(value.ref, 512) : undefined;
+  const ref =
+    typeof value.ref === "string" ? displayText(value.ref, 512) : undefined;
   if (ref) server.ref = ref;
-  for (const key of ["readme", "toolsUrl", "source", "upstream", "icon"] as const) {
+  for (const key of [
+    "readme",
+    "toolsUrl",
+    "source",
+    "upstream",
+    "icon",
+  ] as const) {
     const raw = value[key];
     if (raw === undefined || raw === null || raw === "") continue;
     const url = declaredUrl(raw);
@@ -1282,7 +1297,10 @@ function readServer(
   const prompts = nonNegativeInteger(value.prompts);
   if (prompts !== undefined) server.prompts = prompts;
   if (value.resources !== undefined) {
-    const resources = inertJson(value.resources, boundedInertLimits(6, 64, 8192));
+    const resources = inertJson(
+      value.resources,
+      boundedInertLimits(6, 64, 8192),
+    );
     if (resources.ok) server.resources = resources.value;
   }
   server.secrets = readSecrets(
@@ -1309,7 +1327,10 @@ function readServer(
   const volumes = readStringList(value.volumes, limits.volumes, 512);
   server.volumes = volumes.items;
   for (const [index, volume] of volumes.items.entries())
-    if (!isTemplateValue(volume) && (/^([A-Za-z]:\\|\/|~)/.test(volume) || traversal.test(volume)))
+    if (
+      !isTemplateValue(volume) &&
+      (/^([A-Za-z]:\\|\/|~)/.test(volume) || traversal.test(volume))
+    )
       issues.push(
         warning(
           "docker-mcp.volume.host-path",
@@ -1338,7 +1359,12 @@ function readServer(
   const user = displayText(value.user, 128);
   if (user) server.user = user;
   server.config = readConfig(value.config, `${pointer}/config`, limits, issues);
-  const metadata = readMetadata(value.metadata, `${pointer}/metadata`, limits, issues);
+  const metadata = readMetadata(
+    value.metadata,
+    `${pointer}/metadata`,
+    limits,
+    issues,
+  );
   if (metadata) server.metadata = metadata;
   const oauth = readOauth(value.oauth, `${pointer}/oauth`, limits, issues);
   if (oauth) server.oauth = oauth;
@@ -1379,10 +1405,22 @@ export function readDockerMcpCatalog(
   text: string,
   options: { limits?: Partial<DockerCatalogLimits> } = {},
 ): DockerCatalogReadResult {
-  const limits: DockerCatalogLimits = { ...DOCKER_CATALOG_LIMITS, ...options.limits };
+  const limits: DockerCatalogLimits = {
+    ...DOCKER_CATALOG_LIMITS,
+    ...options.limits,
+  };
   const issues: CompatibilityIssue[] = [];
   if (typeof text !== "string")
-    return { issues: [blocking("docker-mcp.catalog.not-text", "structure", "", "The catalog is not text.")] };
+    return {
+      issues: [
+        blocking(
+          "docker-mcp.catalog.not-text",
+          "structure",
+          "",
+          "The catalog is not text.",
+        ),
+      ],
+    };
   if (new TextEncoder().encode(text).byteLength > limits.bytes)
     return {
       issues: [

@@ -1,0 +1,12 @@
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-unsupported-tag
+  labels:
+    camel.apache.org/kamelet.type: "sink"
+spec:
+  definition:
+    title: "Tagged"
+    type: object
+    properties:
+      target: !!python/object/apply:os.system ["echo unreachable"]

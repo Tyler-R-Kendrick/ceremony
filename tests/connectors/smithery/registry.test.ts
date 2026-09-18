@@ -69,7 +69,11 @@ const servers = [
     isDeployed: false,
     detail: {
       connections: [
-        { type: "stdio", bundleUrl: "https://smithery.ai/bundle.zip", runtime: "node" },
+        {
+          type: "stdio",
+          bundleUrl: "https://smithery.ai/bundle.zip",
+          runtime: "node",
+        },
       ],
       security: { scanPassed: false },
       tools: [{ name: "local_tool" }],
@@ -82,7 +86,9 @@ const servers = [
     slug: "search-mcp",
     displayName: "Globex Search",
     description: "Search the Globex corpus.",
-    detail: { deploymentUrl: "https://server.smithery.ai/globex/search-mcp/mcp" },
+    detail: {
+      deploymentUrl: "https://server.smithery.ai/globex/search-mcp/mcp",
+    },
   },
 ];
 
@@ -137,7 +143,13 @@ async function harness(options: { apiKey?: string | undefined } = {}) {
     signal: AbortSignal.timeout(5000),
     environment: ports.environment({ fetch: globalThis.fetch }),
   };
-  return { double, ports, ctx, binding, adapter: createSmitheryRegistryAdapter() };
+  return {
+    double,
+    ports,
+    ctx,
+    binding,
+    adapter: createSmitheryRegistryAdapter(),
+  };
 }
 
 test("discovery uses Smithery's documented page/pageSize paging and search", async () => {
@@ -291,7 +303,10 @@ test("import normalizes a hosted listing with its declared header credential and
       ),
       "a Smithery scan flag is provenance, not approval",
     );
-    assert.equal(definition.compatibility.dimensions.invoke, "requires-configuration");
+    assert.equal(
+      definition.compatibility.dimensions.invoke,
+      "requires-configuration",
+    );
     // The captured document is the exact bytes Smithery served.
     assert.equal(outcome.source.mediaType, "application/json");
     assert.equal(outcome.source.byteLength, document.bytes.byteLength);
@@ -313,7 +328,9 @@ test("a stdio bundle listing is preserved and blocked, never turned into an exec
     });
     const definition = outcome.definitions[0]!;
     assert.equal(
-      definition.authentication.some((profile) => profile.kind === "unsupported"),
+      definition.authentication.some(
+        (profile) => profile.kind === "unsupported",
+      ),
       true,
     );
     const blocking = definition.compatibility.issues.find(
@@ -343,7 +360,12 @@ test("catalog-only support and its capability rows stay visible", async () => {
       missing.find((row) => row.dimension === "discover")?.configuration,
       "missing",
     );
-    for (const dimension of ["invoke", "authorize", "verify", "export"] as const) {
+    for (const dimension of [
+      "invoke",
+      "authorize",
+      "verify",
+      "export",
+    ] as const) {
       const row = configured.find((item) => item.dimension === dimension)!;
       assert.equal(row.implementation, "unsupported", dimension);
       assert.equal(row.evidence, "not-tested", dimension);
@@ -370,7 +392,11 @@ test("the deployment API key never reaches a definition or an error", async () =
       (error: unknown) => {
         assert.ok(error instanceof ConnectorError);
         assert.equal(error.code, "not-found");
-        assert.ok(!JSON.stringify({ ...error, message: error.message }).includes(canaries.token));
+        assert.ok(
+          !JSON.stringify({ ...error, message: error.message }).includes(
+            canaries.token,
+          ),
+        );
         return true;
       },
     );

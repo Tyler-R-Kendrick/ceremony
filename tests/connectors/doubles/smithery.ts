@@ -34,7 +34,10 @@ export type SmitheryConnectionSeed = {
     | {
         state: "input_required";
         setupUrl: string;
-        http: { headers: Record<string, unknown>; query: Record<string, unknown> };
+        http: {
+          headers: Record<string, unknown>;
+          query: Record<string, unknown>;
+        };
         missing: { headers: string[]; query: string[] };
       }
     | { state: "error"; message: string };
@@ -89,7 +92,11 @@ export type SmitheryDoubleOptions = {
   now?: () => number;
 };
 
-type StoredToken = { token: string; policy: SmitheryTokenPolicy[]; expiresAt: number };
+type StoredToken = {
+  token: string;
+  policy: SmitheryTokenPolicy[];
+  expiresAt: number;
+};
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 100;
@@ -128,7 +135,9 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
       operation: "read" | "write" | "execute";
       metadata?: Record<string, string>;
     },
-  ): { ok: true; scoped: boolean } | { ok: false; reply: ReturnType<typeof error> } {
+  ):
+    | { ok: true; scoped: boolean }
+    | { ok: false; reply: ReturnType<typeof error> } {
     const header = request.headers.authorization;
     if (!header?.startsWith("Bearer "))
       return {
@@ -140,7 +149,11 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
       if (need.namespace && !namespaces.has(need.namespace))
         return {
           ok: false,
-          reply: error(404, "not_found", "Namespace not found or access denied"),
+          reply: error(
+            404,
+            "not_found",
+            "Namespace not found or access denied",
+          ),
         };
       return { ok: true, scoped: false };
     }
@@ -213,7 +226,10 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
     const method = request.method;
 
     if (method === "GET" && path === "/namespaces") {
-      const auth = authorize(request, { resource: "namespaces", operation: "read" });
+      const auth = authorize(request, {
+        resource: "namespaces",
+        operation: "read",
+      });
       if (!auth.ok) return auth.reply;
       return {
         body: {
@@ -231,11 +247,18 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
     if (method === "POST" && path === "/namespaces") {
       // Recorded so a test can prove the adapter never creates a namespace.
       namespaceWrites.push(request.body.toString("utf8"));
-      return error(403, "forbidden", "Namespace creation is not permitted here");
+      return error(
+        403,
+        "forbidden",
+        "Namespace creation is not permitted here",
+      );
     }
 
     if (method === "POST" && path === "/tokens") {
-      const auth = authorize(request, { resource: "namespaces", operation: "write" });
+      const auth = authorize(request, {
+        resource: "namespaces",
+        operation: "write",
+      });
       if (!auth.ok) return auth.reply;
       if (auth.scoped)
         return error(403, "forbidden", "A service token cannot mint tokens");
@@ -266,11 +289,18 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
     }
 
     if (method === "GET" && path === "/servers") {
-      const auth = authorize(request, { resource: "servers", operation: "read" });
+      const auth = authorize(request, {
+        resource: "servers",
+        operation: "read",
+      });
       if (!auth.ok) return auth.reply;
       const query = request.url.searchParams;
       const pageSize = Math.min(
-        Math.max(Number(query.get("pageSize") ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE, 1),
+        Math.max(
+          Number(query.get("pageSize") ?? DEFAULT_PAGE_SIZE) ||
+            DEFAULT_PAGE_SIZE,
+          1,
+        ),
         MAX_PAGE_SIZE,
       );
       const page = Math.max(Number(query.get("page") ?? 1) || 1, 1);
@@ -317,10 +347,15 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
     }
 
     if (method === "GET" && path.startsWith("/servers/")) {
-      const auth = authorize(request, { resource: "servers", operation: "read" });
+      const auth = authorize(request, {
+        resource: "servers",
+        operation: "read",
+      });
       if (!auth.ok) return auth.reply;
       const qualifiedName = decodeURIComponent(path.slice("/servers/".length));
-      const server = servers.find((item) => item.qualifiedName === qualifiedName);
+      const server = servers.find(
+        (item) => item.qualifiedName === qualifiedName,
+      );
       if (!server) return error(404, "not_found", "Server not found");
       return {
         body: {
@@ -356,7 +391,10 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
 
       if (method === "GET" && !connectionId) {
         const limit = Math.min(
-          Math.max(Number(request.url.searchParams.get("limit") ?? 100) || 100, 1),
+          Math.max(
+            Number(request.url.searchParams.get("limit") ?? 100) || 100,
+            1,
+          ),
           100,
         );
         const cursor = Number(request.url.searchParams.get("cursor") ?? 0) || 0;
@@ -406,8 +444,7 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
             "validation_error",
             "One of server or mcpUrl is required",
           );
-        const id =
-          connectionId ?? `generated-${connections.size + 1}`;
+        const id = connectionId ?? `generated-${connections.size + 1}`;
         const storedKey = `${namespace}/${id}`;
         const prior = connections.get(storedKey);
         if (
@@ -450,7 +487,9 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
       }
     }
 
-    const toolPath = /^\/connect\/([^/]+)\/([^/]+)\/\.tools(?:\/(.+))?$/.exec(path);
+    const toolPath = /^\/connect\/([^/]+)\/([^/]+)\/\.tools(?:\/(.+))?$/.exec(
+      path,
+    );
     if (toolPath) {
       const namespace = decodeURIComponent(toolPath[1]!);
       const connectionId = decodeURIComponent(toolPath[2]!);
@@ -464,8 +503,14 @@ export async function startSmitheryDouble(options: SmitheryDoubleOptions) {
       if (!auth.ok) return auth.reply;
       if (!existing) return error(404, "not_found", "Resource not found");
       if (method === "GET")
-        return { body: { tools: [{ name: "search", inputSchema: { type: "object" } }] } };
-      return { body: { content: [{ type: "text", text: "ok" }], isError: false } };
+        return {
+          body: {
+            tools: [{ name: "search", inputSchema: { type: "object" } }],
+          },
+        };
+      return {
+        body: { content: [{ type: "text", text: "ok" }], isError: false },
+      };
     }
 
     return error(404, "not_found", "Resource not found");

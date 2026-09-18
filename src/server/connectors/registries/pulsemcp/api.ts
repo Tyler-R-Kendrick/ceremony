@@ -82,7 +82,9 @@ export async function readBoundedJson(
     });
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer));
+    value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(buffer),
+    );
   } catch {
     throw new ConnectorError("upstream-rejected", {
       detail: "pulsemcp.response.invalid-json",
@@ -114,7 +116,9 @@ export function pulseMcpFailure(status: number): ConnectorError {
   if (status === 404)
     return new ConnectorError("not-found", { detail: "pulsemcp.not-found" });
   if (status === 429)
-    return new ConnectorError("rate-limited", { detail: "pulsemcp.rate.limit" });
+    return new ConnectorError("rate-limited", {
+      detail: "pulsemcp.rate.limit",
+    });
   if (status >= 500)
     return new ConnectorError("upstream-unavailable", {
       detail: "pulsemcp.upstream.unavailable",
@@ -178,7 +182,9 @@ export const pulseMcpSubregistryEntrySchema = z.looseObject({
     version: z.string().max(255).optional(),
     title: z.string().max(200).nullish(),
     websiteUrl: z.string().max(2048).nullish(),
-    repository: z.looseObject({ url: z.string().max(2048).optional() }).nullish(),
+    repository: z
+      .looseObject({ url: z.string().max(2048).optional() })
+      .nullish(),
   }),
   _meta: z
     .looseObject({

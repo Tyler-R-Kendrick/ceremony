@@ -200,7 +200,8 @@ export function createSmitheryRegistryAdapter(
         });
       const pagination = parsed.data.pagination;
       const more =
-        pagination !== undefined && pagination.currentPage < pagination.totalPages;
+        pagination !== undefined &&
+        pagination.currentPage < pagination.totalPages;
       return {
         items: parsed.data.servers.map((server) =>
           smitheryDiscoveredItem(server as SmitheryServerListItem),
@@ -222,7 +223,9 @@ export function createSmitheryRegistryAdapter(
         });
       let value: unknown;
       try {
-        value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+        value = JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        );
       } catch {
         throw new ConnectorError("invalid-request", {
           detail: "smithery.document.invalid",

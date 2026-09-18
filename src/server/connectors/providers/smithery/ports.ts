@@ -19,7 +19,11 @@ export type McpBearer = {
 export type McpToolOutcome =
   | {
       kind: "complete";
-      payload: { content: unknown[]; structuredContent?: unknown; isError: boolean };
+      payload: {
+        content: unknown[];
+        structuredContent?: unknown;
+        isError: boolean;
+      };
     }
   | { kind: "input-required" }
   | { kind: "authorization-required" }

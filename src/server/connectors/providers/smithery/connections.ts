@@ -149,7 +149,8 @@ async function apiKey(ctx: AdapterCallContext): Promise<string> {
 }
 
 function privateUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value.length > 2048) return undefined;
+  if (typeof value !== "string" || !value || value.length > 2048)
+    return undefined;
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
@@ -175,10 +176,12 @@ export function createSmitheryConnectionsAdapter(
     ctx: AdapterCallContext,
     settings: SmitherySettings,
   ): Promise<SmitheryConnection> {
-    const { url } = operationUrl(ctx, SMITHERY_CONNECTIONS_OPERATION.get, "GET", [
-      segment(settings.namespace),
-      segment(settings.connectionId),
-    ]);
+    const { url } = operationUrl(
+      ctx,
+      SMITHERY_CONNECTIONS_OPERATION.get,
+      "GET",
+      [segment(settings.namespace), segment(settings.connectionId)],
+    );
     const response = await ctx.environment.fetch(url, {
       method: "GET",
       redirect: "error",
@@ -242,7 +245,9 @@ export function createSmitheryConnectionsAdapter(
       }),
     });
     if (!response.ok) throw smitheryFailure(response.status);
-    const parsed = smitheryTokenSchema.safeParse(await readBoundedJson(response));
+    const parsed = smitheryTokenSchema.safeParse(
+      await readBoundedJson(response),
+    );
     if (!parsed.success)
       throw new ConnectorError("upstream-rejected", {
         detail: "smithery.token.unrecognized",
@@ -257,10 +262,8 @@ export function createSmitheryConnectionsAdapter(
   ): VerificationClaim[] {
     const observedAt = new Date(ctx.environment.now()).toISOString();
     const base = {
-      evidenceRef: `smithery:${settings.namespace}:${settings.connectionId}`.slice(
-        0,
-        200,
-      ),
+      evidenceRef:
+        `smithery:${settings.namespace}:${settings.connectionId}`.slice(0, 200),
       issuer: "external-broker" as const,
       observedAt,
       verifierVersion: SMITHERY_ADAPTER_VERSION,
@@ -576,7 +579,8 @@ export function createSmitheryConnectionsAdapter(
         throw new ConnectorError("denied", {
           detail: "smithery.operation.unapproved",
         });
-      const destinationId = settings.mcpDestinationId ?? operation.destinationId;
+      const destinationId =
+        settings.mcpDestinationId ?? operation.destinationId;
       const destination = ctx.binding.destinations.find(
         (item) => item.id === destinationId,
       );
@@ -640,7 +644,8 @@ export function createSmitheryConnectionsAdapter(
           });
           return {
             state: outcome.payload.isError ? "failed" : "complete",
-            output: outcome.payload.structuredContent ?? outcome.payload.content,
+            output:
+              outcome.payload.structuredContent ?? outcome.payload.content,
             outputClassification: operation.outputClassification,
             effect: operation.effect,
             effectRef: effect.effectRef,

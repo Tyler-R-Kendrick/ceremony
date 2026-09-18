@@ -1,6 +1,9 @@
 import { Document, stringify } from "yaml";
 import { ConnectorError } from "../../errors.js";
-import type { CompatibilityIssue, NormalizedDefinition } from "../../adapter.js";
+import type {
+  CompatibilityIssue,
+  NormalizedDefinition,
+} from "../../adapter.js";
 import {
   DOCKER_CATALOG_FORMAT_VERSION,
   environmentNamePattern,
@@ -110,7 +113,9 @@ export function dockerRunDescriptor(
       detail: "docker.export.type-unknown",
     });
   const image =
-    typeof entry.image === "string" ? parseImageReference(entry.image) : undefined;
+    typeof entry.image === "string"
+      ? parseImageReference(entry.image)
+      : undefined;
   const environment = Array.isArray(entry.env)
     ? entry.env.flatMap((item) =>
         isRecord(item) &&
@@ -259,7 +264,8 @@ export function exportDockerMcpDescriptor(
     ),
   );
   const unbackedSecrets = definition.configuration.filter(
-    (item) => item.classification === "secret" && !declaredSecrets.has(item.name),
+    (item) =>
+      item.classification === "secret" && !declaredSecrets.has(item.name),
   );
   if (unbackedSecrets.length)
     losses.push(

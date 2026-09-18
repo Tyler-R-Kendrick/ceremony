@@ -16,9 +16,7 @@ import type { DiscoveredItem } from "./../adapter.js";
  */
 
 export type EquivalenceReasonKind =
-  | "same-repository"
-  | "same-remote-origin"
-  | "same-qualified-name";
+  "same-repository" | "same-remote-origin" | "same-qualified-name";
 
 export type EquivalenceReason = {
   kind: EquivalenceReasonKind;
@@ -65,7 +63,12 @@ const PROVENANCE_REPOSITORY_KEYS = [
   "repository",
   "sourceCodeUrl",
 ];
-const PROVENANCE_REMOTE_KEYS = ["remoteUrl", "deploymentUrl", "endpoint", "url"];
+const PROVENANCE_REMOTE_KEYS = [
+  "remoteUrl",
+  "deploymentUrl",
+  "endpoint",
+  "url",
+];
 
 function normalizeRepository(value: string): string | undefined {
   if (!URL.canParse(value)) return undefined;
@@ -118,7 +121,9 @@ function remoteOriginOf(item: DiscoveredItem): string | undefined {
 function qualifiedNameOf(item: DiscoveredItem): string | undefined {
   const declared = item.provenance?.qualifiedName;
   const candidate =
-    typeof declared === "string" && declared ? declared : item.identity.nativeId;
+    typeof declared === "string" && declared
+      ? declared
+      : item.identity.nativeId;
   if (!candidate.includes("/")) return undefined;
   return candidate.toLowerCase();
 }
@@ -214,7 +219,11 @@ export function suggestEquivalences(
         distinct.map((index) => items[index]!.identity.ecosystem),
       );
       if (!options.includeSameEcosystem && ecosystems.size < 2) continue;
-      reasons.push({ kind, value, members: [...distinct].sort((a, b) => a - b) });
+      reasons.push({
+        kind,
+        value,
+        members: [...distinct].sort((a, b) => a - b),
+      });
       for (let position = 1; position < distinct.length; position++)
         grouping.union(distinct[0]!, distinct[position]!);
     }

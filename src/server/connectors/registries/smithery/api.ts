@@ -69,7 +69,9 @@ export async function readBoundedJson(
     });
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer));
+    value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(buffer),
+    );
   } catch {
     throw new ConnectorError("upstream-rejected", {
       detail: "smithery.response.invalid-json",
@@ -107,7 +109,9 @@ export function smitheryFailure(status: number): ConnectorError {
       detail: "smithery.tool.failed",
     });
   if (status === 429)
-    return new ConnectorError("rate-limited", { detail: "smithery.rate.limit" });
+    return new ConnectorError("rate-limited", {
+      detail: "smithery.rate.limit",
+    });
   if (status >= 500)
     return new ConnectorError("upstream-unavailable", {
       detail: "smithery.upstream.unavailable",
@@ -141,7 +145,9 @@ export const smitheryServerListItemSchema = z.looseObject({
   bySmithery: z.boolean().optional(),
   owner: z.string().max(256).nullish(),
 });
-export type SmitheryServerListItem = z.infer<typeof smitheryServerListItemSchema>;
+export type SmitheryServerListItem = z.infer<
+  typeof smitheryServerListItemSchema
+>;
 
 export const smitheryServerListSchema = z.looseObject({
   servers: z.array(smitheryServerListItemSchema).max(500),
@@ -175,8 +181,14 @@ export const smitheryServerDetailSchema = z.looseObject({
   connections: z.array(smitheryConnectionDescriptorSchema).max(32).optional(),
   security: z.looseObject({ scanPassed: z.boolean().nullish() }).optional(),
   tools: z.array(smitheryToolSchema).max(1024).optional(),
-  resources: z.array(z.looseObject({ name: z.string().max(256) })).max(512).optional(),
-  prompts: z.array(z.looseObject({ name: z.string().max(256) })).max(512).optional(),
+  resources: z
+    .array(z.looseObject({ name: z.string().max(256) }))
+    .max(512)
+    .optional(),
+  prompts: z
+    .array(z.looseObject({ name: z.string().max(256) }))
+    .max(512)
+    .optional(),
 });
 export type SmitheryServerDetail = z.infer<typeof smitheryServerDetailSchema>;
 
@@ -246,7 +258,8 @@ export const smitheryTokenSchema = z.looseObject({
 
 /** Namespaces and connection ids are path segments; upstream spelling is preserved. */
 export const smitheryNamespacePattern = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
-export const smitheryConnectionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
+export const smitheryConnectionIdPattern =
+  /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/;
 /** Documented qualified-name pattern of the upsert request body. */
 export const smitheryQualifiedNamePattern =
   /^@?[a-zA-Z0-9][a-zA-Z0-9_-]*(?:\/[a-zA-Z0-9][a-zA-Z0-9_-]*)?$/;
@@ -290,7 +303,11 @@ export function smitheryUrl(
   basePath: string,
   segments: readonly string[] = [],
 ): URL {
-  if (!basePath.startsWith("/") || basePath.startsWith("//") || /%2f/i.test(basePath))
+  if (
+    !basePath.startsWith("/") ||
+    basePath.startsWith("//") ||
+    /%2f/i.test(basePath)
+  )
     throw new ConnectorError("invalid-request", {
       detail: "smithery.path.invalid",
     });

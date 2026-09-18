@@ -40,12 +40,17 @@ export const PULSEMCP_UNVERSIONED = "unversioned";
 
 export function text(value: unknown, max: number): string {
   return typeof value === "string"
-    ? value.replace(controlOrBidi, " ").replace(/\s+/g, " ").trim().slice(0, max)
+    ? value
+        .replace(controlOrBidi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, max)
     : "";
 }
 
 export function safeUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value.length > 2048) return undefined;
+  if (typeof value !== "string" || !value || value.length > 2048)
+    return undefined;
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
@@ -84,9 +89,7 @@ export function pulseMcpIdentity(name: string): ConnectorSourceIdentity {
   };
 }
 
-export function pulseMcpDiscoveredItem(
-  server: PulseMcpServer,
-): DiscoveredItem {
+export function pulseMcpDiscoveredItem(server: PulseMcpServer): DiscoveredItem {
   const provenance: Record<string, string> = {
     registry: "pulsemcp",
     apiProfile: "v0beta",
@@ -108,10 +111,13 @@ export function pulseMcpDiscoveredItem(
     provenance.packageDownloads = String(
       Math.trunc(server.package_download_count),
     );
-  const remote = (server.remotes ?? []).find((item) => safeUrl(item.url_direct));
+  const remote = (server.remotes ?? []).find((item) =>
+    safeUrl(item.url_direct),
+  );
   if (remote) {
     provenance.remoteUrl = safeUrl(remote.url_direct)!;
-    if (remote.transport) provenance.remoteTransport = text(remote.transport, 64);
+    if (remote.transport)
+      provenance.remoteTransport = text(remote.transport, 64);
     if (remote.authentication_method)
       provenance.remoteAuthentication = text(remote.authentication_method, 64);
   }
@@ -300,7 +306,9 @@ export async function normalizePulseMcpServer(input: {
       dimensions: completeDimensions({
         discover: "exact",
         import: "adapted",
-        authorize: declaredServers.length ? "requires-configuration" : "unsupported",
+        authorize: declaredServers.length
+          ? "requires-configuration"
+          : "unsupported",
         invoke: "unsupported",
         export: "unsupported",
       }),
@@ -343,7 +351,9 @@ export async function normalizePulseMcpServer(input: {
           ...(safeUrl(remote.url_setup)
             ? { urlSetup: safeUrl(remote.url_setup) }
             : {}),
-          ...(remote.transport ? { transport: text(remote.transport, 64) } : {}),
+          ...(remote.transport
+            ? { transport: text(remote.transport, 64) }
+            : {}),
           ...(remote.authentication_method
             ? {
                 authenticationMethod: text(remote.authentication_method, 64),

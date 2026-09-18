@@ -738,10 +738,31 @@ function parseValue(
   };
 }
 
+/** Root keys the SDK documents; a hash with several of them is the connector. */
+const CONNECTOR_ROOT_KEYS = new Set([
+  "title",
+  "connection",
+  "test",
+  "actions",
+  "triggers",
+  "object_definitions",
+  "pick_lists",
+  "methods",
+  "webhook_keys",
+  "streams",
+  "custom_action",
+  "secure_tunnel",
+]);
+
+/** How many candidate braces are examined before the reader gives up. */
+const CONNECTOR_CANDIDATES = 64;
+
 /**
- * Reads the connector hash from Ruby source: the first top-level `{ … }`.
- * Anything before it (requires, constants, helper definitions) is skipped
- * without being read as behaviour.
+ * Reads the connector hash from Ruby source: the first top-level `{ … }` that
+ * looks like one, judged by the root keys the SDK documents. Anything before
+ * it — requires, constants, a file write, a shell command — is skipped as
+ * text without being read as behaviour, and a hash that is merely nested
+ * inside the connector (a `connection`, an action) is not mistaken for it.
  */
 export function readRubyConnectorHash(parse: RubyParse): {
   value: RubyValue | undefined;
@@ -753,25 +774,30 @@ export function readRubyConnectorHash(parse: RubyParse): {
     nodes: 0,
     truncated: false,
   };
+  let best: { value: RubyValue; score: number } | undefined;
+  let examined = 0;
   for (let index = 0; index < parse.tokens.length; index++) {
     const token = parse.tokens[index]!;
     if (!isPunct(token, "{")) continue;
     const previous = parse.tokens[index - 1];
-    // A brace that follows a name or a closing bracket is a block, not a hash.
-    if (
-      previous &&
-      (previous.kind === "name" ||
-        (previous.kind === "punct" && [")", "]", "|"].includes(previous.value)))
-    )
-      continue;
+    // A brace directly after a name is a block argument (`items.map { … }`),
+    // never a connector hash.
+    if (previous?.kind === "name") continue;
+    if (++examined > CONNECTOR_CANDIDATES) break;
+    state.nodes = 0;
     const parsed = parseValue(state, index, 1);
-    if (parsed.value.kind === "hash" && parsed.value.entries.length)
-      return {
-        value: parsed.value,
-        truncated: state.truncated || parse.truncated,
-      };
+    if (parsed.value.kind !== "hash") continue;
+    const score = parsed.value.entries.filter((entry) =>
+      CONNECTOR_ROOT_KEYS.has(entry.key),
+    ).length;
+    if (score >= 2)
+      return { value: parsed.value, truncated: state.truncated || parse.truncated };
+    if (score >= 1 && !best) best = { value: parsed.value, score };
   }
-  return { value: undefined, truncated: state.truncated || parse.truncated };
+  return {
+    ...(best ? { value: best.value } : { value: undefined }),
+    truncated: state.truncated || parse.truncated,
+  };
 }
 
 /* Accessors. Each answers "is this a literal?" and returns undefined when not. */

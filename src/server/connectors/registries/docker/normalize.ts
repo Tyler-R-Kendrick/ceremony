@@ -335,14 +335,19 @@ export function nativeDescriptor(
         ...(secret.example ? { example: secret.example } : {}),
         ...(secret.description ? { description: secret.description } : {}),
       })),
-      env: server.env.map((entry) => ({ name: entry.name, value: entry.value })),
+      env: server.env.map((entry) => ({
+        name: entry.name,
+        value: entry.value,
+      })),
       command: server.command,
       volumes: server.volumes,
       allowHosts: server.allowHosts,
       ...(server.disableNetwork === undefined
         ? {}
         : { disableNetwork: server.disableNetwork }),
-      ...(server.longLived === undefined ? {} : { longLived: server.longLived }),
+      ...(server.longLived === undefined
+        ? {}
+        : { longLived: server.longLived }),
       ...(server.user ? { user: server.user } : {}),
       config: server.config.map((entry) => ({
         name: entry.name,

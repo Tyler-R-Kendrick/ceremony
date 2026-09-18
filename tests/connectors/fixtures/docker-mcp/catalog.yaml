@@ -66,9 +66,9 @@ registry:
         description: Password for the Couchbase cluster with access to the bucket.
     env:
       - name: CB_CONNECTION_STRING
-        value: '{{couchbase.cb_connection_string}}'
+        value: "{{couchbase.cb_connection_string}}"
       - name: CB_USERNAME
-        value: '{{couchbase.cb_username}}'
+        value: "{{couchbase.cb_username}}"
     prompts: 0
     resources: {}
     config:
@@ -173,7 +173,7 @@ registry:
     icon: https://raw.githubusercontent.com/wonderwhy-er/DesktopCommanderMCP/main/icon.png
     tools: []
     volumes:
-      - '{{desktop-commander.paths|volume|into}}'
+      - "{{desktop-commander.paths|volume|into}}"
     prompts: 0
     resources: {}
     config:
@@ -222,7 +222,7 @@ registry:
         container:
           image: alpine/curl@sha256:d7720f8cffb47e7a80d01fb2c1b38562fab0e436948537e9b77dc312d29d12d6
           command:
-            - '{{args|into}}'
+            - "{{args|into}}"
     prompts: 0
     resources: {}
     metadata:

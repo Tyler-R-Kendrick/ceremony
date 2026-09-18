@@ -446,7 +446,7 @@ test("QA-01/AC-MCP-07: a tombstone is a status, not a disappearance", async (t) 
     (entry) => entry.identity.nativeId === "io.example/gamma",
   );
   assert.ok(gamma, "the withdrawn entry is still returned");
-  assert.equal(gamma.status.status, "deleted");
+  assert.equal(gamma.status, "deleted");
   const request = double.requests.at(-1)!;
   assert.equal(request.url.searchParams.get("include_deleted"), "true");
 });

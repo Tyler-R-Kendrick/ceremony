@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { memoryPorts, fixtureActor } from "../doubles/ports.js";
 import {
   startPulseMcpDouble,
+  type PulseMcpDoubleOptions,
   type PulseMcpServerSeed,
 } from "../doubles/pulsemcp.js";
 import { buildBinding } from "../fixtures/builders.js";
@@ -73,7 +74,9 @@ const servers: PulseMcpServerSeed[] = [
   {
     name: "Globex Search",
     short_description: "Search the Globex corpus.",
-    remotes: [{ url_direct: "https://mcp.globex.example/mcp", transport: "sse" }],
+    remotes: [
+      { url_direct: "https://mcp.globex.example/mcp", transport: "sse" },
+    ],
   },
 ];
 
@@ -88,7 +91,7 @@ type HarnessOptions = {
     document: unknown,
     provenance: { location?: string; capturedAt: string },
   ) => Promise<NormalizedDefinition[]>;
-  subregistry?: Parameters<typeof startPulseMcpDouble>[0]["subregistry"];
+  subregistry?: PulseMcpDoubleOptions["subregistry"];
   now?: () => number;
 };
 
@@ -151,7 +154,11 @@ async function harness(options: HarnessOptions = {}) {
         operationRef: PULSEMCP_OPERATIONS.subregistryServers,
         nativeId: "listSubregistryServers",
         destinationId: "api",
-        transport: { kind: "http", method: "GET", pathTemplate: "/v0.1/servers" },
+        transport: {
+          kind: "http",
+          method: "GET",
+          pathTemplate: "/v0.1/servers",
+        },
         effect: "read",
         outputClassification: "public",
         cost: "free",
@@ -171,7 +178,9 @@ async function harness(options: HarnessOptions = {}) {
     environment: ports.environment({ fetch: globalThis.fetch }),
   };
   const adapter = createPulseMcpAdapter({
-    ...(options.cacheTtlMs === undefined ? {} : { cacheTtlMs: options.cacheTtlMs }),
+    ...(options.cacheTtlMs === undefined
+      ? {}
+      : { cacheTtlMs: options.cacheTtlMs }),
     ...(options.importServerJson
       ? { importServerJson: options.importServerJson }
       : {}),
@@ -208,7 +217,9 @@ test("AC-EXT-09: the native API is paged with offset and count_per_page, not a r
     );
     assert.equal(second.nextCursor, undefined);
     assert.equal(
-      double.received("GET", "/v0beta/servers")[1]?.url.searchParams.get("offset"),
+      double
+        .received("GET", "/v0beta/servers")[1]
+        ?.url.searchParams.get("offset"),
       "2",
     );
   } finally {
@@ -221,7 +232,9 @@ test("native provenance keeps PulseMCP's own documented fields", async () => {
   try {
     const result = await adapter.discover!(ctx, { limit: 1, query: "notion" });
     assert.equal(
-      double.received("GET", "/v0beta/servers")[0]?.url.searchParams.get("query"),
+      double
+        .received("GET", "/v0beta/servers")[0]
+        ?.url.searchParams.get("query"),
       "notion",
     );
     const item = result.items[0]!;
@@ -299,7 +312,10 @@ test("import normalizes a native listing without inventing a version, tools or a
     assert.equal(outcome.source.format.name, "pulsemcp-server");
     assert.equal(outcome.source.format.version, "v0beta");
     const native = definition.nativeExtensions as {
-      pulsemcp: { packageName: string; experimentalAiGeneratedDescription: string };
+      pulsemcp: {
+        packageName: string;
+        experimentalAiGeneratedDescription: string;
+      };
     };
     assert.equal(native.pulsemcp.packageName, "@notionhq/notion-mcp-server");
     assert.ok(native.pulsemcp.experimentalAiGeneratedDescription.length > 0);
@@ -316,7 +332,10 @@ test("a declared authentication method is preserved and blocked, and an open one
         JSON.stringify({
           name: "Notion",
           remotes: [
-            { url_direct: "https://mcp.notion.com/mcp", authentication_method: "oauth2" },
+            {
+              url_direct: "https://mcp.notion.com/mcp",
+              authentication_method: "oauth2",
+            },
           ],
         }),
       ),
@@ -409,7 +428,8 @@ test("an outage serves the previous snapshot marked stale, and a cold outage fai
     await assert.rejects(
       () => adapter.discover!(ctx, { limit: 3, query: "never-fetched" }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.code === "upstream-unavailable",
+        error instanceof ConnectorError &&
+        error.code === "upstream-unavailable",
       "an outage with no snapshot is an error, never an empty catalog",
     );
   } finally {
@@ -471,7 +491,10 @@ test("the sub-registry profile sends the documented headers and cursor paginatio
           name: "com.notion/notion",
           description: "Notion MCP server.",
           version: "1.4.0",
-          repository: { url: "https://github.com/makenotion/notion-mcp-server", source: "github" },
+          repository: {
+            url: "https://github.com/makenotion/notion-mcp-server",
+            source: "github",
+          },
         },
         meta: {
           isOfficial: true,
@@ -606,7 +629,11 @@ test("a sub-registry entry is imported only through a wired server.json importer
       origin: { kind: "registry" },
     });
     assert.deepEqual(outcome.definitions, []);
-    assert.deepEqual(seen, [entry.server], "the inner server.json is handed over whole");
+    assert.deepEqual(
+      seen,
+      [entry.server],
+      "the inner server.json is handed over whole",
+    );
     assert.equal(outcome.source.identity.nativeId, "com.notion/notion");
   } finally {
     await withImporter.double.close();
@@ -633,14 +660,22 @@ test("catalog-only support stays visible in the capability rows", async () => {
     assert.equal(adapter.support, "catalog-only");
     const rows = adapter.capabilities(new Set());
     const native = rows.find(
-      (row) => row.dimension === "discover" && row.profile === "pulsemcp-v0beta",
+      (row) =>
+        row.dimension === "discover" && row.profile === "pulsemcp-v0beta",
     )!;
     assert.equal(native.implementation, "implemented");
     assert.ok(
-      native.limitations.some((text) => text.includes("offset and count_per_page")),
+      native.limitations.some((text) =>
+        text.includes("offset and count_per_page"),
+      ),
     );
     assert.ok(native.limitations.some((text) => text.includes("sunset")));
-    for (const dimension of ["invoke", "authorize", "verify", "export"] as const)
+    for (const dimension of [
+      "invoke",
+      "authorize",
+      "verify",
+      "export",
+    ] as const)
       assert.equal(
         rows.find((row) => row.dimension === dimension)?.implementation,
         "unsupported",
