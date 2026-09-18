@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [],
+  "files": [
+    "../tests/connectors/security/threat-model.ts",
+    "../tests/connectors/security/threat-model.test.ts"
+  ]
+}

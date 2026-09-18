@@ -213,7 +213,7 @@ test("the reference development issuer honours resource indicators, and the harn
       void (async () => {
         const body = Buffer.concat(chunks);
         const proxied = new Request(`${origin}${request.url ?? "/"}`, {
-          method: request.method,
+          method: request.method ?? "GET",
           headers: Object.entries(request.headers).flatMap(([name, value]) =>
             typeof value === "string"
               ? [[name, value] as [string, string]]

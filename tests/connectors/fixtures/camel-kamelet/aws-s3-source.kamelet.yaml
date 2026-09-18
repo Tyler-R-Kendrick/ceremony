@@ -1,0 +1,83 @@
+# A Kamelet source shaped exactly like the released catalog documents
+# (apache/camel-kamelets tag v4.22.0), with locally authored content. The icon
+# is a one-pixel placeholder rather than the catalog's own artwork.
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-object-store-source
+  annotations:
+    camel.apache.org/kamelet.support.level: "Stable"
+    camel.apache.org/catalog.version: "4.22.0"
+    camel.apache.org/kamelet.icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
+    camel.apache.org/provider: "Ceremony fixtures"
+    camel.apache.org/kamelet.group: "Object store"
+    camel.apache.org/kamelet.namespace: "Storage"
+  labels:
+    camel.apache.org/kamelet.type: "source"
+    camel.apache.org/kamelet.verified: "true"
+spec:
+  definition:
+    title: "Fixture object store source"
+    description: |-
+      Receives objects from a fixture object store bucket.
+
+      The basic authentication method is an access key and a secret key.
+    required:
+      - bucketName
+      - region
+    type: object
+    properties:
+      bucketName:
+        title: Bucket name
+        description: The bucket to read from.
+        type: string
+      region:
+        title: Region
+        description: The region to access.
+        type: string
+        enum: ["eu-west-1", "us-east-1"]
+      accessKey:
+        title: Access key
+        description: The access key obtained from the fixture provider.
+        type: string
+        format: password
+        x-descriptors:
+          - urn:camel:group:credentials
+      secretKey:
+        title: Secret key
+        description: The secret key obtained from the fixture provider.
+        type: string
+        format: password
+        x-descriptors:
+          - urn:camel:group:credentials
+      deleteAfterRead:
+        title: Auto-delete objects
+        description: Specifies whether to delete objects after consuming them.
+        type: boolean
+        default: true
+      prefix:
+        title: Prefix
+        description: The bucket prefix to consider while searching.
+        type: string
+        example: "folder/"
+      delay:
+        title: Delay
+        description: Milliseconds before the next poll.
+        type: integer
+        default: 500
+  dependencies:
+    - "camel:core"
+    - "camel:aws2-s3"
+    - "camel:kamelet"
+  template:
+    from:
+      uri: "aws2-s3:{{bucketName}}"
+      parameters:
+        region: "{{region}}"
+        accessKey: "{{?accessKey}}"
+        secretKey: "{{?secretKey}}"
+        deleteAfterRead: "{{deleteAfterRead}}"
+        prefix: "{{?prefix}}"
+        delay: "{{delay}}"
+      steps:
+        - to: "kamelet:sink"

@@ -545,19 +545,26 @@ Module: `src/server/connectors/providers/workos/index.ts` (`createWorkOsPipesAda
 - revoke: WorkOS documents that deleting a connected account does not revoke access at the provider.
 - delegate: Relay proxies one approved HTTP request; it delegates no task or workflow.
 
+## Format modules with no runtime adapter
+
+These modules read, validate and compile a document family. They deliberately expose no runtime adapter: an imported description is not an approved runtime binding, and execution for these families happens through another adapter (an approved HTTP binding, a compiled recipe, or a host-provided remote operation). They have no row in the tables above because they have no dimensions of their own to report.
+
+| Module |
+| --- |
+| `src/server/connectors/formats/arazzo/index.ts` |
+| `src/server/connectors/formats/n8n/index.ts` |
+| `src/server/connectors/formats/overlay/index.ts` |
+| `src/server/connectors/formats/retrieval/index.ts` |
+| `src/server/connectors/formats/workato/index.ts` |
+| `src/server/connectors/formats/zapier/index.ts` |
+
 ## Adapters that are not machine-readable here
 
-These modules exist but could not be constructed with no host configuration, so this document reports no dimensions for them rather than guessing. That is a gap in this generator, not a statement that the adapter is unimplemented: check the ledgers.
+These modules export an adapter factory that could not be constructed with no host configuration, so this document reports no dimensions for them rather than guessing. That is a gap in this generator, not a statement that the adapter is unimplemented: check the ledgers and the module.
 
 | Module | Factory | Reason |
 | --- | --- | --- |
-| `src/server/connectors/formats/arazzo/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
 | `src/server/connectors/formats/automation/index.ts` | `createExternalRuntimeAdapter` | requires host dependencies: options.bindings is not iterable |
-| `src/server/connectors/formats/n8n/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
-| `src/server/connectors/formats/overlay/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
-| `src/server/connectors/formats/retrieval/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
-| `src/server/connectors/formats/workato/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
-| `src/server/connectors/formats/zapier/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
 
 ## Pinned sources behind these claims
 

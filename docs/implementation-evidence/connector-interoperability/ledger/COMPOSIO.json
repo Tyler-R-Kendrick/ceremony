@@ -1,0 +1,175 @@
+{
+  "swarm": "COMPOSIO",
+  "workItems": [
+    {
+      "id": "CO-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/composio/wire.ts",
+        "src/server/connectors/providers/composio/identity.ts",
+        "src/server/connectors/providers/composio/client.ts",
+        "src/server/connectors/providers/composio/context.ts",
+        "src/server/connectors/providers/composio/catalog.ts",
+        "src/server/connectors/providers/composio/lifecycle.ts",
+        "src/server/connectors/providers/composio/index.ts"
+      ],
+      "tests": ["tests/connectors/composio/discovery.test.ts"],
+      "acceptanceIds": ["AC-IMP-03", "AC-AUTH-01", "AC-AUTH-02"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["composio-platform-v3-2026-09"],
+      "limitations": [
+        "Toolkit, auth config, connected account and tool are four separate discovery scopes; a toolkit never implies an account and a service slug never replaces a native identifier.",
+        "Composio states no version for an auth config or a connected account. Those rows carry the explicit sentinel \"unversioned\" plus a composio.version.absent issue rather than an inferred version.",
+        "The Composio user_id is derived (HMAC or SHA-256 over tenant + owner kind + owner id, prefixed cer_) and is never read from a request, a scope selector or a model argument.",
+        "Live account evidence blocked: no authorized Composio project credentials in this execution."
+      ],
+      "notes": "Toolkit slugs, YYYYMMDD_NN release stamps, upper-snake tool slugs, ac_ and ca_ nanoids all round-trip verbatim. Tool rows carry version and available_versions as versioned capability metadata; toolkitCapabilities() projects them into NativeCapability records with effect/dataClassification left \"unknown\" because Composio publishes no machine-readable effect classification."
+    },
+    {
+      "id": "CO-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/composio/connect.ts",
+        "src/server/connectors/providers/composio/context.ts",
+        "src/server/connectors/providers/composio/catalog.ts"
+      ],
+      "tests": ["tests/connectors/composio/authorize.test.ts"],
+      "acceptanceIds": [
+        "AC-EXT-03",
+        "AC-AUTH-03",
+        "AC-AUTH-07",
+        "AC-AUTH-08",
+        "AC-AUTH-09",
+        "AC-AUTH-13",
+        "AC-AUTH-16"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["composio-platform-v3-2026-09"],
+      "limitations": [
+        "Only hosted OAuth auth configs are driven. An API_KEY auth config returns {kind: \"unsupported\", code: \"composio.auth-scheme.not-hosted\"} because completing it would require submitting the end user's credential to Composio.",
+        "POST /api/v3/connected_accounts/link (auth link sessions) is documented but its request and response schemas were not retrievable at the recorded time, so no request is constructed for it. It is listed in composioUnimplementedEndpoints.",
+        "POST /api/v3/connected_accounts/{nanoid}/refresh is documented as deprecated; reconnect issues a fresh authorization instead.",
+        "connection.state.val is sent as an empty object: it carries per-scheme dynamic fields and this adapter collects no provider credential.",
+        "The hosted authorization URL is only carried in HandoffIssue.private and is checked against the binding's `connect` destination origin before it is stored.",
+        "A binding that pins connected accounts in permittedTargets cannot mint a new one (composio.account.pin-blocks-new): a new nanoid cannot appear in a list approved earlier."
+      ],
+      "notes": "Callback query parameters are routing, never evidence: the account is re-read through GET /connected_accounts/{nanoid} before any state changes, a callback naming a different connected_account_id is refused as substitution, a mismatched state is refused, and a handoff issued for an older generation is fenced. Several active accounts for one toolkit yield human-required composio.account.selection-required; the only automatic choice is the single active permitted account under the explicit accountSelection: \"single-active\" policy."
+    },
+    {
+      "id": "CO-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/composio/execute.ts",
+        "src/server/connectors/providers/composio/settings.ts"
+      ],
+      "tests": ["tests/connectors/composio/execute.test.ts"],
+      "acceptanceIds": ["AC-EXT-03", "AC-EXT-04", "AC-AUTH-01", "AC-AUTH-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["composio-platform-v3-2026-09"],
+      "limitations": [
+        "Router meta tools are disabled unless the binding lists each one in settings.metaTools; the default is empty and COMPOSIO_MANAGE_CONNECTIONS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_REMOTE_BASH_TOOL and COMPOSIO_REMOTE_WORKBENCH are additionally classified as unrestricted.",
+        "A session whose tool_router_tools advertise anything outside the binding's tool and meta-tool allowlists is refused outright (composio.session.meta-tool-unapproved), so the session is never used.",
+        "The POST /tool_router/session/{id}/execute_meta request body is reused from the documented sibling execute body and is UNVERIFIED; the endpoint path and method are documented.",
+        "The value shapes of the documented session-create fields toolkits, auth_configs and connected_accounts are inferred (array of slugs; slug->id maps); the field names are documented.",
+        "POST /api/v3/tool_router/session/{id}/proxy_execute is deliberately not bound: a credentialed generic proxy is a confused deputy."
+      ],
+      "notes": "A caller names an operationRef and declared argument names only. Identity-bearing argument names (user_id, entity_id, connected_account_id, auth_config_id, custom_auth_params, custom_connection_data, version, toolkit_versions, account, session_id) and reserved object keys are refused whatever the binding declares. Target parameters are checked against binding.permittedTargets. Every consequential call is journaled through effects.begin/complete; a repeated digest on a non read-only operation returns the prior outcome instead of resending the write."
+    },
+    {
+      "id": "CO-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/composio/identity.ts",
+        "src/server/connectors/providers/composio/lifecycle.ts",
+        "src/server/connectors/providers/composio/catalog.ts",
+        "src/server/connectors/providers/composio/execute.ts"
+      ],
+      "tests": [
+        "tests/connectors/composio/lifecycle.test.ts",
+        "tests/connectors/composio/execute.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-04", "AC-STATE-03", "AC-STATE-05"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["composio-platform-v3-2026-09"],
+      "limitations": [
+        "REVOKED and DELETED are accepted as connected-account statuses on SDK evidence only; they are not enumerated in the retrieved v3 reference and are marked unverified. An unrecognised status maps to indeterminate, never to a usable state.",
+        "DELETED maps to reconnect-required: the broker no longer holds the account, but no observation says the provider grant was revoked.",
+        "Composio documents no operation that revokes the end user's grant at the third-party provider, so revoke() reports upstream: \"unsupported\" and performs no call.",
+        "Broker disconnect deletes the connected account permanently and is refused unless the deployment passes allowBrokerDeletion: true; the default answer is broker: \"unsupported\" with no request sent.",
+        "Version drift is checked per (binding revision, tool slug, version) with a five-minute cache; a binding that pins \"latest\" opts out of the check, which is recorded rather than hidden."
+      ],
+      "notes": "composioLifecycle maps INITIALIZING/INITIATED/ACTIVE/INACTIVE/EXPIRED/FAILED/REVOKED/DELETED into connectionLifecycle and every target is reachable from `verifying` under lifecycleTransitions. A pinned tool version the toolkit no longer serves fails closed with unsupported/composio.tool.version-unavailable; a changed input-schema digest fails closed with conflict/composio.tool.schema-drift. A session Composio no longer holds is recreated once, under the same allowlist checks. negativeCapabilities() reports absent, deprecated, auth-config-restricted and scope-missing tools plus a non-hosted auth scheme and a non-ACTIVE account, as a discovery result with no items and only issues."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createComposioAdapter(options) from src/server/connectors/providers/composio/index.ts. It needs no options in a fixture deployment; a production deployment should pass { userIdKey } so the derived Composio user id cannot be recomputed outside the deployment, and may pass { returnPath, authorizationOrigins, allowBrokerDeletion, timeouts, shared }. Supply one createComposioShared() per process so the session and rate-limit caches are shared."
+    },
+    {
+      "target": "src/server/teaching-http.ts / src/server/hosted/routes (INT)",
+      "description": "Mount a GET route at the adapter's returnPath (default /api/v1/connectors/composio/return) through the existing authenticated handler chain. It must read only the `state` query parameter for correlation and hand the whole URL to the adapter's complete({ kind: \"redirect\", url }). Composio also appends `status` and `connected_account_id`; the adapter re-reads the account and ignores `status`, so the route must not act on it."
+    },
+    {
+      "target": "src/server/connectors/state (STATE swarm)",
+      "description": "CompletionResult.adapterState carries { composioStatus, composioLifecycle, toolkitVersion, observedAt }. The command layer should write composioLifecycle onto the connection's lifecycle (it is already a valid connectionLifecycle and a legal transition from `verifying`) and keep composioStatus in connection.state, because invoke() refuses execution when connection.state.composioStatus is present and not \"ACTIVE\"."
+    },
+    {
+      "target": "docs / catalog copy (INT)",
+      "description": "The directory entry should show custody [\"external-credential-broker\", \"external-execution-broker\"] and the dimension limitations returned by capabilities(); import, events, revoke and export report implementation \"unsupported\" with reasons rather than pretending to work."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "import: no normalized definition is built from a Composio document; discovery carries the versioned capability metadata instead. Reported as implementation \"unsupported\" with a reason, not as a silent gap.",
+    "events: Composio triggers and their webhook verification were not researched or bound. Reported as \"unsupported\".",
+    "export: Composio tool descriptions are not re-exported.",
+    "Live and browser evidence: no authorized Composio project, so every dimension tops out at protocol-fixture."
+  ],
+  "externalEffectsPerformed": [
+    "None. No Composio account, project, auth config or connected account was created, modified or deleted. All traffic in tests goes to a loopback fixture on an ephemeral port; documentation pages were read over HTTPS only."
+  ],
+  "sourceLock": {
+    "profileId": "composio-platform-v3-2026-09",
+    "retrievedAt": "2026-09-18",
+    "apiVersions": {
+      "frozen": "/api/v3 at https://backend.composio.dev",
+      "current": "/api/v3.1 at https://backend.composio.dev (differs in the default toolkit version, not in the paths this adapter uses)"
+    },
+    "verified": [
+      "docs.composio.dev/docs/authentication - toolkit / auth config / connected account / session are distinct concepts; Connect Link is hosted by Composio; user id guidance (database id, not email, never \"default\")",
+      "docs.composio.dev/docs/authenticating-tools - initiate returns redirect_url; the callback receives status and connected_account_id appended; statuses ACTIVE, INITIATED (10-minute expiry), EXPIRED, FAILED, INACTIVE; several connections per user+toolkit are supported",
+      "docs.composio.dev/docs/auth-configuration/connected-accounts - ca_ and ac_ id prefixes; INACTIVE pauses execution and ACTIVE restores; deletion is permanent; credential fields in state.val are redacted",
+      "docs.composio.dev/docs/toolkit-versioning - YYYYMMDD_NN version strings, \"latest\" alias, toolkit_versions map, pin when output is consumed programmatically",
+      "docs.composio.dev/toolkits/meta-tools - COMPOSIO_SEARCH_TOOLS, COMPOSIO_GET_TOOL_SCHEMAS, COMPOSIO_MANAGE_CONNECTIONS, COMPOSIO_MULTI_EXECUTE_TOOL, COMPOSIO_REMOTE_BASH_TOOL, COMPOSIO_REMOTE_WORKBENCH",
+      "reference/v3/api-reference/connected-accounts - GET/POST /api/v3/connected_accounts, GET/DELETE/PATCH /{nanoid}, PATCH /{nanoId}/status, POST /link; x-api-key header; query parameters toolkit_slugs, statuses, cursor, limit, user_ids, auth_config_ids, connected_account_ids, order_by, order_direction, account_type; item fields id, toolkit, auth_config, status, user_id, state{authScheme,val}, data, created_at, updated_at, status_reason, is_disabled, test_request_endpoint",
+      "reference/v3/api-reference/connected-accounts/postConnectedAccounts - request auth_config.id, connection.state.authScheme, connection.state.val, connection.user_id, connection.alias, connection.callback_url; response id, connectionData, status, redirect_url, redirect_uri (the last three marked deprecated)",
+      "reference/v3/api-reference/auth-configs - GET/POST /api/v3/auth_configs, GET/PATCH/DELETE /{nanoid}; item fields id, uuid, name, no_of_connections, status, toolkit, auth_scheme, is_composio_managed, created_by, restrict_to_following_tools, expected_input_fields, credentials; pagination next_cursor, total_pages, current_page, total_items",
+      "reference/v3/api-reference/toolkits - GET /api/v3/toolkits, /categories, /{slug}, /multi, /changelog; toolkit fields slug, name, type, enabled, composio_managed_auth_schemes, auth_config_details{mode,name,fields,required_scopes,proxy,auth_hint_url}, auth_guide_url, base_url, meta, get_current_user_endpoint",
+      "reference/v3/api-reference/tools - GET /api/v3/tools (toolkit_slug, tool_slugs, important, tags, query, include_deprecated, toolkit_versions, limit, cursor), GET /{tool_slug} (version), POST /execute/{tool_slug}, POST /execute/{tool_slug}/input, POST /execute/proxy; item fields slug, name, description, toolkit, version, available_versions, input_parameters, output_parameters, scopes, no_auth, deprecated, tags",
+      "reference/v3/api-reference/tools/postToolsExecuteByToolSlug - request connected_account_id, entity_id (deprecated), user_id, version (default 00000000_00), custom_auth_params, custom_connection_data, arguments, text, allow_tracing (deprecated); response data, error, successful, session_info, log_id",
+      "reference/v3/api-reference/tool-router - the fourteen session endpoints including POST /api/v3/tool_router/session, /{session_id}/execute, /{session_id}/execute_meta, /{session_id}/link, /{session_id}/proxy_execute",
+      "reference/v3/api-reference/tool-router/postToolRouterSession - request user_id, toolkits, auth_configs, connected_accounts, manage_connections{enable,callback_url,enable_wait_for_connections,enable_connection_removal}, tools, tags, workbench, multi_account{enable,max_accounts_per_toolkit,require_explicit_selection}, experimental, preload; response session_id, mcp{type,url}, tool_router_tools, config, config_version, experimental, warnings",
+      "reference/v3/api-reference/tool-router/postToolRouterSessionBySessionIdExecute - path session_id; request tool_slug (required), arguments, account, enable_auto_workbench_offload; response data, error, log_id"
+    ],
+    "unverified": [
+      "The list envelope key `items` plus next_cursor/total_pages/current_page/total_items is documented for GET /tools and GET /auth_configs and is ASSUMED identical for GET /toolkits and GET /connected_accounts.",
+      "The complete connected-account status enum: the v3 reference truncates it after INITIALIZING | INITIATED | ACTIVE. REVOKED and DELETED come from SDK/source references only.",
+      "The request body of POST /api/v3/tool_router/session/{session_id}/execute_meta; the sibling execute body is reused.",
+      "The value shapes (not the field names) of the session-create fields toolkits, auth_configs and connected_accounts.",
+      "The request and response schemas of POST /api/v3/connected_accounts/link; not implemented for that reason.",
+      "The request body of PATCH /api/v3/connected_accounts/{nanoId}/status; not implemented for that reason.",
+      "The spelling of a tool router session id beyond \"opaque string\"; it is validated only as a bounded safe token."
+    ]
+  },
+  "testCommands": [
+    {
+      "command": "node --import tsx --test tests/connectors/composio/*.test.ts",
+      "tests": 64,
+      "suites": 6,
+      "pass": 64,
+      "fail": 0
+    }
+  ]
+}
