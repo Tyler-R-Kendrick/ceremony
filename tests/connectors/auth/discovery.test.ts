@@ -279,10 +279,9 @@ test("PRM discovery binds the document to the exact resource identifier", async 
     found.state === "discovered" && found.url,
     `${direct.origin}/.well-known/oauth-protected-resource/mcp`,
   );
-  assert.deepEqual(
-    found.state === "discovered" && found.authorizationServers,
-    [direct.issuer],
-  );
+  assert.deepEqual(found.state === "discovered" && found.authorizationServers, [
+    direct.issuer,
+  ]);
 });
 
 test("PRM whose `resource` does not match the identifier is refused", async (t) => {
@@ -430,10 +429,7 @@ test("configured endpoints are used when discovery is disabled and recorded as c
   assert.equal(resolved.source, "configured");
   assert.equal(resolved.discovery.state, "disabled");
   assert.equal(resolved.metadata.issuer, server.issuer);
-  assert.equal(
-    resolved.metadata.token_endpoint,
-    `${server.origin}/token`,
-  );
+  assert.equal(resolved.metadata.token_endpoint, `${server.origin}/token`);
   assert.equal(server.counts.metadata, 0, "discovery was not attempted");
 });
 

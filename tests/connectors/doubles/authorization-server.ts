@@ -226,7 +226,10 @@ export async function startAuthorizationServer(
   const subject = options.subject ?? "user-1";
   const deviceInterval = options.deviceInterval ?? 1;
   const clientSecret = options.clientSecret;
-  const clients = new Map<string, { secret?: string; redirectUris: string[] }>();
+  const clients = new Map<
+    string,
+    { secret?: string; redirectUris: string[] }
+  >();
   const redirectUris = new Set(options.redirectUris ?? []);
   const codes = new Map<string, CodeGrant>();
   const refreshTokens = new Map<string, RefreshGrant>();
@@ -395,7 +398,8 @@ export async function startAuthorizationServer(
     const basic = basicCredentials(authorization);
     if (basic) {
       const record = clients.get(basic.id);
-      if (!record?.secret || record.secret !== basic.secret) return { ok: false };
+      if (!record?.secret || record.secret !== basic.secret)
+        return { ok: false };
       return { ok: true, clientId: basic.id };
     }
     const id = parameters["client_id"];
@@ -413,7 +417,9 @@ export async function startAuthorizationServer(
       ) as { iss?: string; sub?: string; aud?: string | string[] };
       if (payload.iss !== id || payload.sub !== id) return { ok: false };
       const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      if (!audience.some((value) => value === issuer || value?.includes(origin)))
+      if (
+        !audience.some((value) => value === issuer || value?.includes(origin))
+      )
         return { ok: false };
       return { ok: true, clientId: id };
     }
@@ -428,9 +434,10 @@ export async function startAuthorizationServer(
 
   const fixture = await startHttpFixture(async (request) => {
     const url = request.url;
-    const route = path && url.pathname.startsWith(path)
-      ? url.pathname.slice(path.length)
-      : url.pathname;
+    const route =
+      path && url.pathname.startsWith(path)
+        ? url.pathname.slice(path.length)
+        : url.pathname;
     const form = new URLSearchParams(request.body.toString("utf8"));
     const parameters = Object.fromEntries(form.entries());
     const authorization = request.headers["authorization"];
@@ -475,8 +482,7 @@ export async function startAuthorizationServer(
 
     if (route === "/register" && request.method === "POST") {
       counts.registration++;
-      if (!options.dynamicRegistration)
-        return oauthError(404, "not_found");
+      if (!options.dynamicRegistration) return oauthError(404, "not_found");
       const body = JSON.parse(request.body.toString("utf8") || "{}") as {
         redirect_uris?: string[];
         token_endpoint_auth_method?: string;
@@ -485,7 +491,9 @@ export async function startAuthorizationServer(
       const id = `dcr-${randomBytes(6).toString("hex")}`;
       const method = body.token_endpoint_auth_method ?? "client_secret_basic";
       const secret =
-        method === "none" ? undefined : `sec_${randomBytes(16).toString("hex")}`;
+        method === "none"
+          ? undefined
+          : `sec_${randomBytes(16).toString("hex")}`;
       for (const uri of body.redirect_uris ?? []) redirectUris.add(uri);
       clients.set(id, {
         ...(secret !== undefined ? { secret } : {}),

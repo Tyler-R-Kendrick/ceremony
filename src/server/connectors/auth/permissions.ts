@@ -93,7 +93,12 @@ export function reviewPermissionEscalation(
 ): EscalationReview {
   const wanted = bounded(requested);
   if (!previous?.permissions)
-    return { decision: "no-baseline", added: wanted, removed: [], baseline: [] };
+    return {
+      decision: "no-baseline",
+      added: wanted,
+      removed: [],
+      baseline: [],
+    };
   const baseline = bounded(previous.permissions.requested);
   const base = new Set(baseline);
   const want = new Set(wanted);

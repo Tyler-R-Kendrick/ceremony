@@ -24,8 +24,7 @@ export const verificationFailures = [
 export type VerificationFailure = (typeof verificationFailures)[number];
 
 export type HeadersLike =
-  | Headers
-  | Readonly<Record<string, string | readonly string[] | undefined>>;
+  Headers | Readonly<Record<string, string | readonly string[] | undefined>>;
 
 /** Case-insensitive header lookup over fetch Headers or a plain record; repeated values are joined like Headers does. */
 export function headerValue(

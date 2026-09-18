@@ -833,7 +833,9 @@ export async function completeAuthorization(
     return { state: "pending", claims: [], code: "vercel.handoff.unresolved" };
   if (
     handoff.connectionRef !== connection.connectionRef ||
-    handoff.tenantId !== ctx.actor.tenantId
+    handoff.tenantId !== ctx.actor.tenantId ||
+    handoff.subjectId !== ctx.actor.subjectId ||
+    handoff.bindingRef !== ctx.binding.bindingRef
   )
     return { state: "denied", claims: [], code: "vercel.handoff.foreign" };
   if (handoff.generation !== ctx.generation)

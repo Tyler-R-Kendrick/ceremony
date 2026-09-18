@@ -84,15 +84,20 @@ function buildServer(token: string): McpServer {
     "ask_login",
     { description: "Asks the person for a username first.", inputSchema: { repo: z.string().optional() } },
     async (_args, ctx) => {
-      const answer = await ctx.mcpReq.elicitInput({
-        mode: "form",
-        message: "Please provide your GitHub username",
-        requestedSchema: {
-          type: "object",
-          properties: { name: { type: "string" }, remember: { type: "boolean" } },
-          required: ["name"],
+      // The generic server-to-client request channel of this revision; the
+      // SDK's `elicitInput` sugar is era-gated, this is the wire itself.
+      const answer = (await ctx.mcpReq.send({
+        method: "elicitation/create",
+        params: {
+          mode: "form",
+          message: "Please provide your GitHub username",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" }, remember: { type: "boolean" } },
+            required: ["name"],
+          },
         },
-      });
+      })) as { action: string; content?: Record<string, unknown> };
       state.elicitations.push(answer);
       if (answer.action !== "accept")
         return { content: [{ type: "text", text: "declined" }], isError: true };
@@ -121,9 +126,12 @@ function buildServer(token: string): McpServer {
     { description: "Asks the client to run a model.", inputSchema: {} },
     async (_args, ctx) => {
       try {
-        await ctx.mcpReq.requestSampling({
-          messages: [{ role: "user", content: { type: "text", text: "hi" } }],
-          maxTokens: 10,
+        await ctx.mcpReq.send({
+          method: "sampling/createMessage",
+          params: {
+            messages: [{ role: "user", content: { type: "text", text: "hi" } }],
+            maxTokens: 10,
+          },
         });
         return { content: [{ type: "text", text: "sampled" }] };
       } catch {

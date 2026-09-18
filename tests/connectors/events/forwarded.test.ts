@@ -10,7 +10,13 @@ import {
   type ReceiverAudit,
   type VendorVerifierPort,
 } from "../../../src/server/connectors/events/index.js";
-import { ROTATED, SECRET, scaffold, signStandardWebhook, webhookRequest } from "./helpers.js";
+import {
+  ROTATED,
+  SECRET,
+  scaffold,
+  signStandardWebhook,
+  webhookRequest,
+} from "./helpers.js";
 
 /*
  * EVT-06 / AC-VC-07. A broker-forwarded trigger has two different facts in it:
@@ -116,7 +122,11 @@ test("AC-VC-07/EVT-06: a forged or missing forwarder signature is rejected howev
   // The failed hop is recorded as unverified, and the upstream boast does not
   // appear at all: a rejected delivery makes no claims on anyone's behalf.
   assert.deepEqual(forged.ok === false ? forged.hops : [], [
-    { forwarder: "vercel-connect", verified: false, method: "forwarder-signature" },
+    {
+      forwarder: "vercel-connect",
+      verified: false,
+      method: "forwarder-signature",
+    },
   ]);
   const missing = await verifyForwardedDelivery({
     delivery: delivery(
@@ -136,7 +146,10 @@ test("AC-VC-07/EVT-06: a forged or missing forwarder signature is rejected howev
   assert.equal(missing.ok === false && missing.reason, "missing-headers");
   // A body altered after the forwarder signed it fails too.
   const tampered = await verifyForwardedDelivery({
-    delivery: delivery(forwardedHeaders({}), JSON.stringify({ type: "invoice.paid", id: "in_99" })),
+    delivery: delivery(
+      forwardedHeaders({}),
+      JSON.stringify({ type: "invoice.paid", id: "in_99" }),
+    ),
     forwarder: {
       authority: "vercel-connect",
       verifier: forwarderVerifier,
@@ -165,9 +178,7 @@ test("AC-VC-07/EVT-06: a header claiming upstream verification is recorded as an
   });
   // The claim is never promoted to a signature of the original provider.
   assert.equal(
-    hops.some(
-      (hop) => hop.verified && hop.forwarder === "acme-billing",
-    ),
+    hops.some((hop) => hop.verified && hop.forwarder === "acme-billing"),
     false,
   );
   assert.equal(hops.filter((hop) => hop.verified).length, 1);
@@ -236,7 +247,10 @@ test("AC-VC-07/EVT-06: the original provider's hop is verified only when this de
   });
   assert.equal(wrongKey.ok, true);
   assert.deepEqual(
-    (wrongKey.ok ? wrongKey.hops : []).map((hop) => [hop.forwarder, hop.verified]),
+    (wrongKey.ok ? wrongKey.hops : []).map((hop) => [
+      hop.forwarder,
+      hop.verified,
+    ]),
     [
       ["vercel-connect", true],
       ["acme-billing", false],
@@ -305,7 +319,10 @@ test("AC-VC-07/EVT-06: a forwarded subscription admits through the receiver and 
     assert.equal(record?.envelope.verification.method, "forwarder-signature");
     assert.equal(record?.envelope.verification.keyId, "primary");
     assert.deepEqual(
-      record?.envelope.forwarderHops.map((hop) => [hop.forwarder, hop.verified]),
+      record?.envelope.forwarderHops.map((hop) => [
+        hop.forwarder,
+        hop.verified,
+      ]),
       [
         ["vercel-connect", true],
         ["acme-billing", false],
@@ -338,7 +355,10 @@ test("AC-VC-07/EVT-06: a forwarded subscription admits through the receiver and 
     );
     assert.equal(forged.status, 401);
     assert.equal(
-      await inbox.get("tenant-a", eventDeliveryId("vercel-connect", "msg_forwarded_2")),
+      await inbox.get(
+        "tenant-a",
+        eventDeliveryId("vercel-connect", "msg_forwarded_2"),
+      ),
       undefined,
     );
     assert.equal(audits.at(-1)?.code, "unverified");

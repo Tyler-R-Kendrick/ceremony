@@ -639,7 +639,9 @@ test("AC-STATE-01: concurrent refreshes make one upstream call and never overwri
   assert.equal(first.credentialRef, second.credentialRef);
   // Exactly one call performed the refresh; the other joined it.
   assert.equal([first.shared, second.shared].filter(Boolean).length, 1);
-  const rotated = [first, second].find((outcome) => outcome.rotated !== undefined);
+  const rotated = [first, second].find(
+    (outcome) => outcome.rotated !== undefined,
+  );
   assert.equal(rotated?.rotated, true, "the refresh token rotated");
   const stored =
     harness.ports.inspect.credentialMaterial(credentialRef)?.["refresh_token"];

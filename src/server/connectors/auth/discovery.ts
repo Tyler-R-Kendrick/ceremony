@@ -24,8 +24,7 @@ import { boundedSignal, DEFAULT_TIMEOUT_MS } from "./wire.js";
  */
 
 export type MetadataDocumentKind =
-  | "oauth-authorization-server"
-  | "openid-configuration";
+  "oauth-authorization-server" | "openid-configuration";
 
 export type DiscoveryOptions = {
   fetch: typeof fetch;
@@ -582,7 +581,8 @@ export type ResolvedAuthorizationServer = {
   /** Endpoints here have passed the trust rules; refused ones are absent. */
   metadata: oauth.AuthorizationServer;
   source: "discovery" | "configured";
-  discovery: AuthorizationServerDiscovery | { state: "disabled"; issuer: string };
+  discovery:
+    AuthorizationServerDiscovery | { state: "disabled"; issuer: string };
   /** Endpoints removed from the document by the trust rules, by role and reason. */
   refused: Array<{ role: EndpointRole; detail: string }>;
   allowLoopbackHttp: boolean;
@@ -621,9 +621,7 @@ export async function resolveAuthorizationServer(
   }
   const discovered =
     discovery.state === "discovered" ? discovery.metadata : undefined;
-  const document: Record<string, unknown> = discovered
-    ? { ...discovered }
-    : {};
+  const document: Record<string, unknown> = discovered ? { ...discovered } : {};
   document["issuer"] = policy.issuer;
   const refused: ResolvedAuthorizationServer["refused"] = [];
   for (const role of endpointRoles) {

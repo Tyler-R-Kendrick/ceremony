@@ -219,7 +219,10 @@ export function createWebhookReceiver(
           method: "standard-webhooks" as const,
           keyId: result.keyId,
           hops: [],
-          identity: { eventId: result.messageId, sourceTime: result.sourceTime },
+          identity: {
+            eventId: result.messageId,
+            sourceTime: result.sourceTime,
+          },
         };
       }
       if (verification.method === "vendor-signature") {
@@ -304,11 +307,21 @@ export function createWebhookReceiver(
       subscriptionId: route.subscriptionId,
     };
     const length = request.headers.get("content-length");
-    if (length !== null && (!/^\d{1,12}$/.test(length) || Number(length) > maxBodyBytes))
-      return respond(413, { error: "too-large" }, { ...audit, code: "too-large" });
+    if (
+      length !== null &&
+      (!/^\d{1,12}$/.test(length) || Number(length) > maxBodyBytes)
+    )
+      return respond(
+        413,
+        { error: "too-large" },
+        { ...audit, code: "too-large" },
+      );
     const mediaType =
-      request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ??
-      "";
+      request.headers
+        .get("content-type")
+        ?.split(";")[0]
+        ?.trim()
+        .toLowerCase() ?? "";
     if (!contentTypes.includes(mediaType))
       return respond(
         415,
@@ -319,21 +332,41 @@ export function createWebhookReceiver(
     try {
       target = await options.resolveSecrets(route);
     } catch {
-      return respond(503, { error: "unavailable" }, { ...audit, code: "resolve-failed" });
+      return respond(
+        503,
+        { error: "unavailable" },
+        { ...audit, code: "resolve-failed" },
+      );
     }
     if (!target)
-      return respond(404, { error: "unknown" }, { ...audit, code: "unknown-subscription" });
+      return respond(
+        404,
+        { error: "unknown" },
+        { ...audit, code: "unknown-subscription" },
+      );
     const subscription = target.subscription;
     if (subscription.state === "retired")
       return respond(410, { error: "retired" }, { ...audit, code: "retired" });
     if (subscription.authority !== route.authority)
-      return respond(404, { error: "unknown" }, { ...audit, code: "authority-mismatch" });
+      return respond(
+        404,
+        { error: "unknown" },
+        { ...audit, code: "authority-mismatch" },
+      );
 
     const body = await readBounded(request, maxBodyBytes);
     if (body === "too-large")
-      return respond(413, { error: "too-large" }, { ...audit, code: "too-large" });
+      return respond(
+        413,
+        { error: "too-large" },
+        { ...audit, code: "too-large" },
+      );
     if (body === "unreadable")
-      return respond(400, { error: "malformed" }, { ...audit, code: "unreadable" });
+      return respond(
+        400,
+        { error: "malformed" },
+        { ...audit, code: "unreadable" },
+      );
 
     let verified: Verified | { ok: false; reason: VerificationFailure };
     try {
@@ -353,10 +386,24 @@ export function createWebhookReceiver(
     try {
       payload = JSON.parse(Buffer.from(body).toString("utf8"));
     } catch {
-      return respond(400, { error: "malformed" }, { ...audit, code: "malformed" });
+      return respond(
+        400,
+        { error: "malformed" },
+        { ...audit, code: "malformed" },
+      );
     }
-    if (!measurePayload(payload, { bytes: EVENT_LIMITS.payloadBytes, depth: EVENT_LIMITS.payloadDepth, nodes: EVENT_LIMITS.payloadNodes }).ok)
-      return respond(400, { error: "malformed" }, { ...audit, code: "payload-bounds" });
+    if (
+      !measurePayload(payload, {
+        bytes: EVENT_LIMITS.payloadBytes,
+        depth: EVENT_LIMITS.payloadDepth,
+        nodes: EVENT_LIMITS.payloadNodes,
+      }).ok
+    )
+      return respond(
+        400,
+        { error: "malformed" },
+        { ...audit, code: "payload-bounds" },
+      );
 
     const hinted = verified.identity;
     let custom: DeliveryIdentity | undefined;
@@ -388,18 +435,28 @@ export function createWebhookReceiver(
         !(Number.isSafeInteger(sourceTime) && sourceTime >= 0)) ||
       !keyIdSchema.safeParse(verified.keyId).success
     )
-      return respond(400, { error: "unidentified" }, { ...audit, code: "unidentified" });
+      return respond(
+        400,
+        { error: "unidentified" },
+        { ...audit, code: "unidentified" },
+      );
     const type = providerEventType as string;
     if (
       !subscription.eventTypes.includes("*") &&
       !subscription.eventTypes.includes(type)
     )
-      return respond(202, { status: "ignored" }, { ...audit, code: "event-type-not-subscribed" });
+      return respond(
+        202,
+        { status: "ignored" },
+        { ...audit, code: "event-type-not-subscribed" },
+      );
 
     let lifecycle: LifecycleSignal | undefined;
     try {
       const signal = policy.lifecycle?.({ providerEventType: type, payload });
-      const parsed = signal ? lifecycleSignalSchema.safeParse(signal) : undefined;
+      const parsed = signal
+        ? lifecycleSignalSchema.safeParse(signal)
+        : undefined;
       lifecycle = parsed?.success ? parsed.data : undefined;
     } catch {
       lifecycle = undefined;
@@ -424,7 +481,11 @@ export function createWebhookReceiver(
         forwarderHops: verified.hops,
       });
     } catch {
-      return respond(400, { error: "malformed" }, { ...audit, code: "envelope-invalid" });
+      return respond(
+        400,
+        { error: "malformed" },
+        { ...audit, code: "envelope-invalid" },
+      );
     }
 
     let admitted;
@@ -440,10 +501,18 @@ export function createWebhookReceiver(
         ...(lifecycle ? { lifecycle } : {}),
       });
     } catch {
-      return respond(503, { error: "unavailable" }, { ...audit, code: "inbox-unavailable" });
+      return respond(
+        503,
+        { error: "unavailable" },
+        { ...audit, code: "inbox-unavailable" },
+      );
     }
     if (admitted.outcome === "duplicate")
-      return respond(200, { status: "duplicate" }, { ...audit, code: "duplicate" });
+      return respond(
+        200,
+        { status: "duplicate" },
+        { ...audit, code: "duplicate" },
+      );
     if (policy.deliverInline && options.handlers)
       await options.inbox
         .drain({ tenantId: subscription.tenantId, handlers: options.handlers })
@@ -453,14 +522,18 @@ export function createWebhookReceiver(
 }
 
 /** Material convention: each key is a keyId and its value the secret; keys prefixed `upstream:` belong to the provider behind a forwarder. */
-export function secretsFromMaterial(material: CredentialMaterial): ResolvedSecrets {
+export function secretsFromMaterial(
+  material: CredentialMaterial,
+): ResolvedSecrets {
   const current: SecretMaterial[] = [];
   const upstream: SecretMaterial[] = [];
   for (const [name, secret] of Object.entries(material)) {
     if (name.startsWith("upstream:")) {
       const keyId = name.slice("upstream:".length);
-      if (keyIdSchema.safeParse(keyId).success) upstream.push({ keyId, secret });
-    } else if (keyIdSchema.safeParse(name).success) current.push({ keyId: name, secret });
+      if (keyIdSchema.safeParse(keyId).success)
+        upstream.push({ keyId, secret });
+    } else if (keyIdSchema.safeParse(name).success)
+      current.push({ keyId: name, secret });
   }
   return {
     current: current.slice(0, EVENT_LIMITS.secrets),

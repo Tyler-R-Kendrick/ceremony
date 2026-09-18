@@ -99,7 +99,9 @@ export async function beginDeviceAuthorization(
   } catch (error) {
     throw wireError(error, "oauth.device");
   }
-  const verificationUri = presentationUrlSchema.safeParse(data.verification_uri);
+  const verificationUri = presentationUrlSchema.safeParse(
+    data.verification_uri,
+  );
   if (!verificationUri.success)
     throw new ConnectorError("upstream-rejected", {
       detail: "oauth.device.verification-uri",
@@ -151,11 +153,13 @@ export type PollDeviceAuthorizationInput = {
   scope?: CredentialScope | undefined;
 };
 
-function pending(
-  code: string,
-  poll: DevicePollState,
-): CompletionResult {
-  return { state: "pending", claims: [], code, adapterState: { devicePoll: poll } };
+function pending(code: string, poll: DevicePollState): CompletionResult {
+  return {
+    state: "pending",
+    claims: [],
+    code,
+    adapterState: { devicePoll: poll },
+  };
 }
 
 /**
@@ -232,7 +236,12 @@ export async function pollDeviceAuthorization(
   const settle = (
     status: "applied" | "not-applied" | "failed" | "indeterminate",
     code: string,
-  ) => ctx.environment.effects.complete(begun.effectRef, { status, code, at: at() });
+  ) =>
+    ctx.environment.effects.complete(begun.effectRef, {
+      status,
+      code,
+      at: at(),
+    });
   let tokens: oauth.TokenEndpointResponse;
   try {
     const response = await oauth.deviceCodeGrantRequest(
@@ -334,7 +343,11 @@ export async function pollDeviceAuthorization(
   return {
     state: "complete",
     claims: [
-      credentialAcceptedClaim(ctx, { issuer, permissions, validUntil: expiresAt }),
+      credentialAcceptedClaim(ctx, {
+        issuer,
+        permissions,
+        validUntil: expiresAt,
+      }),
     ],
     credentialRef,
     adapterState: {

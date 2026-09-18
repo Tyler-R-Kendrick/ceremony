@@ -178,10 +178,11 @@ test("EVT-04: drain claims each entry under a fence and records its outcome", as
     const report = await inbox.drain({ tenantId: "tenant-a", handlers });
     assert.equal(report.delivered, 3);
     assert.equal(report.failed, 0);
-    assert.deepEqual(
-      seen.map((delivery) => delivery.envelope.eventId).sort(),
-      ["evt_1", "evt_2", "evt_3"],
-    );
+    assert.deepEqual(seen.map((delivery) => delivery.envelope.eventId).sort(), [
+      "evt_1",
+      "evt_2",
+      "evt_3",
+    ]);
     for (const delivery of seen) assert.equal(delivery.attempt, 1);
     // A second drain finds nothing pending: delivered entries stay delivered.
     const again = await inbox.drain({ tenantId: "tenant-a", handlers });
@@ -301,7 +302,9 @@ test("EVT-04: an unreconcilable ordering is indeterminate rather than silently a
       connectionRef: "connection:1",
       lifecycle: { kind: "revoked" },
     });
-    const dispatcher = createEventDispatcher({ complete: async () => "applied" });
+    const dispatcher = createEventDispatcher({
+      complete: async () => "applied",
+    });
     await inbox.drain({
       tenantId: "tenant-a",
       handlers: { "connector-event": dispatcher },
@@ -472,7 +475,8 @@ async function postgresContract(store: AsyncCeremonyStore): Promise<void> {
     seen.length,
     "no entry is handed to two workers at the same attempt",
   );
-  for (const id of deliveredIds) assert.match(id, /^connector-event:[0-9a-f]{64}$/);
+  for (const id of deliveredIds)
+    assert.match(id, /^connector-event:[0-9a-f]{64}$/);
   // Cross-tenant isolation holds in the shared database.
   const other = await inbox.admit({
     tenantId: "tenant-b",

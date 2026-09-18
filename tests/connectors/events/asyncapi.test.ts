@@ -86,7 +86,12 @@ test("EVT-01: channel address, message identity and operation action survive nor
     operation: string;
     action: string;
     direction: string;
-    channel: { name: string; address: string; title: string; servers: string[] };
+    channel: {
+      name: string;
+      address: string;
+      title: string;
+      servers: string[];
+    };
     message: {
       key: string;
       name: string;
@@ -132,12 +137,17 @@ test("EVT-01: a channel address that is a broker topic survives, and its channel
   const ledger = eventOf(result, "onLedgerEntry/entryPosted");
   const extension = extensionOf(ledger) as {
     channel: { name: string; address: string };
-    bindings: { channel: Record<string, { topic?: string; partitions?: number }> };
+    bindings: {
+      channel: Record<string, { topic?: string; partitions?: number }>;
+    };
   };
   assert.equal(extension.channel.name, "ledger.entries");
   assert.equal(extension.channel.address, "acme.ledger.entries.v1");
   // The Kafka binding is preserved verbatim as inert data, never executed.
-  assert.equal(extension.bindings.channel.kafka?.topic, "acme.ledger.entries.v1");
+  assert.equal(
+    extension.bindings.channel.kafka?.topic,
+    "acme.ledger.entries.v1",
+  );
   assert.equal(extension.bindings.channel.kafka?.partitions, 12);
 });
 
@@ -223,11 +233,15 @@ test("EVT-01: broker-only security schemes block authorization instead of being 
   // OAuth endpoints are declared candidates, never approved destinations.
   const oauth = kinds.get("partnerOAuth");
   assert.equal(
-    oauth?.kind === "oauth-authorization-code" ? oauth.tokenEndpoint : undefined,
+    oauth?.kind === "oauth-authorization-code"
+      ? oauth.tokenEndpoint
+      : undefined,
     "https://auth.acme.example/token",
   );
   assert.equal(
-    oauth?.kind === "oauth-authorization-code" ? oauth.scopeSemantics : undefined,
+    oauth?.kind === "oauth-authorization-code"
+      ? oauth.scopeSemantics
+      : undefined,
     "provider-scopes",
   );
   assert.deepEqual(

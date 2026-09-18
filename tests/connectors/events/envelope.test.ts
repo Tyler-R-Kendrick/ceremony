@@ -131,7 +131,11 @@ test("EVT-02: a forwarder-verified envelope must name its verified hop, and a di
       payloadClassification: "personal",
       payload: {},
       forwarderHops: [
-        { forwarder: "vercel-connect", verified: true, method: "upstream-claim" },
+        {
+          forwarder: "vercel-connect",
+          verified: true,
+          method: "upstream-claim",
+        },
       ],
     }),
   );

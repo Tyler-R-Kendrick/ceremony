@@ -35,7 +35,9 @@ test("EVT-03: the published Standard Webhooks test vector verifies", () => {
   const result = verifyStandardWebhook({
     headers,
     body,
-    secrets: [{ keyId: "primary", secret: "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw" }],
+    secrets: [
+      { keyId: "primary", secret: "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw" },
+    ],
     now: NOW,
   });
   assert.equal(result.ok, true);
@@ -356,10 +358,13 @@ test("EVT-03: a vendor verifier is a port a provider swarm can plug in", async (
     header: "x-acme-signature",
     prefix: "sha256=",
     identify: (delivery) => {
-      const id = delivery.headers instanceof Headers
-        ? delivery.headers.get("x-acme-delivery")
+      const id =
+        delivery.headers instanceof Headers
+          ? delivery.headers.get("x-acme-delivery")
+          : undefined;
+      return id
+        ? { eventId: id, providerEventType: "invoice.paid" }
         : undefined;
-      return id ? { eventId: id, providerEventType: "invoice.paid" } : undefined;
     },
   });
   assert.equal(verifier.id, "acme-vendor");

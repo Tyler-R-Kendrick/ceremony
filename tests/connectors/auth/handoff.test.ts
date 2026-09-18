@@ -278,10 +278,7 @@ test("collector and input-required handoffs keep their references private", asyn
     }),
   );
   assert.equal(collector.summary.kind, "private-collector");
-  assert.equal(
-    JSON.stringify(collector.summary).includes("secret-ref"),
-    false,
-  );
+  assert.equal(JSON.stringify(collector.summary).includes("secret-ref"), false);
   const input = await issueHandoff(
     ctx,
     inputRequiredHandoff({
@@ -291,10 +288,7 @@ test("collector and input-required handoffs keep their references private", asyn
     }),
   );
   assert.equal(input.summary.kind, "input-required");
-  assert.equal(
-    JSON.stringify(input.summary).includes("continue-token"),
-    false,
-  );
+  assert.equal(JSON.stringify(input.summary).includes("continue-token"), false);
   const record = harness.ports.inspect
     .handoffs()
     .find((item) => item.handoffRef === input.handoffRef)!;

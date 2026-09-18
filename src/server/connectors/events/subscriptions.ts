@@ -58,7 +58,9 @@ export const subscriptionVerificationSchema = z.discriminatedUnion("method", [
     upstream: z
       .strictObject({
         authority: authoritySchema,
-        verifier: z.union([z.literal("standard-webhooks"), vendorId]).optional(),
+        verifier: z
+          .union([z.literal("standard-webhooks"), vendorId])
+          .optional(),
       })
       .optional(),
   }),
@@ -119,9 +121,9 @@ const approveInputSchema = z.strictObject({
   policyRevision: z.string().min(1).max(200),
   ownerKind: ownerKindSchema.default("user"),
   custody: credentialCustodySchema.default("host-owned"),
-  payloadClassification: z.enum(["public", "personal", "secret"]).default(
-    "personal",
-  ),
+  payloadClassification: z
+    .enum(["public", "personal", "secret"])
+    .default("personal"),
   task: taskSchema.default(EVENT_TASK),
 });
 export type ApproveSubscriptionInput = z.input<typeof approveInputSchema>;
@@ -200,7 +202,11 @@ export class SubscriptionRegistry {
       ? eventSubscriptionSchema.safeParse(stored.value)
       : undefined;
     // A foreign subscription is indistinguishable from a missing one.
-    if (!stored || !parsed?.success || parsed.data.subjectId !== actor.subjectId)
+    if (
+      !stored ||
+      !parsed?.success ||
+      parsed.data.subjectId !== actor.subjectId
+    )
       throw new ConnectorError("not-found");
     return { record: parsed.data, revision: stored.revision };
   }
@@ -260,7 +266,11 @@ export class SubscriptionRegistry {
     tx: AsyncTransaction,
     record: EventSubscription,
   ): Promise<void> {
-    await tx.put(this.key(record.tenantId, record.subscriptionId), record, null);
+    await tx.put(
+      this.key(record.tenantId, record.subscriptionId),
+      record,
+      null,
+    );
     await tx.put(
       this.routeKey(record.authority, record.subscriptionId),
       { schemaVersion: 1, tenantId: record.tenantId },
@@ -372,7 +382,11 @@ export class SubscriptionRegistry {
         activatedAt: await tx.now(),
         externalIds: { ...record.externalIds, ...externalIds },
       });
-      await tx.put(this.key(record.tenantId, record.subscriptionId), active, revision);
+      await tx.put(
+        this.key(record.tenantId, record.subscriptionId),
+        active,
+        revision,
+      );
       return active;
     });
   }
@@ -393,7 +407,11 @@ export class SubscriptionRegistry {
         retiredAt: await tx.now(),
         retiredReason: code,
       };
-      await tx.put(this.key(record.tenantId, record.subscriptionId), retired, revision);
+      await tx.put(
+        this.key(record.tenantId, record.subscriptionId),
+        retired,
+        revision,
+      );
       return retired;
     });
   }
@@ -415,7 +433,12 @@ export class SubscriptionRegistry {
       let retired = 0;
       let after = "sub:";
       for (;;) {
-        const page = await tx.list<unknown>(tenantId, SUBSCRIPTION_KIND, 200, after);
+        const page = await tx.list<unknown>(
+          tenantId,
+          SUBSCRIPTION_KIND,
+          200,
+          after,
+        );
         for (const entry of page) {
           if (!entry.id.startsWith("sub:")) return retired;
           const parsed = eventSubscriptionSchema.safeParse(entry.value);
@@ -449,8 +472,14 @@ export class SubscriptionRegistry {
     subscriptionId: string,
   ): Promise<EventSubscription | undefined> {
     return this.store.transaction(async (tx) => {
-      const record = await this.readIn(tx, this.tenantOf(actor), subscriptionId);
-      return record && record.subjectId === actor.subjectId ? record : undefined;
+      const record = await this.readIn(
+        tx,
+        this.tenantOf(actor),
+        subscriptionId,
+      );
+      return record && record.subjectId === actor.subjectId
+        ? record
+        : undefined;
     });
   }
 
@@ -463,7 +492,12 @@ export class SubscriptionRegistry {
       const found: EventSubscription[] = [];
       let after = "sub:";
       for (;;) {
-        const page = await tx.list<unknown>(tenantId, SUBSCRIPTION_KIND, 200, after);
+        const page = await tx.list<unknown>(
+          tenantId,
+          SUBSCRIPTION_KIND,
+          200,
+          after,
+        );
         for (const entry of page) {
           if (!entry.id.startsWith("sub:")) return found;
           const parsed = eventSubscriptionSchema.safeParse(entry.value);
@@ -492,9 +526,15 @@ export class SubscriptionRegistry {
       return undefined;
     return this.store.transaction(async (tx) => {
       const index = await tx.get(this.routeKey(authority, subscriptionId));
-      const pointer = index ? routeIndexSchema.safeParse(index.value) : undefined;
+      const pointer = index
+        ? routeIndexSchema.safeParse(index.value)
+        : undefined;
       if (!pointer?.success) return undefined;
-      const record = await this.readIn(tx, pointer.data.tenantId, subscriptionId);
+      const record = await this.readIn(
+        tx,
+        pointer.data.tenantId,
+        subscriptionId,
+      );
       return record &&
         record.authority === authority &&
         record.subscriptionId === subscriptionId

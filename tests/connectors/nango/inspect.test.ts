@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { ConnectorAdapter } from "../../../src/server/connectors/adapter.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
   activeConnection,
@@ -176,10 +177,32 @@ test("AC-NG-03: the capability row marks inspection privileged-internal", async 
     ),
     "the verify row states the privileged-internal boundary",
   );
-  // The adapter surface a generic route can reach has no inspection method.
-  const shared: Record<string, unknown> = h.adapter;
-  assert.equal(typeof shared.inspectConnection, "function");
-  assert.equal("inspectConnection" in ({} as Record<string, unknown>), false);
+  // A generic route dispatches only the shared ConnectorAdapter surface.
+  // Inspection is not part of it, so no read-only agent route can reach the
+  // credential-bearing, refresh-triggering endpoint by dispatching a name.
+  const shared: ConnectorAdapter = h.adapter;
+  const genericSurface = new Set(Object.keys(shared));
+  assert.equal(genericSurface.has("verify"), true);
+  assert.equal(genericSurface.has("invoke"), true);
+  const dispatchable: ReadonlyArray<keyof ConnectorAdapter> = [
+    "discover",
+    "import",
+    "authorize",
+    "complete",
+    "verify",
+    "invoke",
+    "reconnect",
+    "disconnect",
+    "revoke",
+    "export",
+    "delegate",
+  ];
+  assert.equal(
+    dispatchable.some((name) => String(name) === "inspectConnection"),
+    false,
+  );
+  // It is reachable only through the provider-specific NangoAdapter type.
+  assert.equal(typeof h.adapter.inspectConnection, "function");
 });
 
 test("AC-NG-03: a connection id from another integration is refused before the privileged read", async (t) => {

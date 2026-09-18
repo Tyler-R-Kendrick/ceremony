@@ -73,11 +73,7 @@ export type ForwarderHop = z.infer<typeof forwarderHopSchema>;
 
 export type PayloadMeasure = { bytes: number; depth: number; nodes: number };
 export type PayloadBoundsFailure =
-  | "depth"
-  | "nodes"
-  | "bytes"
-  | "reserved-key"
-  | "not-json";
+  "depth" | "nodes" | "bytes" | "reserved-key" | "not-json";
 export type PayloadLimits = {
   readonly bytes: number;
   readonly depth: number;
@@ -366,7 +362,8 @@ export function fromCloudEvent(input: unknown): UnverifiedEvent {
     throw new ConnectorError("invalid-request", {
       detail: "cloudevents.data-bounds",
     });
-  const sourceTime = event.time === undefined ? undefined : Date.parse(event.time);
+  const sourceTime =
+    event.time === undefined ? undefined : Date.parse(event.time);
   if (sourceTime !== undefined && !Number.isFinite(sourceTime))
     throw new ConnectorError("invalid-request", { detail: "cloudevents.time" });
   return {

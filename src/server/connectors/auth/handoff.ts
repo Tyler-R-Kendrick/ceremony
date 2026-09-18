@@ -218,7 +218,8 @@ export function humanHandoffPresentation(
       if (url) shown.url = url;
       const code = record.private["userCode"];
       if (code) shown.userCode = code;
-      shown.instructions = "Open the link on another device and enter the code.";
+      shown.instructions =
+        "Open the link on another device and enter the code.";
       return shown;
     }
     case "private-collector": {

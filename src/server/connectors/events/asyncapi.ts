@@ -135,16 +135,13 @@ const unescapePointer = (segment: string) =>
   segment.replace(/~1/g, "/").replace(/~0/g, "~");
 const pointerOf = (...segments: string[]) =>
   `/${segments.map(escapePointer).join("/")}`.slice(0, 1024);
-const sha = (value: string) =>
-  createHash("sha256").update(value).digest("hex");
+const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const bounds = (what: string) =>
   new ConnectorError("invalid-request", { detail: `asyncapi.bounds.${what}` });
 
 function safeText(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const text = value
-    .replace(/\p{Cc}|[‪-‮⁦-⁩]/gu, " ")
-    .trim();
+  const text = value.replace(/\p{Cc}|[‪-‮⁦-⁩]/gu, " ").trim();
   return text ? text.slice(0, max) : undefined;
 }
 
@@ -536,7 +533,8 @@ function schemeProfile(
             : "unknown",
           clientRegistration: "unknown",
           clientAuthentication: "unknown",
-          refresh: typeof code.refreshUrl === "string" ? "supported" : "unknown",
+          refresh:
+            typeof code.refreshUrl === "string" ? "supported" : "unknown",
         };
       else if (client)
         candidate = {
@@ -866,13 +864,11 @@ export async function readAsyncApi(
       issues,
       "messages",
       ASYNCAPI_LIMITS.messagesPerChannel,
-    ).map(
-      ([key, value]): [string, unknown, string] => [
-        key,
-        value,
-        `${channelPointer}/messages/${escapePointer(key)}`,
-      ],
-    );
+    ).map(([key, value]): [string, unknown, string] => [
+      key,
+      value,
+      `${channelPointer}/messages/${escapePointer(key)}`,
+    ]);
     return {
       name,
       pointer: channelPointer,
@@ -1028,7 +1024,9 @@ export async function readAsyncApi(
     ) => {
       if (events.length >= ASYNCAPI_LIMITS.events) throw bounds("events");
       const nativeId =
-        messageKey === undefined ? operationKey : `${operationKey}/${messageKey}`;
+        messageKey === undefined
+          ? operationKey
+          : `${operationKey}/${messageKey}`;
       if (!nativeIdentifierSchema.safeParse(nativeId).success) {
         issues.add({
           code: "structure.invalid-identifier",
@@ -1077,9 +1075,8 @@ export async function readAsyncApi(
         if (!protocols.includes(protocol)) protocols.push(protocol);
 
       let transport: EventDescriptor["transport"] = "unsupported";
-      let nativeTransport: string | undefined = protocols.find(
-        (protocol) => !httpLike(protocol),
-      ) ?? protocols[0];
+      let nativeTransport: string | undefined =
+        protocols.find((protocol) => !httpLike(protocol)) ?? protocols[0];
       if (channelProblem) {
         // The channel resolution already reported precisely why; the operation
         // simply has no transport to claim and stays descriptive.
@@ -1119,7 +1116,9 @@ export async function readAsyncApi(
           executionImpact: "blocks-operation",
           message: `Operation "${operationKey.slice(0, 64)}" uses ${protocols
             .map((protocol) => `"${protocol}"`)
-            .join(", ")}; only HTTP webhook delivery is supported, so it stays descriptive.`,
+            .join(
+              ", ",
+            )}; only HTTP webhook delivery is supported, so it stays descriptive.`,
           remediation:
             "Broker transports (Kafka, AMQP, MQTT, WebSocket ...) are preserved as native bindings; delegate them to a host runner or a broker adapter.",
         });
@@ -1367,7 +1366,9 @@ export async function readAsyncApi(
     receivable,
     document: {
       version: version as AsyncApiVersion,
-      ...(typeof nativeDocument.id === "string" ? { id: nativeDocument.id } : {}),
+      ...(typeof nativeDocument.id === "string"
+        ? { id: nativeDocument.id }
+        : {}),
       title,
       infoVersion,
       perspective: opts.perspective,

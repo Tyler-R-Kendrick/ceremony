@@ -1,7 +1,5 @@
 import { authoritySchema, type ForwarderHop } from "./envelope.js";
-import {
-  standardWebhooksVerifier,
-} from "./standard-webhooks.js";
+import { standardWebhooksVerifier } from "./standard-webhooks.js";
 import type {
   DeliveryIdentity,
   RawDelivery,
@@ -99,7 +97,10 @@ export async function verifyForwardedDelivery(
       try {
         result = await verifier.verify(input.delivery, input.upstream.secrets);
       } catch {
-        result = { ok: false as const, reason: "verifier-unavailable" as const };
+        result = {
+          ok: false as const,
+          reason: "verifier-unavailable" as const,
+        };
       }
       const method =
         verifier.id === "standard-webhooks"

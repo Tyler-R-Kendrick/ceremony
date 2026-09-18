@@ -280,7 +280,10 @@ export class EventInbox {
     return tx ? work(tx) : this.transact(work);
   }
 
-  async get(tenantId: string, deliveryId: string): Promise<InboxRecord | undefined> {
+  async get(
+    tenantId: string,
+    deliveryId: string,
+  ): Promise<InboxRecord | undefined> {
     const stored = await this.store.transaction((tx) =>
       tx.get(this.inboxKey(checkTenant(tenantId), deliveryId)),
     );
@@ -480,7 +483,8 @@ export class EventInbox {
             tenantId,
             connectionRef: record.connectionRef,
           });
-          if (current !== undefined && current > record.generation) stale = true;
+          if (current !== undefined && current > record.generation)
+            stale = true;
         }
         const delivery: EventDelivery = compact({
           tenantId,

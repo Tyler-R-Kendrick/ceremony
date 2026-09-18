@@ -79,10 +79,17 @@ export function signStandardWebhook(input: {
     typeof input.body === "string"
       ? new Uint8Array(Buffer.from(input.body, "utf8"))
       : input.body;
-  const key = Buffer.from((input.secret ?? SECRET).replace(/^whsec_/, ""), "base64");
+  const key = Buffer.from(
+    (input.secret ?? SECRET).replace(/^whsec_/, ""),
+    "base64",
+  );
   const signature = createHmac("sha256", key)
     .update(
-      standardWebhookSignedContent(input.id, String(input.timestampSeconds), body),
+      standardWebhookSignedContent(
+        input.id,
+        String(input.timestampSeconds),
+        body,
+      ),
     )
     .digest("base64");
   return new Headers({
@@ -105,17 +112,19 @@ export type Scaffold = {
 };
 
 /** An approved, active subscription with its signing secret held in credential custody. */
-export async function scaffold(options: {
-  store?: AsyncCeremonyStore;
-  tenantId?: string;
-  subjectId?: string;
-  authority?: string;
-  eventTypes?: string[];
-  generation?: number;
-  material?: Record<string, string>;
-  verification?: ApproveSubscriptionInput["verification"];
-  activate?: boolean;
-} = {}): Promise<Scaffold> {
+export async function scaffold(
+  options: {
+    store?: AsyncCeremonyStore;
+    tenantId?: string;
+    subjectId?: string;
+    authority?: string;
+    eventTypes?: string[];
+    generation?: number;
+    material?: Record<string, string>;
+    verification?: ApproveSubscriptionInput["verification"];
+    activate?: boolean;
+  } = {},
+): Promise<Scaffold> {
   const tenantId = options.tenantId ?? "tenant-a";
   const store = options.store ?? memoryStore();
   const ports = memoryPorts();

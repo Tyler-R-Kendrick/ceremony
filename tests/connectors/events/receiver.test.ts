@@ -47,8 +47,7 @@ type Harness = {
 async function harness(
   options: Parameters<typeof scaffold>[0] & {
     identify?: Parameters<typeof createWebhookReceiver>[0]["policy"] extends
-      | infer P
-      | undefined
+      infer P | undefined
       ? P extends { identify?: infer I }
         ? I
         : never
@@ -220,11 +219,14 @@ test("EVT-05: the negative matrix is refused with sanitized responses that never
       ],
       [
         "route outside the mount path",
-        new Request("https://app.example/api/v1/connectors/events/acme-billing", {
-          method: "POST",
-          headers: signed(body, "msg_route"),
-          body,
-        }),
+        new Request(
+          "https://app.example/api/v1/connectors/events/acme-billing",
+          {
+            method: "POST",
+            headers: signed(body, "msg_route"),
+            body,
+          },
+        ),
         404,
       ],
       [
@@ -298,11 +300,11 @@ test("EVT-05: the negative matrix is refused with sanitized responses that never
     assert.equal(JSON.stringify(h.audits).includes(CANARY), false);
     const unverified = h.audits.filter((event) => event.code === "unverified");
     assert.ok(
-      unverified.some(
-        (event) => event.reason === "timestamp-out-of-tolerance",
-      ),
+      unverified.some((event) => event.reason === "timestamp-out-of-tolerance"),
     );
-    assert.ok(unverified.some((event) => event.reason === "signature-mismatch"));
+    assert.ok(
+      unverified.some((event) => event.reason === "signature-mismatch"),
+    );
   } finally {
     await h.context.store.close();
   }
@@ -311,7 +313,10 @@ test("EVT-05: the negative matrix is refused with sanitized responses that never
 test("EVT-05: an oversized body is refused while it streams, not after it is buffered", async () => {
   const h = await harness();
   try {
-    const huge = JSON.stringify({ type: "invoice.paid", blob: "x".repeat(400_000) });
+    const huge = JSON.stringify({
+      type: "invoice.paid",
+      blob: "x".repeat(400_000),
+    });
     const response = await h.receive(
       webhookRequest({
         subscription: h.context.subscription,
@@ -402,10 +407,12 @@ test("AC-STATE-07/EVT-05: an unsigned or wrong-tenant lifecycle event cannot rev
       // And a correctly signed event for the other tenant's own subscription
       // never touches this tenant's connection.
       assert.equal(
-        (await other.registry.get(
-          other.actor,
-          other.subscription.subscriptionId,
-        ))?.tenantId,
+        (
+          await other.registry.get(
+            other.actor,
+            other.subscription.subscriptionId,
+          )
+        )?.tenantId,
         "tenant-b",
       );
       assert.equal(
@@ -437,7 +444,10 @@ test("AC-STATE-07/EVT-05: an unsigned or wrong-tenant lifecycle event cannot rev
     await h.drain();
     assert.equal(h.applied.length, 1);
     assert.deepEqual(h.applied[0]?.lifecycle, { kind: "revoked" });
-    assert.equal(h.applied[0]?.envelope.providerEventType, "connection.revoked");
+    assert.equal(
+      h.applied[0]?.envelope.providerEventType,
+      "connection.revoked",
+    );
   } finally {
     await h.context.store.close();
   }
@@ -601,10 +611,7 @@ test("EVT-05: subscription reads and retirement are owner-scoped", async () => {
       subjectId: "subject-other",
     };
     assert.equal(
-      await context.registry.get(
-        stranger,
-        context.subscription.subscriptionId,
-      ),
+      await context.registry.get(stranger, context.subscription.subscriptionId),
       undefined,
     );
     await assert.rejects(
@@ -618,7 +625,9 @@ test("EVT-05: subscription reads and retirement are owner-scoped", async () => {
         error instanceof ConnectorError && error.code === "not-found",
     );
     assert.deepEqual(
-      (await context.registry.list(stranger)).map((item) => item.subscriptionId),
+      (await context.registry.list(stranger)).map(
+        (item) => item.subscriptionId,
+      ),
       [],
     );
     const mine = await context.registry.list(context.actor, "connection:1");

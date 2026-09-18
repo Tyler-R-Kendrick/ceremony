@@ -123,6 +123,21 @@ export const dynamicFieldContractSchema = z.strictObject({
       pathTemplate: z.string().max(1024),
       /** Operation ref the binding candidate uses for this dynamic operation. */
       operationRef: z.string().max(200),
+      /**
+       * Where each input of the dynamic operation belongs on the wire. The
+       * adapter places a resolved value by this table, so a form value can
+       * never decide whether it becomes a path segment, a query value or a
+       * header.
+       */
+      parameters: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1).max(256),
+            in: z.enum(["path", "query", "header", "formData", "body"]),
+            required: z.boolean(),
+          }),
+        )
+        .max(64),
     })
     .optional(),
   parameters: z.array(dynamicParameterBindingSchema).max(32),
@@ -557,6 +572,11 @@ function buildContract(
             method: target.method,
             pathTemplate: target.path,
             operationRef: dynamicOperationRef(target.nativeId),
+            parameters: target.parameters.slice(0, 64).map((parameter) => ({
+              name: parameter.name,
+              in: parameter.in,
+              required: parameter.required,
+            })),
           },
         }
       : {}),

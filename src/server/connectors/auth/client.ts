@@ -216,7 +216,11 @@ export function selectClientRegistrationProfile(input: {
       input.present,
     );
     if (!item.feasible) throw infeasible(item);
-    return { profile: item.profile, selectedBy: "requested", considered: [item] };
+    return {
+      profile: item.profile,
+      selectedBy: "requested",
+      considered: [item],
+    };
   }
   const considered = allowed.map((profile) =>
     feasibility(profile, input.policy, input.server, input.present),
@@ -403,7 +407,8 @@ async function preRegisteredClient(
       registration.clientIdConfiguration,
     );
   if (clientId === undefined && registration.publicNativeClient) {
-    clientId = publicNativeClients[new URL(input.policy.issuer).origin]?.clientId;
+    clientId =
+      publicNativeClients[new URL(input.policy.issuer).origin]?.clientId;
     source = "public-native-client";
   }
   if (!clientId)
@@ -473,7 +478,8 @@ async function metadataDocumentClient(
     hostOrigin: input.hostOrigin,
     redirectUri: input.redirectUri,
     scope,
-    name: input.clientName ?? input.policy.registration.clientName ?? "Ceremony",
+    name:
+      input.clientName ?? input.policy.registration.clientName ?? "Ceremony",
     connectorId: input.connectorId,
     key: registrationKey({
       issuer: input.policy.issuer,
@@ -532,7 +538,9 @@ function clientFromStored(
   };
 }
 
-async function dynamicClient(input: ResolveClientInput): Promise<ResolvedClient> {
+async function dynamicClient(
+  input: ResolveClientInput,
+): Promise<ResolvedClient> {
   try {
     requireCapability(input.actor, "author");
   } catch (error) {
@@ -606,7 +614,11 @@ async function dynamicClient(input: ResolveClientInput): Promise<ResolvedClient>
     ) {
       const again = await input.registrations.get(tenantId, key);
       if (again)
-        return clientFromStored(again, input.redirectUri, "stored-registration");
+        return clientFromStored(
+          again,
+          input.redirectUri,
+          "stored-registration",
+        );
       throw new ConnectorError("indeterminate", {
         detail: "oauth.registration.indeterminate",
       });

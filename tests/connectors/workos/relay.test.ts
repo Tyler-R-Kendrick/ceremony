@@ -423,8 +423,14 @@ test("WorkOS relay reports an interrupted write as indeterminate rather than fai
   // Drop the response after the request is under way: the provider may
   // already have acted, so the outcome is uncertain, not a clean failure.
   const original = context.environment.fetch;
-  context.environment.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    await original(input, init);
+  context.environment.fetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const response = await original(input, init);
+    // The request reached WorkOS and the provider may have acted; the answer
+    // is what gets lost.
+    await response.body?.cancel();
     throw new TypeError("connection reset");
   }) as typeof fetch;
   const result = await adapter.invoke!(context, {

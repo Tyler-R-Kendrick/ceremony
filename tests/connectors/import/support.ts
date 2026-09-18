@@ -104,14 +104,25 @@ export type MemorySourceStore = Pick<
   sources(): SourceRecord[];
 };
 
-/** Records are stored by copy and never overwritten: a second put of one ref is a test failure. */
+/**
+ * Records are stored by copy and are immutable. Writing the identical record
+ * again is idempotent — the reference is content-addressed, so the same
+ * capture yields the same record — but changing one in place fails the test.
+ */
 export function memorySourceStore(): MemorySourceStore {
   const records = new Map<string, SourceRecord>();
   return {
     async putSource(tenantId, source) {
       const key = `${tenantId}\u0000${source.sourceRef}`;
-      if (records.has(key))
-        throw new Error(`source record overwritten: ${source.sourceRef}`);
+      const existing = records.get(key);
+      if (existing) {
+        assert.deepEqual(
+          existing,
+          source,
+          `source record overwritten: ${source.sourceRef}`,
+        );
+        return;
+      }
       records.set(key, structuredClone(source));
     },
     async getSource(tenantId, sourceRef) {

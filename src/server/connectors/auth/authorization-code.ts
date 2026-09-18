@@ -162,7 +162,10 @@ export async function beginAuthorizationCode(
 ): Promise<AuthorizationStart> {
   const as = input.server.metadata;
   if (typeof as.authorization_endpoint !== "string")
-    return { kind: "unsupported", code: "oauth.authorization-endpoint.missing" };
+    return {
+      kind: "unsupported",
+      code: "oauth.authorization-endpoint.missing",
+    };
   if (typeof as.token_endpoint !== "string")
     return { kind: "unsupported", code: "oauth.token-endpoint.missing" };
   const methods = as.code_challenge_methods_supported;
@@ -185,8 +188,7 @@ export async function beginAuthorizationCode(
     : undefined;
   const parameters = new URLSearchParams();
   for (const [name, value] of Object.entries(input.extraParameters ?? {}))
-    if (!reservedAuthorizationParameters.has(name))
-      parameters.set(name, value);
+    if (!reservedAuthorizationParameters.has(name)) parameters.set(name, value);
   parameters.set("response_type", "code");
   parameters.set("client_id", client.client_id);
   parameters.set("redirect_uri", input.client.redirectUri);
@@ -379,10 +381,7 @@ export async function completeAuthorizationCode(
       detail: "oauth.callback.binding-mismatch",
     });
   const registered = new URL(open.redirectUri);
-  if (
-    url.origin !== registered.origin ||
-    url.pathname !== registered.pathname
-  )
+  if (url.origin !== registered.origin || url.pathname !== registered.pathname)
     throw new ConnectorError("denied", {
       detail: "oauth.callback.redirect-uri",
     });
@@ -435,7 +434,12 @@ export async function completeAuthorizationCode(
   const now = () => ctx.environment.now();
   let parameters: URLSearchParams;
   try {
-    parameters = oauth.validateAuthResponse(as, input.client.client, url, open.state);
+    parameters = oauth.validateAuthResponse(
+      as,
+      input.client.client,
+      url,
+      open.state,
+    );
   } catch (failure) {
     await ctx.environment.effects.complete(begun.effectRef, {
       status: "not-applied",
@@ -625,9 +629,7 @@ export async function refreshAccessToken(
     throw new ConnectorError("unsupported", {
       detail: "oauth.token-endpoint.missing",
     });
-  let observed:
-    | { rotated: boolean; permissions: PermissionRecord }
-    | undefined;
+  let observed: { rotated: boolean; permissions: PermissionRecord } | undefined;
   let result: { ref: string; expiresAt?: number };
   try {
     result = await ctx.environment.credentials.refresh(
@@ -766,8 +768,7 @@ export async function refreshAccessToken(
     });
   }
   const seen = observed as
-    | { rotated: boolean; permissions: PermissionRecord }
-    | undefined;
+    { rotated: boolean; permissions: PermissionRecord } | undefined;
   return {
     credentialRef: result.ref,
     ...(result.expiresAt !== undefined ? { expiresAt: result.expiresAt } : {}),

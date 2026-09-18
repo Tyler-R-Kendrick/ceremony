@@ -334,7 +334,12 @@ export async function exchangeToken(
   const settle = (
     status: "applied" | "not-applied" | "failed" | "indeterminate",
     code: string,
-  ) => ctx.environment.effects.complete(begun.effectRef, { status, code, at: now() });
+  ) =>
+    ctx.environment.effects.complete(begun.effectRef, {
+      status,
+      code,
+      at: now(),
+    });
   let tokens: oauth.TokenEndpointResponse;
   try {
     const response = await oauth.genericTokenEndpointRequest(
@@ -356,7 +361,8 @@ export async function exchangeToken(
       { recognizedTokenTypes: { n_a: () => {} } },
     );
   } catch (error) {
-    if (neverSent(error)) await settle("not-applied", "oauth.exchange.unreachable");
+    if (neverSent(error))
+      await settle("not-applied", "oauth.exchange.unreachable");
     else if (error instanceof oauth.ResponseBodyError)
       await settle("failed", "oauth.exchange.rejected");
     else await settle("indeterminate", "oauth.exchange.indeterminate");
