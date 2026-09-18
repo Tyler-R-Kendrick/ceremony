@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { run as nodeRun } from "node:test";
 import { z } from "zod";
 
 /*
@@ -20,12 +21,38 @@ import { z } from "zod";
  * diagnostics, provider bodies or secrets: only file names, counts and codes.
  */
 
-export const ledgerSchema = z.strictObject({
+/*
+ * A ledger is read strictly where it is read at all, and loosely where it is
+ * not.
+ *
+ * The first version was `strictObject` throughout, and that was a mistake with
+ * a cost: twenty of the twenty-six ledgers carried a descriptive key this
+ * schema had not anticipated -- a swarm's own `testCommands`, `verification`,
+ * `sourceProfiles`, `findings`, a per-item `title` or `provider` -- and an
+ * unrecognized key failed the whole document, so every work item inside it was
+ * discarded. The report then said 151 of 154 requirements were unmet while the
+ * suites were in fact green and the ledgers said 152 were implemented. An
+ * evidence report that understates is still wrong, and understating is the
+ * more corrosive direction: it teaches a reader to ignore the report.
+ *
+ * So: every field this report actually reads is validated exactly as before,
+ * and an additional key is carried through as unvalidated material rather than
+ * trusted or dropped. A required key is still required, so a typo in one is
+ * still a failure rather than a silently ignored extra. Nothing here reads an
+ * additional key, which is why admitting it is safe -- it cannot influence a
+ * verdict, and the report names it so a reader knows the ledger said more than
+ * the report checked.
+ */
+export const ledgerSchema = z.looseObject({
   swarm: z.string().regex(/^[A-Z][A-Z0-9-]{1,40}$/),
   workItems: z
     .array(
-      z.strictObject({
-        id: z.string().regex(/^[A-Z]{2,6}-\d{2}$/),
+      z.looseObject({
+        // A numbered id is a required work item. An uppercase-suffixed one is
+        // a swarm's own extra row (a summary, an adapter overview); it is
+        // admitted so the rest of the ledger survives, and it can never
+        // satisfy a requirement, because the join below matches exact ids.
+        id: z.string().regex(/^[A-Z]{2,6}-(?:\d{2}|[A-Z]{2,12})$/),
         status: z.enum(["implemented", "partial", "unmet"]),
         files: z.array(z.string().max(300)).max(200),
         tests: z.array(z.string().max(300)).max(200),
@@ -40,8 +67,12 @@ export const ledgerSchema = z.strictObject({
           "deployed-authorized",
         ]),
         sourceProfileIds: z.array(z.string().max(200)).max(32).default([]),
-        limitations: z.array(z.string().max(500)).max(64).default([]),
-        notes: z.string().max(2000).default(""),
+        // The ceilings exist to keep a raw provider payload out of the report,
+        // not to truncate a considered limitation. Both were tight enough that
+        // three swarms tripped them while writing prose, so both are wider;
+        // they are still far below any plausible payload.
+        limitations: z.array(z.string().max(1500)).max(64).default([]),
+        notes: z.string().max(6000).default(""),
       }),
     )
     .max(64),
@@ -49,7 +80,17 @@ export const ledgerSchema = z.strictObject({
   integrationPatches: z.array(z.unknown()).max(64).default([]),
   dependenciesProposed: z.array(z.unknown()).max(32).default([]),
   unmet: z.array(z.unknown()).max(64).default([]),
-  externalEffectsPerformed: z.array(z.string().max(500)).max(64).default([]),
+  /*
+   * "No external effect was performed" is the claim that matters most in this
+   * work, so the field admits either a sentence or a structured record. Two
+   * swarms recorded it structurally, which is more auditable, not less; the
+   * previous string-only shape rejected them and lost the rest of the ledger
+   * along with the claim.
+   */
+  externalEffectsPerformed: z
+    .array(z.union([z.string().max(1500), z.record(z.string(), z.unknown())]))
+    .max(64)
+    .default([]),
   securityFindings: z.array(z.unknown()).max(200).default([]),
 });
 export type Ledger = z.infer<typeof ledgerSchema>;
@@ -140,42 +181,73 @@ export type SuiteResult = {
 };
 
 /**
- * Minimal JUnit reader for Node's reporter output. Suites are named by file;
- * only counts are kept, so failure messages (which could quote payloads)
- * never enter the report.
+ * Runs the connector suites once and records, per file, how many top-level
+ * tests passed, failed or were skipped.
+ *
+ * This used to parse the JUnit reporter's XML, which cannot answer the
+ * question. Node names a `<testsuite>` after a `describe` block's title, and a
+ * suite written as top-level `test()` calls -- which is most of this
+ * repository -- emits bare `<testcase>` elements with no enclosing suite and
+ * no file attribute anywhere. So every result was unattributable, the report
+ * recorded zero suites, and every requirement read as unverified while the
+ * suites were in fact green. An evidence report that understates is still
+ * wrong, and it is the more dangerous direction here: it trains a reader to
+ * discount it.
+ *
+ * The programmatic runner carries `data.file` on every event, so attribution
+ * comes from the runner rather than from a reporter's formatting. Only
+ * `nesting === 0` is counted, so a subtest is not double-counted with its
+ * parent. Counts only are kept: a failure message could quote a payload, and
+ * none is retained.
  */
-export function parseJunit(xml: string): SuiteResult[] {
-  const suites: SuiteResult[] = [];
-  const suitePattern =
-    /<testsuite\b([^>]*)>([\s\S]*?)<\/testsuite>|<testsuite\b([^>]*)\/>/g;
-  for (const match of xml.matchAll(suitePattern)) {
-    const attributes = match[1] ?? match[3] ?? "";
-    const body = match[2] ?? "";
-    const name = /\bname="([^"]*)"/.exec(attributes)?.[1] ?? "";
-    const file = name
-      .replace(/&#x2F;|&#47;/g, "/")
-      .replace(/^.*?(tests\/)/, "$1");
-    if (!file.startsWith("tests/")) continue;
-    const cases = [
-      ...body.matchAll(/<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g),
-    ];
-    let passed = 0,
-      failed = 0,
-      skipped = 0;
-    for (const item of cases) {
-      const inner = item[3] ?? "";
-      if (/<skipped\b/.test(inner)) skipped++;
-      else if (/<failure\b|<error\b/.test(inner)) failed++;
-      else passed++;
+export async function runConnectorSuites(files: string[]): Promise<{
+  command: string;
+  exitCode: number | null;
+  suites: SuiteResult[];
+}> {
+  const byFile = new Map<string, SuiteResult>();
+  const record = (file: string | undefined, key: keyof SuiteResult): void => {
+    if (!file) return;
+    const relativePath = relative(root, file);
+    const existing = byFile.get(relativePath) ?? {
+      file: relativePath,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+    };
+    if (key !== "file") existing[key] += 1;
+    byFile.set(relativePath, existing);
+  };
+
+  let failed = false;
+  const stream = nodeRun({
+    files: files.map((file) => join(root, file)),
+    concurrency: 4,
+    execArgv: ["--no-experimental-webstorage", "--import", "tsx"],
+  });
+  for await (const event of stream) {
+    if (event.type === "test:pass" || event.type === "test:fail") {
+      const data = event.data as {
+        file?: string;
+        nesting?: number;
+        skip?: boolean;
+        todo?: boolean;
+      };
+      if (data.nesting !== 0) continue;
+      if (data.skip === true || data.todo === true)
+        record(data.file, "skipped");
+      else if (event.type === "test:pass") record(data.file, "passed");
+      else {
+        record(data.file, "failed");
+        failed = true;
+      }
     }
-    const existing = suites.find((suite) => suite.file === file);
-    if (existing) {
-      existing.passed += passed;
-      existing.failed += failed;
-      existing.skipped += skipped;
-    } else suites.push({ file, passed, failed, skipped });
   }
-  return suites;
+  return {
+    command: `node --import tsx --test ${files.length} connector test files (programmatic runner, counts only)`,
+    exitCode: failed ? 1 : 0,
+    suites: [...byFile.values()].sort((a, b) => a.file.localeCompare(b.file)),
+  };
 }
 
 function discoverConnectorTests(): string[] {
@@ -191,44 +263,6 @@ function discoverConnectorTests(): string[] {
   const base = join(root, "tests/connectors");
   if (existsSync(base)) walk(base);
   return results.sort();
-}
-
-/** Runs the connector suites once with the JUnit reporter; counts only are retained. */
-export function runConnectorSuites(files: string[]): {
-  command: string;
-  exitCode: number | null;
-  suites: SuiteResult[];
-} {
-  const artifacts = join(root, "artifacts/connectors");
-  mkdirSync(artifacts, { recursive: true });
-  const destination = join(artifacts, "junit.xml");
-  const args = [
-    "--no-experimental-webstorage",
-    "--import",
-    "tsx",
-    "--test",
-    "--test-concurrency=4",
-    "--test-reporter=junit",
-    `--test-reporter-destination=${destination}`,
-    ...files,
-  ];
-  const result = spawnSync(process.execPath, args, {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=8192" },
-  });
-  let suites: SuiteResult[] = [];
-  try {
-    suites = parseJunit(readFileSync(destination, "utf8"));
-  } catch {
-    suites = [];
-  }
-  return {
-    command: `node --import tsx --test --test-reporter=junit ${files.length} connector test files`,
-    exitCode: result.status,
-    suites,
-  };
 }
 
 export function loadLedgers(): { ledgers: Ledger[]; problems: string[] } {
@@ -303,20 +337,59 @@ export function buildReport(input: {
       }
       const checks: Check[] = item.tests.map((file) => {
         const suite = byFile.get(file);
-        const result: Check["result"] = !suite
-          ? "fail"
-          : suite.failed > 0 || suite.passed === 0
+        /*
+         * A ledger's `tests` list is what a swarm considers the evidence for a
+         * work item, and that is not always a file this run executes. Three
+         * kinds appear, and conflating them was wrong in the worst direction:
+         * every path absent from the connector run was reported as a failed
+         * check, so a YAML fixture -- which is not a test and can never appear
+         * in a test run -- made an implemented requirement read as unmet.
+         *
+         * So each path is classified by what it is.
+         *
+         * A `.test.ts` under tests/connectors is this run's business. Present
+         * and green is a pass; present and red is a fail; absent really does
+         * mean it did not run, and stays a fail.
+         *
+         * A Playwright `.spec.ts` belongs to another runner that binds fixed
+         * ports and is not started here. It is `blocked`, naming the runner,
+         * because the evidence exists and this run is not the place it is
+         * produced.
+         *
+         * Anything else -- a fixture, a double, a harness, a helper module --
+         * is supporting material rather than a check. It is `not-applicable`,
+         * and it neither confirms nor contradicts the requirement.
+         */
+        const isConnectorTest =
+          file.startsWith("tests/connectors/") && file.endsWith(".test.ts");
+        const isBrowserSpec = file.endsWith(".spec.ts");
+        const result: Check["result"] = isConnectorTest
+          ? !suite || suite.failed > 0 || suite.passed === 0
             ? "fail"
-            : "pass";
+            : "pass"
+          : isBrowserSpec
+            ? "blocked"
+            : suite
+              ? "pass"
+              : "not-applicable";
+        const reason = isConnectorTest
+          ? suite
+            ? undefined
+            : "test file not found in the recorded connector run"
+          : isBrowserSpec
+            ? "Playwright specification; run by npm run test:e2e, which binds fixed ports and is not started here"
+            : suite
+              ? undefined
+              : "supporting material (fixture, double or harness), not an executable check";
         return {
           testId: file,
-          command: `node --import tsx --test ${file}`,
+          command: isBrowserSpec
+            ? `npx playwright test ${file}`
+            : `node --import tsx --test ${file}`,
           result,
           evidenceLevel: item.evidenceLevel,
           artifact: "artifacts/connectors/junit.xml",
-          ...(suite
-            ? {}
-            : { reason: "test file not found in the recorded connector run" }),
+          ...(reason ? { reason } : {}),
         };
       });
       const liveBlocked = item.limitations.find((text) =>
@@ -337,7 +410,29 @@ export function buildReport(input: {
           reason: `${item.status}: ${item.notes || item.limitations.join("; ") || "see ledger"}`,
         });
       else if (checks.some((check) => check.result === "fail"))
-        unmet.push({ id, swarm, reason: "a recorded test check failed" });
+        unmet.push({
+          id,
+          swarm,
+          reason: `a recorded test check failed: ${checks
+            .filter((check) => check.result === "fail")
+            .map((check) => check.testId)
+            .join(", ")}`,
+        });
+      // A requirement whose only evidence is blocked is not confirmed here,
+      // and saying so is the point of this report. It is listed separately
+      // from a failure, because the two ask different things of a reader: one
+      // is a defect, the other is a run that has not happened.
+      else if (
+        checks.length > 0 &&
+        checks.every((check) => check.result !== "pass") &&
+        checks.some((check) => check.result === "blocked")
+      )
+        unmet.push({
+          id,
+          swarm,
+          reason:
+            "every recorded check is blocked in this environment; no passing check confirms it here",
+        });
       requirements.push({
         id,
         swarm,
@@ -487,7 +582,7 @@ if (
   const skipTests = process.argv.includes("--no-tests");
   const run = skipTests
     ? { command: "skipped (--no-tests)", exitCode: null, suites: [] }
-    : runConnectorSuites(files);
+    : await runConnectorSuites(files);
   const { ledgers, problems } = loadLedgers();
   const report = buildReport({
     ledgers,
@@ -502,6 +597,37 @@ if (
     JSON.stringify(report, null, 2) + "\n",
   );
   writeFileSync(join(evidenceDirectory, "README.md"), summarize(report));
+  /*
+   * Format what was just generated. `format:check` covers `docs`, so a
+   * generated file that prettier disagrees with fails the repository's own
+   * gate the moment anyone regenerates it -- and the disagreement is entirely
+   * cosmetic (prettier pads markdown table columns). Reimplementing that
+   * padding here would be a second, drifting copy of prettier's rules, and
+   * exempting the files in `.prettierignore` would leave a gate that passes
+   * only because it stopped looking. Formatting the output is the version
+   * with no lie in it.
+   *
+   * Best effort: a missing prettier is a developer-environment problem, not a
+   * reason to fail an evidence run that has already produced its report.
+   */
+  try {
+    execFileSync(
+      "npx",
+      [
+        "prettier",
+        "--write",
+        "--log-level",
+        "warn",
+        join(evidenceDirectory, "report.json"),
+        join(evidenceDirectory, "README.md"),
+      ],
+      { cwd: root, stdio: ["ignore", "ignore", "pipe"] },
+    );
+  } catch {
+    console.warn(
+      "Generated evidence was written but could not be formatted; run npm run format.",
+    );
+  }
   console.log(
     `Connector evidence: ${report.requirements.length} requirements, ${report.unmetRequirements.length} unmet/partial, ${run.suites.length} suites (exit ${run.exitCode}).`,
   );

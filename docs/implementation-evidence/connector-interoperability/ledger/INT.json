@@ -18,64 +18,99 @@
     },
     {
       "id": "INT-02",
-      "status": "partial",
-      "files": ["src/server/connectors/inventory.ts"],
-      "tests": [],
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/adapters.ts",
+        "src/server/connectors/inventory.ts",
+        "src/server/connectors/runtime.ts",
+        "src/server/connectors/index.ts",
+        "src/server/hosted/http.ts",
+        "src/server/mcp.ts",
+        "examples/server.ts",
+        "examples/web/main.tsx",
+        "examples/web/connectors.tsx",
+        "src/react/index.tsx",
+        "src/core/connectors/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/inventory/registry.test.ts",
+        "tests/connectors/commands/agent-seam.test.ts",
+        "tests/connectors/dapr/app-routes.test.ts",
+        "tests/connectors/packaging/consumer.test.ts"
+      ],
       "acceptanceIds": ["AC-UX-01"],
-      "evidenceLevel": "not-tested",
+      "evidenceLevel": "local-integration",
       "sourceProfileIds": [],
       "limitations": [
-        "Adapter mounting through one inventory and the reference UI happens after the provider swarms deliver."
+        "The reference server's connector actor is derived from its anonymous session cookie; a deployment authenticates before the route table is reached, which is why the handler takes an actor rather than deriving one.",
+        "No adapter is configured in the reference server, so every provider-backed row reports unconfigured. That is the honest state for a server that has signed up for nothing, not a missing implementation."
       ],
-      "notes": ""
+      "notes": "One inventory (createConnectorRegistry) and one composition root (createConnectorRuntime) build the registry, ports, policy, approved fetcher, route table and agent intents from one store and one origin, so what a deployment can reach and what its directory advertises cannot disagree. Mounted in examples/server.ts behind the authenticated actor, and in examples/web/main.tsx behind a lazy import so a visitor who never opens the workspace downloads only the nav button. The agent intents run on ConnectorCommandService.agentDependencies(), built inside the class so the intents receive unprojected state and remain the single place that decides what an assistant sees; getDefinition was the wrong seam because it answers an author's and reviewer's question, not an executor's. Dapr's app-side routes are mounted separately from the shared webhook receiver because the sidecar addresses the app by URL path and its only authentication is one bearer token shared across every binding."
     },
     {
       "id": "INT-03",
-      "status": "partial",
+      "status": "implemented",
       "files": ["package.json", "package-lock.json"],
-      "tests": [],
+      "tests": ["tests/connectors/packaging/consumer.test.ts"],
       "acceptanceIds": ["AC-PKG-02"],
-      "evidenceLevel": "not-tested",
+      "evidenceLevel": "local-integration",
       "sourceProfileIds": [],
       "limitations": [],
-      "notes": "yaml@2.9.0 (ISC, already resolved in the lockfile as a dev transitive) promoted to a runtime dependency for bounded YAML ingestion; no other dependency added yet. Foreign connector package install hooks are never run as part of ingestion."
+      "notes": "yaml@2.9.0 (ISC, already resolved in the lockfile as a dev transitive) promoted to a runtime dependency for bounded YAML ingestion. No other runtime dependency was added for this work; ajv 8.20 stayed a dev dependency. Nothing in ingestion evaluates imported code, installs a package or launches a container, and no foreign connector package's install hooks are ever run."
     },
     {
       "id": "INT-04",
-      "status": "unmet",
-      "files": [],
-      "tests": [],
+      "status": "implemented",
+      "files": ["package.json", "src/server/connectors/index.ts"],
+      "tests": ["tests/connectors/packaging/consumer.test.ts"],
       "acceptanceIds": ["AC-PKG-01", "AC-PKG-02"],
-      "evidenceLevel": "not-tested",
+      "evidenceLevel": "local-integration",
       "sourceProfileIds": [],
       "limitations": [
-        "Optional server export and packed-consumer tests pending integration."
+        "The consumer is built by unpacking the tarball rather than by npm install: installing pulls runtime dependencies from a registry and one postinstall downloads a native binary, which this environment cannot reach. So the export map and the published file set are proven; the dependency set a fresh install would produce is not."
       ],
-      "notes": ""
+      "notes": "package.json gains ./server/connectors and ./connectors.css, and src/react/connectors.css joins files. The packed-consumer test found a real defect while being written: src/server/connectors/index.ts exported the runtime but not the inventory, so a consumer could import createConnectorRuntime and had no way to build the registry it needs. Fixed by exporting adapters.js. The test also asserts that docs/implementation-evidence is excluded from the tarball, so this work's internal ledgers are not published."
     },
     {
       "id": "INT-05",
-      "status": "unmet",
-      "files": [],
-      "tests": [],
+      "status": "implemented",
+      "files": [
+        "docs/connector-directory.md",
+        "src/react/connector-connection.tsx",
+        "src/react/connector-directory.tsx"
+      ],
+      "tests": [
+        "tests/browser/connector-directory.spec.ts",
+        "tests/browser/connector-drawer.spec.ts",
+        "tests/connectors/ux/connection.test.ts"
+      ],
       "acceptanceIds": ["AC-UX-02"],
-      "evidenceLevel": "not-tested",
+      "evidenceLevel": "browser-integration",
       "sourceProfileIds": [],
       "limitations": [
-        "PR #39 reconciliation pending the UX swarm's control audit."
+        "PR #39 is another author's open pull request and was not merged, rebased or pushed to. The reconciliation is an audit recorded in docs/connector-directory.md and a replacement surface on this branch; whether to close #39 is its author's decision."
       ],
-      "notes": ""
+      "notes": "Every control PR #39 exposed was audited against the invariant that a browser never declares a destination, a credential owner, a capability or its own verification. Removed as controls: managed/custom endpoint fields, environment-variable name fields, service/name/UID, shared-versus-per-user key choice, the eight capability toggles, the expiration select and the verify-real-access toggle. Retained as intents: authentication family, target, owner kind (organization disabled unless the viewer reports the policy) and interruption budget. Capability status became a read-only report, because a capability is something a host measured, not something a person chooses."
     },
     {
       "id": "INT-06",
-      "status": "partial",
-      "files": ["scripts/connector-evidence.ts"],
-      "tests": [],
+      "status": "implemented",
+      "files": [
+        "package.json",
+        "scripts/connector-evidence.ts",
+        "scripts/check-control-characters.mjs",
+        "scripts/check-bundle.mjs",
+        "playwright.config.ts"
+      ],
+      "tests": ["tests/connectors/packaging/consumer.test.ts"],
       "acceptanceIds": ["AC-PKG-03"],
-      "evidenceLevel": "not-tested",
+      "evidenceLevel": "local-integration",
       "sourceProfileIds": [],
-      "limitations": ["Integrated gates not yet run."],
-      "notes": ""
+      "limitations": [
+        "Mutation testing over the connector guards is not wired: stryker.security.config.mjs has no connector guard targets yet, so the killers run in the ordinary security suite but no connector guard is mutated.",
+        "Live and deployed oracles are all blocked. No authorized credential and no operator consent exists here, and nothing is labelled live."
+      ],
+      "notes": "Gates run on this commit: prettier over the whole repository plus a new C0 control-character scan (clean), whole-project tsc --noEmit (clean), the generated connector documents re-checked against the adapters and ledgers (up to date), the full deterministic suite at 2890 tests with 0 failures, npm run build including the browser bundle ceiling (pass), and the packed-consumer test. Two defects in the evidence compiler itself were found and fixed while running it: it parsed the JUnit reporter's XML, which names a suite after a describe title and cannot attribute a top-level test to a file, so every result was unattributable and the report said 151 of 154 requirements were unmet while the suites were green; and its ledger schema was strict, so twenty of twenty-six ledgers failed on one unanticipated descriptive key and every work item inside them was discarded. Now 164 suites are attributed and no ledger is rejected."
     }
   ],
   "contractChanges": [],
