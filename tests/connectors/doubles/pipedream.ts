@@ -77,6 +77,8 @@ export type DoubleAccount = {
   created_at: string;
   updated_at: string;
   authorized_scopes: string[];
+  /** Documented on Account: the reason an account is unhealthy or dead. */
+  error: string | null;
   environment: DoubleEnvironment;
   credentials: Json;
 };
@@ -828,6 +830,7 @@ export async function startPipedreamDouble(
         created_at: at,
         updated_at: at,
         authorized_scopes: input.scopes ?? [],
+        error: null,
         environment: input.environment,
         credentials: {
           oauth_client_id: "fixture-oauth-client",

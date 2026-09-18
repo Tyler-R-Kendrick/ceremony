@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
   CapabilityStatus,
@@ -19,6 +20,7 @@ import {
 } from "../../adapter.js";
 import { boundOperation, type RuntimeBinding } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
+import { sha256Hex } from "../../import/parse.js";
 import {
   importKamelet,
   kameletSourceRecord,
@@ -320,7 +322,7 @@ export function createCamelKameletAdapter(
       const capturedAt = new Date(ctx.environment.now()).toISOString();
       const mediaType =
         input.mediaType.split(";")[0]?.trim() || "application/yaml";
-      const sourceRef = `src:camel-kamelet:${await digestOf(input.bytes)}`;
+      const sourceRef = `src:camel-kamelet:${sha256Hex(input.bytes)}`;
       const imported = await importKamelet(input.bytes, {
         sourceRef,
         origin: input.origin,
@@ -421,7 +423,7 @@ export function createCamelKameletAdapter(
           : {}),
         bindingRef: ctx.binding.bindingRef,
         operation: `camel-kamelet.run:${settings.kameletName}`,
-        digest: await digestOfText(
+        digest: digestOfText(
           JSON.stringify({ descriptor, input: request.input }),
         ),
         commandId: request.commandId,
@@ -459,18 +461,8 @@ export function createCamelKameletAdapter(
   return adapter;
 }
 
-async function digestOf(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    bytes as unknown as ArrayBufferView,
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function digestOfText(text: string): Promise<string> {
-  return digestOf(new TextEncoder().encode(text));
+function digestOfText(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 export type { KameletType };

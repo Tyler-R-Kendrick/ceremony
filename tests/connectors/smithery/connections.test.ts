@@ -527,7 +527,6 @@ test("AC-EXT-07: a scoped token that does not match the connection's metadata ca
   });
   const { double, ctx, adapter } = await harness({
     mcpClient: factory,
-    mcpOrigin: undefined,
     // The connection belongs to a different end user than the binding's
     // metadata scope, so the minted token cannot reach it.
     connections: [connectedSeed({ metadata: { userId: "user-999" } })],

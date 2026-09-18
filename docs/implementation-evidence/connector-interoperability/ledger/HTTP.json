@@ -167,6 +167,22 @@
     }
   ],
   "dependenciesProposed": [],
+  "testCommand": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/openapi/*.test.ts tests/connectors/overlay/*.test.ts",
+  "testResults": {
+    "total": 146,
+    "passed": 146,
+    "failed": 0,
+    "byFile": {
+      "tests/connectors/openapi/read.test.ts": 19,
+      "tests/connectors/openapi/security.test.ts": 17,
+      "tests/connectors/openapi/compile.test.ts": 20,
+      "tests/connectors/openapi/invoke.test.ts": 27,
+      "tests/connectors/openapi/refs.test.ts": 11,
+      "tests/connectors/openapi/export.test.ts": 15,
+      "tests/connectors/overlay/apply.test.ts": 22,
+      "tests/connectors/overlay/diff.test.ts": 15
+    }
+  },
   "unmet": [
     "Live evidence is blocked: there are no authorized upstream credentials in this environment, so every dimension is proven against loopback protocol fixtures only and is recorded as protocol-fixture or unit, never live-authorized.",
     "Response bodies are bounded, content-type-gated and JSON-parsed but not schema-validated; the export therefore publishes permissive response schemas. Validating responses against the compiled subset is a deliberate follow-up, not a silent gap.",

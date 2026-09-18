@@ -61,6 +61,8 @@ import {
   GOOGLE_CLOUD_PLATFORM_SCOPE,
   runtimeActionSchema,
   runtimeEntitySchema,
+  type RuntimeActionSchema,
+  type RuntimeEntitySchema,
 } from "./schemas.js";
 
 /*
@@ -633,14 +635,16 @@ export function createGoogleConnectorsAdapter(): ConnectorAdapter {
         throw new ConnectorError("invalid-request", {
           detail: "google-connectors.import.resource",
         });
-      const entityTypes = document.data.entityTypes
-        .map((raw) => runtimeEntitySchema.safeParse(raw))
-        .filter((parsed) => parsed.success)
-        .map((parsed) => parsed.data);
-      const actions = document.data.actions
-        .map((raw) => runtimeActionSchema.safeParse(raw))
-        .filter((parsed) => parsed.success)
-        .map((parsed) => parsed.data);
+      const entityTypes: RuntimeEntitySchema[] = [];
+      for (const raw of document.data.entityTypes) {
+        const parsed = runtimeEntitySchema.safeParse(raw);
+        if (parsed.success) entityTypes.push(parsed.data);
+      }
+      const actions: RuntimeActionSchema[] = [];
+      for (const raw of document.data.actions) {
+        const parsed = runtimeActionSchema.safeParse(raw);
+        if (parsed.success) actions.push(parsed.data);
+      }
       const report = reportConnectionCapabilities({
         connection: connection.data,
         entityTypes,

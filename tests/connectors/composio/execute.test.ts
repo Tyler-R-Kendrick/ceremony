@@ -40,7 +40,9 @@ after(async () => {
   for (const item of open) await item.close();
 });
 
-const withAccount = { double: { accounts: [account()] } } as const;
+const withAccount: Parameters<typeof harness>[0] = {
+  double: { accounts: [account()] },
+};
 
 function bodyOf(request: { body: Buffer }): Record<string, unknown> {
   return JSON.parse(request.body.toString("utf8")) as Record<string, unknown>;

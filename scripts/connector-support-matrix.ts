@@ -167,17 +167,28 @@ export type AdapterFacts = {
 
 export type AdapterProblem = { module: string; factory: string; reason: string };
 
-/** Directories that may hold an adapter factory module. */
-const adapterRoots = [
-  "src/server/connectors/providers",
-  "src/server/connectors/registries",
+/**
+ * Where an adapter factory module may live. `children` scans one level of
+ * subdirectories for an `index.ts`; `self` takes the directory's own barrel.
+ * Adding a directory here is the only way a new adapter enters this document.
+ */
+const adapterRoots: Array<{ base: string; mode: "children" | "self" }> = [
+  { base: "src/server/connectors/providers", mode: "children" },
+  { base: "src/server/connectors/registries", mode: "children" },
+  { base: "src/server/connectors/formats", mode: "children" },
+  { base: "src/server/connectors/mcp", mode: "self" },
 ];
 
 function adapterModules(): string[] {
   const modules: string[] = [];
-  for (const base of adapterRoots) {
+  for (const { base, mode } of adapterRoots) {
     const directory = join(root, base);
     if (!existsSync(directory)) continue;
+    if (mode === "self") {
+      const index = join(directory, "index.ts");
+      if (existsSync(index)) modules.push(relative(root, index));
+      continue;
+    }
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const index = join(directory, entry.name, "index.ts");

@@ -48,7 +48,9 @@ export const DOCKER_CATALOG_LIMITS = Object.freeze({
   providers: 16,
   tags: 64,
 });
-export type DockerCatalogLimits = typeof DOCKER_CATALOG_LIMITS;
+export type DockerCatalogLimits = {
+  readonly [K in keyof typeof DOCKER_CATALOG_LIMITS]: number;
+};
 
 export const DOCKER_CATALOG_FORMAT = "docker-mcp-catalog" as const;
 export const DOCKER_CATALOG_FORMAT_VERSION = "2" as const;

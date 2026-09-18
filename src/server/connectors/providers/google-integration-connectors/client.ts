@@ -16,6 +16,7 @@ import {
 import {
   checkStatusResponseSchema,
   connectionSchema,
+  entitySchema,
   executeActionResponseSchema,
   googleErrorSchema,
   listActionsMetadataResponseSchema,
@@ -269,7 +270,10 @@ export function createGoogleConnectorsClient(
     return parseBoundedJsonBytes(bytes, limits.json);
   }
 
-  const paging = (input: { pageSize?: number; pageToken?: string }) => ({
+  const paging = (input: {
+    pageSize?: number | undefined;
+    pageToken?: string | undefined;
+  }) => ({
     pageSize: String(input.pageSize ?? limits.pageSize),
     ...(input.pageToken ? { pageToken: input.pageToken } : {}),
   });
@@ -279,7 +283,11 @@ export function createGoogleConnectorsClient(
     /** `GET /v1/projects/{p}/locations/{l}/connections` */
     async listConnections(
       scope: Pick<ConnectionResource, "project" | "location">,
-      input: { pageSize?: number; pageToken?: string; filter?: string } = {},
+      input: {
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+        filter?: string | undefined;
+      } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<{
       connections: GoogleConnection[];
@@ -335,7 +343,11 @@ export function createGoogleConnectorsClient(
     /** `GET .../connectionSchemaMetadata:listEntityTypes` */
     async listEntityTypeMetadata(
       resource: ConnectionResource,
-      input: { pageSize?: number; pageToken?: string; filter?: string } = {},
+      input: {
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+        filter?: string | undefined;
+      } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<{ entityTypes: RuntimeEntitySchema[]; nextPageToken?: string }> {
       const value = await request(
@@ -370,7 +382,11 @@ export function createGoogleConnectorsClient(
     /** `GET .../connectionSchemaMetadata:listActions` */
     async listActionMetadata(
       resource: ConnectionResource,
-      input: { pageSize?: number; pageToken?: string; filter?: string } = {},
+      input: {
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+        filter?: string | undefined;
+      } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<{ actions: RuntimeActionSchema[]; nextPageToken?: string }> {
       const value = await request(
@@ -405,7 +421,10 @@ export function createGoogleConnectorsClient(
     /** `GET /v2/.../entityTypes`; reports the entity types the connector cannot represent. */
     async listRuntimeEntityTypes(
       resource: ConnectionResource,
-      input: { pageSize?: number; pageToken?: string } = {},
+      input: {
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+      } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<{
       types: Array<{ name?: string; operations?: string[] }>;
@@ -451,7 +470,10 @@ export function createGoogleConnectorsClient(
     /** `GET /v2/.../actions`; reports the actions the connector cannot represent. */
     async listRuntimeActions(
       resource: ConnectionResource,
-      input: { pageSize?: number; pageToken?: string } = {},
+      input: {
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+      } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<{
       actions: Array<{ name?: string }>;
@@ -490,11 +512,11 @@ export function createGoogleConnectorsClient(
       resource: ConnectionResource,
       entityType: string,
       input: {
-        pageSize?: number;
-        pageToken?: string;
-        sortBy?: string[];
-        sortOrder?: string;
-        conditions?: string;
+        pageSize?: number | undefined;
+        pageToken?: string | undefined;
+        sortBy?: string[] | undefined;
+        sortOrder?: string | undefined;
+        conditions?: string | undefined;
       } = {},
       call: { signal?: AbortSignal } = {},
     ): Promise<EntityPage> {
@@ -557,9 +579,7 @@ export function createGoogleConnectorsClient(
         ),
         { method: "GET", ...(call.signal ? { signal: call.signal } : {}) },
       );
-      const parsed = listEntitiesResponseSchema.shape.entities.element.safeParse(
-        value,
-      );
+      const parsed = entitySchema.safeParse(value);
       if (!parsed.success)
         throw new ConnectorError("upstream-rejected", {
           detail: "google-connectors.get-entity.shape",

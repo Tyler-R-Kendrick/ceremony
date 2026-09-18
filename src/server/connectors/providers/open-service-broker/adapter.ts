@@ -790,14 +790,20 @@ export function createOpenServiceBrokerAdapter(
         let credentialRef: string | undefined;
         if (split.credentials) {
           const scope = credentialScope(ctx);
+          /*
+           * `expires_at` is an ISO 8601 string the broker chose. An
+           * unparsable one means the expiry is unknown, which is recorded by
+           * omitting it rather than by inventing a moment.
+           */
+          const parsedExpiry = response.value.metadata?.expires_at
+            ? Date.parse(response.value.metadata.expires_at)
+            : Number.NaN;
           credentialRef = await ctx.environment.credentials.store(
             scope,
             split.credentials,
             {
-              ...(response.value.metadata?.expires_at
-                ? {
-                    expiresAt: Date.parse(response.value.metadata.expires_at) || undefined,
-                  }
+              ...(Number.isFinite(parsedExpiry)
+                ? { expiresAt: parsedExpiry }
                 : {}),
               ...(ctx.connection?.credentialRef
                 ? { replaces: ctx.connection.credentialRef }

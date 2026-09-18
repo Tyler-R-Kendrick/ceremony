@@ -158,7 +158,10 @@ test("losses name every construct the description cannot reproduce", async () =>
   const apiProperties = result.losses.find(
     (loss) => loss.code === "structure.api-properties-not-exported",
   );
-  assert.match(apiProperties?.message ?? "", /never leaves in an export/);
+  assert.match(
+    apiProperties?.message ?? "",
+    /no credential, client secret or connection value ever leaves in an export/,
+  );
   // Policy instances change behaviour and are reported as a difference.
   const policy = result.losses.find(
     (loss) => loss.code === "policy.templates-not-exported",

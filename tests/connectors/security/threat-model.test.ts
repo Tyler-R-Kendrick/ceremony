@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, createHmac } from "node:crypto";
 import { test } from "node:test";
 import {
   agentConnectorProjection,
@@ -34,7 +35,7 @@ import {
   NO_RUNNER_CONFIGURED,
   unavailableHostRunner,
 } from "../../../src/server/connectors/registries/docker/runner.js";
-import { buildConnectionSummary } from "../../fixtures/builders.js";
+import { buildConnectionSummary } from "../fixtures/builders.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import { testBinding, testConnection } from "../auth/harness.js";
 import { trustBoundaries } from "./threat-model.js";
@@ -382,7 +383,6 @@ test("TB-05 an unsigned broker event is not a lifecycle change", () => {
       success: true,
     }),
   );
-  const { createHmac, createHash } = require("node:crypto") as typeof import("node:crypto");
   const valid = createHmac("sha256", signingKey).update(body).digest("hex");
   assert.equal(verifyNangoSignature(signingKey, body, valid), true);
   // The documented legacy header is a plain digest of key+body. It must not be
@@ -492,7 +492,6 @@ test("TB-06 a registry listing is inert and not publishable by default", async (
 });
 
 test("TB-07 an event sender cannot replay or downgrade", () => {
-  const { createHmac } = require("node:crypto") as typeof import("node:crypto");
   const secret = "whsec_" + Buffer.from("a".repeat(24)).toString("base64");
   const secrets = [{ keyId: "k1", secret }];
   const body = enc('{"event":"connection.created"}');

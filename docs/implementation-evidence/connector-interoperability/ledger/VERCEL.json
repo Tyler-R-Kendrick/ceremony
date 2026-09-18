@@ -158,6 +158,21 @@
     "AC-VC-07": "tests/connectors/vercel/triggers.test.ts - forged, unsigned, alien-issuer, expired, wrong-audience and wrong-claim deliveries all rejected; asserted-verification headers ignored",
     "AC-VC-08": "tests/connectors/vercel/provider-conformance.test.ts - discovery, DCR, code+PKCE, refresh and resource-indicator behaviour against two issuers this repository already serves"
   },
+  "triggerVerification": {
+    "question": "How is a Vercel-forwarded trigger delivery authenticated at the receiving project?",
+    "implemented": "The EVENT port verifies a Vercel OIDC bearer token carried in the Authorization header: RS256 against the JWKS served by the binding's `oidc` destination (https://oidc.vercel.com/.well-known/jwks), issuer pinned to https://oidc.vercel.com or a https://oidc.vercel.com/<team> form, then owner_id, project_id and environment checked against the configured team and the binding's permitted targets and registered trigger destinations. This is a real credential with a published format, not a stand-in verifier.",
+    "evidence": [
+      "https://vercel.com/docs/connect/frameworks/chat-sdk (last_updated 2026-08-28, retrieved 2026-09-18): 'Connect verifies the provider's signature, forwards the request, and adds a Vercel OpenID Connect (OIDC) bearer token. The helper's webhookVerifier verifies that OIDC token instead of the provider's native signature.'",
+      "@vercel/connect 2.3.0 dist/chat/webhook-verifier.js (npm, retrieved 2026-09-18T00:37:11Z): createConnectWebhookVerifier reads `Authorization: Bearer <jwt>` and calls verifyVercelOidcToken; issuer is hard-pinned and projectId/environment default to VERCEL_PROJECT_ID and VERCEL_TARGET_ENV/VERCEL_ENV, failing closed when absent.",
+      "@vercel/oidc 3.8.8 dist/verify-vercel-oidc-token.js (npm, retrieved 2026-09-18T00:37:11Z): RS256 default, createRemoteJWKSet('https://oidc.vercel.com/.well-known/jwks'), issuer must equal https://oidc.vercel.com or start with https://oidc.vercel.com/.",
+      "https://vercel.com/docs/oidc/reference (last_updated 2026-08-04, retrieved 2026-09-18): the claim table (iss, aud, sub, owner, owner_id, project, project_id, environment, custom_environment_id, user_id) and the JWKS discovery location."
+    ],
+    "unverified": [
+      "https://vercel.com/docs/connect/concepts/triggers (last_updated 2026-08-20, retrieved 2026-09-18) says only: 'it signs the outbound request so your handler can confirm it came from Vercel Connect' and 'Vercel Connect publishes the signing key per connector for this purpose.' It names NO header, NO algorithm, NO key endpoint and NO signed-payload construction. That outbound signing scheme is therefore NOT pinned by this swarm and is NOT implemented; nothing here should be read as a claim to know its wire format.",
+      "Whether that per-connector signature exists in addition to the OIDC bearer, and whether it binds the body bytes, is unknown from primary documentation."
+    ],
+    "consequence": "Because the OIDC bearer authenticates the forwarder and the calling deployment rather than the payload, every accepted envelope records a forwarderHops entry with bodyBound:false. A body-binding signature, once Vercel publishes its format, would be an additional check, not a replacement. The Chat SDK page states the matching operational limits: freshness comes from the token's short expiry, and there is no built-in delivery de-duplication, so handlers must be idempotent."
+  },
   "verifiedFields": {
     "verified": [
       "Per-operation paths and versions for all 13 published Connect operations (REST reference table and OpenAPI document agree)",
@@ -172,7 +187,7 @@
       "Provider-side requirements: discovery locations including the RFC 8414 path-suffixed form, grant-to-subject mapping, the exact callback URL https://connect.vercel.com/callback, expires_in, DCR/CIMD conditions, PKCE S256, refresh, revocation, scopes, resource indicators and RAR"
     ],
     "unverified": [
-      "The trigger signing mechanism named on the triggers page ('signs the outbound request', 'publishes the signing key per connector'): no header, algorithm or key URL is published. Implemented as the OIDC bearer the shipped SDK verifies; any additional body signature is unverified and not implemented.",
+      "The outbound trigger signing scheme named on the triggers page ('signs the outbound request', 'publishes the signing key per connector'): no header, no algorithm, no key URL and no signed-payload construction is published, so it is not pinned and not implemented. See the triggerVerification block above for what is implemented instead and on what evidence.",
       "Wire-level error codes behind ClientNotLinkedToProjectError and ClientNotEnabledForEnvironmentError: the SDK only switches on no_token, user_authorization_required, client_installation_required and connector_installation_required. The double and the adapter use the snake_case spelling of the class names (client_not_linked_to_project, client_not_enabled_for_environment).",
       "Which credential class each endpoint accepts is described in prose (RBAC plus project links) with no wire discriminator; the double models management-vs-workload rejection accordingly.",
       "DELETE /v1/connect/connectors/{connector}/tokens is SDK-observed only; it is not in the REST reference or the OpenAPI document.",

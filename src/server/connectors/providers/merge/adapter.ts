@@ -41,7 +41,6 @@ import {
   MERGE_API_BASE_PATH,
   MERGE_PROFILE,
   type MergeCategory,
-  type MergeLinkedAccount,
 } from "./contracts.js";
 
 /*
@@ -483,7 +482,13 @@ export function createMergeAdapter(
 
   const claimFor = (
     ctx: AdapterCallContext,
-    account: MergeLinkedAccount,
+    /**
+     * Only the linked-account id is evidence here. The two Merge shapes that
+     * carry one — a linked account and an account-details record — agree on
+     * that field and disagree on the rest (`integration` is an object in one
+     * and a name string in the other), so nothing else is read.
+     */
+    account: { id: string },
     limitations: string[],
     permissions?: VerificationClaim["permissions"],
   ): VerificationClaim => ({
@@ -1023,7 +1028,9 @@ export function createMergeAdapter(
         await ctx.environment.effects.complete(journal.effectRef, {
           status: uncertain ? "indeterminate" : "failed",
           at: ctx.environment.now(),
-          code: uncertain ? "merge.passthrough.uncertain" : undefined,
+          // An omitted code and an explicit undefined are different things
+          // here; when there is nothing to say, the field is absent.
+          ...(uncertain ? { code: "merge.passthrough.uncertain" } : {}),
         });
         if (uncertain)
           return {

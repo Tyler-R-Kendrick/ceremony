@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 21 constructible adapters and 17 ledgers.
+Generated from 27 constructible adapters and 17 ledgers.
 
 ## Support by dimension
 
@@ -18,13 +18,19 @@ Generated from 21 constructible adapters and 17 ledgers.
 | `airbyte` | airbyte | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / missing / protocol-fixture | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `auth0-token-vault` | auth0-token-vault | hosted-server | provider-backed | external-credential-broker | unsupported | implemented / missing / unit | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `aws-agentcore-gateway` | aws-agentcore | hosted-server | provider-backed | host-owned, external-execution-broker | implemented / protocol-fixture | unsupported | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
+| `camel-kamelet` | camel-kamelet | hosted-server | provider-backed | no-credential, external-execution-broker | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / protocol-fixture |
 | `composio` | composio | hosted-server | provider-backed | external-credential-broker, external-execution-broker | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `dapr` | dapr | hosted-server | provider-backed | host-owned, no-credential | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported |
 | `docker-mcp-catalog` | docker-mcp | hosted-server | catalog-only | no-credential | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / unit |
+| `google-integration-connectors` | google-integration-connectors | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | unsupported | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `hasura-ndc` | hasura-ndc | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / unit | unsupported | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | unsupported |
 | `mcp-registry` | mcp-registry | hosted-server | provider-backed | no-credential, host-owned | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / protocol-fixture |
+| `mcp-remote` | mcp | hosted-server | provider-backed | host-owned, no-credential, external-credential-broker | unsupported | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / protocol-fixture | unsupported |
 | `merge` | merge | hosted-server | provider-backed | external-credential-broker | unsupported | implemented / missing / unit | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
+| `microsoft-custom-connector` | microsoft-custom-connector | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / protocol-fixture | not reported | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / protocol-fixture |
 | `nango` | nango | hosted-server | provider-backed | external-credential-broker, external-execution-broker | implemented / protocol-fixture | implemented / unit | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported |
+| `open-service-broker` | open-service-broker | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
+| `openapi-http` | openapi | hosted-server | fixture | host-owned, no-credential | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / protocol-fixture |
 | `pipedream-connect` | pipedream | hosted-server | provider-backed | external-credential-broker, external-execution-broker | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported |
 | `pulsemcp` | pulsemcp | hosted-server | catalog-only | no-credential | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported |
 | `smithery` | smithery | hosted-server | provider-backed | external-execution-broker | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported | unsupported |
@@ -46,13 +52,19 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `airbyte` | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
 | `auth0-token-vault` | implemented / missing / protocol-fixture | unsupported | reconnect: implemented; disconnect: implemented; revoke: unsupported |
 | `aws-agentcore-gateway` | implemented / missing / protocol-fixture | unsupported | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
+| `camel-kamelet` | unsupported | unsupported | reconnect: unsupported; disconnect: unsupported; revoke: unsupported |
 | `composio` | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported |
 | `dapr` | unsupported | unsupported | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
 | `docker-mcp-catalog` | implemented / protocol-fixture | unsupported | reconnect: unsupported; disconnect: unsupported; revoke: unsupported |
+| `google-integration-connectors` | implemented / missing / protocol-fixture | unsupported | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
 | `hasura-ndc` | implemented / protocol-fixture | unsupported | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
 | `mcp-registry` | implemented / protocol-fixture | unsupported | reconnect: unsupported; disconnect: unsupported; revoke: unsupported |
+| `mcp-remote` | implemented / protocol-fixture | unsupported | reconnect: implemented; disconnect: implemented; revoke: unsupported |
 | `merge` | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported |
+| `microsoft-custom-connector` | not reported | not reported | reconnect: not reported; disconnect: not reported; revoke: not reported |
 | `nango` | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported |
+| `open-service-broker` | implemented / protocol-fixture | unsupported | reconnect: unsupported; disconnect: implemented; revoke: unsupported |
+| `openapi-http` | unsupported | unsupported | reconnect: implemented; disconnect: implemented; revoke: unsupported |
 | `pipedream-connect` | implemented / missing / protocol-fixture | unsupported | reconnect: implemented; disconnect: implemented; revoke: unsupported |
 | `pulsemcp` | implemented / missing / protocol-fixture | unsupported | reconnect: unsupported; disconnect: unsupported; revoke: unsupported |
 | `smithery` | unsupported | unsupported | reconnect: implemented; disconnect: implemented; revoke: unsupported |
@@ -74,13 +86,19 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `airbyte` | 2026.09.18 | `AIRBYTE_API_URL` (public), `AIRBYTE_API_KEY` (secret) | protocol-fixture | DATA | `http-bearer` |
 | `auth0-token-vault` | 2026.09.18 | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret) | not-recorded | no ledger entry | `external-broker`, `auth0-token-vault-exchange` |
 | `aws-agentcore-gateway` | 1.0.0 | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret) | not-recorded | no ledger entry | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28` |
+| `camel-kamelet` | 1.0.0 | none | not-recorded | no ledger entry | `camel-kamelet-v1` |
 | `composio` | 1.0.0 | `COMPOSIO_API_KEY` (secret) | not-recorded | no ledger entry | `composio-hosted-authorization`, `external-broker` |
 | `dapr` | 1.0.0 | none | not-recorded | no ledger entry | `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `api-key` |
 | `docker-mcp-catalog` | 1.0.0 | none | not-recorded | no ledger entry | `docker-mcp-catalog-v2` |
+| `google-integration-connectors` | 1.0.0 | `GOOGLE_CONNECTORS_ACCESS_TOKEN` (secret) | not-recorded | no ledger entry | `google-connectors-v1-20260907`, `google-connectors-v2-20260907` |
 | `hasura-ndc` | 2026.09.18 | none | protocol-fixture | DATA | `http-bearer` |
 | `mcp-registry` | 1.0.0 | none | protocol-fixture | REGISTRY | `mcp-registry-api-v0.1`, `server-json-2025-12-11` |
+| `mcp-remote` | 1.0.0 | none | protocol-fixture | MCP | `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `http-bearer`, `oauth-authorization-code`, `none` |
 | `merge` | 2026.09.18 | `MERGE_API_KEY` (secret) | protocol-fixture | DATA | `external-broker` |
+| `microsoft-custom-connector` | 1.0.0 | none | not-recorded | no ledger entry | `microsoft-custom-connector-2026-06`, `swagger-2.0` |
 | `nango` | 1.0.0 | `NANGO_SECRET_KEY` (secret), `NANGO_ENVIRONMENT` (public) | protocol-fixture | NANGO | `external-broker` |
+| `open-service-broker` | 1.0.0 | none | not-recorded | no ledger entry | `osb-2.17`, `http-basic` |
+| `openapi-http` | 1.0.0 | none | protocol-fixture | HTTP | `swagger-2.0`, `openapi-3.0`, `openapi-3.1`, `openapi-3.2` |
 | `pipedream-connect` | 1.0.0 | `PIPEDREAM_PROJECT_ID` (public), `PIPEDREAM_ENVIRONMENT` (public), `PIPEDREAM_CLIENT_ID` (public), `PIPEDREAM_CLIENT_SECRET` (secret) | protocol-fixture | PIPEDREAM | `external-broker`, `oauth-client-credentials` |
 | `pulsemcp` | 1.0.0 | none | not-recorded | no ledger entry | `pulsemcp-v0beta`, `pulsemcp-subregistry-v0.1` |
 | `smithery` | 1.0.0 | `SMITHERY_API_KEY` (secret) | not-recorded | no ledger entry | `smithery-connect-2026-09`, `external-broker` |
@@ -152,6 +170,24 @@ Module: `src/server/connectors/providers/aws-agentcore/index.ts` (`createAgentCo
 - export: A gateway binding is account-specific and is not exportable metadata
 - delegate: The gateway exposes tools, not delegated tasks
 
+### `camel-kamelet` — Apache Camel Kamelets
+
+Module: `src/server/connectors/formats/camel-kamelet/index.ts` (`createCamelKameletAdapter`).
+
+- discover: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- import: Pinned to Camel Kamelet catalog 4.22.0 (v4.22.0); a newer catalog is a new pin, not an automatic upgrade.
+- import: The route template, data types and dependencies are preserved as inert data and never evaluated or resolved.
+- configure: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- authorize: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- verify: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- invoke: No Camel runner is configured for this deployment: Kamelets are imported as descriptions and exported as run descriptors only. Ceremony starts no JVM, resolves no dependency and deploys no integration.
+- events: A source Kamelet delivers through a Camel component, not an HTTP webhook; no event is received here.
+- reconnect: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- disconnect: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- revoke: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
+- export: Export produces a run descriptor for a configured Camel runner; credential values are never exported, only host configuration names.
+- delegate: No Camel runner is configured for this deployment: Kamelets are imported as descriptions and exported as run descriptors only. Ceremony starts no JVM, resolves no dependency and deploys no integration.
+
 ### `composio` — Composio
 
 Module: `src/server/connectors/providers/composio/index.ts` (`createComposioAdapter`).
@@ -213,6 +249,25 @@ Module: `src/server/connectors/registries/docker/index.ts` (`createDockerMcpCata
 - export: Only definitions that originated from a Docker catalog can be exported to one; losses are reported.
 - delegate: The Docker catalog adapter is catalog-only: it describes entries and holds no connection.
 
+### `google-integration-connectors` — Google Cloud Integration Connectors
+
+Module: `src/server/connectors/providers/google-integration-connectors/index.ts` (`createGoogleConnectorsAdapter`).
+
+- discover: Existing connections only: connections are never created, updated, suspended or deleted
+- import: Entity and action availability is per connection; the connector's unsupported names are reported, not hidden
+- configure: Connection configuration and config variables stay in Google Cloud
+- authorize: The access token comes from the host's Google identity; this adapter runs no OAuth or service-account flow
+- verify: checkStatus reports the connector's state, not the caller's permissions on the backing system
+- invoke: Entity list and get, and action execute; entity writes are not bound by this adapter
+- invoke: executionConfig is never sent, so a caller cannot override the connection's backend auth
+- invoke: Async long-running action results are preserved as the connector returned them and never reported as completed work
+- events: Eventing subscriptions are configured in Google Cloud and are not bound here
+- reconnect: A new credential is supplied through host configuration or custody, not by a provider flow
+- disconnect: Local only: the connection in Google Cloud is never deleted or suspended
+- revoke: Revocation belongs to Google Cloud IAM or the connector's own authorization
+- export: A connection is project-specific and is not exportable metadata
+- delegate: The connection exposes entities and actions, not delegated tasks
+
 ### `hasura-ndc` — Hasura Native Data Connector
 
 Module: `src/server/connectors/providers/hasura-ndc/index.ts` (`createHasuraNdcAdapter`).
@@ -239,6 +294,24 @@ Module: `src/server/connectors/registries/mcp/index.ts` (`createMcpRegistryAdapt
 - export: Only for an approved hosted MCP binding with served-endpoint evidence; packages are never exported
 - delegate: execution requires an MCP binding
 
+### `mcp-remote` — MCP server
+
+Module: `src/server/connectors/mcp/index.ts` (`createMcpRemoteAdapter`).
+
+- discover: Discovery is the initialize handshake; advertised capabilities are the server's claims, not proof.
+- import: A live server is not a portable definition; registry import belongs to the registry adapter.
+- configure: Configuration is the binding's pinned profile, endpoint and operations.
+- authorize: Delegated to the host OAuth profile; client registration follows this revision's order: pre-registered, dynamic.
+- authorize: Dynamic Client Registration is documented in this revision.
+- verify: Server identity is not attested beyond the TLS origin.
+- invoke: stdio transports are not supported: a hosted connector does not launch local processes or run packages.
+- events: Change notifications through the bounded GET stream where the server offers one; no webhook delivery.
+- reconnect: Reconnect re-runs authorization against the same pinned resource.
+- disconnect: Local only: MCP defines no disconnect or revocation operation.
+- revoke: MCP has no revocation operation; revoking a grant belongs to the authorization server profile.
+- export: Export of a server description belongs to the registry adapter.
+- delegate: No sampling, no roots, no task extension: this client offers a server no host capabilities.
+
 ### `merge` — Merge Unified API
 
 Module: `src/server/connectors/providers/merge/index.ts` (`createMergeAdapter`).
@@ -250,6 +323,20 @@ Module: `src/server/connectors/providers/merge/index.ts` (`createMergeAdapter`).
 - reconnect: Reconnect issues a new Link session; a different upstream account requires explicit account-switch intent.
 - disconnect: Local disconnect drops the account token; deleting the linked account at Merge is a separate authorized intent.
 - delegate: Passthrough is governed separately: the upstream path and method are fixed in the binding and cannot come from input.
+
+### `microsoft-custom-connector` — Microsoft custom connector
+
+Module: `src/server/connectors/formats/microsoft/index.ts` (`createMicrosoftCustomConnectorAdapter`).
+
+- import: Swagger 2.0 only; OpenAPI 3.x is not a custom connector definition
+- import: Policy templates, custom code and gateway paths are preserved as metadata and block execution
+- configure: Connection parameter names are mapped to host configuration names; the native spelling is preserved
+- verify: testConnection demonstrates connectivity only
+- verify: account identity not established
+- invoke: Executes approved dynamic field lookups only; other operations are bound through an HTTP adapter
+- invoke: Options are bounded and sanitized; cached per connection generation
+- events: Webhook triggers need a host-approved receiver; polling triggers have no equivalent trigger state
+- export: Request and response schemas, policies, custom code and apiProperties are reported as losses
 
 ### `nango` — Nango
 
@@ -268,6 +355,45 @@ Module: `src/server/connectors/providers/nango/index.ts` (`createNangoAdapter`).
 - revoke: Nango documents no provider-grant revocation endpoint; broker deletion is not upstream revocation.
 - export: No Nango-native export format: nango.yaml is deprecated and Zero YAML is executable TypeScript.
 - delegate: Syncs are triggered, scheduled, paused and inspected through Nango; cancel maps to POST /sync/pause (no run-cancel endpoint is documented); reset/emptyCache options are refused.
+
+### `open-service-broker` — Open Service Broker
+
+Module: `src/server/connectors/providers/open-service-broker/index.ts` (`createOpenServiceBrokerAdapter`).
+
+- discover: Pinned to v2.17 of the specification; the platform declares 2.17 and a broker that rejects it is reported unsupported, never retried at another version.
+- import: instances_retrievable and bindings_retrievable are carried through exactly as declared; an absent flag means the endpoint is unsupported.
+- configure: A binding pins one broker destination, its basic-auth configuration and the reviewed retrievability of each offering.
+- authorize: Platform-to-broker authentication is basic auth configured by the host; there is no end-user authorization flow to run.
+- verify: Verification reads an existing instance and records what the broker asserted about it; a broker's statement is not proof of the underlying resource.
+- verify: An offering that does not declare instances_retrievable cannot be verified this way, and that is reported rather than worked around.
+- invoke: Provision, deprovision, update, bind and unbind are not implemented: this adapter has no request builder for them and every bound operation must be a GET.
+- invoke: Retrieved binding credentials are stored through CredentialCustodyPort; results carry a reference and the credential key names, never a value.
+- invoke: Native asynchronous status is read from last_operation; an in-progress operation stays in progress and is never reported as complete.
+- events: The specification defines no broker-to-platform event delivery; a platform polls last_operation instead.
+- reconnect: The specification defines no such platform operation.
+- disconnect: Local disconnect only. Unbinding and deprovisioning are separate upstream effects this profile does not perform, so forgetting a connection never deletes a binding or an instance.
+- revoke: The specification defines no such platform operation.
+- export: The specification defines no such platform operation.
+- delegate: The specification defines no such platform operation.
+
+### `openapi-http` — OpenAPI (HTTP)
+
+Module: `src/server/connectors/formats/openapi/index.ts` (`createOpenApiHttpAdapter`).
+
+- discover: An OpenAPI description is a document, not a catalog; there is no listing endpoint to discover.
+- import: External references are resolved only through a host-supplied hook under the deployment's network policy.
+- configure: Destinations, operations and credential profiles are chosen by host review, never by the document.
+- authorize: The adapter presents credentials the host already holds; obtaining them is the bound profile's own flow.
+- verify: Verification is only available when the host names an approved read operation as the verifier.
+- verify: A successful response proves credential acceptance, never account identity.
+- invoke: JSON request and response bodies only; path/header style simple, query style form.
+- invoke: A description cannot establish that a non-GET operation is safe or idempotent.
+- events: Webhooks and callbacks are imported as descriptions; delivery verification belongs to the events profile.
+- reconnect: Reconnect replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
+- disconnect: Local disconnect only; an OpenAPI description declares no upstream unlink operation.
+- revoke: An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.
+- export: Export emits the approved description only; losses are reported as compatibility issues.
+- delegate: There is no third party to delegate to in this profile.
 
 ### `pipedream-connect` — Pipedream Connect
 
@@ -418,6 +544,20 @@ Module: `src/server/connectors/providers/workos/index.ts` (`createWorkOsPipesAda
 - events: No Pipes connection-lifecycle webhook profile is documented for this adapter version.
 - revoke: WorkOS documents that deleting a connected account does not revoke access at the provider.
 - delegate: Relay proxies one approved HTTP request; it delegates no task or workflow.
+
+## Adapters that are not machine-readable here
+
+These modules exist but could not be constructed with no host configuration, so this document reports no dimensions for them rather than guessing. That is a gap in this generator, not a statement that the adapter is unimplemented: check the ledgers.
+
+| Module | Factory | Reason |
+| --- | --- | --- |
+| `src/server/connectors/formats/arazzo/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
+| `src/server/connectors/formats/automation/index.ts` | `createExternalRuntimeAdapter` | requires host dependencies: options.bindings is not iterable |
+| `src/server/connectors/formats/n8n/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
+| `src/server/connectors/formats/overlay/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
+| `src/server/connectors/formats/retrieval/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
+| `src/server/connectors/formats/workato/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
+| `src/server/connectors/formats/zapier/index.ts` | `(none)` | no exported create*Adapter or create*Profile factory |
 
 ## Pinned sources behind these claims
 
