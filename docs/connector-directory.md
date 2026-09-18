@@ -38,6 +38,37 @@ session for the rest — but reachable is not built, and the card says so before
 anything is pressed. A directory that blurs the two is how somebody ends up
 three steps into a ceremony that was never going to finish.
 
+## Bring your own
+
+The directory lists named services, and a service somebody needs is often not
+one of them. So the row above the provider grid is not a service at all: it is
+one card per protocol this workspace can actually run, and pointing one at an
+origin is the supported answer to "mine is not listed" rather than a support
+request.
+
+| Card              | Family                             | What it is for                                             |
+| ----------------- | ---------------------------------- | ---------------------------------------------------------- |
+| OAuth             | authorization code + PKCE          | Any OAuth 2.0 or 2.1 provider, by discovery or by hand.    |
+| OAuth Machine     | client credentials                 | Server-to-server access. Nobody is interrupted.            |
+| API Key           | API key                            | A shared key, or one asked of each person at connect time. |
+| HTTP Basic        | identifier + provider-issued token | Never an account password.                                 |
+| Device Code       | device authorization               | A CLI, a TV, anything without a browser.                   |
+| Browser Login     | attended browser login             | A service that publishes no API at all.                    |
+| Record a Sign-in  | attended browser login, taught     | Demonstrate once, replay without a model.                  |
+| Create an Account | account registration               | Brings the account into being, minting the password.       |
+| Anonymous         | anonymous, then claimed            | Completes unnamed; ownership transfers at the provider.    |
+
+**Record a Sign-in** is the one with no equivalent in a hosted connector
+marketplace. It opens with teaching already enabled, because recording the way
+in is the entire reason to choose it, and a capability somebody has to go and
+find first is one that gets missed. What it captures is the permitted semantic
+transitions — never provider DOM, never private input. See
+[teaching](ceremony-teaching.md).
+
+These cards are also listed in the grid below, so search reaches them: typing a
+family name finds every row that offers it, whether or not the words appear in
+the row's own name.
+
 ## The four steps
 
 1. **Service** — collapsed once chosen; reopening it returns to the directory.

@@ -541,20 +541,62 @@ export function AddConnection({
   const [step, setStep] = useState<number>(initialStep);
   const [draft, setDraft] = useState(() => emptyDraft(entry));
   const panel = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  // Held in a ref so the focus effect below does not depend on a callback
+  // identity. onClose is an inline arrow in the host, so a dependency on it
+  // re-runs the effect on every host render and pulls focus back to the panel
+  // from whatever the person was actually using.
+  const dismiss = useRef(onClose);
+  dismiss.current = onClose;
   const set = (patch: Partial<ConnectionDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
   }, [entry, initialStep]);
+  /**
+   * Focus enters once, cycles inside, and goes back where it came from.
+   *
+   * A dialog that declares aria-modal and then leaves the page behind it
+   * tabbable is telling assistive technology something untrue, and dropping
+   * focus on the floor at close leaves a keyboard user at the top of the
+   * document with no idea where they were.
+   */
   useEffect(() => {
+    opener.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     panel.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        dismiss.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panel.current) return;
+      const reachable = [
+        ...panel.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => element.getClientRects().length > 0);
+      const first = reachable[0];
+      const last = reachable[reachable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === panel.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      removeEventListener("keydown", onKey);
+      if (opener.current?.isConnected) opener.current.focus();
+    };
+  }, []);
   const toggle = (capability: Capability) =>
     set({
       capabilities: draft.capabilities.includes(capability)
@@ -573,6 +615,7 @@ export function AddConnection({
       />
       <div
         className="connect-drawer"
+        data-step={step}
         data-wide={step === 4 ? "" : undefined}
         data-theme="dark"
         role="dialog"
@@ -583,6 +626,15 @@ export function AddConnection({
       >
         <div className="drawer-head">
           <h2>Add Connection</h2>
+          {step === 4 && (
+            <button
+              type="button"
+              className="reopen-setup"
+              onClick={() => setStep(2)}
+            >
+              Back to setup
+            </button>
+          )}
           <button
             type="button"
             className="icon-button"
@@ -773,22 +825,25 @@ export function AddConnection({
           </div>
         </Step>
         <Step index={4} title="Complete" state={state(4)}>
-          <dl className="summary-list">
-            <dt>Service</dt>
-            <dd>{entry.name}</dd>
-            <dt>Configuration</dt>
-            <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
-            <dt>Auth family</dt>
-            <dd>{authFamilyLabels[draft.family]}</dd>
-            <dt>Capabilities</dt>
-            <dd>
-              {draft.capabilities.length
-                ? draft.capabilities
-                    .map((capability) => capabilityDetails[capability].label)
-                    .join(", ")
-                : "Credential collection only"}
-            </dd>
-          </dl>
+          <details className="summary-disclosure">
+            <summary>Connection summary</summary>
+            <dl className="summary-list">
+              <dt>Service</dt>
+              <dd>{entry.name}</dd>
+              <dt>Configuration</dt>
+              <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
+              <dt>Auth family</dt>
+              <dd>{authFamilyLabels[draft.family]}</dd>
+              <dt>Capabilities</dt>
+              <dd>
+                {draft.capabilities.length
+                  ? draft.capabilities
+                      .map((capability) => capabilityDetails[capability].label)
+                      .join(", ")
+                  : "Credential collection only"}
+              </dd>
+            </dl>
+          </details>
           <div className="run-region">{renderRun(draft)}</div>
           <div className="step-actions">
             <button

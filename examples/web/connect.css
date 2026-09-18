@@ -894,6 +894,31 @@ kbd {
 .drawer-foot a {
   color: var(--c-ink-dim);
 }
+.summary-disclosure > summary {
+  padding: 8px 0;
+  color: var(--c-ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.summary-disclosure[open] > summary {
+  margin-block-end: 10px;
+}
+/* Desktop has room for the wizard's own trail; narrow screens do not. */
+.reopen-setup {
+  display: none;
+  margin-inline-start: auto;
+  padding: 6px 10px;
+  color: var(--c-ink-dim);
+  font-size: 13px;
+  white-space: nowrap;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+}
+.reopen-setup:hover {
+  color: var(--c-ink);
+  background: var(--c-surface);
+}
 .summary-list {
   margin: 0;
   display: grid;
@@ -928,6 +953,44 @@ kbd {
     flex-wrap: wrap;
   }
 }
+/*
+ * On a phone, once the drawer is on the run, the accordion above it is chrome
+ * standing between somebody and the primary action. The completed steps
+ * collapse to one control, and the service switcher moves below the connection
+ * it switches, so the thing you came for is the thing you see.
+ */
+@media (max-width: 680px) {
+  /* Completed steps and the run's own header are both signposts to a place
+     you have already arrived at. */
+  .connect-drawer[data-step="4"] .step[data-state="done"],
+  .connect-drawer[data-step="4"] .step-head {
+    display: none;
+  }
+  .connect-drawer[data-step="4"] .step-body {
+    border-block-start: 0;
+    padding-block-start: 16px;
+  }
+  .connect-drawer[data-step="4"] .reopen-setup {
+    display: inline-flex;
+  }
+  .connect-drawer[data-step="4"] .drawer-head h2 {
+    font-size: 17px;
+  }
+  .connect-drawer .connect-grid {
+    display: flex;
+    flex-direction: column;
+  }
+  .connect-drawer .connection-card {
+    order: -1;
+  }
+  .connect-drawer {
+    padding: 12px;
+  }
+  .drawer-head {
+    margin-block-end: 12px;
+  }
+}
+
 @media (max-width: 680px) {
   .connect-body {
     padding-inline: 16px;

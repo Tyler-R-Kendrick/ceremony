@@ -26,7 +26,7 @@ const totals = files.reduce(
 //
 // Raised a second time for the connector directory and its Add Connection
 // drawer, which replaced a single-column picker with a surface a person can
-// browse: categories, search, a featured strip, ~58 rows, and a four-step
+// browse: categories, search, a featured strip, 64 rows, and a four-step
 // wizard covering every auth family the project actually carries. Measured per
 // module before moving the number — 10.6 kB of directory data, 7.5 kB of
 // browse page, 14.5 kB of wizard, all of it minified, none of it a new
@@ -35,7 +35,16 @@ const totals = files.reduce(
 // host copy on purpose: moving them behind a fetch would shrink this number
 // without shrinking the download, which is the opposite of what the ceiling is
 // for.
-const budget = { raw: 530000, gzip: 164500 };
+//
+// Widened once more when the protocol cards landed. 530000 left 1356 bytes of
+// room, which is 0.26%: a ceiling that close to the measurement stops being a
+// budget and becomes a tripwire for whichever unrelated change happens to go
+// next. Checked for fat first and found none worth taking — the only unused
+// exports are a type and two arrays the catalogue itself references. So the
+// number moves to where it can still catch a real regression: about 3% clear
+// of today's build, which is roughly one careless import, not one sentence of
+// copy.
+const budget = { raw: 545000, gzip: 169000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(
