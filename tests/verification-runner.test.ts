@@ -119,17 +119,25 @@ test("OPS: runtime metadata fingerprints actual profile and never substitutes un
 });
 
 test("OPS: deterministic stages preserve required gates and fail closed on empty, missing or skipped summaries", () => {
+  // The build stages precede the test stages deliberately. A stage passes only
+  // when nothing was skipped, asserted below, so a test whose prerequisite this
+  // pipeline builds later can only ever skip and so fail its stage. Building
+  // first makes that prerequisite true instead of relaxing the rule.
   assert.deepEqual(requiredStages, [
     "format:check",
     "check",
-    "test:coverage",
-    "test:workflow",
-    "test:security:mutation",
     "build",
     "build:hosted",
     "build:vercel",
+    "test:coverage",
+    "test:workflow",
+    "test:security:mutation",
     "test:e2e",
   ]);
+  assert.ok(
+    requiredStages.indexOf("build") < requiredStages.indexOf("test:coverage"),
+    "build must precede the stage whose tests need its output",
+  );
   for (const stage of [
     "test:coverage",
     "test:workflow",

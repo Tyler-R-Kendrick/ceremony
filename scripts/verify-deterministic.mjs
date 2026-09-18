@@ -156,7 +156,9 @@ for (const command of commands) {
       }
       if (!missed)
         console.log(
-          "  Every coverage gate is met, so this stage failed on a test rather than on coverage.",
+          record.tests?.skipped
+            ? `  Every coverage gate is met and nothing failed, so this stage failed on ${record.tests.skipped} skipped test(s): a stage passes only when none were skipped.`
+            : "  Every coverage gate is met, so this stage failed on a test rather than on coverage.",
         );
     } catch {
       console.log(

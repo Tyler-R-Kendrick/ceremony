@@ -1,13 +1,29 @@
 export type TestCounts = { passed: number; failed: number; skipped: number };
+/*
+ * Order matters, and `build` comes before the test stages for a reason.
+ *
+ * A stage passes only when nothing was skipped -- see `summarizeStage`, where
+ * `skipped === 0` is part of the condition. That is a deliberately strict rule:
+ * a suite that quietly skips is a suite whose green is worth less. But it means
+ * a test whose prerequisite this pipeline builds later can never pass, only
+ * skip, and so fails the stage every time however healthy the code is.
+ *
+ * The packed-consumer test needs `dist/`. With `build` at stage six and
+ * `test:coverage` at stage three it skipped on every run, and the stage failed
+ * reporting "0 failed" -- a contradiction that says nothing about what to fix.
+ * Building first makes the prerequisite true rather than relaxing the rule that
+ * caught it, and a compile failure now arrives before the longest stage instead
+ * of after it.
+ */
 export const requiredStages = [
   "format:check",
   "check",
-  "test:coverage",
-  "test:workflow",
-  "test:security:mutation",
   "build",
   "build:hosted",
   "build:vercel",
+  "test:coverage",
+  "test:workflow",
+  "test:security:mutation",
   "test:e2e",
 ] as const;
 export type VerificationStage = (typeof requiredStages)[number];
