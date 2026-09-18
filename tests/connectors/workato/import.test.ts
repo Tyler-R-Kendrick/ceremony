@@ -73,7 +73,10 @@ describe("reading a workato-static-profile document", () => {
     assert.equal(definition.configuration[0]?.classification, "secret");
 
     const capabilities = new Map(
-      definition.capabilities.map((capability) => [capability.nativeId, capability]),
+      definition.capabilities.map((capability) => [
+        capability.nativeId,
+        capability,
+      ]),
     );
     assert.deepEqual([...capabilities.keys()].sort(), [
       "adjust_stock",
@@ -105,9 +108,10 @@ describe("reading a workato-static-profile document", () => {
         { name: "updated_at", type: "date_time" },
       ],
     });
-    assert.deepEqual(definition.declaredServers.map((server) => server.url), [
-      "https://api.stockroom.example",
-    ]);
+    assert.deepEqual(
+      definition.declaredServers.map((server) => server.url),
+      ["https://api.stockroom.example"],
+    );
   });
 
   test("every lambda is recorded as inert, with a pointer", async () => {
@@ -123,7 +127,8 @@ describe("reading a workato-static-profile document", () => {
     assert.ok(pointers.some((pointer) => pointer.includes("adjust_stock")));
     assert.ok(pointers.some((pointer) => pointer.includes("execute")));
     assert.ok(pointers.some((pointer) => pointer.includes("test")));
-    for (const issue of executable) assert.equal(issue.category, "executable-code");
+    for (const issue of executable)
+      assert.equal(issue.category, "executable-code");
     assert.ok(
       (result.definition.nativeExtensions["limitations"] as string[]).some(
         (item) => item.includes("Ruby lambdas"),
@@ -146,7 +151,10 @@ describe("reading a workato-static-profile document", () => {
       oauth.authorizationEndpoint,
       "https://auth.stockroom.example/oauth/authorize",
     );
-    assert.equal(oauth.tokenEndpoint, "https://auth.stockroom.example/oauth/token");
+    assert.equal(
+      oauth.tokenEndpoint,
+      "https://auth.stockroom.example/oauth/token",
+    );
     assert.equal(oauth.pkce, "S256");
     assert.equal(oauth.refresh, "supported");
     assert.deepEqual(oauth.scopes, ["stock.read", "stock.write"]);
@@ -158,7 +166,10 @@ describe("reading a workato-static-profile document", () => {
     });
     const machine = clientCredentials.definition.authentication[0];
     assert.ok(machine && machine.kind === "oauth-client-credentials");
-    assert.equal(machine.tokenEndpoint, "https://auth.stockroom.example/oauth/token");
+    assert.equal(
+      machine.tokenEndpoint,
+      "https://auth.stockroom.example/oauth/token",
+    );
     assert.deepEqual(machine.scopes, ["stock.read"]);
   });
 });
@@ -169,7 +180,10 @@ describe("reading Workato Ruby source", () => {
       rubySource: nativeConnectorRuby,
       identity: nativeConnectorIdentity,
     });
-    assert.equal(result.definition.nativeExtensions["profile"], WORKATO_PROFILES.ruby);
+    assert.equal(
+      result.definition.nativeExtensions["profile"],
+      WORKATO_PROFILES.ruby,
+    );
     assert.equal(result.definition.compatibility.dimensions.import, "adapted");
 
     // Connection fields, action names and literal field arrays survive.
@@ -178,7 +192,9 @@ describe("reading Workato Ruby source", () => {
       ["WORKATO_STOCKROOM_API_KEY", "WORKATO_STOCKROOM_WAREHOUSE"],
     );
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["adjust_stock", "lookup_item", "new_shipment"],
     );
     const lookup = result.definition.capabilities.find(
@@ -228,7 +244,10 @@ describe("reading Workato Ruby source", () => {
     );
     assert.ok(security);
     assert.equal(security.executionImpact, "blocks-authorization");
-    assert.equal(result.definition.compatibility.dimensions.authorize, "unsupported");
+    assert.equal(
+      result.definition.compatibility.dimensions.authorize,
+      "unsupported",
+    );
     // The same connector, with the placement declared, is importable.
     const declared = await readWorkatoConnector({
       staticProfile: nativeConnectorProfile,
@@ -265,7 +284,11 @@ describe("an adversarial connector never executes", () => {
     });
 
     assert.equal(existsSync(sentinel), false, "no Ruby ran");
-    assert.equal(existsSync(`${sentinel}.shell`), false, "no shell command ran");
+    assert.equal(
+      existsSync(`${sentinel}.shell`),
+      false,
+      "no shell command ran",
+    );
     assert.equal(
       existsSync(`${sentinel}.shell.backtick`),
       false,
@@ -274,7 +297,9 @@ describe("an adversarial connector never executes", () => {
 
     // Metadata around the code is still imported.
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["on_anything", "read_file", "run_shell"],
     );
     const webhookTrigger = result.definition.capabilities.find(
@@ -318,7 +343,9 @@ describe("an adversarial connector never executes", () => {
     assert.ok(profile && profile.kind === "unsupported");
     assert.equal(profile.native, "workato-custom-auth");
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["on_anything", "run_shell"],
     );
     assert.deepEqual(result.definition.declaredServers, []);
@@ -328,7 +355,9 @@ describe("an adversarial connector never executes", () => {
     const result = await readWorkatoConnector({
       rubySource: "require 'json'\nputs 'hello'\n",
     });
-    const blocking = result.issues.filter((issue) => issue.severity === "blocking");
+    const blocking = result.issues.filter(
+      (issue) => issue.severity === "blocking",
+    );
     assert.equal(blocking[0]?.code, "workato.source.no-connector-hash");
     assert.equal(blocking[0]?.executionImpact, "blocks-definition");
     assert.deepEqual(result.executableCandidates, []);

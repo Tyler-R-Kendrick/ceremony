@@ -230,7 +230,9 @@ export const declarativeNodeDescription = {
       type: "string",
       required: true,
       default: "",
-      displayOptions: { show: { resource: ["reading"], operation: ["create"] } },
+      displayOptions: {
+        show: { resource: ["reading"], operation: ["create"] },
+      },
       routing: { request: { body: { meter_id: "={{$value}}" } } },
     },
     {
@@ -239,7 +241,9 @@ export const declarativeNodeDescription = {
       type: "number",
       required: true,
       default: 0,
-      displayOptions: { show: { resource: ["reading"], operation: ["create"] } },
+      displayOptions: {
+        show: { resource: ["reading"], operation: ["create"] },
+      },
       routing: { request: { body: { value: "={{$value}}" } } },
     },
     {
@@ -270,7 +274,9 @@ export const declarativeCredentialDescription = {
     type: "generic",
     properties: { header: { "X-Meterly-Key": "={{$credentials.apiKey}}" } },
   },
-  test: { request: { baseURL: "https://api.meterly.example/v1", url: "/meters" } },
+  test: {
+    request: { baseURL: "https://api.meterly.example/v1", url: "/meters" },
+  },
 } as const;
 
 export const declarativeIdentity = {

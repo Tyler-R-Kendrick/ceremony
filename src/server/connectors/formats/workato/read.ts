@@ -88,14 +88,17 @@ const REASON_MESSAGE: Record<RubyOpaqueReason, string> = {
   truncated: "a value beyond the reader's bounds",
 };
 
-function opaqueReason(value: RubyValue | undefined): RubyOpaqueReason | undefined {
+function opaqueReason(
+  value: RubyValue | undefined,
+): RubyOpaqueReason | undefined {
   return value?.kind === "opaque" ? value.reason : undefined;
 }
 
 function literalUrl(value: RubyValue | undefined): string | undefined {
   const text = rubyString(value);
   if (text === undefined) return undefined;
-  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text)) return undefined;
+  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text))
+    return undefined;
   const parsed = new URL(text);
   return parsed.username || parsed.password ? undefined : text;
 }
@@ -201,13 +204,23 @@ function mapAuthorization(
   }
   if (!(WORKATO_AUTH_TYPES as readonly string[]).includes(type)) {
     unsupported(
-      `workato-${safeText(type, 40).replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase() || "unknown"}`,
+      `workato-${
+        safeText(type, 40)
+          .replace(/[^a-zA-Z0-9]+/g, "-")
+          .toLowerCase() || "unknown"
+      }`,
       `The authorization type "${token(type, 40)}" is not one the SDK documents or this runtime implements.`,
     );
     return result;
   }
 
-  for (const key of ["apply", "acquire", "refresh", "identity", "pkce"] as const) {
+  for (const key of [
+    "apply",
+    "acquire",
+    "refresh",
+    "identity",
+    "pkce",
+  ] as const) {
     const reason = opaqueReason(hashValue(authorization, key));
     if (!reason) continue;
     issues.add({
@@ -224,7 +237,11 @@ function mapAuthorization(
   switch (type) {
     case "basic_auth": {
       const id = `${idPrefix}-basic`.slice(0, 95);
-      result.profiles.push({ id, label: "Workato basic authentication", kind: "http-basic" });
+      result.profiles.push({
+        id,
+        label: "Workato basic authentication",
+        kind: "http-basic",
+      });
       result.profileIds.push(id);
       break;
     }
@@ -233,7 +250,9 @@ function mapAuthorization(
       const placement = rubyString(hashValue(apply, "placement"));
       const parameter = rubyString(hashValue(apply, "parameter"));
       if (
-        (placement === "header" || placement === "query" || placement === "cookie") &&
+        (placement === "header" ||
+          placement === "query" ||
+          placement === "cookie") &&
         parameter !== undefined &&
         parameter.length > 0
       ) {
@@ -256,7 +275,9 @@ function mapAuthorization(
       break;
     }
     case "oauth2": {
-      const authorizationUrl = literalUrl(hashValue(authorization, "authorization_url"));
+      const authorizationUrl = literalUrl(
+        hashValue(authorization, "authorization_url"),
+      );
       const tokenUrl = literalUrl(hashValue(authorization, "token_url"));
       if (authorizationUrl === undefined || tokenUrl === undefined) {
         unsupported(
@@ -291,7 +312,9 @@ function mapAuthorization(
         clientRegistration: "pre-registered",
         clientAuthentication: "unknown",
         refresh:
-          hashValue(authorization, "refresh") === undefined ? "unknown" : "supported",
+          hashValue(authorization, "refresh") === undefined
+            ? "unknown"
+            : "supported",
       });
       result.profileIds.push(id);
       result.native["authorization_url"] = authorizationUrl;
@@ -300,7 +323,10 @@ function mapAuthorization(
       if (challengeMethod !== undefined)
         result.native["pkce"] = { challenge_method: challengeMethod };
       for (const url of [authorizationUrl, tokenUrl])
-        result.servers.push([new URL(url).origin, "Declared OAuth 2.0 endpoint"]);
+        result.servers.push([
+          new URL(url).origin,
+          "Declared OAuth 2.0 endpoint",
+        ]);
       break;
     }
     case "custom_auth": {
@@ -330,7 +356,10 @@ function mapAuthorization(
           token_url: tokenUrl,
           ...(scopes?.length ? { scopes } : {}),
         };
-        result.servers.push([new URL(tokenUrl).origin, "Declared token endpoint"]);
+        result.servers.push([
+          new URL(tokenUrl).origin,
+          "Declared token endpoint",
+        ]);
         break;
       }
       unsupported(
@@ -352,7 +381,9 @@ function mapAuthorization(
         if (!option.key) continue;
         const mapped = mapAuthorization(
           option.value,
-          `${idPrefix}-${option.key}`.replace(/[^a-zA-Z0-9_.:-]/g, "-").slice(0, 80),
+          `${idPrefix}-${option.key}`
+            .replace(/[^a-zA-Z0-9_.:-]/g, "-")
+            .slice(0, 80),
           issues,
           (...segments) => at("options", option.key, ...segments),
         );
@@ -587,13 +618,18 @@ export async function readWorkatoConnector(
       name: configurationName(nativeId, name, used),
       source: "session-environment",
       classification:
-        controlType === "password" || SENSITIVE.test(name) ? "secret" : "secret",
+        controlType === "password" || SENSITIVE.test(name)
+          ? "secret"
+          : "secret",
       // The SDK treats a field as required unless `optional` says otherwise.
       required: optional !== true,
       ...(label || hintText
         ? {
             description: safeText(
-              [label, hintText].filter(Boolean).join(". ").replace(/<[^>]*>/g, ""),
+              [label, hintText]
+                .filter(Boolean)
+                .join(". ")
+                .replace(/<[^>]*>/g, ""),
               500,
             ),
           }
@@ -606,7 +642,10 @@ export async function readWorkatoConnector(
   const baseUri = hashValue(connection, "base_uri");
   const baseUriUrl = literalUrl(baseUri);
   if (baseUriUrl !== undefined)
-    declaredServers.set(new URL(baseUriUrl).origin, "Declared connector base URI");
+    declaredServers.set(
+      new URL(baseUriUrl).origin,
+      "Declared connector base URI",
+    );
   else if (baseUri !== undefined) {
     const reason = opaqueReason(baseUri);
     issues.add({
@@ -627,7 +666,13 @@ export async function readWorkatoConnector(
     );
   }
 
-  for (const key of ["test", "webhook_keys", "pick_lists", "methods", "streams"] as const) {
+  for (const key of [
+    "test",
+    "webhook_keys",
+    "pick_lists",
+    "methods",
+    "streams",
+  ] as const) {
     const value = hashValue(connector, key);
     const reason = opaqueReason(value);
     if (value === undefined) continue;
@@ -724,7 +769,9 @@ export async function readWorkatoConnector(
         const body = hashValue(entry.value, key);
         if (body === undefined) continue;
         const reason = opaqueReason(body);
-        bodies[key] = reason ? { code: "lambda" } : (inertCopy(toJsonValue(body)) ?? null);
+        bodies[key] = reason
+          ? { code: "lambda" }
+          : (inertCopy(toJsonValue(body)) ?? null);
         if (!reason) continue;
         issues.add({
           code: "executable-code.function",
@@ -759,7 +806,11 @@ export async function readWorkatoConnector(
           : {}),
       };
       capabilities.push({
-        kind: isWebhook ? "event" : collection.name === "actions" ? "action" : "query",
+        kind: isWebhook
+          ? "event"
+          : collection.name === "actions"
+            ? "action"
+            : "query",
         nativeId: id,
         ...(actionTitle ? { label: safeText(actionTitle, 200) } : {}),
         ...(description
@@ -779,7 +830,9 @@ export async function readWorkatoConnector(
           ...(actionTitle ? { label: safeText(actionTitle, 200) } : {}),
           transport: "http-webhook",
           verification:
-            hashValue(connector, "webhook_keys") === undefined ? "unknown" : "vendor",
+            hashValue(connector, "webhook_keys") === undefined
+              ? "unknown"
+              : "vendor",
           messageSchemaRef: pointer(...path, "output_fields"),
         });
       executableCandidates.push(id);
@@ -798,7 +851,9 @@ export async function readWorkatoConnector(
     });
 
   const objectDefinitions: Record<string, unknown> = {};
-  const definitionEntries = rubyEntries(hashValue(connector, "object_definitions"));
+  const definitionEntries = rubyEntries(
+    hashValue(connector, "object_definitions"),
+  );
   for (const entry of (definitionEntries ?? []).slice(
     0,
     WORKATO_LIMITS.objectDefinitions,

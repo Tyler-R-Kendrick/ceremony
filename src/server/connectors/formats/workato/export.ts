@@ -117,7 +117,11 @@ export function exportWorkatoStatic(
     if (subtitle !== undefined) entry["subtitle"] = subtitle;
     if (capability.summary !== undefined)
       entry["description"] = capability.summary;
-    for (const key of ["config_fields", "input_fields", "output_fields"] as const) {
+    for (const key of [
+      "config_fields",
+      "input_fields",
+      "output_fields",
+    ] as const) {
       const value = capabilityExtensions[key];
       if (Array.isArray(value)) entry[key] = value;
       else if (key !== "config_fields")
@@ -170,7 +174,9 @@ export function exportWorkatoStatic(
       ]),
     );
 
-  if (definition.authentication.some((profile) => profile.kind === "unsupported"))
+  if (
+    definition.authentication.some((profile) => profile.kind === "unsupported")
+  )
     losses.push(
       makeIssue({
         code: "export.workato.authorization-not-imported",

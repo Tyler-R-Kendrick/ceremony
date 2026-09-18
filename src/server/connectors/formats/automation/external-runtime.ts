@@ -18,7 +18,11 @@ import {
   type InvokeRequest,
   type InvokeResult,
 } from "../../adapter.js";
-import { boundOperation, destinationFor, destinationUrl } from "../../binding.js";
+import {
+  boundOperation,
+  destinationFor,
+  destinationUrl,
+} from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 
 /*
@@ -63,7 +67,11 @@ export const SIGNING_KEY_ID_FIELD = "externalRuntimeSigningKeyId";
  * small enough to validate in bounded time.
  */
 export type RuntimeFieldSchema =
-  | { type: "string"; enum?: string[] | undefined; maxLength?: number | undefined }
+  | {
+      type: "string";
+      enum?: string[] | undefined;
+      maxLength?: number | undefined;
+    }
   | {
       type: "number";
       minimum?: number | undefined;
@@ -148,8 +156,10 @@ export function validateRuntimeValue(
       case "integer": {
         if (typeof item !== "number" || !Number.isFinite(item)) return path;
         if (current.type === "integer" && !Number.isInteger(item)) return path;
-        if (current.minimum !== undefined && item < current.minimum) return path;
-        if (current.maximum !== undefined && item > current.maximum) return path;
+        if (current.minimum !== undefined && item < current.minimum)
+          return path;
+        if (current.maximum !== undefined && item > current.maximum)
+          return path;
         return undefined;
       }
       case "boolean":
@@ -161,13 +171,19 @@ export function validateRuntimeValue(
         if (current.maxItems !== undefined && item.length > current.maxItems)
           return path;
         for (const [index, entry] of item.entries()) {
-          const failure = walk(current.items, entry, `${path}/${index}`, depth + 1);
+          const failure = walk(
+            current.items,
+            entry,
+            `${path}/${index}`,
+            depth + 1,
+          );
           if (failure) return failure;
         }
         return undefined;
       }
       case "object": {
-        if (!item || typeof item !== "object" || Array.isArray(item)) return path;
+        if (!item || typeof item !== "object" || Array.isArray(item))
+          return path;
         const prototype = Object.getPrototypeOf(item);
         if (prototype !== Object.prototype && prototype !== null) return path;
         const source = item as Record<string, unknown>;
@@ -267,10 +283,17 @@ export const externalRuntimeBindingSchema = z.strictObject({
   /** Milliseconds this operation may take before the call is abandoned. */
   timeoutMs: z.number().int().positive().max(600_000).default(30_000),
   /** How far apart the host's and the runtime's clocks may be, for the signature. */
-  signatureToleranceMs: z.number().int().positive().max(3_600_000).default(300_000),
+  signatureToleranceMs: z
+    .number()
+    .int()
+    .positive()
+    .max(3_600_000)
+    .default(300_000),
   description: safeTextSchema.optional(),
 });
-export type ExternalRuntimeBinding = z.infer<typeof externalRuntimeBindingSchema>;
+export type ExternalRuntimeBinding = z.infer<
+  typeof externalRuntimeBindingSchema
+>;
 
 /** The reply contract. Anything else is a protocol failure, not an outcome. */
 const runtimeReplySchema = z.strictObject({
@@ -301,7 +324,9 @@ export type ExternalRuntimeAdapterOptions = {
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
 function digestOf(value: unknown): string {
-  return createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
+  return createHash("sha256")
+    .update(canonicalConnectorJson(value))
+    .digest("hex");
 }
 
 /** `timestamp.body`, signed with HMAC-SHA256 and rendered as `v1=<hex>`. */
@@ -420,7 +445,9 @@ export function createExternalRuntimeAdapter(
       if (!operation)
         throw new ConnectorError("denied", { detail: "operation.unapproved" });
       if (operation.transport.kind !== "delegated")
-        throw new ConnectorError("unsupported", { detail: "transport.mismatch" });
+        throw new ConnectorError("unsupported", {
+          detail: "transport.mismatch",
+        });
       const runtime = bindings.get(request.operationRef);
       if (!runtime)
         throw new ConnectorError("unsupported", { detail: "runtime.unbound" });
@@ -459,7 +486,8 @@ export function createExternalRuntimeAdapter(
         operationRef: runtime.operationRef,
         identity: runtime.identity,
         input: request.input,
-        ...(request.idempotencyKey && runtime.replay === "upstream-idempotency-key"
+        ...(request.idempotencyKey &&
+        runtime.replay === "upstream-idempotency-key"
           ? { idempotencyKey: request.idempotencyKey }
           : {}),
       });
@@ -565,7 +593,9 @@ export function createExternalRuntimeAdapter(
             accept: "application/json",
             [SIGNATURE_HEADER]: signature.value,
             [SIGNATURE_TIMESTAMP_HEADER]: String(issuedAt),
-            ...(signature.keyId ? { [SIGNATURE_KEY_ID_HEADER]: signature.keyId } : {}),
+            ...(signature.keyId
+              ? { [SIGNATURE_KEY_ID_HEADER]: signature.keyId }
+              : {}),
           },
           body,
         });
@@ -592,14 +622,16 @@ export function createExternalRuntimeAdapter(
       const text = await response.text();
       if (text.length > maxResponseBytes) {
         await ctx.environment.effects.complete(effectRef, {
-          status: runtime.replay === "read-only" ? "not-applied" : "indeterminate",
+          status:
+            runtime.replay === "read-only" ? "not-applied" : "indeterminate",
           code: "upstream.oversized",
           at: ctx.environment.now(),
         });
         throw new ConnectorError("upstream-rejected", { detail: "reply.size" });
       }
       if (!response.ok) {
-        const applied = runtime.replay === "read-only" ? "not-applied" : "failed";
+        const applied =
+          runtime.replay === "read-only" ? "not-applied" : "failed";
         await ctx.environment.effects.complete(effectRef, {
           status: applied,
           code: "upstream.rejected",
@@ -633,7 +665,9 @@ export function createExternalRuntimeAdapter(
             code: "upstream.malformed",
             effectRef,
           };
-        throw new ConnectorError("upstream-rejected", { detail: "reply.schema" });
+        throw new ConnectorError("upstream-rejected", {
+          detail: "reply.schema",
+        });
       }
 
       if (parsed.status !== "completed") {

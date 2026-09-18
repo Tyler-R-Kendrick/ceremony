@@ -57,7 +57,10 @@ describe("reading a declarative n8n node", () => {
     assert.equal(definition.nativeExtensions["profile"], N8N_PROFILES.json);
     assert.deepEqual(definition.nativeExtensions["nodeVersions"], [1, 2]);
     assert.equal(definition.nativeExtensions["defaultVersion"], 2);
-    assert.equal(definition.nativeExtensions["packageName"], "n8n-nodes-meterly");
+    assert.equal(
+      definition.nativeExtensions["packageName"],
+      "n8n-nodes-meterly",
+    );
     assert.equal(definition.nativeExtensions["packageVersion"], "0.3.1");
     assert.equal(definition.nativeExtensions["n8nNodesApiVersion"], 1);
     assert.equal(definition.nativeExtensions["implementation"], "declarative");
@@ -66,7 +69,10 @@ describe("reading a declarative n8n node", () => {
     ]);
 
     const capabilities = new Map(
-      definition.capabilities.map((capability) => [capability.nativeId, capability]),
+      definition.capabilities.map((capability) => [
+        capability.nativeId,
+        capability,
+      ]),
     );
     assert.deepEqual([...capabilities.keys()].sort(), [
       "meter.getAll",
@@ -100,9 +106,10 @@ describe("reading a declarative n8n node", () => {
       ["limit"],
     );
 
-    assert.deepEqual(definition.declaredServers.map((server) => server.url), [
-      "https://api.meterly.example",
-    ]);
+    assert.deepEqual(
+      definition.declaredServers.map((server) => server.url),
+      ["https://api.meterly.example"],
+    );
   });
 
   test("maps a literal credential placement, and only a literal one", async () => {
@@ -137,7 +144,10 @@ describe("reading a declarative n8n node", () => {
     assert.ok(issue);
     assert.equal(issue.executionImpact, "blocks-authorization");
     assert.equal(result.definition.authentication.length, 0);
-    assert.equal(result.definition.compatibility.dimensions.authorize, "unsupported");
+    assert.equal(
+      result.definition.compatibility.dimensions.authorize,
+      "unsupported",
+    );
   });
 
   test("extracts the same node from source text without loading it", async () => {
@@ -147,9 +157,14 @@ describe("reading a declarative n8n node", () => {
       packageJson: declarativePackageJson,
       identity: declarativeIdentity,
     });
-    assert.equal(result.definition.nativeExtensions["profile"], N8N_PROFILES.source);
+    assert.equal(
+      result.definition.nativeExtensions["profile"],
+      N8N_PROFILES.source,
+    );
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["meter.getAll", "reading.create"],
     );
     const profile = result.definition.authentication[0];
@@ -187,16 +202,30 @@ describe("a programmatic n8n node never executes", () => {
       identity: programmaticIdentity,
     });
 
-    assert.equal(existsSync(sentinel), false, "the module initializer did not run");
-    assert.equal(existsSync(`${sentinel}.shell`), false, "no shell command ran");
+    assert.equal(
+      existsSync(sentinel),
+      false,
+      "the module initializer did not run",
+    );
+    assert.equal(
+      existsSync(`${sentinel}.shell`),
+      false,
+      "no shell command ran",
+    );
 
-    assert.equal(result.definition.nativeExtensions["implementation"], "programmatic");
-    assert.deepEqual(result.definition.nativeExtensions["programmaticMethods"], [
-      "execute",
-      "webhook",
-    ]);
+    assert.equal(
+      result.definition.nativeExtensions["implementation"],
+      "programmatic",
+    );
+    assert.deepEqual(
+      result.definition.nativeExtensions["programmaticMethods"],
+      ["execute", "webhook"],
+    );
     // Invoking it needs an n8n host, so the description says unsupported.
-    assert.equal(result.definition.compatibility.dimensions.invoke, "unsupported");
+    assert.equal(
+      result.definition.compatibility.dimensions.invoke,
+      "unsupported",
+    );
     assert.ok(
       (result.definition.nativeExtensions["limitations"] as string[]).includes(
         "programmatic node requires host runtime",
@@ -214,7 +243,9 @@ describe("a programmatic n8n node never executes", () => {
     }
     // Metadata is still imported: a reviewer sees what the node offers.
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["shell.exfiltrate", "shell.run"],
     );
   });
@@ -255,7 +286,9 @@ describe("a programmatic n8n node never executes", () => {
       sourceText:
         "export class X { description = buildDescription(); async execute() {} }",
     });
-    const blocking = result.issues.filter((issue) => issue.severity === "blocking");
+    const blocking = result.issues.filter(
+      (issue) => issue.severity === "blocking",
+    );
     assert.equal(blocking[0]?.code, "n8n.source.description-not-literal");
     assert.equal(blocking[0]?.executionImpact, "blocks-definition");
     assert.deepEqual(result.executableCandidates, []);

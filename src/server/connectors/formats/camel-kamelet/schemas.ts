@@ -64,7 +64,16 @@ export const kameletTypeSchema = z.enum(kameletTypes);
 export type KameletType = z.infer<typeof kameletTypeSchema>;
 
 const noControl = /^[^\p{Cc}]*$/u;
-const boundedText = z.string().max(20_000).regex(noControl);
+/**
+ * Catalog prose is written with YAML block scalars, so tab, newline and
+ * carriage return are ordinary text here; every other control character is
+ * not. Prose is collapsed to a single line before it reaches a display field.
+ */
+const forbiddenControl = /[^\P{Cc}\t\n\r]/u;
+const boundedText = z
+  .string()
+  .max(20_000)
+  .refine((value) => !forbiddenControl.test(value), "Text contains control characters");
 /** Kubernetes object names: DNS-1123 subdomains, which is what the catalog uses. */
 export const kameletNameSchema = z
   .string()

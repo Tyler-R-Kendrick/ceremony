@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { once } from "node:events";
 import type { ConnectionRecord } from "../../../../src/server/connectors/ports.js";
 import {
@@ -39,8 +43,7 @@ export type RuntimeCall = {
 };
 
 export type RuntimeReply =
-  | { kind: "reply"; status?: number; body: unknown }
-  | { kind: "drop" };
+  { kind: "reply"; status?: number; body: unknown } | { kind: "drop" };
 
 export type RuntimeBehaviour = (
   call: RuntimeCall,
@@ -48,12 +51,14 @@ export type RuntimeBehaviour = (
 ) => RuntimeReply | Promise<RuntimeReply>;
 
 /** Starts the fixture runtime; `calls` records exactly what it received. */
-export async function startExternalRuntime(options: {
-  behaviour?: RuntimeBehaviour;
-  secret?: string;
-  toleranceMs?: number;
-  now?: () => number;
-} = {}) {
+export async function startExternalRuntime(
+  options: {
+    behaviour?: RuntimeBehaviour;
+    secret?: string;
+    toleranceMs?: number;
+    now?: () => number;
+  } = {},
+) {
   const calls: RuntimeCall[] = [];
   const secret = options.secret ?? RUNTIME_SECRET;
   const now = options.now ?? Date.now;
@@ -173,8 +178,10 @@ export function delegatedBinding(input: {
         effect: input.effect,
         outputClassification: input.outputClassification ?? "personal",
         cost: "unknown",
-        consent: input.consent ?? (input.effect === "write" ? "confirm" : "none"),
-        replay: input.replay ?? (input.effect === "read" ? "read-only" : "none"),
+        consent:
+          input.consent ?? (input.effect === "write" ? "confirm" : "none"),
+        replay:
+          input.replay ?? (input.effect === "read" ? "read-only" : "none"),
         targetParameters: [],
       },
     ],

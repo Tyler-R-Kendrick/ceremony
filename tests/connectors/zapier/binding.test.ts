@@ -23,7 +23,10 @@ import {
   delegatedBinding,
   startExternalRuntime,
 } from "../fixtures/automation/external-runtime.js";
-import { nativeAppDefinition, nativeAppIdentity } from "../fixtures/zapier/app.js";
+import {
+  nativeAppDefinition,
+  nativeAppIdentity,
+} from "../fixtures/zapier/app.js";
 
 /*
  * The whole path, end to end: a Zapier app definition is imported statically,
@@ -35,9 +38,12 @@ import { nativeAppDefinition, nativeAppIdentity } from "../fixtures/zapier/app.j
  */
 
 /** Turns an imported Zapier input-field list into the binding's input schema. */
-function schemaFromZapierFields(capability: NativeCapability): RuntimeFieldSchema {
-  const fields = (capability.nativeExtensions?.["inputFields"] ??
-    []) as Array<Record<string, unknown>>;
+function schemaFromZapierFields(
+  capability: NativeCapability,
+): RuntimeFieldSchema {
+  const fields = (capability.nativeExtensions?.["inputFields"] ?? []) as Array<
+    Record<string, unknown>
+  >;
   const properties: Record<string, RuntimeFieldSchema> = {};
   const required: string[] = [];
   for (const field of fields) {
@@ -115,11 +121,15 @@ function runtimeBindingFor(
 
 type Harness = Awaited<ReturnType<typeof harness>>;
 
-async function harness(options: {
-  behaviour?: NonNullable<Parameters<typeof startExternalRuntime>[0]>["behaviour"];
-  bindingOverrides?: Partial<ExternalRuntimeBinding>;
-  externalIds?: Record<string, string>;
-} = {}) {
+async function harness(
+  options: {
+    behaviour?: NonNullable<
+      Parameters<typeof startExternalRuntime>[0]
+    >["behaviour"];
+    bindingOverrides?: Partial<ExternalRuntimeBinding>;
+    externalIds?: Record<string, string>;
+  } = {},
+) {
   const { capability } = await importedCreate();
   const runtime = await startExternalRuntime(
     options.behaviour ? { behaviour: options.behaviour } : {},
@@ -137,7 +147,10 @@ async function harness(options: {
     service: "ledgerly",
     externalIds: options.externalIds ?? { zapierAccountId: "acct_7" },
   });
-  const external = runtimeBindingFor(capability, options.bindingOverrides ?? {});
+  const external = runtimeBindingFor(
+    capability,
+    options.bindingOverrides ?? {},
+  );
   const adapter = createExternalRuntimeAdapter({ bindings: [external] });
   const controller = new AbortController();
   const ctx: AdapterCallContext = {
@@ -247,20 +260,17 @@ describe("binding a statically imported Zapier action to an approved runtime", (
   });
 
   test("a lost response leaves a write indeterminate, never failed", async () => {
-    await withHarness(
-      { behaviour: () => ({ kind: "drop" }) },
-      async (h) => {
-        const result = await h.adapter.invoke!(h.ctx, {
-          operationRef: OPERATION_REF,
-          input: { customer_id: "cus_9", total_cents: 100 },
-          commandId: "command-1",
-        });
-        assert.equal(result.state, "indeterminate");
-        assert.equal(result.code, "upstream.unreachable");
-        const journal = h.ports.inspect.effects();
-        assert.equal(journal[0]?.outcome?.status, "indeterminate");
-      },
-    );
+    await withHarness({ behaviour: () => ({ kind: "drop" }) }, async (h) => {
+      const result = await h.adapter.invoke!(h.ctx, {
+        operationRef: OPERATION_REF,
+        input: { customer_id: "cus_9", total_cents: 100 },
+        commandId: "command-1",
+      });
+      assert.equal(result.state, "indeterminate");
+      assert.equal(result.code, "upstream.unreachable");
+      const journal = h.ports.inspect.effects();
+      assert.equal(journal[0]?.outcome?.status, "indeterminate");
+    });
   });
 
   test("a reply this adapter cannot read leaves a write indeterminate", async () => {
@@ -328,7 +338,10 @@ describe("binding a statically imported Zapier action to an approved runtime", (
         });
         assert.equal(result.state, "denied");
         assert.equal(result.code, "runtime.policy");
-        assert.equal(h.ports.inspect.effects()[0]?.outcome?.status, "not-applied");
+        assert.equal(
+          h.ports.inspect.effects()[0]?.outcome?.status,
+          "not-applied",
+        );
       },
     );
   });
@@ -503,7 +516,9 @@ describe("what the adapter reports about itself", () => {
         environmentClass: "loopback-fixture",
       }),
     );
-    assert.deepEqual(validateRuntimeValue({ type: "string" }, "ok"), { ok: true });
+    assert.deepEqual(validateRuntimeValue({ type: "string" }, "ok"), {
+      ok: true,
+    });
     assert.equal(
       validateRuntimeValue(
         {

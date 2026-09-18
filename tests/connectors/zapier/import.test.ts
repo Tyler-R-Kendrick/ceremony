@@ -59,7 +59,10 @@ describe("reading an exported Zapier app definition", () => {
       profile.authorizationEndpoint,
       "https://auth.ledgerly.example/oauth/authorize",
     );
-    assert.equal(profile.tokenEndpoint, "https://auth.ledgerly.example/oauth/token");
+    assert.equal(
+      profile.tokenEndpoint,
+      "https://auth.ledgerly.example/oauth/token",
+    );
     assert.deepEqual(profile.scopes, ["invoices:read", "invoices:write"]);
     assert.equal(profile.pkce, "S256");
     assert.equal(profile.refresh, "supported");
@@ -86,19 +89,27 @@ describe("reading an exported Zapier app definition", () => {
     // Zapier's own semantics decide the effect: a create writes, a search and
     // a trigger read. Nothing is inferred from an HTTP method.
     const byId = new Map(
-      definition.capabilities.map((capability) => [capability.nativeId, capability]),
+      definition.capabilities.map((capability) => [
+        capability.nativeId,
+        capability,
+      ]),
     );
-    assert.deepEqual(
-      [...byId.keys()].sort(),
-      ["create_invoice", "customer.list", "find_customer", "new_invoice"],
-    );
+    assert.deepEqual([...byId.keys()].sort(), [
+      "create_invoice",
+      "customer.list",
+      "find_customer",
+      "new_invoice",
+    ]);
     assert.equal(byId.get("create_invoice")?.effect, "write");
     assert.equal(byId.get("create_invoice")?.kind, "action");
     assert.equal(byId.get("find_customer")?.effect, "read");
     assert.equal(byId.get("find_customer")?.kind, "query");
     assert.equal(byId.get("new_invoice")?.effect, "read");
     assert.equal(byId.get("new_invoice")?.kind, "query");
-    assert.equal(byId.get("new_invoice")?.nativeExtensions?.["type"], "polling");
+    assert.equal(
+      byId.get("new_invoice")?.nativeExtensions?.["type"],
+      "polling",
+    );
 
     // The static input schema is preserved as the source wrote it.
     const inputFields = byId.get("create_invoice")?.nativeExtensions?.[
@@ -179,12 +190,17 @@ describe("reading Zapier CLI source text", () => {
       ZAPIER_PROFILES.source,
     );
     assert.deepEqual(
-      result.definition.capabilities.map((capability) => capability.nativeId).sort(),
+      result.definition.capabilities
+        .map((capability) => capability.nativeId)
+        .sort(),
       ["create_invoice", "customer.list", "find_customer", "new_invoice"],
     );
     const profile = result.definition.authentication[0];
     assert.ok(profile && profile.kind === "oauth-authorization-code");
-    assert.equal(profile.tokenEndpoint, "https://auth.ledgerly.example/oauth/token");
+    assert.equal(
+      profile.tokenEndpoint,
+      "https://auth.ledgerly.example/oauth/token",
+    );
     // `version: require('./package.json').version` is a call, not a literal.
     assert.ok(codes(result.issues).has("zapier.app.version-not-literal"));
     assert.equal(result.definition.compatibility.dimensions.import, "adapted");
@@ -194,7 +210,9 @@ describe("reading Zapier CLI source text", () => {
     const result = await readZapierApp({
       sourceText: "const App = { version: '1.0.0' };\nconsole.log(App);\n",
     });
-    const blocking = result.issues.filter((issue) => issue.severity === "blocking");
+    const blocking = result.issues.filter(
+      (issue) => issue.severity === "blocking",
+    );
     assert.equal(blocking.length, 1);
     assert.equal(blocking[0]?.code, "zapier.source.no-export");
     assert.equal(blocking[0]?.executionImpact, "blocks-definition");
@@ -275,7 +293,10 @@ describe("an adversarial app never executes", () => {
     );
     assert.ok(security);
     assert.equal(security.executionImpact, "blocks-authorization");
-    assert.equal(result.definition.compatibility.dimensions.authorize, "unsupported");
+    assert.equal(
+      result.definition.compatibility.dimensions.authorize,
+      "unsupported",
+    );
     // The app's own fields still become configuration, so the import is useful.
     assert.deepEqual(
       result.definition.configuration.map((item) => item.name),

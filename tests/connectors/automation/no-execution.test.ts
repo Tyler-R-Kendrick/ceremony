@@ -15,7 +15,16 @@ import { describe, test } from "node:test";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..", "..", "..", "src", "server", "connectors", "formats");
+const root = join(
+  here,
+  "..",
+  "..",
+  "..",
+  "src",
+  "server",
+  "connectors",
+  "formats",
+);
 
 /** Every module that touches untrusted connector source. */
 const READERS = [
@@ -44,8 +53,10 @@ const EXECUTION = [
   { name: "child_process", pattern: /child_process/ },
   { name: "node:vm", pattern: /node:vm|\bvm\.runIn/ },
   { name: "worker_threads", pattern: /worker_threads/ },
-  { name: "spawn", pattern: /\bspawn(Sync)?\s*\(/ },
-  { name: "exec", pattern: /\bexec(Sync|File)?\s*\(/ },
+  // A leading dot means a method on a value — `RegExp.prototype.exec` is not
+  // a process launch — so only a bare call counts.
+  { name: "spawn", pattern: /(?<![.\w])spawn(Sync)?\s*\(/ },
+  { name: "exec", pattern: /(?<![.\w])exec(Sync|File)?\s*\(/ },
   { name: "process.binding", pattern: /process\.binding/ },
   { name: "createRequire", pattern: /createRequire/ },
 ];
@@ -75,7 +86,11 @@ describe("the automation importers cannot execute anything", () => {
     for (const relative of READERS) {
       const source = await readFile(join(root, relative), "utf8");
       assert.equal(/\bfetch\s*\(/.test(source), false, relative);
-      assert.equal(/readFile|writeFile|readFileSync/.test(source), false, relative);
+      assert.equal(
+        /readFile|writeFile|readFileSync/.test(source),
+        false,
+        relative,
+      );
     }
   });
 
@@ -102,7 +117,11 @@ describe("the automation importers cannot execute anything", () => {
   test("the importers are pure functions of their input", async () => {
     // A reader takes text or parsed data and returns a description. It holds
     // no module-level mutable state that a second import could observe.
-    for (const relative of ["zapier/read.ts", "n8n/read.ts", "workato/read.ts"]) {
+    for (const relative of [
+      "zapier/read.ts",
+      "n8n/read.ts",
+      "workato/read.ts",
+    ]) {
       const source = await readFile(join(root, relative), "utf8");
       assert.equal(
         /^let [a-zA-Z]/m.test(source.replace(/^ +let /gm, "  let ")),

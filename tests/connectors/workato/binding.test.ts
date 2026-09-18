@@ -32,9 +32,12 @@ import {
 const OPERATION_REF = "operation:workato:adjust_stock";
 
 /** Turns imported Workato input fields into the binding's input schema. */
-function schemaFromWorkatoFields(capability: NativeCapability): RuntimeFieldSchema {
-  const fields = (capability.nativeExtensions?.["input_fields"] ??
-    []) as Array<Record<string, unknown>>;
+function schemaFromWorkatoFields(
+  capability: NativeCapability,
+): RuntimeFieldSchema {
+  const fields = (capability.nativeExtensions?.["input_fields"] ?? []) as Array<
+    Record<string, unknown>
+  >;
   const properties: Record<string, RuntimeFieldSchema> = {};
   const required: string[] = [];
   for (const field of fields) {
@@ -56,7 +59,9 @@ function schemaFromWorkatoFields(capability: NativeCapability): RuntimeFieldSche
 
 async function harness(
   options: {
-    behaviour?: NonNullable<Parameters<typeof startExternalRuntime>[0]>["behaviour"];
+    behaviour?: NonNullable<
+      Parameters<typeof startExternalRuntime>[0]
+    >["behaviour"];
   } = {},
 ) {
   const imported = await readWorkatoConnector({
@@ -228,7 +233,10 @@ describe("binding an imported Workato action to an approved runtime", () => {
       });
       assert.equal(result.state, "human-required");
       assert.equal(result.code, "runtime.approval");
-      assert.equal(h.ports.inspect.effects()[0]?.outcome?.status, "not-applied");
+      assert.equal(
+        h.ports.inspect.effects()[0]?.outcome?.status,
+        "not-applied",
+      );
     } finally {
       await h.close();
     }

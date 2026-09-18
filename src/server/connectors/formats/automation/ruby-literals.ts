@@ -210,7 +210,9 @@ export function tokenizeRuby(
         const terminator = pendingHeredocs.shift()!;
         const pattern = new RegExp(`^[ \\t]*${terminator}[ \\t]*$`, "m");
         const match = pattern.exec(text.slice(index));
-        const stop = match ? index + match.index + match[0].length : text.length;
+        const stop = match
+          ? index + match.index + match[0].length
+          : text.length;
         for (let scan = index; scan < stop; scan++)
           if (text[scan] === "\n") {
             line++;
@@ -791,7 +793,10 @@ export function readRubyConnectorHash(parse: RubyParse): {
       CONNECTOR_ROOT_KEYS.has(entry.key),
     ).length;
     if (score >= 2)
-      return { value: parsed.value, truncated: state.truncated || parse.truncated };
+      return {
+        value: parsed.value,
+        truncated: state.truncated || parse.truncated,
+      };
     if (score >= 1 && !best) best = { value: parsed.value, score };
   }
   return {

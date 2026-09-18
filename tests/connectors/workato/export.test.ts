@@ -54,10 +54,13 @@ describe("exporting a Workato description", () => {
       staticProfile: exported.document,
       identity,
     });
-    assert.deepEqual(second.definition.authentication, first.definition.authentication);
-    const connection = (exported.document as Record<string, Record<string, unknown>>)[
-      "connection"
-    ];
+    assert.deepEqual(
+      second.definition.authentication,
+      first.definition.authentication,
+    );
+    const connection = (
+      exported.document as Record<string, Record<string, unknown>>
+    )["connection"];
     assert.deepEqual(connection?.["authorization"], {
       type: "oauth2",
       authorization_url: "https://auth.stockroom.example/oauth/authorize",
@@ -78,8 +81,14 @@ describe("exporting a Workato description", () => {
     assert.equal(document["profile"], WORKATO_PROFILES.export);
     assert.equal(document["title"], "Stockroom");
     assert.deepEqual(document["test"], WORKATO_LAMBDA_MARKER);
-    const actions = document["actions"] as Record<string, Record<string, unknown>>;
-    assert.deepEqual(actions["adjust_stock"]?.["execute"], WORKATO_LAMBDA_MARKER);
+    const actions = document["actions"] as Record<
+      string,
+      Record<string, unknown>
+    >;
+    assert.deepEqual(
+      actions["adjust_stock"]?.["execute"],
+      WORKATO_LAMBDA_MARKER,
+    );
     assert.deepEqual(actions["adjust_stock"]?.["input_fields"], [
       { name: "sku", optional: false, label: "SKU" },
       { name: "delta", type: "integer", optional: false, label: "Change by" },
@@ -100,7 +109,9 @@ describe("exporting a Workato description", () => {
 
   test("an unimported credential placement is a security-critical loss", async () => {
     const first = await readWorkatoConnector({
-      rubySource: adversarialConnectorRuby("/tmp/workato-export-sentinel-never"),
+      rubySource: adversarialConnectorRuby(
+        "/tmp/workato-export-sentinel-never",
+      ),
       identity: adversarialConnectorIdentity,
     });
     const exported = exportWorkatoStatic(first.definition);
@@ -117,7 +128,9 @@ describe("exporting a Workato description", () => {
 
   test("a field list that was a lambda is reported as absent, not invented", async () => {
     const first = await readWorkatoConnector({
-      rubySource: adversarialConnectorRuby("/tmp/workato-export-sentinel-never"),
+      rubySource: adversarialConnectorRuby(
+        "/tmp/workato-export-sentinel-never",
+      ),
       identity: adversarialConnectorIdentity,
     });
     const exported = exportWorkatoStatic(first.definition);
