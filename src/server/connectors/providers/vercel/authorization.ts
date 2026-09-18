@@ -2,7 +2,6 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
   canonicalConnectorJson,
-  encodePathSegment,
   evidenceTargetSchema,
   measureJsonValue,
   nativeIdentifierSchema,
@@ -25,14 +24,15 @@ import type {
   OwnerKind,
   VerificationClaim,
 } from "../../adapter-types.js";
-import {
-  destinationFor,
-  destinationUrl,
-  type BoundOperation,
-} from "../../binding.js";
+import { destinationFor, type BoundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { ConnectionRecord, HandoffRecord } from "../../ports.js";
-import { callVercel, readBounded, VERCEL_REQUEST_TIMEOUT_MS } from "./client.js";
+import {
+  callVercel,
+  operationUrl,
+  readBounded,
+  VERCEL_REQUEST_TIMEOUT_MS,
+} from "./client.js";
 import {
   connectAuthorizeResponseSchema,
   connectTokenResponseSchema,
@@ -1286,13 +1286,14 @@ export async function invokeProviderOperation(
     if (!ctx.binding.permittedTargets.some((target) => target.kind === name && target.id === value))
       throw new ConnectorError("denied", { detail: "vercel.target.not-permitted" });
   }
-  const path = bound.transport.pathTemplate.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_m, name: string) => {
+  const url = operationUrl(destination, bound.transport.pathTemplate, (name) => {
     const value = input.path?.[name];
     if (value === undefined)
-      throw new ConnectorError("invalid-request", { detail: "vercel.path.parameter-missing" });
-    return encodePathSegment(value);
+      throw new ConnectorError("invalid-request", {
+        detail: "vercel.path.parameter-missing",
+      });
+    return value;
   });
-  const url = destinationUrl(destination, path);
   for (const [name, value] of Object.entries(input.query ?? {}))
     url.searchParams.set(name, value);
   const body = input.body === undefined ? undefined : JSON.stringify(input.body);

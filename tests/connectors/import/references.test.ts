@@ -13,6 +13,7 @@ import {
   expectConnectorError,
   fixtureBytes,
   loopbackPolicy,
+  publicPolicy,
 } from "./support.js";
 
 /*
@@ -141,7 +142,11 @@ test("unresolved, unsupported, unsafe and unavailable references are distinct co
   const schemas = value.components.schemas;
   const fixture = await startHttpFixture(() => ({ body: { ok: true } }));
   t.after(() => fixture.close());
-  const approved = createApprovedFetch(loopbackPolicy());
+  // The policy a real import runs under: public retrieval only, with a
+  // resolver that would answer privately, so nothing leaves the machine.
+  const approved = createApprovedFetch(
+    publicPolicy({ lookup: async () => [{ address: "10.0.0.5", family: 4 }] }),
+  );
   t.after(() => approved.close());
 
   const resolver = new ReferenceResolver({
@@ -170,8 +175,8 @@ test("unresolved, unsupported, unsafe and unavailable references are distinct co
   assert.equal(outcomes.Anchor, "unsupported");
   // A pointer into a known document that names nothing is unresolved.
   assert.equal(outcomes.Missing, "unresolved");
-  // A well-formed public reference is refused by the fixture-only policy too,
-  // but as an unsafe destination rather than a malformed reference.
+  // A well-formed public reference is attempted, and its private DNS answer is
+  // refused at connection time: an unsafe destination, not a bad reference.
   assert.equal(outcomes.Public, "unsafe");
   assert.equal(fixture.requests.length, 0);
 
@@ -245,12 +250,18 @@ test("external references need an explicit hook and stay inside the document bud
   assert.deepEqual(served, ["/doc0.json", "/doc1.json", "/doc2.json"]);
   assert.equal(resolver.budget().externalDocuments, 3);
 
-  // A chain of external references expands only as far as the budget allows.
-  const chained = await resolver.expand({ $ref: "./doc0.json#" }, from);
+  // An expansion that reaches past the budget keeps the reference in place and
+  // reports it, rather than fetching another document.
+  const chained = await resolver.expand({ $ref: "./doc3.json#/name" }, from);
   assert.equal(
     chained.issues.some((issue) => issue.code === "reference.budget-exceeded"),
     true,
   );
+  assert.deepEqual(chained.value, { $ref: "./doc3.json#/name" });
+  assert.deepEqual(served, ["/doc0.json", "/doc1.json", "/doc2.json"]);
+  // Documents already in the registry still expand from cache.
+  const cached = await resolver.expand({ $ref: "./doc0.json#/name" }, from);
+  assert.equal(cached.value, "doc0");
 });
 
 test("a byte budget bounds external documents even when the count does not", async (t) => {
@@ -379,7 +390,7 @@ test("reference strings are bounded and malformed forms are refused, not parsed"
     "#/%zz",
     123 as unknown as string,
     "",
-    `#/${CANARY} `,
+    `#/${CANARY}\u0000`,
   ]) {
     const outcome = await resolver.resolve(ref, at());
     assert.notEqual(outcome.status, "resolved");

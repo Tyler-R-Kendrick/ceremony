@@ -605,8 +605,12 @@ export function createSupabaseHostedMcpProfile(
         )
         .filter(Boolean);
       const missing = approved.filter((tool) => !advertised.includes(tool));
+      // The server accepted the token and answered tools/list. That is what was
+      // observed: the advertised tool set is *reported*, and using a tool is
+      // the only thing that would observe a permission, so this is never a
+      // permission-observed claim.
       const claim = makeClaim(ctx, {
-        kind: "permission-observed",
+        kind: "credential-accepted",
         target: { kind: "supabase-mcp-server", id: resolved.url.host },
         verifierVersion: VERIFIER_VERSION,
         validForMs: evidenceTtlMs,

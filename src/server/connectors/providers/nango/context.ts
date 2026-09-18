@@ -48,7 +48,9 @@ export type NangoAdapterOptions = {
     excludeConnectionRef: string;
   }) => Promise<string[]>;
   /** Event inbox: true when this authority already processed the event id. */
-  eventInbox?: { seen(authority: string, eventId: string, at: number): Promise<boolean> };
+  eventInbox?: {
+    seen(authority: string, eventId: string, at: number): Promise<boolean>;
+  };
 };
 
 export type NangoRuntime = {
@@ -114,7 +116,10 @@ const originOf = (value: string) => {
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
   return url.origin === value ||
-    (url.pathname === "/" && !url.search && !url.hash && url.origin + "/" === value)
+    (url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      url.origin + "/" === value)
     ? url.origin
     : undefined;
 };
@@ -135,7 +140,9 @@ export async function resolveNango(
   if (binding.tenantId !== ctx.actor.tenantId)
     throw new ConnectorError("denied", { detail: "nango.binding.tenant" });
   if (binding.status !== "approved")
-    throw new ConnectorError("denied", { detail: "nango.binding.not-approved" });
+    throw new ConnectorError("denied", {
+      detail: "nango.binding.not-approved",
+    });
   const parsedSettings = nangoBindingSettingsSchema.safeParse(binding.settings);
   if (!parsedSettings.success)
     throw new ConnectorError("configuration-required", {
@@ -167,7 +174,9 @@ export async function resolveNango(
     fetch: ctx.environment.fetch,
     destination: api,
     secret: async () => {
-      const secret = await configuration.read(NANGO_CONFIGURATION_NAMES.secretKey);
+      const secret = await configuration.read(
+        NANGO_CONFIGURATION_NAMES.secretKey,
+      );
       if (!secret)
         throw new ConnectorError("configuration-required", {
           detail: "nango.configuration.secret-key",
@@ -179,7 +188,15 @@ export async function resolveNango(
     cooldown: runtime.cooldown,
     cooldownKey: `${ctx.actor.tenantId}\n${authority}`,
   });
-  return { ctx, settings, api, connect, environment: environment.data, authority, client };
+  return {
+    ctx,
+    settings,
+    api,
+    connect,
+    environment: environment.data,
+    authority,
+    client,
+  };
 }
 
 /** The connection this call is about, checked against the binding, tenant and broker instance. */
@@ -187,7 +204,9 @@ export function requireConnection(resolved: Resolved): ConnectionRecord {
   const { ctx } = resolved;
   const connection = ctx.connection;
   if (!connection)
-    throw new ConnectorError("invalid-request", { detail: "nango.connection.required" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.connection.required",
+    });
   if (
     connection.tenantId !== ctx.actor.tenantId ||
     connection.bindingRef !== ctx.binding.bindingRef ||
@@ -195,7 +214,9 @@ export function requireConnection(resolved: Resolved): ConnectionRecord {
   )
     throw new ConnectorError("denied", { detail: "nango.connection.binding" });
   if (connection.generation !== ctx.generation)
-    throw new ConnectorError("conflict", { detail: "nango.connection.generation" });
+    throw new ConnectorError("conflict", {
+      detail: "nango.connection.generation",
+    });
   return connection;
 }
 
@@ -224,11 +245,17 @@ export function brokerReference(resolved: Resolved): BrokerReference {
       detail: "nango.connection.unbound",
     });
   if (connection.authorityInstance !== resolved.authority)
-    throw new ConnectorError("denied", { detail: "nango.connection.authority" });
+    throw new ConnectorError("denied", {
+      detail: "nango.connection.authority",
+    });
   if (environment !== resolved.environment)
-    throw new ConnectorError("denied", { detail: "nango.connection.environment" });
+    throw new ConnectorError("denied", {
+      detail: "nango.connection.environment",
+    });
   if (providerConfigKey !== resolved.settings.integration.uniqueKey)
-    throw new ConnectorError("denied", { detail: "nango.connection.integration" });
+    throw new ConnectorError("denied", {
+      detail: "nango.connection.integration",
+    });
   return {
     connectionId,
     providerConfigKey,
@@ -253,7 +280,11 @@ export function credentialScope(
 }
 
 /** Owner identity as sent to the broker: a digest the host can recompute, never a raw subject. */
-export function ownerDigest(tenantId: string, ownerKind: OwnerKind, ownerId: string) {
+export function ownerDigest(
+  tenantId: string,
+  ownerKind: OwnerKind,
+  ownerId: string,
+) {
   return sha256(`nango-owner\n${tenantId}\n${ownerKind}\n${ownerId}`);
 }
 export function tenantDigest(tenantId: string) {
@@ -292,11 +323,17 @@ export function deriveTags(input: {
     input.ownerKind,
   );
   if (!mapping)
-    throw new ConnectorError("denied", { detail: "nango.owner.mapping-required" });
+    throw new ConnectorError("denied", {
+      detail: "nango.owner.mapping-required",
+    });
   if (connection.ownerKind !== input.ownerKind)
     throw new ConnectorError("denied", { detail: "nango.owner.kind-mismatch" });
   const tags: Record<string, string> = {
-    [TAG_KEYS.endUser]: ownerDigest(ctx.actor.tenantId, input.ownerKind, mapping.ownerId),
+    [TAG_KEYS.endUser]: ownerDigest(
+      ctx.actor.tenantId,
+      input.ownerKind,
+      mapping.ownerId,
+    ),
     [TAG_KEYS.tenant]: tenantDigest(ctx.actor.tenantId),
     [TAG_KEYS.connection]: connection.connectionRef,
     [TAG_KEYS.generation]: String(ctx.generation),
@@ -314,12 +351,15 @@ export function deriveTags(input: {
 
 export function freshNonce(ctx: AdapterCallContext): string {
   const bytes = ctx.environment.random.bytes(24);
-  return Buffer.from(bytes.byteLength === 24 ? bytes : randomBytes(24)).toString(
-    "base64url",
-  );
+  return Buffer.from(
+    bytes.byteLength === 24 ? bytes : randomBytes(24),
+  ).toString("base64url");
 }
 
 /** The deterministic correlation key of a reconnect handoff for one connection generation. */
-export function reconnectCorrelationKey(connectionRef: string, generation: number) {
+export function reconnectCorrelationKey(
+  connectionRef: string,
+  generation: number,
+) {
   return `nango-reconnect:${connectionRef}:${generation}`;
 }

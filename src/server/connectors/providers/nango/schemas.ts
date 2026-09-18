@@ -89,7 +89,10 @@ export const NANGO_LIMITS = Object.freeze({
 const noControl = /^[^\p{Cc}]*$/u;
 export const nangoEnvironmentSchema = z
   .string()
-  .regex(/^[a-z][a-z0-9-]{0,63}$/, "Nango environment must be a lowercase token");
+  .regex(
+    /^[a-z][a-z0-9-]{0,63}$/,
+    "Nango environment must be a lowercase token",
+  );
 
 /** Connection tags: "Keys are normalized to lowercase", at most 10 keys, values up to 255 characters. */
 export const tagsSchema = z
@@ -345,13 +348,7 @@ export const genericWebhookSchema = z.looseObject({
 /* ------------------------------------------------- host-approved contracts */
 
 export type JsonType =
-  | "object"
-  | "array"
-  | "string"
-  | "number"
-  | "integer"
-  | "boolean"
-  | "null";
+  "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
 const jsonTypeSchema = z.enum([
   "object",
   "array",
@@ -361,7 +358,12 @@ const jsonTypeSchema = z.enum([
   "boolean",
   "null",
 ]);
-const jsonScalar = z.union([z.string().max(4096), z.number(), z.boolean(), z.null()]);
+const jsonScalar = z.union([
+  z.string().max(4096),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
 
 /**
  * The bounded JSON Schema subset an operation contract may use. It is
@@ -386,26 +388,29 @@ export type JsonSubsetSchema = {
   maxItems?: number | undefined;
   description?: string | undefined;
 };
-export const jsonSubsetSchema: z.ZodType<JsonSubsetSchema, unknown> = z.lazy(() =>
-  z.strictObject({
-    type: z.union([jsonTypeSchema, z.array(jsonTypeSchema).min(1).max(7)]).optional(),
-    properties: z
-      .record(identifierSchema, jsonSubsetSchema)
-      .refine((value) => Object.keys(value).length <= 128)
-      .optional(),
-    required: z.array(identifierSchema).max(128).optional(),
-    additionalProperties: z.boolean().optional(),
-    items: jsonSubsetSchema.optional(),
-    enum: z.array(jsonScalar).min(1).max(256).optional(),
-    const: jsonScalar.optional(),
-    minimum: z.number().optional(),
-    maximum: z.number().optional(),
-    minLength: z.number().int().nonnegative().optional(),
-    maxLength: z.number().int().nonnegative().optional(),
-    minItems: z.number().int().nonnegative().optional(),
-    maxItems: z.number().int().nonnegative().optional(),
-    description: safeTextSchema.optional(),
-  }),
+export const jsonSubsetSchema: z.ZodType<JsonSubsetSchema, unknown> = z.lazy(
+  () =>
+    z.strictObject({
+      type: z
+        .union([jsonTypeSchema, z.array(jsonTypeSchema).min(1).max(7)])
+        .optional(),
+      properties: z
+        .record(identifierSchema, jsonSubsetSchema)
+        .refine((value) => Object.keys(value).length <= 128)
+        .optional(),
+      required: z.array(identifierSchema).max(128).optional(),
+      additionalProperties: z.boolean().optional(),
+      items: jsonSubsetSchema.optional(),
+      enum: z.array(jsonScalar).min(1).max(256).optional(),
+      const: jsonScalar.optional(),
+      minimum: z.number().optional(),
+      maximum: z.number().optional(),
+      minLength: z.number().int().nonnegative().optional(),
+      maxLength: z.number().int().nonnegative().optional(),
+      minItems: z.number().int().nonnegative().optional(),
+      maxItems: z.number().int().nonnegative().optional(),
+      description: safeTextSchema.optional(),
+    }),
 );
 
 export type JsonIssue = { path: string; code: string };
@@ -443,7 +448,9 @@ export function validateJsonSubset(
   if (actual === undefined) return [{ path, code: "type" }];
   if (
     types &&
-    !types.some((type) => type === actual || (type === "number" && actual === "integer"))
+    !types.some(
+      (type) => type === actual || (type === "number" && actual === "integer"),
+    )
   )
     return [{ path, code: "type" }];
   if (schema.enum && !schema.enum.some((item) => item === value))
@@ -461,7 +468,8 @@ export function validateJsonSubset(
       issues.push({ path, code: "min-length" });
     if (schema.maxLength !== undefined && value.length > schema.maxLength)
       issues.push({ path, code: "max-length" });
-    if (!noControl.test(value)) issues.push({ path, code: "control-characters" });
+    if (!noControl.test(value))
+      issues.push({ path, code: "control-characters" });
   }
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems)
@@ -472,14 +480,23 @@ export function validateJsonSubset(
     else if (schema.items)
       value.forEach((item, index) =>
         issues.push(
-          ...validateJsonSubset(schema.items!, item, `${path}/${index}`, depth + 1),
+          ...validateJsonSubset(
+            schema.items!,
+            item,
+            `${path}/${index}`,
+            depth + 1,
+          ),
         ),
       );
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record);
-    if (keys.some((key) => ["__proto__", "prototype", "constructor"].includes(key)))
+    if (
+      keys.some((key) =>
+        ["__proto__", "prototype", "constructor"].includes(key),
+      )
+    )
       issues.push({ path, code: "reserved-key" });
     for (const key of schema.required ?? [])
       if (!Object.hasOwn(record, key))
@@ -488,7 +505,12 @@ export function validateJsonSubset(
       const property = schema.properties?.[key];
       if (property)
         issues.push(
-          ...validateJsonSubset(property, record[key], `${path}/${key}`, depth + 1),
+          ...validateJsonSubset(
+            property,
+            record[key],
+            `${path}/${key}`,
+            depth + 1,
+          ),
         );
       else if (schema.additionalProperties !== true)
         issues.push({ path: `${path}/${key}`, code: "additional-property" });
@@ -537,10 +559,17 @@ const headerNameSchema = z
 export const operationContractSchema = z.strictObject({
   path: z.record(identifierSchema, parameterSpecSchema).optional(),
   query: z.record(identifierSchema, parameterSpecSchema).optional(),
-  headers: z.record(headerNameSchema, z.string().max(1024).regex(noControl)).optional(),
+  headers: z
+    .record(headerNameSchema, z.string().max(1024).regex(noControl))
+    .optional(),
   body: jsonSubsetSchema.optional(),
   output: jsonSubsetSchema.optional(),
-  deadlineMs: z.number().int().min(1000).max(120_000).default(NANGO_LIMITS.deadlineMs),
+  deadlineMs: z
+    .number()
+    .int()
+    .min(1000)
+    .max(120_000)
+    .default(NANGO_LIMITS.deadlineMs),
   maxResponseBytes: z
     .number()
     .int()

@@ -309,14 +309,26 @@ export async function linkedProjects(
   const projects: string[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 5; page++) {
-    const reply = await callVercel(session.ctx, {
-      operation: "connect.connectors.projects",
-      credential: session.credential,
-      teamId: session.teamId,
-      params: { connector },
-      query: { limit: 100, cursor },
-      schema: connectConnectorProjectListSchema,
-    });
+    let reply;
+    try {
+      reply = await callVercel(session.ctx, {
+        operation: "connect.connectors.projects",
+        credential: session.credential,
+        teamId: session.teamId,
+        params: { connector },
+        query: { limit: 100, cursor },
+        schema: connectConnectorProjectListSchema,
+      });
+    } catch (error) {
+      // A connector that is already gone links no projects. Reporting that as
+      // a lookup failure would make a repeated deletion look like a new one.
+      if (
+        error instanceof ConnectorError &&
+        (error.code === "not-found" || error.code === "expired")
+      )
+        return projects;
+      throw error;
+    }
     for (const item of reply.body?.projects ?? []) projects.push(item.project.id);
     const next = reply.body?.pagination.next;
     if (!next) break;

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { canonicalConnectorJson } from "../../../../core/connectors/index.js";
-import type { AdapterCallContext, DelegateRequest, InvokeResult } from "../../adapter.js";
+import type {
+  AdapterCallContext,
+  DelegateRequest,
+  InvokeResult,
+} from "../../adapter.js";
 import { boundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { EffectOutcome } from "../../ports.js";
@@ -57,14 +61,22 @@ export function projectSyncStatus(status: NangoSyncStatus) {
     ...(status.variant ? { variant: status.variant } : {}),
     status: status.status,
     ...(status.type ? { type: status.type } : {}),
-    ...(status.finishedAt !== undefined ? { finishedAt: status.finishedAt } : {}),
+    ...(status.finishedAt !== undefined
+      ? { finishedAt: status.finishedAt }
+      : {}),
     ...(status.nextScheduledSyncAt !== undefined
       ? { nextScheduledSyncAt: status.nextScheduledSyncAt }
       : {}),
     ...(status.frequency !== undefined ? { frequency: status.frequency } : {}),
-    ...(status.latestResult !== undefined ? { latestResult: status.latestResult } : {}),
-    ...(status.recordCount !== undefined ? { recordCount: status.recordCount } : {}),
-    ...(status.checkpoint !== undefined ? { checkpoint: status.checkpoint } : {}),
+    ...(status.latestResult !== undefined
+      ? { latestResult: status.latestResult }
+      : {}),
+    ...(status.recordCount !== undefined
+      ? { recordCount: status.recordCount }
+      : {}),
+    ...(status.checkpoint !== undefined
+      ? { checkpoint: status.checkpoint }
+      : {}),
   };
 }
 
@@ -85,29 +97,45 @@ export async function delegateNango(
   if (request.input && typeof request.input === "object")
     for (const key of Object.keys(request.input as Record<string, unknown>))
       if (forbiddenOptions.has(key.toLowerCase().replaceAll("-", "")))
-        throw new ConnectorError("denied", { detail: "nango.sync.option-rejected" });
+        throw new ConnectorError("denied", {
+          detail: "nango.sync.option-rejected",
+        });
   rejectOverrideAttempt(request.input);
   const reference = brokerReference(resolved);
   if (!connection.credentialRef)
-    throw new ConnectorError("invalid-request", { detail: "nango.connection.no-credential" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.connection.no-credential",
+    });
   const base = {
     outputClassification: operation.outputClassification,
     effect: request.action === "status" ? ("read" as const) : operation.effect,
   };
   if (request.action === "input")
     return { ...base, state: "denied", code: "nango.sync.input-unsupported" };
-  const syncs = [route.variant ? { name: route.name, variant: route.variant } : { name: route.name }];
-  const syncKey = route.variant ? `${route.name}::${route.variant}` : route.name;
+  const syncs = [
+    route.variant
+      ? { name: route.name, variant: route.variant }
+      : { name: route.name },
+  ];
+  const syncKey = route.variant
+    ? `${route.name}::${route.variant}`
+    : route.name;
   const scope = credentialScope(ctx, connection);
   const withReference = <T>(work: () => Promise<T>) =>
-    ctx.environment.credentials.use(scope, connection.credentialRef!, async (material) => {
-      if (
-        material.connectionId !== reference.connectionId ||
-        material.providerConfigKey !== reference.providerConfigKey
-      )
-        throw new ConnectorError("denied", { detail: "nango.credential.mismatch" });
-      return work();
-    });
+    ctx.environment.credentials.use(
+      scope,
+      connection.credentialRef!,
+      async (material) => {
+        if (
+          material.connectionId !== reference.connectionId ||
+          material.providerConfigKey !== reference.providerConfigKey
+        )
+          throw new ConnectorError("denied", {
+            detail: "nango.credential.mismatch",
+          });
+        return work();
+      },
+    );
   if (request.action === "status") {
     const status = await withReference(() =>
       resolved.client.syncStatus({
@@ -120,11 +148,18 @@ export async function delegateNango(
       .filter(
         (row) =>
           row.name === route.name &&
-          (row.connection_id === undefined || row.connection_id === reference.connectionId) &&
-          (route.variant === undefined || row.variant === undefined || row.variant === route.variant),
+          (row.connection_id === undefined ||
+            row.connection_id === reference.connectionId) &&
+          (route.variant === undefined ||
+            row.variant === undefined ||
+            row.variant === route.variant),
       )
       .map(projectSyncStatus);
-    return { ...base, state: "complete", output: { sync: syncKey, syncs: rows } };
+    return {
+      ...base,
+      state: "complete",
+      output: { sync: syncKey, syncs: rows },
+    };
   }
   const parsedInput = startInputSchema.safeParse(request.input ?? {});
   if (!parsedInput.success)
@@ -160,10 +195,23 @@ export async function delegateNango(
       at: ctx.environment.now(),
     });
   if (journal.prior) {
-    if (journal.prior.status === "applied" || journal.prior.status === "reconciled")
-      return { ...base, state: "complete", code: "nango.effect.already-applied", effectRef: journal.effectRef };
+    if (
+      journal.prior.status === "applied" ||
+      journal.prior.status === "reconciled"
+    )
+      return {
+        ...base,
+        state: "complete",
+        code: "nango.effect.already-applied",
+        effectRef: journal.effectRef,
+      };
     if (journal.prior.status === "indeterminate")
-      return { ...base, state: "indeterminate", code: "nango.effect.indeterminate", effectRef: journal.effectRef };
+      return {
+        ...base,
+        state: "indeterminate",
+        code: "nango.effect.indeterminate",
+        effectRef: journal.effectRef,
+      };
   }
   let response;
   try {
@@ -175,12 +223,20 @@ export async function delegateNango(
       }),
     );
   } catch (error) {
-    if (error instanceof ConnectorError && (error.code === "denied" || error.code === "invalid-request")) {
+    if (
+      error instanceof ConnectorError &&
+      (error.code === "denied" || error.code === "invalid-request")
+    ) {
       await finish("not-applied", error.detail ?? error.code);
       throw error;
     }
     await finish("indeterminate", "nango.upstream.lost-response");
-    return { ...base, state: "indeterminate", code: "nango.upstream.lost-response", effectRef: journal.effectRef };
+    return {
+      ...base,
+      state: "indeterminate",
+      code: "nango.upstream.lost-response",
+      effectRef: journal.effectRef,
+    };
   }
   if (response.status === 200) {
     const parsed = successSchema.safeParse(response.json ?? {});
@@ -192,14 +248,23 @@ export async function delegateNango(
         output: {
           sync: syncKey,
           command,
-          ...(command === "pause" ? { note: "nango.sync.cancel-maps-to-pause" } : {}),
+          ...(command === "pause"
+            ? { note: "nango.sync.cancel-maps-to-pause" }
+            : {}),
         },
         effectRef: journal.effectRef,
-        ...(command === "pause" ? { code: "nango.sync.cancel-maps-to-pause" } : {}),
+        ...(command === "pause"
+          ? { code: "nango.sync.cancel-maps-to-pause" }
+          : {}),
       };
     }
   }
   const failure = nangoFailure(response.status, response.json);
   await finish("failed", failure.detail ?? failure.code);
-  return { ...base, state: "failed", code: failure.detail ?? failure.code, effectRef: journal.effectRef };
+  return {
+    ...base,
+    state: "failed",
+    code: failure.detail ?? failure.code,
+    effectRef: journal.effectRef,
+  };
 }

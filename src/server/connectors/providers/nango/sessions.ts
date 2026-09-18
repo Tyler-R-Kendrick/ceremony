@@ -67,10 +67,14 @@ const hasAuthError = (item: NangoConnectionListItem) =>
 function parseIntent(intent: AuthorizationIntent) {
   const parsed = authorizationIntentSchema.safeParse(intent);
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "nango.intent.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.intent.invalid",
+    });
   const knownProfiles: readonly string[] = Object.values(NANGO_PROFILE_IDS);
   if (parsed.data.profileId && !knownProfiles.includes(parsed.data.profileId))
-    throw new ConnectorError("invalid-request", { detail: "nango.intent.profile" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.intent.profile",
+    });
   return parsed.data;
 }
 
@@ -104,9 +108,17 @@ export async function authorizeNango(
   if (parsed.interruption === "none")
     return { kind: "human-required", code: "nango.connect.human-required" };
   if (!resolved.connect)
-    throw new ConnectorError("network-policy", { detail: "nango.destination.connect-missing" });
+    throw new ConnectorError("network-policy", {
+      detail: "nango.destination.connect-missing",
+    });
   const nonce = freshNonce(ctx);
-  const tags = deriveTags({ runtime, ctx, connection, ownerKind: parsed.ownerKind, nonce });
+  const tags = deriveTags({
+    runtime,
+    ctx,
+    connection,
+    ownerKind: parsed.ownerKind,
+    nonce,
+  });
   const override = resolved.settings.webhookUrlOverride;
   const webhook = override ? { webhook_url_override: override.url } : {};
   const integration = resolved.settings.integration.uniqueKey;
@@ -117,14 +129,17 @@ export async function authorizeNango(
     reference = brokerReference(resolved);
     const item = await currentListItem(resolved, reference.connectionId);
     if (!item)
-      throw new ConnectorError("not-found", { detail: "nango.connection.missing" });
+      throw new ConnectorError("not-found", {
+        detail: "nango.connection.missing",
+      });
     priorAuthError = hasAuthError(item);
   }
   const journal = await ctx.environment.effects.begin({
     actor: ctx.actor,
     connectionRef: connection.connectionRef,
     bindingRef: ctx.binding.bindingRef,
-    operation: mode === "connect" ? "nango.connect.session" : "nango.reconnect.session",
+    operation:
+      mode === "connect" ? "nango.connect.session" : "nango.reconnect.session",
     digest: sha256(
       canonicalConnectorJson({
         tenant: ctx.actor.tenantId,
@@ -152,7 +167,10 @@ export async function authorizeNango(
   } catch (error) {
     await ctx.environment.effects.complete(journal.effectRef, {
       status: "failed",
-      code: error instanceof ConnectorError ? (error.detail ?? error.code) : "nango.session.error",
+      code:
+        error instanceof ConnectorError
+          ? (error.detail ?? error.code)
+          : "nango.session.error",
       at: ctx.environment.now(),
     });
     throw error;
@@ -162,9 +180,14 @@ export async function authorizeNango(
     at: ctx.environment.now(),
   });
   const documented = parseIso(session.data.expires_at);
-  const expiresAt = Math.min(documented ?? Number.POSITIVE_INFINITY, now + NANGO_SESSION_TTL_MS);
+  const expiresAt = Math.min(
+    documented ?? Number.POSITIVE_INFINITY,
+    now + NANGO_SESSION_TTL_MS,
+  );
   if (expiresAt <= now)
-    throw new ConnectorError("upstream-rejected", { detail: "nango.session.expired-on-issue" });
+    throw new ConnectorError("upstream-rejected", {
+      detail: "nango.session.expired-on-issue",
+    });
   const link = session.data.connect_link;
   const linkOk =
     link !== undefined &&
@@ -251,14 +274,19 @@ async function observeAccount(
 ): Promise<{ kind: string; id: string } | undefined> {
   const verification = resolved.settings.verification;
   if (!verification) return undefined;
-  const operation = boundOperation(resolved.ctx.binding, verification.operationRef);
+  const operation = boundOperation(
+    resolved.ctx.binding,
+    verification.operationRef,
+  );
   if (
     !operation ||
     operation.transport.kind !== "http" ||
     operation.effect !== "read" ||
     operation.replay !== "read-only"
   )
-    throw new ConnectorError("configuration-required", { detail: "nango.verification.operation" });
+    throw new ConnectorError("configuration-required", {
+      detail: "nango.verification.operation",
+    });
   const outcome = await executeOperation(
     resolved,
     reference,
@@ -267,10 +295,14 @@ async function observeAccount(
     {},
   );
   if (outcome.status < 200 || outcome.status >= 300)
-    throw new ConnectorError("upstream-rejected", { detail: "nango.verification.failed" });
+    throw new ConnectorError("upstream-rejected", {
+      detail: "nango.verification.failed",
+    });
   const id = readPointer(outcome.output, verification.identityPointer);
   if (!id || id.length > 512 || /[\p{Cc}]/u.test(id))
-    throw new ConnectorError("upstream-rejected", { detail: "nango.verification.identity" });
+    throw new ConnectorError("upstream-rejected", {
+      detail: "nango.verification.identity",
+    });
   return { kind: verification.targetKind, id };
 }
 
@@ -299,14 +331,18 @@ async function finalize(
   const requested = (() => {
     try {
       const value: unknown = JSON.parse(priv.requestedPermissions ?? "[]");
-      return Array.isArray(value) ? value.filter((v) => typeof v === "string").slice(0, 64) : [];
+      return Array.isArray(value)
+        ? value.filter((v) => typeof v === "string").slice(0, 64)
+        : [];
     } catch {
       return [];
     }
   })();
   const intendedTarget = (() => {
     try {
-      return priv.target ? (JSON.parse(priv.target) as { kind: string; id: string }) : undefined;
+      return priv.target
+        ? (JSON.parse(priv.target) as { kind: string; id: string })
+        : undefined;
     } catch {
       return undefined;
     }
@@ -336,28 +372,42 @@ async function finalize(
         issuer: "provider",
         target: observed!,
         requested,
-        limitations: ["Observed through the Nango proxy with the approved verification operation."],
+        limitations: [
+          "Observed through the Nango proxy with the approved verification operation.",
+        ],
       }),
     );
   }
   if (intendedTarget) {
     if (!observed) return deny("nango.verify.account-evidence-insufficient");
-    if (observed.kind !== intendedTarget.kind || observed.id !== intendedTarget.id)
+    if (
+      observed.kind !== intendedTarget.kind ||
+      observed.id !== intendedTarget.id
+    )
       return deny("nango.verify.account-mismatch");
   }
   if (
     input.mode === "reconnect" &&
     observed &&
     connection.target &&
-    (connection.target.kind !== observed.kind || connection.target.id !== observed.id) &&
+    (connection.target.kind !== observed.kind ||
+      connection.target.id !== observed.id) &&
     priv.accountSwitch !== "true"
   )
     return deny("nango.verify.account-switch-required");
   if (input.handoffRef) {
     try {
-      await ctx.environment.handoffs.complete(input.handoffRef, ctx.generation, "completed");
+      await ctx.environment.handoffs.complete(
+        input.handoffRef,
+        ctx.generation,
+        "completed",
+      );
     } catch {
-      return { state: "complete", claims: [], code: "nango.handoff.already-completed" };
+      return {
+        state: "complete",
+        claims: [],
+        code: "nango.handoff.already-completed",
+      };
     }
   }
   const scope = credentialScope(ctx, connection);
@@ -376,7 +426,10 @@ async function finalize(
     claims,
     credentialRef,
     externalIds,
-    target: observed ?? { kind: NANGO_CONNECTION_TARGET, id: item.connection_id },
+    target: observed ?? {
+      kind: NANGO_CONNECTION_TARGET,
+      id: item.connection_id,
+    },
     adapterState: {
       nango: {
         connectionId: item.connection_id,
@@ -388,7 +441,11 @@ async function finalize(
   };
 }
 
-const pending = (code: string): CompletionResult => ({ state: "pending", claims: [], code });
+const pending = (code: string): CompletionResult => ({
+  state: "pending",
+  claims: [],
+  code,
+});
 
 async function pollCompletion(
   runtime: NangoRuntime,
@@ -400,9 +457,14 @@ async function pollCompletion(
   if (!summary) return pending("nango.complete.no-handoff");
   if (summary.state === "completed")
     return { state: "complete", claims: [], code: "nango.complete.already" };
-  if (summary.state === "denied") return { state: "denied", claims: [], code: "nango.complete.denied" };
+  if (summary.state === "denied")
+    return { state: "denied", claims: [], code: "nango.complete.denied" };
   if (summary.state === "cancelled" || summary.state === "superseded")
-    return { state: "denied", claims: [], code: `nango.complete.${summary.state}` };
+    return {
+      state: "denied",
+      claims: [],
+      code: `nango.complete.${summary.state}`,
+    };
   if (summary.generation !== ctx.generation)
     return { state: "expired", claims: [], code: "nango.handoff.stale" };
   const now = ctx.environment.now();
@@ -437,7 +499,12 @@ async function pollCompletion(
         item.tags?.[TAG_KEYS.generation] === String(ctx.generation),
     );
     if (matches.length === 0) return pending("nango.verify.pending");
-    if (matches.length > 1) return { state: "indeterminate", claims: [], code: "nango.verify.ambiguous" };
+    if (matches.length > 1)
+      return {
+        state: "indeterminate",
+        claims: [],
+        code: "nango.verify.ambiguous",
+      };
     return finalize(resolved, connection, {
       item: matches[0]!,
       mode: "connect",
@@ -447,7 +514,8 @@ async function pollCompletion(
   }
   const reference = brokerReference(resolved);
   const item = await currentListItem(resolved, reference.connectionId);
-  if (!item) return { state: "expired", claims: [], code: "nango.connection.missing" };
+  if (!item)
+    return { state: "expired", claims: [], code: "nango.connection.missing" };
   if (record?.private.priorAuthError === "true" && !hasAuthError(item))
     return finalize(resolved, connection, {
       item,
@@ -472,20 +540,38 @@ async function eventCompletion(
   if (!payload.success) return pending("nango.event.not-completion");
   const body = payload.data;
   if (body.providerConfigKey !== resolved.settings.integration.uniqueKey)
-    return { state: "denied", claims: [], code: "nango.event.integration-mismatch" };
-  if (body.environment && body.environment.toLowerCase() !== resolved.environment)
-    return { state: "denied", claims: [], code: "nango.event.environment-mismatch" };
+    return {
+      state: "denied",
+      claims: [],
+      code: "nango.event.integration-mismatch",
+    };
+  if (
+    body.environment &&
+    body.environment.toLowerCase() !== resolved.environment
+  )
+    return {
+      state: "denied",
+      claims: [],
+      code: "nango.event.environment-mismatch",
+    };
   if (body.operation === "creation") {
     const nonce = body.tags?.[TAG_KEYS.handoff];
     if (!nonce) return pending("nango.event.no-correlation");
-    const record = await ctx.environment.handoffs.resolveCorrelation(ctx.actor.tenantId, nonce);
+    const record = await ctx.environment.handoffs.resolveCorrelation(
+      ctx.actor.tenantId,
+      nonce,
+    );
     if (
       !record ||
       record.tenantId !== ctx.actor.tenantId ||
       record.connectionRef !== connection.connectionRef ||
       record.bindingRef !== ctx.binding.bindingRef
     )
-      return { state: "denied", claims: [], code: "nango.event.correlation-mismatch" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "nango.event.correlation-mismatch",
+      };
     if (record.generation !== ctx.generation)
       return { state: "expired", claims: [], code: "nango.handoff.stale" };
     if (
@@ -496,7 +582,11 @@ async function eventCompletion(
     if (record.state !== "issued" && record.state !== "waiting")
       return record.state === "completed"
         ? { state: "complete", claims: [], code: "nango.event.duplicate" }
-        : { state: record.state === "expired" ? "expired" : "denied", claims: [], code: `nango.handoff.${record.state}` };
+        : {
+            state: record.state === "expired" ? "expired" : "denied",
+            claims: [],
+            code: `nango.handoff.${record.state}`,
+          };
     if (record.expiresAt <= ctx.environment.now()) {
       await ctx.environment.handoffs
         .complete(record.handoffRef, ctx.generation, "expired")
@@ -530,17 +620,29 @@ async function eventCompletion(
   if (body.operation === "override") {
     const reference = brokerReference(resolved);
     if (body.connectionId !== reference.connectionId)
-      return { state: "denied", claims: [], code: "nango.event.connection-mismatch" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "nango.event.connection-mismatch",
+      };
     const record = await ctx.environment.handoffs.resolveCorrelation(
       ctx.actor.tenantId,
       reconnectCorrelationKey(connection.connectionRef, ctx.generation),
     );
     if (!record || record.connectionRef !== connection.connectionRef)
-      return { state: "denied", claims: [], code: "nango.event.correlation-mismatch" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "nango.event.correlation-mismatch",
+      };
     if (record.state !== "issued" && record.state !== "waiting")
       return record.state === "completed"
         ? { state: "complete", claims: [], code: "nango.event.duplicate" }
-        : { state: "denied", claims: [], code: `nango.handoff.${record.state}` };
+        : {
+            state: "denied",
+            claims: [],
+            code: `nango.handoff.${record.state}`,
+          };
     if (!body.success) {
       await ctx.environment.handoffs
         .complete(record.handoffRef, ctx.generation, "denied")
@@ -548,7 +650,8 @@ async function eventCompletion(
       return { state: "denied", claims: [], code: "nango.reconnect.failed" };
     }
     const item = await currentListItem(resolved, reference.connectionId);
-    if (!item) return { state: "expired", claims: [], code: "nango.connection.missing" };
+    if (!item)
+      return { state: "expired", claims: [], code: "nango.connection.missing" };
     if (hasAuthError(item)) return pending("nango.reconnect.auth-error");
     return finalize(resolved, connection, {
       item,
@@ -588,9 +691,14 @@ export async function verifyNango(
   const connection = requireConnection(resolved);
   const reference = brokerReference(resolved);
   const item = await currentListItem(resolved, reference.connectionId);
-  if (!item) return { state: "expired", claims: [], code: "nango.connection.missing" };
+  if (!item)
+    return { state: "expired", claims: [], code: "nango.connection.missing" };
   if (hasAuthError(item))
-    return { state: "human-required", claims: [], code: "nango.connection.auth-error" };
+    return {
+      state: "human-required",
+      claims: [],
+      code: "nango.connection.auth-error",
+    };
   const claims: VerificationClaim[] = [
     claim(resolved, {
       kind: "credential-accepted",
@@ -604,15 +712,22 @@ export async function verifyNango(
     observed = await observeAccount(resolved, reference);
     if (
       connection.target &&
-      (connection.target.kind !== observed!.kind || connection.target.id !== observed!.id)
+      (connection.target.kind !== observed!.kind ||
+        connection.target.id !== observed!.id)
     )
-      return { state: "denied", claims, code: "nango.verify.account-switch-required" };
+      return {
+        state: "denied",
+        claims,
+        code: "nango.verify.account-switch-required",
+      };
     claims.push(
       claim(resolved, {
         kind: "account-identity",
         issuer: "provider",
         target: observed!,
-        limitations: ["Observed through the Nango proxy with the approved verification operation."],
+        limitations: [
+          "Observed through the Nango proxy with the approved verification operation.",
+        ],
       }),
     );
   }
@@ -626,6 +741,9 @@ export async function verifyNango(
       environment: resolved.environment,
       nangoInternalId: String(item.id),
     },
-    target: observed ?? { kind: NANGO_CONNECTION_TARGET, id: item.connection_id },
+    target: observed ?? {
+      kind: NANGO_CONNECTION_TARGET,
+      id: item.connection_id,
+    },
   };
 }

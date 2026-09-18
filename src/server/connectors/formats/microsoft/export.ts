@@ -474,7 +474,7 @@ export interface DynamicFieldUiContract {
   dependsOn: string[];
   /** Static inputs the lookup always sends. */
   constants: Array<{ target: string; value: string | number | boolean | null }>;
-  selection: { collection?: string; value?: string; title?: string };
+  selection: DynamicFieldContract["selection"];
   executable: boolean;
   blockedBy: string[];
 }

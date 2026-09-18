@@ -16,8 +16,16 @@ import {
   type NangoAdapter,
   type NangoAdapterOptions,
 } from "../../../src/server/connectors/providers/nango/index.js";
-import { fixtureActor, memoryPorts, type MemoryPorts } from "../doubles/ports.js";
-import { startNangoDouble, type NangoDoubleOptions, type NangoDouble } from "../doubles/nango.js";
+import {
+  fixtureActor,
+  memoryPorts,
+  type MemoryPorts,
+} from "../doubles/ports.js";
+import {
+  startNangoDouble,
+  type NangoDoubleOptions,
+  type NangoDouble,
+} from "../doubles/nango.js";
 
 /*
  * Wiring shared by the Nango suites: the loopback double, in-memory ports and
@@ -187,7 +195,11 @@ export type BindingOverrides = {
   operations?: BoundOperation[];
   contracts?: Record<string, Record<string, unknown>>;
   webhookUrlOverride?: { url: string; approvedBy: string; approvedAt: string };
-  verification?: { operationRef: string; identityPointer: string; targetKind: string };
+  verification?: {
+    operationRef: string;
+    identityPointer: string;
+    targetKind: string;
+  };
   presentation?: "popup" | "same-window";
   apiOrigin: string;
   connectOrigin?: string;
@@ -196,7 +208,10 @@ export type BindingOverrides = {
 };
 
 export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
-  const integration = overrides.integration ?? { uniqueKey: INTEGRATION, provider: PROVIDER };
+  const integration = overrides.integration ?? {
+    uniqueKey: INTEGRATION,
+    provider: PROVIDER,
+  };
   return runtimeBindingSchema.parse({
     bindingRef: overrides.bindingRef ?? "binding:nango-1",
     definitionRef: "def:nango-1",
@@ -218,7 +233,12 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
         network: "public",
       },
     ],
-    operations: overrides.operations ?? [readOperation, writeOperation, actionOperation, syncOperation],
+    operations: overrides.operations ?? [
+      readOperation,
+      writeOperation,
+      actionOperation,
+      syncOperation,
+    ],
     configuration: [
       NANGO_CONFIGURATION_NAMES.secretKey,
       NANGO_CONFIGURATION_NAMES.environment,
@@ -228,8 +248,12 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
     settings: {
       integration,
       presentation: overrides.presentation ?? "popup",
-      ...(overrides.webhookUrlOverride ? { webhookUrlOverride: overrides.webhookUrlOverride } : {}),
-      ...(overrides.verification ? { verification: overrides.verification } : {}),
+      ...(overrides.webhookUrlOverride
+        ? { webhookUrlOverride: overrides.webhookUrlOverride }
+        : {}),
+      ...(overrides.verification
+        ? { verification: overrides.verification }
+        : {}),
       operations: overrides.contracts ?? {},
     },
   });
@@ -274,7 +298,9 @@ export async function activeConnection(
   overrides: Partial<ConnectionRecord> = {},
 ): Promise<ConnectionRecord> {
   const base = makeConnection(binding, overrides);
-  const integration = (binding.settings as { integration: { uniqueKey: string } }).integration;
+  const integration = (
+    binding.settings as { integration: { uniqueKey: string } }
+  ).integration;
   const credentialRef = await ports.credentials.store(
     {
       tenantId: base.tenantId,
@@ -285,7 +311,9 @@ export async function activeConnection(
       custody: "external-credential-broker",
     },
     {
-      connectionId: String(overrides.externalIds?.connectionId ?? CONNECTION_ID),
+      connectionId: String(
+        overrides.externalIds?.connectionId ?? CONNECTION_ID,
+      ),
       providerConfigKey: String(
         overrides.externalIds?.providerConfigKey ?? integration.uniqueKey,
       ),
@@ -344,7 +372,10 @@ export async function harness(
   const ports = memoryPorts(options.now ? { now: options.now } : {});
   ports.configuration.set(NANGO_CONFIGURATION_NAMES.secretKey, SECRET_KEY);
   ports.configuration.set(NANGO_CONFIGURATION_NAMES.environment, ENVIRONMENT);
-  ports.configuration.set(NANGO_CONFIGURATION_NAMES.webhookSigningKey, SIGNING_KEY);
+  ports.configuration.set(
+    NANGO_CONFIGURATION_NAMES.webhookSigningKey,
+    SIGNING_KEY,
+  );
   for (const [name, value] of Object.entries(options.configuration ?? {}))
     ports.configuration.set(name, value);
   const binding = makeBinding({ apiOrigin: double.origin, ...options.binding });
@@ -360,7 +391,8 @@ export async function harness(
         actor: overrides.actor ?? fixtureActor,
         binding: overrides.binding ?? binding,
         ...(overrides.connection ? { connection: overrides.connection } : {}),
-        generation: overrides.generation ?? overrides.connection?.generation ?? 0,
+        generation:
+          overrides.generation ?? overrides.connection?.generation ?? 0,
         signal: overrides.signal ?? new AbortController().signal,
         environment: ports.environment({ fetch: overrides.fetch ?? fetch }),
       };
@@ -371,7 +403,11 @@ export async function harness(
   };
 }
 
-export function capabilityFor(adapter: ConnectorAdapter, dimension: string, present: string[]) {
+export function capabilityFor(
+  adapter: ConnectorAdapter,
+  dimension: string,
+  present: string[],
+) {
   return adapter
     .capabilities(new Set(present))
     .find((status) => status.dimension === dimension);
@@ -382,7 +418,9 @@ export function stringsIn(value: unknown, out: string[] = []): string[] {
   if (typeof value === "string") out.push(value);
   else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
   else if (value && typeof value === "object")
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, item] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
       out.push(key);
       stringsIn(item, out);
     }

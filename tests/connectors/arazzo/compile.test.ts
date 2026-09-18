@@ -11,14 +11,14 @@ import {
   storeActor,
   storeCatalog,
   storeRegistry,
-} from "../fixtures/arazzo/host.ts";
+} from "../fixtures/arazzo/host.js";
 import {
   ambiguousOperation101,
   cyclicSteps110,
   privateOutput101,
   storeWorkflow101,
   unsupportedFeatures101,
-} from "../fixtures/arazzo/documents.ts";
+} from "../fixtures/arazzo/documents.js";
 
 /*
  * WF-02: the executable profile. A workflow becomes a recipe only when every
@@ -27,7 +27,8 @@ import {
  * is a blocked report over a preserved document.
  */
 
-const registryOf = () => storeRegistry({ origin: "http://127.0.0.1:1" }).registry;
+const registryOf = () =>
+  storeRegistry({ origin: "http://127.0.0.1:1" }).registry;
 const noChildren = async () => {
   throw new Error("Unexpected child recipe");
 };
@@ -58,7 +59,11 @@ function compile(
 
 test("a supported workflow compiles to a recipe the existing validator accepts", async () => {
   const compilation = compile(storeWorkflow101());
-  assert.deepEqual(blocking(compilation), [], JSON.stringify(codes(compilation)));
+  assert.deepEqual(
+    blocking(compilation),
+    [],
+    JSON.stringify(codes(compilation)),
+  );
   assert.equal(compilation.status, "executable");
   const recipe = compilation.recipe!;
   assert.equal(recipe.id, "connect-store");
@@ -69,8 +74,16 @@ test("a supported workflow compiles to a recipe the existing validator accepts",
   assert.deepEqual(
     recipe.invocations.map((node) => [node.id, node.use, node.dependsOn]),
     [
-      ["prepare", { kind: "operation", id: "store.prepare", version: "1.0.0" }, []],
-      ["verify", { kind: "operation", id: "store.verify", version: "1.0.0" }, ["prepare"]],
+      [
+        "prepare",
+        { kind: "operation", id: "store.prepare", version: "1.0.0" },
+        [],
+      ],
+      [
+        "verify",
+        { kind: "operation", id: "store.verify", version: "1.0.0" },
+        ["prepare"],
+      ],
     ],
   );
   assert.deepEqual(recipe.invocations[0]!.bindings, {
@@ -79,12 +92,17 @@ test("a supported workflow compiles to a recipe the existing validator accepts",
   assert.deepEqual(recipe.invocations[1]!.bindings, {
     setup: { from: "output", node: "prepare", name: "setup" },
   });
-  assert.deepEqual(recipe.outputs, { account: { node: "verify", name: "account" } });
+  assert.deepEqual(recipe.outputs, {
+    account: { node: "verify", name: "account" },
+  });
   // The compiled step keeps the exact identity the host reviewed.
   const [prepare, verify] = compilation.steps;
   assert.deepEqual(prepare!.binding, {
     sourceDescriptionName: "store",
-    documentIdentity: { kind: "url", url: "https://api.example.com/openapi.json" },
+    documentIdentity: {
+      kind: "url",
+      url: "https://api.example.com/openapi.json",
+    },
     declaredUrl: "https://api.example.com/openapi.json",
     version: "2026-01-04",
     reference: { operationId: "prepareConnection" },
@@ -133,11 +151,11 @@ test("AC-IMP-07 two documents with the same operation ID require exact document 
   // Naming the source description resolves it to exactly one document.
   const disambiguated = ambiguousOperation101();
   const step = (
-    ((disambiguated.workflows as Record<string, unknown>[])[0]!.steps as Record<
+    (disambiguated.workflows as Record<string, unknown>[])[0]!.steps as Record<
       string,
       unknown
-    >[])[0]!
-  );
+    >[]
+  )[0]!;
   step.operationId = "$sourceDescriptions.secondary.createOrder";
   const resolved = compile(disambiguated, {
     workflowId: "place-order",
@@ -150,20 +168,22 @@ test("AC-IMP-07 two documents with the same operation ID require exact document 
     url: "https://secondary.example.com/openapi.json",
   });
   assert.deepEqual(
-    (await validateRecipe(resolved.recipe!, registryOf(), noChildren)).diagnostics,
+    (await validateRecipe(resolved.recipe!, registryOf(), noChildren))
+      .diagnostics,
     [],
   );
 
   // An operationPath names its source description too, and pins the pointer.
   const byPath = ambiguousOperation101();
   const pathStep = (
-    ((byPath.workflows as Record<string, unknown>[])[0]!.steps as Record<
+    (byPath.workflows as Record<string, unknown>[])[0]!.steps as Record<
       string,
       unknown
-    >[])[0]!
-  );
+    >[]
+  )[0]!;
   delete pathStep.operationId;
-  pathStep.operationPath = "{$sourceDescriptions.primary.url}#/paths/~1orders/post";
+  pathStep.operationPath =
+    "{$sourceDescriptions.primary.url}#/paths/~1orders/post";
   const pathCatalog = ambiguousCatalog(storeActor.tenantId);
   pathCatalog.documents[0]!.operations = [
     {
@@ -178,7 +198,11 @@ test("AC-IMP-07 two documents with the same operation ID require exact document 
     workflowId: "place-order",
     catalog: pathCatalog,
   });
-  assert.deepEqual(blocking(pathCompiled), [], JSON.stringify(codes(pathCompiled)));
+  assert.deepEqual(
+    blocking(pathCompiled),
+    [],
+    JSON.stringify(codes(pathCompiled)),
+  );
   assert.deepEqual(pathCompiled.steps[0]!.binding!.reference, {
     operationPath: "#/paths/~1orders/post",
   });
@@ -187,7 +211,8 @@ test("AC-IMP-07 two documents with the same operation ID require exact document 
 test("AC-IMP-07 a malicious operation reference cannot bypass host registration", () => {
   const unregistered = storeWorkflow101();
   const workflow = (unregistered.workflows as Record<string, unknown>[])[0]!;
-  (workflow.steps as Record<string, unknown>[])[0]!.operationId = "deleteEverything";
+  (workflow.steps as Record<string, unknown>[])[0]!.operationId =
+    "deleteEverything";
   const missing = compile(unregistered);
   assert.equal(missing.status, "blocked");
   assert.equal(missing.recipe, undefined);
@@ -199,9 +224,13 @@ test("AC-IMP-07 a malicious operation reference cannot bypass host registration"
     id: "store.absent",
     version: "9.9.9",
   };
-  const unregisteredOperation = compile(storeWorkflow101(), { catalog: phantom });
+  const unregisteredOperation = compile(storeWorkflow101(), {
+    catalog: phantom,
+  });
   assert.ok(
-    codes(unregisteredOperation).includes("arazzo.binding.unregistered-operation"),
+    codes(unregisteredOperation).includes(
+      "arazzo.binding.unregistered-operation",
+    ),
   );
   assert.equal(unregisteredOperation.recipe, undefined);
 
@@ -262,11 +291,15 @@ test("AC-IMP-08 unsupported criteria and control flow block execution over a pre
     "the description itself is valid Arazzo",
   );
   assert.equal(read.document!.workflows[0]!.steps.length, 2);
-  const compilation = compileArazzoToRecipe(read, storeCatalog(storeActor.tenantId), {
-    workflowId: "unsupported",
-    registry: registryOf(),
-    tenantId: storeActor.tenantId,
-  });
+  const compilation = compileArazzoToRecipe(
+    read,
+    storeCatalog(storeActor.tenantId),
+    {
+      workflowId: "unsupported",
+      registry: registryOf(),
+      tenantId: storeActor.tenantId,
+    },
+  );
   assert.equal(compilation.status, "blocked");
   assert.equal(compilation.recipe, undefined, "no truncated runnable workflow");
   const reported = codes(compilation);
@@ -288,7 +321,11 @@ test("AC-IMP-08 a cyclic dependsOn graph is blocked and never partially ordered"
   assert.equal(compilation.status, "blocked");
   assert.equal(compilation.recipe, undefined);
   assert.ok(codes(compilation).includes("arazzo.dependency.cycle"));
-  assert.deepEqual(compilation.steps, [], "no step from a cyclic graph is compiled");
+  assert.deepEqual(
+    compilation.steps,
+    [],
+    "no step from a cyclic graph is compiled",
+  );
 });
 
 test("AC-IMP-08 a private-derived workflow output is blocked, not published", () => {
@@ -334,10 +371,16 @@ test("literals may only bind public registered contracts and must satisfy them",
   assert.deepEqual(good.recipe!.invocations[0]!.bindings, {
     region: { from: "literal", value: "eu" },
   });
-  assert.deepEqual(good.recipe!.inputs, {}, "a literal needs no workflow input");
+  assert.deepEqual(
+    good.recipe!.inputs,
+    {},
+    "a literal needs no workflow input",
+  );
 
   (step.parameters as Record<string, unknown>[])[0]!.value = "antarctica";
-  assert.ok(codes(compile(literal)).includes("arazzo.binding.literal-rejected"));
+  assert.ok(
+    codes(compile(literal)).includes("arazzo.binding.literal-rejected"),
+  );
 
   // A non-public contract cannot take a literal at all.
   const secret = storeWorkflow101();
@@ -352,7 +395,9 @@ test("literals may only bind public registered contracts and must satisfy them",
 
   // Structured literals are outside the profile.
   (verify.parameters as Record<string, unknown>[])[0]!.value = { nested: true };
-  assert.ok(codes(compile(secret)).includes("arazzo.binding.unsupported-literal"));
+  assert.ok(
+    codes(compile(secret)).includes("arazzo.binding.unsupported-literal"),
+  );
 });
 
 test("a retry is allowed only when the bound operation has replay evidence", () => {
@@ -387,7 +432,9 @@ test("a retry is allowed only when the bound operation has replay evidence", () 
     >[]
   )[1]!;
   (verify.onFailure as Record<string, unknown>[])[0]!.retryLimit = 500;
-  assert.ok(codes(compile(unbounded)).includes("arazzo.policy.retry-limit-exceeded"));
+  assert.ok(
+    codes(compile(unbounded)).includes("arazzo.policy.retry-limit-exceeded"),
+  );
 });
 
 test("unmapped parameters and outputs block rather than guess a registered name", () => {
@@ -400,8 +447,12 @@ test("unmapped parameters and outputs block rather than guess a registered name"
   )[0]!;
   (step.parameters as Record<string, unknown>[])[0]!.name = "locale";
   const unknownParameter = compile(document);
-  assert.ok(codes(unknownParameter).includes("arazzo.binding.unknown-parameter"));
-  assert.ok(codes(unknownParameter).includes("arazzo.binding.missing-required-input"));
+  assert.ok(
+    codes(unknownParameter).includes("arazzo.binding.unknown-parameter"),
+  );
+  assert.ok(
+    codes(unknownParameter).includes("arazzo.binding.missing-required-input"),
+  );
 
   const unmappedOutput = storeWorkflow101();
   (
@@ -410,7 +461,9 @@ test("unmapped parameters and outputs block rather than guess a registered name"
       unknown
     >[]
   )[0]!.outputs = { setup: "$response.body#/different" };
-  assert.ok(codes(compile(unmappedOutput)).includes("arazzo.binding.unmapped-output"));
+  assert.ok(
+    codes(compile(unmappedOutput)).includes("arazzo.binding.unmapped-output"),
+  );
 });
 
 test("compiling names a workflow that exists and reports issues only in its own scope", () => {
@@ -418,7 +471,8 @@ test("compiling names a workflow that exists and reports issues only in its own 
   const workflows = two.workflows as Record<string, unknown>[];
   const broken = structuredClone(workflows[0]!);
   broken.workflowId = "broken";
-  (broken.steps as Record<string, unknown>[])[0]!.operationId = "absentOperation";
+  (broken.steps as Record<string, unknown>[])[0]!.operationId =
+    "absentOperation";
   workflows.push(broken);
   const compilation = compile(two);
   assert.deepEqual(

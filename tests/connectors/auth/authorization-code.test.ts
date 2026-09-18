@@ -478,6 +478,7 @@ test("RFC 8707: the resource indicator travels on authorization and token reques
   const resource = "https://api.example/v1";
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true },
     policy: { resource },
   });
   const ctx = harness.ctx();
@@ -555,6 +556,7 @@ test("a provider that reports no scope yields unknown semantics, never the reque
 test("AC-AUTH-10: a widened request is flagged for re-review against the reviewed baseline", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
@@ -659,6 +661,7 @@ test("AC-STATE-01: concurrent refreshes make one upstream call and never overwri
 test("a rotating refresh token is never replayed after it was used", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);

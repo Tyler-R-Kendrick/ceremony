@@ -16,7 +16,7 @@ import {
   readArazzo,
   reviewArazzoImport,
 } from "../../../src/server/connectors/formats/arazzo/index.js";
-import { full110, storeWorkflow101 } from "../fixtures/arazzo/documents.ts";
+import { full110, storeWorkflow101 } from "../fixtures/arazzo/documents.js";
 
 /*
  * WF-04: saved studio v1 projects keep validating exactly as before, and the
@@ -77,9 +77,11 @@ test("AC-IMP-01 saved studio projects still validate and export unchanged", () =
       "https://api.example.com/openapi.json";
     attachGenericCeremony(draft, kind, "Generated");
     assert.equal(connectorProjectSchema.safeParse(draft).success, true, kind);
+    const generated = parseConnectorProject(JSON.stringify(draft));
     assert.equal(
-      arazzoSchema.safeParse(exportConnectorFiles(draft).workflows[0]!.definition)
-        .success,
+      arazzoSchema.safeParse(
+        exportConnectorFiles(generated).workflows[0]!.definition,
+      ).success,
       true,
       kind,
     );
@@ -133,9 +135,14 @@ test("AC-IMP-14 a general description is reviewable but not editable, with every
   assert.equal(review.studio.editable, false);
   assert.equal(review.studio.document, undefined);
   const codes = lossCodes(review.studio.losses);
-  assert.ok(codes.has("arazzo.review.studio-version"), "1.1.0 is not a studio version");
+  assert.ok(
+    codes.has("arazzo.review.studio-version"),
+    "1.1.0 is not a studio version",
+  );
   assert.ok(codes.has("arazzo.review.studio-shape"));
-  const pointers = new Set(review.studio.losses.map((loss) => loss.sourcePointer));
+  const pointers = new Set(
+    review.studio.losses.map((loss) => loss.sourcePointer),
+  );
   for (const pointer of [
     "/arazzo",
     "/$self",
@@ -163,7 +170,9 @@ test("AC-IMP-14 a general description is reviewable but not editable, with every
     "outputs and criteria have no studio field",
   );
   assert.equal(
-    rich.studio.losses.some((loss) => loss.code === "arazzo.review.studio-version"),
+    rich.studio.losses.some(
+      (loss) => loss.code === "arazzo.review.studio-version",
+    ),
     false,
     "the version itself is fine",
   );
@@ -173,7 +182,9 @@ test("AC-IMP-14 exporting 1.1.0 as 1.0.1 blocks on every 1.1-only construct", ()
   const read = readArazzo(full110());
   const downgrade = exportArazzo(read, { version: "1.0.1" });
   assert.equal(downgrade.document, undefined, "no lossy document is produced");
-  const blocking = downgrade.losses.filter((loss) => loss.severity === "blocking");
+  const blocking = downgrade.losses.filter(
+    (loss) => loss.severity === "blocking",
+  );
   assert.ok(blocking.length > 0);
   const pointers = new Set(blocking.map((loss) => loss.sourcePointer));
   for (const pointer of [
@@ -214,7 +225,9 @@ test("AC-IMP-14 a 1.0.1 description upgrades cleanly and a clean 1.1.0 one downg
   );
 
   // Reading it back as 1.1.0 and going down again returns the original.
-  const back = exportArazzo(readArazzo(upgraded.document), { version: "1.0.1" });
+  const back = exportArazzo(readArazzo(upgraded.document), {
+    version: "1.0.1",
+  });
   assert.deepEqual(
     back.losses.filter((loss) => loss.severity === "blocking"),
     [],
@@ -255,7 +268,11 @@ test("fields outside the specification are preserved for review and dropped from
     vendorOnly: { note: "not a specification field" },
   });
   const exported = exportArazzo(read, { version: "1.0.1" });
-  assert.equal("vendorOnly" in exported.document!.workflows![0]!, false);
+  const exportedWorkflows = exported.document!.workflows as Record<
+    string,
+    unknown
+  >[];
+  assert.equal("vendorOnly" in exportedWorkflows[0]!, false);
   assert.ok(
     exported.losses.some(
       (loss) => loss.code === "arazzo.export.unknown-field-dropped",
@@ -263,8 +280,11 @@ test("fields outside the specification are preserved for review and dropped from
   );
   // An x- extension is not vendor noise: it round-trips.
   const extended = storeWorkflow101();
-  (extended.workflows as Record<string, unknown>[])[0]!["x-team"] = "connections";
-  const extendedExport = exportArazzo(readArazzo(extended), { version: "1.0.1" });
+  (extended.workflows as Record<string, unknown>[])[0]!["x-team"] =
+    "connections";
+  const extendedExport = exportArazzo(readArazzo(extended), {
+    version: "1.0.1",
+  });
   assert.deepEqual(extendedExport.losses, []);
   assert.deepEqual(extendedExport.document, extended);
 });

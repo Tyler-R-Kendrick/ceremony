@@ -16,11 +16,7 @@ import {
  */
 
 export type Classification =
-  | "public"
-  | "artifact"
-  | "personal"
-  | "secret"
-  | "unclassified";
+  "public" | "artifact" | "personal" | "secret" | "unclassified";
 
 const RANK: Record<Classification, number> = {
   public: 0,
@@ -88,7 +84,12 @@ type Literal = string | number | boolean | null;
 
 type Token =
   | { type: "literal"; value: Literal; at: number }
-  | { type: "reference"; text: string; expression: RuntimeExpression; at: number }
+  | {
+      type: "reference";
+      text: string;
+      expression: RuntimeExpression;
+      at: number;
+    }
   | { type: "op"; value: Operator; at: number }
   | { type: "lparen"; at: number }
   | { type: "rparen"; at: number };
@@ -190,7 +191,10 @@ function tokenize(source: string): Token[] {
       push({ type: "literal", value, at });
       continue;
     }
-    if (DIGIT.test(char) || (char === "-" && DIGIT.test(source[index + 1] ?? ""))) {
+    if (
+      DIGIT.test(char) ||
+      (char === "-" && DIGIT.test(source[index + 1] ?? ""))
+    ) {
       let text = char;
       index++;
       while (index < source.length && NUMBER_CHARS.test(source[index]!)) {
@@ -310,10 +314,15 @@ class Parser {
   }
   private parsePrimary(depth: number): ConditionNode {
     const token = this.next();
-    if (token.type === "literal") return { type: "literal", value: token.value };
+    if (token.type === "literal")
+      return { type: "literal", value: token.value };
     if (token.type === "reference") {
       this.references.push({ text: token.text, expression: token.expression });
-      return { type: "reference", expression: token.expression, text: token.text };
+      return {
+        type: "reference",
+        expression: token.expression,
+        text: token.text,
+      };
     }
     if (token.type === "lparen") {
       this.guard(depth + 1, token.at);
@@ -434,7 +443,8 @@ function resolve(
     case "method":
     case "statusCode": {
       const value = context[expression.kind];
-      if (value === undefined) throw new EvaluationError("unresolved-reference");
+      if (value === undefined)
+        throw new EvaluationError("unresolved-reference");
       return { value, classification: "public" };
     }
     case "response": {
@@ -461,7 +471,8 @@ function resolve(
 }
 
 function numeric(value: unknown): number | undefined {
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? value : undefined;
   if (typeof value === "string" && NUMERIC.test(value)) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
@@ -506,7 +517,10 @@ function truthy(value: unknown): boolean {
   throw new EvaluationError("non-boolean");
 }
 
-function evaluate(node: ConditionNode, context: EvaluationContext): ClassifiedValue {
+function evaluate(
+  node: ConditionNode,
+  context: EvaluationContext,
+): ClassifiedValue {
   switch (node.type) {
     case "literal":
       return { value: node.value, classification: "public" };

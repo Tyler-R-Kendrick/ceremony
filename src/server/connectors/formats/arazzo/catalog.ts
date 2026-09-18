@@ -54,7 +54,8 @@ export const catalogOperationSchema = z
       .default("none"),
   })
   .refine(
-    (entry) => (entry.operationId === undefined) !== (entry.operationPath === undefined),
+    (entry) =>
+      (entry.operationId === undefined) !== (entry.operationPath === undefined),
     "Bind exactly one of operationId or operationPath",
   );
 export type CatalogOperation = z.infer<typeof catalogOperationSchema>;
@@ -72,7 +73,9 @@ export const catalogDocumentIdentitySchema = z.discriminatedUnion("kind", [
     url: z.string().min(1).max(2048).optional(),
   }),
 ]);
-export type CatalogDocumentIdentity = z.infer<typeof catalogDocumentIdentitySchema>;
+export type CatalogDocumentIdentity = z.infer<
+  typeof catalogDocumentIdentitySchema
+>;
 
 export const catalogDocumentSchema = z
   .strictObject({
@@ -90,7 +93,10 @@ export const catalogDocumentSchema = z
           ? `id:${operation.operationId}`
           : `path:${operation.operationPath}`;
       if (keys.has(key))
-        ctx.addIssue({ code: "custom", message: "Duplicate operation binding" });
+        ctx.addIssue({
+          code: "custom",
+          message: "Duplicate operation binding",
+        });
       keys.add(key);
     }
   });
@@ -119,8 +125,12 @@ export const operationBindingCatalogSchema = z.strictObject({
   documents: z.array(catalogDocumentSchema).max(64),
   workflows: z.array(catalogWorkflowSchema).max(256).default([]),
 });
-export type OperationBindingCatalog = z.infer<typeof operationBindingCatalogSchema>;
-export type OperationBindingCatalogInput = z.input<typeof operationBindingCatalogSchema>;
+export type OperationBindingCatalog = z.infer<
+  typeof operationBindingCatalogSchema
+>;
+export type OperationBindingCatalogInput = z.input<
+  typeof operationBindingCatalogSchema
+>;
 
 export type ResolvedOperationBinding = {
   sourceDescriptionName: string;
@@ -229,7 +239,8 @@ export function resolveWorkflow(
     reference.sourceDescriptionName === undefined
       ? entry.sourceDescriptionName === undefined &&
         entry.workflowId === reference.workflowId &&
-        (entry.documentDigest === undefined || entry.documentDigest === localDigest)
+        (entry.documentDigest === undefined ||
+          entry.documentDigest === localDigest)
       : entry.sourceDescriptionName === reference.sourceDescriptionName &&
         entry.workflowId === reference.workflowId,
   );

@@ -1,0 +1,189 @@
+{
+  "swarm": "REGISTRY",
+  "summary": "Official MCP registry and subregistry support: a bounded read client for the /v0.1 REST API, inert server.json import, durable snapshots with tombstones, pins and interrupted-refresh safety, private and public read surfaces, guarded server.json export/publication, and a connector adapter whose execution dimensions are explicitly unsupported.",
+  "sourceProfiles": [
+    {
+      "id": "mcp-registry-api-v0.1",
+      "description": "Official MCP Registry REST API, /v0.1, OpenAPI 3.1.0, info.version 1.0.0",
+      "urls": [
+        "https://registry.modelcontextprotocol.io/openapi.yaml",
+        "https://modelcontextprotocol.io/schemas/draft/2025-12-01/server-registry-openapi",
+        "https://modelcontextprotocol.io/registry/registry-aggregators",
+        "https://modelcontextprotocol.io/registry/about"
+      ],
+      "fetchedAt": "2026-09-18",
+      "notes": "Preview. Base URL https://registry.modelcontextprotocol.io (staging host documented, never a default). GET /v0.1/servers takes cursor, limit (1-100, default 30), search, updated_since (RFC3339), version ('latest' or exact) and include_deleted (forced true when updated_since is present). GET /v0.1/servers/{serverName}/versions and /versions/{version} ('latest' alias). POST /v0.1/publish takes a bearer registry JWT. Path parameters are URL-encoded exactly once."
+    },
+    {
+      "id": "server-json-2025-12-11",
+      "description": "server.json schema 2025-12-11",
+      "urls": [
+        "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/docs/reference/server-json/CHANGELOG.md"
+      ],
+      "fetchedAt": "2026-09-18",
+      "digest": "sha256:3fba09590c99f61735d234822279f4223fab9e300c0a81e81c91ab62a4114de0",
+      "notes": "Pinned independently of the API version. Field names are camelCase since 2025-09-16; documents declaring 2025-07-09 field names are refused rather than guessed at. Reader accepts declared schema versions 2025-09-16, 2025-09-29, 2025-10-11, 2025-10-17 and 2025-12-11; anything else is imported with a version.schema-unpinned or version.schema-unspecified issue."
+    }
+  ],
+  "workItems": [
+    {
+      "id": "REG-01",
+      "title": "Bounded read client for the /v0.1 registry API",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/registries/mcp/client.ts",
+        "src/server/connectors/registries/mcp/schemas.ts",
+        "src/server/connectors/registries/mcp/json.ts"
+      ],
+      "tests": ["tests/connectors/registry-mcp/client.test.ts"],
+      "acceptanceIds": ["AC-MCP-07", "AC-IMP-03", "AC-IMP-09"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-registry-api-v0.1", "server-json-2025-12-11"],
+      "notes": "createMcpRegistryClient({ baseUrl, fetch, limits, bearer, allowPublication }) with list/listAll/versions/version/publish. Page limit <= 100, max pages per refresh, per-page and per-refresh byte budgets, request timeout, redirect: 'error'. Zod schemas for every documented response shape; unknown fields are preserved as inert data through loose objects. Names and versions are validated against nativeIdentifierSchema/nativeVersionSchema and encoded once with encodePathSegment. Responses are size-bounded, structurally scanned (depth, node count, duplicate keys, reserved object keys) before JSON.parse, then validated entry by entry so one poisoned entry is reported and skipped instead of hiding a page. A cursor echoed back unchanged stops pagination. Upstream failures map to sanitized ConnectorError codes; no provider text is ever echoed.",
+      "limitations": [
+        "Live evidence blocked: tests never reach the network; the loopback double is authored from the published API documents.",
+        "ETag/conditional requests are not used; the documented aggregator pattern is hourly polling with updated_since."
+      ]
+    },
+    {
+      "id": "REG-02",
+      "title": "Inert server.json import into a NormalizedDefinition",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/mcp/import.ts"],
+      "tests": ["tests/connectors/registry-mcp/import.test.ts"],
+      "acceptanceIds": ["AC-MCP-08", "AC-IMP-03", "AC-IMP-09", "AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["server-json-2025-12-11"],
+      "notes": "importServerJson(document, provenance) and importServerJsonBytes. Ecosystem 'mcp-registry'; identity { authorityNamespace = namespace part, nativeId = full server name, nativeVersion = version }. One custom capability per remote ('mcp-remote:<i>', transport under nativeExtensions) and per package ('mcp-package:<registryType>:<identifier>'). Environment variables and headers become configurationRequirements, classified secret when isSecret; names failing /^[A-Z][A-Z0-9_]{0,95}$/ are preserved under io.ceremony.connectors/unsupported-configuration with a warning rather than mangled. declaredServers come from remote URLs, status 'declared'. compatibility.dimensions: import exact, invoke unsupported without remotes and requires-configuration with them, plus a blocking policy.execution-requires-binding issue. Package commands, images, arguments, transports and environment values are never approved for execution. Suspicious arguments (shell metacharacters, curl|sh, absolute paths, traversal) raise executable-code.suspicious-argument warnings and stay inert. Secret input values are dropped from the definition and counted in a security.secret-value-redacted issue.",
+      "limitations": [
+        "Import refuses pre-2025-09-16 snake_case documents instead of translating them; a migration would be a separate reader.",
+        "URL template variables in remotes are preserved but never substituted at import time."
+      ]
+    },
+    {
+      "id": "REG-03",
+      "title": "Durable snapshots, incremental refresh, tombstones and pins",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/mcp/snapshot.ts"],
+      "tests": ["tests/connectors/registry-mcp/snapshot.test.ts"],
+      "acceptanceIds": ["AC-MCP-07", "AC-IMP-16", "AC-STATE-02", "AC-STATE-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-registry-api-v0.1"],
+      "notes": "RegistrySnapshotStore over a storage seam with two implementations: ceremonyStoreRegistrySnapshotStorage(AsyncCeremonyStore) writing the additive record kind 'connector-registry-snapshot' (tenant-scoped, encrypted, revision-checked) and memoryRegistrySnapshotStorage() for tests. A snapshot is a generation: 16 index shards keyed by the first hex digit of the source identity digest, pointing at content-addressed entry records. A refresh stages into a pending generation and persists its cursor after every complete page; the served generation switches only after the last page succeeds, so an interrupted refresh never replaces a complete snapshot with a partial one. An outage leaves the previous snapshot with freshness.stale = true, lastSuccessfulRefreshAt and a sanitized failure code, and the next refresh resumes from the persisted cursor. A rejected cursor restarts the refresh from its first page once (MAX_CURSOR_RESTARTS = 1); a cursor the registry keeps rejecting ends the refresh as interrupted instead of looping. Deleted versions become tombstones (reason 'deleted'); versions that stop being listed on a full refresh become tombstones (reason 'unlisted'); neither is dropped. Two entries for one version keep the first and raise version.conflict; a changed document under an unchanged version raises version.content-changed; a re-listed tombstone raises version.resurrected. Incremental refresh uses updated_since = watermark minus an overlap. Pins name an exact identity, so a later publication that moves 'latest' cannot move a pin. Superseded generations and unreferenced content are collected.",
+      "limitations": [
+        "Collection is best effort inside its own transaction; a conflict leaves the abandoned generation for the next refresh to collect.",
+        "One in-flight refresh per source: a concurrent refresh fails with conflict/registry.refresh.concurrent rather than interleaving."
+      ]
+    },
+    {
+      "id": "REG-04",
+      "title": "Private catalog and public subregistry read surfaces",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/mcp/projections.ts"],
+      "tests": ["tests/connectors/registry-mcp/projections.test.ts"],
+      "acceptanceIds": ["AC-MCP-10", "AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-registry-api-v0.1", "server-json-2025-12-11"],
+      "notes": "publicSubregistryProjection(snapshot, policy) and privateCatalogProjection(snapshot, actor) both return schema-compatible /v0.1/servers list and version responses (list, versions, version) with cursor, limit, search, version, updated_since and include_deleted. The public surface serves only rows the host explicitly marked public, through a positive field allowlist, and excludes any entry whose remote names a private network (isPubliclyRoutableUrl refuses http, loopback, RFC 1918, CGNAT, link-local, unique-local, IPv4-mapped IPv6, single-label and special-use hosts). Secret input values are removed from every projection, including values a publisher put in a header named Authorization. Publisher-provided _meta is republished only when the policy asks. Unlisted tombstones are never public. The private catalog is refused for a mismatched tenant and adds Ceremony provenance (source id, status, tombstone, deprecation, pin, freshness) under io.ceremony.connectors/snapshot. Canary tests cover a private remote URL, a token in a header value and a configured environment value.",
+      "limitations": [
+        "Public marks are supplied by the host (a digest set or a predicate); this swarm does not implement the UI or storage for marking an entry public.",
+        "The surfaces are functions over a snapshot; mounting them as HTTP routes is integrator-owned."
+      ]
+    },
+    {
+      "id": "REG-05",
+      "title": "server.json export and guarded publication",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/mcp/export.ts"],
+      "tests": ["tests/connectors/registry-mcp/export.test.ts"],
+      "acceptanceIds": ["AC-MCP-09", "AC-IMP-14"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["server-json-2025-12-11", "mcp-registry-api-v0.1"],
+      "notes": "exportServerJson({ definition, binding, implementationEvidence, publication }) requires an approved binding whose runtime is hosted-server, whose operations include an MCP transport, and whose destinations are covered by served-endpoint evidence the integrator supplies (url, transport, runtime, evidence level at least local-integration). The output is validated against the pinned strict export shape (2025-12-11 fields only) before its bytes exist. Packages are never exported; a loss issue records the omission. Browser-only connectors, non-MCP bindings, unserved or unverified endpoints, suspended bindings and definition mismatches are refused with sanitized codes. A private or loopback endpoint may only be described for an approved-private or fixture target. publishServerJson requires a client constructed with publication enabled, an explicit publication.authorized flag and a privately read bearer token, and journals the call through EffectJournalPort so a repeat is indeterminate rather than a second publication. Tests publish only to the local double; the official registry constant has publication disabled.",
+      "limitations": [
+        "No live publication: the official registry source ships with publication disabled and no deployment token exists here.",
+        "Export describes remotes only; a deployment that wanted to publish a package would need evidence this swarm deliberately does not accept."
+      ],
+      "externalEffectsPerformed": []
+    },
+    {
+      "id": "REG-06",
+      "title": "Catalog-only connector adapter",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/registries/mcp/adapter.ts",
+        "src/server/connectors/registries/mcp/index.ts"
+      ],
+      "tests": ["tests/connectors/registry-mcp/adapter.test.ts"],
+      "acceptanceIds": ["AC-MCP-07", "AC-MCP-08", "AC-MCP-09", "AC-UX-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-registry-api-v0.1", "server-json-2025-12-11"],
+      "notes": "createMcpRegistryAdapter({ snapshots, limits, evidence }) with id 'mcp-registry', ecosystem 'mcp-registry', runtime hosted-server. discover returns DiscoveredItem[] with provenance markers taken from _meta (registry status, isLatest, publishedAt, updatedAt, statusChangedAt, namespace attestation) and serves the snapshot when one exists, refreshing only when asked. import wraps importServerJson, unwraps a { server, _meta } response, and records exact-byte provenance in a SourceRecord. export runs REG-05 through host-approved binding settings. discover/import/export are implemented; configure, authorize, verify, invoke, events, reconnect, disconnect, revoke and delegate are unsupported with the limitation 'execution requires an MCP binding'. The base URL always comes from an approved destination in the binding (settings.registrySource.destinationId, or the single destination); a private source's bearer token is read through ConfigurationPort at call time and never stored, logged or returned. The official base URL is exported as OFFICIAL_MCP_REGISTRY_SOURCE / OFFICIAL_MCP_REGISTRY_DESTINATION (https://registry.modelcontextprotocol.io, verified in the published aggregator and API documents).",
+      "limitations": [
+        "The directory row reports support 'provider-backed', not 'catalog-only': catalogEntrySchema refuses an implemented capability under 'catalog-only', and this adapter really does read a registry. The catalog-only boundary is reported per dimension instead.",
+        "authorize/invoke are unsupported by design; an MCP binding made by the MCP runtime swarm is the only path to execution."
+      ]
+    }
+  ],
+  "contractChanges": [
+    {
+      "target": "src/server/persistence/index.ts",
+      "change": "Appended \"connector-registry-snapshot\" to recordKinds.",
+      "compatibility": "Additive: the list only grows, existing kinds and their records are untouched, and the encrypted-backup schema derives its enum from the same constant. No migration is required; a deployment that never stores a snapshot never writes the kind."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory.ts registration (INT)",
+      "description": "Register createMcpRegistryAdapter({ snapshots }) from src/server/connectors/registries/mcp/index.js in the host's ConnectorAdapterRegistry. Build the RuntimeBinding with the registry as an approved destination: destinations [{ id: 'mcp-registry-official', origin: OFFICIAL_MCP_REGISTRY_DESTINATION.origin, network: 'public' }] and, for a private subregistry, settings.registrySource = { destinationId, authorization: { kind: 'bearer', configurationName: 'MCP_REGISTRY_TOKEN' } }. The adapter never contacts a destination the binding does not approve."
+    },
+    {
+      "target": "Snapshot wiring (STATE/INT)",
+      "description": "Construct RegistrySnapshotStore({ storage: ceremonyStoreRegistrySnapshotStorage(store) }) once per deployment and pass it to createMcpRegistryAdapter. Call store.refresh(tenantId, { id, baseUrl, client }) from the host's scheduled work (the registry documents hourly scraping); refresh returns a report instead of throwing on upstream failure, so a failed run leaves the last complete snapshot serving with freshness.stale = true."
+    },
+    {
+      "target": "MCP runtime swarm: consuming imported remotes",
+      "description": "An imported definition is not bindable by itself. For each capability whose nativeId starts with 'mcp-remote:' (the executableCandidates of the import outcome), read nativeExtensions['io.modelcontextprotocol.registry/remote'] for { type: 'streamable-http' | 'sse', url, headers, variables }. Before a binding exists the reviewer must: resolve any {curly_brace} variables from host configuration (they are never substituted at import time), turn the resulting origin into an ApprovedDestination, map header inputs to the definition's configurationRequirements (X_API_KEY style names; non-conforming names are in io.ceremony.connectors/unsupported-configuration and need an explicit mapping), and create BoundOperations with transport kind mcp-tool/mcp-resource/mcp-prompt. Capabilities whose nativeId starts with 'mcp-package:' are never bindable: nativeExtensions['io.ceremony.connectors/execution'].approved is false and the definition carries a blocking policy.execution-requires-binding issue. Registry status is provenance, not code safety: a namespace-authenticated 'active' entry says who published, not that the server is safe."
+    },
+    {
+      "target": "MCP runtime swarm: export evidence",
+      "description": "exportServerJson takes an ImplementationEvidence { servedEndpoints: [{ url, transport, runtime, evidence, observedAt }] } that the MCP server side must supply from what the deployment actually serves. Evidence below local-integration, a browser runtime, or an endpoint outside the binding's destinations is refused (AC-MCP-09)."
+    },
+    {
+      "target": "HTTP routes (INT)",
+      "description": "publicSubregistryProjection and privateCatalogProjection return the registry's own response shapes and can be mounted under a /v0.1-compatible route pair. The private surface must be reached only through authenticatedActor; it throws denied when the actor's tenant does not own the snapshot. The public surface needs the host's explicit set of public identity digests; nothing is public by default."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "REG-LIVE",
+      "description": "Live evidence against registry.modelcontextprotocol.io and any real publication are blocked by policy: tests run offline against a loopback double and no publication was authorized. Evidence stays at protocol-fixture."
+    },
+    {
+      "id": "REG-UI",
+      "description": "Marking a snapshot entry public (the input to publicSubregistryProjection's policy) has no storage or UI here; the host supplies the digest set or predicate."
+    }
+  ],
+  "externalEffectsPerformed": [
+    "Read-only GET of https://registry.modelcontextprotocol.io/v0.1/servers?limit=2, https://registry.modelcontextprotocol.io/openapi.yaml, the published server.schema.json and public documentation pages, to pin the API and schema versions. No writes, no publication, no credentials used."
+  ],
+  "tests": {
+    "command": "node --import tsx --test tests/connectors/registry-mcp/*.test.ts",
+    "files": [
+      "tests/connectors/registry-mcp/client.test.ts",
+      "tests/connectors/registry-mcp/import.test.ts",
+      "tests/connectors/registry-mcp/snapshot.test.ts",
+      "tests/connectors/registry-mcp/projections.test.ts",
+      "tests/connectors/registry-mcp/export.test.ts",
+      "tests/connectors/registry-mcp/adapter.test.ts"
+    ],
+    "result": "44 tests, 44 pass, 0 fail",
+    "supporting": [
+      "tests/connectors/doubles/mcp-registry.ts",
+      "tests/connectors/registry-mcp/support.ts",
+      "tests/connectors/fixtures/mcp-registry/**"
+    ]
+  }
+}

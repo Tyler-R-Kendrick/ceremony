@@ -66,10 +66,14 @@ function withinBounds(value: unknown): boolean {
   while (stack.length) {
     const { value: item, depth } = stack.pop()!;
     if (++nodes > 50_000 || depth > 32) return false;
-    if (Array.isArray(item)) for (const entry of item) stack.push({ value: entry, depth: depth + 1 });
+    if (Array.isArray(item))
+      for (const entry of item) stack.push({ value: entry, depth: depth + 1 });
     else if (item && typeof item === "object")
-      for (const [key, entry] of Object.entries(item as Record<string, unknown>)) {
-        if (["__proto__", "prototype", "constructor"].includes(key)) return false;
+      for (const [key, entry] of Object.entries(
+        item as Record<string, unknown>,
+      )) {
+        if (["__proto__", "prototype", "constructor"].includes(key))
+          return false;
         stack.push({ value: entry, depth: depth + 1 });
       }
   }
@@ -85,7 +89,10 @@ export function verifyNangoSignature(
   if (!header || !HEX_64.test(header)) return false;
   const expected = createHmac("sha256", signingKey).update(body).digest();
   const provided = Buffer.from(header, "hex");
-  return provided.byteLength === expected.byteLength && timingSafeEqual(provided, expected);
+  return (
+    provided.byteLength === expected.byteLength &&
+    timingSafeEqual(provided, expected)
+  );
 }
 
 async function correlate(
@@ -102,8 +109,13 @@ async function correlate(
   if (creation) {
     const nonce = payload.tags?.[TAG_KEYS.handoff];
     if (!nonce) return undefined;
-    const record = await ctx.environment.handoffs.resolveCorrelation(ctx.actor.tenantId, nonce);
-    return record && record.tenantId === ctx.actor.tenantId ? record.connectionRef : undefined;
+    const record = await ctx.environment.handoffs.resolveCorrelation(
+      ctx.actor.tenantId,
+      nonce,
+    );
+    return record && record.tenantId === ctx.actor.tenantId
+      ? record.connectionRef
+      : undefined;
   }
   const found = await runtime.options.resolveConnection?.({
     tenantId: ctx.actor.tenantId,
@@ -122,34 +134,63 @@ export function createNangoEventPort(runtime: NangoRuntime): EventPort {
         NANGO_CONFIGURATION_NAMES.webhookSigningKey,
       );
       if (!signingKey) return undefined;
-      if (delivery.body.byteLength > NANGO_LIMITS.webhookBytes) return undefined;
-      if (!verifyNangoSignature(signingKey, delivery.body, delivery.headers.get(SIGNATURE_HEADER)))
+      if (delivery.body.byteLength > NANGO_LIMITS.webhookBytes)
+        return undefined;
+      if (
+        !verifyNangoSignature(
+          signingKey,
+          delivery.body,
+          delivery.headers.get(SIGNATURE_HEADER),
+        )
+      )
         return undefined;
       let parsed: unknown;
       try {
-        parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(delivery.body));
+        parsed = JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(delivery.body),
+        );
       } catch {
         return undefined;
       }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !withinBounds(parsed))
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed) ||
+        !withinBounds(parsed)
+      )
         return undefined;
-      const eventId = sha256(`${resolved.authority}\n${canonicalConnectorJson(parsed)}`);
+      const eventId = sha256(
+        `${resolved.authority}\n${canonicalConnectorJson(parsed)}`,
+      );
       const base = {
         eventId,
         authority: resolved.authority,
         receivedAt: delivery.receivedAt,
-        verification: { method: "vendor-signature" as const, keyId: SIGNATURE_HEADER },
+        verification: {
+          method: "vendor-signature" as const,
+          keyId: SIGNATURE_HEADER,
+        },
         payload: parsed,
       };
       const auth = authWebhookSchema.safeParse(parsed);
       if (auth.success) {
         const body = auth.data;
-        if (body.environment && body.environment.toLowerCase() !== resolved.environment)
+        if (
+          body.environment &&
+          body.environment.toLowerCase() !== resolved.environment
+        )
           return undefined;
-        const operation = (authWebhookOperations as readonly string[]).includes(body.operation)
+        const operation = (authWebhookOperations as readonly string[]).includes(
+          body.operation,
+        )
           ? body.operation
           : "unknown";
-        const connectionRef = await correlate(runtime, resolved, body, operation === "creation");
+        const connectionRef = await correlate(
+          runtime,
+          resolved,
+          body,
+          operation === "creation",
+        );
         return {
           ...base,
           providerEventType: `nango.auth.${operation}`,
@@ -160,11 +201,15 @@ export function createNangoEventPort(runtime: NangoRuntime): EventPort {
       const sync = syncWebhookSchema.safeParse(parsed);
       if (sync.success) {
         const body = sync.data;
-        const sourceTime = Date.parse(body.failedAt ?? body.startedAt ?? body.modifiedAfter ?? "");
+        const sourceTime = Date.parse(
+          body.failedAt ?? body.startedAt ?? body.modifiedAfter ?? "",
+        );
         const connectionRef = await correlate(runtime, resolved, body, false);
         return {
           ...base,
-          providerEventType: body.success ? "nango.sync.success" : "nango.sync.failure",
+          providerEventType: body.success
+            ? "nango.sync.success"
+            : "nango.sync.failure",
           ...(Number.isFinite(sourceTime) ? { sourceTime } : {}),
           ...(connectionRef ? { connectionRef } : {}),
           payloadClassification: "personal",
@@ -172,7 +217,12 @@ export function createNangoEventPort(runtime: NangoRuntime): EventPort {
       }
       const forward = forwardWebhookSchema.safeParse(parsed);
       if (forward.success) {
-        const connectionRef = await correlate(runtime, resolved, forward.data, false);
+        const connectionRef = await correlate(
+          runtime,
+          resolved,
+          forward.data,
+          false,
+        );
         return {
           ...base,
           providerEventType: "nango.forward",
@@ -183,7 +233,10 @@ export function createNangoEventPort(runtime: NangoRuntime): EventPort {
       const generic = genericWebhookSchema.safeParse(parsed);
       return {
         ...base,
-        providerEventType: generic.success && generic.data.type ? "nango.ignored" : "nango.forward.unattributed",
+        providerEventType:
+          generic.success && generic.data.type
+            ? "nango.ignored"
+            : "nango.forward.unattributed",
         payloadClassification: "secret",
       };
     },
@@ -214,30 +267,59 @@ type SyncState = {
  */
 export async function reconcileNangoEvent(
   runtime: NangoRuntime,
-  inbox: { seen(authority: string, eventId: string, at: number): Promise<boolean> },
+  inbox: {
+    seen(authority: string, eventId: string, at: number): Promise<boolean>;
+  },
   ctx: AdapterCallContext,
   event: VerifiedEventEnvelope,
 ): Promise<NangoReconcileResult> {
   const resolved = await resolveNango(runtime, ctx);
   const now = ctx.environment.now();
   if (event.authority !== resolved.authority)
-    return { duplicate: false, ordering: "unknown", code: "nango.event.authority" };
+    return {
+      duplicate: false,
+      ordering: "unknown",
+      code: "nango.event.authority",
+    };
   if (event.verification.method !== "vendor-signature")
-    return { duplicate: false, ordering: "unknown", code: "nango.event.unverified" };
+    return {
+      duplicate: false,
+      ordering: "unknown",
+      code: "nango.event.unverified",
+    };
   if (await inbox.seen(event.authority, event.eventId, now))
-    return { duplicate: true, ordering: "unknown", code: "nango.event.duplicate" };
+    return {
+      duplicate: true,
+      ordering: "unknown",
+      code: "nango.event.duplicate",
+    };
   if (event.providerEventType === "nango.auth.creation")
-    return { duplicate: false, ordering: "current", code: "nango.event.creation-use-complete" };
+    return {
+      duplicate: false,
+      ordering: "current",
+      code: "nango.event.creation-use-complete",
+    };
   if (event.providerEventType.startsWith("nango.auth.")) {
     const body = authWebhookSchema.safeParse(event.payload);
-    if (!body.success) return { duplicate: false, ordering: "unknown", code: "nango.event.malformed" };
+    if (!body.success)
+      return {
+        duplicate: false,
+        ordering: "unknown",
+        code: "nango.event.malformed",
+      };
     const reference = brokerReference(resolved);
     if (
       body.data.connectionId !== reference.connectionId ||
       body.data.providerConfigKey !== reference.providerConfigKey
     )
-      return { duplicate: false, ordering: "unknown", code: "nango.event.connection-mismatch" };
-    const list = await resolved.client.listConnections({ connectionId: reference.connectionId });
+      return {
+        duplicate: false,
+        ordering: "unknown",
+        code: "nango.event.connection-mismatch",
+      };
+    const list = await resolved.client.listConnections({
+      connectionId: reference.connectionId,
+    });
     const item = list.connections.find(
       (row) =>
         row.connection_id === reference.connectionId &&
@@ -250,24 +332,55 @@ export async function reconcileNangoEvent(
         code: "nango.connection.deleted",
         lifecycle: "authorization-required",
       };
-    const authError = (item.errors ?? []).some((error) => error.type === "auth");
+    const authError = (item.errors ?? []).some(
+      (error) => error.type === "auth",
+    );
     if (body.data.operation === "deletion")
-      return { duplicate: false, ordering: "stale", code: "nango.event.deletion-stale", lifecycle: authError ? "reconnect-required" : "active" };
+      return {
+        duplicate: false,
+        ordering: "stale",
+        code: "nango.event.deletion-stale",
+        lifecycle: authError ? "reconnect-required" : "active",
+      };
     if (authError)
-      return { duplicate: false, ordering: "current", code: "nango.connection.auth-error", lifecycle: "reconnect-required" };
+      return {
+        duplicate: false,
+        ordering: "current",
+        code: "nango.connection.auth-error",
+        lifecycle: "reconnect-required",
+      };
     if (body.data.operation === "refresh" && !body.data.success)
-      return { duplicate: false, ordering: "current", code: "nango.connection.refresh-failed-transient", lifecycle: "degraded" };
-    return { duplicate: false, ordering: "current", code: "nango.connection.healthy", lifecycle: "active" };
+      return {
+        duplicate: false,
+        ordering: "current",
+        code: "nango.connection.refresh-failed-transient",
+        lifecycle: "degraded",
+      };
+    return {
+      duplicate: false,
+      ordering: "current",
+      code: "nango.connection.healthy",
+      lifecycle: "active",
+    };
   }
   if (event.providerEventType.startsWith("nango.sync.")) {
     const body = syncWebhookSchema.safeParse(event.payload);
-    if (!body.success) return { duplicate: false, ordering: "unknown", code: "nango.event.malformed" };
+    if (!body.success)
+      return {
+        duplicate: false,
+        ordering: "unknown",
+        code: "nango.event.malformed",
+      };
     const reference = brokerReference(resolved);
     if (
       body.data.connectionId !== reference.connectionId ||
       body.data.providerConfigKey !== reference.providerConfigKey
     )
-      return { duplicate: false, ordering: "unknown", code: "nango.event.connection-mismatch" };
+      return {
+        duplicate: false,
+        ordering: "unknown",
+        code: "nango.event.connection-mismatch",
+      };
     const key = `${body.data.syncName}::${body.data.model}`;
     const state = ctx.connection?.state;
     const known =
@@ -285,16 +398,29 @@ export async function reconcileNangoEvent(
       connection_id: reference.connectionId,
     });
     const syncStatus = status.syncs
-      .filter((row) => row.connection_id === undefined || row.connection_id === reference.connectionId)
+      .filter(
+        (row) =>
+          row.connection_id === undefined ||
+          row.connection_id === reference.connectionId,
+      )
       .map(projectSyncStatus);
     if (stale)
-      return { duplicate: false, ordering: "stale", code: "nango.sync.stale-event", syncStatus };
+      return {
+        duplicate: false,
+        ordering: "stale",
+        code: "nango.sync.stale-event",
+        syncStatus,
+      };
     const next: SyncState = {
-      ...(body.data.modifiedAfter ? { modifiedAfter: body.data.modifiedAfter } : {}),
+      ...(body.data.modifiedAfter
+        ? { modifiedAfter: body.data.modifiedAfter }
+        : {}),
       success: body.data.success,
       // Checkpoints travel exactly as Nango sent them: absent stays absent,
       // null stays null. Nothing here derives or invents a checkpoint.
-      ...(body.data.checkpoints !== undefined ? { checkpoints: body.data.checkpoints } : {}),
+      ...(body.data.checkpoints !== undefined
+        ? { checkpoints: body.data.checkpoints }
+        : {}),
       at: new Date(now).toISOString(),
     };
     const entries = Object.entries(known).slice(-63);
@@ -302,7 +428,9 @@ export async function reconcileNangoEvent(
       duplicate: false,
       ordering: "current",
       code: body.data.success ? "nango.sync.completed" : "nango.sync.failed",
-      adapterState: { nangoSync: { ...Object.fromEntries(entries), [key]: next } },
+      adapterState: {
+        nangoSync: { ...Object.fromEntries(entries), [key]: next },
+      },
       syncStatus,
     };
   }
@@ -314,9 +442,17 @@ export async function reconcileNangoEvent(
         body.data.connectionId !== reference.connectionId ||
         body.data.providerConfigKey !== reference.providerConfigKey
       )
-        return { duplicate: false, ordering: "unknown", code: "nango.event.connection-mismatch" };
+        return {
+          duplicate: false,
+          ordering: "unknown",
+          code: "nango.event.connection-mismatch",
+        };
     }
-    return { duplicate: false, ordering: "current", code: "nango.event.forwarded" };
+    return {
+      duplicate: false,
+      ordering: "current",
+      code: "nango.event.forwarded",
+    };
   }
   return { duplicate: false, ordering: "unknown", code: "nango.event.ignored" };
 }

@@ -1,8 +1,17 @@
 import type { CompatibilityIssue } from "../../../../core/connectors/contracts.js";
 import { expressionSince } from "./expressions.js";
 import { valueExpressions } from "./graph.js";
-import { arazzoIssue, hasBlocking, jsonPointer, type ArazzoIssueCode } from "./issues.js";
-import { ARAZZO_MEDIA_TYPE, versionIncludes, type ArazzoVersion } from "./limits.js";
+import {
+  arazzoIssue,
+  hasBlocking,
+  jsonPointer,
+  type ArazzoIssueCode,
+} from "./issues.js";
+import {
+  ARAZZO_MEDIA_TYPE,
+  versionIncludes,
+  type ArazzoVersion,
+} from "./limits.js";
 import {
   isReusable,
   isSelectorObject,
@@ -57,7 +66,10 @@ class Exporter {
   }
   tail(node: PreservedBase): Record<string, unknown> {
     for (const key of Object.keys(node.unknown))
-      this.loss("arazzo.export.unknown-field-dropped", `${node.pointer}${jsonPointer(key)}`);
+      this.loss(
+        "arazzo.export.unknown-field-dropped",
+        `${node.pointer}${jsonPointer(key)}`,
+      );
     return { ...node.extensions };
   }
   value(value: unknown, pointer: string): unknown {
@@ -65,11 +77,15 @@ class Exporter {
       for (const site of valueExpressions(value, pointer, "parameter"))
         if (site.expression && !this.includes(expressionSince(site.expression)))
           this.loss("arazzo.export.version-downgrade-loss", site.pointer);
-      if (containsSelector(value)) this.loss("arazzo.export.version-downgrade-loss", pointer);
+      if (containsSelector(value))
+        this.loss("arazzo.export.version-downgrade-loss", pointer);
     }
     return structuredClone(value);
   }
-  expressionType(type: string | PreservedCriterion["type"], pointer: string): unknown {
+  expressionType(
+    type: string | PreservedCriterion["type"],
+    pointer: string,
+  ): unknown {
     if (type === undefined) return undefined;
     if (typeof type === "string") return type;
     if (
@@ -80,7 +96,9 @@ class Exporter {
       this.loss("arazzo.export.version-downgrade-loss", pointer);
     return { type: type.type, version: type.version, ...this.tail(type) };
   }
-  parameter(item: PreservedParameter | PreservedReusable): Record<string, unknown> {
+  parameter(
+    item: PreservedParameter | PreservedReusable,
+  ): Record<string, unknown> {
     if (isReusable(item)) return this.reusable(item);
     if (item.in === "querystring" && !this.includes(v11))
       this.loss("arazzo.export.version-downgrade-loss", `${item.pointer}/in`);
@@ -162,14 +180,23 @@ class Exporter {
       operationPath: step.operationPath,
       channelPath: this.gate(step.channelPath, `${step.pointer}/channelPath`),
       workflowId: step.workflowId,
-      parameters: step.parameters?.map((parameter) => this.parameter(parameter)),
-      requestBody: step.requestBody ? this.requestBody(step.requestBody) : undefined,
-      successCriteria: step.successCriteria?.map((criterion) => this.criterion(criterion)),
+      parameters: step.parameters?.map((parameter) =>
+        this.parameter(parameter),
+      ),
+      requestBody: step.requestBody
+        ? this.requestBody(step.requestBody)
+        : undefined,
+      successCriteria: step.successCriteria?.map((criterion) =>
+        this.criterion(criterion),
+      ),
       onSuccess: step.onSuccess?.map((action) => this.action(action)),
       onFailure: step.onFailure?.map((action) => this.action(action)),
       outputs: this.outputs(step.outputs, `${step.pointer}/outputs`),
       timeout: this.gate(step.timeout, `${step.pointer}/timeout`),
-      correlationId: this.gate(step.correlationId, `${step.pointer}/correlationId`),
+      correlationId: this.gate(
+        step.correlationId,
+        `${step.pointer}/correlationId`,
+      ),
       action: this.gate(step.action, `${step.pointer}/action`),
       dependsOn: this.gate(step.dependsOn, `${step.pointer}/dependsOn`),
       ...this.tail(step),
@@ -181,13 +208,21 @@ class Exporter {
       summary: workflow.summary,
       description: workflow.description,
       inputs:
-        workflow.inputs === undefined ? undefined : structuredClone(workflow.inputs),
+        workflow.inputs === undefined
+          ? undefined
+          : structuredClone(workflow.inputs),
       dependsOn: workflow.dependsOn,
       steps: workflow.steps.map((step) => this.step(step)),
-      successActions: workflow.successActions?.map((action) => this.action(action)),
-      failureActions: workflow.failureActions?.map((action) => this.action(action)),
+      successActions: workflow.successActions?.map((action) =>
+        this.action(action),
+      ),
+      failureActions: workflow.failureActions?.map((action) =>
+        this.action(action),
+      ),
       outputs: this.outputs(workflow.outputs, `${workflow.pointer}/outputs`),
-      parameters: workflow.parameters?.map((parameter) => this.parameter(parameter)),
+      parameters: workflow.parameters?.map((parameter) =>
+        this.parameter(parameter),
+      ),
       ...this.tail(workflow),
     });
   }
@@ -203,9 +238,15 @@ class Exporter {
           );
     return defined({
       inputs: map(components.inputs, (schema) => structuredClone(schema)),
-      parameters: map(components.parameters, (parameter) => this.parameter(parameter)),
-      successActions: map(components.successActions, (action) => this.action(action)),
-      failureActions: map(components.failureActions, (action) => this.action(action)),
+      parameters: map(components.parameters, (parameter) =>
+        this.parameter(parameter),
+      ),
+      successActions: map(components.successActions, (action) =>
+        this.action(action),
+      ),
+      failureActions: map(components.failureActions, (action) =>
+        this.action(action),
+      ),
       ...this.tail(components),
     });
   }
@@ -214,7 +255,10 @@ class Exporter {
       this.loss("arazzo.export.version-changed", "/arazzo");
     for (const source of document.sourceDescriptions)
       if (source.type === "asyncapi" && !this.includes(v11))
-        this.loss("arazzo.export.version-downgrade-loss", `${source.pointer}/type`);
+        this.loss(
+          "arazzo.export.version-downgrade-loss",
+          `${source.pointer}/type`,
+        );
     return defined({
       arazzo: this.target,
       $self: this.gate(document.self, "/$self"),
@@ -234,7 +278,9 @@ class Exporter {
         }),
       ),
       workflows: document.workflows.map((workflow) => this.workflow(workflow)),
-      components: document.components ? this.components(document.components) : undefined,
+      components: document.components
+        ? this.components(document.components)
+        : undefined,
       ...this.tail(document),
     });
   }
@@ -250,7 +296,9 @@ function containsSelector(value: unknown): boolean {
   if (isSelectorObject(value)) return true;
   if (Array.isArray(value)) return value.some(containsSelector);
   if (value && typeof value === "object")
-    return Object.values(value as Record<string, unknown>).some(containsSelector);
+    return Object.values(value as Record<string, unknown>).some(
+      containsSelector,
+    );
   return false;
 }
 

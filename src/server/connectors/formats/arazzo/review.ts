@@ -2,9 +2,18 @@ import type { z } from "zod";
 import { connectorProjectSchema } from "../../../../core/connector-authoring.js";
 import type { CompatibilityIssue } from "../../../../core/connectors/contracts.js";
 import { analyzeWorkflow, issuesInScope } from "./compile.js";
-import { arazzoIssue, hasBlocking, jsonPointer, type ArazzoIssueCode } from "./issues.js";
+import {
+  arazzoIssue,
+  hasBlocking,
+  jsonPointer,
+  type ArazzoIssueCode,
+} from "./issues.js";
 import type { PreservedBase } from "./model.js";
-import { readArazzo, type ArazzoReadResult, type ReadArazzoOptions } from "./read.js";
+import {
+  readArazzo,
+  type ArazzoReadResult,
+  type ReadArazzoOptions,
+} from "./read.js";
 
 /*
  * Import review for the studio. Version 1 projects edit a deliberately
@@ -19,7 +28,9 @@ import { readArazzo, type ArazzoReadResult, type ReadArazzoOptions } from "./rea
 /** Exactly the workflow-document shape a v1 project stores, minus the project-level file name. */
 export const studioWorkflowDocumentSchema =
   connectorProjectSchema.shape.workflows.element.omit({ document: true });
-export type StudioWorkflowDocument = z.infer<typeof studioWorkflowDocumentSchema>;
+export type StudioWorkflowDocument = z.infer<
+  typeof studioWorkflowDocumentSchema
+>;
 
 export interface ArazzoStudioReview {
   editable: boolean;
@@ -50,16 +61,27 @@ export function studioProjection(read: ArazzoReadResult): ArazzoStudioReview {
     losses.push(arazzoIssue(code, pointer));
   const document = read.document;
   if (!document) {
-    losses.push(...read.issues.filter((issue) => issue.severity === "blocking"));
+    losses.push(
+      ...read.issues.filter((issue) => issue.severity === "blocking"),
+    );
     if (!losses.length) loss("arazzo.review.studio-schema", "/");
     return { editable: false, losses };
   }
   const descriptive = (node: PreservedBase, extra: readonly string[] = []) => {
-    for (const key of [...Object.keys(node.extensions), ...Object.keys(node.unknown), ...extra])
-      loss("arazzo.review.studio-descriptive-loss", `${node.pointer}${jsonPointer(key)}`);
+    for (const key of [
+      ...Object.keys(node.extensions),
+      ...Object.keys(node.unknown),
+      ...extra,
+    ])
+      loss(
+        "arazzo.review.studio-descriptive-loss",
+        `${node.pointer}${jsonPointer(key)}`,
+      );
   };
-  const shape = (pointer: string) => loss("arazzo.review.studio-shape", pointer);
-  if (document.arazzo !== "1.0.1") loss("arazzo.review.studio-version", "/arazzo");
+  const shape = (pointer: string) =>
+    loss("arazzo.review.studio-shape", pointer);
+  if (document.arazzo !== "1.0.1")
+    loss("arazzo.review.studio-version", "/arazzo");
   if (document.self !== undefined) shape("/$self");
   if (document.components) shape("/components");
   descriptive(document);
@@ -68,7 +90,8 @@ export function studioProjection(read: ArazzoReadResult): ArazzoStudioReview {
     ...(document.info.description !== undefined ? ["description"] : []),
   ]);
   if (document.info.version !== "1.0.0") shape("/info/version");
-  if (!document.info.title || document.info.title.length > 100) shape("/info/title");
+  if (!document.info.title || document.info.title.length > 100)
+    shape("/info/title");
   if (document.sourceDescriptions.length !== 1) shape("/sourceDescriptions");
   for (const source of document.sourceDescriptions) {
     if (source.name !== "provider") shape(`${source.pointer}/name`);
@@ -92,7 +115,10 @@ export function studioProjection(read: ArazzoReadResult): ArazzoStudioReview {
       "parameters",
     ] as const)
       if (workflow[key] !== undefined) shape(`${workflow.pointer}/${key}`);
-    descriptive(workflow, workflow.description !== undefined ? ["description"] : []);
+    descriptive(
+      workflow,
+      workflow.description !== undefined ? ["description"] : [],
+    );
     if (workflow.steps.length < 1 || workflow.steps.length > 32)
       shape(`${workflow.pointer}/steps`);
     totalSteps += workflow.steps.length;
@@ -100,7 +126,10 @@ export function studioProjection(read: ArazzoReadResult): ArazzoStudioReview {
       if (!studioIdentifier.test(step.stepId)) shape(`${step.pointer}/stepId`);
       if (!step.description || step.description.length > 500)
         shape(`${step.pointer}/description`);
-      if (step.operationId === undefined || !studioOperation.test(step.operationId))
+      if (
+        step.operationId === undefined ||
+        !studioOperation.test(step.operationId)
+      )
         shape(`${step.pointer}/operationId`);
       for (const key of [
         "operationPath",
@@ -149,14 +178,20 @@ export function studioProjection(read: ArazzoReadResult): ArazzoStudioReview {
 }
 
 /** Executability of each workflow under the profile, independent of any host catalog. */
-export function executabilityReview(read: ArazzoReadResult): ArazzoWorkflowReview[] {
+export function executabilityReview(
+  read: ArazzoReadResult,
+): ArazzoWorkflowReview[] {
   return (read.document?.workflows ?? []).map((workflow) => {
     const analysis = analyzeWorkflow(read, workflow.workflowId);
     const issues = [
       ...issuesInScope(read, [workflow]),
       ...(analysis?.issues ?? []),
     ];
-    return { workflowId: workflow.workflowId, supported: !hasBlocking(issues), issues };
+    return {
+      workflowId: workflow.workflowId,
+      supported: !hasBlocking(issues),
+      issues,
+    };
   });
 }
 

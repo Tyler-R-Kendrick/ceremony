@@ -1369,8 +1369,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       let tools: McpList<McpTool> | undefined;
       try {
         tools = await listTools({ ...(signal ? { signal } : {}) });
-      } catch (error) {
-        if (error instanceof ConnectorError && error.code === "unauthenticated") throw error;
+      } catch {
+        // The call itself reports why: an unauthenticated listing becomes an
+        // authorization challenge on the call, not an exception here.
         warnings.add("mcp.tool.list-unavailable");
       }
       const tool = tools?.items.find((item) => item.name === request.name);

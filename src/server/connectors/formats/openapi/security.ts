@@ -301,7 +301,34 @@ function unsupportedScheme(
   });
 }
 
-/** Extension keys (`x-*`) of an object, bounded and without example-bearing keys. */
+/**
+ * Keys whose values are sample data or credential material. An example has no
+ * validation semantics, so nothing downstream needs it, and a source that
+ * embeds a real key in an example must not have it copied into a description
+ * that is later exported. Both are dropped at the import boundary rather than
+ * filtered at each projection, because a projection added later would not know
+ * to filter.
+ */
+const EXAMPLE_KEY = /example/i;
+const CREDENTIAL_KEY =
+  /(secret|password|passwd|credential|api[-_]?key|apikey|token|authorization|bearer|private[-_]?key)/i;
+
+function sanitizeExtensionValue(value: unknown, depth = 0): unknown {
+  if (depth > 16) return null;
+  if (Array.isArray(value))
+    return value.slice(0, 256).map((item) => sanitizeExtensionValue(item, depth + 1));
+  if (isRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of entriesOf(value)) {
+      if (EXAMPLE_KEY.test(key) || CREDENTIAL_KEY.test(key) || key === "default") continue;
+      out[key] = sanitizeExtensionValue(item, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Extension keys (`x-*`) of an object, bounded, without examples or credential-named entries. */
 export function extensionsOf(
   value: Record<string, unknown>,
   budget = 64,
@@ -309,12 +336,13 @@ export function extensionsOf(
   const out: Record<string, unknown> = {};
   let count = 0;
   for (const [key, item] of entriesOf(value)) {
-    if (!key.startsWith("x-") || /example/i.test(key)) continue;
+    if (!key.startsWith("x-")) continue;
+    if (EXAMPLE_KEY.test(key) || CREDENTIAL_KEY.test(key)) continue;
     if (key.length > 120 || /\p{Cc}/u.test(key)) continue;
     if (count >= budget) break;
     const text = JSON.stringify(item);
     if (text === undefined || text.length > 16_384) continue;
-    out[key] = JSON.parse(text);
+    out[key] = sanitizeExtensionValue(JSON.parse(text));
     count++;
   }
   return out;

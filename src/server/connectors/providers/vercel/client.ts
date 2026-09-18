@@ -50,14 +50,59 @@ export function apiDestination(ctx: AdapterCallContext): ApprovedDestination {
   return destination;
 }
 
-/** Fills a documented path template, encoding each native identifier exactly once. */
+/**
+ * Fills a documented path template inside an approved destination.
+ *
+ * A Vercel connector is addressed by its team-scoped uid, and a uid contains
+ * slashes: `slack/acme-slack` travels as the single segment
+ * `slack%2Facme-slack`. `destinationUrl` refuses `%2f` outright, because in a
+ * path *template* an encoded slash is how a caller escapes its prefix. So the
+ * template is validated with inert placeholders first — origin, prefix,
+ * traversal and absolute-URL checks all apply to it — and each placeholder is
+ * then replaced, inside the already-validated pathname, by a value encoded
+ * exactly once. The encoded value contains no `/`, so the path the caller
+ * approved is the path that is sent.
+ */
+export function operationUrl(
+  destination: ApprovedDestination,
+  pathTemplate: string,
+  resolve: (name: string) => string,
+): URL {
+  const encoded = new Map<string, string>();
+  let index = 0;
+  const templated = pathTemplate.replace(
+    /\{([a-zA-Z][a-zA-Z0-9_]*)\}/g,
+    (_match, name: string) => {
+      const parsed = nativeIdentifierSchema.safeParse(resolve(name));
+      if (!parsed.success)
+        throw new ConnectorError("invalid-request", {
+          detail: "vercel.path.parameter-invalid",
+        });
+      const placeholder = `x${index++}vercelsegmentx`;
+      encoded.set(placeholder, encodePathSegment(parsed.data));
+      return placeholder;
+    },
+  );
+  const url = destinationUrl(destination, templated);
+  let pathname = url.pathname;
+  for (const [placeholder, value] of encoded) {
+    if (!pathname.includes(placeholder))
+      throw new ConnectorError("invalid-request", {
+        detail: "vercel.path.parameter-invalid",
+      });
+    pathname = pathname.replace(placeholder, value);
+  }
+  url.pathname = pathname;
+  return url;
+}
+
+/** The encoded path a documented template produces, for inspection and tests. */
 export function operationPath(
   pathTemplate: string,
   params: Partial<Record<string, string>>,
 ): string {
   return pathTemplate.replace(/\{([a-zA-Z]+)\}/g, (_match, name: string) => {
-    const value = params[name];
-    const parsed = nativeIdentifierSchema.safeParse(value);
+    const parsed = nativeIdentifierSchema.safeParse(params[name]);
     if (!parsed.success)
       throw new ConnectorError("invalid-request", {
         detail: "vercel.path.parameter-invalid",
@@ -103,9 +148,10 @@ export async function callVercel<T>(
     throw new ConnectorError("denied", {
       detail: "vercel.credential.role-mismatch",
     });
-  const url = destinationUrl(
+  const url = operationUrl(
     apiDestination(ctx),
-    operationPath(operation.pathTemplate, call.params ?? {}),
+    operation.pathTemplate,
+    (name) => (call.params ?? {})[name as "connector" | "projectId"] ?? "",
   );
   if (operation.teamQuery) url.searchParams.set("teamId", call.teamId);
   for (const [name, value] of Object.entries(call.query ?? {}))

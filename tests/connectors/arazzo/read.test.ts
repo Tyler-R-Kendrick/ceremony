@@ -11,7 +11,7 @@ import {
   full110,
   storeWorkflow101,
   unknownVersions,
-} from "../fixtures/arazzo/documents.ts";
+} from "../fixtures/arazzo/documents.js";
 
 /*
  * WF-01: bounded parse, validation and native preservation for Arazzo 1.0.1
@@ -21,10 +21,8 @@ import {
 
 const codes = (issues: ReadonlyArray<{ code: string }>) =>
   issues.map((issue) => issue.code);
-const find = (
-  issues: ReadonlyArray<{ code: string; sourcePointer: string }>,
-  code: string,
-) => issues.filter((issue) => issue.code === code);
+const find = <T extends { code: string }>(issues: readonly T[], code: string) =>
+  issues.filter((issue) => issue.code === code);
 
 test("AC-IMP-08 the reader preserves a 1.0.1 description and projects one capability per workflow", () => {
   const source = storeWorkflow101();
@@ -53,17 +51,29 @@ test("AC-IMP-08 the reader preserves a 1.0.1 description and projects one capabi
   const [prepare, verify] = workflow.steps;
   assert.equal(prepare!.operationId, "prepareConnection");
   assert.deepEqual(prepare!.parameters, [
-    { pointer: "/workflows/0/steps/0/parameters/0", name: "region", in: "query", value: "$inputs.region", extensions: {}, unknown: {} },
+    {
+      pointer: "/workflows/0/steps/0/parameters/0",
+      name: "region",
+      in: "query",
+      value: "$inputs.region",
+      extensions: {},
+      unknown: {},
+    },
   ]);
-  assert.deepEqual(prepare!.successCriteria?.map((item) => item.condition), [
-    "$statusCode == 200",
-  ]);
+  assert.deepEqual(
+    prepare!.successCriteria?.map((item) => item.condition),
+    ["$statusCode == 200"],
+  );
   assert.deepEqual(prepare!.outputs, { setup: "$response.body#/setup" });
   assert.deepEqual(
-    verify!.onFailure?.map((item) => ("type" in item ? item.type : item.reference)),
+    verify!.onFailure?.map((item) =>
+      "type" in item ? item.type : item.reference,
+    ),
     ["retry"],
   );
-  assert.deepEqual(workflow.outputs, { account: "$steps.verify.outputs.account" });
+  assert.deepEqual(workflow.outputs, {
+    account: "$steps.verify.outputs.account",
+  });
 
   const definition = read.definition!;
   assert.deepEqual(normalizedDefinitionSchema.parse(definition), definition);
@@ -90,7 +100,10 @@ test("AC-IMP-08 the reader preserves a 1.0.1 description and projects one capabi
     },
   ]);
   assert.equal(definition.compatibility.dimensions.import, "exact");
-  assert.equal(definition.compatibility.dimensions.invoke, "requires-configuration");
+  assert.equal(
+    definition.compatibility.dimensions.invoke,
+    "requires-configuration",
+  );
   assert.deepEqual(definition.authentication, []);
 });
 
@@ -103,7 +116,10 @@ test("AC-IMP-08 the reader preserves every 1.1.0 construct, including ones it ca
     [],
   );
   const document = read.document!;
-  assert.equal(document.self, "https://api.example.com/workflows/store.arazzo.yaml");
+  assert.equal(
+    document.self,
+    "https://api.example.com/workflows/store.arazzo.yaml",
+  );
   assert.deepEqual(document.extensions, { "x-generator": "fixture" });
   assert.deepEqual(document.info.extensions, { "x-owner": "platform" });
   const workflow = document.workflows[0]!;
@@ -113,18 +129,30 @@ test("AC-IMP-08 the reader preserves every 1.1.0 construct, including ones it ca
   assert.deepEqual(prepare!.parameters?.[1], {
     reference: "$components.parameters.storeId",
   });
-  assert.deepEqual(prepare!.requestBody?.replacements?.map((item) => item.target), [
-    "/region",
-  ]);
-  assert.equal(collect!.channelPath, "{$sourceDescriptions.events.url}#/channels/orders");
+  assert.deepEqual(
+    prepare!.requestBody?.replacements?.map((item) => item.target),
+    ["/region"],
+  );
+  assert.equal(
+    collect!.channelPath,
+    "{$sourceDescriptions.events.url}#/channels/orders",
+  );
   assert.equal(collect!.action, "receive");
   assert.deepEqual(collect!.dependsOn, ["prepare"]);
   assert.deepEqual(collect!.outputs, {
-    detail: { context: "$message.payload", selector: "$.detail", type: "jsonpath" },
+    detail: {
+      context: "$message.payload",
+      selector: "$.detail",
+      type: "jsonpath",
+    },
   });
   assert.deepEqual(Object.keys(document.components!.parameters!), ["storeId"]);
-  assert.deepEqual(Object.keys(document.components!.failureActions!), ["again"]);
-  assert.deepEqual(document.components!.inputs, { pagination: { type: "object" } });
+  assert.deepEqual(Object.keys(document.components!.failureActions!), [
+    "again",
+  ]);
+  assert.deepEqual(document.components!.inputs, {
+    pagination: { type: "object" },
+  });
   // Only the OpenAPI source becomes a declared server; asyncapi is described, not served.
   assert.deepEqual(
     read.definition!.declaredServers.map((server) => server.url),
@@ -158,10 +186,15 @@ test("AC-IMP-08 1.1.0-only constructs in a 1.0.1 document are preserved and bloc
   assert.equal(preserved.workflows[0]!.steps[0]!.timeout, undefined);
   // Preserved, not interpreted: the value is still visible to a reviewer.
   assert.equal(preserved.workflows[0]!.steps[0]!.unknown.timeout, 6000);
-  assert.equal(preserved.unknown.$self, "https://api.example.com/workflows/store.arazzo.yaml");
+  assert.equal(
+    preserved.unknown.$self,
+    "https://api.example.com/workflows/store.arazzo.yaml",
+  );
   // The asyncapi source type did not exist in 1.0.1 either.
   assert.ok(
-    unavailable.some((issue) => issue.sourcePointer === "/sourceDescriptions/1/type"),
+    unavailable.some(
+      (issue) => issue.sourcePointer === "/sourceDescriptions/1/type",
+    ),
   );
 });
 
@@ -182,14 +215,21 @@ test("AC-IMP-08 an unknown Arazzo version blocks with its version preserved verb
   }
   const missing = readArazzo({ info: {}, workflows: [] });
   assert.deepEqual(codes(missing.issues), ["arazzo.version.missing"]);
-  assert.deepEqual(codes(readArazzo([]).issues), ["arazzo.structure.not-object"]);
-  assert.deepEqual(codes(readArazzo("1.0.1").issues), ["arazzo.structure.not-object"]);
+  assert.deepEqual(codes(readArazzo([]).issues), [
+    "arazzo.structure.not-object",
+  ]);
+  assert.deepEqual(codes(readArazzo("1.0.1").issues), [
+    "arazzo.structure.not-object",
+  ]);
 });
 
 test("AC-IMP-09 bounds refuse hostile shape before interpretation and never mutate runtime objects", () => {
   let deep: unknown = { arazzo: "1.0.1" };
-  for (let index = 0; index < ARAZZO_LIMITS.depth + 4; index++) deep = { nested: deep };
-  assert.deepEqual(codes(readArazzo(deep).issues), ["arazzo.structure.limit-exceeded"]);
+  for (let index = 0; index < ARAZZO_LIMITS.depth + 4; index++)
+    deep = { nested: deep };
+  assert.deepEqual(codes(readArazzo(deep).issues), [
+    "arazzo.structure.limit-exceeded",
+  ]);
 
   const wide = storeWorkflow101();
   (wide.workflows as unknown[]) = Array.from(
@@ -209,12 +249,18 @@ test("AC-IMP-09 bounds refuse hostile shape before interpretation and never muta
   (longString.info as Record<string, unknown>).title = "x".repeat(
     ARAZZO_LIMITS.string + 1,
   );
-  assert.ok(codes(readArazzo(longString).issues).includes("arazzo.structure.limit-exceeded"));
+  assert.ok(
+    codes(readArazzo(longString).issues).includes(
+      "arazzo.structure.limit-exceeded",
+    ),
+  );
 
   const polluted = JSON.parse(
     '{"arazzo":"1.0.1","__proto__":{"polluted":true},"info":{"title":"t","version":"1"},"sourceDescriptions":[],"workflows":[]}',
   ) as Record<string, unknown>;
-  assert.deepEqual(codes(readArazzo(polluted).issues), ["arazzo.structure.reserved-key"]);
+  assert.deepEqual(codes(readArazzo(polluted).issues), [
+    "arazzo.structure.reserved-key",
+  ]);
   assert.equal(
     ({} as Record<string, unknown>).polluted,
     undefined,
@@ -223,13 +269,19 @@ test("AC-IMP-09 bounds refuse hostile shape before interpretation and never muta
 
   const notJson = storeWorkflow101();
   (notJson.info as Record<string, unknown>).version = Number.POSITIVE_INFINITY;
-  assert.deepEqual(codes(readArazzo(notJson).issues), ["arazzo.structure.unsupported-value"]);
+  assert.deepEqual(codes(readArazzo(notJson).issues), [
+    "arazzo.structure.unsupported-value",
+  ]);
 
   // A source document is never consulted; reading is a pure function of the value.
   const before = JSON.stringify(storeWorkflow101());
   const source = storeWorkflow101();
   readArazzo(source);
-  assert.equal(JSON.stringify(source), before, "the input value is not modified");
+  assert.equal(
+    JSON.stringify(source),
+    before,
+    "the input value is not modified",
+  );
 });
 
 test("AC-IMP-08 cross references, duplicate identifiers and cycles are reported with pointers", () => {
@@ -239,7 +291,9 @@ test("AC-IMP-08 cross references, duplicate identifiers and cycles are reported 
     "each step in the cycle is named",
   );
   assert.deepEqual(
-    find(cyclic.issues, "arazzo.dependency.cycle").map((issue) => issue.sourcePointer),
+    find(cyclic.issues, "arazzo.dependency.cycle").map(
+      (issue) => issue.sourcePointer,
+    ),
     ["/workflows/0/steps/0", "/workflows/0/steps/1"],
   );
   assert.ok(cyclic.document, "the cyclic document is still preserved");
@@ -260,7 +314,8 @@ test("AC-IMP-08 cross references, duplicate identifiers and cycles are reported 
       .parameters as Record<string, unknown>[]
   )[0]!.value = "$steps.missing.outputs.setup";
   assert.deepEqual(
-    codes(find(readArazzo(unknownStep).issues, "arazzo.reference.unknown-step")).length,
+    codes(find(readArazzo(unknownStep).issues, "arazzo.reference.unknown-step"))
+      .length,
     1,
   );
 
@@ -270,7 +325,10 @@ test("AC-IMP-08 cross references, duplicate identifiers and cycles are reported 
       .parameters as Record<string, unknown>[]
   )[0]!.value = "$steps.prepare.outputs.absent";
   assert.equal(
-    find(readArazzo(unknownOutput).issues, "arazzo.reference.unknown-step-output").length,
+    find(
+      readArazzo(unknownOutput).issues,
+      "arazzo.reference.unknown-step-output",
+    ).length,
     1,
   );
 
@@ -280,27 +338,40 @@ test("AC-IMP-08 cross references, duplicate identifiers and cycles are reported 
       .parameters as Record<string, unknown>[]
   )[0]!.value = "$steps.verify.outputs.account";
   assert.equal(
-    find(readArazzo(forward).issues, "arazzo.reference.forward-step-output").length,
+    find(readArazzo(forward).issues, "arazzo.reference.forward-step-output")
+      .length,
     1,
   );
 
   const danglingComponent = full110();
   (
-    ((danglingComponent.workflows as Record<string, unknown>[])[0]!
-      .steps as Record<string, unknown>[])[0]!.parameters as Record<string, unknown>[]
+    (
+      (danglingComponent.workflows as Record<string, unknown>[])[0]!
+        .steps as Record<string, unknown>[]
+    )[0]!.parameters as Record<string, unknown>[]
   )[1] = { reference: "$components.parameters.absent" };
   assert.equal(
-    find(readArazzo(danglingComponent).issues, "arazzo.reference.unknown-component").length,
+    find(
+      readArazzo(danglingComponent).issues,
+      "arazzo.reference.unknown-component",
+    ).length,
     1,
   );
 
   const wrongKind = full110();
   (
-    ((wrongKind.workflows as Record<string, unknown>[])[0]!
-      .steps as Record<string, unknown>[])[0]!.parameters as Record<string, unknown>[]
+    (
+      (wrongKind.workflows as Record<string, unknown>[])[0]!.steps as Record<
+        string,
+        unknown
+      >[]
+    )[0]!.parameters as Record<string, unknown>[]
   )[1] = { reference: "$components.successActions.notify" };
   assert.equal(
-    find(readArazzo(wrongKind).issues, "arazzo.reference.component-kind-mismatch").length,
+    find(
+      readArazzo(wrongKind).issues,
+      "arazzo.reference.component-kind-mismatch",
+    ).length,
     1,
   );
 
@@ -318,17 +389,21 @@ function duplicatesWorkflow(document: Record<string, unknown>) {
 
 test("AC-IMP-08 step reference counts, action targets and parameter rules are enforced", () => {
   const both = storeWorkflow101();
-  (duplicatesWorkflow(both).steps as Record<string, unknown>[])[0]!.operationPath =
-    "{$sourceDescriptions.store.url}#/paths/~1prepare/post";
+  (
+    duplicatesWorkflow(both).steps as Record<string, unknown>[]
+  )[0]!.operationPath = "{$sourceDescriptions.store.url}#/paths/~1prepare/post";
   assert.equal(
-    find(readArazzo(both).issues, "arazzo.step.operation-reference-count").length,
+    find(readArazzo(both).issues, "arazzo.step.operation-reference-count")
+      .length,
     1,
   );
 
   const neither = storeWorkflow101();
-  delete (duplicatesWorkflow(neither).steps as Record<string, unknown>[])[0]!.operationId;
+  delete (duplicatesWorkflow(neither).steps as Record<string, unknown>[])[0]!
+    .operationId;
   assert.equal(
-    find(readArazzo(neither).issues, "arazzo.step.operation-reference-count").length,
+    find(readArazzo(neither).issues, "arazzo.step.operation-reference-count")
+      .length,
     1,
   );
 
@@ -338,43 +413,51 @@ test("AC-IMP-08 step reference counts, action targets and parameter rules are en
       .parameters as Record<string, unknown>[]
   )[0]!.in;
   assert.equal(
-    find(readArazzo(noLocation).issues, "arazzo.step.parameter-location-missing").length,
+    find(
+      readArazzo(noLocation).issues,
+      "arazzo.step.parameter-location-missing",
+    ).length,
     1,
   );
 
   const duplicateParameter = storeWorkflow101();
-  const parameters = (duplicatesWorkflow(duplicateParameter).steps as Record<
-    string,
-    unknown
-  >[])[0]!.parameters as Record<string, unknown>[];
+  const parameters = (
+    duplicatesWorkflow(duplicateParameter).steps as Record<string, unknown>[]
+  )[0]!.parameters as Record<string, unknown>[];
   parameters.push({ ...parameters[0]! });
   assert.equal(
-    find(readArazzo(duplicateParameter).issues, "arazzo.structure.duplicate-parameter")
-      .length,
+    find(
+      readArazzo(duplicateParameter).issues,
+      "arazzo.structure.duplicate-parameter",
+    ).length,
     1,
   );
 
   const badGoto = storeWorkflow101();
-  (duplicatesWorkflow(badGoto).steps as Record<string, unknown>[])[0]!.onSuccess = [
-    { name: "jump", type: "goto" },
-  ];
-  assert.equal(find(readArazzo(badGoto).issues, "arazzo.action.target-count").length, 1);
+  (
+    duplicatesWorkflow(badGoto).steps as Record<string, unknown>[]
+  )[0]!.onSuccess = [{ name: "jump", type: "goto" }];
+  assert.equal(
+    find(readArazzo(badGoto).issues, "arazzo.action.target-count").length,
+    1,
+  );
 
   const endWithTarget = storeWorkflow101();
-  (duplicatesWorkflow(endWithTarget).steps as Record<string, unknown>[])[0]!.onSuccess = [
-    { name: "stop", type: "end", stepId: "verify" },
-  ];
+  (
+    duplicatesWorkflow(endWithTarget).steps as Record<string, unknown>[]
+  )[0]!.onSuccess = [{ name: "stop", type: "end", stepId: "verify" }];
   assert.equal(
     find(readArazzo(endWithTarget).issues, "arazzo.action.target-count").length,
     1,
   );
 
   const unknownTarget = storeWorkflow101();
-  (duplicatesWorkflow(unknownTarget).steps as Record<string, unknown>[])[0]!.onSuccess = [
-    { name: "jump", type: "goto", stepId: "absent" },
-  ];
+  (
+    duplicatesWorkflow(unknownTarget).steps as Record<string, unknown>[]
+  )[0]!.onSuccess = [{ name: "jump", type: "goto", stepId: "absent" }];
   assert.equal(
-    find(readArazzo(unknownTarget).issues, "arazzo.reference.unknown-step").length,
+    find(readArazzo(unknownTarget).issues, "arazzo.reference.unknown-step")
+      .length,
     1,
   );
 });
@@ -400,9 +483,13 @@ test("AC-IMP-13 source URLs with credentials are refused as declared servers and
   );
 
   const relative = storeWorkflow101();
-  (relative.sourceDescriptions as Record<string, unknown>[])[0]!.url = "./openapi.json";
+  (relative.sourceDescriptions as Record<string, unknown>[])[0]!.url =
+    "./openapi.json";
   const relativeRead = readArazzo(relative);
-  assert.equal(find(relativeRead.issues, "arazzo.source.url-relative").length, 1);
+  assert.equal(
+    find(relativeRead.issues, "arazzo.source.url-relative").length,
+    1,
+  );
   assert.deepEqual(relativeRead.definition!.declaredServers, []);
 });
 
@@ -423,7 +510,10 @@ test("AC-IMP-10 a recursive workflow input schema is preserved inertly without e
     type: "object",
     properties: { child: { $ref: "https://example.com/node" } },
   });
-  assert.equal(read.definition!.capabilities[0]!.inputSchemaRef, "/workflows/0/inputs");
+  assert.equal(
+    read.definition!.capabilities[0]!.inputSchemaRef,
+    "/workflows/0/inputs",
+  );
 });
 
 test("display text is sanitized while identifiers keep their exact spelling", () => {

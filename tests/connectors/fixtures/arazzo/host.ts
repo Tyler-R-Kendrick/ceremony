@@ -17,11 +17,23 @@ import type { OperationBindingCatalogInput } from "../../../../src/server/connec
  */
 
 export const storeVocabulary: ReadonlyMap<string, VocabularyEntry> = new Map([
-  ["region", { schema: z.enum(["eu", "us"]), classification: "public" as const }],
-  ["setup", { schema: z.string().max(200), classification: "artifact" as const }],
-  ["account", { schema: z.string().max(200), classification: "public" as const }],
+  [
+    "region",
+    { schema: z.enum(["eu", "us"]), classification: "public" as const },
+  ],
+  [
+    "setup",
+    { schema: z.string().max(200), classification: "artifact" as const },
+  ],
+  [
+    "account",
+    { schema: z.string().max(200), classification: "public" as const },
+  ],
   ["token", { schema: z.string().max(200), classification: "secret" as const }],
-  ["owner", { schema: z.string().max(200), classification: "personal" as const }],
+  [
+    "owner",
+    { schema: z.string().max(200), classification: "personal" as const },
+  ],
 ]);
 
 export type HandlerBehavior = {
@@ -179,7 +191,9 @@ export function storeCatalog(
 }
 
 /** Both documents define `createOrder`; only an explicit source can disambiguate. */
-export function ambiguousCatalog(tenantId: string): OperationBindingCatalogInput {
+export function ambiguousCatalog(
+  tenantId: string,
+): OperationBindingCatalogInput {
   const operations = [
     {
       operationId: "createOrder",

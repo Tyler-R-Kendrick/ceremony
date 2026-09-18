@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { encodePathSegment } from "../../../../core/connectors/index.js";
-import {
-  destinationUrl,
-  type ApprovedDestination,
-} from "../../binding.js";
+import { destinationUrl, type ApprovedDestination } from "../../binding.js";
 import { ConnectorError, type ConnectorErrorCode } from "../../errors.js";
 import {
   actionAsyncSchema,
@@ -93,11 +90,17 @@ export function nangoFailure(
       detail: detail("nango.api.unauthorized"),
     });
   if (status === 403)
-    return new ConnectorError("denied", { detail: detail("nango.api.forbidden") });
+    return new ConnectorError("denied", {
+      detail: detail("nango.api.forbidden"),
+    });
   if (status === 404)
-    return new ConnectorError("not-found", { detail: detail("nango.api.not-found") });
+    return new ConnectorError("not-found", {
+      detail: detail("nango.api.not-found"),
+    });
   if (status === 429)
-    return new ConnectorError("rate-limited", { detail: "nango.api.rate-limited" });
+    return new ConnectorError("rate-limited", {
+      detail: "nango.api.rate-limited",
+    });
   if (status === 424)
     return new ConnectorError("upstream-rejected", {
       detail: detail("nango.api.dependency-failed"),
@@ -246,7 +249,10 @@ export class NangoApi {
   /* --------------------------------------------------------- integrations */
 
   listIntegrations() {
-    return this.json({ method: "GET", path: "/integrations" }, integrationListSchema);
+    return this.json(
+      { method: "GET", path: "/integrations" },
+      integrationListSchema,
+    );
   }
 
   /** Never passes `include=credentials`; the integration's client secret is not this adapter's business. */
@@ -259,7 +265,11 @@ export class NangoApi {
 
   listFunctions(
     uniqueKey: string,
-    options: { type?: "sync" | "action" | "on-event"; page: number; limit: number },
+    options: {
+      type?: "sync" | "action" | "on-event";
+      page: number;
+      limit: number;
+    },
   ) {
     const query = new URLSearchParams({
       page: String(options.page),
@@ -329,7 +339,10 @@ export class NangoApi {
    * refresh them. The refresh switches are sent explicitly as `false`; the
    * allowlist schema drops every credential field before returning.
    */
-  async getConnectionPrivileged(connectionId: string, providerConfigKey: string) {
+  async getConnectionPrivileged(
+    connectionId: string,
+    providerConfigKey: string,
+  ) {
     const query = new URLSearchParams({
       provider_config_key: providerConfigKey,
       force_refresh: "false",
@@ -432,7 +445,11 @@ export class NangoApi {
     connection_id: string;
   }) {
     return this.json(
-      { method: "GET", path: "/sync/status", query: new URLSearchParams(query) },
+      {
+        method: "GET",
+        path: "/sync/status",
+        query: new URLSearchParams(query),
+      },
       syncStatusSchema,
     );
   }

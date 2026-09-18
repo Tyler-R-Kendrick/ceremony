@@ -57,7 +57,10 @@ test("AC-NG-01: a connect session restricts allowed_integrations and derives tag
   assert.ok(session.tags);
   // Tags are digests of host-derived identity, never the raw subject id.
   assert.match(session.tags[TAG_KEYS.endUser]!, /^[a-f0-9]{64}$/);
-  assert.equal(session.tags[TAG_KEYS.endUser]!.includes(fixtureActor.subjectId), false);
+  assert.equal(
+    session.tags[TAG_KEYS.endUser]!.includes(fixtureActor.subjectId),
+    false,
+  );
   assert.equal(session.tags[TAG_KEYS.connection], connection.connectionRef);
   assert.equal(session.tags[TAG_KEYS.generation], "0");
   assert.match(session.tags[TAG_KEYS.handoff]!, /^[A-Za-z0-9_-]{20,}$/);
@@ -124,9 +127,14 @@ test("AC-NG-02: webhook_url_override is default-deny and cannot come from input"
       webhookUrlOverride: "https://attacker.example/hook",
     } as never),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.intent.invalid",
+      error instanceof ConnectorError &&
+      error.detail === "nango.intent.invalid",
   );
-  assert.equal(h.double.sessions.length, 1, "the rejected attempt sent nothing");
+  assert.equal(
+    h.double.sessions.length,
+    1,
+    "the rejected attempt sent nothing",
+  );
 });
 
 test("AC-NG-02: only an administrator-approved destination in binding settings sets the override", async (t) => {
@@ -140,7 +148,10 @@ test("AC-NG-02: only an administrator-approved destination in binding settings s
     },
   });
   t.after(() => h.close());
-  await h.adapter.authorize!(h.context({ connection: makeConnection(h.binding) }), intent);
+  await h.adapter.authorize!(
+    h.context({ connection: makeConnection(h.binding) }),
+    intent,
+  );
   assert.equal(
     h.double.sessions[0]!.webhookUrlOverride,
     "https://hooks.example.test/nango",
@@ -187,17 +198,23 @@ test("NG-02: a widget callback alone never completes; a verified creation event 
   const withHandoff = { ...connection, handoff: issued.summary };
 
   // A redirect is not evidence of anything.
-  const redirected = await h.adapter.complete!(h.context({ connection: withHandoff }), {
-    kind: "redirect",
-    url: new URL("https://app.example/callback?connectionId=conn-1"),
-  });
+  const redirected = await h.adapter.complete!(
+    h.context({ connection: withHandoff }),
+    {
+      kind: "redirect",
+      url: new URL("https://app.example/callback?connectionId=conn-1"),
+    },
+  );
   assert.equal(redirected.state, "pending");
   assert.equal(redirected.code, "nango.complete.redirect-not-evidence");
 
   // Polling before Nango has the connection stays pending.
-  const early = await h.adapter.complete!(h.context({ connection: withHandoff }), {
-    kind: "poll",
-  });
+  const early = await h.adapter.complete!(
+    h.context({ connection: withHandoff }),
+    {
+      kind: "poll",
+    },
+  );
   assert.equal(early.state, "pending");
 
   // The Connect UI finishes: Nango now holds a connection carrying our tags.
@@ -211,9 +228,12 @@ test("NG-02: a widget callback alone never completes; a verified creation event 
       },
     }),
   );
-  const completed = await h.adapter.complete!(h.context({ connection: withHandoff }), {
-    kind: "poll",
-  });
+  const completed = await h.adapter.complete!(
+    h.context({ connection: withHandoff }),
+    {
+      kind: "poll",
+    },
+  );
   assert.equal(completed.state, "complete");
   assert.equal(completed.externalIds?.connectionId, CONNECTION_ID);
   assert.equal(completed.externalIds?.providerConfigKey, INTEGRATION);
@@ -261,7 +281,10 @@ test("AC-AUTH-08: broker success without account evidence is not exact-account v
 
   assert.equal(result.state, "complete");
   // The only claim is that the broker holds a connection: no account identity.
-  assert.deepEqual(result.claims.map((claim) => claim.kind), ["credential-accepted"]);
+  assert.deepEqual(
+    result.claims.map((claim) => claim.kind),
+    ["credential-accepted"],
+  );
   assert.equal(result.claims[0]!.issuer, "external-broker");
   assert.equal(result.claims[0]!.target.kind, "nango-connection");
   assert.ok(
@@ -338,9 +361,12 @@ test("AC-NG-05: a replayed completion cannot complete the handoff twice", async 
     }),
   );
   const withHandoff = { ...connection, handoff: issued.summary };
-  const first = await h.adapter.complete!(h.context({ connection: withHandoff }), {
-    kind: "poll",
-  });
+  const first = await h.adapter.complete!(
+    h.context({ connection: withHandoff }),
+    {
+      kind: "poll",
+    },
+  );
   assert.equal(first.state, "complete");
 
   const record = h.ports.inspect.handoffs()[0]!;
@@ -348,7 +374,12 @@ test("AC-NG-05: a replayed completion cannot complete the handoff twice", async 
   // The one-use handoff is consumed: a replay produces no second credential.
   const before = h.ports.inspect.credentialRefs().length;
   const replay = await h.adapter.complete!(
-    h.context({ connection: { ...withHandoff, handoff: { ...issued.summary, state: "completed" } } }),
+    h.context({
+      connection: {
+        ...withHandoff,
+        handoff: { ...issued.summary, state: "completed" },
+      },
+    }),
     { kind: "poll" },
   );
   assert.equal(replay.state, "complete");
@@ -452,14 +483,21 @@ test("AC-AUTH-01/AC-NG-05: a stale generation cannot complete a newer connection
 
 test("NG-02: reconnect advances through its own correlation and needs a prior auth error to clear", async (t) => {
   const h = await harness({
-    double: { connections: [connectionRow({ errors: [{ type: "auth", log_id: "log-1" }] })] },
+    double: {
+      connections: [
+        connectionRow({ errors: [{ type: "auth", log_id: "log-1" }] }),
+      ],
+    },
   });
   t.after(() => h.close());
   const connection = await activeConnection(h.ports, h.binding, {
     generation: 1,
     lifecycle: "reconnect-required",
   });
-  const start = await h.adapter.reconnect!(h.context({ connection, generation: 1 }), intent);
+  const start = await h.adapter.reconnect!(
+    h.context({ connection, generation: 1 }),
+    intent,
+  );
   assert.equal(start.kind, "handoff");
   assert.equal(start.handoff.private.mode, "reconnect");
   assert.equal(start.handoff.private.priorAuthError, "true");
@@ -508,7 +546,9 @@ test("NG-02: verify reports the broker's own view and flags auth errors as human
   assert.equal(ok.state, "complete");
   assert.equal(ok.externalIds?.connectionId, CONNECTION_ID);
 
-  h.double.setConnectionErrors(CONNECTION_ID, [{ type: "auth", log_id: "log-2" }]);
+  h.double.setConnectionErrors(CONNECTION_ID, [
+    { type: "auth", log_id: "log-2" },
+  ]);
   const broken = await h.adapter.verify!(h.context({ connection }));
   assert.equal(broken.state, "human-required");
   assert.equal(broken.code, "nango.connection.auth-error");
@@ -519,7 +559,9 @@ test("NG-02: an approved verification operation supplies real account evidence",
     double: {
       connections: [connectionRow()],
       proxy: ({ path }) =>
-        path === "/user" ? { status: 200, body: { login: "octocat", id: 583231 } } : undefined,
+        path === "/user"
+          ? { status: 200, body: { login: "octocat", id: 583231 } }
+          : undefined,
     },
     binding: {
       operations: [readOperation],
@@ -535,10 +577,10 @@ test("NG-02: an approved verification operation supplies real account evidence",
   const result = await h.adapter.verify!(h.context({ connection }));
 
   assert.equal(result.state, "complete");
-  assert.deepEqual(result.claims.map((claim) => claim.kind), [
-    "credential-accepted",
-    "account-identity",
-  ]);
+  assert.deepEqual(
+    result.claims.map((claim) => claim.kind),
+    ["credential-accepted", "account-identity"],
+  );
   const account = result.claims[1]!;
   assert.equal(account.issuer, "provider");
   assert.deepEqual(account.target, { kind: "github-account", id: "octocat" });
@@ -550,7 +592,9 @@ test("AC-AUTH-09: a reconnect returning a different account requires explicit ac
     double: {
       connections: [connectionRow()],
       proxy: ({ path }) =>
-        path === "/user" ? { status: 200, body: { login: "someone-else" } } : undefined,
+        path === "/user"
+          ? { status: 200, body: { login: "someone-else" } }
+          : undefined,
     },
     binding: {
       operations: [readOperation],
@@ -584,7 +628,8 @@ test("AC-AUTH-01: a foreign binding or tenant is refused before any Nango reques
       intent,
     ),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.binding.tenant",
+      error instanceof ConnectorError &&
+      error.detail === "nango.binding.tenant",
   );
 
   await assert.rejects(
@@ -593,7 +638,8 @@ test("AC-AUTH-01: a foreign binding or tenant is refused before any Nango reques
       intent,
     ),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.binding",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.binding",
   );
   assert.equal(h.double.requests.length, 0);
 });
@@ -633,11 +679,16 @@ test("NG-02: an organization grant requires the host owner mapping, not a tag", 
   t.after(() => plain.close());
   await assert.rejects(
     plain.adapter.authorize!(
-      plain.context({ connection: makeConnection(plain.binding, { ownerKind: "organization" }) }),
+      plain.context({
+        connection: makeConnection(plain.binding, {
+          ownerKind: "organization",
+        }),
+      }),
       { ...intent, ownerKind: "organization" },
     ),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.owner.mapping-required",
+      error instanceof ConnectorError &&
+      error.detail === "nango.owner.mapping-required",
   );
 });
 
@@ -650,8 +701,14 @@ test("NG-02: the public catalog projection of the adapter carries no private mat
   );
   const projected = publicCatalogProjection(entry!);
   const strings = stringsIn(projected);
-  assert.equal(strings.some((value) => value.includes("nango-secret-key-fixture")), false);
-  assert.equal(strings.some((value) => value.includes(h.double.origin)), false);
+  assert.equal(
+    strings.some((value) => value.includes("nango-secret-key-fixture")),
+    false,
+  );
+  assert.equal(
+    strings.some((value) => value.includes(h.double.origin)),
+    false,
+  );
   assert.equal(projected.ecosystem, "nango");
   assert.deepEqual(projected.custody, [
     "external-credential-broker",
@@ -674,7 +731,8 @@ test("NG-02: a connection bound to another integration or environment is refused
   await assert.rejects(
     h.adapter.verify!(h.context({ connection: wrongIntegration })),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.integration",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.integration",
   );
 
   const wrongEnvironment = await activeConnection(h.ports, h.binding, {
@@ -688,6 +746,7 @@ test("NG-02: a connection bound to another integration or environment is refused
   await assert.rejects(
     h.adapter.verify!(h.context({ connection: wrongEnvironment })),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.environment",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.environment",
   );
 });

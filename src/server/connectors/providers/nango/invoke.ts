@@ -3,7 +3,11 @@ import {
   canonicalConnectorJson,
   encodePathSegment,
 } from "../../../../core/connectors/index.js";
-import type { AdapterCallContext, InvokeRequest, InvokeResult } from "../../adapter.js";
+import type {
+  AdapterCallContext,
+  InvokeRequest,
+  InvokeResult,
+} from "../../adapter.js";
 import { boundOperation, type BoundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { ConnectionRecord, EffectOutcome } from "../../ports.js";
@@ -60,20 +64,28 @@ const overrideKeys = new Set([
   "credentials",
   "token",
 ]);
-const normalizeKey = (key: string) => key.toLowerCase().replaceAll("-", "").trim();
+const normalizeKey = (key: string) =>
+  key.toLowerCase().replaceAll("-", "").trim();
 
 export function rejectOverrideAttempt(input: unknown, path = ""): void {
   if (!input || typeof input !== "object" || Array.isArray(input)) return;
   for (const key of Object.keys(input as Record<string, unknown>)) {
-    if (overrideKeys.has(normalizeKey(key)) || overrideKeys.has(key.toLowerCase()))
-      throw new ConnectorError("denied", { detail: "nango.input.override-rejected" });
+    if (
+      overrideKeys.has(normalizeKey(key)) ||
+      overrideKeys.has(key.toLowerCase())
+    )
+      throw new ConnectorError("denied", {
+        detail: "nango.input.override-rejected",
+      });
     if (path === "")
       rejectOverrideAttempt((input as Record<string, unknown>)[key], key);
   }
 }
 
 const invokeInputSchema = z.strictObject({
-  path: z.record(z.string().max(96), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  path: z
+    .record(z.string().max(96), z.union([z.string(), z.number(), z.boolean()]))
+    .optional(),
   query: z
     .record(z.string().max(96), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
@@ -129,7 +141,10 @@ function validateParameters(
       /[\p{Cc}]/u.test(text) ||
       (spec.enum && !spec.enum.includes(text)) ||
       (location === "path" &&
-        (/[/\\?#]/.test(text) || text === "." || text === ".." || text.length === 0))
+        (/[/\\?#]/.test(text) ||
+          text === "." ||
+          text === ".." ||
+          text.length === 0))
     )
       throw new ConnectorError("invalid-request", {
         detail: `nango.input.${location}.value`,
@@ -145,24 +160,39 @@ export function expandPathTemplate(
   values: Record<string, string>,
 ): string {
   const seen = new Set<string>();
-  const path = template.replace(/\{([A-Za-z][A-Za-z0-9_.:-]{0,95})\}/g, (_match, name: string) => {
-    const value = values[name];
-    if (value === undefined)
-      throw new ConnectorError("invalid-request", { detail: "nango.input.path.required" });
-    seen.add(name);
-    return encodePathSegment(value);
-  });
+  const path = template.replace(
+    /\{([A-Za-z][A-Za-z0-9_.:-]{0,95})\}/g,
+    (_match, name: string) => {
+      const value = values[name];
+      if (value === undefined)
+        throw new ConnectorError("invalid-request", {
+          detail: "nango.input.path.required",
+        });
+      seen.add(name);
+      return encodePathSegment(value);
+    },
+  );
   if (/[{}]/.test(path))
-    throw new ConnectorError("configuration-required", { detail: "nango.operation.template" });
+    throw new ConnectorError("configuration-required", {
+      detail: "nango.operation.template",
+    });
   for (const name of Object.keys(values))
     if (!seen.has(name))
-      throw new ConnectorError("invalid-request", { detail: "nango.input.path.unknown" });
-  if (!path.startsWith("/proxy/") || path.split("/").some((segment) => segment === ".."))
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.input.path.unknown",
+      });
+  if (
+    !path.startsWith("/proxy/") ||
+    path.split("/").some((segment) => segment === "..")
+  )
     throw new ConnectorError("denied", { detail: "nango.operation.path" });
   return path;
 }
 
-export function contractFor(resolved: Resolved, operation: BoundOperation): OperationContract {
+export function contractFor(
+  resolved: Resolved,
+  operation: BoundOperation,
+): OperationContract {
   const declared = resolved.settings.operations[operation.operationRef];
   return declared ?? operationContractSchema.parse({});
 }
@@ -182,7 +212,10 @@ function outcomeCode(status: number): string {
   return "nango.upstream.rejected";
 }
 
-function decodeOutput(response: RawResponse, contract: OperationContract): unknown {
+function decodeOutput(
+  response: RawResponse,
+  contract: OperationContract,
+): unknown {
   if (response.json !== undefined) return response.json;
   if (response.body.byteLength === 0) return undefined;
   const text = new TextDecoder().decode(response.body);
@@ -202,7 +235,9 @@ export async function executeOperation(
   input: InvokeInput,
 ): Promise<OperationOutcome> {
   if (reference.providerConfigKey !== resolved.settings.integration.uniqueKey)
-    throw new ConnectorError("denied", { detail: "nango.connection.integration" });
+    throw new ConnectorError("denied", {
+      detail: "nango.connection.integration",
+    });
   const routingHeaders = {
     "connection-id": reference.connectionId,
     "provider-config-key": reference.providerConfigKey,
@@ -218,14 +253,24 @@ export async function executeOperation(
     );
     let body: unknown;
     if (input.body !== undefined) {
-      if (!contract.body || transport.method === "GET" || transport.method === "HEAD")
-        throw new ConnectorError("invalid-request", { detail: "nango.input.body.unexpected" });
+      if (
+        !contract.body ||
+        transport.method === "GET" ||
+        transport.method === "HEAD"
+      )
+        throw new ConnectorError("invalid-request", {
+          detail: "nango.input.body.unexpected",
+        });
       const issues = validateJsonSubset(contract.body, input.body);
       if (issues.length)
-        throw new ConnectorError("invalid-request", { detail: "nango.input.body.schema" });
+        throw new ConnectorError("invalid-request", {
+          detail: "nango.input.body.schema",
+        });
       body = input.body;
     } else if (contract.body?.required?.length)
-      throw new ConnectorError("invalid-request", { detail: "nango.input.body.required" });
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.input.body.required",
+      });
     const response = await resolved.client.proxy({
       method: transport.method,
       path,
@@ -233,7 +278,9 @@ export async function executeOperation(
       headers: {
         ...(contract.headers ?? {}),
         ...routingHeaders,
-        retries: String(operation.replay === "read-only" ? contract.retries : 0),
+        retries: String(
+          operation.replay === "read-only" ? contract.retries : 0,
+        ),
       },
       ...(body === undefined ? {} : { body }),
       deadlineMs: contract.deadlineMs,
@@ -247,13 +294,19 @@ export async function executeOperation(
   }
   if (transport.kind === "broker-action") {
     if (input.path || input.query)
-      throw new ConnectorError("invalid-request", { detail: "nango.input.action.parameters" });
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.input.action.parameters",
+      });
     if (contract.body) {
       const issues = validateJsonSubset(contract.body, input.body ?? {});
       if (issues.length)
-        throw new ConnectorError("invalid-request", { detail: "nango.input.body.schema" });
+        throw new ConnectorError("invalid-request", {
+          detail: "nango.input.body.schema",
+        });
     } else if (input.body !== undefined)
-      throw new ConnectorError("invalid-request", { detail: "nango.input.body.unexpected" });
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.input.body.unexpected",
+      });
     const response = await resolved.client.triggerAction({
       connectionId: reference.connectionId,
       providerConfigKey: reference.providerConfigKey,
@@ -262,8 +315,15 @@ export async function executeOperation(
       deadlineMs: contract.deadlineMs,
       maxBytes: contract.maxResponseBytes,
     });
-    if (response.status === 200 && actionAsyncSchema.safeParse(response.json).success)
-      return { status: 202, output: undefined, code: "nango.action.async-unexpected" };
+    if (
+      response.status === 200 &&
+      actionAsyncSchema.safeParse(response.json).success
+    )
+      return {
+        status: 202,
+        output: undefined,
+        code: "nango.action.async-unexpected",
+      };
     const code =
       response.status === 200
         ? "nango.upstream.ok"
@@ -274,17 +334,32 @@ export async function executeOperation(
             : response.status === 500
               ? "nango.action.failed"
               : outcomeCode(response.status);
-    return { status: response.status, output: decodeOutput(response, contract), code };
+    return {
+      status: response.status,
+      output: decodeOutput(response, contract),
+      code,
+    };
   }
-  if (transport.kind === "delegated" && transport.route.startsWith("records:")) {
+  if (
+    transport.kind === "delegated" &&
+    transport.route.startsWith("records:")
+  ) {
     if (operation.effect !== "read")
-      throw new ConnectorError("configuration-required", { detail: "nango.operation.records-effect" });
+      throw new ConnectorError("configuration-required", {
+        detail: "nango.operation.records-effect",
+      });
     const parsed = recordsInputSchema.safeParse(input);
     if (!parsed.success)
-      throw new ConnectorError("invalid-request", { detail: "nango.input.records" });
-    const [model, variant] = transport.route.slice("records:".length).split("::");
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.input.records",
+      });
+    const [model, variant] = transport.route
+      .slice("records:".length)
+      .split("::");
     if (!model)
-      throw new ConnectorError("configuration-required", { detail: "nango.operation.records-model" });
+      throw new ConnectorError("configuration-required", {
+        detail: "nango.operation.records-model",
+      });
     const page = await resolved.client.records({
       connectionId: reference.connectionId,
       providerConfigKey: reference.providerConfigKey,
@@ -294,7 +369,9 @@ export async function executeOperation(
       ...(parsed.data.query.modifiedAfter
         ? { modifiedAfter: parsed.data.query.modifiedAfter }
         : {}),
-      ...(parsed.data.query.limit !== undefined ? { limit: parsed.data.query.limit } : {}),
+      ...(parsed.data.query.limit !== undefined
+        ? { limit: parsed.data.query.limit }
+        : {}),
       ...(parsed.data.query.filter ? { filter: parsed.data.query.filter } : {}),
       maxBytes: contract.maxResponseBytes,
       deadlineMs: contract.deadlineMs,
@@ -305,11 +382,16 @@ export async function executeOperation(
       code: "nango.upstream.ok",
     };
   }
-  throw new ConnectorError("unsupported", { detail: "nango.operation.transport" });
+  throw new ConnectorError("unsupported", {
+    detail: "nango.operation.transport",
+  });
 }
 
 /** Reads a string at a bounded JSON pointer, for account-identity verification outputs. */
-export function readPointer(value: unknown, pointer: string): string | undefined {
+export function readPointer(
+  value: unknown,
+  pointer: string,
+): string | undefined {
   let current: unknown = value;
   for (const raw of pointer.split("/").slice(1)) {
     const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
@@ -328,11 +410,18 @@ function priorResult(
   prior: EffectOutcome,
 ): InvokeResult | undefined {
   if (operation.replay === "read-only") return undefined;
-  const base = { outputClassification: operation.outputClassification, effect: operation.effect };
+  const base = {
+    outputClassification: operation.outputClassification,
+    effect: operation.effect,
+  };
   if (prior.status === "applied" || prior.status === "reconciled")
     return { ...base, state: "complete", code: "nango.effect.already-applied" };
   if (prior.status === "indeterminate")
-    return { ...base, state: "indeterminate", code: "nango.effect.indeterminate" };
+    return {
+      ...base,
+      state: "indeterminate",
+      code: "nango.effect.indeterminate",
+    };
   return undefined;
 }
 
@@ -345,16 +434,27 @@ export async function invokeNango(
   const connection: ConnectionRecord = requireConnection(resolved);
   const operation = boundOperation(ctx.binding, request.operationRef);
   if (!operation)
-    throw new ConnectorError("denied", { detail: "nango.operation.unapproved" });
-  if (operation.transport.kind === "delegated" && !operation.transport.route.startsWith("records:"))
-    throw new ConnectorError("unsupported", { detail: "nango.operation.use-delegate" });
+    throw new ConnectorError("denied", {
+      detail: "nango.operation.unapproved",
+    });
+  if (
+    operation.transport.kind === "delegated" &&
+    !operation.transport.route.startsWith("records:")
+  )
+    throw new ConnectorError("unsupported", {
+      detail: "nango.operation.use-delegate",
+    });
   rejectOverrideAttempt(request.input);
   const parsedInput = invokeInputSchema.safeParse(request.input ?? {});
   if (!parsedInput.success)
-    throw new ConnectorError("invalid-request", { detail: "nango.input.shape" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.input.shape",
+    });
   const reference = brokerReference(resolved);
   if (!connection.credentialRef)
-    throw new ConnectorError("invalid-request", { detail: "nango.connection.no-credential" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.connection.no-credential",
+    });
   if (connection.lifecycle !== "active" && connection.lifecycle !== "degraded")
     throw new ConnectorError("denied", { detail: "nango.connection.inactive" });
   const contract = contractFor(resolved, operation);
@@ -381,8 +481,14 @@ export async function invokeNango(
     operation: `nango.invoke:${operation.operationRef}`,
     digest,
     commandId: request.commandId,
-    ...(request.idempotencyKey && operation.replay === "upstream-idempotency-key"
-      ? { idempotency: { key: request.idempotencyKey, scope: "nango-operation" } }
+    ...(request.idempotencyKey &&
+    operation.replay === "upstream-idempotency-key"
+      ? {
+          idempotency: {
+            key: request.idempotencyKey,
+            scope: "nango-operation",
+          },
+        }
       : {}),
   });
   if (journal.prior) {
@@ -410,8 +516,16 @@ export async function invokeNango(
           material.connectionId !== reference.connectionId ||
           material.providerConfigKey !== reference.providerConfigKey
         )
-          throw new ConnectorError("denied", { detail: "nango.credential.mismatch" });
-        return executeOperation(resolved, reference, operation, contract, parsedInput.data);
+          throw new ConnectorError("denied", {
+            detail: "nango.credential.mismatch",
+          });
+        return executeOperation(
+          resolved,
+          reference,
+          operation,
+          contract,
+          parsedInput.data,
+        );
       },
     );
   } catch (error) {
@@ -435,15 +549,24 @@ export async function invokeNango(
       (error.code === "upstream-unavailable" || error.code === "cancelled");
     if (lost && operation.effect !== "read") {
       await finish("indeterminate", "nango.upstream.lost-response");
-      return { ...base, state: "indeterminate", code: "nango.upstream.lost-response" };
+      return {
+        ...base,
+        state: "indeterminate",
+        code: "nango.upstream.lost-response",
+      };
     }
     const code =
-      error instanceof ConnectorError ? (error.detail ?? error.code) : "nango.upstream.error";
+      error instanceof ConnectorError
+        ? (error.detail ?? error.code)
+        : "nango.upstream.error";
     await finish("failed", code);
     return { ...base, state: "failed", code };
   }
   if (outcome.status >= 200 && outcome.status < 300) {
-    if (contract.output && validateJsonSubset(contract.output, outcome.output).length) {
+    if (
+      contract.output &&
+      validateJsonSubset(contract.output, outcome.output).length
+    ) {
       await finish("applied", "nango.output.schema");
       return { ...base, state: "complete", code: "nango.output.schema" };
     }
@@ -459,9 +582,17 @@ export async function invokeNango(
   // is not a read and cannot prove safe replay, that is indeterminate, not a
   // failure a caller may simply retry. A 429 is different: it is an explicit
   // refusal, so the operation definitely did not run.
-  if (outcome.status >= 500 && operation.effect !== "read" && operation.replay === "none") {
+  if (
+    outcome.status >= 500 &&
+    operation.effect !== "read" &&
+    operation.replay === "none"
+  ) {
     await finish("indeterminate", "nango.upstream.uncertain");
-    return { ...base, state: "indeterminate", code: "nango.upstream.uncertain" };
+    return {
+      ...base,
+      state: "indeterminate",
+      code: "nango.upstream.uncertain",
+    };
   }
   await finish("failed", outcome.code);
   if (outcome.status === 429) {

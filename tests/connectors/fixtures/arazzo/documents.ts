@@ -40,7 +40,9 @@ export function storeWorkflow101(): Json {
             stepId: "prepare",
             description: "Prepare the connection",
             operationId: "prepareConnection",
-            parameters: [{ name: "region", in: "query", value: "$inputs.region" }],
+            parameters: [
+              { name: "region", in: "query", value: "$inputs.region" },
+            ],
             successCriteria: [{ condition: "$statusCode == 200" }],
             outputs: { setup: "$response.body#/setup" },
           },
@@ -49,7 +51,11 @@ export function storeWorkflow101(): Json {
             description: "Verify the account",
             operationId: "verifyAccount",
             parameters: [
-              { name: "setup", in: "query", value: "$steps.prepare.outputs.setup" },
+              {
+                name: "setup",
+                in: "query",
+                value: "$steps.prepare.outputs.setup",
+              },
             ],
             successCriteria: [
               {
@@ -95,7 +101,9 @@ export function ambiguousOperation101(): Json {
             stepId: "create",
             description: "Create the order",
             operationId: "createOrder",
-            parameters: [{ name: "region", in: "query", value: "$inputs.region" }],
+            parameters: [
+              { name: "region", in: "query", value: "$inputs.region" },
+            ],
             outputs: { account: "$response.body#/order" },
           },
         ],
@@ -111,7 +119,11 @@ export function unsupportedFeatures101(): Json {
     arazzo: "1.0.1",
     info: { title: "Unsupported constructs", version: "1.0.0" },
     sourceDescriptions: [
-      { name: "store", url: "https://api.example.com/openapi.json", type: "openapi" },
+      {
+        name: "store",
+        url: "https://api.example.com/openapi.json",
+        type: "openapi",
+      },
     ],
     workflows: [
       {
@@ -122,7 +134,9 @@ export function unsupportedFeatures101(): Json {
             stepId: "first",
             description: "JSONPath criteria over a response body",
             operationId: "prepareConnection",
-            parameters: [{ name: "region", in: "query", value: "$inputs.region" }],
+            parameters: [
+              { name: "region", in: "query", value: "$inputs.region" },
+            ],
             successCriteria: [
               {
                 context: "$response.body",
@@ -137,7 +151,11 @@ export function unsupportedFeatures101(): Json {
             description: "Criteria reaching into the raw response body",
             operationId: "verifyAccount",
             parameters: [
-              { name: "setup", in: "query", value: "$steps.first.outputs.setup" },
+              {
+                name: "setup",
+                in: "query",
+                value: "$steps.first.outputs.setup",
+              },
             ],
             successCriteria: [{ condition: "$response.body#/count > 2" }],
             onSuccess: [{ name: "back", type: "goto", stepId: "first" }],
@@ -156,7 +174,11 @@ export function cyclicSteps110(): Json {
     arazzo: "1.1.0",
     info: { title: "Cyclic steps", version: "1.0.0" },
     sourceDescriptions: [
-      { name: "store", url: "https://api.example.com/openapi.json", type: "openapi" },
+      {
+        name: "store",
+        url: "https://api.example.com/openapi.json",
+        type: "openapi",
+      },
     ],
     workflows: [
       {
@@ -168,7 +190,9 @@ export function cyclicSteps110(): Json {
             description: "Depends on the second step",
             operationId: "prepareConnection",
             dependsOn: ["second"],
-            parameters: [{ name: "region", in: "query", value: "$inputs.region" }],
+            parameters: [
+              { name: "region", in: "query", value: "$inputs.region" },
+            ],
             outputs: { setup: "$response.body#/setup" },
           },
           {
@@ -177,7 +201,11 @@ export function cyclicSteps110(): Json {
             operationId: "verifyAccount",
             dependsOn: ["first"],
             parameters: [
-              { name: "setup", in: "query", value: "$steps.first.outputs.setup" },
+              {
+                name: "setup",
+                in: "query",
+                value: "$steps.first.outputs.setup",
+              },
             ],
             outputs: { account: "$response.body#/account" },
           },
@@ -216,8 +244,16 @@ export function full110(): Json {
       "x-owner": "platform",
     },
     sourceDescriptions: [
-      { name: "store", url: "https://api.example.com/openapi.json", type: "openapi" },
-      { name: "events", url: "https://api.example.com/asyncapi.json", type: "asyncapi" },
+      {
+        name: "store",
+        url: "https://api.example.com/openapi.json",
+        type: "openapi",
+      },
+      {
+        name: "events",
+        url: "https://api.example.com/asyncapi.json",
+        type: "asyncapi",
+      },
     ],
     workflows: [
       {
@@ -265,7 +301,9 @@ export function full110(): Json {
     ],
     components: {
       inputs: { pagination: { type: "object" } },
-      parameters: { storeId: { name: "storeId", in: "header", value: "$inputs.region" } },
+      parameters: {
+        storeId: { name: "storeId", in: "header", value: "$inputs.region" },
+      },
       successActions: { notify: { name: "notify", type: "end" } },
       failureActions: {
         again: { name: "again", type: "retry", retryAfter: 1, retryLimit: 2 },

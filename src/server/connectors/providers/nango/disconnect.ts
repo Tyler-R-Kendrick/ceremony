@@ -1,5 +1,9 @@
 import { canonicalConnectorJson } from "../../../../core/connectors/index.js";
-import type { AdapterCallContext, DisconnectResult, DisconnectScope } from "../../adapter.js";
+import type {
+  AdapterCallContext,
+  DisconnectResult,
+  DisconnectScope,
+} from "../../adapter.js";
 import { ConnectorError } from "../../errors.js";
 import {
   brokerReference,
@@ -24,7 +28,10 @@ import {
 async function unlinkLocally(runtime: NangoRuntime, ctx: AdapterCallContext) {
   const resolved = await resolveNango(runtime, ctx);
   const connection = requireConnection(resolved);
-  await ctx.environment.handoffs.cancelAll(connection.connectionRef, "nango.disconnect");
+  await ctx.environment.handoffs.cancelAll(
+    connection.connectionRef,
+    "nango.disconnect",
+  );
   if (connection.credentialRef)
     await ctx.environment.credentials.revoke(
       credentialScope(ctx, connection),
@@ -39,11 +46,21 @@ export async function disconnectNango(
 ): Promise<DisconnectResult> {
   if (scope === "local") {
     await unlinkLocally(runtime, ctx);
-    return { local: "applied", broker: "not-attempted", upstream: "not-attempted" };
+    return {
+      local: "applied",
+      broker: "not-attempted",
+      upstream: "not-attempted",
+    };
   }
   if (scope === "broker")
-    return deleteNangoBrokerConnection(runtime, ctx, { approveSharedImpact: false });
-  return { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" };
+    return deleteNangoBrokerConnection(runtime, ctx, {
+      approveSharedImpact: false,
+    });
+  return {
+    local: "not-attempted",
+    broker: "not-attempted",
+    upstream: "unsupported",
+  };
 }
 
 /**
@@ -60,7 +77,11 @@ export async function deleteNangoBrokerConnection(
   const resolved = await resolveNango(runtime, ctx);
   const connection = requireConnection(resolved);
   if (!connection.externalIds.connectionId)
-    return { local: "not-attempted", broker: "not-attempted", upstream: "not-attempted" };
+    return {
+      local: "not-attempted",
+      broker: "not-attempted",
+      upstream: "not-attempted",
+    };
   const reference = brokerReference(resolved);
   const shared =
     (await runtime.options.sharedReferences?.({
@@ -79,7 +100,9 @@ export async function deleteNangoBrokerConnection(
         sharedWith: shared,
       };
     if (!ctx.actor.capabilities.includes("admin"))
-      throw new ConnectorError("denied", { detail: "nango.disconnect.shared-impact-admin" });
+      throw new ConnectorError("denied", {
+        detail: "nango.disconnect.shared-impact-admin",
+      });
   }
   const journal = await ctx.environment.effects.begin({
     actor: ctx.actor,
@@ -97,14 +120,20 @@ export async function deleteNangoBrokerConnection(
   });
   if (journal.prior?.status !== "applied") {
     try {
-      await resolved.client.deleteConnection(reference.connectionId, reference.providerConfigKey);
+      await resolved.client.deleteConnection(
+        reference.connectionId,
+        reference.providerConfigKey,
+      );
     } catch (error) {
       const lost =
         error instanceof ConnectorError &&
         (error.code === "upstream-unavailable" || error.code === "cancelled");
       await ctx.environment.effects.complete(journal.effectRef, {
         status: lost ? "indeterminate" : "failed",
-        code: error instanceof ConnectorError ? (error.detail ?? error.code) : "nango.delete.error",
+        code:
+          error instanceof ConnectorError
+            ? (error.detail ?? error.code)
+            : "nango.delete.error",
         at: ctx.environment.now(),
       });
       if (lost)
@@ -132,5 +161,9 @@ export async function deleteNangoBrokerConnection(
 
 /** Nango exposes no provider-grant revocation; say so instead of deleting and calling it revoked. */
 export function revokeNango(): DisconnectResult {
-  return { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" };
+  return {
+    local: "not-attempted",
+    broker: "not-attempted",
+    upstream: "unsupported",
+  };
 }

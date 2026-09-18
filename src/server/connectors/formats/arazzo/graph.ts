@@ -184,7 +184,9 @@ export function resolveParameter(
     return undefined;
   const parameter = components?.parameters?.[expression.name];
   if (!parameter) return undefined;
-  return item.value === undefined ? parameter : { ...parameter, value: item.value };
+  return item.value === undefined
+    ? parameter
+    : { ...parameter, value: item.value };
 }
 
 export function resolveSuccessAction(
@@ -282,7 +284,12 @@ export function stepExpressions(
     );
   });
   for (const [name, value] of Object.entries(step.outputs ?? {}))
-    valueExpressions(value, `${pointer}/outputs${jsonPointer(name)}`, "output", out);
+    valueExpressions(
+      value,
+      `${pointer}/outputs${jsonPointer(name)}`,
+      "output",
+      out,
+    );
   return out;
 }
 

@@ -45,7 +45,12 @@ import {
   stepGraph,
   type ExpressionSite,
 } from "./graph.js";
-import { arazzoIssue, hasBlocking, jsonPointer, type ArazzoIssueCode } from "./issues.js";
+import {
+  arazzoIssue,
+  hasBlocking,
+  jsonPointer,
+  type ArazzoIssueCode,
+} from "./issues.js";
 import { ARAZZO_EXECUTABLE_PROFILE, ARAZZO_LIMITS } from "./limits.js";
 import {
   isPlainObject,
@@ -167,7 +172,9 @@ export function issuesInScope(
 
 function criterionType(criterion: PreservedCriterion): string {
   if (criterion.type === undefined) return "simple";
-  return typeof criterion.type === "string" ? criterion.type : criterion.type.type;
+  return typeof criterion.type === "string"
+    ? criterion.type
+    : criterion.type.type;
 }
 
 /**
@@ -180,7 +187,9 @@ export function analyzeWorkflow(
   workflowId: string,
 ): WorkflowAnalysis | undefined {
   const document = read.document;
-  const workflow = document?.workflows.find((item) => item.workflowId === workflowId);
+  const workflow = document?.workflows.find(
+    (item) => item.workflowId === workflowId,
+  );
   if (!document || !workflow) return undefined;
   const issues: CompatibilityIssue[] = [];
   const issue: Issue = (code, pointer) =>
@@ -188,24 +197,30 @@ export function analyzeWorkflow(
   const components = document.components;
   const expressions = new Map<string, ExpressionSite[]>();
   const analyses = new Map<string, StepAnalysis>();
-  const workflowParameters = (workflow.parameters ?? []).flatMap((item, index) => {
-    const parameter = resolveParameter(item, components);
-    return parameter
-      ? [{ parameter, pointer: `${workflow.pointer}/parameters/${index}` }]
-      : [];
-  });
-  const workflowSuccess = (workflow.successActions ?? []).flatMap((item, index) => {
-    const action = resolveSuccessAction(item, components);
-    return action
-      ? [{ action, pointer: `${workflow.pointer}/successActions/${index}` }]
-      : [];
-  });
-  const workflowFailure = (workflow.failureActions ?? []).flatMap((item, index) => {
-    const action = resolveFailureAction(item, components);
-    return action
-      ? [{ action, pointer: `${workflow.pointer}/failureActions/${index}` }]
-      : [];
-  });
+  const workflowParameters = (workflow.parameters ?? []).flatMap(
+    (item, index) => {
+      const parameter = resolveParameter(item, components);
+      return parameter
+        ? [{ parameter, pointer: `${workflow.pointer}/parameters/${index}` }]
+        : [];
+    },
+  );
+  const workflowSuccess = (workflow.successActions ?? []).flatMap(
+    (item, index) => {
+      const action = resolveSuccessAction(item, components);
+      return action
+        ? [{ action, pointer: `${workflow.pointer}/successActions/${index}` }]
+        : [];
+    },
+  );
+  const workflowFailure = (workflow.failureActions ?? []).flatMap(
+    (item, index) => {
+      const action = resolveFailureAction(item, components);
+      return action
+        ? [{ action, pointer: `${workflow.pointer}/failureActions/${index}` }]
+        : [];
+    },
+  );
   for (const step of workflow.steps) {
     const own = (step.parameters ?? []).flatMap((item, index) => {
       const parameter = resolveParameter(item, components);
@@ -224,24 +239,32 @@ export function analyzeWorkflow(
     ];
     const ownSuccess = (step.onSuccess ?? []).flatMap((item, index) => {
       const action = resolveSuccessAction(item, components);
-      return action ? [{ action, pointer: `${step.pointer}/onSuccess/${index}` }] : [];
+      return action
+        ? [{ action, pointer: `${step.pointer}/onSuccess/${index}` }]
+        : [];
     });
     const ownFailure = (step.onFailure ?? []).flatMap((item, index) => {
       const action = resolveFailureAction(item, components);
-      return action ? [{ action, pointer: `${step.pointer}/onFailure/${index}` }] : [];
+      return action
+        ? [{ action, pointer: `${step.pointer}/onFailure/${index}` }]
+        : [];
     });
     const onSuccess = [
       ...ownSuccess,
       ...workflowSuccess.filter(
         (inherited) =>
-          !ownSuccess.some((item) => item.action.name === inherited.action.name),
+          !ownSuccess.some(
+            (item) => item.action.name === inherited.action.name,
+          ),
       ),
     ];
     const onFailure = [
       ...ownFailure,
       ...workflowFailure.filter(
         (inherited) =>
-          !ownFailure.some((item) => item.action.name === inherited.action.name),
+          !ownFailure.some(
+            (item) => item.action.name === inherited.action.name,
+          ),
       ),
     ];
     const sites = stepExpressions(step, step.pointer, components);
@@ -268,7 +291,10 @@ export function analyzeWorkflow(
   order.forEach((analysis, index) => {
     const { step } = analysis;
     if (!identifierSchema.safeParse(step.stepId).success)
-      issue("arazzo.identity.step-id-unrepresentable", `${step.pointer}/stepId`);
+      issue(
+        "arazzo.identity.step-id-unrepresentable",
+        `${step.pointer}/stepId`,
+      );
     if (step.channelPath !== undefined)
       issue("arazzo.step.channel-unsupported", `${step.pointer}/channelPath`);
     if (step.action !== undefined || step.correlationId !== undefined)
@@ -289,9 +315,15 @@ export function analyzeWorkflow(
         step.requestBody.contentType !== undefined &&
         !isJson(step.requestBody.contentType)
       )
-        issue("arazzo.serialization.request-body-content-type", `${pointer}/contentType`);
+        issue(
+          "arazzo.serialization.request-body-content-type",
+          `${pointer}/contentType`,
+        );
       if (step.requestBody.replacements?.length)
-        issue("arazzo.binding.request-body-unsupported", `${pointer}/replacements`);
+        issue(
+          "arazzo.binding.request-body-unsupported",
+          `${pointer}/replacements`,
+        );
     }
     for (const site of analysis.expressions) profileSite(site, issue);
     step.successCriteria?.forEach((criterion, criterionIndex) =>
@@ -303,16 +335,21 @@ export function analyzeWorkflow(
     );
     for (const { action, pointer } of analysis.onSuccess) {
       if (action.type === "end") {
-        if (action.criteria?.length) issue("arazzo.control.conditional-end", pointer);
+        if (action.criteria?.length)
+          issue("arazzo.control.conditional-end", pointer);
         else if (index !== order.length - 1)
           issue("arazzo.control.unreachable-steps", pointer);
         continue;
       }
       if (action.workflowId !== undefined) {
-        issue("arazzo.control.goto-workflow-unsupported", `${pointer}/workflowId`);
+        issue(
+          "arazzo.control.goto-workflow-unsupported",
+          `${pointer}/workflowId`,
+        );
         continue;
       }
-      const target = action.stepId === undefined ? undefined : position.get(action.stepId);
+      const target =
+        action.stepId === undefined ? undefined : position.get(action.stepId);
       if (target === undefined) continue;
       if (target === index + 1) issue("arazzo.control.goto-next", pointer);
       else if (target <= index) issue("arazzo.control.goto-cycle", pointer);
@@ -332,14 +369,19 @@ export function analyzeWorkflow(
       )
         issue("arazzo.policy.retry-limit-exceeded", pointer);
       action.criteria?.forEach((criterion, criterionIndex) =>
-        profileCriterion(criterion, `${pointer}/criteria/${criterionIndex}`, issue),
+        profileCriterion(
+          criterion,
+          `${pointer}/criteria/${criterionIndex}`,
+          issue,
+        ),
       );
     }
     for (const [name, value] of Object.entries(step.outputs ?? {})) {
       const pointer = `${step.pointer}/outputs${jsonPointer(name)}`;
       if (!identifierSchema.safeParse(name).success)
         issue("arazzo.identity.name-unrepresentable", pointer);
-      if (isSelectorObject(value)) issue("arazzo.expression.selector-unsupported", pointer);
+      if (isSelectorObject(value))
+        issue("arazzo.expression.selector-unsupported", pointer);
     }
   });
   for (const [name, value] of Object.entries(workflow.outputs ?? {})) {
@@ -350,7 +392,8 @@ export function analyzeWorkflow(
       issue("arazzo.expression.selector-unsupported", pointer);
       continue;
     }
-    const expression = typeof value === "string" ? parseRuntimeExpression(value) : undefined;
+    const expression =
+      typeof value === "string" ? parseRuntimeExpression(value) : undefined;
     if (!expression) continue;
     if (expression.kind === "steps") {
       if (expression.pointer !== undefined)
@@ -376,7 +419,10 @@ function profileSite(site: ExpressionSite, issue: Issue) {
     return;
   }
   if (site.role === "criterion" || site.role === "action-criterion") return;
-  if (site.role === "criterion-context" || site.role === "action-criterion-context") {
+  if (
+    site.role === "criterion-context" ||
+    site.role === "action-criterion-context"
+  ) {
     issue("arazzo.criteria.context-unsupported", site.pointer);
     return;
   }
@@ -397,7 +443,11 @@ function profileSite(site: ExpressionSite, issue: Issue) {
   issue("arazzo.expression.unsupported-context", site.pointer);
 }
 
-function profileCriterion(criterion: PreservedCriterion, pointer: string, issue: Issue) {
+function profileCriterion(
+  criterion: PreservedCriterion,
+  pointer: string,
+  issue: Issue,
+) {
   const type = criterionType(criterion);
   if (type !== "simple") {
     issue("arazzo.criteria.type-unsupported", `${pointer}/type`);
@@ -419,7 +469,10 @@ function profileCriterion(criterion: PreservedCriterion, pointer: string, issue:
       expression.kind === "response" ||
       expression.kind === "message"
     )
-      issue("arazzo.criteria.response-body-unsupported", `${pointer}/condition`);
+      issue(
+        "arazzo.criteria.response-body-unsupported",
+        `${pointer}/condition`,
+      );
     else issue("arazzo.expression.unsupported-context", `${pointer}/condition`);
   }
 }
@@ -455,20 +508,34 @@ class Compiler {
   }
 
   classification(contract: string): Classification {
-    return this.registry.vocabulary.get(contract)?.classification ?? "unclassified";
+    return (
+      this.registry.vocabulary.get(contract)?.classification ?? "unclassified"
+    );
   }
 
   /** Binds one Arazzo value to a recipe binding for an input with the given contract. */
-  bindValue(value: unknown, pointer: string, contract: string): Binding | undefined {
+  bindValue(
+    value: unknown,
+    pointer: string,
+    contract: string,
+  ): Binding | undefined {
     if (typeof value === "string" && value.startsWith("$")) {
       const expression = parseRuntimeExpression(value);
       if (!expression) return undefined;
       return this.bindExpression(expression, pointer, contract);
     }
-    if (typeof value === "string" && embeddedExpressions(value).expressions.length)
+    if (
+      typeof value === "string" &&
+      embeddedExpressions(value).expressions.length
+    )
       return undefined;
-    if (isSelectorObject(value) || isPlainObject(value) || Array.isArray(value)) {
-      if (!isSelectorObject(value)) this.issue("arazzo.binding.unsupported-literal", pointer);
+    if (
+      isSelectorObject(value) ||
+      isPlainObject(value) ||
+      Array.isArray(value)
+    ) {
+      if (!isSelectorObject(value))
+        this.issue("arazzo.binding.unsupported-literal", pointer);
       return undefined;
     }
     const vocabulary = this.registry.vocabulary.get(contract);
@@ -483,7 +550,10 @@ class Compiler {
       this.issue("arazzo.binding.literal-rejected", pointer);
       return undefined;
     }
-    return { from: "literal", value: value as string | number | boolean | null };
+    return {
+      from: "literal",
+      value: value as string | number | boolean | null,
+    };
   }
 
   bindExpression(
@@ -606,7 +676,10 @@ class Compiler {
       return undefined;
     }
     const { binding } = resolution;
-    const operation = this.registry.get(binding.operation.id, binding.operation.version);
+    const operation = this.registry.get(
+      binding.operation.id,
+      binding.operation.version,
+    );
     if (!operation) {
       this.issue("arazzo.binding.unregistered-operation", referencePointer);
       return undefined;
@@ -690,7 +763,11 @@ class Compiler {
         this.issue("arazzo.binding.unknown-parameter", pointer);
         continue;
       }
-      const binding = this.bindValue(parameter.value, `${pointer}/value`, input.contract);
+      const binding = this.bindValue(
+        parameter.value,
+        `${pointer}/value`,
+        input.contract,
+      );
       if (binding) bindings[mapped] = binding;
     }
     return bindings;
@@ -749,7 +826,9 @@ class Compiler {
     entry: CatalogOperation,
     compiled: CompiledStep,
   ): CompiledRetry | undefined {
-    const retry = analysis.onFailure.find(({ action }) => action.type === "retry");
+    const retry = analysis.onFailure.find(
+      ({ action }) => action.type === "retry",
+    );
     if (!retry) return undefined;
     const { action, pointer } = retry;
     if (action.stepId !== undefined || action.workflowId !== undefined)
@@ -760,13 +839,20 @@ class Compiler {
     }
     const limit = action.retryLimit ?? 1;
     const afterSeconds = action.retryAfter ?? 0;
-    if (limit > ARAZZO_LIMITS.retryLimit || afterSeconds > ARAZZO_LIMITS.retryAfterSeconds)
+    if (
+      limit > ARAZZO_LIMITS.retryLimit ||
+      afterSeconds > ARAZZO_LIMITS.retryAfterSeconds
+    )
       return undefined;
     return {
       limit,
       afterMs: Math.round(afterSeconds * 1000),
       replay: entry.replay,
-      criteria: this.compileCriteria(action.criteria, `${pointer}/criteria`, compiled),
+      criteria: this.compileCriteria(
+        action.criteria,
+        `${pointer}/criteria`,
+        compiled,
+      ),
     };
   }
 
@@ -782,7 +868,11 @@ class Compiler {
       this.issue("arazzo.expression.invalid", pointer);
       return undefined;
     }
-    const resolution = resolveWorkflow(this.catalog, reference, this.read.digest!);
+    const resolution = resolveWorkflow(
+      this.catalog,
+      reference,
+      this.read.digest!,
+    );
     if (resolution.status !== "resolved") {
       this.issue(
         resolution.status === "ambiguous"
@@ -804,7 +894,8 @@ class Compiler {
       if (binding) bindings[parameter.name] = binding;
     }
     for (const name of Object.keys(entry.inputs))
-      if (!bindings[name]) this.issue("arazzo.binding.missing-required-input", step.pointer);
+      if (!bindings[name])
+        this.issue("arazzo.binding.missing-required-input", step.pointer);
     const compiled: CompiledStep = {
       stepId: step.stepId,
       nodeId,
@@ -852,10 +943,18 @@ class Compiler {
     };
   }
 
-  compileDependency(text: string, pointer: string, previous: string | undefined) {
+  compileDependency(
+    text: string,
+    pointer: string,
+    previous: string | undefined,
+  ) {
     const reference = this.workflowReference(text);
     if (!reference) return undefined;
-    const resolution = resolveWorkflow(this.catalog, reference, this.read.digest!);
+    const resolution = resolveWorkflow(
+      this.catalog,
+      reference,
+      this.read.digest!,
+    );
     if (resolution.status !== "resolved") {
       this.issue(
         resolution.status === "ambiguous"
@@ -928,12 +1027,17 @@ export function compileArazzoToRecipe(
       ),
     ];
     for (const id of ids) {
-      const local = read.document.workflows.find((item) => item.workflowId === id);
+      const local = read.document.workflows.find(
+        (item) => item.workflowId === id,
+      );
       if (local) referenced.add(local);
     }
   }
   const compiler = new Compiler(read, catalog, options.registry);
-  compiler.issues.push(...issuesInScope(read, [...referenced]), ...analysis.issues);
+  compiler.issues.push(
+    ...issuesInScope(read, [...referenced]),
+    ...analysis.issues,
+  );
   const cyclic = analysis.order.length !== workflow.steps.length;
   let previous: string | undefined;
   workflow.dependsOn?.forEach((dependency, index) => {
@@ -980,15 +1084,20 @@ export function compileArazzoToRecipe(
   const outputs: ArazzoCompilation["outputs"] = {};
   for (const [name, value] of Object.entries(workflow.outputs ?? {})) {
     const pointer = `${workflow.pointer}/outputs${jsonPointer(name)}`;
-    const expression = typeof value === "string" ? parseRuntimeExpression(value) : undefined;
-    if (expression?.kind !== "steps" || expression.pointer !== undefined) continue;
+    const expression =
+      typeof value === "string" ? parseRuntimeExpression(value) : undefined;
+    if (expression?.kind !== "steps" || expression.pointer !== undefined)
+      continue;
     const producer = compiler.compiled.get(expression.stepId);
     const output = producer?.outputs[expression.name];
     if (!producer || !output) {
       compiler.issue("arazzo.reference.unknown-step-output", pointer);
       continue;
     }
-    if (output.classification === "personal" || output.classification === "secret")
+    if (
+      output.classification === "personal" ||
+      output.classification === "secret"
+    )
       compiler.issue("arazzo.policy.private-output", pointer);
     else if (output.classification === "unclassified")
       compiler.issue("arazzo.policy.unclassified-output", pointer);
@@ -1000,7 +1109,10 @@ export function compileArazzoToRecipe(
   }
   const recipeId = options.recipeId ?? workflow.workflowId;
   if (!identifierSchema.safeParse(recipeId).success)
-    compiler.issue("arazzo.identity.name-unrepresentable", `${workflow.pointer}/workflowId`);
+    compiler.issue(
+      "arazzo.identity.name-unrepresentable",
+      `${workflow.pointer}/workflowId`,
+    );
   if (compiler.invocations.length > RECIPE_LIMITS.leaves)
     compiler.issue("arazzo.step.limit-exceeded", `${workflow.pointer}/steps`);
   const steps = [...compiler.compiled.values()];

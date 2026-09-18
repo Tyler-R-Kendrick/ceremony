@@ -57,16 +57,28 @@ test("NG-01: per-integration discovery returns auth configuration and native cap
     scope: { integration: INTEGRATION },
   });
 
-  const integration = result.items.find((item) => item.provenance?.kind === "integration");
+  const integration = result.items.find(
+    (item) => item.provenance?.kind === "integration",
+  );
   assert.ok(integration);
   assert.equal(integration.provenance?.forwardWebhooks, "true");
 
   const sync = result.items.find((item) => item.provenance?.type === "sync");
-  const action = result.items.find((item) => item.provenance?.type === "action");
-  const onEvent = result.items.find((item) => item.provenance?.type === "on-event");
-  assert.equal(sync?.identity.nativeId, `${INTEGRATION}/functions/sync/github-issues`);
+  const action = result.items.find(
+    (item) => item.provenance?.type === "action",
+  );
+  const onEvent = result.items.find(
+    (item) => item.provenance?.type === "on-event",
+  );
+  assert.equal(
+    sync?.identity.nativeId,
+    `${INTEGRATION}/functions/sync/github-issues`,
+  );
   assert.equal(sync?.provenance?.runs, "every hour");
-  assert.equal(action?.identity.nativeId, `${INTEGRATION}/functions/action/create-issue`);
+  assert.equal(
+    action?.identity.nativeId,
+    `${INTEGRATION}/functions/action/create-issue`,
+  );
   // A deployed-but-disabled function stays visible and is marked, not hidden.
   assert.equal(onEvent?.status, "deprecated");
   assert.equal(onEvent?.provenance?.event, "validate-connection");
@@ -83,7 +95,9 @@ test("NG-01: discovery paginates functions with an opaque cursor bound to its in
   // Page 0 carries the integration row plus `limit` functions.
   assert.equal(first.items.length, 3);
 
-  const second = await h.adapter.discover!(h.context(), { cursor: first.nextCursor });
+  const second = await h.adapter.discover!(h.context(), {
+    cursor: first.nextCursor,
+  });
   assert.equal(second.items.length, 1);
   assert.equal(second.items[0]!.provenance?.type, "on-event");
   assert.equal(second.nextCursor, undefined);
@@ -94,19 +108,23 @@ test("NG-01: discovery paginates functions with an opaque cursor bound to its in
       scope: { integration: "slack-community" },
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.discover.cursor",
+      error instanceof ConnectorError &&
+      error.detail === "nango.discover.cursor",
   );
   await assert.rejects(
     h.adapter.discover!(h.context(), { cursor: "not-a-cursor" }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.discover.cursor",
+      error instanceof ConnectorError &&
+      error.detail === "nango.discover.cursor",
   );
 });
 
 test("NG-01: discovery never asks for integration credentials", async (t) => {
   const h = await harness();
   t.after(() => h.close());
-  await h.adapter.discover!(h.context(), { scope: { integration: INTEGRATION } });
+  await h.adapter.discover!(h.context(), {
+    scope: { integration: INTEGRATION },
+  });
   await h.adapter.captureIntegration(h.context(), INTEGRATION);
 
   for (const request of h.double.requests) {
@@ -146,21 +164,23 @@ test("AC-NG-08: current integration and function metadata import without a nango
   // credential method for an API that has none of its own here.
   const kinds = definition.authentication.map((profile) => profile.kind);
   assert.deepEqual(kinds, ["external-broker", "external-broker"]);
-  assert.deepEqual(
-    definition.events.map((event) => event.nativeId).sort(),
-    ["auth", "forward", "sync"],
-  );
-  assert.deepEqual(
-    outcome.executableCandidates.sort(),
-    ["create-issue", "github-issues"],
-  );
+  assert.deepEqual(definition.events.map((event) => event.nativeId).sort(), [
+    "auth",
+    "forward",
+    "sync",
+  ]);
+  assert.deepEqual(outcome.executableCandidates.sort(), [
+    "create-issue",
+    "github-issues",
+  ]);
   assert.ok(
     outcome.issues.some((issue) => issue.code === "nango.function.disabled"),
     "a disabled function is reported",
   );
   assert.equal(
-    definition.configuration.find((item) => item.name === NANGO_CONFIGURATION_NAMES.secretKey)
-      ?.classification,
+    definition.configuration.find(
+      (item) => item.name === NANGO_CONFIGURATION_NAMES.secretKey,
+    )?.classification,
     "secret",
   );
 });
@@ -206,17 +226,30 @@ test("NG-01: the directory shows one entry per integration, grouped but not merg
 
   assert.equal(entries.length, 3);
   const ids = entries.map((entry) => entry.id);
-  assert.equal(new Set(ids).size, 3, "two GitHub integrations get distinct rows");
+  assert.equal(
+    new Set(ids).size,
+    3,
+    "two GitHub integrations get distinct rows",
+  );
   const github = entries.filter((entry) => entry.service === "github");
   assert.equal(github.length, 2);
-  assert.deepEqual([...new Set(github.map((entry) => entry.group))], ["github"]);
-  assert.equal(entries.every((entry) => entry.support === "provider-backed"), true);
+  assert.deepEqual(
+    [...new Set(github.map((entry) => entry.group))],
+    ["github"],
+  );
+  assert.equal(
+    entries.every((entry) => entry.support === "provider-backed"),
+    true,
+  );
   assert.deepEqual(entries[0]!.authentication, ["external-broker"]);
   // No entry carries a destination, token or configuration value.
   assert.equal(
     entries.every((entry) =>
-      entry.configuration.every((item) => Object.keys(item).sort().join(",") ===
-        "classification,name,present,required"),
+      entry.configuration.every(
+        (item) =>
+          Object.keys(item).sort().join(",") ===
+          "classification,name,present,required",
+      ),
     ),
     true,
   );
@@ -226,7 +259,10 @@ test("NG-01: missing required configuration reports unconfigured, not unsupporte
   const h = await harness();
   t.after(() => h.close());
   const entries = await h.adapter.catalogEntries(h.context(), new Set());
-  assert.equal(entries.every((entry) => entry.support === "unconfigured"), true);
+  assert.equal(
+    entries.every((entry) => entry.support === "unconfigured"),
+    true,
+  );
 
   const discover = capabilityFor(h.adapter, "discover", []);
   assert.equal(discover?.implementation, "implemented");
@@ -249,7 +285,9 @@ test("NG-01: missing required configuration reports unconfigured, not unsupporte
 
 test("NG-01: a self-hosted NANGO_HOST disagreeing with the approved destination is refused", async (t) => {
   const h = await harness({
-    configuration: { [NANGO_CONFIGURATION_NAMES.host]: "https://nango.example.test" },
+    configuration: {
+      [NANGO_CONFIGURATION_NAMES.host]: "https://nango.example.test",
+    },
   });
   t.after(() => h.close());
   await assert.rejects(

@@ -251,7 +251,11 @@ class Reader {
   readonly issues: CompatibilityIssue[] = [];
   constructor(readonly version: ArazzoVersion) {}
 
-  issue(code: ArazzoIssueCode, pointer: string, overrides: IssueOverrides = {}) {
+  issue(
+    code: ArazzoIssueCode,
+    pointer: string,
+    overrides: IssueOverrides = {},
+  ) {
     this.issues.push(arazzoIssue(code, pointer, overrides));
   }
   includes(since: ArazzoVersion): boolean {
@@ -311,7 +315,9 @@ class Reader {
       return undefined;
     }
     if (typeof value !== "string") {
-      this.issue("arazzo.structure.invalid-type", at, { impact: options.impact });
+      this.issue("arazzo.structure.invalid-type", at, {
+        impact: options.impact,
+      });
       options.keep[key] = value;
       return undefined;
     }
@@ -356,7 +362,9 @@ class Reader {
     if (value === undefined) return undefined;
     const at = `${pointer}${jsonPointer(key)}`;
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      this.issue("arazzo.structure.invalid-type", at, { impact: options.impact });
+      this.issue("arazzo.structure.invalid-type", at, {
+        impact: options.impact,
+      });
       options.keep[key] = value;
       return undefined;
     }
@@ -392,7 +400,9 @@ class Reader {
       return undefined;
     }
     if (!Array.isArray(value)) {
-      this.issue("arazzo.structure.invalid-type", at, { impact: options.impact });
+      this.issue("arazzo.structure.invalid-type", at, {
+        impact: options.impact,
+      });
       options.keep[key] = value;
       return undefined;
     }
@@ -423,7 +433,9 @@ class Reader {
     if (value === undefined) return undefined;
     const at = `${pointer}${jsonPointer(key)}`;
     if (!isPlainObject(value)) {
-      this.issue("arazzo.structure.invalid-type", at, { impact: options.impact });
+      this.issue("arazzo.structure.invalid-type", at, {
+        impact: options.impact,
+      });
       options.keep[key] = value;
       return undefined;
     }
@@ -435,7 +447,10 @@ class Reader {
     }
     const result: Record<string, unknown> = {};
     for (const [name, item] of entries) {
-      if (!options.keyPattern.test(name) || name.length > ARAZZO_LIMITS.identifier) {
+      if (
+        !options.keyPattern.test(name) ||
+        name.length > ARAZZO_LIMITS.identifier
+      ) {
         this.issue(
           "arazzo.structure.invalid-identifier",
           `${at}${jsonPointer(name)}`,
@@ -459,7 +474,9 @@ class Reader {
     const entry = allowed.find(([name]) => name === value);
     if (entry && this.includes(entry[1])) return true;
     this.issue(
-      entry ? "arazzo.version.field-unavailable" : "arazzo.structure.invalid-value",
+      entry
+        ? "arazzo.version.field-unavailable"
+        : "arazzo.structure.invalid-value",
       pointer,
       { impact },
     );
@@ -825,11 +842,17 @@ class Reader {
     } else if (isPlainObject(object.type)) {
       type = this.readExpressionType(object.type, `${pointer}/type`);
     } else if (object.type !== undefined) {
-      this.issue("arazzo.structure.invalid-type", `${pointer}/type`, { impact });
+      this.issue("arazzo.structure.invalid-type", `${pointer}/type`, {
+        impact,
+      });
       unknown.type = object.type;
     }
     const effective =
-      type === undefined ? "simple" : typeof type === "string" ? type : type.type;
+      type === undefined
+        ? "simple"
+        : typeof type === "string"
+          ? type
+          : type.type;
     if (effective !== "simple" && context === undefined)
       this.issue("arazzo.criteria.context-required", pointer, { impact });
     if (condition !== undefined && effective === "simple") {
@@ -837,9 +860,13 @@ class Reader {
         parseCondition(condition);
       } catch (error) {
         if (!(error instanceof ConditionSyntaxError)) throw error;
-        this.issue("arazzo.criteria.invalid-condition", `${pointer}/condition`, {
-          impact,
-        });
+        this.issue(
+          "arazzo.criteria.invalid-condition",
+          `${pointer}/condition`,
+          {
+            impact,
+          },
+        );
       }
     }
     if (condition === undefined) return undefined;
@@ -897,7 +924,11 @@ class Reader {
     object: Record<string, unknown>,
     pointer: string,
     kind: "success" | "failure",
-  ): PreservedSuccessAction | PreservedFailureAction | PreservedReusable | undefined {
+  ):
+    | PreservedSuccessAction
+    | PreservedFailureAction
+    | PreservedReusable
+    | undefined {
     if ("reference" in object) return this.readReusable(object, pointer);
     const { extensions, unknown } = this.partition(
       object,
@@ -1141,7 +1172,12 @@ class Reader {
           keep: unknown,
         })
       : undefined;
-    const parameters = this.readParameters(object, "parameters", pointer, unknown);
+    const parameters = this.readParameters(
+      object,
+      "parameters",
+      pointer,
+      unknown,
+    );
     let requestBody: PreservedRequestBody | undefined;
     if (object.requestBody !== undefined) {
       if (isPlainObject(object.requestBody))
@@ -1264,9 +1300,13 @@ class Reader {
     const dependsOn = dependsOnItems?.flatMap((item, index) => {
       if (typeof item === "string" && item.length <= ARAZZO_LIMITS.expression)
         return [item];
-      this.issue("arazzo.structure.invalid-type", `${pointer}/dependsOn/${index}`, {
-        impact,
-      });
+      this.issue(
+        "arazzo.structure.invalid-type",
+        `${pointer}/dependsOn/${index}`,
+        {
+          impact,
+        },
+      );
       return [];
     });
     const stepItems =
@@ -1277,8 +1317,11 @@ class Reader {
         impact,
         keep: unknown,
       }) ?? [];
-    const steps = this.objectItems(stepItems, `${pointer}/steps`, impact, (item, at) =>
-      this.readStep(item, at),
+    const steps = this.objectItems(
+      stepItems,
+      `${pointer}/steps`,
+      impact,
+      (item, at) => this.readStep(item, at),
     );
     const successActions = this.readActions<PreservedSuccessAction>(
       object,
@@ -1295,7 +1338,12 @@ class Reader {
       unknown,
     );
     const outputs = this.readOutputs(object, pointer, unknown);
-    const parameters = this.readParameters(object, "parameters", pointer, unknown);
+    const parameters = this.readParameters(
+      object,
+      "parameters",
+      pointer,
+      unknown,
+    );
     return {
       pointer,
       workflowId: workflowId ?? "",
@@ -1406,7 +1454,12 @@ class Reader {
     }
     const edges = new Map<string, string[]>();
     for (const workflow of document.workflows) {
-      const targets = this.validateWorkflow(document, workflow, sources, workflows);
+      const targets = this.validateWorkflow(
+        document,
+        workflow,
+        sources,
+        workflows,
+      );
       edges.set(workflow.workflowId, targets);
     }
     for (const id of cycleMembers([...workflows.keys()], edges))
@@ -1490,9 +1543,11 @@ class Reader {
           this.issue(
             isReusable(item) &&
               parseRuntimeExpression(item.reference)?.kind === "components" &&
-              (parseRuntimeExpression(item.reference) as {
-                component: string;
-              }).component !== "parameters"
+              (
+                parseRuntimeExpression(item.reference) as {
+                  component: string;
+                }
+              ).component !== "parameters"
               ? "arazzo.reference.component-kind-mismatch"
               : "arazzo.reference.unknown-component",
             `${at}/reference`,
@@ -1504,7 +1559,8 @@ class Reader {
         if (workflowStep && parameter.in !== undefined)
           this.issue("arazzo.step.parameter-location-ignored", at);
         const key = `${parameter.in ?? ""}:${parameter.name}`;
-        if (seen.has(key)) this.issue("arazzo.structure.duplicate-parameter", at);
+        if (seen.has(key))
+          this.issue("arazzo.structure.duplicate-parameter", at);
         seen.add(key);
       });
     };
@@ -1544,7 +1600,12 @@ class Reader {
         if (step.workflowId === workflow.workflowId)
           this.issue("arazzo.dependency.self", at);
         else {
-          const local = this.workflowReference(step.workflowId, at, sources, workflows);
+          const local = this.workflowReference(
+            step.workflowId,
+            at,
+            sources,
+            workflows,
+          );
           if (local) targets.push(local);
         }
       }
@@ -1555,7 +1616,11 @@ class Reader {
       );
       const actionTargets = (
         items:
-          | Array<PreservedSuccessAction | PreservedFailureAction | PreservedReusable>
+          | Array<
+              | PreservedSuccessAction
+              | PreservedFailureAction
+              | PreservedReusable
+            >
           | undefined,
         key: "onSuccess" | "onFailure",
       ) =>
@@ -1585,7 +1650,8 @@ class Reader {
       actionTargets(step.onFailure, "onFailure");
       step.dependsOn?.forEach((dependency, index) => {
         const at = `${step.pointer}/dependsOn/${index}`;
-        if (dependency === step.stepId) this.issue("arazzo.dependency.self", at);
+        if (dependency === step.stepId)
+          this.issue("arazzo.dependency.self", at);
         else if (!steps.has(dependency))
           this.issue("arazzo.reference.unknown-step", at);
       });
@@ -1594,7 +1660,11 @@ class Reader {
       for (const site of sites)
         this.validateSite(site, step, steps, sources, workflows);
     }
-    parameterSites(workflow.parameters, `${workflow.pointer}/parameters`, false);
+    parameterSites(
+      workflow.parameters,
+      `${workflow.pointer}/parameters`,
+      false,
+    );
     for (const [name, value] of Object.entries(workflow.outputs ?? {}))
       for (const site of valueExpressions(
         value,
@@ -1604,9 +1674,14 @@ class Reader {
         this.validateSite(site, undefined, steps, sources, workflows);
     const graph = stepGraph(workflow, expressions);
     for (const id of graph.cyclic)
-      this.issue("arazzo.dependency.cycle", steps.get(id)?.pointer ?? workflow.pointer);
+      this.issue(
+        "arazzo.dependency.cycle",
+        steps.get(id)?.pointer ?? workflow.pointer,
+      );
     if (graph.sequential) {
-      const index = new Map(workflow.steps.map((step, at) => [step.stepId, at]));
+      const index = new Map(
+        workflow.steps.map((step, at) => [step.stepId, at]),
+      );
       for (const step of workflow.steps)
         for (const site of expressions.get(step.stepId) ?? [])
           if (
@@ -1684,7 +1759,10 @@ class Reader {
         return;
       case "sourceDescriptions":
         if (!sources.has(expression.source))
-          this.issue("arazzo.reference.unknown-source-description", site.pointer);
+          this.issue(
+            "arazzo.reference.unknown-source-description",
+            site.pointer,
+          );
         return;
       default:
         return;
@@ -1743,23 +1821,32 @@ function declaredServers(
   const servers: NormalizedDefinition["declaredServers"] = [];
   for (const source of document.sourceDescriptions) {
     if (source.type === undefined) {
-      issues.push(arazzoIssue("arazzo.source.type-missing", `${source.pointer}/type`));
+      issues.push(
+        arazzoIssue("arazzo.source.type-missing", `${source.pointer}/type`),
+      );
       continue;
     }
     if (source.type !== "openapi") continue;
     if (!URL.canParse(source.url)) {
-      issues.push(arazzoIssue("arazzo.source.url-relative", `${source.pointer}/url`));
+      issues.push(
+        arazzoIssue("arazzo.source.url-relative", `${source.pointer}/url`),
+      );
       continue;
     }
     const url = new URL(source.url);
     if (url.username || url.password) {
-      issues.push(arazzoIssue("arazzo.source.url-credentials", `${source.pointer}/url`));
+      issues.push(
+        arazzoIssue("arazzo.source.url-credentials", `${source.pointer}/url`),
+      );
       continue;
     }
     if (url.protocol !== "https:" && url.protocol !== "http:") continue;
     servers.push({
       url: source.url,
-      description: displayText(`${source.name} OpenAPI source description`, 500),
+      description: displayText(
+        `${source.name} OpenAPI source description`,
+        500,
+      ),
       status: "declared",
     });
   }
@@ -1797,16 +1884,21 @@ function buildDefinition(
     if (candidate.success) capabilities.push(candidate.data);
     else
       issues.push(
-        arazzoIssue("arazzo.identity.reserved-identifier", `${workflow.pointer}/workflowId`),
+        arazzoIssue(
+          "arazzo.identity.reserved-identifier",
+          `${workflow.pointer}/workflowId`,
+        ),
       );
   });
   const servers = declaredServers(document, issues);
   const nativeId =
     [options.nativeId, document.self, document.info.title].find(
       (candidate) =>
-        candidate !== undefined && nativeIdentifierSchema.safeParse(candidate).success,
+        candidate !== undefined &&
+        nativeIdentifierSchema.safeParse(candidate).success,
     ) ?? `arazzo-${digest.slice(0, 16)}`;
-  const nativeVersion = nativeVersionSchema.safeParse(document.info.version).success
+  const nativeVersion = nativeVersionSchema.safeParse(document.info.version)
+    .success
     ? document.info.version
     : "unknown";
   const extensionEntries = Object.entries(document.extensions).filter(
@@ -1816,7 +1908,8 @@ function buildDefinition(
     issues.push(arazzoIssue("arazzo.structure.extension-limit", "/"));
   const blocked = issues.some(
     (issue) =>
-      issue.severity === "blocking" && issue.executionImpact === "blocks-definition",
+      issue.severity === "blocking" &&
+      issue.executionImpact === "blocks-definition",
   );
   const kept =
     issues.length > DEFINITION_LIMITS.issues
@@ -1896,10 +1989,16 @@ export function readArazzo(
   const source: unknown = structuredClone(document);
   const digest = sha256(canonicalConnectorJson(source));
   if (!isPlainObject(source))
-    return { issues: [arazzoIssue("arazzo.structure.not-object", "/")], digest };
+    return {
+      issues: [arazzoIssue("arazzo.structure.not-object", "/")],
+      digest,
+    };
   const declared = source.arazzo;
   if (typeof declared !== "string")
-    return { issues: [arazzoIssue("arazzo.version.missing", "/arazzo")], digest };
+    return {
+      issues: [arazzoIssue("arazzo.version.missing", "/arazzo")],
+      digest,
+    };
   const declaredVersion = displayText(declared, 128);
   if (!isArazzoVersion(declared))
     return {

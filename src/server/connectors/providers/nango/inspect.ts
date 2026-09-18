@@ -30,16 +30,20 @@ const boundedJson = (
 ): unknown | undefined => {
   let nodes = 0;
   const walk = (item: unknown, depth: number): unknown => {
-    if (depth > limits.depth || ++nodes > limits.nodes) throw new RangeError("bounds");
+    if (depth > limits.depth || ++nodes > limits.nodes)
+      throw new RangeError("bounds");
     if (typeof item === "string") {
       if (item.length > limits.stringLength) throw new RangeError("bounds");
       return item;
     }
-    if (item === null || typeof item === "number" || typeof item === "boolean") return item;
+    if (item === null || typeof item === "number" || typeof item === "boolean")
+      return item;
     if (Array.isArray(item)) return item.map((entry) => walk(entry, depth + 1));
     if (typeof item === "object") {
       const out: Record<string, unknown> = {};
-      for (const [key, entry] of Object.entries(item as Record<string, unknown>)) {
+      for (const [key, entry] of Object.entries(
+        item as Record<string, unknown>,
+      )) {
         if (["__proto__", "prototype", "constructor"].includes(key))
           throw new RangeError("bounds");
         out[key] = walk(entry, depth + 1);
@@ -73,7 +77,9 @@ export const nangoConnectionInspectionSchema = z.strictObject({
   refreshMayHaveOccurred: z.literal(true),
   observedAt: z.string(),
 });
-export type NangoConnectionInspection = z.infer<typeof nangoConnectionInspectionSchema>;
+export type NangoConnectionInspection = z.infer<
+  typeof nangoConnectionInspectionSchema
+>;
 
 /**
  * Privileged-internal. Agents never reach this: the adapter refuses agent
@@ -92,7 +98,9 @@ export async function inspectNangoConnection(
   const connection = requireConnection(resolved);
   const reference = brokerReference(resolved);
   if (!connection.credentialRef)
-    throw new ConnectorError("invalid-request", { detail: "nango.connection.no-credential" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.connection.no-credential",
+    });
   const key = `${ctx.actor.tenantId}\n${connection.connectionRef}\n${connection.credentialRef}`;
   const existing = inflight.get(key);
   if (existing) return existing;
@@ -106,7 +114,9 @@ export async function inspectNangoConnection(
           current.connectionId !== reference.connectionId ||
           current.providerConfigKey !== reference.providerConfigKey
         )
-          throw new ConnectorError("denied", { detail: "nango.credential.mismatch" });
+          throw new ConnectorError("denied", {
+            detail: "nango.credential.mismatch",
+          });
         let full;
         try {
           full = await resolved.client.getConnectionPrivileged(
@@ -127,7 +137,9 @@ export async function inspectNangoConnection(
           full.connection_id !== reference.connectionId ||
           full.provider_config_key !== reference.providerConfigKey
         )
-          throw new ConnectorError("upstream-rejected", { detail: "nango.response.identity" });
+          throw new ConnectorError("upstream-rejected", {
+            detail: "nango.response.identity",
+          });
         const expiresAt = full.credentials?.expires_at
           ? Date.parse(full.credentials.expires_at)
           : Number.NaN;
@@ -142,15 +154,24 @@ export async function inspectNangoConnection(
           environment: resolved.environment,
           createdAt: full.created_at,
           updatedAt: full.updated_at,
-          ...(full.last_fetched_at ? { lastFetchedAt: full.last_fetched_at } : {}),
+          ...(full.last_fetched_at
+            ? { lastFetchedAt: full.last_fetched_at }
+            : {}),
           tags: full.tags ?? {},
-          ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ...(metadata &&
+          typeof metadata === "object" &&
+          !Array.isArray(metadata)
             ? { metadata }
             : full.metadata
               ? { metadataOmitted: "bounds" }
               : {}),
-          errors: (full.errors ?? []).map((error) => ({ type: error.type, logId: error.log_id })),
-          ...(full.credentials?.type ? { credentialType: full.credentials.type } : {}),
+          errors: (full.errors ?? []).map((error) => ({
+            type: error.type,
+            logId: error.log_id,
+          })),
+          ...(full.credentials?.type
+            ? { credentialType: full.credentials.type }
+            : {}),
           ...(Number.isFinite(expiresAt)
             ? { credentialExpiresAt: new Date(expiresAt).toISOString() }
             : {}),
@@ -166,7 +187,9 @@ export async function inspectNangoConnection(
       },
     );
     if (!inspection)
-      throw new ConnectorError("indeterminate", { detail: "nango.inspect.no-result" });
+      throw new ConnectorError("indeterminate", {
+        detail: "nango.inspect.no-result",
+      });
     return inspection;
   })();
   inflight.set(key, run);

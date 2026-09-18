@@ -231,18 +231,21 @@ export function createEffectJournalPort(
             detail: "effect.already-completed",
           });
         }
-        if (fence) {
-          try {
-            await tx.assertFence(fence);
-          } catch (error) {
-            if (error instanceof PersistenceConflict)
-              throw new ConnectorError("conflict", {
-                detail: "effect.lease-lost",
-              });
-            throw error;
-          }
-        } else if (record.value.status === "begun")
+        // Only the worker that began this effect may record its outcome, and
+        // only while its lease is alive. An orphaned effect is reconciled
+        // through `reconcile`, which takes the lease first; nothing else may
+        // write over an indeterminate outcome.
+        if (!fence)
           throw new ConnectorError("conflict", { detail: "effect.not-owner" });
+        try {
+          await tx.assertFence(fence);
+        } catch (error) {
+          if (error instanceof PersistenceConflict)
+            throw new ConnectorError("conflict", {
+              detail: "effect.lease-lost",
+            });
+          throw error;
+        }
         await tx.put(
           key,
           {

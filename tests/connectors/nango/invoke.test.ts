@@ -32,7 +32,10 @@ const contracts = {
     },
     body: {
       type: "object",
-      properties: { title: { type: "string", maxLength: 120 }, body: { type: "string" } },
+      properties: {
+        title: { type: "string", maxLength: 120 },
+        body: { type: "string" },
+      },
       required: ["title"],
       additionalProperties: false,
     },
@@ -47,7 +50,13 @@ const contracts = {
   },
 };
 
-const proxyEcho = ({ method, path, query, headers, body }: {
+const proxyEcho = ({
+  method,
+  path,
+  query,
+  headers,
+  body,
+}: {
   method: string;
   path: string;
   query: URLSearchParams;
@@ -66,7 +75,11 @@ const proxyEcho = ({ method, path, query, headers, body }: {
 
 async function invokeHarness(overrides: Parameters<typeof harness>[0] = {}) {
   return harness({
-    double: { connections: [connectionRow()], proxy: proxyEcho, ...overrides.double },
+    double: {
+      connections: [connectionRow()],
+      proxy: proxyEcho,
+      ...overrides.double,
+    },
     binding: { contracts, ...overrides.binding },
     ...overrides,
   });
@@ -91,7 +104,10 @@ test("NG-04: a bound proxy operation sends the documented routing headers from t
   // The two documented proxy headers come from the connection record only.
   assert.equal(request.headers["connection-id"], CONNECTION_ID);
   assert.equal(request.headers["provider-config-key"], INTEGRATION);
-  assert.equal(request.headers.authorization, "Bearer nango-secret-key-fixture");
+  assert.equal(
+    request.headers.authorization,
+    "Bearer nango-secret-key-fixture",
+  );
   // No base URL override is ever sent.
   assert.equal(request.headers["base-url-override"], undefined);
 });
@@ -150,22 +166,32 @@ test("NG-04: path and body inputs are validated against the approved contract", 
 
   const ok = await h.adapter.invoke!(h.context({ connection }), {
     operationRef: writeOperation.operationRef,
-    input: { path: { owner: "octocat", repo: "hello-world" }, body: { title: "Bug" } },
+    input: {
+      path: { owner: "octocat", repo: "hello-world" },
+      body: { title: "Bug" },
+    },
     commandId: "cmd-ok",
   });
   assert.equal(ok.state, "complete");
-  const [request] = h.double.received("POST", "/proxy/repos/octocat/hello-world/issues");
+  const [request] = h.double.received(
+    "POST",
+    "/proxy/repos/octocat/hello-world/issues",
+  );
   assert.ok(request);
 
   // A path value that would escape its segment is refused, not encoded away.
   await assert.rejects(
     h.adapter.invoke!(h.context({ connection }), {
       operationRef: writeOperation.operationRef,
-      input: { path: { owner: "../../admin", repo: "x" }, body: { title: "t" } },
+      input: {
+        path: { owner: "../../admin", repo: "x" },
+        body: { title: "t" },
+      },
       commandId: "cmd-escape",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.input.path.value",
+      error instanceof ConnectorError &&
+      error.detail === "nango.input.path.value",
   );
 
   // An undeclared body property is refused by the contract's allowlist.
@@ -179,7 +205,8 @@ test("NG-04: path and body inputs are validated against the approved contract", 
       commandId: "cmd-extra",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.input.body.schema",
+      error instanceof ConnectorError &&
+      error.detail === "nango.input.body.schema",
   );
 
   // A missing required path parameter is refused.
@@ -190,7 +217,8 @@ test("NG-04: path and body inputs are validated against the approved contract", 
       commandId: "cmd-missing",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.input.path.required",
+      error instanceof ConnectorError &&
+      error.detail === "nango.input.path.required",
   );
 });
 
@@ -234,7 +262,8 @@ test("AC-NG-04: a connection whose authority is another Nango environment is ref
       commandId: "cmd-4",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.authority",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.authority",
   );
   assert.equal(h.double.requests.length, 0);
 });
@@ -256,7 +285,8 @@ test("AC-NG-04: a stored broker reference disagreeing with the record is refused
       commandId: "cmd-5",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.credential.mismatch",
+      error instanceof ConnectorError &&
+      error.detail === "nango.credential.mismatch",
   );
   assert.equal(h.double.requests.length, 0);
 });
@@ -268,7 +298,12 @@ test("NG-04: actions take their name from the bound operation, never from input"
       action: ({ actionName, input }) =>
         actionName === "create-issue"
           ? { status: 200, body: { created: true, echo: input } }
-          : { status: 404, body: { error: { message: "no", code: "unknown_action", payload: {} } } },
+          : {
+              status: 404,
+              body: {
+                error: { message: "no", code: "unknown_action", payload: {} },
+              },
+            },
     },
   });
   t.after(() => h.close());
@@ -281,7 +316,10 @@ test("NG-04: actions take their name from the bound operation, never from input"
   assert.equal(result.state, "complete");
 
   const [request] = h.double.received("POST", "/action/trigger");
-  const body = JSON.parse(request!.body.toString("utf8")) as Record<string, unknown>;
+  const body = JSON.parse(request!.body.toString("utf8")) as Record<
+    string,
+    unknown
+  >;
   assert.equal(body.action_name, "create-issue");
   assert.deepEqual(body.input, { title: "Bug" });
   assert.equal(request!.headers["connection-id"], CONNECTION_ID);
@@ -297,7 +335,8 @@ test("NG-04: actions take their name from the bound operation, never from input"
       commandId: "cmd-action-2",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.input.override-rejected",
+      error instanceof ConnectorError &&
+      error.detail === "nango.input.override-rejected",
   );
 });
 
@@ -318,7 +357,10 @@ test("NG-04: a gateway failure on a write is indeterminate and is not blindly re
   const connection = await activeConnection(h.ports, h.binding);
   const request = {
     operationRef: writeOperation.operationRef,
-    input: { path: { owner: "octocat", repo: "hello-world" }, body: { title: "Bug" } },
+    input: {
+      path: { owner: "octocat", repo: "hello-world" },
+      body: { title: "Bug" },
+    },
     commandId: "cmd-lost",
   };
   const first = await h.adapter.invoke!(h.context({ connection }), request);
@@ -355,7 +397,10 @@ test("NG-04: a dropped connection on a write is indeterminate, never a clean fai
     h.context({ connection, fetch: brokenFetch }),
     {
       operationRef: writeOperation.operationRef,
-      input: { path: { owner: "octocat", repo: "hello-world" }, body: { title: "Bug" } },
+      input: {
+        path: { owner: "octocat", repo: "hello-world" },
+        body: { title: "Bug" },
+      },
       commandId: "cmd-dropped",
     },
   );
@@ -378,7 +423,10 @@ test("NG-04: a completed write is not applied twice for the same command", async
   const connection = await activeConnection(h.ports, h.binding);
   const request = {
     operationRef: writeOperation.operationRef,
-    input: { path: { owner: "octocat", repo: "hello-world" }, body: { title: "Bug" } },
+    input: {
+      path: { owner: "octocat", repo: "hello-world" },
+      body: { title: "Bug" },
+    },
     commandId: "cmd-dup",
   };
   const first = await h.adapter.invoke!(h.context({ connection }), request);
@@ -440,7 +488,11 @@ test("NG-04: an upstream 429 puts the authority in cool-down instead of hammerin
       connections: [connectionRow()],
       intercept: (request) =>
         request.url.pathname.startsWith("/proxy/")
-          ? { status: 429, headers: { "retry-after": "30" }, body: { error: "slow down" } }
+          ? {
+              status: 429,
+              headers: { "retry-after": "30" },
+              body: { error: "slow down" },
+            }
           : undefined,
     },
   });
@@ -506,7 +558,8 @@ test("NG-04: an inactive or uncredentialed connection cannot invoke", async (t) 
       commandId: "cmd-6",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.unbound",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.unbound",
   );
 
   const revoked = await activeConnection(h.ports, h.binding, {
@@ -519,7 +572,8 @@ test("NG-04: an inactive or uncredentialed connection cannot invoke", async (t) 
       commandId: "cmd-7",
     }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.inactive",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.inactive",
   );
   assert.equal(h.double.requests.length, 0);
 });
@@ -558,7 +612,10 @@ test("NG-05: records are read through the documented cursor endpoint", async (t)
   });
 
   assert.equal(result.state, "complete");
-  const output = result.output as { records: unknown[]; nextCursor: string | null };
+  const output = result.output as {
+    records: unknown[];
+    nextCursor: string | null;
+  };
   assert.equal(output.records.length, 1);
   assert.equal(output.nextCursor, "cursor-2");
 
@@ -575,10 +632,11 @@ test("NG-04: a binding whose destination is not the configured API origin cannot
   const elsewhere = makeBinding({ apiOrigin: "https://api.attacker.example" });
   const connection = await activeConnection(h.ports, h.binding);
   await assert.rejects(
-    h.adapter.invoke!(
-      h.context({ connection, binding: elsewhere }),
-      { operationRef: readOperation.operationRef, input: {}, commandId: "cmd-8" },
-    ),
+    h.adapter.invoke!(h.context({ connection, binding: elsewhere }), {
+      operationRef: readOperation.operationRef,
+      input: {},
+      commandId: "cmd-8",
+    }),
     (error: unknown) => error instanceof ConnectorError,
   );
   assert.equal(h.double.requests.length, 0);

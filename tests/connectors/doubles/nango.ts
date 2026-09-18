@@ -1,5 +1,9 @@
 import { createHmac } from "node:crypto";
-import { startHttpFixture, type RecordedRequest } from "./http-fixture.js";
+import {
+  startHttpFixture,
+  type FixtureReply,
+  type RecordedRequest,
+} from "./http-fixture.js";
 
 /*
  * An independent double of the Nango HTTP API, written from the published
@@ -73,7 +77,10 @@ export type DoubleFunction =
       type: "on-event";
       name: string;
       description?: string;
-      event: "post-connection-creation" | "pre-connection-deletion" | "validate-connection";
+      event:
+        | "post-connection-creation"
+        | "pre-connection-deletion"
+        | "validate-connection";
       id: number;
       enabled: boolean;
       last_deployed: string;
@@ -108,7 +115,9 @@ export type ProxyHandler = (input: {
   body: Buffer;
   connectionId: string;
   providerConfigKey: string;
-}) => { status?: number; headers?: Record<string, string>; body?: unknown } | undefined;
+}) =>
+  | { status?: number; headers?: Record<string, string>; body?: unknown }
+  | undefined;
 
 export type ActionHandler = (input: {
   actionName: string;
@@ -143,7 +152,10 @@ export type NangoDoubleOptions = {
   proxy?: ProxyHandler;
   action?: ActionHandler;
   syncStatus?: SyncStatusRow[];
-  records?: Record<string, { records: Array<Record<string, unknown>>; next_cursor: string | null }>;
+  records?: Record<
+    string,
+    { records: Array<Record<string, unknown>>; next_cursor: string | null }
+  >;
   /** Fixed session token/link generator; defaults to counting tokens. */
   session?: (input: {
     kind: "connect" | "reconnect";
@@ -153,7 +165,9 @@ export type NangoDoubleOptions = {
   /** Overrides a response entirely, for fault injection (rate limits, outages). */
   intercept?: (
     request: RecordedRequest,
-  ) => { status: number; headers?: Record<string, string>; body?: unknown } | undefined;
+  ) =>
+    | { status: number; headers?: Record<string, string>; body?: unknown }
+    | undefined;
 };
 
 export type SessionRecord = {
@@ -170,9 +184,14 @@ const stdError = (code: string, message?: string) => ({
 });
 
 /** The documented signature: HMAC-SHA256 of the raw body with the webhook signing key, hex. */
-export function signNangoWebhook(signingKey: string, body: string | Uint8Array): string {
+export function signNangoWebhook(
+  signingKey: string,
+  body: string | Uint8Array,
+): string {
   return createHmac("sha256", signingKey)
-    .update(typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.from(body))
+    .update(
+      typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.from(body),
+    )
     .digest("hex");
 }
 
@@ -187,7 +206,8 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
   const functions = { ...(options.functions ?? {}) };
   const connections = [...(options.connections ?? [])];
   const sessions: SessionRecord[] = [];
-  const deleted: Array<{ connectionId: string; providerConfigKey: string }> = [];
+  const deleted: Array<{ connectionId: string; providerConfigKey: string }> =
+    [];
   const syncCommands: Array<{
     command: string;
     body: Record<string, unknown>;
@@ -200,9 +220,9 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
   }> = [];
   let sessionIndex = 0;
 
-  const fixture = await startHttpFixture((request) => {
+  const fixture = await startHttpFixture((request): FixtureReply => {
     const intercepted = options.intercept?.(request);
-    if (intercepted) return intercepted;
+    if (intercepted) return intercepted as FixtureReply;
     const { pathname } = request.url;
     const query = request.url.searchParams;
     const auth = request.headers.authorization;
@@ -214,33 +234,46 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
     const json = (): Record<string, unknown> | undefined => {
       if (!request.body.length) return undefined;
       try {
-        return JSON.parse(request.body.toString("utf8")) as Record<string, unknown>;
+        return JSON.parse(request.body.toString("utf8")) as Record<
+          string,
+          unknown
+        >;
       } catch {
         return undefined;
       }
     };
 
     /* ------------------------------------------------- connect sessions */
-    if (pathname === "/connect/sessions" || pathname === "/connect/sessions/reconnect") {
+    if (
+      pathname === "/connect/sessions" ||
+      pathname === "/connect/sessions/reconnect"
+    ) {
       if (request.method !== "POST")
         return { status: 404, body: stdError("not_found") };
       const body = json();
       if (!body) return { status: 400, body: stdError("invalid_body") };
       const kind = pathname.endsWith("/reconnect") ? "reconnect" : "connect";
       if (kind === "reconnect" && (!body.connection_id || !body.integration_id))
-        return { status: 400, body: stdError("invalid_body", "connection_id and integration_id are required") };
+        return {
+          status: 400,
+          body: stdError(
+            "invalid_body",
+            "connection_id and integration_id are required",
+          ),
+        };
       const tags = body.tags as Record<string, string> | undefined;
       if (tags && Object.keys(tags).length > 10)
-        return { status: 400, body: stdError("invalid_body", "at most 10 tags") };
+        return {
+          status: 400,
+          body: stdError("invalid_body", "at most 10 tags"),
+        };
       const allowed = body.allowed_integrations as string[] | undefined;
       const index = sessionIndex++;
-      const issued =
-        options.session?.({ kind, body, index }) ??
-        {
-          token: `nango_connect_session_${index}_${Math.random().toString(36).slice(2, 10)}`,
-          expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
-          connect_link: `https://connect.nango.dev/?session_token=session-${index}`,
-        };
+      const issued = options.session?.({ kind, body, index }) ?? {
+        token: `nango_connect_session_${index}_${Math.random().toString(36).slice(2, 10)}`,
+        expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+        connect_link: `https://connect.nango.dev/?session_token=session-${index}`,
+      };
       sessions.push({
         kind,
         token: issued.token,
@@ -271,7 +304,9 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
         },
       };
 
-    const functionsMatch = /^\/integrations\/([^/]+)\/functions$/.exec(pathname);
+    const functionsMatch = /^\/integrations\/([^/]+)\/functions$/.exec(
+      pathname,
+    );
     if (functionsMatch && request.method === "GET") {
       const uniqueKey = decodeURIComponent(functionsMatch[1]!);
       if (!integrations.some((item) => item.unique_key === uniqueKey))
@@ -282,7 +317,13 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       });
       const page = Number(query.get("page") ?? "0");
       const limit = Number(query.get("limit") ?? "20");
-      if (!Number.isInteger(page) || page < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100)
+      if (
+        !Number.isInteger(page) ||
+        page < 0 ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 100
+      )
         return { status: 400, body: stdError("invalid_query_params") };
       return {
         status: 200,
@@ -296,7 +337,9 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
     const integrationMatch = /^\/integrations\/([^/]+)$/.exec(pathname);
     if (integrationMatch && request.method === "GET") {
       const uniqueKey = decodeURIComponent(integrationMatch[1]!);
-      const integration = integrations.find((item) => item.unique_key === uniqueKey);
+      const integration = integrations.find(
+        (item) => item.unique_key === uniqueKey,
+      );
       if (!integration) return { status: 404, body: stdError("not_found") };
       const include = query.getAll("include");
       return {
@@ -312,7 +355,9 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
             ...(integration.forward_webhooks === undefined
               ? {}
               : { forward_webhooks: integration.forward_webhooks }),
-            ...(include.includes("webhook") ? { webhook_url: integration.webhook_url ?? null } : {}),
+            ...(include.includes("webhook")
+              ? { webhook_url: integration.webhook_url ?? null }
+              : {}),
             // Only returned when explicitly requested, per the documented
             // `include` parameter and the *_credentials API key scopes.
             ...(include.includes("credentials")
@@ -339,10 +384,16 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
         if (tag) tagFilters.push([tag[1]!, value]);
       }
       const matching = connections.filter((connection) => {
-        if (connection.environment !== undefined && connection.environment !== environment)
+        if (
+          connection.environment !== undefined &&
+          connection.environment !== environment
+        )
           return false;
-        if (connectionId && connection.connection_id !== connectionId) return false;
-        return tagFilters.every(([key, value]) => connection.tags?.[key] === value);
+        if (connectionId && connection.connection_id !== connectionId)
+          return false;
+        return tagFilters.every(
+          ([key, value]) => connection.tags?.[key] === value,
+        );
       });
       return {
         status: 200,
@@ -368,12 +419,19 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       const providerConfigKey = query.get("provider_config_key");
       // Documented as required on both GET and DELETE.
       if (!providerConfigKey)
-        return { status: 400, body: stdError("invalid_query_params", "provider_config_key is required") };
+        return {
+          status: 400,
+          body: stdError(
+            "invalid_query_params",
+            "provider_config_key is required",
+          ),
+        };
       const index = connections.findIndex(
         (connection) =>
           connection.connection_id === connectionId &&
           connection.provider_config_key === providerConfigKey &&
-          (connection.environment === undefined || connection.environment === environment),
+          (connection.environment === undefined ||
+            connection.environment === environment),
       );
       if (request.method === "GET") {
         credentialReads.push({
@@ -431,7 +489,8 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
           item.provider_config_key === providerConfigKey &&
           (item.environment === undefined || item.environment === environment),
       );
-      if (!connection) return { status: 404, body: stdError("unknown_connection") };
+      if (!connection)
+        return { status: 404, body: stdError("unknown_connection") };
       const handled = options.proxy?.({
         method: request.method,
         path: pathname.slice("/proxy".length) || "/",
@@ -453,7 +512,10 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       const body = json();
       const actionName = body?.action_name;
       if (typeof actionName !== "string" || !actionName)
-        return { status: 400, body: stdError("invalid_body", "action_name is required") };
+        return {
+          status: 400,
+          body: stdError("invalid_body", "action_name is required"),
+        };
       const handled = options.action?.({
         actionName,
         input: body?.input,
@@ -464,7 +526,13 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       return (
         handled ?? {
           status: 404,
-          body: { error: { message: "Action not found", code: "unknown_action", payload: {} } },
+          body: {
+            error: {
+              message: "Action not found",
+              code: "unknown_action",
+              payload: {},
+            },
+          },
         }
       );
     }
@@ -473,8 +541,15 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
     const syncMatch = /^\/sync\/(trigger|start|pause)$/.exec(pathname);
     if (syncMatch && request.method === "POST") {
       const body = json();
-      if (!body || typeof body.provider_config_key !== "string" || !Array.isArray(body.syncs))
-        return { status: 400, body: { message: "provider_config_key and syncs are required" } };
+      if (
+        !body ||
+        typeof body.provider_config_key !== "string" ||
+        !Array.isArray(body.syncs)
+      )
+        return {
+          status: 400,
+          body: { message: "provider_config_key and syncs are required" },
+        };
       syncCommands.push({ command: syncMatch[1]!, body });
       return { status: 200, body: { success: true } };
     }
@@ -484,14 +559,19 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       if (!syncs || !providerConfigKey)
         return { status: 400, body: stdError("invalid_query_params") };
       const connectionId = query.get("connection_id");
-      const names = syncs === "*" ? undefined : syncs.split(",").map((name) => name.split("::")[0]);
+      const names =
+        syncs === "*"
+          ? undefined
+          : syncs.split(",").map((name) => name.split("::")[0]);
       return {
         status: 200,
         body: {
           syncs: (options.syncStatus ?? []).filter(
             (row) =>
               (!names || names.includes(row.name)) &&
-              (!connectionId || row.connection_id === undefined || row.connection_id === connectionId),
+              (!connectionId ||
+                row.connection_id === undefined ||
+                row.connection_id === connectionId),
           ),
         },
       };
@@ -504,7 +584,11 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       if (!connectionId || !providerConfigKey)
         return { status: 400, body: stdError("missing_connection_headers") };
       const model = query.get("model");
-      if (!model) return { status: 400, body: stdError("invalid_query_params", "model is required") };
+      if (!model)
+        return {
+          status: 400,
+          body: stdError("invalid_query_params", "model is required"),
+        };
       const page = options.records?.[model];
       return {
         status: 200,
@@ -531,8 +615,13 @@ export async function startNangoDouble(options: NangoDoubleOptions) {
       connections.push({ environment, ...connection });
       return connection;
     },
-    setConnectionErrors(connectionId: string, errors: DoubleConnection["errors"]) {
-      const connection = connections.find((item) => item.connection_id === connectionId);
+    setConnectionErrors(
+      connectionId: string,
+      errors: NonNullable<DoubleConnection["errors"]>,
+    ) {
+      const connection = connections.find(
+        (item) => item.connection_id === connectionId,
+      );
       if (connection) connection.errors = errors;
     },
   };

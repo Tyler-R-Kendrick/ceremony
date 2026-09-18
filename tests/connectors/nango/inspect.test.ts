@@ -41,7 +41,9 @@ test("AC-NG-03: the credential-bearing response never surfaces; only metadata an
   const h = await harness({ double: { connections: [withCredentials()] } });
   t.after(() => h.close());
   const connection = await activeConnection(h.ports, h.binding);
-  const inspection = await h.adapter.inspectConnection(h.context({ connection }));
+  const inspection = await h.adapter.inspectConnection(
+    h.context({ connection }),
+  );
 
   assert.equal(inspection.connectionId, CONNECTION_ID);
   assert.equal(inspection.providerConfigKey, INTEGRATION);
@@ -56,7 +58,10 @@ test("AC-NG-03: the credential-bearing response never surfaces; only metadata an
   const strings = stringsIn(inspection);
   assert.equal(strings.includes(SECRET_ACCESS), false);
   assert.equal(strings.includes(SECRET_REFRESH), false);
-  assert.equal(strings.some((value) => value.includes("token_type")), false);
+  assert.equal(
+    strings.some((value) => value.includes("token_type")),
+    false,
+  );
   // The allowlist decides the shape, so a new upstream field cannot ride along.
   assert.deepEqual(
     Object.keys(inspection).sort(),
@@ -85,7 +90,9 @@ test("AC-NG-03: the stored credential material is never replaced by a token from
   const connection = await activeConnection(h.ports, h.binding);
   await h.adapter.inspectConnection(h.context({ connection }));
 
-  const material = h.ports.inspect.credentialMaterial(connection.credentialRef!);
+  const material = h.ports.inspect.credentialMaterial(
+    connection.credentialRef!,
+  );
   assert.deepEqual(Object.keys(material!).sort(), [
     "authority",
     "connectionId",
@@ -126,7 +133,10 @@ test("AC-NG-03: two concurrent inspections share one upstream call (rotating tok
 
   // One refresh-sensitive request, one shared answer.
   assert.equal(h.double.credentialReads.length, 1);
-  assert.equal(h.double.received("GET", `/connections/${CONNECTION_ID}`).length, 1);
+  assert.equal(
+    h.double.received("GET", `/connections/${CONNECTION_ID}`).length,
+    1,
+  );
   assert.deepEqual(a, b);
 
   // A later inspection is a fresh call: the single-flight window is per race,
@@ -186,7 +196,8 @@ test("AC-NG-03: a connection id from another integration is refused before the p
   await assert.rejects(
     h.adapter.inspectConnection(h.context({ connection: foreign })),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.connection.integration",
+      error instanceof ConnectorError &&
+      error.detail === "nango.connection.integration",
   );
   assert.equal(h.double.credentialReads.length, 0);
 });
@@ -196,7 +207,8 @@ test("NG-03: an exhausted refresh (424) becomes human-required, not a generic fa
     double: {
       connections: [withCredentials()],
       intercept: (request) =>
-        request.url.pathname === `/connections/${CONNECTION_ID}` && request.method === "GET"
+        request.url.pathname === `/connections/${CONNECTION_ID}` &&
+        request.method === "GET"
           ? {
               status: 424,
               body: {
@@ -229,11 +241,17 @@ test("NG-03: oversized or hostile metadata is dropped rather than stored", async
     node = next;
   }
   const h = await harness({
-    double: { connections: [connectionRow({ metadata: deep, credentials: { type: "API_KEY" } })] },
+    double: {
+      connections: [
+        connectionRow({ metadata: deep, credentials: { type: "API_KEY" } }),
+      ],
+    },
   });
   t.after(() => h.close());
   const connection = await activeConnection(h.ports, h.binding);
-  const inspection = await h.adapter.inspectConnection(h.context({ connection }));
+  const inspection = await h.adapter.inspectConnection(
+    h.context({ connection }),
+  );
   assert.equal(inspection.metadata, undefined);
   assert.equal(inspection.metadataOmitted, "bounds");
 });
@@ -243,7 +261,8 @@ test("NG-03: a response whose identity disagrees with the request is refused", a
     double: {
       connections: [withCredentials()],
       intercept: (request) =>
-        request.url.pathname === `/connections/${CONNECTION_ID}` && request.method === "GET"
+        request.url.pathname === `/connections/${CONNECTION_ID}` &&
+        request.method === "GET"
           ? {
               status: 200,
               body: {
@@ -269,6 +288,7 @@ test("NG-03: a response whose identity disagrees with the request is refused", a
   await assert.rejects(
     h.adapter.inspectConnection(h.context({ connection })),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "nango.response.identity",
+      error instanceof ConnectorError &&
+      error.detail === "nango.response.identity",
   );
 });

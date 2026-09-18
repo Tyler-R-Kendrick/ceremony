@@ -43,7 +43,7 @@ export {
   type WorkloadCredential,
   type WorkloadTokenSource,
 } from "./credentials.js";
-export { callVercel, operationPath } from "./client.js";
+export { callVercel, operationPath, operationUrl } from "./client.js";
 export {
   acquireToken,
   connectionState,

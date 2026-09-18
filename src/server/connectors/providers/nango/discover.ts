@@ -83,7 +83,10 @@ function integrationItem(
   return {
     identity: {
       ecosystem: "nango",
-      authorityNamespace: namespaceFor(resolved.environment, resolved.api.origin),
+      authorityNamespace: namespaceFor(
+        resolved.environment,
+        resolved.api.origin,
+      ),
       nativeId: integration.unique_key,
       nativeVersion: integration.updated_at,
     },
@@ -111,7 +114,10 @@ function functionItem(
   return {
     identity: {
       ecosystem: "nango",
-      authorityNamespace: namespaceFor(resolved.environment, resolved.api.origin),
+      authorityNamespace: namespaceFor(
+        resolved.environment,
+        resolved.api.origin,
+      ),
       nativeId: `${uniqueKey}/functions/${fn.type}/${fn.name}`,
       nativeVersion: fn.last_deployed,
     },
@@ -150,7 +156,9 @@ function decodeCursor(cursor: string | undefined) {
       JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")),
     );
   } catch {
-    throw new ConnectorError("invalid-request", { detail: "nango.discover.cursor" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.discover.cursor",
+    });
   }
 }
 
@@ -163,12 +171,18 @@ export async function discoverNango(
   const resolved = await resolveNango(runtime, ctx);
   const cursor = decodeCursor(input.cursor);
   const limit =
-    cursor?.limit ?? Math.min(Math.max(input.limit ?? 50, 1), NANGO_LIMITS.pageLimit);
+    cursor?.limit ??
+    Math.min(Math.max(input.limit ?? 50, 1), NANGO_LIMITS.pageLimit);
   const fetchedAt = ctx.environment.now();
   const scopeIntegration = input.scope?.integration ?? cursor?.integration;
   if (scopeIntegration !== undefined) {
-    if (cursor?.integration !== undefined && cursor.integration !== scopeIntegration)
-      throw new ConnectorError("invalid-request", { detail: "nango.discover.cursor" });
+    if (
+      cursor?.integration !== undefined &&
+      cursor.integration !== scopeIntegration
+    )
+      throw new ConnectorError("invalid-request", {
+        detail: "nango.discover.cursor",
+      });
     const page = cursor?.page ?? 0;
     const integration = await resolved.client.getIntegration(scopeIntegration);
     const functions = await resolved.client.listFunctions(scopeIntegration, {
@@ -177,7 +191,9 @@ export async function discoverNango(
     });
     const items: DiscoveredItem[] = [
       ...(page === 0 ? [integrationItem(integration.data, resolved)] : []),
-      ...functions.data.map((fn) => functionItem(scopeIntegration, fn, resolved)),
+      ...functions.data.map((fn) =>
+        functionItem(scopeIntegration, fn, resolved),
+      ),
     ];
     const more =
       (functions.pagination.page + 1) * functions.pagination.limit <
@@ -209,7 +225,9 @@ export async function discoverNango(
   const offset = (cursor?.page ?? 0) * limit;
   const pageItems = matching.slice(offset, offset + limit);
   return {
-    items: pageItems.map((integration) => integrationItem(integration, resolved)),
+    items: pageItems.map((integration) =>
+      integrationItem(integration, resolved),
+    ),
     ...(offset + limit < matching.length
       ? { nextCursor: encodeCursor({ page: (cursor?.page ?? 0) + 1, limit }) }
       : {}),
@@ -323,7 +341,12 @@ function capabilityFor(fn: NangoFunction, index: number): NativeCapability {
       },
     };
   if (fn.type === "action")
-    return { kind: "action", ...base, effect: "unknown", nativeExtensions: shared };
+    return {
+      kind: "action",
+      ...base,
+      effect: "unknown",
+      nativeExtensions: shared,
+    };
   return {
     kind: "custom",
     ...base,
@@ -342,7 +365,9 @@ export async function importNango(
   input: ImportInput,
 ): Promise<ImportOutcome> {
   if (input.bytes.byteLength > SNAPSHOT_BYTES)
-    throw new ConnectorError("invalid-request", { detail: "nango.import.too-large" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.import.too-large",
+    });
   const digest = sha256(Buffer.from(input.bytes).toString("latin1"));
   const capturedAt = new Date(ctx.environment.now()).toISOString();
   const sourceRef = `nango:src:${digest.slice(0, 32)}`;
@@ -366,7 +391,9 @@ export async function importNango(
         nativeVersion: input.identityHint?.nativeVersion ?? "legacy",
       },
       format: { name: "nango-yaml", version: "legacy" },
-      mediaType: /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(input.mediaType)
+      mediaType: /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(
+        input.mediaType,
+      )
         ? input.mediaType
         : "application/octet-stream",
     });
@@ -393,13 +420,19 @@ export async function importNango(
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.bytes));
+    parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(input.bytes),
+    );
   } catch {
-    throw new ConnectorError("invalid-request", { detail: "nango.import.not-json" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.import.not-json",
+    });
   }
   const snapshot = nangoSnapshotSchema.safeParse(parsed);
   if (!snapshot.success)
-    throw new ConnectorError("invalid-request", { detail: "nango.import.snapshot" });
+    throw new ConnectorError("invalid-request", {
+      detail: "nango.import.snapshot",
+    });
   const { integration, functions, environment, apiOrigin } = snapshot.data;
   const identity = {
     ecosystem: "nango",
@@ -428,7 +461,10 @@ export async function importNango(
           message: `Function ${clean(fn.name, 100)} is deployed but disabled in Nango.`,
         }),
       );
-    if (fn.type === "action" && !(fn.json_schema && typeof fn.json_schema === "object"))
+    if (
+      fn.type === "action" &&
+      !(fn.json_schema && typeof fn.json_schema === "object")
+    )
       issues.push(
         issue({
           code: "nango.action.schema-missing",
@@ -443,8 +479,18 @@ export async function importNango(
       );
   });
   const events: EventDescriptor[] = [
-    { nativeId: "auth", label: "Connection lifecycle", transport: "http-webhook", verification: "vendor" },
-    { nativeId: "sync", label: "Sync execution results", transport: "http-webhook", verification: "vendor" },
+    {
+      nativeId: "auth",
+      label: "Connection lifecycle",
+      transport: "http-webhook",
+      verification: "vendor",
+    },
+    {
+      nativeId: "sync",
+      label: "Sync execution results",
+      transport: "http-webhook",
+      verification: "vendor",
+    },
     ...(integration.forward_webhooks
       ? [
           {
@@ -491,7 +537,11 @@ export async function importNango(
     capabilities: functions.map(capabilityFor),
     events,
     declaredServers: [
-      { url: apiOrigin, description: "Nango API (declared by snapshot)", status: "declared" as const },
+      {
+        url: apiOrigin,
+        description: "Nango API (declared by snapshot)",
+        status: "declared" as const,
+      },
     ],
     compatibility: {
       issues,
@@ -595,7 +645,9 @@ export async function nangoCatalogEntries(
           present: present.has(item.name),
         })),
         capabilities,
-        evidence: strongestEvidence(capabilities.map((status) => status.evidence)),
+        evidence: strongestEvidence(
+          capabilities.map((status) => status.evidence),
+        ),
         group: service,
       }),
     );
