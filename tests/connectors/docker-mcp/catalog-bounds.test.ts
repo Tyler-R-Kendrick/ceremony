@@ -951,3 +951,95 @@ test("input that is not text is refused as such, not coerced", () => {
     "a numeric name is not silently rendered as the string 7",
   );
 });
+
+test("metadata numbers are read only as non-negative integers, and a blank tag is not a tag", () => {
+  // Invariant: pulls, stars and githubStars are the numbers a person uses to
+  // judge whether a server is widely used. A negative, fractional or textual
+  // count is not that evidence, so it is left out entirely rather than coerced
+  // into a number the document never asserted. A tag that is only whitespace
+  // is likewise not a label, and keeping it would put an empty chip in a UI.
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    metadata:\n` +
+      `      pulls: 1200\n` +
+      `      stars: -5\n` +
+      `      githubStars: 12.5\n` +
+      `      category: "  search  "\n` +
+      `      license: MIT License\n` +
+      `      owner: docker\n` +
+      `      tags: ["search", "   ", "web"]\n`,
+  );
+  assert.equal(server.metadata?.pulls, 1200);
+  assert.equal(
+    server.metadata?.stars,
+    undefined,
+    "a negative count is no count",
+  );
+  assert.equal(server.metadata?.githubStars, undefined);
+  assert.equal(
+    server.metadata?.category,
+    "search",
+    "display text is trimmed, not padded or dropped",
+  );
+  assert.equal(server.metadata?.license, "MIT License");
+  assert.equal(server.metadata?.owner, "docker");
+  assert.deepEqual(server.metadata?.tags, ["search", "web"]);
+});
+
+test("a secret's own declarations are carried, including whether it is required", () => {
+  // Invariant: `required` is what tells a host whether a server can start
+  // without this secret at all. Dropping it would make every secret look
+  // optional, and a runner would then offer to launch something that cannot
+  // work; inventing it would do the opposite.
+  const { server } = readEntry(
+    `    type: server\n` +
+      `    image: ${PINNED}\n` +
+      `    secrets:\n` +
+      `      - name: fixture.required\n` +
+      `        env: FIXTURE_REQUIRED\n` +
+      `        required: true\n` +
+      `        example: YOUR_KEY_HERE\n` +
+      `        description: See the upstream README.\n` +
+      `      - name: fixture.optional\n` +
+      `        env: FIXTURE_OPTIONAL\n` +
+      `        required: false\n` +
+      `      - name: fixture.unstated\n` +
+      `        env: FIXTURE_UNSTATED\n` +
+      `        required: "yes"\n`,
+  );
+  assert.deepEqual(server.secrets, [
+    {
+      name: "fixture.required",
+      env: "FIXTURE_REQUIRED",
+      example: "YOUR_KEY_HERE",
+      description: "See the upstream README.",
+      required: true,
+    },
+    { name: "fixture.optional", env: "FIXTURE_OPTIONAL", required: false },
+    { name: "fixture.unstated", env: "FIXTURE_UNSTATED" },
+  ]);
+  assert.deepEqual(server.issues, []);
+});
+
+test("the reader's ceilings apply inside a remote block and an oauth block too", () => {
+  // Invariant: a limit that only guards the top level is not a limit. Headers
+  // and oauth providers are nested, and a document that can declare thousands
+  // of either would decide how much work reading it costs just as surely as
+  // one with thousands of tools.
+  const { server } = readEntry(
+    `    type: remote\n` +
+      `    oauth:\n` +
+      `      - {provider: first, secret: fixture.one, env: FIRST_ENV}\n` +
+      `      - {provider: second, secret: fixture.two, env: SECOND_ENV}\n` +
+      `    remote:\n` +
+      `      url: https://mcp.example.com/mcp\n` +
+      `      headers:\n        X-First: one\n        X-Second: two\n`,
+    { limits: { providers: 1, headers: 1 } },
+  );
+  assert.deepEqual(
+    server.oauth?.providers.map((entry) => entry.provider),
+    ["first"],
+  );
+  assert.deepEqual(server.remote?.headers, { "X-First": "one" });
+});
