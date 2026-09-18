@@ -482,6 +482,20 @@ export async function completeAuthorizationCode(
       await finishHandoff(ctx, handoff, "denied");
       throw wireError(failure, "oauth.token");
     }
+    if (
+      failure instanceof oauth.OperationProcessingError ||
+      failure instanceof oauth.UnsupportedOperationError
+    ) {
+      // A response arrived and was read: the code is spent, and the failure is
+      // the issuer's protocol violation rather than an uncertain effect.
+      await ctx.environment.effects.complete(begun.effectRef, {
+        status: "failed",
+        code: "oauth.token.invalid-response",
+        at: now(),
+      });
+      await finishHandoff(ctx, handoff, "denied");
+      throw wireError(failure, "oauth.token");
+    }
     // The request may have reached the issuer and consumed the code.
     await ctx.environment.effects.complete(begun.effectRef, {
       status: "indeterminate",

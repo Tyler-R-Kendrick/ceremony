@@ -430,9 +430,16 @@ export class EventInbox {
               ordering: await this.ordering(tx, tenantId, record.data),
             };
           })
-          .catch((error) => {
-            if (error instanceof PersistenceConflict) return undefined;
-            throw error;
+          .catch(() => {
+            // Taking the lease is speculative and contended: another worker
+            // holds it (PersistenceConflict), or the database refused this
+            // transaction outright because several workers touched the same
+            // claim rows at once, which PostgreSQL reports as a deadlock
+            // rather than as a conflict. Either way this worker does not own
+            // the entry, so it moves on; the entry stays pending and the next
+            // pass picks it up. Nothing has been delivered at this point, so
+            // skipping cannot lose or duplicate an effect.
+            return undefined;
           });
         if (!claimed) {
           report.skipped++;

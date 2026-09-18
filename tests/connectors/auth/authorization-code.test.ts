@@ -87,7 +87,7 @@ test("begin produces an S256 authorization URL and keeps state and verifier priv
 test("a full code exchange stores credentials and reports requested vs granted scope", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
-    server: { scopes: ["openid", "profile"] },
+    server: { scopes: ["openid", "profile"], openidConnect: true },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
@@ -244,7 +244,7 @@ test("AC-AUTH-03: a callback for another client or redirect URI is refused befor
 test("AC-AUTH-06: the same code delivered twice is not exchanged twice", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
-    server: { misbehave: { reusableCode: true } },
+    server: { openidConnect: true, misbehave: { reusableCode: true } },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
@@ -404,7 +404,10 @@ test("private_key_jwt authenticates the client with a real signed assertion", as
         clientAuthentication: "private_key_jwt",
       },
     },
-    server: { tokenEndpointAuthMethods: ["private_key_jwt"] },
+    server: {
+      openidConnect: true,
+      tokenEndpointAuthMethods: ["private_key_jwt"],
+    },
   });
   assert.equal(harness.client.method, "private_key_jwt");
   const ctx = harness.ctx();
@@ -447,7 +450,7 @@ test("client_secret_basic sends the secret in the header, never in the query", a
         clientAuthentication: "client_secret_basic",
       },
     },
-    server: { clientSecret: "s3cret-value" },
+    server: { openidConnect: true, clientSecret: "s3cret-value" },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
@@ -501,6 +504,7 @@ test("AC-AUTH-11: a broker that ignores downscoping is reported as Ceremony-enfo
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
     server: {
+      openidConnect: true,
       misbehave: { grantScopes: ["openid", "profile", "admin:everything"] },
     },
   });
@@ -528,7 +532,7 @@ test("AC-AUTH-11: a broker that ignores downscoping is reported as Ceremony-enfo
 test("a provider that reports no scope yields unknown semantics, never the request", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
-    server: { misbehave: { omitScope: true } },
+    server: { openidConnect: true, misbehave: { omitScope: true } },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
@@ -589,7 +593,7 @@ test("AC-AUTH-10: a widened request is flagged for re-review against the reviewe
 test("AC-STATE-01: concurrent refreshes make one upstream call and never overwrite the newer token", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
-    server: { misbehave: { tokenDelayMs: 40 } },
+    server: { openidConnect: true, misbehave: { tokenDelayMs: 40 } },
   });
   const ctx = harness.ctx();
   const { record } = await begun(harness, ctx);
