@@ -92,6 +92,29 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:security
+  browser-login:
+    # `verify` runs these too, but it reports each stage as counts alone: its
+    # stage output is captured and discarded by design, so a failure there says
+    # "1 failed" and the file it lived in, and nothing more. That is the same
+    # reason the `security` job exists.
+    #
+    # These suites drive three real browser engines, and a failure that only
+    # reproduces on a CI machine — not on Node 22, not on Node 24, not under the
+    # coverage harness pinned to four CPUs — is precisely the one whose name you
+    # need before you can fix it rather than guess at it. Running them here,
+    # outside the wrapper and one file at a time, means the failure arrives with
+    # the test that failed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
