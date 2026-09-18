@@ -19,6 +19,7 @@
 - [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
 - [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
 - [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
+- [Browser login and retained sessions](browser-login-sessions.md): logging into a selected browser, proving which account arrived there, and what releasing it does and does not do — including which backends are proven and which are not.
 - [Ceremony discovery](ceremony-discovery.md): reading a provider to work out what getting in requires, without submitting anything, and writing it down as a shareable plan.
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [MCP endpoint](mcp-endpoint.md): driving ceremonies from a chat client, and why no credential crosses MCP.

@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Ceremony Browser Login",
+  "version": "0.1.0",
+  "description": "User-approved template login in your selected browser tab.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "browser-login@ceremony.invalid",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "scripts": ["worker.js"] },
+  "action": { "default_title": "Open Ceremony browser login" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; worker-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co"
+  }
+}

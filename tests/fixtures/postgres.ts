@@ -1,6 +1,5 @@
 import { chown, mkdtemp, rm } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -8,24 +7,38 @@ import { randomBytes } from "node:crypto";
 import EmbeddedPostgres from "embedded-postgres";
 
 /**
- * PostgreSQL refuses to run as uid 0. In a root container (CI images, remote
- * agents) the platform binaries are started under a dedicated non-root
- * `postgres` account with the data and socket directories owned by it, which
- * is the ownership PostgreSQL itself requires. Nothing is skipped either way.
+ * PostgreSQL refuses to run its server as root and drops to an unprivileged
+ * account, so in a container whose tests run as root the fixture's own
+ * temporary directory — created 0700 and owned by root — is one the server
+ * cannot read. That surfaces as an opaque "could not access directory" and
+ * looks like a missing native library.
+ *
+ * Handing the directory to the account the server will actually run as is the
+ * ordinary requirement for a PostgreSQL data directory, not a relaxation: the
+ * directory stays private, it simply belongs to its owner.
  */
-const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
-async function postgresAccount(): Promise<{ uid: number; gid: number }> {
-  const run = promisify(execFile);
-  const [uid, gid] = await Promise.all([
-    run("id", ["-u", "postgres"]),
-    run("id", ["-g", "postgres"]),
-  ]);
-  return { uid: Number(uid.stdout.trim()), gid: Number(gid.stdout.trim()) };
+async function grantDataDirectory(directory: string): Promise<void> {
+  if (process.getuid?.() !== 0) return;
+  let passwd: string;
+  try {
+    passwd = await readFile("/etc/passwd", "utf8");
+  } catch {
+    return;
+  }
+  const entry = passwd
+    .split("\n")
+    .map((line) => line.split(":"))
+    .find((fields) => fields[0] === "postgres");
+  const uid = Number(entry?.[2]);
+  const gid = Number(entry?.[3]);
+  if (!Number.isInteger(uid) || !Number.isInteger(gid)) return;
+  await chown(directory, uid, gid);
 }
 
 /** Actual isolated PostgreSQL server, never a production URL or a fake SQL implementation. */
 export async function postgresFixture() {
   const directory = await mkdtemp(join(tmpdir(), "ceremony-postgres-"));
+  await grantDataDirectory(directory);
   const socket = createServer();
   await new Promise<void>((resolve, reject) => {
     socket.once("error", reject);
@@ -47,20 +60,10 @@ export async function postgresFixture() {
     persistent: true,
     authMethod: "scram-sha-256",
     postgresFlags: ["-h", "127.0.0.1", "-k", directory],
-    // Only when root: the library creates/uses the `postgres` account and
-    // chowns the data directory before spawning initdb/postgres under it.
-    createPostgresUser: asRoot,
     onLog: () => {},
     onError: () => {},
   });
   try {
-    if (asRoot) {
-      // The data directory is created inside this root-owned 0700 directory
-      // and the Unix socket lives in it, so the whole tree must belong to the
-      // database account before initdb runs; the library chowns only `db`.
-      const account = await postgresAccount();
-      await chown(directory, account.uid, account.gid);
-    }
     await server.initialise();
     await server.start();
   } catch {
