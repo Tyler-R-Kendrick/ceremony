@@ -230,6 +230,12 @@ export async function composioAuthorize(
 
   const state = correlation(call);
 
+  // A binding that pins the connected accounts it may use approved those exact
+  // accounts. A new authorization mints an id that no earlier approval could
+  // name, so it is refused rather than quietly creating an unapproved account.
+  if (permittedAccounts(call.ctx.binding).length)
+    throw denied("composio.account.pin-blocks-new");
+
   const intentCode =
     mode === "reconnect" ? "composio.reconnect" : "composio.authorize";
   const effect = await call.ctx.environment.effects.begin({

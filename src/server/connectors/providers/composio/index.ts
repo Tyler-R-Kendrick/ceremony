@@ -343,6 +343,8 @@ export function createComposioAdapter(
       ctx: AdapterCallContext,
       intent: AuthorizationIntent,
     ): Promise<AuthorizationStart> {
+      if (intent.ownerKind !== "user")
+        return { kind: "unsupported", code: "composio.owner.unsupported" };
       const report = await readComposioConfiguration(ctx);
       if (report.missing.length)
         return { kind: "configuration-required", missing: report.missing };
@@ -357,6 +359,8 @@ export function createComposioAdapter(
       ctx: AdapterCallContext,
       intent: AuthorizationIntent,
     ): Promise<AuthorizationStart> {
+      if (intent.ownerKind !== "user")
+        return { kind: "unsupported", code: "composio.owner.unsupported" };
       const report = await readComposioConfiguration(ctx);
       if (report.missing.length)
         return { kind: "configuration-required", missing: report.missing };
