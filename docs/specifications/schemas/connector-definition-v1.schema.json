@@ -16,7 +16,9 @@
           "maxLength": 256,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]*$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         },
         "nativeId": {
@@ -25,7 +27,9 @@
           "maxLength": 512,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]+$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         },
         "nativeVersion": {
@@ -34,7 +38,9 @@
           "maxLength": 128,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]+$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         }
       },
@@ -66,7 +72,9 @@
           "maxLength": 128,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]+$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         }
       },
@@ -82,7 +90,9 @@
           "maxLength": 200,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]*$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         },
         "description": {
@@ -90,7 +100,9 @@
           "maxLength": 500,
           "allOf": [
             { "pattern": "^[^\\p{Cc}]*$" },
-            { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
           ]
         },
         "ecosystem": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
@@ -121,7 +133,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "oauth-authorization-code" },
@@ -213,7 +227,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "oauth-client-credentials" },
@@ -264,7 +280,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "oauth-device" },
@@ -305,7 +323,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "api-key" },
@@ -336,7 +356,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "http-basic" }
@@ -357,7 +379,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "http-bearer" },
@@ -383,7 +407,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "openid-connect" },
@@ -419,7 +445,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "mutual-tls" }
@@ -440,7 +468,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "signature" },
@@ -467,7 +497,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "external-broker" },
@@ -499,7 +531,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "none" },
@@ -521,7 +555,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "ceremony-method" },
@@ -556,7 +592,9 @@
                 "maxLength": 100,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "kind": { "type": "string", "const": "unsupported" },
@@ -594,7 +632,9 @@
             "maxLength": 500,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]*$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           }
         },
@@ -630,7 +670,9 @@
             "maxLength": 512,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]+$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "label": {
@@ -639,7 +681,9 @@
             "maxLength": 200,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]*$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "summary": {
@@ -647,7 +691,9 @@
             "maxLength": 500,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]*$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "effect": { "type": "string", "enum": ["read", "write", "unknown"] },
@@ -707,7 +753,9 @@
             "maxLength": 512,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]+$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "label": {
@@ -715,7 +763,9 @@
             "maxLength": 200,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]*$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "transport": {
@@ -776,7 +826,9 @@
             "maxLength": 500,
             "allOf": [
               { "pattern": "^[^\\p{Cc}]*$" },
-              { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
             ]
           },
           "status": { "type": "string", "const": "declared" }
@@ -871,7 +923,9 @@
                 "maxLength": 500,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               },
               "remediation": {
@@ -879,7 +933,9 @@
                 "maxLength": 500,
                 "allOf": [
                   { "pattern": "^[^\\p{Cc}]*$" },
-                  { "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}]*$" }
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
                 ]
               }
             },

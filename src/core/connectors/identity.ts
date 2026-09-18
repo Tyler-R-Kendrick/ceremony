@@ -130,9 +130,21 @@ export const IDENTIFIER_LIMITS = Object.freeze({
 // a message that will be shown to a person or written to a log.
 const noControlCharacters = /^[^\p{Cc}]+$/u;
 const noControlCharactersOrEmpty = /^[^\p{Cc}]*$/u;
-// Explicit bidirectional controls can make one identifier read as another in
-// a review screen; nothing upstream needs them in an identifier or a version.
-const noBidiControls = /^[^\u{202A}-\u{202E}\u{2066}-\u{2069}]*$/u;
+/*
+ * Bidirectional formatting characters can make one identifier read as another
+ * on a review screen, which is the screen where someone decides what a
+ * connector may touch. Nothing upstream needs them in an identifier or a
+ * version.
+ *
+ * SEC-F7: the explicit embedding and isolate controls were refused, but the
+ * implicit marks were not. U+200E, U+200F and U+061C set the direction of the
+ * text that follows without opening a range that has to be closed, so they
+ * need no terminator and are the easier way to do the same thing: a reviewer
+ * approving `read-only` can be shown something that renders as
+ * `write-enabled`. Refused for the same reason and in the same place.
+ */
+const noBidiControls =
+  /^[^\u{202A}-\u{202E}\u{2066}-\u{2069}\u{200E}\u{200F}\u{061C}]*$/u;
 const notBlank = (value: string) => value.trim().length > 0;
 const traversal = /(^|[\\/])\.\.?([\\/]|$)/;
 
