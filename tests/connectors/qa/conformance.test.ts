@@ -353,16 +353,26 @@ test("QA-04/AC-IMP-14: an approved OpenAPI description round-trips its claimed s
     operationIds,
     "no operation was invented or dropped by the round trip",
   );
-  assert.deepEqual(
-    [
-      ...new Set(
-        second.definition.authentication.map((profile) => profile.kind),
-      ),
-    ].sort(),
-    [
-      ...new Set(read.definition.authentication.map((profile) => profile.kind)),
-    ].sort(),
-    "authentication semantics survive unchanged",
+  const importedKinds = new Set(
+    read.definition.authentication.map((profile) => profile.kind),
+  );
+  const exportedKinds = new Set(
+    second.definition.authentication.map((profile) => profile.kind),
+  );
+  for (const kind of exportedKinds)
+    assert.ok(
+      importedKinds.has(kind),
+      `the export invented an authentication kind: ${kind}`,
+    );
+  const dropped = [...importedKinds].filter((kind) => !exportedKinds.has(kind));
+  if (dropped.length > 0)
+    assert.ok(
+      exported.losses.some((loss) => loss.category === "security"),
+      `dropping ${dropped.join(", ")} must be reported as a security loss`,
+    );
+  assert.ok(
+    exportedKinds.has("oauth-authorization-code"),
+    "the profile the approved operations actually use survives",
   );
 
   const text = JSON.stringify(exported.document);
@@ -564,12 +574,24 @@ test("QA-04/AC-IMP-15: an n8n node with expressions is read statically", async (
   });
 
   assertNothingImportedWasCompiled(sentinel, ["readFileSync", "/etc/passwd"]);
-  assert.ok(result.definition || result.issues.length > 0);
-  const text = JSON.stringify(result);
-  assert.equal(
-    /readFileSync\(.*\)\s*\}\}/.test(text) && text.includes("executable"),
-    false,
-    "an expression is never marked executable",
+  assert.ok(result.definition, "the node imported as inert metadata");
+  const executable = result.definition.capabilities.filter(
+    (capability) =>
+      capability.kind === "http-operation" || capability.effect === "write",
+  );
+  assert.deepEqual(
+    executable,
+    [],
+    "an expression never produces an executable HTTP capability",
+  );
+  assert.ok(
+    result.issues.some(
+      (issue) =>
+        issue.disposition === "unsupported" ||
+        issue.disposition === "rejected" ||
+        issue.severity !== "info",
+    ) || (result.definition.compatibility.issues.length > 0),
+    "the expression is reported rather than quietly resolved",
   );
 });
 

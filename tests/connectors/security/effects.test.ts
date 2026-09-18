@@ -18,7 +18,7 @@ import { authHarness, type AuthHarness } from "../auth/harness.js";
 import {
   activeConnection,
   harness as nangoHarness,
-  makeConnection,
+  connectionRow,
   readOperation,
   writeOperation,
   CONNECTION_ID,
@@ -57,13 +57,14 @@ async function authorized(
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
     ...options,
+    server: { scopes: ["profile", "offline_access"], ...options.server },
   });
   const ctx = harness.ctx();
   const start = await beginAuthorizationCode(ctx, {
     server: harness.resolved,
     client: harness.client,
     policy: harness.policy,
-    scopes: ["openid"],
+    scopes: ["profile", "offline_access"],
   });
   if (start.kind !== "handoff") throw new Error("unreachable");
   const issued = await issueHandoff(ctx, start.handoff);
@@ -115,7 +116,7 @@ test("an authorization code is spent once even when the issuer would accept it t
     server: harness.resolved,
     client: harness.client,
     policy: harness.policy,
-    scopes: ["openid"],
+    scopes: ["profile", "offline_access"],
   });
   if (second.kind !== "handoff") throw new Error("unreachable");
   const reissued = await issueHandoff(ctx, second.handoff);
@@ -204,9 +205,7 @@ test("a handoff cannot be completed by another tenant's actor", async (t) => {
 });
 
 test("concurrent refreshes make one upstream request, and custody is not transferable", async (t) => {
-  const { harness, ctx, record, callback } = await authorized(t, {
-    server: { scopes: ["openid", "offline_access"] },
-  });
+  const { harness, ctx, record, callback } = await authorized(t);
   const completed = await completeAuthorizationCode(ctx, {
     url: callback,
     handoff: record,
@@ -350,6 +349,7 @@ test("a mutation whose response was lost is indeterminate, never retried blindly
       },
     },
     double: {
+      connections: [connectionRow()],
       proxy: () => {
         attempts++;
         // The gateway accepted the request and then the answer was lost.
@@ -466,9 +466,7 @@ test("a duplicate, misattributed or unverified broker delivery changes nothing",
     receivedAt: Date.now(),
   });
   assert.ok(crossed);
-  const mismatch = await harness.adapter.reconcileEvent(
-    harness.context({ connection: makeConnection(harness.binding) }),
-    crossed,
-  );
-  assert.notEqual(mismatch.lifecycle, "active");
+  const mismatch = await harness.adapter.reconcileEvent(ctx, crossed);
+  assert.equal(mismatch.code, "nango.event.connection-mismatch");
+  assert.equal(mismatch.lifecycle, undefined);
 });
