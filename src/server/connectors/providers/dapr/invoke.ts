@@ -198,20 +198,47 @@ export async function invokeDaprOutputBinding(
   );
   let response: Response;
   try {
-    response = await withApiToken(ctx, settings, (token) =>
-      ctx.environment.fetch(url, {
-        method: operation.transport.kind === "http" ? operation.transport.method : "POST",
-        redirect: "error",
-        signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          ...(token ? { [DAPR_API_TOKEN_HEADER]: token } : {}),
-        },
-        body: payload,
-      }),
-    );
+    /*
+     * The token is resolved first and separately: a missing one is a
+     * configuration failure that must not be reported as an unreachable
+     * sidecar, and no request is sent without it.
+     */
+    response = await withApiToken(ctx, settings, async (token) => {
+      try {
+        return await ctx.environment.fetch(url, {
+          method:
+            operation.transport.kind === "http"
+              ? operation.transport.method
+              : "POST",
+          redirect: "error",
+          signal: controller.signal,
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+            ...(token ? { [DAPR_API_TOKEN_HEADER]: token } : {}),
+          },
+          body: payload,
+        });
+      } catch (error) {
+        throw new ConnectorError(
+          ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
+          { detail: "dapr.sidecar.unreachable", cause: error },
+        );
+      }
+    });
   } catch (error) {
+    if (
+      error instanceof ConnectorError &&
+      error.detail !== "dapr.sidecar.unreachable"
+    ) {
+      // Nothing was sent, so nothing can be uncertain.
+      await ctx.environment.effects.complete(effectRef, {
+        status: "not-applied",
+        code: "dapr.request.not-sent",
+        at: ctx.environment.now(),
+      });
+      throw error;
+    }
     /*
      * A dropped connection after a write leaves the effect uncertain: the
      * binding invocation may have happened. It is recorded as indeterminate,
@@ -223,10 +250,12 @@ export async function invokeDaprOutputBinding(
       code: "dapr.sidecar.unreachable",
       at: ctx.environment.now(),
     });
-    throw new ConnectorError(
-      ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
-      { detail: "dapr.sidecar.unreachable", cause: error },
-    );
+    throw error instanceof ConnectorError
+      ? error
+      : new ConnectorError(
+          ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
+          { detail: "dapr.sidecar.unreachable", cause: error },
+        );
   } finally {
     clearTimeout(timer);
     ctx.signal.removeEventListener("abort", abort);

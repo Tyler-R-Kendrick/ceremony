@@ -42,7 +42,7 @@ Then add `https://your-tunnel.trycloudflare.com/mcp` as a connector in your chat
 
 ## What is not wired yet
 
-The in-chat collector is **not mounted by the reference application**, even behind a tunnel, so `privateCollection` reports `web-application-only` and credential entry stays in the browser. Mounting it needs the MCP App resource bundled as HTML, which has no build step yet. The gate itself is real and tested in both directions; what is missing is the bundle it would serve.
+The in-chat collector is **not mounted by the reference application**, even behind a tunnel, so `privateCollection` reports `web-application-only` and credential entry stays in the browser. The bundle it would serve now exists: `npm run build:mcp-app` builds `src/mcp-app/entry.ts` into one self-contained HTML document at `artifacts/mcp-app/collector.html`, `npm run check:mcp-app` checks it for drift, and `npm run build` runs the first of those. What is still missing is the wiring — the reference server never passes that document to `createCeremonyMcpHandler` as `collectorOrigins.appHtml`, so the collector stays unmounted. The gate itself is real and tested in both directions.
 
 Generation and discovery are not exposed over MCP either. `/api/config` reports `generationAvailable: false` on the hosted server, and `discoverCeremony` is not yet connected to an endpoint or a tool.
 
