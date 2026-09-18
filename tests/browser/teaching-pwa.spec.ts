@@ -59,11 +59,17 @@ test("AC-43: real static worker update and account switch preserve pending autho
       page.getByRole("link", { name: "Continue with GitHub", exact: true }),
     ).toBeVisible();
     // Install and update live in the app's own top bar, which the drawer's
-    // scrim covers; Escape closes the drawer without touching the run or the
-    // URL. Both surfaces stay mounted so the studio survives a glance at the
-    // directory, which puts a second, inert copy of these controls in the
-    // document — the banner is the one a person can actually reach.
-    await page.keyboard.press("Escape");
+    // scrim covers, so the drawer closes first. Its own Close button rather
+    // than Escape: a key goes to whatever holds focus, and after a service
+    // worker update in WebKit that is not reliably this document — the button
+    // is also what a person would reach for. Closing touches neither the run
+    // nor the URL. Both surfaces stay mounted so the studio survives a glance
+    // at the directory, which puts a second, inert copy of these controls in
+    // the document; the banner is the one a person can actually reach.
+    await page
+      .getByRole("dialog", { name: "Add Connection" })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     const topBar = page.getByRole("banner");
     await topBar.getByText("Install app", { exact: true }).click();
     await expect(topBar.getByRole("button", { name: /update/i })).toBeVisible();
