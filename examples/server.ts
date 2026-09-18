@@ -267,15 +267,30 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
     string,
     { expires: number; lastGeneration: number; generating: boolean }
   >();
+  /*
+   * A sibling store for one subsystem, beside the main database.
+   *
+   * `:memory:` is a SQLite keyword, not a path, so appending a suffix to it
+   * produces a real file called `:memory:.connectors` in the working
+   * directory. That is worse than untidy: a caller who asked for an in-memory
+   * store did so to get a clean slate, and a file quietly gives them state
+   * that outlives the process and is shared with the next run. A browser
+   * specification passes `databasePath: ":memory:"` and this is exactly what
+   * it got.
+   *
+   * So an in-memory base stays in memory, and only a real path is suffixed.
+   */
+  const siblingStore = (suffix: string): string =>
+    !options.live || options.live.databasePath === ":memory:"
+      ? ":memory:"
+      : `${options.live.databasePath}.${suffix}`;
+
   const teachingStore =
     options.teaching === true
-      ? new SQLiteCeremonyStore(
-          options.live ? `${options.live.databasePath}.teaching` : ":memory:",
-          {
-            current: "development",
-            keys: { development: options.live?.vaultKey ?? randomBytes(32) },
-          },
-        )
+      ? new SQLiteCeremonyStore(siblingStore("teaching"), {
+          current: "development",
+          keys: { development: options.live?.vaultKey ?? randomBytes(32) },
+        })
       : undefined;
   const teaching =
     options.teaching === true
@@ -388,13 +403,10 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
   const connectorStore =
     options.connectors === false
       ? undefined
-      : new SQLiteCeremonyStore(
-          options.live ? `${options.live.databasePath}.connectors` : ":memory:",
-          {
-            current: "development",
-            keys: { development: options.live?.vaultKey ?? randomBytes(32) },
-          },
-        );
+      : new SQLiteCeremonyStore(siblingStore("connectors"), {
+          current: "development",
+          keys: { development: options.live?.vaultKey ?? randomBytes(32) },
+        });
   /*
    * One composition for the whole connector surface. Two things here are
    * deliberate rather than convenient.
