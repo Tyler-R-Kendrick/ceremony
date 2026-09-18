@@ -120,6 +120,26 @@ export const blockedReasons = [
   "passkey-required",
   /** Credentials are demanded by a browser dialog, which has no page to fill. */
   "native-dialog",
+  /**
+   * The document that was observed is no longer the document in front of the
+   * driver. A page is free to navigate or re-render while an interpreter is
+   * thinking or a credential is being fetched; acting on what was seen before
+   * that would deliver a secret under an approval that no longer describes the
+   * page. The attempt stops instead of filling a replacement.
+   */
+  "stale-document",
+  /**
+   * The control that was approved is gone, hidden, disabled, or has been moved
+   * into a different form. Its replacement, however similar, was never
+   * approved.
+   */
+  "stale-element",
+  /**
+   * The submission would now reach somewhere the approval never covered —
+   * a changed `action`, a `formaction` override, a different method or a
+   * different target.
+   */
+  "unapproved-recipient",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -369,6 +389,140 @@ export function snapshotPageSource(indexAttribute: string): string {
     return snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) =>
       element.setAttribute('${indexAttribute}', String(index)));
   })()`;
+}
+
+/**
+ * Where a control's owning form would actually deliver, captured when the page
+ * was observed and recomputed immediately before the driver acts.
+ *
+ * A form's destination is not fixed by its `action` attribute alone: a
+ * submitter's `formaction`, `formmethod` and `formtarget` override it, a `base`
+ * element changes how a relative action resolves, and an input can be
+ * re-associated with a different form entirely. Approving a submission and then
+ * reading the destination again at action time is the only way to notice any of
+ * that happening while a model was thinking or a credential was being fetched.
+ */
+export type ElementDestination = {
+  /** Whether the control belongs to a form at all. */
+  form: boolean;
+  /** Absolute URL the submission would reach. */
+  action?: string;
+  method?: string;
+  target?: string;
+};
+
+/**
+ * Source of the destination reader, shared by the observation pass and the
+ * revalidation pass so the two can never drift apart and disagree about what
+ * "the same destination" means.
+ */
+export const destinationReaderSource = `((element) => {
+  const owner = element.form ?? (element.closest ? element.closest('form') : null);
+  if (!owner) return { form: false };
+  const has = (name) => typeof element.hasAttribute === 'function' && element.hasAttribute(name);
+  return {
+    form: true,
+    action: String(has('formaction') ? element.formAction : owner.action),
+    method: String(has('formmethod') ? element.formMethod : (owner.method || 'get')).toLowerCase(),
+    target: String(has('formtarget') ? element.formTarget : (owner.target || '')),
+  };
+})`;
+
+/**
+ * Observe a document and hand the *element objects* back to the driver rather
+ * than stamping the page with attributes that address them.
+ *
+ * `snapshotPageSource` writes `data-ceremony-index` on each captured control
+ * and a later action finds that element again with a selector. A page can move,
+ * duplicate or forge that attribute between the two, so the element acted on
+ * need not be the element that was approved. This source instead returns live
+ * references: the caller holds them outside the page, and no amount of DOM
+ * rewriting can make one of them point somewhere else.
+ *
+ * The result is only useful to a caller that can hold JavaScript references —
+ * an `evaluateHandle`, not an `evaluate`. Returning it by value would serialize
+ * the elements away and defeat the entire point.
+ */
+export function boundSnapshotSource(): string {
+  return `(() => {
+    const __name = (value) => value;
+    const snapshot = ${snapshotDocument.toString()};
+    const destination = ${destinationReaderSource};
+    const usable = ${elementUsableSource};
+    const sameForm = ${sameFormSource};
+    const elements = [];
+    const forms = [];
+    const result = snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) => {
+      elements[index] = element;
+      forms[index] = element.form ?? (element.closest ? element.closest('form') : null);
+    });
+    return {
+      snapshot: result,
+      elements,
+      forms,
+      destinations: elements.map((element) => destination(element)),
+      /**
+       * The document node itself. Comparing it later against the live
+       * document is what detects a navigation that stayed on the same
+       * origin — the case an origin comparison cannot see and a selector would
+       * happily resolve against the new page.
+       */
+      document,
+      origin: location.origin,
+      href: location.href,
+      /**
+       * The revalidation checks, defined here so the rules applied when an
+       * action is about to happen are literally the same code that described
+       * the page in the first place. They live on an object the driver holds a
+       * reference to and the page never receives, so they cannot be replaced.
+       */
+      destination,
+      usable,
+      sameForm,
+      /**
+       * Whether the page still shows the document this observation describes.
+       * Defined here, where \`document\` means the live one, so the driver
+       * never has to reach for a page global it does not have.
+       */
+      sameDocument: function () { return this.document === document; },
+    };
+  })()`;
+}
+
+/** Whether a held document node is still the document the page is showing. */
+export const sameDocumentSource = `((held) => held === document)`;
+
+/**
+ * Whether a control is still one the driver may act on: present in the live
+ * tree, visible, and not disabled or read-only. Evaluated against a held
+ * reference, so a replacement element fails it rather than inheriting approval.
+ */
+export const elementUsableSource = `((element) => {
+  if (!element || !element.isConnected) return false;
+  if (element.disabled === true || element.readOnly === true) return false;
+  const rects = typeof element.getClientRects === 'function' ? element.getClientRects() : [];
+  if (rects.length === 0) return false;
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
+  return !style || (style.visibility !== 'hidden' && style.display !== 'none');
+})`;
+
+/** Whether a held control still belongs to the exact form it was approved in. */
+export const sameFormSource = `((element, form) => {
+  const owner = element.form ?? (element.closest ? element.closest('form') : null);
+  return owner === form;
+})`;
+
+/** Two destinations agree only if every operative part of them agrees. */
+export function sameDestination(
+  approved: ElementDestination,
+  current: ElementDestination,
+): boolean {
+  return (
+    approved.form === current.form &&
+    approved.action === current.action &&
+    approved.method === current.method &&
+    approved.target === current.target
+  );
 }
 
 /**

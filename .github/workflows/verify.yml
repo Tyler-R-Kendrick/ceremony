@@ -5,6 +5,14 @@ on:
     branches: [main]
 permissions:
   contents: read
+env:
+  # `onnxruntime-node`'s postinstall downloads a CUDA execution-provider package
+  # from api.nuget.org. No runner here has a GPU, nothing in the suite uses that
+  # provider, and the fetch times out often enough to fail jobs before a single
+  # test body runs — which is a install failure wearing a test failure's clothes.
+  # The CPU runtime ships inside the package, so skipping the download changes
+  # nothing the tests can observe.
+  ONNXRUNTIME_NODE_INSTALL: skip
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -84,6 +92,52 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:security
+  browser-login:
+    # `verify` runs these too, but it reports each stage as counts alone: its
+    # stage output is captured and discarded by design, so a failure there says
+    # "1 failed" and the file it lived in, and nothing more. That is the same
+    # reason the `security` job exists.
+    #
+    # These suites drive three real browser engines, and a failure that only
+    # reproduces on a CI machine — not on Node 22, not on Node 24, not under the
+    # coverage harness pinned to four CPUs — is precisely the one whose name you
+    # need before you can fix it rather than guess at it. Running them here,
+    # outside the wrapper and one file at a time, means the failure arrives with
+    # the test that failed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
+  coverage:
+    # `verify`'s largest stage is `test:coverage`, and the wrapper reports it as
+    # counts plus the file a failure lived in — by design, because the retained
+    # verification record stores allowlisted inventory names and never raw
+    # diagnostics. That is right for the artifact and useless for fixing
+    # anything: "1 failed in tests/foo.test.ts" does not say which test.
+    #
+    # Running the same npm script here, outside the wrapper, puts the failing
+    # test's name in the log while leaving the sanitized artifact exactly as it
+    # is. Same reason the `security` and `browser-login` jobs exist. The browser
+    # engines are installed because the coverage run discovers every suite,
+    # including the ones that drive all three.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:coverage
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
@@ -119,7 +173,12 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # The mutation runner establishes an unmutated baseline over every
+      # discovered test file first, and the browser-login conformance and
+      # stale-target suites drive all three engines. Installing only Chromium
+      # made that baseline fail on a missing executable, which is not a
+      # mutation result and is not a reason to narrow what those suites cover.
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:mutation -- --mutate "${{ matrix.file }}"
       - uses: actions/upload-artifact@v4
         if: always()

@@ -34,6 +34,7 @@ import {
   saveAuthoredAccountIntent,
 } from "./authored-operations.js";
 import { ceremonyAgentTools } from "./agent-tools.js";
+import { browserToolFailure } from "./browser-login-tools.js";
 import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
@@ -314,6 +315,23 @@ async function toolHttp(
   }
   if (path === "/tools/advance") return reply(await tools.advance(actor, body));
   if (path === "/tools/cancel") return reply(await tools.cancel(actor, body));
+  // The retained-browser operations run through the same authenticated actor,
+  // the same capability check and the same rate reservation as the four above;
+  // the only thing that differs is which shared implementation answers. A
+  // deployment with no browser executor offers no route rather than a route
+  // that always refuses, so a client can tell "not here" from "not allowed".
+  if (path.startsWith("/tools/browser-")) {
+    const browser = runtime.browserLogin;
+    if (!browser) return reply({ error: "unavailable" }, 404);
+    if (path === "/tools/browser-login")
+      return reply(await browser.login(actor, body));
+    if (path === "/tools/browser-session-status")
+      return reply(await browser.sessionStatus(actor, body));
+    if (path === "/tools/browser-release")
+      return reply(await browser.release(actor, body));
+    if (path === "/tools/browser-backends")
+      return reply(await browser.backends(actor, body));
+  }
   return reply({ error: "unavailable" }, 404);
 }
 
@@ -981,6 +999,15 @@ function errorResponse(error: unknown): Response {
     return reply({ error: "incomplete-github-configuration" }, 409);
   if (error instanceof PersistenceConflict)
     return reply({ error: "conflict" }, 409);
+  // Browser-session failures carry two enum members and nothing else: no
+  // exception, no stack, no browser object, and no origin or URL that a caller
+  // supplied and could see echoed back into a log.
+  const browser = browserToolFailure(error);
+  if (browser)
+    return reply(
+      { error: browser.code, reason: browser.reason },
+      browser.status,
+    );
   if (error instanceof AuthorizationError)
     return reply(
       { error: error.code },

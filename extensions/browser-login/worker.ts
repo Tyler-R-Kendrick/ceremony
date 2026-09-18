@@ -9,11 +9,34 @@ import {
 import { selectInitialStep } from "../../src/browser-login/flows.js";
 import {
   classifyHandoff,
+  createHandoffWaits,
   handoffEventSchema,
+  handoffReplyMessageSchema,
+  mintHandoffRef,
   type HandoffPort,
   type HandoffReason,
   type HandoffResolution,
 } from "../../src/browser-login/handoffs.js";
+import { createPlatform } from "./platform.js";
+
+// Chromium and Gecko disagree about dialect and about document binding, and
+// about nothing else this worker does. The seam keeps one copy of every check.
+const platform = createPlatform();
+/** True where the engine will name and target a document for us. */
+const binds = platform.capabilities.documentIdMessaging;
+/**
+ * Where the engine binds delivery to a document id, use it. Where it does not,
+ * address the frame and let the message carry the document's own reference, so
+ * a navigated-away document still cannot answer for the one that was observed.
+ */
+function delivery(documentId: string, frameId?: number) {
+  if (binds)
+    return frameId === undefined ? { documentId } : { documentId, frameId };
+  return { frameId: frameId ?? 0 };
+}
+function bound(documentId: string, message: Record<string, unknown>) {
+  return binds ? message : { ...message, document: documentId };
+}
 
 const request = z.discriminatedUnion("type", [
   z.strictObject({
@@ -62,88 +85,137 @@ type Run = {
 };
 const active = new Set<string>();
 async function open() {
-  await chrome.tabs.create({ url: chrome.runtime.getURL("ui.html") });
+  await platform.tabs.create({ url: platform.runtime.getURL("ui.html") });
 }
-chrome.action.onClicked.addListener(() => {
+platform.action.onClicked(() => {
   void open();
 });
-chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
+/**
+ * The app bridge is a build-time fact, not a capability to sniff: Chromium
+ * admits the page through `externally_connectable`, Gecko ignores that key
+ * entirely and the only supported channel is a content script the manifest
+ * admits on the app origins. Each path answers only in the mode its own
+ * artifact was built for, so a message arriving by the other route is refused
+ * rather than quietly accepted.
+ */
+type BridgeConfig = {
+  appOrigins: string[];
+  appBridge: "externally-connectable" | "content-relay";
+};
+async function bridgeConfig(): Promise<BridgeConfig> {
+  return (await (
+    await fetch(platform.runtime.getURL("config.json"))
+  ).json()) as BridgeConfig;
+}
+const appRequest = z.strictObject({
+  type: z.enum(["ceremony.ping", "ceremony.open"]),
+  protocol: z.literal(1),
+});
+/**
+ * One admission test for both bridges. The origin is the one the browser
+ * attests for the sender, never one the message claims, and it is compared for
+ * equality against the exact configured origins — scheme, host and port.
+ */
+async function answerApp(
+  origin: string | undefined,
+  message: unknown,
+  admitted: string[],
+) {
+  if (!origin || !admitted.includes(origin))
+    return { error: "unapproved-origin" };
+  const parsed = appRequest.safeParse(message);
+  if (!parsed.success) return { error: "unsupported-request" };
+  if (parsed.data.type === "ceremony.open") await open();
+  return { protocol: 1, version: platform.runtime.getManifestVersion() };
+}
+platform.runtime.onMessageExternal((message, sender, reply) => {
   void (async () => {
-    const config = (await (
-      await fetch(chrome.runtime.getURL("config.json"))
-    ).json()) as { appOrigins: string[] };
-    if (!sender.url || !config.appOrigins.includes(new URL(sender.url).origin))
-      return reply({ error: "unapproved-origin" });
-    const parsed = z
-      .strictObject({
-        type: z.enum(["ceremony.ping", "ceremony.open"]),
-        protocol: z.literal(1),
-      })
-      .safeParse(message);
-    if (!parsed.success) return reply({ error: "unsupported-request" });
-    if (parsed.data.type === "ceremony.open") await open();
-    reply({ protocol: 1, version: chrome.runtime.getManifest().version });
+    const config = await bridgeConfig();
+    if (config.appBridge !== "externally-connectable")
+      return reply({ error: "unavailable" });
+    reply(
+      await answerApp(
+        sender.url ? new URL(sender.url).origin : undefined,
+        message,
+        config.appOrigins,
+      ),
+    );
   })().catch(() => reply({ error: "unavailable" }));
   return true;
 });
 const handoffPorts = new Set<HandoffPort>();
-type HandoffWait = {
-  finish: (value: HandoffResolution) => void;
-  remaining: Set<HandoffPort>;
-};
-const handoffWaits = new Map<string, HandoffWait>();
-function settleHandoff(id: string, value: HandoffResolution) {
-  const wait = handoffWaits.get(id);
-  if (!wait) return;
-  handoffWaits.delete(id);
-  wait.finish(value);
+const handoffWaits = createHandoffWaits();
+function admitHandoffPort(port: HandoffPort) {
+  handoffPorts.add(port);
+  port.onMessage.addListener((raw) => {
+    const parsed = handoffReplyMessageSchema.safeParse(raw);
+    if (!parsed.success) return;
+    // An approved origin earns a channel, not a vote: the registry accepts the
+    // answer only from a port this exact attempt was handed to.
+    handoffWaits.reply(port, parsed.data);
+  });
+  port.onDisconnect.addListener(() => {
+    handoffPorts.delete(port);
+    handoffWaits.dropPort(port);
+  });
 }
-chrome.runtime.onConnectExternal.addListener((port) => {
+platform.runtime.onConnectExternal((port) => {
   void (async () => {
-    const config = (await (
-      await fetch(chrome.runtime.getURL("config.json"))
-    ).json()) as { appOrigins: string[] };
+    const config = await bridgeConfig();
     const origin = port.sender?.url && new URL(port.sender.url).origin;
     if (
+      config.appBridge !== "externally-connectable" ||
       !origin ||
       !config.appOrigins.includes(origin) ||
       port.name !== "ceremony.handoffs"
     )
       return port.disconnect();
-    handoffPorts.add(port);
-    port.onMessage.addListener((raw) => {
-      const parsed = z
-        .strictObject({
-          type: z.literal("ceremony.resolve-handoff"),
-          runId: z.string().uuid(),
-          resolution: z.enum(["completed", "declined", "unavailable"]),
-        })
-        .safeParse(raw);
-      if (!parsed.success) return;
-      const wait = handoffWaits.get(parsed.data.runId);
-      if (!wait) return;
-      wait.remaining.delete(port);
-      if (
-        parsed.data.resolution === "completed" ||
-        parsed.data.resolution === "declined"
-      )
-        settleHandoff(parsed.data.runId, parsed.data.resolution);
-      else if (wait.remaining.size === 0)
-        settleHandoff(parsed.data.runId, "unavailable");
-    });
-    port.onDisconnect.addListener(() => {
-      handoffPorts.delete(port);
-      for (const [id, wait] of handoffWaits) {
-        wait.remaining.delete(port);
-        if (wait.remaining.size === 0) settleHandoff(id, "unavailable");
-      }
-    });
+    admitHandoffPort(port);
   })().catch(() => port.disconnect());
 });
-chrome.runtime.onMessage.addListener((raw, sender, reply) => {
+// Gecko's relay reaches the worker as an ordinary internal connection. It is
+// held to the same two facts as the external port: our own extension is the
+// sender, and the page it runs in is one of the exact admitted app origins.
+platform.runtime.onConnect((port) => {
+  void (async () => {
+    const config = await bridgeConfig();
+    const origin = port.sender?.url && new URL(port.sender.url).origin;
+    if (
+      config.appBridge !== "content-relay" ||
+      port.sender?.id !== platform.runtime.id ||
+      !origin ||
+      !config.appOrigins.includes(origin) ||
+      port.name !== "ceremony.handoffs"
+    )
+      return port.disconnect();
+    admitHandoffPort(port);
+  })().catch(() => port.disconnect());
+});
+const relayedApp = z.strictObject({
+  type: z.literal("ceremony.relay"),
+  request: z.unknown(),
+});
+platform.runtime.onMessage((raw, sender, reply) => {
+  const relayed = relayedApp.safeParse(raw);
+  if (!relayed.success || sender.id !== platform.runtime.id) return;
+  void (async () => {
+    const config = await bridgeConfig();
+    if (config.appBridge !== "content-relay")
+      return reply({ error: "unavailable" });
+    reply(
+      await answerApp(
+        sender.url ? new URL(sender.url).origin : undefined,
+        relayed.data.request,
+        config.appOrigins,
+      ),
+    );
+  })().catch(() => reply({ error: "unavailable" }));
+  return true;
+});
+platform.runtime.onMessage((raw, sender, reply) => {
   if (
-    sender.id !== chrome.runtime.id ||
-    sender.url !== chrome.runtime.getURL("ui.html")
+    sender.id !== platform.runtime.id ||
+    sender.url !== platform.runtime.getURL("ui.html")
   )
     return;
   void handle(raw)
@@ -160,27 +232,30 @@ async function handle(raw: unknown) {
   const input = request.parse(raw);
   if (input.type === "inspect") {
     const origin = admittedOrigin(input.origin);
-    const tab = await chrome.tabs.get(input.tabId);
+    const tab = await platform.tabs.get(input.tabId);
     if (
       !tab.url ||
       new URL(tab.url).origin !== origin ||
-      !(await chrome.permissions.contains({ origins: [`${origin}/*`] }))
+      !(await platform.permissions.contains({ origins: [`${origin}/*`] }))
     )
       throw new Error("permission");
-    const injected = await chrome.scripting.executeScript({
+    const injected = await platform.scripting.executeScript({
       target: { tabId: input.tabId },
       files: ["content.js"],
     });
-    const documentId = injected[0]?.documentId;
-    if (!documentId) throw new Error("document");
+    const native = injected[0]?.documentId;
+    if (binds ? !native : !injected.length) throw new Error("document");
     const page = observationSchema.parse(
-      await chrome.tabs.sendMessage(
+      await platform.tabs.sendMessage(
         input.tabId,
         { type: "observe" },
-        { documentId },
+        native ? { documentId: native } : { frameId: 0 },
       ),
     );
     if (page.origin !== origin) throw new Error("origin");
+    // Where the engine will not name the document, the document names itself:
+    // the reference the isolated world minted for it is the run's binding.
+    const documentId = native ?? page.document;
     const runId = crypto.randomUUID();
     const run: Run = {
       tabId: input.tabId,
@@ -190,13 +265,13 @@ async function handle(raw: unknown) {
       expires: Date.now() + 120_000,
       dispatched: false,
     };
-    await chrome.storage.session.set({ [runId]: run });
+    await platform.sessionStorage.set({ [runId]: run });
     return { runId, page, expires: run.expires };
   }
   if (input.type === "cancel") {
     cancelled.add(input.runId);
-    settleHandoff(input.runId, "unavailable");
-    await chrome.storage.session.remove(input.runId);
+    handoffWaits.abandonRun(input.runId, "unavailable");
+    await platform.sessionStorage.remove(input.runId);
     return { status: "cancelled" };
   }
   if (input.type === "multi-inspect") return inspectMulti(input);
@@ -205,30 +280,30 @@ async function handle(raw: unknown) {
   if (active.has(input.runId)) throw new Error("busy");
   active.add(input.runId);
   try {
-    const stored = (await chrome.storage.session.get(input.runId))[
+    const stored = (await platform.sessionStorage.get(input.runId))[
       input.runId
     ] as Run | undefined;
     if (!stored || stored.dispatched || stored.expires <= Date.now())
       throw new Error("expired");
-    const tab = await chrome.tabs.get(stored.tabId);
+    const tab = await platform.tabs.get(stored.tabId);
     if (!tab.url || new URL(tab.url).origin !== stored.origin)
       throw new Error("changed");
     const step = validateMapping(stored.page, input.mapping);
     if (!step) throw new Error("mapping");
     // Reserve before dispatch. Interrupted submissions are never replayed.
-    await chrome.storage.session.set({
+    await platform.sessionStorage.set({
       [input.runId]: { ...stored, dispatched: true },
     });
     try {
-      return await chrome.tabs.sendMessage(
+      return await platform.tabs.sendMessage(
         stored.tabId,
-        {
+        bound(stored.documentId, {
           type: "apply",
           step,
           username: input.username,
           password: input.password,
-        },
-        { documentId: stored.documentId },
+        }),
+        delivery(stored.documentId),
       );
     } catch {
       return { status: "indeterminate" };
@@ -263,8 +338,8 @@ type MultiRun = {
 };
 type Input = z.infer<typeof request>;
 async function checkTarget(run: MultiRun) {
-  const original = await chrome.tabs.get(run.originalTabId);
-  const tab = await chrome.tabs.get(run.tabId);
+  const original = await platform.tabs.get(run.originalTabId);
+  const tab = await platform.tabs.get(run.tabId);
   if (
     !original.url ||
     new URL(original.url).origin !== run.originalOrigin ||
@@ -274,32 +349,36 @@ async function checkTarget(run: MultiRun) {
   )
     throw new Error("origin or opener changed");
   for (const origin of new Set([run.topOrigin, run.origin]))
-    if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] })))
+    if (!(await platform.permissions.contains({ origins: [`${origin}/*`] })))
       throw new Error("permission");
 }
 async function observeMulti(run: MultiRun) {
   await checkTarget(run);
-  const injected = await chrome.scripting.executeScript({
+  const injected = await platform.scripting.executeScript({
     target: { tabId: run.tabId, frameIds: [run.frameId] },
     files: ["content.js"],
   });
-  const documentId = injected[0]?.documentId;
-  if (!documentId || injected.length !== 1) throw new Error("document");
+  const native = injected[0]?.documentId;
+  if ((binds && !native) || injected.length !== 1) throw new Error("document");
   const page = observationSchema.parse(
-    await chrome.tabs.sendMessage(
+    await platform.tabs.sendMessage(
       run.tabId,
       { type: "observe" },
-      { documentId, frameId: run.frameId },
+      native
+        ? { documentId: native, frameId: run.frameId }
+        : { frameId: run.frameId },
     ),
   );
   if (page.origin !== run.origin) throw new Error("frame origin");
-  return { documentId, page };
+  // Same binding either way: the engine's document id where there is one, and
+  // otherwise the reference this very document minted in the isolated world.
+  return { documentId: native ?? page.document, page };
 }
 async function checkpoint(id: string, run: MultiRun) {
   if (cancelled.has(id)) throw new Error("cancelled");
-  await chrome.storage.session.set({ [id]: run });
+  await platform.sessionStorage.set({ [id]: run });
   if (cancelled.has(id)) {
-    await chrome.storage.session.remove(id);
+    await platform.sessionStorage.remove(id);
     throw new Error("cancelled");
   }
 }
@@ -315,8 +394,12 @@ async function offerRunHandoff(
     return { status: "handoff" as const, reason, resolution: "unavailable" };
   }
   run.handoffs++;
+  // Each ask gets its own identity, so a second attempt is a different thing to
+  // answer than the first rather than a reuse of the run's address.
+  const handoffRef = mintHandoffRef();
   const event = handoffEventSchema.parse({
     kind: "handoff",
+    handoffRef,
     runId: id,
     reason,
     origin: run.origin,
@@ -327,12 +410,16 @@ async function offerRunHandoff(
   if (handoffPorts.size > 0) {
     try {
       resolution = await new Promise<HandoffResolution>((resolve) => {
+        // Scoped to this attempt: an earlier attempt's expiry is not a verdict
+        // on a later one.
         const timer = setTimeout(
-          () => settleHandoff(id, "unavailable"),
+          () => handoffWaits.settle(handoffRef, "unavailable"),
           Math.max(0, run.expires - Date.now()),
         );
-        handoffWaits.set(id, {
-          remaining: new Set(handoffPorts),
+        handoffWaits.open({
+          handoffRef,
+          runId: id,
+          resolvers: handoffPorts,
           finish: (value) => {
             clearTimeout(timer);
             resolve(value);
@@ -342,7 +429,7 @@ async function offerRunHandoff(
           port.postMessage({ type: "ceremony.handoff", event });
       });
     } catch (error) {
-      settleHandoff(id, "unavailable");
+      handoffWaits.settle(handoffRef, "unavailable");
       throw error;
     }
   }
@@ -369,7 +456,7 @@ async function inspectMulti(input: Extract<Input, { type: "multi-inspect" }>) {
   if (input.popupTabId !== undefined || input.popupUrl !== undefined) {
     if (input.popupTabId === undefined || !input.popupUrl)
       throw new Error("popup");
-    const popup = await chrome.tabs.get(input.popupTabId);
+    const popup = await platform.tabs.get(input.popupTabId);
     if (
       popup.openerTabId !== input.tabId ||
       popup.url !== input.popupUrl ||
@@ -428,7 +515,7 @@ async function advanceMulti(
   if (active.has(id) || cancelled.has(id)) throw new Error("busy or cancelled");
   active.add(id);
   try {
-    const run = (await chrome.storage.session.get(id))[id] as
+    const run = (await platform.sessionStorage.get(id))[id] as
       MultiRun | undefined;
     if (
       !run ||
@@ -459,14 +546,14 @@ async function advanceMulti(
           run.profile === "owned-fixture-login" &&
           new URL(run.origin).hostname === "127.0.0.1"
         ) {
-          const result = await chrome.tabs.sendMessage(
+          const result = await platform.tabs.sendMessage(
             run.tabId,
-            {
+            bound(run.documentId, {
               type: "verify-fixture",
               origin: run.origin,
               expectedAccount: run.expectedAccount,
-            },
-            { documentId: run.documentId, frameId: run.frameId },
+            }),
+            delivery(run.documentId, run.frameId),
           );
           verified = (result as { verified?: boolean })?.verified === true;
         }
@@ -515,15 +602,15 @@ async function advanceMulti(
     await checkpoint(id, run);
     if (cancelled.has(id)) throw new Error("cancelled");
     try {
-      const result = (await chrome.tabs.sendMessage(
+      const result = (await platform.tabs.sendMessage(
         run.tabId,
-        {
+        bound(run.documentId, {
           type: "apply",
           step,
           ...(step.mapping.identifier ? { username: input.username } : {}),
           ...(step.mapping.password ? { password: input.password } : {}),
-        },
-        { documentId: run.documentId, frameId: run.frameId },
+        }),
+        delivery(run.documentId, run.frameId),
       )) as { status?: string };
       if (result.status === "refused") {
         run.phase = "done";
