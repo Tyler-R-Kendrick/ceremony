@@ -8,7 +8,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Measured rather than guessed, after one raise that was propped up by a
+    # real defect and correctly reverted. On main at d741eed this job finished
+    # in 22m03s against a 25-minute cap; at 96b43e9 on this branch `npm run
+    # verify` took 23m05s and completed with 21 seconds to spare — but only
+    # because 23 browser tests aborted early on a failed above-the-fold
+    # assertion. Fixing that assertion made those tests run their bodies, and
+    # the next run was cancelled at 25m18s with webkit still going.
+    #
+    # The shape of the job is why it is close: ~12m17s is spent before the
+    # browsers start at all (npm ci and three engine downloads, then
+    # format/check, test:coverage at 2m16s and test:security:mutation at
+    # 7m20s), leaving the whole four-project Playwright suite the remainder.
+    # 45 leaves room for that suite plus runner variance, rather than
+    # re-tuning this on the next change that adds a browser case.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
