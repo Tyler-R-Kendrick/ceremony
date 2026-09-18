@@ -8,9 +8,7 @@
         "tests/connectors/qa/doubles/pinned.ts",
         "tests/connectors/qa/protocol-conformance.test.ts"
       ],
-      "tests": [
-        "tests/connectors/qa/protocol-conformance.test.ts"
-      ],
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
       "acceptanceIds": [
         "AC-NG-01",
         "AC-NG-03",
@@ -41,9 +39,7 @@
         "tests/connectors/qa/harness.ts",
         "tests/connectors/qa/acceptance-matrix.test.ts"
       ],
-      "tests": [
-        "tests/connectors/qa/acceptance-matrix.test.ts"
-      ],
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
       "acceptanceIds": [
         "AC-AUTH-01",
         "AC-AUTH-02",
@@ -61,9 +57,7 @@
         "AC-MCP-06"
       ],
       "evidenceLevel": "local-integration",
-      "sourceProfileIds": [
-        "ceremony-connector-http-v1"
-      ],
+      "sourceProfileIds": ["ceremony-connector-http-v1"],
       "limitations": [
         "Runs against the fixture provider and the fixture adapter registered by the command harness; provider-specific oracles stay with the provider swarms' own suites."
       ],
@@ -72,12 +66,8 @@
     {
       "id": "QA-03",
       "status": "implemented",
-      "files": [
-        "tests/connectors/qa/resilience.test.ts"
-      ],
-      "tests": [
-        "tests/connectors/qa/resilience.test.ts"
-      ],
+      "files": ["tests/connectors/qa/resilience.test.ts"],
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
       "acceptanceIds": [
         "AC-MCP-03",
         "AC-STATE-01",
@@ -91,9 +81,7 @@
         "AC-UX-04"
       ],
       "evidenceLevel": "local-integration",
-      "sourceProfileIds": [
-        "ceremony-connector-http-v1"
-      ],
+      "sourceProfileIds": ["ceremony-connector-http-v1"],
       "limitations": [
         "Process restart is exercised at the durable boundary (the effect journal and the persisted intent), not by killing and relaunching a process: the harness builds its store and ports in one constructor and does not expose a second service over the same ports.",
         "Rate limiting is exercised against a provider that answers 429 with Retry-After in the QA-01 suite; the command-level assertion here is limited to error sanitization and preserved state.",
@@ -104,12 +92,8 @@
     {
       "id": "QA-04",
       "status": "implemented",
-      "files": [
-        "tests/connectors/qa/conformance.test.ts"
-      ],
-      "tests": [
-        "tests/connectors/qa/conformance.test.ts"
-      ],
+      "files": ["tests/connectors/qa/conformance.test.ts"],
+      "tests": ["tests/connectors/qa/conformance.test.ts"],
       "acceptanceIds": [
         "AC-IMP-01",
         "AC-IMP-03",
@@ -135,17 +119,9 @@
     {
       "id": "QA-05",
       "status": "partial",
-      "files": [
-        "tests/connectors/qa/isolation.test.ts"
-      ],
-      "tests": [
-        "tests/connectors/qa/isolation.test.ts"
-      ],
-      "acceptanceIds": [
-        "AC-PKG-01",
-        "AC-PKG-02",
-        "AC-UX-05"
-      ],
+      "files": ["tests/connectors/qa/isolation.test.ts"],
+      "tests": ["tests/connectors/qa/isolation.test.ts"],
+      "acceptanceIds": ["AC-PKG-01", "AC-PKG-02", "AC-UX-05"],
       "evidenceLevel": "unit",
       "sourceProfileIds": [],
       "limitations": [
@@ -162,12 +138,8 @@
         "tests/connectors/qa/live-manifest.ts",
         "tests/connectors/qa/live-smoke.test.ts"
       ],
-      "tests": [
-        "tests/connectors/qa/live-smoke.test.ts"
-      ],
-      "acceptanceIds": [
-        "AC-PKG-03"
-      ],
+      "tests": ["tests/connectors/qa/live-smoke.test.ts"],
+      "acceptanceIds": ["AC-PKG-03"],
       "evidenceLevel": "unit",
       "sourceProfileIds": [
         "nango-http-api-2026-09",
@@ -220,5 +192,426 @@
     "Every live-authorized and deployed oracle is blocked: no authorized credentials and no operator consent exist here. Reported machine-readably by tests/connectors/qa/live-smoke.test.ts, never inferred from a fixture.",
     "Cross-swarm suites not re-run by QA: supabase (fixed port 4427), ux and tests/browser (fixed ports 4173/4174), microsoft, docker-mcp, smithery, auth0, workos, and tests/contracts. Their claims are unverified by this swarm."
   ],
-  "externalEffectsPerformed": []
+  "externalEffectsPerformed": [],
+  "acceptanceMatrix": [
+    {
+      "acceptanceId": "AC-AUTH-01",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "a forged tenant, subject or owner in the request body grants nothing",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/commands/registration.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-02",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "two tenants are isolated even when they name the same account",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/ports.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-03",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "the code exchange satisfies RFC 7636 against an independent server",
+      "implementationFiles": [
+        "src/server/connectors/auth/authorization-code.ts",
+        "src/server/connectors/auth/discovery.ts",
+        "src/server/connectors/auth/client.ts",
+        "src/server/connectors/auth/handoff.ts",
+        "src/server/connectors/auth/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-06",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "a replayed authorization code is refused by both sides",
+      "implementationFiles": [
+        "src/server/connectors/auth/authorization-code.ts",
+        "src/server/connectors/auth/discovery.ts",
+        "src/server/connectors/auth/client.ts",
+        "src/server/connectors/auth/handoff.ts",
+        "src/server/connectors/auth/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-07",
+      "tests": [
+        "tests/connectors/qa/acceptance-matrix.test.ts",
+        "tests/connectors/qa/resilience.test.ts"
+      ],
+      "assertions": "a delayed callback cannot revive a cancelled attempt ; a callback for a superseded generation cannot reactivate the connection",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/ports.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-09",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "a reconnect that returns a different account cannot silently replace the verified one",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-13",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "a claimed approval is not an approval; consent is enforced server side",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-AUTH-14",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "a callback whose correlation belongs to nothing is refused",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/auth/handoff.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-01",
+      "tests": ["tests/connectors/qa/conformance.test.ts"],
+      "assertions": "every shipped v1 manifest still parses and survives upgrade and downgrade ; an upgraded envelope adds no executable field",
+      "implementationFiles": [
+        "src/core/connectors/envelope.ts",
+        "src/core/connector-authoring.ts",
+        "src/core/schema.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-02",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "the directory separates implementation, configuration and evidence",
+      "implementationFiles": [
+        "src/server/connectors/inventory.ts",
+        "src/core/connectors/projections.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-03",
+      "tests": [
+        "tests/connectors/qa/protocol-conformance.test.ts",
+        "tests/connectors/qa/conformance.test.ts"
+      ],
+      "assertions": "a hierarchical server name is percent-encoded exactly once ; a native identifier survives path encoding ; distinct identities never collide",
+      "implementationFiles": [
+        "src/core/connectors/identity.ts",
+        "src/server/connectors/registries/mcp/client.ts",
+        "src/server/connectors/registries/mcp/schemas.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-13",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "an imported secret canary never reaches a public projection",
+      "implementationFiles": [
+        "src/core/connectors/projections.ts",
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-14",
+      "tests": ["tests/connectors/qa/conformance.test.ts"],
+      "assertions": "an approved OpenAPI description round-trips its claimed semantics ; exporting without an approved binding drops operations and says so ; an omitted authentication alternative is reported as a loss ; any loss the export takes is reported",
+      "implementationFiles": [
+        "src/server/connectors/formats/openapi/read.ts",
+        "src/server/connectors/formats/openapi/compile.ts",
+        "src/server/connectors/formats/openapi/export.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-15",
+      "tests": ["tests/connectors/qa/conformance.test.ts"],
+      "assertions": "Zapier, n8n and Workato sources are read statically and never compiled",
+      "implementationFiles": [
+        "src/server/connectors/formats/zapier/read.ts",
+        "src/server/connectors/formats/n8n/read.ts",
+        "src/server/connectors/formats/workato/read.ts",
+        "src/server/connectors/formats/automation/definition.ts",
+        "src/server/connectors/formats/automation/js-literals.ts",
+        "src/server/connectors/formats/automation/ruby-literals.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-IMP-16",
+      "tests": [
+        "tests/connectors/qa/resilience.test.ts",
+        "tests/connectors/qa/conformance.test.ts"
+      ],
+      "assertions": "re-importing a changed source does not silently move an approved binding ; the digest changes when only a diagnostic changes ; the digest is the canonical normalized digest",
+      "implementationFiles": [
+        "src/server/connectors/formats/openapi/read.ts",
+        "src/server/connectors/formats/openapi/compile.ts",
+        "src/server/connectors/formats/openapi/export.ts",
+        "src/core/connectors/envelope.ts",
+        "src/server/connectors/commands/service.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-MCP-03",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "a lost response leaves an uncertain effect, and the repeat does not re-apply it",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/ports.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-MCP-06",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "an unauthenticated caller and a stopped assistant are denied alike",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/commands/tools.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-MCP-07",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "the registry client follows documented cursor pagination ; a tombstone is a status, not a disappearance ; an unrecognized continuation marker truncates silently ; a registry outage is reported",
+      "implementationFiles": [
+        "src/server/connectors/registries/mcp/client.ts",
+        "src/server/connectors/registries/mcp/schemas.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-NG-01",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "the Nango connect session matches the documented request exactly",
+      "implementationFiles": [
+        "src/server/connectors/providers/nango/index.ts",
+        "src/server/connectors/providers/nango/api.ts",
+        "src/server/connectors/providers/nango/sessions.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-NG-03",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "verification reads the correlated list, never a credential-bearing route",
+      "implementationFiles": [
+        "src/server/connectors/providers/nango/index.ts",
+        "src/server/connectors/providers/nango/api.ts",
+        "src/server/connectors/providers/nango/sessions.ts",
+        "src/server/connectors/providers/nango/inspect.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-NG-06",
+      "tests": ["tests/connectors/qa/protocol-conformance.test.ts"],
+      "assertions": "an operation outside the binding never reaches the provider",
+      "implementationFiles": [
+        "src/server/connectors/providers/nango/index.ts",
+        "src/server/connectors/providers/nango/api.ts",
+        "src/server/connectors/providers/nango/sessions.ts",
+        "src/server/connectors/binding.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-01",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "two concurrent workers issuing one command produce one upstream effect",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/ports.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-02",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "a lost response leaves durable intent that the restart path reconciles",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-03",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "local unlink, broker delete and upstream revoke are distinct intents",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-05",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "source drift leaves the approved binding pinned",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/formats/openapi/read.ts",
+        "src/server/connectors/formats/openapi/compile.ts",
+        "src/server/connectors/formats/openapi/export.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-06",
+      "tests": [
+        "tests/connectors/qa/protocol-conformance.test.ts",
+        "tests/connectors/qa/resilience.test.ts"
+      ],
+      "assertions": "a documented 429 with Retry-After becomes a bounded connector error ; an unreachable provider preserves state and reports a sanitized error",
+      "implementationFiles": [
+        "src/server/connectors/providers/nango/index.ts",
+        "src/server/connectors/providers/nango/api.ts",
+        "src/server/connectors/providers/nango/sessions.ts",
+        "src/server/connectors/errors.ts",
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-STATE-07",
+      "tests": ["tests/connectors/qa/resilience.test.ts"],
+      "assertions": "a duplicated delivery is admitted once ; dedupe is scoped by tenant ; an out-of-order delivery is labelled",
+      "implementationFiles": [
+        "src/server/connectors/events/inbox.ts",
+        "src/server/connectors/events/envelope.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-UX-02",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "consent is enforced server side, not by a client-supplied field",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-UX-03",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "a blocking compatibility issue is reported before any connection is attempted",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/import/service.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-UX-04",
+      "tests": [
+        "tests/connectors/qa/acceptance-matrix.test.ts",
+        "tests/connectors/qa/resilience.test.ts"
+      ],
+      "assertions": "popup/callback recovery paths ; cancelling a pending attempt is observable in state",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/connectors/auth/handoff.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-UX-05",
+      "tests": ["tests/connectors/qa/isolation.test.ts"],
+      "assertions": "the browser accessibility suites for the connector surface exist and are wired (presence and reachability only; not executed)",
+      "implementationFiles": [
+        "tests/browser/connector-directory.spec.ts",
+        "tests/browser/connector-drawer.spec.ts",
+        "playwright.config.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-UX-06",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "the directory separates implementation, configuration and evidence",
+      "implementationFiles": ["src/server/connectors/inventory.ts"]
+    },
+    {
+      "acceptanceId": "AC-AG-04",
+      "tests": ["tests/connectors/qa/acceptance-matrix.test.ts"],
+      "assertions": "a stopped assistant is denied through the same transport",
+      "implementationFiles": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts",
+        "src/server/teaching-runtime.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-PKG-01",
+      "tests": ["tests/connectors/qa/isolation.test.ts"],
+      "assertions": "the packed-consumer suites exist and exercise the published entry points (structural only)",
+      "implementationFiles": ["package.json", "tests/consumers"]
+    },
+    {
+      "acceptanceId": "AC-PKG-02",
+      "tests": ["tests/connectors/qa/isolation.test.ts"],
+      "assertions": "the browser entry points cannot reach server-only code or Node builtins ; connector core depends only on Zod",
+      "implementationFiles": [
+        "src/core/index.ts",
+        "src/react/index.tsx",
+        "src/core/connectors/identity.ts",
+        "src/core/connectors/contracts.ts",
+        "src/core/connectors/envelope.ts",
+        "src/core/connectors/projections.ts"
+      ]
+    },
+    {
+      "acceptanceId": "AC-PKG-03",
+      "tests": ["tests/connectors/qa/live-smoke.test.ts"],
+      "assertions": "every live and deployed check is blocked in this environment, naming the exact missing prerequisite",
+      "implementationFiles": ["tests/connectors/qa/live-manifest.ts"]
+    }
+  ],
+  "testCommands": [
+    {
+      "command": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/qa/*.test.ts",
+      "tests": 73,
+      "pass": 73,
+      "fail": 0,
+      "todo": 0
+    }
+  ]
 }

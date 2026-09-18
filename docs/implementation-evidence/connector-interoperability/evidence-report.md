@@ -15,9 +15,9 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 ## Requirement coverage
 
 - Required work items in the charter: 154.
-- Delivered with a ledger entry: 120.
-- Implemented: 115. Partial or unmet: 5. No ledger entry at all: 34.
-- Ledgers read: 23 (AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW).
+- Delivered with a ledger entry: 144.
+- Implemented: 137. Partial or unmet: 7. No ledger entry at all: 10.
+- Ledgers read: 26 (AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, QA, REGISTRY, SECURITY, STATE, SUPABASE, UX, VERCEL, WORKFLOW).
 
 ## Recorded test run
 
@@ -25,60 +25,38 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 - Tested commit: `19ad92dfa37a9dfa8f3fee16631c2e6b50ba7b0b+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 0; passed 0, failed 0, skipped 0
-- Ledger-named test files covered by that run: 0 of 186.
+- Ledger-named test files covered by that run: 0 of 226.
 
-**This run is older than the ledgers.** 186 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
+**This run is older than the ledgers.** 226 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
 
 ## Requirements with no ledger entry
 
 Named directly. These are required work items nobody delivered. They are listed here rather than folded into a claim that every swarm completed.
 
-| Item    | Swarm            |
-| ------- | ---------------- |
-| IB-01   | IDENTITY-BROKERS |
-| IB-02   | IDENTITY-BROKERS |
-| IB-03   | IDENTITY-BROKERS |
-| IB-04   | IDENTITY-BROKERS |
-| IB-05   | IDENTITY-BROKERS |
-| AUTO-01 | AUTOMATION       |
-| AUTO-02 | AUTOMATION       |
-| AUTO-03 | AUTOMATION       |
-| AUTO-04 | AUTOMATION       |
-| AUTO-05 | AUTOMATION       |
-| BIND-01 | BINDINGS         |
-| BIND-02 | BINDINGS         |
-| BIND-03 | BINDINGS         |
-| BIND-04 | BINDINGS         |
-| BIND-05 | BINDINGS         |
-| UX-01   | UX               |
-| UX-02   | UX               |
-| UX-03   | UX               |
-| UX-04   | UX               |
-| UX-05   | UX               |
-| UX-06   | UX               |
-| UX-07   | UX               |
-| SEC-01  | SECURITY         |
-| SEC-02  | SECURITY         |
-| SEC-03  | SECURITY         |
-| SEC-04  | SECURITY         |
-| SEC-05  | SECURITY         |
-| SEC-06  | SECURITY         |
-| QA-01   | QA               |
-| QA-02   | QA               |
-| QA-03   | QA               |
-| QA-04   | QA               |
-| QA-05   | QA               |
-| QA-06   | QA               |
+| Item    | Swarm      |
+| ------- | ---------- |
+| AUTO-01 | AUTOMATION |
+| AUTO-02 | AUTOMATION |
+| AUTO-03 | AUTOMATION |
+| AUTO-04 | AUTOMATION |
+| AUTO-05 | AUTOMATION |
+| BIND-01 | BINDINGS   |
+| BIND-02 | BINDINGS   |
+| BIND-03 | BINDINGS   |
+| BIND-04 | BINDINGS   |
+| BIND-05 | BINDINGS   |
 
 ## Partial and unmet requirements
 
-| Item   | Swarm | Status  | Why                                                                                                    |
-| ------ | ----- | ------- | ------------------------------------------------------------------------------------------------------ |
-| INT-02 | INT   | partial | Adapter mounting through one inventory and the reference UI happens after the provider swarms deliver. |
-| INT-03 | INT   | partial | see the ledger                                                                                         |
-| INT-04 | INT   | unmet   | Optional server export and packed-consumer tests pending integration.                                  |
-| INT-05 | INT   | unmet   | PR #39 reconciliation pending the UX swarm's control audit.                                            |
-| INT-06 | INT   | partial | Integrated gates not yet run.                                                                          |
+| Item   | Swarm | Status  | Why                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------ | ----- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INT-02 | INT   | partial | Adapter mounting through one inventory and the reference UI happens after the provider swarms deliver.                                                                                                                                                                                                                                                                                                           |
+| INT-03 | INT   | partial | see the ledger                                                                                                                                                                                                                                                                                                                                                                                                   |
+| INT-04 | INT   | unmet   | Optional server export and packed-consumer tests pending integration.                                                                                                                                                                                                                                                                                                                                            |
+| INT-05 | INT   | unmet   | PR #39 reconciliation pending the UX swarm's control audit.                                                                                                                                                                                                                                                                                                                                                      |
+| INT-06 | INT   | partial | Integrated gates not yet run.                                                                                                                                                                                                                                                                                                                                                                                    |
+| UX-07  | UX    | partial | scripts/check-bundle.mjs enforces a total-download ceiling across every chunk, so mounting these surfaces in the reference application fails it even though the reference page itself grows by 0.77 kB raw / 0.30 kB gzip. The ceiling needs a deliberate raise (see integrationPatches); I did not change the script.; Splitting the connection surface into its own chunk was tried and reverted: Rollup keeps |
+| QA-05  | QA    | partial | The Playwright accessibility suites (tests/browser/connector-directory.spec.ts, connector-drawer.spec.ts) bind fixed ports 4173/4174 and were not executed: the charter forbids running browser suites while other swarms work. This suite asserts their presence, that they make keyboard and accessible-name assertions, and that they are reachable from npm run test:e2e.; npm run build, build:vercel and t |
 
 ## Blocked live prerequisites
 
@@ -93,6 +71,9 @@ Each of these stays `blocked` and fails closed. None is relabelled as a fixture 
 - **SB-03** (SUPABASE): Live project evidence blocked: no authorized Supabase project in this environment
 - **PD-01** (PIPEDREAM): Live account evidence blocked: no authorized Pipedream project credentials in this environment.
 - **CO-01** (COMPOSIO): Live account evidence blocked: no authorized Composio project credentials in this execution.
+- **IB-01** (IDENTITY-BROKERS): Live account evidence blocked: no authorized WorkOS environment credentials.
+- **IB-02** (IDENTITY-BROKERS): Live Relay evidence blocked: Relay is early access and no authorized environment was available.
+- **IB-03** (IDENTITY-BROKERS): Live tenant evidence blocked: no authorized Auth0 tenant.
 - **CAT-01** (CATALOGS): Live evidence blocked: no authorized Smithery account or API key in this environment.
 - **CAT-02** (CATALOGS): Live evidence blocked: no authorized Smithery namespace or service token in this environment.
 - **CAT-04** (CATALOGS): Live evidence blocked: no PulseMCP tenant API key in this environment.
@@ -101,6 +82,9 @@ Each of these stays `blocked` and fails closed. None is relabelled as a fixture 
 - **DATA-03** (DATA): Live account evidence blocked: no authorized Merge account, no real Link session.
 - **CLOUD-01** (CLOUD): Live account evidence blocked: no authorized AWS credentials and no gateway in this environment
 - **CLOUD-03** (CLOUD): Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment
+- **SEC-01** (SECURITY): Live-authorized evidence is blocked everywhere: no authorized provider credentials exist in this environment and tests have no internet.
+- **QA-01** (QA): Live account evidence blocked: no authorized Nango, Supabase, Vercel or registry credentials exist in this environment (see QA-06).
+- **QA-06** (QA): Live account evidence blocked: no authorized credentials and no operator consent exist in this environment. Every one of the five manifest entries reports blocked, and the report names the exact missing prerequisite by environment-variable name.
 - **DOC-04** (DOCS): It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment
 - **DOC-05** (DOCS): No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now read 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record and is not a live claim
 
@@ -765,25 +749,50 @@ One entry per required work item, joined to the ledger that delivered it. A resu
   - `node --import tsx --test tests/connectors/composio/lifecycle.test.ts` — not in the recorded run
   - `node --import tsx --test tests/connectors/composio/execute.test.ts` — not in the recorded run
 
-### IB-01 (IDENTITY-BROKERS) — no ledger entry
+### IB-01 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/workos/adapter.ts`, `src/server/connectors/providers/workos/ports.ts`, `src/server/connectors/providers/workos/wire.ts`, `src/server/connectors/providers/workos/http.ts`, `src/server/connectors/providers/workos/index.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-02, AC-AUTH-07, AC-AUTH-08, AC-AUTH-09, AC-AUTH-16
+- Pinned sources: `workos-pipes-rest-2026-09-18`
+- Tests:
+  - `node --import tsx --test tests/connectors/workos/authorization.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/workos/fixtures.test.ts` — not in the recorded run
 
-### IB-02 (IDENTITY-BROKERS) — no ledger entry
+### IB-02 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/workos/adapter.ts`
+- Acceptance: AC-EXT-05, AC-STATE-03, AC-STATE-06
+- Pinned sources: `workos-pipes-rest-2026-09-18`
+- Tests:
+  - `node --import tsx --test tests/connectors/workos/credentials.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/workos/relay.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/workos/fixtures.test.ts` — not in the recorded run
 
-### IB-03 (IDENTITY-BROKERS) — no ledger entry
+### IB-03 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/auth0/adapter.ts`, `src/server/connectors/providers/auth0/ports.ts`, `src/server/connectors/providers/auth0/wire.ts`, `src/server/connectors/providers/auth0/http.ts`, `src/server/connectors/providers/auth0/index.ts`
+- Acceptance: AC-AUTH-05, AC-AUTH-06, AC-AUTH-07, AC-EXT-06, AC-EXT-03
+- Pinned sources: `auth0-token-vault-2026-09-18`, `auth0-myaccount-api-1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth0/linking.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/auth0/exchange.test.ts` — not in the recorded run
 
-### IB-04 (IDENTITY-BROKERS) — no ledger entry
+### IB-04 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/auth0/adapter.ts`
+- Acceptance: AC-EXT-06, AC-STATE-03, AC-STATE-05
+- Pinned sources: `auth0-token-vault-2026-09-18`, `auth0-myaccount-api-1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth0/lifecycle.test.ts` — not in the recorded run
 
-### IB-05 (IDENTITY-BROKERS) — no ledger entry
+### IB-05 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/fixtures/workos/vend-active.json`, `tests/connectors/fixtures/workos/vend-inactive.json`, `tests/connectors/fixtures/workos/relay-authorization-required.json`, `tests/connectors/fixtures/workos/connected-account-organization.json`, `tests/connectors/fixtures/auth0/exchange-success.json`, `tests/connectors/fixtures/auth0/exchange-errors.json`, `tests/connectors/fixtures/auth0/connected-accounts.json`
+- Acceptance: AC-IMP-13, AC-AUTH-02, AC-AUTH-12, AC-EXT-05
+- Pinned sources: `auth0-token-vault-2026-09-18`, `auth0-myaccount-api-1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/workos/fixtures.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/auth0/fixtures.test.ts` — not in the recorded run
 
 ### CAT-01 (CATALOGS) — implemented, protocol-fixture
 
@@ -1149,81 +1158,168 @@ Nobody delivered this required work item.
   - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
   - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
 
-### UX-01 (UX) — no ledger entry
+### UX-01 (UX) — implemented, browser-integration
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-directory.tsx`, `src/react/connectors.css`, `examples/web/connectors.tsx`, `src/core/connectors/client.ts`
+- Acceptance: AC-UX-06, AC-UX-05
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/directory.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/ux/client.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/browser/connector-directory.spec.ts` — not in the recorded run
 
-### UX-02 (UX) — no ledger entry
+### UX-02 (UX) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-review.tsx`, `src/core/connectors/client.ts`
+- Acceptance: AC-UX-03, AC-IMP-13
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/review.test.ts` — not in the recorded run
 
-### UX-03 (UX) — no ledger entry
+### UX-03 (UX) — implemented, browser-integration
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-connection.tsx`, `src/core/connectors/client.ts`
+- Acceptance: AC-UX-02, AC-EXT-10
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/browser/connector-drawer.spec.ts` — not in the recorded run
 
-### UX-04 (UX) — no ledger entry
+### UX-04 (UX) — implemented, browser-integration
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-connection.tsx`, `docs/connector-directory.md`
+- Acceptance: AC-UX-02, AC-AUTH-12, AC-AUTH-16
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — not in the recorded run
 
-### UX-05 (UX) — no ledger entry
+### UX-05 (UX) — implemented, browser-integration
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-connection.tsx`, `src/core/connectors/client.ts`
+- Acceptance: AC-UX-02, AC-AUTH-09, AC-AUTH-15, AC-STATE-03, AC-STATE-04, AC-STATE-05
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/ux/client.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/browser/connector-directory.spec.ts` — not in the recorded run
 
-### UX-06 (UX) — no ledger entry
+### UX-06 (UX) — implemented, browser-integration
 
-Nobody delivered this required work item.
+- Files: `src/react/connector-drawer.tsx`, `src/react/connector-connection.tsx`, `src/react/connectors.css`, `examples/web/connectors.tsx`
+- Acceptance: AC-UX-04, AC-UX-05, AC-AUTH-14, AC-AUTH-15, AC-AG-03
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/browser/connector-drawer.spec.ts` — not in the recorded run
+  - `node --import tsx --test tests/browser/connector-directory.spec.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/ux/service-worker.test.ts` — not in the recorded run
 
-### UX-07 (UX) — no ledger entry
+### UX-07 (UX) — partial, browser-integration
 
-Nobody delivered this required work item.
+- Files: `examples/web/connectors.tsx`, `tests/browser/connector-harness.tsx`
+- Acceptance: AC-PKG-02
+- Pinned sources: `ceremony-connectors-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/ux/harness-server.ts` — not in the recorded run
+  - `node --import tsx --test tests/browser/connector-drawer.spec.ts` — not in the recorded run
 
-### SEC-01 (SECURITY) — no ledger entry
+### SEC-01 (SECURITY) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/threat-model.ts`, `tests/connectors/security/threat-model.test.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-02, AC-AUTH-14, AC-AUTH-15, AC-IMP-09, AC-IMP-11, AC-MCP-05, AC-MCP-08, AC-MCP-10, AC-EXT-08, AC-STATE-07
+- Pinned sources: `openapi-3.1`, `server-json-2025-12-11`, `mcp-registry-api-v0.1`, `standard-webhooks-1.0.0`, `nango-webhooks-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/security/threat-model.test.ts` — not in the recorded run
 
-### SEC-02 (SECURITY) — no ledger entry
+### SEC-02 (SECURITY) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/ingestion.test.ts`
+- Acceptance: AC-IMP-06, AC-IMP-09, AC-IMP-10, AC-IMP-11, AC-IMP-12, AC-MCP-07
+- Pinned sources: `openapi-3.1`, `openapi-overlay-1.1.0`, `mcp-registry-api-v0.1`
+- Tests:
+  - `node --import tsx --test tests/connectors/security/ingestion.test.ts` — not in the recorded run
 
-### SEC-03 (SECURITY) — no ledger entry
+### SEC-03 (SECURITY) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/authority.test.ts`, `tests/connectors/security/command-boundary.test.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-02, AC-AUTH-03, AC-AUTH-04, AC-AUTH-05, AC-AUTH-10, AC-AUTH-11, AC-AUTH-17, AC-EXT-06, AC-MCP-05
+- Pinned sources: `rfc-8414`, `rfc-9207`, `rfc-8693`, `rfc-7591`, `rfc-9728`, `mcp-2026-07-28-authorization`
+- Tests:
+  - `node --import tsx --test tests/connectors/security/authority.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — not in the recorded run
 
-### SEC-04 (SECURITY) — no ledger entry
+### SEC-04 (SECURITY) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/effects.test.ts`
+- Acceptance: AC-AUTH-06, AC-AUTH-07, AC-NG-04, AC-NG-06, AC-NG-07, AC-STATE-01, AC-STATE-07, AC-MCP-03
+- Pinned sources: `rfc-6749-refresh`, `rfc-7636`, `nango-http-api-2026-09`, `nango-webhooks-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/security/effects.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — not in the recorded run
 
-### SEC-05 (SECURITY) — no ledger entry
+### SEC-05 (SECURITY) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/canaries.test.ts`
+- Acceptance: AC-IMP-13, AC-MCP-10, AC-UX-04
+- Pinned sources: `openapi-3.1`, `server-json-2025-12-11`
+- Tests:
+  - `node --import tsx --test tests/connectors/security/canaries.test.ts` — not in the recorded run
 
-### SEC-06 (SECURITY) — no ledger entry
+### SEC-06 (SECURITY) — implemented, local-integration
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/security/mutations.ts`, `tests/connectors/security/mutations.test.ts`
+- Acceptance: AC-PKG-04
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/security/mutations.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — not in the recorded run
 
-### QA-01 (QA) — no ledger entry
+### QA-01 (QA) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/doubles/pinned.ts`, `tests/connectors/qa/protocol-conformance.test.ts`
+- Acceptance: AC-NG-01, AC-NG-03, AC-NG-06, AC-MCP-07, AC-IMP-03, AC-AUTH-03, AC-AUTH-06, AC-STATE-06
+- Pinned sources: `nango-http-api-2026-09`, `mcp-registry-v0.1`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/protocol-conformance.test.ts` — not in the recorded run
 
-### QA-02 (QA) — no ledger entry
+### QA-02 (QA) — implemented, local-integration
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/harness.ts`, `tests/connectors/qa/acceptance-matrix.test.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-02, AC-AUTH-07, AC-AUTH-13, AC-AUTH-14, AC-IMP-02, AC-IMP-13, AC-STATE-03, AC-UX-02, AC-UX-03, AC-UX-04, AC-UX-06, AC-AG-04, AC-MCP-06
+- Pinned sources: `ceremony-connector-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/acceptance-matrix.test.ts` — not in the recorded run
 
-### QA-03 (QA) — no ledger entry
+### QA-03 (QA) — implemented, local-integration
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/resilience.test.ts`
+- Acceptance: AC-MCP-03, AC-STATE-01, AC-STATE-02, AC-STATE-05, AC-STATE-06, AC-STATE-07, AC-AUTH-07, AC-AUTH-09, AC-IMP-16, AC-UX-04
+- Pinned sources: `ceremony-connector-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/resilience.test.ts` — not in the recorded run
 
-### QA-04 (QA) — no ledger entry
+### QA-04 (QA) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/conformance.test.ts`
+- Acceptance: AC-IMP-01, AC-IMP-03, AC-IMP-14, AC-IMP-15, AC-IMP-16
+- Pinned sources: `openapi-3.1`, `ceremony-connector-v1`, `ceremony-connector-v2`, `zapier-cli`, `n8n-node`, `workato-sdk`
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/conformance.test.ts` — not in the recorded run
 
-### QA-05 (QA) — no ledger entry
+### QA-05 (QA) — partial, unit
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/isolation.test.ts`
+- Acceptance: AC-PKG-01, AC-PKG-02, AC-UX-05
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/isolation.test.ts` — not in the recorded run
 
-### QA-06 (QA) — no ledger entry
+### QA-06 (QA) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/qa/live-manifest.ts`, `tests/connectors/qa/live-smoke.test.ts`
+- Acceptance: AC-PKG-03
+- Pinned sources: `nango-http-api-2026-09`, `supabase-management-api-v1`, `vercel-connect-rest-2026-09`, `mcp-registry-v0.1`
+- Tests:
+  - `node --import tsx --test tests/connectors/qa/live-smoke.test.ts` — not in the recorded run
 
 ### DOC-01 (DOCS) — implemented, unit
 
@@ -1582,6 +1678,25 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - Composio documents no operation that revokes the end user's grant at the third-party provider, so revoke() reports upstream: "unsupported" and performs no call.
   - Broker disconnect deletes the connected account permanently and is refused unless the deployment passes allowBrokerDeletion: true; the default answer is broker: "unsupported" with no request sent.
   - Version drift is checked per (binding revision, tool slug, version) with a five-minute cache; a binding that pins "latest" opts out of the check, which is recorded rather than hidden.
+- **IB-01** (IDENTITY-BROKERS)
+  - The WorkOS user and organization identifiers come from a host-supplied WorkOsPrincipalPort keyed by tenant+ownerKind+ownerId; an organization connection additionally requires organizationConnection === "permitted". A deployment without that port cannot use this adapter, by design.
+  - A connected account with no account_identifier yields an ownership-claimed claim, not account-identity: the broker showed a connection, not which upstream account it is.
+  - Live account evidence blocked: no authorized WorkOS environment credentials.
+- **IB-02** (IDENTITY-BROKERS)
+  - Refresh remains WorkOS's responsibility: the documentation states the token endpoint always returns a valid, refreshed token, so this adapter re-vends instead of refreshing upstream. When WorkOS omits expires_at the credential is stored under a bounded local lease (default 900 s).
+  - Relay operations are bound HTTP operations: a path parameter that contains a slash cannot be expressed as one segment because `destinationUrl` refuses encoded slashes; model such targets as separate path segments (e.g. {owner}/{repository}).
+  - The relay upstream response is bounded (default 1 MiB) and returned as {status, body}; streaming passthrough is not implemented.
+  - Live Relay evidence blocked: Relay is early access and no authorized environment was available.
+- **IB-03** (IDENTITY-BROKERS)
+  - The subject token and the My Account API token come from a host-supplied HostIdentityTokenPort; a deployment without myAccountToken cannot list or link accounts and the adapter reports configuration-required rather than working around it.
+  - The upstream provider token is usually opaque, so `tokenClaimsVerified` is false for it; when the returned token is a JWS with a key id it is verified against the tenant JWKS and refused if it does not verify.
+  - Account selection requires an explicit host-approved target in binding.permittedTargets; several linked accounts with no selection yields human-required, never a heuristic choice.
+  - Live tenant evidence blocked: no authorized Auth0 tenant.
+- **IB-04** (IDENTITY-BROKERS)
+  - A reconnect link is produced through the Connected Accounts connect endpoint; when the deployment holds no My Account token the mapping still reports reconnect-required, without a link.
+  - unsupported_grant_type is reported as ConnectorError("unsupported", "auth0.grant.unsupported"): an unavailable grant is a configuration fact, and no second grant is attempted.
+- **IB-05** (IDENTITY-BROKERS)
+  - Fixtures are recorded documented payloads, not captured live traffic; each file records its source URL and retrieval date.
 - **CAT-01** (CATALOGS)
   - Smithery's catalog exposes no server version; identities carry nativeVersion "unversioned" and a smithery.version.not-exposed diagnostic rather than an invented version.
   - Pagination is Smithery's page/pageSize with a pagination envelope; the adapter reports page numbers as cursors and never follows an upstream-supplied URL.
@@ -1726,6 +1841,62 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - The events mount point delegates to an injected receiveEvent hook (EVENT swarm); with no hook the path answers 404 rather than accepting an unauthenticated delivery.
 - **CMD-06** (COMMAND)
   - The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour.
+- **UX-01** (UX)
+  - The directory renders whatever GET /api/v1/connectors/catalog returns; it was exercised against the loopback double of that route table, not against the server implementation.
+- **UX-02** (UX)
+  - Publish/activate is a 'propose a runtime binding' call to POST /bindings; whatever richer activation the server ends up offering is not yet surfaced.
+  - The viewer field it reads is a proposal (see contractChanges); with nothing reported, operator controls stay hidden.
+- **UX-03** (UX)
+  - Dynamic options are fetched by invoking the operation the field names; a server that describes dynamic fields some other way is not covered.
+  - POST /connections/:ref/collect is a proposed route (see contractChanges); without it a secret field cannot be submitted.
+- **UX-04** (UX)
+  - Organization ownership is offered only when the catalogue's viewer reports that owner kind; until the server reports it, the control is permanently disabled and says so.
+- **UX-05** (UX)
+  - Target options are offered by the server as handoff fields once a flow is under way; before connecting, the target is typed and the copy says the server must observe it.
+- **UX-06** (UX)
+  - Axe covers the directory and drawer of the harness page; the reference application's own shell is audited by its existing specs.
+- **UX-07** (UX)
+  - scripts/check-bundle.mjs enforces a total-download ceiling across every chunk, so mounting these surfaces in the reference application fails it even though the reference page itself grows by 0.77 kB raw / 0.30 kB gzip. The ceiling needs a deliberate raise (see integrationPatches); I did not change the script.
+  - Splitting the connection surface into its own chunk was tried and reverted: Rollup keeps it in the same chunk as the directory, so it bought nothing.
+- **SEC-01** (SECURITY)
+  - Nine trust boundaries are modelled: imported data, hosted browser, private collector, Ceremony host to upstream, external broker, registry, event sender, optional runner, and tenant-to-tenant. Each carries an executable refusal against the real module; none is covered by a success stub.
+  - The A2A delegation boundary and the WebMCP browser-local boundary are described in the ecosystem table but were not modelled here: their modules were still being written while this swarm tested (src/server/connectors/providers/a2a/* appeared untracked at 14:13 UTC).
+  - Live-authorized evidence is blocked everywhere: no authorized provider credentials exist in this environment and tests have no internet.
+- **SEC-02** (SECURITY)
+  - XML entity expansion was not exercised: no XML reader is reachable from src/server/connectors/import, so there is nothing to attack there yet.
+  - The parse-time budget (maxParseMs) is checked after the work rather than interrupting it; the structural bounds are what actually make pathological input impossible. Reported as designed, not as a defect.
+- **SEC-03** (SECURITY)
+  - Integration and environment confusion for brokers is covered for Nango only (SEC-04); Composio, Pipedream, WorkOS and Smithery were still being written when this swarm tested and were not attacked.
+  - RFC 8414 signed_metadata and signed RFC 9728 resource metadata are read but not signature-verified (OAUTH swarm's own unmet item OA-01-signed-metadata); this swarm confirms the gap rather than closing it.
+- **SEC-04** (SECURITY)
+  - Shared-grant revocation across several local connections (AC-STATE-04) is asserted by the STATE and COMMAND swarms' own suites; this swarm did not add an independent reproduction because the shared-grant record shape lives in src/server/connectors/state and was still moving during the run.
+  - Broker token leakage is covered for Nango's credential-bearing connection read through the canary sweep and the NANGO swarm's AC-NG-03 test; no other broker adapter was stable enough to attack.
+- **SEC-05** (SECURITY)
+  - Logs and traces have no connector-specific sink in this checkout, so the canary sweep covers the projections, the error explanation, the audit row, the published registry document and the service worker rather than a log transport. The invariant enforced instead is that every structured value that could reach a log is built by an allowlist projection.
+  - Browser storage is asserted negatively at the source level (no localStorage, sessionStorage or indexedDB use anywhere under src/), not by driving a browser; the UX swarm owns the browser assertions.
+- **SEC-06** (SECURITY)
+  - stryker.security.config.mjs and .github/workflows/verify.yml are integrator-owned; the exact patch is in integrationPatches and was not applied by this swarm.
+  - Until that patch lands, the killers run in the canonical suite through `npm run test:security` (scripts/test.mjs profile 'security' selects tests/connectors/security/*.test.ts by path) and through `npm test` / `test:coverage`, but the Stryker security matrix does not yet mutate the connector guards.
+- **QA-01** (QA)
+  - Live account evidence blocked: no authorized Nango, Supabase, Vercel or registry credentials exist in this environment (see QA-06).
+  - The MCP registry continuation marker could not be settled offline: the client reads metadata.nextCursor, the registry's REST examples have also circulated with next_cursor. Both spellings are served by the double and the consequence of the unrecognized one is recorded.
+  - Supabase Management OAuth was verified by running the delivered suite rather than against a QA-owned double; the Supabase suites bind fixed port 4427 and were run sequentially and separately.
+- **QA-02** (QA)
+  - Runs against the fixture provider and the fixture adapter registered by the command harness; provider-specific oracles stay with the provider swarms' own suites.
+- **QA-03** (QA)
+  - Process restart is exercised at the durable boundary (the effect journal and the persisted intent), not by killing and relaunching a process: the harness builds its store and ports in one constructor and does not expose a second service over the same ports.
+  - Rate limiting is exercised against a provider that answers 429 with Retry-After in the QA-01 suite; the command-level assertion here is limited to error sanitization and preserved state.
+  - Reconnect with an explicit account-switch intent is covered by the COMMAND and NANGO suites; this suite asserts only that a switch cannot happen without one.
+- **QA-04** (QA)
+  - Property runs are bounded (300/200/120 runs) to keep the suite inside the shared machine's budget.
+  - The packed-consumer half of AC-PKG-01 is asserted structurally in QA-05, not by running npm pack, which touches shared files.
+- **QA-05** (QA)
+  - The Playwright accessibility suites (tests/browser/connector-directory.spec.ts, connector-drawer.spec.ts) bind fixed ports 4173/4174 and were not executed: the charter forbids running browser suites while other swarms work. This suite asserts their presence, that they make keyboard and accessible-name assertions, and that they are reachable from npm run test:e2e.
+  - npm run build, build:vercel and the packed-consumer pack were not executed: they touch shared build output and the bundle budget script, which are integrator-owned. AC-PKG-02 is covered here by a static import-graph walk instead of by inspecting a built artifact.
+  - Workflow recovery lives in tests/workflow under vitest and is excluded from the node runner; it was not run.
+- **QA-06** (QA)
+  - Live account evidence blocked: no authorized credentials and no operator consent exist in this environment. Every one of the five manifest entries reports blocked, and the report names the exact missing prerequisite by environment-variable name.
+  - The manifest is not yet wired into npm run verify:live; the exact integrator patch is in integrationPatches.
 - **DOC-01** (DOCS)
   - The profile describes the code as it stands on this branch; it is not a conformance claim against any specification, and the Overlay JSONPath subset in particular is explicitly not RFC 9535 conformance
   - Examples are validated against the runtime Zod contracts only; a published example proves the contract accepts it, not that any adapter produces it
@@ -1764,6 +1935,8 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - PIPEDREAM: None. No Pipedream account, project, OAuth client, connect token, connected account or deployed trigger was created. All traffic in tests goes to a loopback fixture on 127.0.0.1. Documentation pages were read over HTTPS.
 - REGISTRY: Read-only GET of https://registry.modelcontextprotocol.io/v0.1/servers?limit=2, https://registry.modelcontextprotocol.io/openapi.yaml, the published server.schema.json and public documentation pages, to pin the API and schema versions. No writes, no publication, no credentials used.
 - SUPABASE: None. No Supabase account, OAuth app, project or token was used or created. The only network access was reading public vendor documentation and the public OpenAPI document at https://api.supabase.com/api/v1-json; all tests run against loopback doubles.
+- UX: Installed Playwright browser builds and WebKit's host libraries in this container (npx playwright install chromium firefox webkit, npx playwright install-deps webkit). No repository file, package.json or lockfile was changed.
+- UX: Ran `npx vite build` to measure the bundle; examples/web/main.tsx was patched for the measurement and restored byte-for-byte (git reports it unmodified).
 - VERCEL: Read-only documentation fetches from vercel.com/docs and openapi.vercel.sh
 - VERCEL: npm pack of @vercel/connect@2.3.0 and @vercel/oidc@3.8.8 into a scratchpad directory for reading only; neither was installed and package.json was not modified
 - WORKFLOW: Fetched the two Arazzo specification documents over the agent proxy (https://spec.openapis.org/arazzo/v1.1.0.html and https://spec.openapis.org/arazzo/v1.0.1.html) to pin field tables, the runtime-expression ABNF and the simple-condition semantics. No credential was used and nothing was written to any external service.
@@ -1780,4 +1953,3 @@ The [source lock](source-lock.md) pins 80 records as of 2026-09-18, each with it
 
 - ledger/AUTOMATION.json: does not match the ledger shape
 - ledger/BINDINGS.json: does not match the ledger shape
-- ledger/IDENTITY-BROKERS.json: no `workItems` array, so its requirements cannot be joined and are reported as having no ledger entry

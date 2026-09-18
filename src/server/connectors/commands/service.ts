@@ -27,6 +27,7 @@ import {
   type Capability,
 } from "../../identity.js";
 import { PersistenceConflict } from "../../persistence/index.js";
+import type { AgentConnectorDependencies } from "../agents/intents.js";
 import type {
   AdapterCallContext,
   AuthorizationIntent,
@@ -2546,6 +2547,160 @@ export class ConnectorCommandService {
       lastOutcome: "delete.applied",
     });
     return { deleted: true };
+  }
+
+  // --------------------------------------------------------- agent surface
+
+  /**
+   * The dependency an assistant's connector intents run on.
+   *
+   * The intents narrow every result themselves, through
+   * `agentConnectorProjection` and `agentDefinitionProjection`, so that one
+   * module decides what an assistant may see. That only works if what reaches
+   * them is unprojected, and every public method here already projects for
+   * the actor it was given. Rather than publish a second, unprojected way to
+   * read connections, the seam is built inside the class: it can reach
+   * `summary` and `definition` directly, and nothing new leaves the object.
+   *
+   * Each method rechecks rather than trusting the caller. The actor must be
+   * an agent, must hold `executor`, and must pass the same policy questions
+   * the equivalent public command asks. A delegation that lapsed between two
+   * intents is denied on the second.
+   */
+  agentDependencies(): AgentConnectorDependencies {
+    const agent = (actor: ActorContext): void => {
+      if (actor.actorKind !== "agent")
+        throw new ConnectorError("denied", { detail: "agent.actor-required" });
+      requireCapability(actor, "executor");
+    };
+    // An absence and a refusal read alike to an assistant, so a reference it
+    // may not use is indistinguishable from one that does not exist.
+    const absent = async <T>(
+      read: () => Promise<T>,
+    ): Promise<T | undefined> => {
+      try {
+        return await read();
+      } catch (error) {
+        if (
+          error instanceof ConnectorError &&
+          (error.code === "not-found" || error.code === "denied")
+        )
+          return undefined;
+        throw error;
+      }
+    };
+    return {
+      list: async (actor) => {
+        agent(actor);
+        const entries = await port(() => this.ports.connections.list(actor));
+        return entries
+          .filter((entry) => !deleted(entry.record))
+          .map((entry) => this.summary(entry));
+      },
+      definition: async (actor, definitionRef) => {
+        agent(actor);
+        return absent(async () => {
+          const definition = await this.definition(
+            actor.tenantId,
+            definitionRef,
+          );
+          // An assistant reads a definition through the bindings it may
+          // execute, never through the review surface: `getDefinition` is for
+          // an author or a reviewer and answers a different question.
+          await this.authorize(
+            actor,
+            { kind: "definition", definition },
+            "catalog",
+            "definition.denied",
+          );
+          return definition;
+        });
+      },
+      status: async (actor, connectionRef) => {
+        agent(actor);
+        return absent(async () => {
+          const entry = await this.connection(actor, connectionRef);
+          return this.summary(entry);
+        });
+      },
+      operations: async (actor, connectionRef) => {
+        agent(actor);
+        const entry = await this.connection(actor, connectionRef);
+        const binding = this.approved(
+          await this.binding(
+            actor.tenantId,
+            entry.record.bindingRef,
+            entry.record.bindingRevision,
+          ),
+        );
+        await this.authorize(
+          actor,
+          { kind: "connection", connection: entry.record, binding },
+          "catalog",
+          "operations.denied",
+        );
+        return binding.operations;
+      },
+      connect: async (actor, input) => {
+        agent(actor);
+        // `accountSwitch` is human-only at the service; passing it on keeps
+        // the refusal in one place rather than guessing it here.
+        const view = await this.connect(actor, {
+          bindingRef: input.bindingRef,
+          ownerKind: "user",
+          durable: false,
+          intent: {
+            ...(input.accountSwitch === undefined
+              ? {}
+              : { accountSwitch: input.accountSwitch }),
+            ...(input.interruption === undefined
+              ? {}
+              : { interruption: input.interruption }),
+          },
+        });
+        return this.reread(actor, view);
+      },
+      reconnect: async (actor, input) => {
+        agent(actor);
+        const view = await this.reconnect(actor, input.connectionRef, {
+          expectedRevision: input.expectedRevision,
+          intent: {
+            ...(input.accountSwitch === undefined
+              ? {}
+              : { accountSwitch: input.accountSwitch }),
+            ...(input.interruption === undefined
+              ? {}
+              : { interruption: input.interruption }),
+          },
+        });
+        void view;
+        const entry = await this.connection(actor, input.connectionRef);
+        return this.summary(entry);
+      },
+      disconnect: async (actor, input) => {
+        agent(actor);
+        // Local only. A broker or upstream scope is human-only at the
+        // service, and an assistant has no way to ask for one.
+        const { result } = await this.disconnect(actor, input.connectionRef, {
+          expectedRevision: input.expectedRevision,
+          scope: "local",
+        });
+        return result;
+      },
+    };
+  }
+
+  /**
+   * The summary behind a view the service has just returned. `connect` and
+   * `reconnect` answer with a projection, and an assistant's intents need the
+   * unprojected record to narrow it themselves.
+   */
+  private async reread(
+    actor: ActorContext,
+    view: ConnectionView,
+  ): Promise<ConnectionSummary> {
+    const entry = await this.connection(actor, view.connectionRef);
+    return this.summary(entry);
   }
 }
 

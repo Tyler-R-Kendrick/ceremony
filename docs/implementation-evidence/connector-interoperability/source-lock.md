@@ -16,14 +16,36 @@ One record per external specification, standards draft or vendor document that a
 
 - Records: 80, pinned 2026-09-18.
 - Ledgers this lock claims to cover completely: AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 80.
-- Cited identifiers with no lock record: 0.
+- Source profile identifiers cited by the ledgers on disk: 99.
+- Cited identifiers with no lock record: 19 (`auth0-myaccount-api-1.0`, `auth0-token-vault-2026-09-18`, `ceremony-connector-v1`, `ceremony-connectors-http-v1`, `mcp-registry-v0.1`, `n8n-node`, `nango-webhooks-2026-09`, `openapi-overlay-1.1.0`, `rfc-6749-refresh`, `rfc-7591`, `rfc-7636`, `rfc-8414`, `rfc-8693`, `rfc-9207`, `rfc-9728`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`, `workato-sdk`, `workos-pipes-rest-2026-09-18`, `zapier-cli`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
 A cited identifier with no record is a real gap: it means an adapter depends on a document this lock has not pinned. It is reported here rather than hidden. A gap from a ledger inside the covered set is a defect in this lock; a gap from a ledger delivered after the lock was pinned is work the integrator must finish.
 
 Ledgers landed while this lock was being written. `coversLedgers` names the ledgers whose every cited source profile identifier has a record here. A ledger delivered after this lock was pinned may cite identifiers this lock does not yet hold; the generator reports those as a coverage gap in source-lock.md rather than hiding them, and the integrator should extend this file when the remaining ledgers land.
+
+| Ledger           | Cited identifier                                       | Inside the covered set      |
+| ---------------- | ------------------------------------------------------ | --------------------------- |
+| IDENTITY-BROKERS | `auth0-myaccount-api-1.0`                              | no — pinned after this lock |
+| IDENTITY-BROKERS | `auth0-token-vault-2026-09-18`                         | no — pinned after this lock |
+| IDENTITY-BROKERS | `workos-pipes-rest-2026-09-18`                         | no — pinned after this lock |
+| QA               | `ceremony-connector-v1`                                | no — pinned after this lock |
+| QA               | `mcp-registry-v0.1`                                    | no — pinned after this lock |
+| QA               | `n8n-node`                                             | no — pinned after this lock |
+| QA               | `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server` | no — pinned after this lock |
+| QA               | `workato-sdk`                                          | no — pinned after this lock |
+| QA               | `zapier-cli`                                           | no — pinned after this lock |
+| SECURITY         | `nango-webhooks-2026-09`                               | no — pinned after this lock |
+| SECURITY         | `openapi-overlay-1.1.0`                                | no — pinned after this lock |
+| SECURITY         | `rfc-6749-refresh`                                     | no — pinned after this lock |
+| SECURITY         | `rfc-7591`                                             | no — pinned after this lock |
+| SECURITY         | `rfc-7636`                                             | no — pinned after this lock |
+| SECURITY         | `rfc-8414`                                             | no — pinned after this lock |
+| SECURITY         | `rfc-8693`                                             | no — pinned after this lock |
+| SECURITY         | `rfc-9207`                                             | no — pinned after this lock |
+| SECURITY         | `rfc-9728`                                             | no — pinned after this lock |
+| UX               | `ceremony-connectors-http-v1`                          | no — pinned after this lock |
 
 ## Records
 

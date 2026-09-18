@@ -11,3 +11,4 @@ export * from "./invoke.js";
 export * from "./events.js";
 export * from "./verifier.js";
 export * from "./adapter.js";
+export * from "./app-routes.js";
