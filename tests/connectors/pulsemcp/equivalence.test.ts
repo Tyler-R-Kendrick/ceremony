@@ -209,27 +209,42 @@ test("unusable provenance produces no suggestion", () => {
   assert.deepEqual(suggestEquivalences(items), []);
 });
 
-test("a suggestion carries no credential, connection or verification field", () => {
+test("a suggestion carries only identity, reasons and limitations", () => {
   const suggestions = suggestEquivalences([smitheryNotion, pulseNotion]);
-  const serialized = JSON.stringify(suggestions);
+  const suggestion = suggestions[0]!;
+  assert.deepEqual(Object.keys(suggestion).sort(), [
+    "confidence",
+    "limitations",
+    "members",
+    "reasons",
+  ]);
+  for (const member of suggestion.members)
+    assert.deepEqual(Object.keys(member).sort(), [
+      "authorityNamespace",
+      "displayName",
+      "ecosystem",
+      "index",
+      "nativeId",
+      "nativeVersion",
+    ]);
+  for (const reason of suggestion.reasons)
+    assert.deepEqual(Object.keys(reason).sort(), ["kind", "members", "value"]);
+  // Nothing that could stand in for authority travels in a suggestion.
+  const payload = JSON.stringify({
+    members: suggestion.members,
+    reasons: suggestion.reasons,
+    confidence: suggestion.confidence,
+  }).toLowerCase();
   for (const forbidden of [
     "credential",
-    "connectionRef",
-    "bindingRef",
+    "connectionref",
+    "bindingref",
     "token",
-    "verified",
     "custody",
+    "verified",
+    "evidence",
   ])
-    assert.ok(
-      !serialized.toLowerCase().includes(forbidden.toLowerCase()),
-      forbidden,
-    );
-  // Accepting a suggestion is a host action: this module exposes no way to.
-  const moduleExports = Object.keys(
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    {} as Record<string, unknown>,
-  );
-  assert.deepEqual(moduleExports, []);
+    assert.ok(!payload.includes(forbidden), forbidden);
 });
 
 test("the suggestion count is bounded", () => {

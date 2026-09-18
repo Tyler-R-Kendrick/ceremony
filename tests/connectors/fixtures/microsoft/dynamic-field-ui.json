@@ -32,9 +32,7 @@
       },
       "operationRef": "msdyn:GetItemSchema",
       "operationId": "GetItemSchema",
-      "dependsOn": [
-        "projectId"
-      ],
+      "dependsOn": ["projectId"],
       "constants": [
         {
           "target": "version",
@@ -57,9 +55,7 @@
       },
       "operationRef": "msdyn:GetRegions",
       "operationId": "GetRegions",
-      "dependsOn": [
-        "projectId"
-      ],
+      "dependsOn": ["projectId"],
       "constants": [],
       "selection": {
         "collection": "regions",

@@ -242,7 +242,8 @@ export async function readAdapters(): Promise<{
       problems.push({
         module,
         factory: "(none)",
-        reason: "no exported create*Adapter or create*Profile factory",
+        reason:
+          "importer-only module: it exports readers and compilers, not a runtime adapter factory",
       });
     for (const factory of factories) {
       const build = loaded[factory];
@@ -497,16 +498,34 @@ export function renderSupportMatrix(input: {
       lines.push("");
     }
   }
-  if (input.adapterProblems.length > 0) {
+  const importerOnly = input.adapterProblems.filter((problem) =>
+    problem.reason.startsWith("importer-only"),
+  );
+  const notIntrospectable = input.adapterProblems.filter(
+    (problem) => !problem.reason.startsWith("importer-only"),
+  );
+  if (importerOnly.length > 0) {
+    lines.push(
+      "## Format modules with no runtime adapter",
+      "",
+      "These modules read, validate and compile a document family. They deliberately expose no runtime adapter: an imported description is not an approved runtime binding, and execution for these families happens through another adapter (an approved HTTP binding, a compiled recipe, or a host-provided remote operation). They have no row in the tables above because they have no dimensions of their own to report.",
+      "",
+      "| Module |",
+      "| --- |",
+    );
+    for (const problem of importerOnly) lines.push(`| \`${problem.module}\` |`);
+    lines.push("");
+  }
+  if (notIntrospectable.length > 0) {
     lines.push(
       "## Adapters that are not machine-readable here",
       "",
-      "These modules exist but could not be constructed with no host configuration, so this document reports no dimensions for them rather than guessing. That is a gap in this generator, not a statement that the adapter is unimplemented: check the ledgers.",
+      "These modules export an adapter factory that could not be constructed with no host configuration, so this document reports no dimensions for them rather than guessing. That is a gap in this generator, not a statement that the adapter is unimplemented: check the ledgers and the module.",
       "",
       "| Module | Factory | Reason |",
       "| --- | --- | --- |",
     );
-    for (const problem of input.adapterProblems)
+    for (const problem of notIntrospectable)
       lines.push(
         `| \`${problem.module}\` | \`${problem.factory}\` | ${problem.reason} |`,
       );

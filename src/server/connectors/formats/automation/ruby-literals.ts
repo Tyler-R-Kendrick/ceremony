@@ -22,6 +22,7 @@ export type RubyOpaqueReason =
   | "expression"
   | "heredoc"
   | "percent-literal"
+  | "command"
   | "regex"
   | "splat"
   | "truncated";
@@ -68,6 +69,7 @@ type RubyTokenKind =
   | "punct"
   | "heredoc"
   | "percent"
+  | "command"
   | "regex";
 
 export type RubyToken = {
@@ -175,6 +177,10 @@ export function tokenizeRuby(
   let lineStart = 0;
   let atLineStart = true;
   let truncated = false;
+  // A heredoc tag ends where it is written; its body begins on the next line.
+  // Ruby keeps parsing the rest of the current line, so the body is skipped
+  // when the newline arrives, not when the tag is read.
+  const pendingHeredocs: string[] = [];
   const loc = (at: number): RubyLoc => ({ line, column: at - lineStart + 1 });
   const push = (token: Omit<RubyToken, "startsLine">) => {
     tokens.push({ ...token, startsLine: atLineStart });
@@ -200,6 +206,18 @@ export function tokenizeRuby(
       index++;
       lineStart = index;
       atLineStart = true;
+      while (pendingHeredocs.length) {
+        const terminator = pendingHeredocs.shift()!;
+        const pattern = new RegExp(`^[ \\t]*${terminator}[ \\t]*$`, "m");
+        const match = pattern.exec(text.slice(index));
+        const stop = match ? index + match.index + match[0].length : text.length;
+        for (let scan = index; scan < stop; scan++)
+          if (text[scan] === "\n") {
+            line++;
+            lineStart = scan + 1;
+          }
+        index = stop;
+      }
       continue;
     }
     if (/\s/.test(char)) {
@@ -225,16 +243,9 @@ export function tokenizeRuby(
     );
     if (heredoc) {
       const terminator = heredoc[2]!;
-      const bodyStart = text.indexOf("\n", index);
-      let stop = text.length;
-      if (bodyStart >= 0) {
-        const pattern = new RegExp(`^[ \\t]*${terminator}[ \\t]*$`, "m");
-        const match = pattern.exec(text.slice(bodyStart));
-        stop = match ? bodyStart + match.index + match[0].length : text.length;
-      }
+      pendingHeredocs.push(terminator);
       push({ kind: "heredoc", value: terminator, loc: loc(start) });
-      countNewlines(index, stop);
-      index = stop;
+      index += heredoc[0].length;
       continue;
     }
     if (
@@ -268,6 +279,19 @@ export function tokenizeRuby(
         continue;
       }
     }
+    if (char === "`") {
+      // A backtick literal runs a shell command in Ruby. Here it is text with
+      // a beginning and an end, and the end is all this scanner wants.
+      let scan = index + 1;
+      while (scan < text.length && text[scan] !== "`") {
+        if (text[scan] === "\\") scan++;
+        scan++;
+      }
+      push({ kind: "command", value: "`", loc: loc(start) });
+      countNewlines(index, Math.min(scan + 1, text.length));
+      index = Math.min(scan + 1, text.length);
+      continue;
+    }
     if (char === "'" || char === '"') {
       const quote = char;
       let scan = index + 1;
@@ -278,6 +302,21 @@ export function tokenizeRuby(
         if (current === "\\") {
           raw += current + (text[scan + 1] ?? "");
           scan += 2;
+          continue;
+        }
+        if (quote === '"' && current === "#" && text[scan + 1] === "{") {
+          // Skip the substitution by counting braces: it is not read, and it
+          // may legally contain the quote that delimits the string.
+          let depth = 1;
+          scan += 2;
+          while (scan < text.length && depth > 0) {
+            const inner = text[scan]!;
+            if (inner === "\\") scan++;
+            else if (inner === "{") depth++;
+            else if (inner === "}") depth--;
+            scan++;
+          }
+          raw += "#{}";
           continue;
         }
         if (current === quote) {
@@ -490,6 +529,7 @@ function skipOpaque(
   if (token.kind === "heredoc") return { reason: "heredoc", next: index + 1 };
   if (token.kind === "percent")
     return { reason: "percent-literal", next: index + 1 };
+  if (token.kind === "command") return { reason: "command", next: index + 1 };
   if (token.kind === "dynamic-string")
     return { reason: "interpolation", next: index + 1 };
   if (isPunct(token, "*") || isPunct(token, "**"))

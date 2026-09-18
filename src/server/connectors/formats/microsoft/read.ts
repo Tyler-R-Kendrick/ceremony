@@ -1467,7 +1467,8 @@ export function joinBasePath(
   basePath: string | undefined,
   path: string,
 ): string {
-  const prefix = basePath && basePath !== "/" ? basePath.replace(/\/$/, "") : "";
+  const prefix =
+    basePath && basePath !== "/" ? basePath.replace(/\/$/, "") : "";
   const joined = `${prefix}${path}`;
   return joined.startsWith("/") ? joined : `/${joined}`;
 }

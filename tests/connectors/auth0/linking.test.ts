@@ -35,10 +35,7 @@ const intent = (
 });
 
 async function tenant(
-  options: Parameters<typeof startAuth0TokenVaultDouble>[0] = {
-    clientId: CLIENT_ID,
-    clientSecret: CLIENT_SECRET,
-  },
+  options: Partial<Parameters<typeof startAuth0TokenVaultDouble>[0]> = {},
 ) {
   return startAuth0TokenVaultDouble({
     clientId: CLIENT_ID,

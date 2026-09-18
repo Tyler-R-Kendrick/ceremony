@@ -167,7 +167,9 @@ test("import of an unreadable definition yields provenance and diagnostics, not 
   assert.deepEqual(outcome.definitions, []);
   assert.deepEqual(outcome.executableCandidates, []);
   assert.ok(
-    outcome.issues.some((issue) => issue.code === "version.openapi-3-unsupported"),
+    outcome.issues.some(
+      (issue) => issue.code === "version.openapi-3-unsupported",
+    ),
   );
   // The captured bytes are still recorded, so the artifact can be reviewed.
   assert.equal(outcome.source.byteLength > 0, true);
@@ -225,7 +227,11 @@ test("the default credential hook builds each declared authentication shape", ()
       kind: "http-basic",
       material: { username: "ada", password: "lovelace" },
     }),
-    { headers: { authorization: `Basic ${Buffer.from("ada:lovelace").toString("base64")}` } },
+    {
+      headers: {
+        authorization: `Basic ${Buffer.from("ada:lovelace").toString("base64")}`,
+      },
+    },
   );
   assert.deepEqual(
     defaultAuthorizationHook({
@@ -234,7 +240,10 @@ test("the default credential hook builds each declared authentication shape", ()
     }),
     { headers: { authorization: "Bearer at-1" } },
   );
-  assert.deepEqual(defaultAuthorizationHook({ kind: "none", material: {} }), {});
+  assert.deepEqual(
+    defaultAuthorizationHook({ kind: "none", material: {} }),
+    {},
+  );
 
   // A credential that would split a header is refused rather than sent.
   assert.throws(
@@ -246,13 +255,15 @@ test("the default credential hook builds each declared authentication shape", ()
         material: { value: "bad\r\nX-Injected: 1" },
       }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.code === "configuration-required",
+      error instanceof ConnectorError &&
+      error.code === "configuration-required",
   );
   // A missing credential is a configuration failure, never an anonymous call.
   assert.throws(
     () => defaultAuthorizationHook({ kind: "oauth2", material: {} }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.code === "configuration-required",
+      error instanceof ConnectorError &&
+      error.code === "configuration-required",
   );
 });
 
@@ -281,9 +292,13 @@ test("a host-supplied credential hook replaces the default without touching anyt
     seen.push(request.kind);
     // The material is opened inside custody and never returned to the caller.
     assert.equal(request.material.value, "opaque-broker-reference");
-    return { headers: { authorization: "Bearer exchanged-by-the-oauth-profile" } };
+    return {
+      headers: { authorization: "Bearer exchanged-by-the-oauth-profile" },
+    };
   };
-  const adapter = createMicrosoftCustomConnectorAdapter({ authorization: hook });
+  const adapter = createMicrosoftCustomConnectorAdapter({
+    authorization: hook,
+  });
   const result = await adapter.invoke!(
     adapterContext({ actor, binding, connection, environment }),
     {
@@ -347,7 +362,10 @@ test("binding settings a host did not write are refused", async (t) => {
   const fixture = await startHttpFixture(() => ({ body: {} }));
   t.after(() => fixture.close());
   const { environment } = portsWithFetch(fixture.origin);
-  const binding = buildMicrosoftBinding({ origin: fixture.origin, operations: [] });
+  const binding = buildMicrosoftBinding({
+    origin: fixture.origin,
+    operations: [],
+  });
   // A settings block that does not parse is a binding fault, not a caller one.
   const broken = { ...binding, settings: { dynamicFields: "not-an-array" } };
   const adapter = createMicrosoftCustomConnectorAdapter();

@@ -38,7 +38,7 @@ export const projectSchema = z
 export const locationSchema = z
   .string()
   .regex(/^(?:global|[a-z][a-z0-9-]{0,30}[a-z0-9])$/);
-export const connectionSchema = z
+export const connectionIdSchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]{0,61}[a-z0-9]$/);
 /** Entity type and action names are the external system's spelling, preserved exactly. */
@@ -56,7 +56,7 @@ export const entityIdSchema = z
 export const connectionResourceSchema = z.strictObject({
   project: projectSchema,
   location: locationSchema,
-  connection: connectionSchema,
+  connection: connectionIdSchema,
 });
 export type ConnectionResource = z.infer<typeof connectionResourceSchema>;
 

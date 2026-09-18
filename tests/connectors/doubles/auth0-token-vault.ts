@@ -6,7 +6,6 @@ import {
   generateKeyPair,
   jwtVerify,
   type CryptoKey,
-  type CryptoKeyPair,
 } from "jose";
 import {
   startHttpFixture,
@@ -95,8 +94,9 @@ const json = (status: number, body: unknown): FixtureReply => ({
  * no state: each double serves its own JWKS at its own origin, so one tenant
  * pair and one foreign pair per test process are enough.
  */
-let tenantKeys: Promise<CryptoKeyPair> | undefined;
-let foreignKeys: Promise<CryptoKeyPair> | undefined;
+type TenantKeyPair = Awaited<ReturnType<typeof generateKeyPair>>;
+let tenantKeys: Promise<TenantKeyPair> | undefined;
+let foreignKeys: Promise<TenantKeyPair> | undefined;
 const tenantKeyPair = () =>
   (tenantKeys ??= generateKeyPair("RS256", { extractable: true }));
 const foreignKeyPair = () =>

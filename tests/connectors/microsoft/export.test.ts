@@ -35,7 +35,11 @@ const exported = async () => {
       ...(read.verifierOperation ? [read.verifierOperation] : []),
     ],
   });
-  return { read, binding, result: exportCustomConnector(read.definition, binding) };
+  return {
+    read,
+    binding,
+    result: exportCustomConnector(read.definition, binding),
+  };
 };
 
 test("the export is a Swagger 2.0 document bounded to the approved operations", async () => {
@@ -221,7 +225,9 @@ test("a body schema that the description does not carry is an explicit loss", as
   // The dynamic extensions inside that body schema have nowhere to attach, and
   // the export says so rather than dropping them quietly.
   assert.ok(
-    result.losses.some((item) => item.code === "schema.body-extensions-unplaced"),
+    result.losses.some(
+      (item) => item.code === "schema.body-extensions-unplaced",
+    ),
   );
   const paths = result.document.paths as Record<string, Json>;
   const create = paths["/projects/{projectId}/items"]?.post as Json;
@@ -230,7 +236,9 @@ test("a body schema that the description does not carry is an explicit loss", as
   assert.ok(body, "the body parameter is still described");
   assert.equal(body?.schema, undefined);
   // The path parameter keeps its dynamic-values extension, which does attach.
-  const projectId = parameters.find((parameter) => parameter.name === "projectId");
+  const projectId = parameters.find(
+    (parameter) => parameter.name === "projectId",
+  );
   assert.ok(projectId?.["x-ms-dynamic-values"]);
 });
 
@@ -242,7 +250,9 @@ test("an export whose host is rebound to the approved destination says so", asyn
   });
   const result = exportCustomConnector(read.definition, binding);
   assert.equal(result.document.host, "eu.contoso.example");
-  const loss = result.losses.find((item) => item.code === "network.host-rebound");
+  const loss = result.losses.find(
+    (item) => item.code === "network.host-rebound",
+  );
   assert.equal(loss?.category, "network");
   assert.match(loss?.message ?? "", /not the host the source declared/);
 });

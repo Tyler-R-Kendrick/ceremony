@@ -72,7 +72,10 @@ async function verifyHarness(
 test("testConnection is offered as a verifier candidate that requires host review", async () => {
   const read = await readFixtureConnector();
   const candidate = read.verifierCandidate;
-  assert.ok(candidate, "the document declares x-ms-capabilities.testConnection");
+  assert.ok(
+    candidate,
+    "the document declares x-ms-capabilities.testConnection",
+  );
   assert.equal(candidate?.operationId, "WhoAmI");
   assert.equal(candidate?.sourcePointer, "#/x-ms-capabilities/testConnection");
   assert.equal(candidate?.requiresHostReview, true);
@@ -86,7 +89,10 @@ test("testConnection is offered as a verifier candidate that requires host revie
   assert.equal(issue?.severity, "info");
   assert.equal(issue?.disposition, "requires-configuration");
   assert.match(issue?.message ?? "", /establishes no account identity/);
-  assert.equal(read.definition.compatibility.dimensions.verify, "requires-configuration");
+  assert.equal(
+    read.definition.compatibility.dimensions.verify,
+    "requires-configuration",
+  );
 
   // The compiled candidate is a read against the described path.
   assert.deepEqual(read.verifierOperation?.transport, {
@@ -155,7 +161,10 @@ test("a rejected credential is denied and claims nothing", async (t) => {
 });
 
 test("an unavailable provider leaves verification pending rather than denied", async (t) => {
-  const harness = await verifyHarness(() => ({ status: 503, body: { error: "down" } }));
+  const harness = await verifyHarness(() => ({
+    status: 503,
+    body: { error: "down" },
+  }));
   t.after(() => harness.fixture.close());
   const result = await harness.adapter.verify!(harness.ctx);
   assert.equal(result.state, "pending");
@@ -168,12 +177,15 @@ test("verification is refused when the host has not approved a verifier", async 
     withVerifier: false,
   });
   t.after(() => harness.fixture.close());
-  await assert.rejects(harness.adapter.verify!(harness.ctx), (error: unknown) => {
-    assert.ok(error instanceof ConnectorError);
-    assert.equal(error.code, "unsupported");
-    assert.equal(error.detail, "microsoft.verify.unapproved");
-    return true;
-  });
+  await assert.rejects(
+    harness.adapter.verify!(harness.ctx),
+    (error: unknown) => {
+      assert.ok(error instanceof ConnectorError);
+      assert.equal(error.code, "unsupported");
+      assert.equal(error.detail, "microsoft.verify.unapproved");
+      return true;
+    },
+  );
   assert.equal(harness.fixture.requests.length, 0);
 });
 

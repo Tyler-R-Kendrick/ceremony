@@ -82,6 +82,7 @@ const REASON_MESSAGE: Record<RubyOpaqueReason, string> = {
   expression: "a Ruby expression",
   heredoc: "a heredoc",
   "percent-literal": "a percent literal",
+  command: "a shell command literal",
   regex: "a regular expression literal",
   splat: "a splatted value",
   truncated: "a value beyond the reader's bounds",

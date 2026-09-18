@@ -42,7 +42,9 @@ test("policy template instances are inert and block only the operations they nam
   assert.equal(read.blocked.GetProjects, undefined);
 
   // The useful metadata is preserved, marked non-executable.
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     policyTemplateInstances: Array<{
       templateId: string;
       title?: string;
@@ -55,9 +57,16 @@ test("policy template instances are inert and block only the operations they nam
     record.policyTemplateInstances.map((policy) => policy.templateId),
     ["setheader", "setqueryparameter"],
   );
-  assert.equal(record.policyTemplateInstances[0]?.title, "Add a correlation header");
-  assert.deepEqual(record.policyTemplateInstances[0]?.operationNames, ["CreateItem"]);
-  assert.ok(record.policyTemplateInstances.every((policy) => !policy.executable));
+  assert.equal(
+    record.policyTemplateInstances[0]?.title,
+    "Add a correlation header",
+  );
+  assert.deepEqual(record.policyTemplateInstances[0]?.operationNames, [
+    "CreateItem",
+  ]);
+  assert.ok(
+    record.policyTemplateInstances.every((policy) => !policy.executable),
+  );
 });
 
 test("a policy parameter value is never preserved, only its name and type", async () => {
@@ -77,7 +86,9 @@ test("a policy parameter value is never preserved, only its name and type", asyn
   });
   const serialized = JSON.stringify(read.definition);
   assert.ok(!serialized.includes(canaries.upstreamBody));
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     policyTemplateInstances: Array<{
       parameters: Array<{ name: string; valueType: string }>;
     }>;
@@ -134,7 +145,9 @@ test("custom code blocks every operation when scriptOperations is empty", async 
   assert.match(issue?.message ?? "", /every operation/);
   assert.match(issue?.message ?? "", /never compiled or executed here/);
 
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     script: {
       present: boolean;
       file?: string;
@@ -151,7 +164,11 @@ test("custom code blocks every operation when scriptOperations is empty", async 
   assert.deepEqual(read.executableCandidates, []);
 
   const scriptOnDisk = fixtureText("script.csx");
-  assert.match(scriptOnDisk, /CANARY_SCRIPT_BODY_7d2/, "the fixture has a canary");
+  assert.match(
+    scriptOnDisk,
+    /CANARY_SCRIPT_BODY_7d2/,
+    "the fixture has a canary",
+  );
   assert.ok(!JSON.stringify(read.definition).includes(canaries.scriptBody));
 });
 
@@ -202,13 +219,17 @@ test("an on-premises gateway requirement blocks execution and is never attempted
     },
     settings: settingsFixture(),
   });
-  const issue = read.issues.find((item) => item.code === "network.gateway-required");
+  const issue = read.issues.find(
+    (item) => item.code === "network.gateway-required",
+  );
   assert.equal(issue?.category, "network");
   assert.equal(issue?.severity, "blocking");
   assert.equal(issue?.executionImpact, "blocks-definition");
   assert.match(issue?.message ?? "", /on-premises data gateway/);
   assert.deepEqual(read.executableCandidates, []);
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     gateway: { required: boolean; available: boolean };
   };
   assert.deepEqual(record.gateway, { required: true, available: false });
@@ -247,7 +268,10 @@ test("an undocumented connection parameter type is preserved but never executabl
     (item) => item.kind === "unsupported",
   );
   // The native spelling survives; no login method is invented for it.
-  assert.equal(profile?.kind === "unsupported" && profile.native, "quantumSetting");
+  assert.equal(
+    profile?.kind === "unsupported" && profile.native,
+    "quantumSetting",
+  );
 });
 
 test("a remote or cyclic reference is refused rather than fetched", async () => {
@@ -257,9 +281,7 @@ test("a remote or cyclic reference is refused rather than fetched", async () => 
     get: {
       operationId: "Remote",
       summary: "Remote reference",
-      parameters: [
-        { $ref: "https://attacker.example/parameters.json#/evil" },
-      ],
+      parameters: [{ $ref: "https://attacker.example/parameters.json#/evil" }],
       responses: { "200": { description: "OK" } },
     },
   };

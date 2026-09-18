@@ -82,7 +82,10 @@ test("connection parameters become configuration requirements with a determinist
   );
   // Deterministic uppercase form of each native name.
   assert.equal(read.configurationNames.api_key, "API_KEY");
-  assert.equal(read.configurationNames.internalSigningKey, "INTERNALSIGNINGKEY");
+  assert.equal(
+    read.configurationNames.internalSigningKey,
+    "INTERNALSIGNINGKEY",
+  );
   assert.equal(read.configurationNames.environmentName, "ENVIRONMENTNAME");
   for (const name of byName.keys())
     assert.match(name, /^[A-Z][A-Z0-9_]{0,95}$/, `${name} is a legal name`);
@@ -108,7 +111,9 @@ test("connection parameters become configuration requirements with a determinist
     assert.equal(issue.disposition, "adapted");
     assert.equal(issue.executionImpact, "none");
   }
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     connectionParameters: Array<{
       nativeName: string;
       configurationNames: string[];
@@ -129,7 +134,9 @@ test("a hidden securestring stays classified secret and is never exposed by a pu
   );
   // Hidden in the provider's connection dialog; still a secret here.
   assert.equal(signing?.classification, "secret");
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     connectionParameters: Array<{ nativeName: string; hidden: boolean }>;
     presentation: { visibility: Record<string, string> };
   };
@@ -157,7 +164,10 @@ test("connection parameter sets become alternative authentication profiles", asy
   const profiles = read.definition.authentication;
   // The swagger security definition and both parameter sets are all described.
   const apiKeyScheme = profiles.find((profile) => profile.kind === "api-key");
-  assert.equal(apiKeyScheme?.kind === "api-key" && apiKeyScheme.placement, "header");
+  assert.equal(
+    apiKeyScheme?.kind === "api-key" && apiKeyScheme.placement,
+    "header",
+  );
   assert.equal(
     apiKeyScheme?.kind === "api-key" && apiKeyScheme.parameterName,
     "X-Api-Key",
@@ -165,7 +175,10 @@ test("connection parameter sets become alternative authentication profiles", asy
   const oauth = profiles.find(
     (profile) => profile.kind === "oauth-authorization-code",
   );
-  assert.ok(oauth, "the oauth2 parameter set yields an authorization-code profile");
+  assert.ok(
+    oauth,
+    "the oauth2 parameter set yields an authorization-code profile",
+  );
   assert.equal(
     oauth?.kind === "oauth-authorization-code" && oauth.authorizationEndpoint,
     "https://login.contoso.example/oauth/authorize",
@@ -175,9 +188,13 @@ test("connection parameter sets become alternative authentication profiles", asy
     ["projects.read", "items.write"],
   );
   // Which set a profile belongs to is recorded so alternatives group, never merge.
-  const record = read.definition.nativeExtensions["microsoft-custom-connector"] as {
+  const record = read.definition.nativeExtensions[
+    "microsoft-custom-connector"
+  ] as {
     presentation: { profileSets: Record<string, string> };
-    connectionParameterSets?: { values: Array<{ name: string; allowSharing?: boolean }> };
+    connectionParameterSets?: {
+      values: Array<{ name: string; allowSharing?: boolean }>;
+    };
   };
   assert.equal(record.presentation.profileSets[oauth?.id ?? ""], "oauth2");
   assert.deepEqual(
@@ -203,13 +220,18 @@ test("missing companion metadata is actionable and does not block the import", a
   assert.equal(issue?.executionImpact, "none");
   assert.match(issue?.remediation ?? "", /paconn download/);
   // The description still imports, and configure reports what it needs.
-  assert.equal(read.definition.compatibility.dimensions.configure, "requires-configuration");
+  assert.equal(
+    read.definition.compatibility.dimensions.configure,
+    "requires-configuration",
+  );
   assert.ok(read.definition.capabilities.length > 0);
 });
 
 test("every x-ms-* extension is preserved with the pointer it was read from", async () => {
   const read = await readFixtureConnector();
-  const documentEntries = read.definition.nativeExtensions["x-ms-extensions"] as Array<{
+  const documentEntries = read.definition.nativeExtensions[
+    "x-ms-extensions"
+  ] as Array<{
     pointer: string;
     name: string;
     value: unknown;
@@ -258,7 +280,9 @@ test("every x-ms-* extension is preserved with the pointer it was read from", as
   const trigger = read.definition.capabilities.find(
     (capability) => capability.nativeId === "OnItemCreated",
   );
-  const pathEntries = trigger?.nativeExtensions?.["x-ms-path-extensions"] as Array<{
+  const pathEntries = trigger?.nativeExtensions?.[
+    "x-ms-path-extensions"
+  ] as Array<{
     name: string;
     pointer: string;
   }>;
@@ -271,7 +295,9 @@ test("every x-ms-* extension is preserved with the pointer it was read from", as
 
 test("webhook and polling triggers become distinct event descriptors", async () => {
   const read = await readFixtureConnector();
-  const byId = new Map(read.definition.events.map((event) => [event.nativeId, event]));
+  const byId = new Map(
+    read.definition.events.map((event) => [event.nativeId, event]),
+  );
 
   const webhook = byId.get("OnItemCreated");
   assert.equal(webhook?.transport, "http-webhook");
@@ -298,9 +324,17 @@ test("webhook and polling triggers become distinct event descriptors", async () 
   assert.equal(blocked?.severity, "blocking");
   assert.equal(blocked?.executionImpact, "blocks-operation");
   assert.match(blocked?.message ?? "", /Location header|trigger state/);
-  assert.ok(read.blocked.OnItemUpdated?.includes("structure.polling-trigger-unsupported"));
+  assert.ok(
+    read.blocked.OnItemUpdated?.includes(
+      "structure.polling-trigger-unsupported",
+    ),
+  );
   // The webhook trigger is not blocked by the polling diagnostic.
-  assert.ok(!read.blocked.OnItemCreated?.includes("structure.polling-trigger-unsupported"));
+  assert.ok(
+    !read.blocked.OnItemCreated?.includes(
+      "structure.polling-trigger-unsupported",
+    ),
+  );
 });
 
 test("a secret-bearing default or example never reaches the description", async () => {
@@ -326,7 +360,11 @@ test("a secret-bearing default or example never reaches the description", async 
 test("an OpenAPI 3 document is refused as a custom connector definition", async () => {
   await assert.rejects(
     readCustomConnector({
-      swagger: { openapi: "3.1.0", info: { title: "x", version: "1" }, paths: {} },
+      swagger: {
+        openapi: "3.1.0",
+        info: { title: "x", version: "1" },
+        paths: {},
+      },
     }),
     (error: unknown) => {
       assert.ok(error instanceof CustomConnectorReadError);
@@ -365,6 +403,8 @@ test("a duplicate operationId makes every reference to it ambiguous and blocked"
   assert.ok(!read.executableCandidates.includes("GetProjects"));
   // A dynamic field that referenced the ambiguous id cannot be resolved.
   assert.ok(
-    read.issues.some((issue) => issue.code === "structure.dynamic-operation-unknown"),
+    read.issues.some(
+      (issue) => issue.code === "structure.dynamic-operation-unknown",
+    ),
   );
 });

@@ -29,7 +29,10 @@ export const AT = "2026-09-18T00:00:00.000Z";
 
 export function fixtureJson(name: string): unknown {
   return JSON.parse(
-    readFileSync(new URL(`../fixtures/microsoft/${name}`, import.meta.url), "utf8"),
+    readFileSync(
+      new URL(`../fixtures/microsoft/${name}`, import.meta.url),
+      "utf8",
+    ),
   );
 }
 
@@ -113,10 +116,14 @@ export function buildMicrosoftBinding(options: {
     reviewedDigest: HEX,
     settings: {
       ...(options.connectorId ? { connectorId: options.connectorId } : {}),
-      ...(options.authentication ? { authentication: options.authentication } : {}),
+      ...(options.authentication
+        ? { authentication: options.authentication }
+        : {}),
       dynamicFields: options.dynamicFields ?? [],
       ...(options.verifier ? { verifier: options.verifier } : {}),
-      ...(options.cacheTtlMs === undefined ? {} : { cacheTtlMs: options.cacheTtlMs }),
+      ...(options.cacheTtlMs === undefined
+        ? {}
+        : { cacheTtlMs: options.cacheTtlMs }),
     },
   });
 }
@@ -178,7 +185,8 @@ export async function connectedPrincipal(options: {
   connectionRef?: string;
   generation?: number;
 }): Promise<ConnectionRecord> {
-  const connectionRef = options.connectionRef ?? `connection:${options.actor.subjectId}`;
+  const connectionRef =
+    options.connectionRef ?? `connection:${options.actor.subjectId}`;
   const credentialRef = await options.ports.credentials.store(
     {
       tenantId: options.actor.tenantId,
@@ -195,7 +203,9 @@ export async function connectedPrincipal(options: {
     actor: options.actor,
     credentialRef,
     connectionRef,
-    ...(options.generation === undefined ? {} : { generation: options.generation }),
+    ...(options.generation === undefined
+      ? {}
+      : { generation: options.generation }),
   });
 }
 

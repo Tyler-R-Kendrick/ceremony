@@ -64,7 +64,10 @@ test("dynamic values and dynamic lists compile into contracts with typed paramet
   ]);
   // The newer extension wins when a field declares both forms, so a UI never
   // renders the same field twice.
-  const older = contractById(read.dynamicFields, "values:CreateItem:body:payload/region");
+  const older = contractById(
+    read.dynamicFields,
+    "values:CreateItem:body:payload/region",
+  );
   assert.equal(older.preferred, false);
   assert.equal(regions.preferred, true);
 
@@ -120,7 +123,10 @@ test("dynamic operations compile into read-only candidates classified personal",
 
 test("a dynamic reference to an operation the document does not declare is refused", async () => {
   const swagger = swaggerFixture() as Record<string, unknown>;
-  const paths = swagger.paths as Record<string, Record<string, Record<string, unknown>>>;
+  const paths = swagger.paths as Record<
+    string,
+    Record<string, Record<string, unknown>>
+  >;
   const create = paths["/projects/{projectId}/items"]?.post;
   const parameters = create?.parameters as Array<Record<string, unknown>>;
   (parameters[0] as { "x-ms-dynamic-values": { operationId: string } })[
@@ -148,15 +154,20 @@ test("a dynamic reference to an operation the document does not declare is refus
 
 test("an unresolved parameter reference is reported and blocks the contract", async () => {
   const swagger = swaggerFixture() as Record<string, unknown>;
-  const paths = swagger.paths as Record<string, Record<string, Record<string, unknown>>>;
+  const paths = swagger.paths as Record<
+    string,
+    Record<string, Record<string, unknown>>
+  >;
   const create = paths["/projects/{projectId}/items"]?.post;
   const parameters = create?.parameters as Array<Record<string, unknown>>;
   const body = parameters[1] as {
     schema: { properties: { region: Record<string, unknown> } };
   };
-  (body.schema.properties.region["x-ms-dynamic-list"] as {
-    parameters: Record<string, unknown>;
-  }).parameters = { projectId: { parameterReference: "notAParameter" } };
+  (
+    body.schema.properties.region["x-ms-dynamic-list"] as {
+      parameters: Record<string, unknown>;
+    }
+  ).parameters = { projectId: { parameterReference: "notAParameter" } };
   const read = await readCustomConnector({
     swagger,
     apiProperties: apiPropertiesFixture(),
@@ -251,7 +262,12 @@ test("the caller cannot name a contract or an operation the binding has not appr
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const ctx = adapterContext({ actor, binding, connection, environment });
 
@@ -302,14 +318,25 @@ test("a target parameter outside the connection's permitted targets is denied", 
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   await assert.rejects(
-    adapter.invoke!(adapterContext({ actor, binding, connection, environment }), {
-      operationRef: "msdyn:GetRegions",
-      input: { contractId: REGION_CONTRACT, values: { projectId: "someone-elses" } },
-      commandId: "command-1",
-    }),
+    adapter.invoke!(
+      adapterContext({ actor, binding, connection, environment }),
+      {
+        operationRef: "msdyn:GetRegions",
+        input: {
+          contractId: REGION_CONTRACT,
+          values: { projectId: "someone-elses" },
+        },
+        commandId: "command-1",
+      },
+    ),
     (error: unknown) => {
       assert.ok(error instanceof ConnectorError);
       assert.equal(error.code, "denied");
@@ -343,7 +370,12 @@ test("an upstream denial is reported without leaking the response body", async (
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const result = await adapter.invoke!(
     adapterContext({ actor, binding, connection, environment }),
@@ -389,7 +421,12 @@ test("hostile option titles are sanitized and option values are bounded", async 
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const result = await adapter.invoke!(
     adapterContext({ actor, binding, connection, environment }),
@@ -439,7 +476,12 @@ test("more options than the limit are bounded and reported as truncated", async 
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const result = await adapter.invoke!(
     adapterContext({ actor, binding, connection, environment }),
@@ -531,7 +573,10 @@ test("cached options never cross principals or survive a generation change", asy
   assert.equal(fixture.requests.length, 2);
 
   // A reconnect advances the generation, and the old cache cannot answer for it.
-  const reconnected = { ...aliceConnection, generation: aliceConnection.generation + 1 };
+  const reconnected = {
+    ...aliceConnection,
+    generation: aliceConnection.generation + 1,
+  };
   const afterReconnect = await invoke(alice, reconnected);
   assert.equal((afterReconnect.output as DynamicOptionsResult).cached, false);
   assert.equal(fixture.requests.length, 3);
@@ -564,7 +609,13 @@ test("a stale generation is refused before any upstream call", async (t) => {
   const adapter = createMicrosoftCustomConnectorAdapter();
   await assert.rejects(
     adapter.invoke!(
-      adapterContext({ actor, binding, connection, environment, generation: 3 }),
+      adapterContext({
+        actor,
+        binding,
+        connection,
+        environment,
+        generation: 3,
+      }),
       {
         operationRef: "msdyn:GetRegions",
         input: { contractId: REGION_CONTRACT, values: { projectId: "proj-1" } },
@@ -610,7 +661,12 @@ test("a dynamic schema lookup returns a bounded, cleaned schema", async (t) => {
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const result = await adapter.invoke!(
     adapterContext({ actor, binding, connection, environment }),
@@ -634,7 +690,10 @@ test("a dynamic schema lookup returns a bounded, cleaned schema", async (t) => {
 
 test("a dynamic field on a hidden privileged input still classifies its output as personal", async (t) => {
   const swagger = swaggerFixture() as Record<string, unknown>;
-  const paths = swagger.paths as Record<string, Record<string, Record<string, unknown>>>;
+  const paths = swagger.paths as Record<
+    string,
+    Record<string, Record<string, unknown>>
+  >;
   const parameters = paths["/projects/{projectId}/items"]?.post
     ?.parameters as Array<Record<string, unknown>>;
   const body = parameters[1] as {
@@ -653,7 +712,10 @@ test("a dynamic field on a hidden privileged input still classifies its output a
     apiProperties: apiPropertiesFixture(),
     settings: settingsFixture(),
   });
-  const contract = contractById(read.dynamicFields, "list:CreateItem:body:payload/apiSecret");
+  const contract = contractById(
+    read.dynamicFields,
+    "list:CreateItem:body:payload/apiSecret",
+  );
   // Visibility travels as presentation, and never as authorization.
   assert.equal(contract.visibility, "internal");
   const operation = operationByRef(read.dynamicOperations, "msdyn:GetProjects");
@@ -684,14 +746,22 @@ test("a dynamic field on a hidden privileged input still classifies its output a
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   await assert.rejects(
-    adapter.invoke!(adapterContext({ actor, binding, connection, environment }), {
-      operationRef: "msdyn:GetProjects",
-      input: { contractId: "list:CreateItem:body:payload/apiSecret" },
-      commandId: "command-1",
-    }),
+    adapter.invoke!(
+      adapterContext({ actor, binding, connection, environment }),
+      {
+        operationRef: "msdyn:GetProjects",
+        input: { contractId: "list:CreateItem:body:payload/apiSecret" },
+        commandId: "command-1",
+      },
+    ),
     (error: unknown) =>
       error instanceof ConnectorError && error.code === "denied",
   );
@@ -715,7 +785,12 @@ test("a cancelled call never reaches the provider", async (t) => {
     },
   });
   const actor = actorFor("tenant-a", "subject-1");
-  const connection = await connectedPrincipal({ ports, binding, actor, apiKey: "k" });
+  const connection = await connectedPrincipal({
+    ports,
+    binding,
+    actor,
+    apiKey: "k",
+  });
   const adapter = createMicrosoftCustomConnectorAdapter();
   const controller = new AbortController();
   controller.abort();
