@@ -813,6 +813,34 @@ export function renderEvidenceReport(input: {
     })),
   );
   const withResults = recordedTests.filter((entry) => entry.suite);
+  /*
+   * Why a ledger-named file has no result, said accurately.
+   *
+   * The blanket answer used to be "this run is older than the ledgers, re-run
+   * the compiler". For most of these that is false and the advice cannot work:
+   * a Playwright specification belongs to another runner, and a harness, a
+   * protocol double and a fixture document are not tests at all. Telling a
+   * reader to re-run something that will never change the row is the same
+   * cry-wolf failure this report was already fixed for once, so each absence
+   * is now named for what it is, and only a node test genuinely missing from
+   * the run asks for a refresh.
+   */
+  const absenceKind = (file: string): string =>
+    file.endsWith(".spec.ts")
+      ? "browser specification, run by `npm run test:e2e` under three engines rather than by the node runner"
+      : /\.(json|ya?ml)$/.test(file)
+        ? "fixture document, read by a test rather than run as one"
+        : file.endsWith(".test.ts")
+          ? "node test outside the compiler's scope; a refresh would record it"
+          : "support module: a harness or protocol double a test imports, not a test";
+  const absent = [
+    ...new Set(
+      recordedTests.filter((entry) => !entry.suite).map((entry) => entry.file),
+    ),
+  ];
+  const refreshable = absent.filter((file) =>
+    absenceKind(file).startsWith("node test outside"),
+  );
   const lines: string[] = [
     "# Connector interoperability: implementation evidence report",
     "",
@@ -846,9 +874,20 @@ export function renderEvidenceReport(input: {
       `- Test files in that run: ${suites.size}; passed ${[...suites.values()].reduce((sum, suite) => sum + suite.passed, 0)}, failed ${[...suites.values()].reduce((sum, suite) => sum + suite.failed, 0)}, skipped ${[...suites.values()].reduce((sum, suite) => sum + suite.skipped, 0)}`,
       `- Ledger-named test files covered by that run: ${withResults.length} of ${recordedTests.length}.`,
       "",
-      withResults.length < recordedTests.length
-        ? `**This run is older than the ledgers.** ${recordedTests.length - withResults.length} test files named by a ledger have no result in it, so their rows below read \`not in the recorded run\`. Re-run \`npm run evidence:connectors\` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.`
-        : "Every test file a ledger names has a result in that run.",
+      absent.length === 0
+        ? "Every test file a ledger names has a result in that run."
+        : [
+            `**${absent.length} of the paths a ledger names have no result in that run**, so their rows below read \`not in the recorded run\`. An absence is not a failure and is not reported as one. Each one, and why:`,
+            "",
+            ...absent
+              .slice()
+              .sort()
+              .map((file) => `- \`${file}\` — ${absenceKind(file)}`),
+            "",
+            refreshable.length > 0
+              ? `Only the ${refreshable.length === 1 ? "one node test" : `${refreshable.length} node tests`} above would change: re-run \`npm run evidence:connectors\`, then regenerate this document. The rest cannot be recorded by that command however often it is run, and asking for a refresh would be advice that never works.`
+              : "None of them would change on a refresh: no node test a ledger names is missing from the run. Re-running the compiler would report exactly this again.",
+          ].join("\n"),
       "",
     );
   else

@@ -16,7 +16,8 @@
       "tests": [
         "tests/connectors/zapier/import.test.ts",
         "tests/connectors/zapier/export.test.ts",
-        "tests/connectors/automation/no-execution.test.ts"
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/js-literals.test.ts"
       ],
       "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-IMP-03", "AC-UX-03"],
       "evidenceLevel": "unit",
@@ -48,7 +49,8 @@
       "tests": [
         "tests/connectors/n8n/import.test.ts",
         "tests/connectors/n8n/export.test.ts",
-        "tests/connectors/automation/no-execution.test.ts"
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/js-literals.test.ts"
       ],
       "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-IMP-16", "AC-UX-03"],
       "evidenceLevel": "unit",
@@ -80,7 +82,8 @@
       "tests": [
         "tests/connectors/workato/import.test.ts",
         "tests/connectors/workato/export.test.ts",
-        "tests/connectors/automation/no-execution.test.ts"
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/ruby-literals.test.ts"
       ],
       "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-UX-03"],
       "evidenceLevel": "unit",

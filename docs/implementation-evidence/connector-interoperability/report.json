@@ -1,10 +1,10 @@
 {
   "reportVersion": 1,
-  "generatedAt": "2026-09-18T19:35:43.719Z",
+  "generatedAt": "2026-09-18T21:27:50.725Z",
   "git": {
     "baseCommit": "d741eed0de296950def366d0a92fa63b77070abc",
-    "testedCommit": "9f93d215c546045e21c289011a65bdd094604582+dirty",
-    "workingTreeDigest": "0ccbd775f443e3b0d4db88124b7564bd2695face285913ca8c9b965f2aeaed84",
+    "testedCommit": "dee7d7c12d0981a75e2c5cb7a76527f5ab860e36+dirty",
+    "workingTreeDigest": "a09790986b49b8d95370dcfb21bebeaef052daf5c26e13a0da1e03be20241a3b",
     "lockfileDigest": "b46daa4bf6dfcacd3769eda9118f6d9906f339ce4acb49291daef822497fe72e"
   },
   "environment": {
@@ -14,7 +14,7 @@
     "browsers": [],
     "nativeWebMcpAvailable": false
   },
-  "suiteCommand": "node --import tsx --test 168 connector test files (programmatic runner, counts only)",
+  "suiteCommand": "node --import tsx --test 177 connector test files (programmatic runner, counts only)",
   "suites": [
     {
       "file": "tests/connectors/a2a/card.test.ts",
@@ -167,8 +167,20 @@
       "skipped": 0
     },
     {
+      "file": "tests/connectors/automation/js-literals.test.ts",
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
       "file": "tests/connectors/automation/no-execution.test.ts",
       "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "tests/connectors/automation/ruby-literals.test.ts",
+      "passed": 19,
       "failed": 0,
       "skipped": 0
     },
@@ -185,6 +197,12 @@
       "skipped": 0
     },
     {
+      "file": "tests/connectors/aws-agentcore/compatibility.test.ts",
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
       "file": "tests/connectors/aws-agentcore/control.test.ts",
       "passed": 9,
       "failed": 0,
@@ -193,6 +211,12 @@
     {
       "file": "tests/connectors/aws-agentcore/sigv4.test.ts",
       "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "tests/connectors/binding/containment.test.ts",
+      "passed": 10,
       "failed": 0,
       "skipped": 0
     },
@@ -347,6 +371,12 @@
       "skipped": 0
     },
     {
+      "file": "tests/connectors/docker-mcp/catalog-bounds.test.ts",
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
       "file": "tests/connectors/docker-mcp/catalog.test.ts",
       "passed": 10,
       "failed": 0,
@@ -467,6 +497,12 @@
       "skipped": 0
     },
     {
+      "file": "tests/connectors/mcp/adapter-boundaries.test.ts",
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
       "file": "tests/connectors/mcp/adapter.test.ts",
       "passed": 17,
       "failed": 0,
@@ -493,6 +529,12 @@
     {
       "file": "tests/connectors/mcp/wire.test.ts",
       "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "tests/connectors/merge/adapter-boundaries.test.ts",
+      "passed": 43,
       "failed": 0,
       "skipped": 0
     },
@@ -535,6 +577,12 @@
     {
       "file": "tests/connectors/microsoft/verify.test.ts",
       "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "tests/connectors/microsoft/walk.test.ts",
+      "passed": 27,
       "failed": 0,
       "skipped": 0
     },
@@ -631,6 +679,12 @@
     {
       "file": "tests/connectors/openapi/refs.test.ts",
       "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "tests/connectors/openapi/schema-keywords.test.ts",
+      "passed": 16,
       "failed": 0,
       "skipped": 0
     },
@@ -4125,6 +4179,13 @@
           "artifact": "artifacts/connectors/junit.xml"
         },
         {
+          "testId": "tests/connectors/automation/js-literals.test.ts",
+          "command": "node --import tsx --test tests/connectors/automation/js-literals.test.ts",
+          "result": "pass",
+          "evidenceLevel": "unit",
+          "artifact": "artifacts/connectors/junit.xml"
+        },
+        {
           "testId": "AUTO-01:live-authorized",
           "command": "npm run verify:live",
           "result": "blocked",
@@ -4181,6 +4242,13 @@
           "artifact": "artifacts/connectors/junit.xml"
         },
         {
+          "testId": "tests/connectors/automation/js-literals.test.ts",
+          "command": "node --import tsx --test tests/connectors/automation/js-literals.test.ts",
+          "result": "pass",
+          "evidenceLevel": "unit",
+          "artifact": "artifacts/connectors/junit.xml"
+        },
+        {
           "testId": "AUTO-02:live-authorized",
           "command": "npm run verify:live",
           "result": "blocked",
@@ -4231,6 +4299,13 @@
         {
           "testId": "tests/connectors/automation/no-execution.test.ts",
           "command": "node --import tsx --test tests/connectors/automation/no-execution.test.ts",
+          "result": "pass",
+          "evidenceLevel": "unit",
+          "artifact": "artifacts/connectors/junit.xml"
+        },
+        {
+          "testId": "tests/connectors/automation/ruby-literals.test.ts",
+          "command": "node --import tsx --test tests/connectors/automation/ruby-literals.test.ts",
           "result": "pass",
           "evidenceLevel": "unit",
           "artifact": "artifacts/connectors/junit.xml"
@@ -4677,6 +4752,13 @@
         {
           "testId": "tests/connectors/aws-agentcore/adapter.test.ts",
           "command": "node --import tsx --test tests/connectors/aws-agentcore/adapter.test.ts",
+          "result": "pass",
+          "evidenceLevel": "protocol-fixture",
+          "artifact": "artifacts/connectors/junit.xml"
+        },
+        {
+          "testId": "tests/connectors/aws-agentcore/compatibility.test.ts",
+          "command": "node --import tsx --test tests/connectors/aws-agentcore/compatibility.test.ts",
           "result": "pass",
           "evidenceLevel": "protocol-fixture",
           "artifact": "artifacts/connectors/junit.xml"

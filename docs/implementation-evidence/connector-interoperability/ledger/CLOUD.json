@@ -40,7 +40,10 @@
         "src/server/connectors/providers/aws-agentcore/compatibility.ts",
         "src/server/connectors/providers/aws-agentcore/adapter.ts"
       ],
-      "tests": ["tests/connectors/aws-agentcore/adapter.test.ts"],
+      "tests": [
+        "tests/connectors/aws-agentcore/adapter.test.ts",
+        "tests/connectors/aws-agentcore/compatibility.test.ts"
+      ],
       "acceptanceIds": ["AC-EXT-17", "AC-IMP-05"],
       "evidenceLevel": "protocol-fixture",
       "sourceProfileIds": ["aws-agentcore-control-2023-06-05"],

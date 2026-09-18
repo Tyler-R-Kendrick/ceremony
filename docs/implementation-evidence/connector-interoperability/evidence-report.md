@@ -21,13 +21,26 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 
 ## Recorded test run
 
-- Recorded: 2026-09-18T19:35:43.719Z
-- Tested commit: `9f93d215c546045e21c289011a65bdd094604582+dirty`
+- Recorded: 2026-09-18T21:27:50.725Z
+- Tested commit: `dee7d7c12d0981a75e2c5cb7a76527f5ab860e36+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
-- Test files in that run: 168; passed 1640, failed 0, skipped 0
-- Ledger-named test files covered by that run: 217 of 236.
+- Test files in that run: 177; passed 1846, failed 0, skipped 0
+- Ledger-named test files covered by that run: 218 of 237.
 
-**This run is older than the ledgers.** 19 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
+**10 of the paths a ledger names have no result in that run**, so their rows below read `not in the recorded run`. An absence is not a failure and is not reported as one. Each one, and why:
+
+- `tests/browser/connector-directory.spec.ts` — browser specification, run by `npm run test:e2e` under three engines rather than by the node runner
+- `tests/browser/connector-drawer.spec.ts` — browser specification, run by `npm run test:e2e` under three engines rather than by the node runner
+- `tests/connectors/doubles/a2a-agent.ts` — support module: a harness or protocol double a test imports, not a test
+- `tests/connectors/doubles/supabase-management.ts` — support module: a harness or protocol double a test imports, not a test
+- `tests/connectors/doubles/supabase-project.ts` — support module: a harness or protocol double a test imports, not a test
+- `tests/connectors/fixtures/import/canary-invalid.json` — fixture document, read by a test rather than run as one
+- `tests/connectors/fixtures/import/canary-secrets.yaml` — fixture document, read by a test rather than run as one
+- `tests/connectors/fixtures/supabase/harness.ts` — support module: a harness or protocol double a test imports, not a test
+- `tests/connectors/ux/harness-server.ts` — support module: a harness or protocol double a test imports, not a test
+- `tests/mcp-server.test.ts` — node test outside the compiler's scope; a refresh would record it
+
+Only the one node test above would change: re-run `npm run evidence:connectors`, then regenerate this document. The rest cannot be recorded by that command however often it is run, and asking for a refresh would be advice that never works.
 
 ## Requirements with no ledger entry
 
@@ -969,6 +982,7 @@ Nobody delivered this required work item.
 - Pinned sources: `aws-agentcore-control-2023-06-05`
 - Tests:
   - `node --import tsx --test tests/connectors/aws-agentcore/adapter.test.ts` — pass 17
+  - `node --import tsx --test tests/connectors/aws-agentcore/compatibility.test.ts` — pass 14
 
 ### CLOUD-03 (CLOUD) — implemented, protocol-fixture
 
