@@ -115,6 +115,29 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
+  coverage:
+    # `verify`'s largest stage is `test:coverage`, and the wrapper reports it as
+    # counts plus the file a failure lived in — by design, because the retained
+    # verification record stores allowlisted inventory names and never raw
+    # diagnostics. That is right for the artifact and useless for fixing
+    # anything: "1 failed in tests/foo.test.ts" does not say which test.
+    #
+    # Running the same npm script here, outside the wrapper, puts the failing
+    # test's name in the log while leaving the sanitized artifact exactly as it
+    # is. Same reason the `security` and `browser-login` jobs exist. The browser
+    # engines are installed because the coverage run discovers every suite,
+    # including the ones that drive all three.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:coverage
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
