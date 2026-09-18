@@ -72,6 +72,8 @@ export interface CustomConnectorInput {
   identity?: Partial<ConnectorSourceIdentity>;
   definitionRef?: string;
   sourceRef?: string;
+  /** Destination id the compiled candidates are pinned to; a binding names the origin. */
+  destinationId?: string;
 }
 
 /** A test-connection operation a host may promote to a verifier; review is required. */
@@ -1154,13 +1156,20 @@ export async function readCustomConnector(
     }
   }
 
-  // Dynamic operations as bound-operation candidates.
+  // Candidates a reviewer may approve. The destination id is the one the
+  // review screen offers; a binding names the approved origin behind it.
+  const destinationId = input.destinationId ?? "api";
   const dynamicOperations = compileDynamicOperations(
     walk,
     dynamicFields,
     blocked,
     issues,
+    destinationId,
   );
+  const verifierOperation =
+    verifierCandidate && verifierCandidate.resolved
+      ? compileVerifierOperation(walk, verifierCandidate, destinationId)
+      : undefined;
 
   const documentExtensions = packExtensions(
     collectDocumentExtensions(walk),
@@ -1385,6 +1394,7 @@ export async function readCustomConnector(
     dynamicFields,
     dynamicOperations,
     ...(verifierCandidate ? { verifierCandidate } : {}),
+    ...(verifierOperation ? { verifierOperation } : {}),
     executableCandidates,
     blocked,
     configurationNames: auth.configurationNames,
@@ -1450,6 +1460,55 @@ function buildDeclaredServers(walk: SwaggerWalk) {
       url: `${scheme}://${walk.host}${basePath}`,
       status: "declared" as const,
     }));
+}
+
+/** `basePath` + the `paths` key, which is what the request line actually carries. */
+export function joinBasePath(
+  basePath: string | undefined,
+  path: string,
+): string {
+  const prefix = basePath && basePath !== "/" ? basePath.replace(/\/$/, "") : "";
+  const joined = `${prefix}${path}`;
+  return joined.startsWith("/") ? joined : `/${joined}`;
+}
+
+/**
+ * The test-connection operation as a bound-operation candidate. It is a read
+ * that proves only that a credential was accepted, so its output is classified
+ * personal, it asks for no consent, and it is replay-safe only when the source
+ * describes it as a GET or HEAD.
+ */
+function compileVerifierOperation(
+  walk: SwaggerWalk,
+  candidate: VerifierCandidate,
+  destinationId: string,
+): BoundOperation | undefined {
+  const operation = walk.operations.find(
+    (item) =>
+      item.identity === "operationId" &&
+      !item.ambiguous &&
+      item.nativeId === candidate.operationId,
+  );
+  if (!operation) return undefined;
+  const readOnly = operation.method === "GET" || operation.method === "HEAD";
+  return {
+    operationRef: candidate.operationRef,
+    nativeId: operation.nativeId,
+    destinationId,
+    transport: {
+      kind: "http",
+      method: operation.method,
+      pathTemplate: joinBasePath(walk.basePath, operation.path),
+    },
+    effect: readOnly ? "read" : "unknown",
+    outputClassification: "personal",
+    cost: "unknown",
+    consent: "none",
+    replay: readOnly ? "read-only" : "none",
+    targetParameters: [],
+    description:
+      "Connection test: demonstrates connectivity only, never an account identity",
+  };
 }
 
 /**

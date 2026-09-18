@@ -100,6 +100,9 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         | null;
       if (!field) throw new Error(`No field matching ${selector}`);
       await act(async () => {
+        // The key-event path React falls back to only watches a field it has
+        // seen focused, so the sequence starts where a person's would.
+        field.dispatchEvent(new window.Event("focusin", { bubbles: true }));
         if (field.tagName === "SELECT") {
           // linkedom's select value is read-only; selecting the option is how
           // a person changes one anyway.
