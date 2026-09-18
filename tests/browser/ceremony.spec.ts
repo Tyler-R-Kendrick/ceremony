@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { defaultTemplate } from "../../src/core/index.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { manifests, connectorDetails } from "../../examples/manifests.js";
+import { customEntries } from "../../examples/web/catalog.js";
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -41,6 +42,11 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   const found = page
     .getByRole("region", { name: /Results for/ })
     .getByRole("button");
+  // The count carries as much of this as the names do. On its own,
+  // `toContainText(array)` is a subsequence match: it passes just as happily
+  // with unrelated rows wedged between the three named here, which would make
+  // it an assertion about what the search includes rather than what it returns.
+  await expect(found).toHaveCount(3);
   await expect(found).toContainText([
     "Browser Login",
     "Record a Sign-in",
@@ -51,15 +57,24 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   // A category narrows the grid and the featured strip steps aside.
   await page.getByRole("button", { name: /^Commerce/ }).click();
   await expect(page.getByRole("region", { name: "Featured" })).toHaveCount(0);
+  const commerce = page.getByRole("region", { name: "Commerce" });
   await expect(
-    page.getByRole("region", { name: "Commerce" }).getByRole("button"),
-  ).toContainText(["Stripe"]);
+    commerce.getByRole("button", { name: "Stripe", exact: true }),
+  ).toBeVisible();
+  // Narrowing is only narrowing if something is left out, and a fixed count
+  // would go red for adding a payments connector rather than for a broken
+  // filter. A developer-tools row has no business in a commerce grid.
+  await expect(
+    commerce.getByRole("button", { name: "GitHub", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: /^Any category/ }).click();
 
   // Every family this workspace can run is offered as its own card, including
   // the one that records a sign-in rather than collecting a credential.
   const byo = page.getByRole("region", { name: "Bring your own" });
-  await expect(byo.getByRole("button")).toHaveCount(9);
+  // Counted from the catalogue rather than written down, so adding or removing
+  // a protocol keeps this honest instead of merely red.
+  await expect(byo.getByRole("button")).toHaveCount(customEntries.length);
   await byo.getByRole("button", { name: "Record a Sign-in" }).click();
   const recording = page.getByRole("dialog", { name: "Add Connection" });
   await recording

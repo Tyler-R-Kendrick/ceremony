@@ -45,7 +45,6 @@ export type CatalogSupport = "provider-backed" | "fixture" | "declared";
  */
 export const authFamilyLabels = {
   "oauth-code": "OAuth 2.1 · authorization code + PKCE",
-  "oauth-client-credentials": "OAuth 2.0 · client credentials",
   "api-key": "API key",
   basic: "HTTP Basic · identifier + token",
   device: "Device authorization",
@@ -85,12 +84,6 @@ export const capabilityDetails = {
     summary:
       "Registration, installation and consent run as their own verified children. A later step cannot start until the one it depends on is proven.",
     module: "src/core/connector-contracts.ts",
-  },
-  arazzo: {
-    label: "Arazzo workflow binding",
-    summary:
-      "Bind host-held workflow documents by identity and version. Remote executable URLs are never fetched.",
-    module: "src/server/arazzo.ts",
   },
   "session-environment": {
     label: "Session environment bindings",
@@ -157,17 +150,6 @@ export const customEntries: readonly CatalogEntry[] = [
       "a2h",
       "webmcp",
     ],
-    tint: "#2b2b2b",
-  },
-  {
-    id: "custom-client-credentials",
-    name: "OAuth Machine",
-    summary:
-      "Server-to-server access from a client id and secret. Nobody is interrupted.",
-    category: "Developer",
-    support: "declared",
-    auth: ["oauth-client-credentials"],
-    capabilities: ["session-environment", "verification", "webmcp"],
     tint: "#2b2b2b",
   },
   {
@@ -501,7 +483,7 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "Zoom",
     "Communication",
     "Schedule meetings and read recordings.",
-    ["oauth-code", "oauth-client-credentials"],
+    ["oauth-code"],
     ["a2h"],
   ),
   declared(
@@ -561,7 +543,7 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "BigQuery",
     "Data",
     "Run queries against your datasets.",
-    ["oauth-code", "oauth-client-credentials"],
+    ["oauth-code"],
   ),
   declared(
     "planetscale",
@@ -685,14 +667,14 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "Okta",
     "Other",
     "Administer users, groups and applications.",
-    ["oauth-client-credentials", "api-key"],
+    ["api-key"],
   ),
   declared(
     "auth0",
     "Auth0",
     "Other",
     "Manage tenants, connections and users.",
-    ["oauth-client-credentials", "api-key"],
+    ["api-key"],
   ),
   declared(
     "salesforce",

@@ -53,9 +53,21 @@ test("AC-43: real static worker update and account switch preserve pending autho
     await page.evaluate(async () => {
       await (await navigator.serviceWorker.ready).update();
     });
-    await page.getByText("Install app", { exact: true }).click();
-    await expect(page.getByRole("button", { name: /update/i })).toBeVisible();
-    await page.getByRole("button", { name: /update/i }).click();
+    // The pending authorization is on screen before the static update, so
+    // "undisturbed" below is a comparison rather than an assumption.
+    await expect(
+      page.getByRole("link", { name: "Continue with GitHub", exact: true }),
+    ).toBeVisible();
+    // Install and update live in the app's own top bar, which the drawer's
+    // scrim covers; Escape closes the drawer without touching the run or the
+    // URL. Both surfaces stay mounted so the studio survives a glance at the
+    // directory, which puts a second, inert copy of these controls in the
+    // document — the banner is the one a person can actually reach.
+    await page.keyboard.press("Escape");
+    const topBar = page.getByRole("banner");
+    await topBar.getByText("Install app", { exact: true }).click();
+    await expect(topBar.getByRole("button", { name: /update/i })).toBeVisible();
+    await topBar.getByRole("button", { name: /update/i }).click();
     await expect
       .poll(() =>
         page.evaluate(
@@ -66,6 +78,10 @@ test("AC-43: real static worker update and account switch preserve pending autho
       .toBe(true);
     expect(page.url()).toBe(url);
     expect(fixture.effects).toEqual(before);
+    // Reloading onto the same resume link after the shell was replaced returns
+    // to the same pending authorization: the update swapped the static files,
+    // not the run.
+    await page.goto(url);
     await expect(
       page.getByRole("link", { name: "Continue with GitHub", exact: true }),
     ).toBeVisible();

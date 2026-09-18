@@ -83,7 +83,6 @@ function Glyph({ name }: { name: string }) {
     ),
     back: <path d="M14 6l-6 6 6 6" />,
     next: <path d="M10 6l6 6-6 6" />,
-    updown: <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />,
     close: <path d="M6 6l12 12M18 6L6 18" />,
     agent: (
       <>
@@ -180,6 +179,8 @@ export interface ConnectCatalogProps {
   footer?: ReactNode;
   /** Controls that belong beside the breadcrumb, such as installing the app. */
   topbarExtra?: ReactNode;
+  /** Shown under the title: the directory must not look confident when it is not. */
+  notice?: ReactNode;
   onOpen(entry: CatalogEntry): void;
   onNavigate(section: "connect" | "studio" | "environment"): void;
 }
@@ -189,6 +190,7 @@ export function ConnectCatalog({
   workspace,
   footer,
   topbarExtra,
+  notice,
   onOpen,
   onNavigate,
 }: ConnectCatalogProps) {
@@ -220,7 +222,9 @@ export function ConnectCatalog({
         event.metaKey ||
         event.ctrlKey ||
         target?.isContentEditable ||
-        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "") ||
+        // A modal is open: the directory behind it is not the thing being used.
+        document.querySelector('[role="dialog"][aria-modal="true"]')
       )
         return;
       event.preventDefault();
@@ -232,12 +236,16 @@ export function ConnectCatalog({
   return (
     <>
       <nav className="connect-rail" aria-label="Connect">
-        <button type="button" className="workspace-switch">
+        {/* A label, not a control. The hosted product this shell is modelled
+            on opens a workspace picker here; this application has exactly one
+            workspace, so a chevron and a focus stop would promise a menu that
+            never arrives. The name still belongs on screen — it is how a
+            person tells the live workspace from the test harness. */}
+        <div className="workspace-switch">
           <span className="avatar" />
           <span className="workspace-name">{workspace}</span>
           <span className="plan-badge">Local</span>
-          <Glyph name="updown" />
-        </button>
+        </div>
         <button
           type="button"
           className="rail-find"
@@ -315,12 +323,16 @@ export function ConnectCatalog({
       </nav>
       <div className="connect-main">
         <header className="connect-topbar">
-          <button type="button" className="project-switch">
-            All Projects
-            <Glyph name="updown" />
-          </button>
+          {/* Scope label, for the same reason as the workspace name above. */}
+          <span className="project-switch">All Projects</span>
           <div className="crumbs">
-            <a href="/">Connect</a>
+            {/* A button, not an href. `/` is not this surface's address once a
+                mode is chosen: the test harness runs at `?mode=test`, and a
+                crumb that navigated there by URL would drop the harness and
+                reload the workspace to reach a page the person is already on. */}
+            <button type="button" onClick={() => onNavigate("connect")}>
+              Connect
+            </button>
             <span className="sep" aria-hidden="true">
               /
             </span>
@@ -346,6 +358,7 @@ export function ConnectCatalog({
               reused, and only what is missing is asked for.
             </p>
           </div>
+          {notice}
           <div className="catalog-search">
             <Glyph name="search" />
             <input

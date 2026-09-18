@@ -209,7 +209,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
       await fixture.login(automaticContext, "automatic-executor");
       await fixture.providerPages(automaticContext);
       const automaticPage = await automaticContext.newPage();
-      await automaticPage.goto(fixture.origin);
+      await automaticPage.goto(`${fixture.origin}/?connector=github`);
       await automaticPage
         .getByLabel("GitHub account or organization")
         .fill("fixture-owner");

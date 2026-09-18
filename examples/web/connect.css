@@ -40,6 +40,16 @@
   grid-template-columns: 248px minmax(0, 1fr);
   scrollbar-color: #3a3d44 var(--c-bg);
 }
+/*
+ * The page scrolls at the document, and `scrollbar-color` only reaches the
+ * scroll box of the element carrying it — so the surface's own token painted
+ * the drawer's scrollbar and left the one beside it the light grey `:root`
+ * declares. The connect surface is in the document only while Connect is the
+ * open section, which is exactly when the document should be dark.
+ */
+:root:has([data-surface="connect"]) {
+  scrollbar-color: #3a3d44 var(--c-bg, #08090a);
+}
 [data-surface="connect"] *,
 [data-surface="connect"] *::before,
 [data-surface="connect"] *::after {
@@ -66,6 +76,9 @@
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
+}
+[data-surface="connect"] a {
+  color: var(--c-accent);
 }
 [data-surface="connect"] :focus-visible {
   outline: 2px solid var(--c-accent);
@@ -124,9 +137,6 @@
   font-size: 13px;
   font-weight: 600;
   text-align: start;
-}
-.workspace-switch:hover {
-  background: var(--c-surface);
 }
 .workspace-switch .avatar {
   width: 20px;
@@ -270,24 +280,18 @@ kbd {
   color: var(--c-ink-dim);
   font-size: 13px;
 }
-.project-switch:hover {
-  background: var(--c-surface);
-  color: var(--c-ink);
-}
 .crumbs {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 13px;
 }
-.crumbs a,
 .crumbs button {
   color: var(--c-ink-dim);
   font-size: 13px;
   text-decoration: none;
   padding: 2px 4px;
 }
-.crumbs a:hover,
 .crumbs button:hover {
   color: var(--c-ink);
 }
@@ -398,9 +402,10 @@ kbd {
 .catalog-search input::placeholder {
   color: var(--c-ink-faint);
 }
-.catalog-search input:focus {
-  border-color: var(--c-line);
-  outline: none;
+.catalog-search input:focus-visible {
+  border-color: var(--c-accent);
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
 }
 .catalog-search kbd {
   position: absolute;
@@ -562,7 +567,7 @@ kbd {
 
 /* -------------------------------------------------------------- drawer --- */
 
-.drawer-scrim {
+[data-surface="connect"] .drawer-scrim {
   position: fixed;
   inset: 0;
   background: rgba(4, 5, 6, 0.6);
@@ -1107,9 +1112,6 @@ kbd {
   color: var(--c-ink);
   background: var(--c-raised);
 }
-.connect-drawer a {
-  color: var(--c-accent);
-}
 .connect-drawer label,
 .connect-drawer legend,
 .connect-drawer summary,
@@ -1124,14 +1126,14 @@ kbd {
   background: var(--c-raised);
   border-color: var(--c-line);
 }
-.connect-drawer button:not(.button-primary):not(.card-link),
-.connect-drawer .button {
+.connect-drawer button:not(.button-primary):not(.card-link):not(.primary),
+.connect-drawer .button:not(.primary) {
   color: var(--c-ink);
   background: var(--c-raised);
   border-color: var(--c-line);
 }
-.connect-drawer button:not(.button-primary):not(.card-link):hover,
-.connect-drawer .button:hover {
+.connect-drawer button:not(.button-primary):not(.card-link):not(.primary):hover,
+.connect-drawer .button:not(.primary):hover {
   background: #232529;
 }
 .connect-drawer .step-head,
@@ -1143,15 +1145,6 @@ kbd {
 }
 .connect-drawer .segmented button[aria-pressed="true"] {
   background: #2a2c31;
-}
-.connect-drawer .primary,
-.connect-drawer button.primary {
-  color: #08090a;
-  background: var(--c-ink);
-  border-color: var(--c-ink);
-}
-.connect-drawer .primary:hover {
-  background: #fff;
 }
 @media (max-width: 900px) {
   .connect-drawer .connect-grid,
@@ -1219,6 +1212,27 @@ kbd {
   margin-block-start: 44px;
 }
 
+/* --------------------------------- shared-stylesheet controls, in dark --- */
+
+/*
+ * Surface-wide rather than drawer-only: the directory renders the extension
+ * setup and the agent cards below the grid, and both carry primary actions.
+ * Scoped to the drawer, those buttons lost their fill to the base `button`
+ * reset above, which outranks a bare `.primary` by one element selector —
+ * the same trap `.button-primary` fell into. The base link colour lives with
+ * the other base rules instead, so `.drawer-foot a` — which ties with it on
+ * specificity rather than beating it — still wins on source order.
+ */
+[data-surface="connect"] .primary,
+[data-surface="connect"] button.primary {
+  color: #08090a;
+  background: var(--c-ink);
+  border-color: var(--c-ink);
+}
+[data-surface="connect"] .primary:hover {
+  background: #fff;
+}
+
 /* ------------------------------------------- callouts, restated in dark --- */
 
 /*
@@ -1233,6 +1247,7 @@ kbd {
   background: #241d0e;
   border-color: #5c4a22;
 }
+[data-surface="connect"] .access li,
 [data-surface="connect"] .outcome li {
   color: var(--c-ink);
   background: var(--c-raised);
@@ -1250,6 +1265,16 @@ kbd {
   color: #4fd39a;
 }
 [data-surface="connect"] .invalid,
-[data-surface="connect"] .diagnostics {
+[data-surface="connect"] .diagnostics,
+[data-surface="connect"] .teaching-error,
+[data-surface="connect"] [role="alert"] {
   color: #ff8f85;
+}
+.catalog-notice {
+  margin-block: 0 16px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  border-radius: var(--c-radius);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
 }

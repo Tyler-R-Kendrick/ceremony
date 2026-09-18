@@ -49,7 +49,6 @@ request.
 | Card              | Family                             | What it is for                                             |
 | ----------------- | ---------------------------------- | ---------------------------------------------------------- |
 | OAuth             | authorization code + PKCE          | Any OAuth 2.0 or 2.1 provider, by discovery or by hand.    |
-| OAuth Machine     | client credentials                 | Server-to-server access. Nobody is interrupted.            |
 | API Key           | API key                            | A shared key, or one asked of each person at connect time. |
 | HTTP Basic        | identifier + provider-issued token | Never an account password.                                 |
 | Device Code       | device authorization               | A CLI, a TV, anything without a browser.                   |
@@ -92,7 +91,6 @@ at, the drawer configures every family this project actually carries:
 | Family                              | Notes                                                                                   |
 | ----------------------------------- | --------------------------------------------------------------------------------------- |
 | OAuth 2.1 authorization code + PKCE | Managed discovery or declared endpoints.                                                |
-| OAuth 2.0 client credentials        | No person involved; completes unattended.                                               |
 | API key                             | Shared on the connector, or collected per person at connect time.                       |
 | HTTP Basic                          | An identifier and a provider-issued token, never an account password.                   |
 | Device authorization                | Approval on a second device.                                                            |
@@ -112,7 +110,6 @@ rather than trust the copy.
 | Save as a reusable recipe            | `src/core/recipe-contracts.ts`                   |
 | Agent-to-human handoff               | [`src/server/a2h.ts`](a2h-ceremony-binding.md)   |
 | Prerequisite child ceremonies        | `src/core/connector-contracts.ts`                |
-| Arazzo workflow binding              | `src/server/arazzo.ts`                           |
 | Session environment bindings         | `src/server/environment.ts`                      |
 | Verify real access before completing | `src/server/verification.ts`                     |
 | Expose to WebMCP and MCP clients     | [`src/core/webmcp.ts`](mcp-endpoint.md)          |

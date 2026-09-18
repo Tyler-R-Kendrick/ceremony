@@ -83,6 +83,8 @@ test("AC-40 real native registration collision recovers and abort only removes o
     page.getByRole("button", { name: "Connect GitHub", exact: true }),
   ).toBeEnabled();
   await page.evaluate(() => Reflect.get(window, "removeNativeCollision")());
+  // The connection opens in a modal drawer; the rail is behind it.
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Workflow studio", exact: true })
     .click();

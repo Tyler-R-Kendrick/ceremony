@@ -119,16 +119,56 @@ function App() {
    */
   const entries = useMemo(
     () =>
-      catalog.map((entry) =>
-        manifests.some((manifest) => manifest.id === entry.id) ||
-        entry.support === "declared"
-          ? entry
-          : { ...entry, support: "declared" as const },
-      ),
+      catalog.map((entry) => {
+        // The row claims only what the manifest behind it can do. A fixture
+        // that badges itself provider-backed is the one thing a directory
+        // must never say, and "declared" is what no manifest at all means.
+        const manifest = manifests.find((item) => item.id === entry.id);
+        const support = !manifest
+          ? ("declared" as const)
+          : manifest.support === "live-adapter"
+            ? ("provider-backed" as const)
+            : ("fixture" as const);
+        return support === entry.support ? entry : { ...entry, support };
+      }),
     [manifests],
   );
-  const selectConnector = (next: string) => {
-    if (next === connectorId) return;
+  /**
+   * Connectors the server publishes that the static directory has never heard
+   * of — anything authored in the studio — still belong in the browse surface
+   * that replaced the old picker. They are described from the manifest alone.
+   */
+  const rows = useMemo(() => {
+    const described = new Set(entries.map((entry) => entry.id));
+    const authored = manifests
+      .filter((manifest) => !described.has(manifest.id))
+      .map((manifest): CatalogEntry => ({
+        id: manifest.id,
+        name: manifest.name,
+        summary: manifest.description,
+        category: "Other",
+        support:
+          manifest.support === "live-adapter" ? "provider-backed" : "fixture",
+        auth: [],
+        capabilities: ["verification"],
+      }));
+    return authored.length ? [...entries, ...authored] : entries;
+  }, [entries, manifests]);
+  /**
+   * Point the application at a connector.
+   *
+   * `restart` is what the directory passes. Picking a card is the act of
+   * starting a connection, so the run that was open under that name does not
+   * carry over: the same card chosen twice is two attempts, and a resume id
+   * held from the first would have the second resume it — quietly ignoring
+   * whatever Configure was reopened to change. Arriving on a `&ceremony=`
+   * link is the other case and still resumes, because that one is read once,
+   * at entry. The tile inside the workspace passes nothing, because pressing
+   * the tile that is already selected is a no-op rather than a request to
+   * throw the run away.
+   */
+  const selectConnector = (next: string, restart = false) => {
+    if (next === connectorId && !restart) return;
     setConnectorId(next);
     setResumeId(undefined);
     history.replaceState(
@@ -137,9 +177,8 @@ function App() {
       `/?connector=${encodeURIComponent(next)}${liveMode ? "" : "&mode=test"}`,
     );
   };
-  const entry = entries.find((item) => item.id === connectorId) ?? entries[0]!;
-  const connector =
-    manifests.find((value) => value.id === connectorId) ?? manifests[0];
+  const entry = rows.find((item) => item.id === connectorId);
+  const connector = manifests.find((value) => value.id === connectorId);
   const goTo = (section: Section) => {
     if (section === "studio") setStudioOpened(true);
     setTab(section);
@@ -149,6 +188,17 @@ function App() {
   const renderRun = (draft: ConnectionDraft) => {
     if (loadError) return <p role="alert">{loadError}</p>;
     if (!config) return <p role="status">Loading your workspace…</p>;
+    if (!entry)
+      return (
+        <div className="ceremony">
+          <h3>No connector by that name</h3>
+          <p>
+            This workspace publishes no connector called{" "}
+            <code>{connectorId}</code>. Close this and pick one from the
+            directory, or author it in the workflow studio.
+          </p>
+        </div>
+      );
     if (!connector || entry.support === "declared")
       return (
         <div className="ceremony">
@@ -268,6 +318,14 @@ function App() {
             <TeachingConnection
               key={connector.id}
               connectorId={connector.id}
+              /* Without this hook the component falls back to replacing the
+                 location with `/`, which reloads the whole workspace to reach
+                 a directory that is already on screen behind the drawer. The
+                 destination is the same either way; owning it here keeps the
+                 studio mounted and the scroll position intact, and it is what
+                 the prop exists for. Signing out in another tab arrives the
+                 same way, over the session broadcast channel. */
+              onSignedOut={() => setOpen(false)}
               onDeleted={() => {
                 void fetch("/api/config")
                   .then((response) => response.json())
@@ -296,6 +354,12 @@ function App() {
               key={`${connector.id}:${delegation}`}
               manifest={connector}
               transport={transport}
+              /* What Customize declared actually reaches the resolver, so the
+                 cheapest route that still satisfies it is the one that runs. */
+              context={{
+                interruptions: draft.interruptions,
+                identity: draft.identity,
+              }}
               {...(delegation ? { delegation: "agent" as const } : {})}
               {...(resumeId ? { resumeId } : {})}
               onInstance={(id) => {
@@ -408,132 +472,153 @@ function App() {
     );
   };
 
-  if (tab === "connect")
-    return (
-      <div data-surface="connect" data-theme="dark">
-        <ConnectCatalog
-          entries={entries}
-          workspace={liveMode ? "Local workspace" : "Test harness"}
-          onOpen={(next: CatalogEntry) => {
-            selectConnector(next.id);
-            setConnectorId(next.id);
-            setResuming(false);
-            setOpen(true);
-          }}
-          onNavigate={(section) => {
-            if (section === "connect") setOpen(false);
-            else goTo(section);
-          }}
-          topbarExtra={
-            /* This is a PWA, and the install and update controls belong on
+  /**
+   * Both surfaces stay in one tree. Returning early for Connect unmounted the
+   * studio, which is the state the studioOpened + hidden pair exists to keep:
+   * a person who glances at the directory should not come back to an empty
+   * authoring session.
+   */
+  const connectSurface = (
+    <div data-surface="connect" data-theme="dark">
+      <ConnectCatalog
+        entries={rows}
+        workspace={liveMode ? "Local workspace" : "Test harness"}
+        onOpen={(next: CatalogEntry) => {
+          selectConnector(next.id, true);
+          setResuming(false);
+          setOpen(true);
+        }}
+        onNavigate={(section) => {
+          if (section === "connect") setOpen(false);
+          else goTo(section);
+        }}
+        /* A directory that cannot reach its server still draws every row it
+           can describe, which reads as a working catalogue. Say so on the
+           grid rather than only once somebody is inside a drawer. */
+        {...(loadError
+          ? {
+              notice: (
+                <p className="catalog-notice" role="alert">
+                  {loadError}
+                </p>
+              ),
+            }
+          : {})}
+        topbarExtra={
+          /* This is a PWA, and the install and update controls belong on
                the page people open rather than behind another section. */
-            <details className="install-controls">
-              <summary>Install app</summary>
-              <p>{install.instructions}</p>
-              {install.canInstall && (
-                <button onClick={() => void install.install()}>
-                  Install Ceremony
-                </button>
-              )}
-              {install.updateAvailable && (
-                <button onClick={install.update}>Update static shell</button>
-              )}
-            </details>
-          }
-          footer={
-            config && (
-              <>
-                <Suspense fallback={<p>Loading extension setup…</p>}>
-                  <ExtensionSetup />
-                </Suspense>
-                <AgentConnectors providers={config.agentProviders} />
-              </>
-            )
-          }
+          <details className="install-controls">
+            <summary>Install app</summary>
+            <p>{install.instructions}</p>
+            {install.canInstall && (
+              <button onClick={() => void install.install()}>
+                Install Ceremony
+              </button>
+            )}
+            {install.updateAvailable && (
+              <button onClick={install.update}>Update static shell</button>
+            )}
+          </details>
+        }
+        footer={
+          config && (
+            <>
+              <Suspense fallback={<p>Loading extension setup…</p>}>
+                <ExtensionSetup />
+              </Suspense>
+              <AgentConnectors providers={config.agentProviders} />
+            </>
+          )
+        }
+      />
+      {open && entry && (
+        <AddConnection
+          entry={entry}
+          initialStep={resuming ? 4 : 2}
+          key={entry.id}
+          renderRun={renderRun}
+          onClose={() => setOpen(false)}
+          onChangeService={() => setOpen(false)}
         />
-        {open && (
-          <AddConnection
-            entry={entry}
-            initialStep={resuming ? 4 : 2}
-            key={entry.id}
-            renderRun={renderRun}
-            onClose={() => setOpen(false)}
-            onChangeService={() => setOpen(false)}
-          />
-        )}
-      </div>
-    );
-  return (
-    <div className="app-shell">
-      <header className="site-header">
-        <a href="/" className="brand">
-          <svg
-            className="brand-mark"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path
-              d="M9 5H5v14h4M15 5h4v14h-4M8 12h8"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          ceremony
-        </a>
-        <nav aria-label="Main navigation">
-          <button onClick={() => goTo("connect")}>Connect</button>
-          <button
-            aria-current={tab === "studio" ? "page" : undefined}
-            onClick={() => goTo("studio")}
-          >
-            Workflow studio
-          </button>
-          <button
-            aria-current={tab === "environment" ? "page" : undefined}
-            onClick={() => goTo("environment")}
-          >
-            Environment
-          </button>
-        </nav>
-        <details className="install-controls">
-          <summary>Install app</summary>
-          <p>{install.instructions}</p>
-          {install.canInstall && (
-            <button onClick={() => void install.install()}>
-              Install Ceremony
-            </button>
-          )}
-          {install.updateAvailable && (
-            <button onClick={install.update}>Update static shell</button>
-          )}
-        </details>
-        <span className="header-note">
-          <span />
-          Local workspace
-        </span>
-      </header>
-      <main>
-        {tab === "environment" && <Environment />}
-        {studioOpened && (
-          <div hidden={tab !== "studio"}>
-            <Suspense fallback={<p role="status">Loading authoring tools…</p>}>
-              <WorkflowStudio />
-            </Suspense>
-          </div>
-        )}
-      </main>
-      <footer className="site-footer">
-        <span>
-          {liveMode
-            ? "Provider-backed connections · Encrypted session storage"
-            : "Developer test harness · Test credentials only"}
-        </span>
-        <span>Ceremony / 0.1</span>
-      </footer>
+      )}
     </div>
+  );
+  return (
+    <>
+      {tab === "connect" && connectSurface}
+      <div className="app-shell" hidden={tab === "connect"}>
+        <header className="site-header">
+          <a href="/" className="brand">
+            <svg
+              className="brand-mark"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M9 5H5v14h4M15 5h4v14h-4M8 12h8"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            ceremony
+          </a>
+          <nav aria-label="Main navigation">
+            <button onClick={() => goTo("connect")}>Connect</button>
+            <button
+              aria-current={tab === "studio" ? "page" : undefined}
+              onClick={() => goTo("studio")}
+            >
+              Workflow studio
+            </button>
+            <button
+              aria-current={tab === "environment" ? "page" : undefined}
+              onClick={() => goTo("environment")}
+            >
+              Environment
+            </button>
+          </nav>
+          <details className="install-controls">
+            <summary>Install app</summary>
+            <p>{install.instructions}</p>
+            {install.canInstall && (
+              <button onClick={() => void install.install()}>
+                Install Ceremony
+              </button>
+            )}
+            {install.updateAvailable && (
+              <button onClick={install.update}>Update static shell</button>
+            )}
+          </details>
+          <span className="header-note">
+            <span />
+            Local workspace
+          </span>
+        </header>
+        <main>
+          {tab === "environment" && <Environment />}
+          {studioOpened && (
+            <div hidden={tab !== "studio"}>
+              <Suspense
+                fallback={<p role="status">Loading authoring tools…</p>}
+              >
+                <WorkflowStudio />
+              </Suspense>
+            </div>
+          )}
+        </main>
+        <footer className="site-footer">
+          <span>
+            {liveMode
+              ? "Provider-backed connections · Encrypted session storage"
+              : "Developer test harness · Test credentials only"}
+          </span>
+          <span>Ceremony / 0.1</span>
+        </footer>
+      </div>
+    </>
   );
 }
 const root = document.getElementById("root");

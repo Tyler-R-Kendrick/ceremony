@@ -144,7 +144,7 @@ function FamilyForm({
   const put = (name: string) => (next: string) =>
     set({ values: { ...draft.values, [name]: next } });
   const managed = draft.mode === "managed";
-  if (family === "oauth-code" || family === "oauth-client-credentials")
+  if (family === "oauth-code")
     return managed ? (
       <>
         <p className="step-note">
@@ -553,7 +553,11 @@ export function AddConnection({
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
-  }, [entry, initialStep]);
+    // Keyed on the id, not the object: `entries` is rebuilt whenever config
+    // resolves, and a new object identity for the same connector would discard
+    // everything the person had typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, initialStep]);
   /**
    * Focus enters once, cycles inside, and goes back where it came from.
    *
@@ -741,8 +745,10 @@ export function AddConnection({
           {...(step > 3 ? { onOpen: () => setStep(3) } : {})}
         >
           <p className="step-note">
-            What this connection is allowed to do beyond collecting a
-            credential. Each option names the module that carries it.
+            What this connection should do beyond collecting a credential. Each
+            option names the module that carries it. These are a declaration,
+            not a grant: the budget and whose access this is reach the resolver
+            directly, and the server decides what it will actually run.
           </p>
           <fieldset className="toggle-list">
             <legend className="sr-only">Connection capabilities</legend>
