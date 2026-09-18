@@ -13,13 +13,17 @@ test("legacy live GitHub adapter exposes blocking prerequisites and a real manif
     live: { databasePath: ":memory:", vaultKey: randomBytes(32) },
   });
   try {
-    await page.goto(`${app.origin}/`);
+    await page.goto(`${app.origin}/?connector=github`);
     const vaultDownload = await page.request.get(
       `${app.origin}/@fs${process.cwd()}/.ceremony/vault.key`,
     );
     expect(vaultDownload.status()).toBe(403);
+    // The directory labels every provider-backed row too, so this asserts the
+    // pill on the connection itself rather than any card behind the drawer.
     await expect(
-      page.getByText("Provider-backed", { exact: true }),
+      page
+        .getByRole("dialog", { name: "Add Connection" })
+        .getByText("Provider-backed", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Auth documentation" }),
@@ -198,7 +202,7 @@ test("GitHub registration continues through installation and reuses the session 
         });
       },
     );
-    await page.goto(`${origin}/`);
+    await page.goto(`${origin}/?connector=github`);
     const popupPromise = page.waitForEvent("popup");
     await page.getByRole("link", { name: /Continue to provider/ }).click();
     const popup = await popupPromise;

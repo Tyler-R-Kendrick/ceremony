@@ -28,7 +28,7 @@ test("AC-35 AC-42: closed initiating tab still delivers the verified host task o
         })
       ).status(),
     ).toBe(403);
-    await page.goto(fixture.origin);
+    await page.goto(`${fixture.origin}/?connector=github`);
     await page
       .getByLabel("GitHub account or organization")
       .fill("fixture-owner");
