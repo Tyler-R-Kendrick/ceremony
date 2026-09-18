@@ -38,7 +38,10 @@ const adapter = () =>
   createWorkOsPipesAdapter({ principals: principalPort(defaultPrincipals()) });
 
 /** Serves one recorded body for every request; the adapter still has to ask correctly. */
-async function replay(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
+async function replay(
+  body: unknown,
+  init: { status?: number; headers?: Record<string, string> } = {},
+) {
   return startHttpFixture((request) => {
     if (request.headers.authorization !== `Bearer ${API_KEY}`)
       return { status: 401, body: { code: "unauthorized" } };
@@ -89,10 +92,7 @@ test("WorkOS documented inactive responses each map to participation, including 
   const expected: Record<string, [string, string]> = {
     not_installed: ["human-required", "workos.not-installed"],
     needs_reauthorization: ["human-required", "workos.needs-reauthorization"],
-    account_selection_required: [
-      "denied",
-      "workos.account-selection-required",
-    ],
+    account_selection_required: ["denied", "workos.account-selection-required"],
     // WorkOS documents that new error values may appear and must be handled
     // gracefully: an unknown reason is still not a credential.
     unknown_future_reason: ["human-required", "workos.inactive"],

@@ -84,9 +84,22 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         button.dispatchEvent(new window.Event("click", { bubbles: true }));
       });
     },
-    async clickElement(element: { dispatchEvent(event: unknown): unknown }) {
+    async clickElement(element: {
+      dispatchEvent(event: unknown): unknown;
+      getAttribute?(name: string): string | null;
+      closest?(selector: string): { dispatchEvent(event: unknown): unknown } | null;
+    }) {
       await act(async () => {
         element.dispatchEvent(new window.Event("click", { bubbles: true }));
+        // A browser submits the form when a submit button is clicked; outside
+        // one, nothing does, and a form-driven surface would look inert.
+        const type = element.getAttribute?.("type");
+        const form =
+          type === "submit" || type === null || type === undefined
+            ? element.closest?.("form")
+            : null;
+        if (form)
+          form.dispatchEvent(new window.Event("submit", { bubbles: true }));
       });
     },
     async fill(selector: string, value: string) {

@@ -94,9 +94,7 @@ test("Auth0 refresh-token exchange sends the documented parameters and keeps the
   assert.equal(JSON.stringify(output).includes(UPSTREAM), false);
   assert.equal(output.connection, CONNECTION);
   assert.equal(output.connectedAccountId, "cac_primary");
-  assert.deepEqual(output.scopes, [
-    "https://www.googleapis.com/auth/calendar",
-  ]);
+  assert.deepEqual(output.scopes, ["https://www.googleapis.com/auth/calendar"]);
 
   const [exchange] = auth0.received("POST", "/oauth/token");
   assert.ok(exchange);
@@ -107,10 +105,7 @@ test("Auth0 refresh-token exchange sends the documented parameters and keeps the
   assert.equal(sent.get("connection"), CONNECTION);
   assert.equal(sent.get("client_id"), CLIENT_ID);
   assert.equal(sent.get("subject_token"), refresh);
-  assert.equal(
-    sent.get("scope"),
-    "https://www.googleapis.com/auth/calendar",
-  );
+  assert.equal(sent.get("scope"), "https://www.googleapis.com/auth/calendar");
   // No login hint was configured, so none was sent.
   assert.equal(sent.get("login_hint"), null);
 
@@ -317,14 +312,11 @@ test("AC-EXT-06: the exchange is bound to the connection the binding names", asy
   });
   const app = harness({ binding, domain: auth0.domain });
   await assert.rejects(
-    adapter.invoke!(
-      app.context({ connection: linkedConnection(binding) }),
-      {
-        operationRef: "operation:auth0.exchange",
-        input: {},
-        commandId: "c1",
-      },
-    ),
+    adapter.invoke!(app.context({ connection: linkedConnection(binding) }), {
+      operationRef: "operation:auth0.exchange",
+      input: {},
+      commandId: "c1",
+    }),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.code === "denied" &&

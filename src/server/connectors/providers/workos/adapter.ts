@@ -212,9 +212,8 @@ export function createWorkOsPipesAdapter(
     ownerId?: string,
   ): Promise<ResolvedContext> {
     const settings = settingsFor(ctx.binding);
-    const present = await ctx.environment.configuration.present(
-      configurationNames,
-    );
+    const present =
+      await ctx.environment.configuration.present(configurationNames);
     const missing = configurationNames.filter((name) => !present.has(name));
     if (missing.length)
       throw new ConnectorError("configuration-required", {
@@ -300,7 +299,10 @@ export function createWorkOsPipesAdapter(
       resolved.destination,
       accountPath(resolved, resolved.settings.provider),
     );
-    if (resolved.connectionOwner === "user" && resolved.principal.organizationId)
+    if (
+      resolved.connectionOwner === "user" &&
+      resolved.principal.organizationId
+    )
       url.searchParams.set(
         "organization_id",
         resolved.principal.organizationId,
@@ -364,8 +366,7 @@ export function createWorkOsPipesAdapter(
       target,
       observedAt,
       validUntil: new Date(
-        ctx.environment.now() +
-          resolved.settings.verificationTtlSeconds * 1000,
+        ctx.environment.now() + resolved.settings.verificationTtlSeconds * 1000,
       ).toISOString(),
       verifierVersion: WORKOS_ADAPTER_VERSION,
       bindingRevision: ctx.binding.revision,
@@ -675,8 +676,7 @@ export function createWorkOsPipesAdapter(
       "access_token" in material ? material.access_token : material.value;
     const expiresAt = material.expires_at
       ? Date.parse(material.expires_at)
-      : ctx.environment.now() +
-        resolved.settings.credentialLeaseSeconds * 1000;
+      : ctx.environment.now() + resolved.settings.credentialLeaseSeconds * 1000;
     const scope: CredentialScope = {
       tenantId: ctx.binding.tenantId,
       ownerKind: ctx.connection.ownerKind,
@@ -817,7 +817,10 @@ export function createWorkOsPipesAdapter(
     const target = relayTarget(ctx, resolved, operation, request.input);
     const relay = resolved.settings.relay!;
     if (request.idempotencyKey) {
-      if (operation.replay !== "upstream-idempotency-key" || !relay.idempotencyHeader)
+      if (
+        operation.replay !== "upstream-idempotency-key" ||
+        !relay.idempotencyHeader
+      )
         throw new ConnectorError("invalid-request", {
           detail: "workos.relay.idempotency-unsupported",
         });
@@ -1196,7 +1199,11 @@ export function createWorkOsPipesAdapter(
           return { state: "denied", claims: [], code: "workos.callback.stale" };
       }
       if (input.kind === "input" || input.kind === "event")
-        return { state: "pending", claims: [], code: "workos.unsupported-completion" };
+        return {
+          state: "pending",
+          claims: [],
+          code: "workos.unsupported-completion",
+        };
       const allowSwitch = ctx.handoff?.private.accountSwitch === "true";
       return authoritativeState(ctx, allowSwitch);
     },

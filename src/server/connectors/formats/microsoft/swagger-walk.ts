@@ -105,6 +105,8 @@ export interface WalkedOperation {
   identity: "operationId" | "method-path";
   /** Another operation declares the same operationId; references to it are refused. */
   ambiguous: boolean;
+  /** The contested operationId, when ambiguity forced a method-and-path identity. */
+  declaredOperationId?: string;
   method: HttpMethod;
   path: string;
   pointer: string;
@@ -868,7 +870,14 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
   for (const [id, list] of operationIds)
     if (list.length > 1)
       for (const operation of list) {
+        // Both operations stay described and stay distinct: the contested
+        // operationId is remembered for diagnostics, but each operation is
+        // identified by its own method and path, and nothing may bind to the
+        // ambiguous name.
         operation.ambiguous = true;
+        operation.declaredOperationId = id;
+        operation.nativeId = `${operation.method} ${operation.path}`;
+        operation.identity = "method-path";
         issues.push({
           code: "structure.duplicate-operation-id",
           category: "structure",
@@ -877,7 +886,7 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           severity: "blocking",
           disposition: "rejected",
           executionImpact: "blocks-operation",
-          message: `operationId ${token(id)} is declared by ${list.length} operations; references to it are ambiguous.`,
+          message: `operationId ${token(id)} is declared by ${list.length} operations; references to it are ambiguous, so each is identified by its method and path instead and none may be bound under that name.`,
         });
       }
 

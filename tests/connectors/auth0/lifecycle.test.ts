@@ -180,7 +180,10 @@ test("Auth0 treats a removed link as a revoked connection, not a transient failu
   const binding = tokenVaultBinding(auth0.origin);
   const app = harness({ binding, domain: auth0.domain });
   const connection = linkedConnection(binding);
-  assert.equal((await adapter.verify!(app.context({ connection }))).state, "complete");
+  assert.equal(
+    (await adapter.verify!(app.context({ connection }))).state,
+    "complete",
+  );
 
   // The person removed the link in their account settings.
   auth0.unlink("cac_primary");
@@ -290,7 +293,11 @@ test("Auth0 disconnect separates local, broker and upstream, and revoke stays un
 
   assert.deepEqual(
     await adapter.disconnect!(app.context({ connection }), "upstream"),
-    { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" },
+    {
+      local: "not-attempted",
+      broker: "not-attempted",
+      upstream: "unsupported",
+    },
   );
   assert.deepEqual(await adapter.revoke!(app.context({ connection })), {
     local: "not-attempted",
@@ -393,17 +400,14 @@ test("Auth0 exchange is what the documented grant says, and nothing else", async
   const sent = new URLSearchParams(exchange!.body.toString("utf8"));
   assert.equal(sent.get("grant_type"), TOKEN_VAULT_GRANT);
   // No audience, no resource, no ad-hoc parameters: only what is documented.
-  assert.deepEqual(
-    [...sent.keys()].sort(),
-    [
-      "client_id",
-      "client_secret",
-      "connection",
-      "grant_type",
-      "requested_token_type",
-      "subject_token",
-      "subject_token_type",
-    ],
-  );
+  assert.deepEqual([...sent.keys()].sort(), [
+    "client_id",
+    "client_secret",
+    "connection",
+    "grant_type",
+    "requested_token_type",
+    "subject_token",
+    "subject_token_type",
+  ]);
   await auth0.close();
 });

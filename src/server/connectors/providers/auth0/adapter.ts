@@ -180,17 +180,18 @@ export function createAuth0TokenVaultAdapter(
    */
   async function resolve(ctx: AdapterCallContext): Promise<Resolved> {
     const settings = settingsFor(ctx.binding);
-    const present = await ctx.environment.configuration.present(
-      configurationNames,
-    );
+    const present =
+      await ctx.environment.configuration.present(configurationNames);
     if (configurationNames.some((name) => !present.has(name)))
       throw new ConnectorError("configuration-required", {
         detail: "auth0.configuration.missing",
       });
     const domain = await ctx.environment.configuration.read("AUTH0_DOMAIN");
-    const clientId = await ctx.environment.configuration.read("AUTH0_CLIENT_ID");
-    const clientSecret =
-      await ctx.environment.configuration.read("AUTH0_CLIENT_SECRET");
+    const clientId =
+      await ctx.environment.configuration.read("AUTH0_CLIENT_ID");
+    const clientSecret = await ctx.environment.configuration.read(
+      "AUTH0_CLIENT_SECRET",
+    );
     if (!domain || !clientId || !clientSecret)
       throw new ConnectorError("configuration-required", {
         detail: "auth0.configuration.missing",
@@ -294,10 +295,7 @@ export function createAuth0TokenVaultAdapter(
       throw new ConnectorError("denied", {
         detail: "auth0.subject-token.type",
       });
-    if (
-      held.expiresAt !== undefined &&
-      held.expiresAt <= ctx.environment.now()
-    )
+    if (held.expiresAt !== undefined && held.expiresAt <= ctx.environment.now())
       throw new ConnectorError("expired", {
         detail: "auth0.subject-token.expired",
       });
@@ -346,7 +344,9 @@ export function createAuth0TokenVaultAdapter(
   ) {
     return ctx.environment.effects.begin({
       actor: ctx.actor,
-      ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+      ...(ctx.connection
+        ? { connectionRef: ctx.connection.connectionRef }
+        : {}),
       bindingRef: ctx.binding.bindingRef,
       operation,
       digest: await canonicalDigest(payload),
@@ -590,12 +590,20 @@ export function createAuth0TokenVaultAdapter(
     const handoff = ctx.handoff;
     const state = url.searchParams.get("state");
     if (!handoff || !state || handoff.correlationKey !== state)
-      return { state: "denied", claims: [], code: "auth0.callback.correlation" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "auth0.callback.correlation",
+      };
     if (handoff.generation !== ctx.generation)
       return { state: "denied", claims: [], code: "auth0.callback.stale" };
     const connectCode = url.searchParams.get("connect_code");
     if (!connectCode)
-      return { state: "pending", claims: [], code: "auth0.callback.incomplete" };
+      return {
+        state: "pending",
+        claims: [],
+        code: "auth0.callback.incomplete",
+      };
     const ownerId = ctx.connection?.ownerId ?? ctx.actor.subjectId;
     const token = await myAccountToken(ctx, "user", ownerId);
     const effect = await beginEffect(ctx, "auth0.connected-account.complete", {
@@ -688,14 +696,15 @@ export function createAuth0TokenVaultAdapter(
     status: number,
     payload: unknown,
   ):
-    | { kind: "human"; code: string }
-    | { kind: "error"; error: ConnectorError } {
+    { kind: "human"; code: string } | { kind: "error"; error: ConnectorError } {
     const parsed = auth0ErrorSchema.safeParse(payload);
     const code = parsed.success ? (parsed.data.error ?? "") : "";
     if (status === 429)
       return {
         kind: "error",
-        error: new ConnectorError("rate-limited", { detail: "auth0.throttled" }),
+        error: new ConnectorError("rate-limited", {
+          detail: "auth0.throttled",
+        }),
       };
     if (status >= 500)
       return {
@@ -720,7 +729,9 @@ export function createAuth0TokenVaultAdapter(
     if (auth0DeniedErrors.has(code))
       return {
         kind: "error",
-        error: new ConnectorError("denied", { detail: "auth0.client.rejected" }),
+        error: new ConnectorError("denied", {
+          detail: "auth0.client.rejected",
+        }),
       };
     if (status === 401 || status === 403)
       // Auth0 documents a 401 when it cannot find the user or the connected
@@ -993,7 +1004,13 @@ export function createAuth0TokenVaultAdapter(
           limitations: [],
         }),
       ];
-      for (const dimension of ["import", "events", "export", "delegate", "revoke"] as const)
+      for (const dimension of [
+        "import",
+        "events",
+        "export",
+        "delegate",
+        "revoke",
+      ] as const)
         rows.push(
           capabilityStatus(adapter, {
             dimension,
@@ -1156,7 +1173,11 @@ export function createAuth0TokenVaultAdapter(
               : "auth0.account.unlinked",
         };
       if (account.connection !== resolved.settings.connection)
-        return { state: "denied", claims: [], code: "auth0.connection.mismatch" };
+        return {
+          state: "denied",
+          claims: [],
+          code: "auth0.connection.mismatch",
+        };
       return {
         state: "complete",
         claims: [claimFor(ctx, resolved, account, held.subject)],
@@ -1221,10 +1242,7 @@ export function createAuth0TokenVaultAdapter(
       return exchange(ctx, resolved, operation, request);
     },
 
-    async disconnect(
-      ctx,
-      scope: DisconnectScope,
-    ): Promise<DisconnectResult> {
+    async disconnect(ctx, scope: DisconnectScope): Promise<DisconnectResult> {
       if (scope === "local")
         return {
           local: "applied",

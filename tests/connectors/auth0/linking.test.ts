@@ -106,8 +106,8 @@ test("Auth0 linking runs the documented connect flow and keeps the ticket privat
     correlationKey: start.handoff.correlationKey!,
     private: start.handoff.private,
   });
-  const record = app.ports
-    .inspect.handoffs()
+  const record = app.ports.inspect
+    .handoffs()
     .find((item) => item.handoffRef === issued.handoffRef)!;
   const code = auth0.issueConnectCode(SUBJECT);
   const completion = await adapter.complete!(
@@ -181,8 +181,8 @@ test("Auth0 linking refuses a callback with the wrong state or an older generati
       accountSwitch: "false",
     },
   });
-  const record = app.ports
-    .inspect.handoffs()
+  const record = app.ports.inspect
+    .handoffs()
     .find((item) => item.handoffRef === issued.handoffRef)!;
   const wrongState = await adapter.complete!(
     app.context({ connection, handoff: record }),
@@ -294,8 +294,18 @@ test("Auth0 verification requires an explicit choice when several accounts are l
     clientId: CLIENT_ID,
     clientSecret: CLIENT_SECRET,
     accounts: [
-      { id: "cac_a", connection: CONNECTION, subject: SUBJECT, scopes: ["openid"] },
-      { id: "cac_b", connection: CONNECTION, subject: SUBJECT, scopes: ["openid"] },
+      {
+        id: "cac_a",
+        connection: CONNECTION,
+        subject: SUBJECT,
+        scopes: ["openid"],
+      },
+      {
+        id: "cac_b",
+        connection: CONNECTION,
+        subject: SUBJECT,
+        scopes: ["openid"],
+      },
     ],
   });
   const adapter = createAuth0TokenVaultAdapter({
@@ -337,7 +347,12 @@ test("Auth0 inventory lists only this subject's accounts on the bound connection
       { name: "slack", strategy: "oauth2" },
     ],
     accounts: [
-      { id: "cac_mine", connection: CONNECTION, subject: SUBJECT, scopes: ["openid"] },
+      {
+        id: "cac_mine",
+        connection: CONNECTION,
+        subject: SUBJECT,
+        scopes: ["openid"],
+      },
       { id: "cac_slack", connection: "slack", subject: SUBJECT, scopes: [] },
       {
         id: "cac_theirs",
@@ -395,7 +410,10 @@ test("Auth0 inventory lists only this subject's accounts on the bound connection
       ["slack", "true"],
     ],
   );
-  assert.equal(discovered.items[0]!.identity.authorityNamespace, auth0.issuer());
+  assert.equal(
+    discovered.items[0]!.identity.authorityNamespace,
+    auth0.issuer(),
+  );
   await auth0.close();
 });
 

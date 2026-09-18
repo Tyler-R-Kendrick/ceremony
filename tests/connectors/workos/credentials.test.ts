@@ -89,7 +89,10 @@ test("WorkOS credential mode stores the vended token in custody and returns only
     `/data-integrations/${PROVIDER}/token`,
   );
   assert.ok(vend);
-  const body = JSON.parse(vend.body.toString("utf8")) as Record<string, unknown>;
+  const body = JSON.parse(vend.body.toString("utf8")) as Record<
+    string,
+    unknown
+  >;
   assert.equal(body.user_id, USER_ID);
   assert.equal(body.connection_owner, undefined);
   await workos.close();
@@ -130,14 +133,20 @@ test("WorkOS AC-EXT-05: an inactive token response is human participation, never
   const adapter = createWorkOsPipesAdapter({
     principals: principalPort(defaultPrincipals()),
   });
-  const cases: Array<[
-    "not_installed" | "needs_reauthorization" | "account_selection_required",
-    string,
-    string,
-  ]> = [
+  const cases: Array<
+    [
+      "not_installed" | "needs_reauthorization" | "account_selection_required",
+      string,
+      string,
+    ]
+  > = [
     ["not_installed", "human-required", "workos.not-installed"],
     ["needs_reauthorization", "human-required", "workos.needs-reauthorization"],
-    ["account_selection_required", "denied", "workos.account-selection-required"],
+    [
+      "account_selection_required",
+      "denied",
+      "workos.account-selection-required",
+    ],
   ];
   for (const [reason, state, code] of cases) {
     const workos = await startWorkOsPipesDouble({
@@ -310,10 +319,7 @@ test("WorkOS disconnect separates local, broker and upstream effects", async () 
   const app = harness({ binding });
   const connection = connectionRecord(binding);
 
-  const local = await adapter.disconnect!(
-    app.context({ connection }),
-    "local",
-  );
+  const local = await adapter.disconnect!(app.context({ connection }), "local");
   assert.deepEqual(local, {
     local: "applied",
     broker: "not-attempted",

@@ -124,7 +124,9 @@ export const workOsConnectedAccountSchema = z.object({
   auth_method: z.string().max(64).nullable().optional(),
   state: z.string().max(64),
 });
-export type WorkOsConnectedAccount = z.infer<typeof workOsConnectedAccountSchema>;
+export type WorkOsConnectedAccount = z.infer<
+  typeof workOsConnectedAccountSchema
+>;
 
 /** POST /data-integrations/{slug}/authorize. */
 export const workOsAuthorizeResponseSchema = z.object({

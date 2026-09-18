@@ -62,7 +62,10 @@ test("WorkOS relay forwards the bound request with the documented control header
   );
 
   assert.equal(result.state, "complete");
-  const output = result.output as { status: number; body: Record<string, unknown> };
+  const output = result.output as {
+    status: number;
+    body: Record<string, unknown>;
+  };
   assert.equal(output.status, 200);
   assert.equal(output.body.path, "/user/repos");
   assert.equal(output.body.sawToken, true);
@@ -165,9 +168,8 @@ test("WorkOS relay checks target parameters against the connection's permitted t
       error.detail === "workos.target.not-permitted",
   );
   assert.equal(
-    workos.requests.filter((request) =>
-      request.url.pathname.includes("victim"),
-    ).length,
+    workos.requests.filter((request) => request.url.pathname.includes("victim"))
+      .length,
     0,
   );
   await workos.close();
@@ -298,11 +300,14 @@ test("WorkOS relay maps documented relay error codes without echoing provider te
   });
   const app = harness({ binding });
   await assert.rejects(
-    unknownUser.invoke!(app.context({ connection: connectionRecord(binding) }), {
-      operationRef: "operation:listRepositories",
-      input: {},
-      commandId: "command:unknown-user",
-    }),
+    unknownUser.invoke!(
+      app.context({ connection: connectionRecord(binding) }),
+      {
+        operationRef: "operation:listRepositories",
+        input: {},
+        commandId: "command:unknown-user",
+      },
+    ),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.code === "invalid-request" &&
@@ -382,9 +387,9 @@ test("WorkOS relay journals a write and refuses to replay it blindly", async () 
   const request = {
     operationRef: "operation:createIssue",
     input: {
-        parameters: { owner: "acme", repository: "widgets" },
-        body: { title: "x" },
-      },
+      parameters: { owner: "acme", repository: "widgets" },
+      body: { title: "x" },
+    },
     commandId: "command:issue",
   };
   const first = await adapter.invoke!(app.context({ connection }), request);
@@ -442,9 +447,9 @@ test("WorkOS relay reports an interrupted write as indeterminate rather than fai
   const result = await adapter.invoke!(context, {
     operationRef: "operation:createIssue",
     input: {
-        parameters: { owner: "acme", repository: "widgets" },
-        body: { title: "x" },
-      },
+      parameters: { owner: "acme", repository: "widgets" },
+      body: { title: "x" },
+    },
     commandId: "command:dropped",
   });
   assert.equal(result.state, "indeterminate");

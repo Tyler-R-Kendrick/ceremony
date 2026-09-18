@@ -48,12 +48,10 @@ const linkedConnection = (binding: ReturnType<typeof tokenVaultBinding>) =>
   });
 
 /** Replays a recorded body for the token endpoint and the accounts listing. */
-async function replay(
-  bodies: {
-    token?: { status: number; body: unknown };
-    accounts?: unknown;
-  },
-) {
+async function replay(bodies: {
+  token?: { status: number; body: unknown };
+  accounts?: unknown;
+}) {
   return startHttpFixture((request) => {
     if (request.url.pathname === "/oauth/token" && bodies.token)
       return {
@@ -137,7 +135,10 @@ test("Auth0 documented error bodies map to their outcomes without echoing the de
       state: "human-required",
       code: "auth0.reconnect-required",
     },
-    unsupported_grant: { error: "unsupported", detail: "auth0.grant.unsupported" },
+    unsupported_grant: {
+      error: "unsupported",
+      detail: "auth0.grant.unsupported",
+    },
     invalid_client: { error: "denied", detail: "auth0.client.rejected" },
     mfa_required: { state: "human-required", code: "auth0.mfa-required" },
   };
@@ -276,10 +277,7 @@ test("Auth0: a shared email is never enough to link two identities", async () =>
   // Same display identity upstream, two subjects, two connected accounts.
   assert.equal(one.target?.id, "cac_first");
   assert.equal(two.target?.id, "cac_second");
-  assert.notEqual(
-    one.externalIds?.auth0Subject,
-    two.externalIds?.auth0Subject,
-  );
+  assert.notEqual(one.externalIds?.auth0Subject, two.externalIds?.auth0Subject);
 
   // Presenting the second person's token against the first connection is
   // refused: an email in common is not an identity in common.

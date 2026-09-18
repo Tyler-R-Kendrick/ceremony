@@ -47,7 +47,8 @@ export const FEDERATED_TOKEN_TYPE =
   "http://auth0.com/oauth/token-type/federated-connection-access-token";
 export const REFRESH_TOKEN_TYPE =
   "urn:ietf:params:oauth:token-type:refresh_token";
-export const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+export const ACCESS_TOKEN_TYPE =
+  "urn:ietf:params:oauth:token-type:access_token";
 
 export type Auth0LinkedAccount = {
   /** `cac_…` in the live tenant. */
@@ -79,7 +80,9 @@ export type Auth0DoubleOptions = {
   failWith?: { status: number; error: string; description?: string };
 };
 
-type Account = Required<Pick<Auth0LinkedAccount, "id" | "connection" | "subject">> &
+type Account = Required<
+  Pick<Auth0LinkedAccount, "id" | "connection" | "subject">
+> &
   Auth0LinkedAccount;
 
 const json = (status: number, body: unknown): FixtureReply => ({
@@ -105,18 +108,32 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
   const kid = "tenant-key-1";
   const jwk = { ...(await exportJWK(tenant.publicKey)), kid, alg: "RS256" };
   const grantTypes = new Set(
-    options.grantTypes ?? ["authorization_code", "refresh_token", TOKEN_VAULT_GRANT],
+    options.grantTypes ?? [
+      "authorization_code",
+      "refresh_token",
+      TOKEN_VAULT_GRANT,
+    ],
   );
   const accounts = new Map<string, Account>();
   for (const seed of options.accounts ?? []) {
     const id = seed.id ?? `cac_${randomUUID().replace(/-/g, "").slice(0, 22)}`;
-    accounts.set(id, { ...seed, id, connection: seed.connection, subject: seed.subject });
+    accounts.set(id, {
+      ...seed,
+      id,
+      connection: seed.connection,
+      subject: seed.subject,
+    });
   }
   /** Refresh tokens the tenant issued, mapped to their subject. */
   const refreshTokens = new Map<string, string>();
   const sessions = new Map<
     string,
-    { subject: string; connection: string; redirectUri: string; scopes: string[] }
+    {
+      subject: string;
+      connection: string;
+      redirectUri: string;
+      scopes: string[];
+    }
   >();
   const connectCodes = new Map<string, string>();
 
@@ -126,7 +143,12 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
   async function sign(
     key: CryptoKey,
     payload: Record<string, unknown>,
-    claims: { subject: string; audience: string; issuer?: string; kid?: string },
+    claims: {
+      subject: string;
+      audience: string;
+      issuer?: string;
+      kid?: string;
+    },
   ): Promise<string> {
     return new SignJWT(payload)
       .setProtectedHeader({ alg: "RS256", kid: claims.kid ?? kid })
@@ -236,10 +258,7 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
               : audience
                 ? [audience]
                 : [];
-            if (
-              options.apiAudience &&
-              !audiences.includes(options.apiAudience)
-            )
+            if (options.apiAudience && !audiences.includes(options.apiAudience))
               return json(403, {
                 error: "access_denied",
                 error_description:
@@ -391,9 +410,7 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
             subject,
             connection: body.connection,
             redirectUri: body.redirect_uri,
-            scopes: Array.isArray(body.scopes)
-              ? (body.scopes as string[])
-              : [],
+            scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : [],
           });
           return json(200, {
             auth_session: authSession,
@@ -499,7 +516,11 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
       return token;
     },
     /** Signs an Auth0 access token for an API audience. */
-    accessToken(subject: string, audience: string, scope = ""): Promise<string> {
+    accessToken(
+      subject: string,
+      audience: string,
+      scope = "",
+    ): Promise<string> {
       return sign(tenant.privateKey, scope ? { scope } : {}, {
         subject,
         audience,
@@ -510,19 +531,27 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
       subject: string,
       scope = "create:me:connected_accounts read:me:connected_accounts delete:me:connected_accounts",
     ): Promise<string> {
-      return sign(tenant.privateKey, { scope }, {
-        subject,
-        audience: `${fixture.origin}/me/`,
-      });
+      return sign(
+        tenant.privateKey,
+        { scope },
+        {
+          subject,
+          audience: `${fixture.origin}/me/`,
+        },
+      );
     },
     /** A token signed by a different tenant's key, for the wrong-issuer case. */
     foreignToken(subject: string, audience: string): Promise<string> {
-      return sign(foreign.privateKey, {}, {
-        subject,
-        audience,
-        issuer: "https://other-tenant.example/",
-        kid: "other-key",
-      });
+      return sign(
+        foreign.privateKey,
+        {},
+        {
+          subject,
+          audience,
+          issuer: "https://other-tenant.example/",
+          kid: "other-key",
+        },
+      );
     },
     /** The single-use code the provider's redirect would deliver. */
     issueConnectCode(subject: string): string {

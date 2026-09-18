@@ -193,9 +193,7 @@ test("WorkOS reports missing configuration instead of attempting a call", async 
 
   // The directory says the same thing: implemented, not usable here.
   const statuses = adapter.capabilities(new Set(["WORKOS_CLIENT_ID"]));
-  const authorize = statuses.find(
-    (status) => status.dimension === "authorize",
-  );
+  const authorize = statuses.find((status) => status.dimension === "authorize");
   assert.equal(authorize?.configuration, "missing");
   assert.equal(authorize?.implementation, "implemented");
   await workos.close();
@@ -375,15 +373,17 @@ test("WorkOS completion refuses a return whose correlation or generation does no
     correlationKey: "workos:correlation-1",
     private: { url: `${workos.origin}/x`, accountSwitch: "false" },
   });
-  const record = app.ports
-    .inspect.handoffs()
+  const record = app.ports.inspect
+    .handoffs()
     .find((item) => item.handoffRef === issued.handoffRef)!;
 
   const foreign = await adapter.complete!(
     app.context({ connection, handoff: record }),
     {
       kind: "redirect",
-      url: new URL("https://app.example/api/v1/connectors/workos/return?correlation=someone-else"),
+      url: new URL(
+        "https://app.example/api/v1/connectors/workos/return?correlation=someone-else",
+      ),
     },
   );
   assert.deepEqual(foreign, {
@@ -465,8 +465,8 @@ test("WorkOS reconnect landing on a different account needs explicit account-swi
     correlationKey: "workos:switch",
     private: { url: `${workos.origin}/x`, accountSwitch: "true" },
   });
-  const record = app.ports
-    .inspect.handoffs()
+  const record = app.ports.inspect
+    .handoffs()
     .find((item) => item.handoffRef === issued.handoffRef)!;
   const switched = await adapter.complete!(
     app.context({ connection, handoff: record }),

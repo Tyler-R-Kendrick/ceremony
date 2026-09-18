@@ -2,7 +2,10 @@
   "_source": "https://workos.com/docs/reference/pipes (Returns: active, error), retrieved 2026-09-18",
   "_note": "Documented inactive answers. A 200 with active:false is not a credential.",
   "not_installed": { "active": false, "error": "not_installed" },
-  "needs_reauthorization": { "active": false, "error": "needs_reauthorization" },
+  "needs_reauthorization": {
+    "active": false,
+    "error": "needs_reauthorization"
+  },
   "account_selection_required": {
     "active": false,
     "error": "account_selection_required"
