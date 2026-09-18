@@ -497,7 +497,9 @@ export function collectHeaderParameters(
         visit(child, [...path, name], depth + 1);
   };
   visit(inputSchema, [], 0);
-  return violation ? { ok: false, reason: violation } : { ok: true, parameters };
+  return violation
+    ? { ok: false, reason: violation }
+    : { ok: true, parameters };
 }
 
 function containsHeaderAnnotation(value: unknown, maxDepth: number): boolean {
@@ -536,8 +538,12 @@ export type SseFrame = {
 export class SseParser {
   private buffer = "";
   private readonly decoder = new TextDecoder("utf-8");
-  private pending: { event?: string; data: string[]; id?: string; retry?: number } =
-    { data: [] };
+  private pending: {
+    event?: string;
+    data: string[];
+    id?: string;
+    retry?: number;
+  } = { data: [] };
   bytes = 0;
 
   push(chunk: Uint8Array): SseFrame[] {
@@ -558,9 +564,7 @@ export class SseParser {
       if (index === -1) break;
       const line = this.buffer.slice(0, index);
       const separator = this.buffer.slice(index, index + 2);
-      this.buffer = this.buffer.slice(
-        index + (separator === "\r\n" ? 2 : 1),
-      );
+      this.buffer = this.buffer.slice(index + (separator === "\r\n" ? 2 : 1));
       const frame = this.line(line);
       if (frame) frames.push(frame);
     }

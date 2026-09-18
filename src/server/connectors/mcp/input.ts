@@ -23,7 +23,8 @@ import {
  * cache key.
  */
 
-export type InputRequestKind = "elicitation-form" | "elicitation-url" | "roots" | "sampling";
+export type InputRequestKind =
+  "elicitation-form" | "elicitation-url" | "roots" | "sampling";
 
 export type ParsedInputRequest = {
   id: string;
@@ -33,9 +34,10 @@ export type ParsedInputRequest = {
 };
 
 /** Reads `inputRequests` and classifies each entry; unknown methods are refused. */
-export function parseInputRequests(
-  result: InputRequiredResult,
-): { requests: ParsedInputRequest[]; unknown: string[] } {
+export function parseInputRequests(result: InputRequiredResult): {
+  requests: ParsedInputRequest[];
+  unknown: string[];
+} {
   const requests: ParsedInputRequest[] = [];
   const unknown: string[] = [];
   for (const [id, request] of Object.entries(result.inputRequests ?? {})) {
@@ -64,7 +66,10 @@ export function parseInputRequests(
 /* ------------------------------------------------------- form schemas */
 
 const enumValue = z.union([z.string().max(512), z.number(), z.boolean()]);
-const titledConst = z.looseObject({ const: enumValue, title: z.string().max(256).optional() });
+const titledConst = z.looseObject({
+  const: enumValue,
+  title: z.string().max(256).optional(),
+});
 
 const stringProperty = z.looseObject({
   type: z.literal("string"),
@@ -98,7 +103,10 @@ const arrayProperty = z.looseObject({
   minItems: z.number().int().min(0).optional(),
   maxItems: z.number().int().min(0).optional(),
   items: z.union([
-    z.looseObject({ type: z.literal("string"), enum: z.array(z.string().max(512)).max(256) }),
+    z.looseObject({
+      type: z.literal("string"),
+      enum: z.array(z.string().max(512)).max(256),
+    }),
     z.looseObject({ anyOf: z.array(titledConst).max(256) }),
   ]),
   default: z.unknown().optional(),
@@ -130,9 +138,7 @@ export type FormSchema = z.infer<typeof formSchemaSchema>;
 
 export type FormValues = Record<string, unknown>;
 
-type ValueCheck =
-  | { ok: true; value: unknown }
-  | { ok: false; reason: string };
+type ValueCheck = { ok: true; value: unknown } | { ok: false; reason: string };
 
 function coerce(property: FormProperty, raw: unknown): ValueCheck {
   switch (property.type) {
@@ -155,10 +161,7 @@ function coerce(property: FormProperty, raw: unknown): ValueCheck {
         return { ok: false, reason: "format" };
       if (property.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(raw))
         return { ok: false, reason: "format" };
-      if (
-        property.format === "date-time" &&
-        Number.isNaN(Date.parse(raw))
-      )
+      if (property.format === "date-time" && Number.isNaN(Date.parse(raw)))
         return { ok: false, reason: "format" };
       return { ok: true, value: raw };
     }
@@ -189,7 +192,10 @@ function coerce(property: FormProperty, raw: unknown): ValueCheck {
       const list = Array.isArray(raw)
         ? raw
         : typeof raw === "string"
-          ? raw.split(",").map((item) => item.trim()).filter(Boolean)
+          ? raw
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean)
           : undefined;
       if (!list || list.length > 256) return { ok: false, reason: "type" };
       if (property.minItems !== undefined && list.length < property.minItems)
@@ -219,7 +225,8 @@ function coerce(property: FormProperty, raw: unknown): ValueCheck {
 export function validateFormValues(
   schema: FormSchema,
   values: FormValues,
-): { ok: true; content: Record<string, unknown> } | { ok: false; code: string } {
+):
+  { ok: true; content: Record<string, unknown> } | { ok: false; code: string } {
   const content: Record<string, unknown> = {};
   for (const name of Object.keys(values))
     if (!Object.hasOwn(schema.properties, name))
@@ -232,7 +239,8 @@ export function validateFormValues(
       continue;
     }
     const checked = coerce(property, raw);
-    if (!checked.ok) return { ok: false, code: `${checked.reason}:${name.slice(0, 40)}` };
+    if (!checked.ok)
+      return { ok: false, code: `${checked.reason}:${name.slice(0, 40)}` };
     content[name] = checked.value;
   }
   return { ok: true, content };
@@ -294,7 +302,9 @@ export function buildInputHandoff(
     limits: Pick<McpLimits, "maxHandoffPrivateBytes" | "maxRequestStateBytes">;
   },
 ): HandoffProposal {
-  const urlRequest = options.requests.find((request) => request.kind === "elicitation-url");
+  const urlRequest = options.requests.find(
+    (request) => request.kind === "elicitation-url",
+  );
   const privateMaterial: Record<string, string> = {
     protocol: suspended.protocol,
     profile: suspended.profile,
@@ -307,16 +317,22 @@ export function buildInputHandoff(
     inputDigest: suspended.inputDigest,
     inputRequests: suspended.inputRequests,
     round: String(suspended.round),
-    ...(suspended.requestState !== undefined ? { requestState: suspended.requestState } : {}),
+    ...(suspended.requestState !== undefined
+      ? { requestState: suspended.requestState }
+      : {}),
     ...(suspended.effectRef ? { effectRef: suspended.effectRef } : {}),
-    ...(suspended.elicitationDigest ? { elicitationDigest: suspended.elicitationDigest } : {}),
+    ...(suspended.elicitationDigest
+      ? { elicitationDigest: suspended.elicitationDigest }
+      : {}),
   };
   if (urlRequest?.elicitation?.url) {
     // A server-suggested URL is shown to the initiating human only, after
     // validation, and is never fetched by this client.
     const parsed = presentationUrlSchema.safeParse(urlRequest.elicitation.url);
     if (!parsed.success)
-      throw new ConnectorError("upstream-rejected", { detail: "mcp.elicitation.url-rejected" });
+      throw new ConnectorError("upstream-rejected", {
+        detail: "mcp.elicitation.url-rejected",
+      });
     privateMaterial.url = parsed.data;
   }
   const message = options.requests
@@ -328,11 +344,16 @@ export function buildInputHandoff(
   if (message) privateMaterial.message = message;
   if (
     suspended.requestState !== undefined &&
-    Buffer.byteLength(suspended.requestState, "utf8") > options.limits.maxRequestStateBytes
+    Buffer.byteLength(suspended.requestState, "utf8") >
+      options.limits.maxRequestStateBytes
   )
-    throw new ConnectorError("upstream-rejected", { detail: "mcp.input-required.state-too-large" });
+    throw new ConnectorError("upstream-rejected", {
+      detail: "mcp.input-required.state-too-large",
+    });
   if (jsonByteLength(privateMaterial) > options.limits.maxHandoffPrivateBytes)
-    throw new ConnectorError("upstream-rejected", { detail: "mcp.input-required.too-large" });
+    throw new ConnectorError("upstream-rejected", {
+      detail: "mcp.input-required.too-large",
+    });
   return {
     kind: urlRequest ? "provider-browser" : "input-required",
     presentation: urlRequest ? "popup" : "in-app",
@@ -354,9 +375,15 @@ const suspendedSchema = z.strictObject({
   inputDigest: z.string().regex(/^[a-f0-9]{64}$/),
   inputRequests: z.string().max(64 * 1024),
   round: z.string().regex(/^\d{1,2}$/),
-  requestState: z.string().max(64 * 1024).optional(),
+  requestState: z
+    .string()
+    .max(64 * 1024)
+    .optional(),
   effectRef: z.string().max(200).optional(),
-  elicitationDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  elicitationDigest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   url: z.string().max(2048).optional(),
   message: z.string().max(500).optional(),
 });
@@ -365,7 +392,9 @@ const suspendedSchema = z.strictObject({
 export function readSuspendedInput(record: HandoffRecord): SuspendedInput {
   const parsed = suspendedSchema.safeParse(record.private);
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "mcp.handoff.not-mcp-input" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.handoff.not-mcp-input",
+    });
   const value = parsed.data;
   return {
     protocol: "mcp",
@@ -379,9 +408,13 @@ export function readSuspendedInput(record: HandoffRecord): SuspendedInput {
     inputDigest: value.inputDigest,
     inputRequests: value.inputRequests,
     round: Number(value.round),
-    ...(value.requestState !== undefined ? { requestState: value.requestState } : {}),
+    ...(value.requestState !== undefined
+      ? { requestState: value.requestState }
+      : {}),
     ...(value.effectRef ? { effectRef: value.effectRef } : {}),
-    ...(value.elicitationDigest ? { elicitationDigest: value.elicitationDigest } : {}),
+    ...(value.elicitationDigest
+      ? { elicitationDigest: value.elicitationDigest }
+      : {}),
     ...(value.url ? { url: value.url } : {}),
   };
 }
@@ -412,7 +445,9 @@ export function buildInputResponses(
   action: ResumeAction,
 ): Record<string, ElicitationResult | { roots: [] }> {
   const responses: Record<string, ElicitationResult | { roots: [] }> = {};
-  const forms = requests.filter((request) => request.kind === "elicitation-form");
+  const forms = requests.filter(
+    (request) => request.kind === "elicitation-form",
+  );
   for (const request of requests) {
     switch (request.kind) {
       case "roots":
@@ -426,7 +461,9 @@ export function buildInputResponses(
           responses[request.id] = { action };
           break;
         }
-        const schema = formSchemaSchema.safeParse(request.elicitation?.requestedSchema);
+        const schema = formSchemaSchema.safeParse(
+          request.elicitation?.requestedSchema,
+        );
         if (!schema.success)
           throw new ConnectorError("upstream-rejected", {
             detail: "mcp.elicitation.schema-unsupported",
@@ -437,7 +474,9 @@ export function buildInputResponses(
             ? values
             : ((values[request.id] as FormValues | undefined) ?? {});
         if (!own || typeof own !== "object" || Array.isArray(own))
-          throw new ConnectorError("invalid-request", { detail: "mcp.input.values-shape" });
+          throw new ConnectorError("invalid-request", {
+            detail: "mcp.input.values-shape",
+          });
         const checked = validateFormValues(schema.data, own);
         if (!checked.ok)
           throw new ConnectorError("invalid-request", {
@@ -447,7 +486,9 @@ export function buildInputResponses(
         break;
       }
       case "sampling":
-        throw new ConnectorError("unsupported", { detail: "mcp.sampling.refused" });
+        throw new ConnectorError("unsupported", {
+          detail: "mcp.sampling.refused",
+        });
     }
   }
   return responses;

@@ -8,11 +8,12 @@ import { OperationRegistry } from "../../../src/server/recipes/registry.js";
 import { SQLiteCeremonyStore } from "../../../src/server/persistence/index.js";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../../../src/core/recipe-contracts.js";
-import type {
-  ConnectorToolDependencies,
-} from "../../../src/server/connectors/mcp/server-tools.js";
+import type { ConnectorToolDependencies } from "../../../src/server/connectors/mcp/server-tools.js";
 import { connectorServerToolNames } from "../../../src/server/connectors/mcp/server-tools.js";
-import { catalogEntrySchema, connectionSummarySchema } from "../../../src/core/connectors/index.js";
+import {
+  catalogEntrySchema,
+  connectionSummarySchema,
+} from "../../../src/core/connectors/index.js";
 
 /*
  * The connector tools on Ceremony's own MCP server. The five existing tools
@@ -60,7 +61,12 @@ function runtimeFixture() {
     keys: { key: randomBytes(32) },
   });
   const registry = new OperationRegistry(
-    new Map([["target", { classification: "public" as const, schema: z.string().min(1) }]]),
+    new Map([
+      [
+        "target",
+        { classification: "public" as const, schema: z.string().min(1) },
+      ],
+    ]),
   );
   registry.register({
     contract: {
@@ -76,7 +82,9 @@ function runtimeFixture() {
     },
     inputSchema: z.strictObject({ target: z.string().min(1) }),
     outputSchema: z.strictObject({}),
-    classifications: { target: { classification: "public", schema: z.string().min(1) } },
+    classifications: {
+      target: { classification: "public", schema: z.string().min(1) },
+    },
     fixtures: ["local"],
     handler: async () => ({ state: "complete" as const, outputs: {} }),
     verify: async () => true,
@@ -87,7 +95,14 @@ function runtimeFixture() {
     identity: { authenticate: async () => actor },
     origin: context.origin,
     connections: new Map([
-      ["fixture", { definition: recipe, outputContract: "fixture.connection", revalidateOperation: "verify" }],
+      [
+        "fixture",
+        {
+          definition: recipe,
+          outputContract: "fixture.connection",
+          revalidateOperation: "verify",
+        },
+      ],
     ]),
     context: async () => context,
     authorize: async () => true,
@@ -158,7 +173,9 @@ function dependencies(seen: Seen): ConnectorToolDependencies {
     },
     async status(who, connectionRef) {
       seen.actors.push(who);
-      return connectionRef === connection.connectionRef ? connection : undefined;
+      return connectionRef === connection.connectionRef
+        ? connection
+        : undefined;
     },
     async connect(who, input) {
       seen.actors.push(who);
@@ -191,12 +208,16 @@ function dependencies(seen: Seen): ConnectorToolDependencies {
 
 function handlerFor(
   runtime: ReturnType<typeof runtimeFixture>["runtime"],
-  options: { connectors?: ConnectorToolDependencies; authenticate?: (token: string) => ActorContext | null } = {},
+  options: {
+    connectors?: ConnectorToolDependencies;
+    authenticate?: (token: string) => ActorContext | null;
+  } = {},
 ) {
   return createCeremonyMcpHandler(runtime, {
     resourceUrl: endpoint,
     issuer,
-    authenticate: (token) => (options.authenticate ? options.authenticate(token) : actor),
+    authenticate: (token) =>
+      options.authenticate ? options.authenticate(token) : actor,
     ...(options.connectors ? { connectors: options.connectors } : {}),
   });
 }
@@ -250,7 +271,12 @@ test("the five existing tools are untouched and the four connector tools appear 
     const seen: Seen = { actors: [], invokes: [], connects: [] };
     const mcp = handlerFor(f.runtime, { connectors: dependencies(seen) });
     await call(mcp, "good", initialize);
-    const listed = await call(mcp, "good", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    const listed = await call(mcp, "good", {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
     const text = await listed!.text();
     for (const name of [
       "ceremony_connect",
@@ -271,9 +297,15 @@ test("without the option the server is exactly as it was", async () => {
   try {
     const mcp = handlerFor(f.runtime);
     await call(mcp, "good", initialize);
-    const listed = await call(mcp, "good", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    const listed = await call(mcp, "good", {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
     const text = await listed!.text();
-    for (const name of connectorServerToolNames) assert.ok(!text.includes(name));
+    for (const name of connectorServerToolNames)
+      assert.ok(!text.includes(name));
     assert.ok(text.includes("ceremony_connect"));
   } finally {
     await f.store.close();
@@ -308,7 +340,11 @@ test("a connector tool cannot be reached without host authentication", async () 
       params: { name: "connector_catalog", arguments: {} },
     });
     assert.equal(rejected?.status, 401);
-    assert.equal(seen.actors.length, 0, "no unauthenticated call reaches the service");
+    assert.equal(
+      seen.actors.length,
+      0,
+      "no unauthenticated call reaches the service",
+    );
   } finally {
     await f.store.close();
   }
@@ -372,7 +408,10 @@ test("catalog and status answer with public projections only", async () => {
           jsonrpc: "2.0",
           id: 5,
           method: "tools/call",
-          params: { name: "connector_status", arguments: { connectionRef: connection.connectionRef } },
+          params: {
+            name: "connector_status",
+            arguments: { connectionRef: connection.connectionRef },
+          },
         }),
       ),
     ) as Record<string, unknown>;
@@ -403,7 +442,10 @@ test("connect returns the kind and state of a handoff and never a link", async (
         jsonrpc: "2.0",
         id: 6,
         method: "tools/call",
-        params: { name: "connector_connect", arguments: { connectorId: "mcp-remote" } },
+        params: {
+          name: "connector_connect",
+          arguments: { connectorId: "mcp-remote" },
+        },
       }),
     );
     const outcome = JSON.parse(text) as {
@@ -416,7 +458,11 @@ test("connect returns the kind and state of a handoff and never a link", async (
       lifecycle: "human-required",
       handoff: { kind: "provider-browser", state: "issued" },
     });
-    assert.equal(text.includes("http"), false, "no URL may appear in a tool result");
+    assert.equal(
+      text.includes("http"),
+      false,
+      "no URL may appear in a tool result",
+    );
     assert.deepEqual(seen.connects, [{ connectorId: "mcp-remote" }]);
   } finally {
     await f.store.close();

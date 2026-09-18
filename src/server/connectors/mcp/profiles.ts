@@ -23,7 +23,11 @@ import {
  * is recorded on every discovery so a deployment cannot silently drift.
  */
 
-export const mcpProfileIds = ["2026-07-28", "2025-11-25", "2025-06-18"] as const;
+export const mcpProfileIds = [
+  "2026-07-28",
+  "2025-11-25",
+  "2025-06-18",
+] as const;
 export type McpProfileId = (typeof mcpProfileIds)[number];
 export type McpEra = "modern" | "legacy";
 
@@ -72,9 +76,7 @@ export const JSON_RPC_ERROR_CODES = {
 } as const;
 
 export type ClientRegistrationMethod =
-  | "pre-registered"
-  | "client-id-metadata-document"
-  | "dynamic";
+  "pre-registered" | "client-id-metadata-document" | "dynamic";
 
 export type McpProfile = {
   readonly id: McpProfileId;
@@ -187,7 +189,11 @@ export function capabilityProfileLabel(id: McpProfileId): string {
  *   the documented transport mechanics and the client switches era once,
  *   recording which profile was actually used.
  */
-export const mcpCompatibilityModes = ["pinned", "negotiate", "auto-detect"] as const;
+export const mcpCompatibilityModes = [
+  "pinned",
+  "negotiate",
+  "auto-detect",
+] as const;
 export type McpCompatibilityMode = (typeof mcpCompatibilityModes)[number];
 
 export type McpLimits = {
@@ -261,7 +267,11 @@ export const mcpLimitsSchema = z
     maxRequestStateBytes: positiveInt.max(64 * 1024),
     maxInputRounds: positiveInt.max(8),
     readRetries: z.number().int().min(0).max(5),
-    cacheMaxTtlMs: z.number().int().min(0).max(24 * 3_600_000),
+    cacheMaxTtlMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(24 * 3_600_000),
     cacheMaxEntries: positiveInt.max(4096),
   })
   .partial();

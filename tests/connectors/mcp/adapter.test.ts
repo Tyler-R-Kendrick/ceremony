@@ -6,17 +6,26 @@ import {
   createMcpRemoteAdapter,
   type McpRemoteAdapterOptions,
 } from "../../../src/server/connectors/mcp/index.js";
-import { runtimeBindingSchema, type RuntimeBinding } from "../../../src/server/connectors/binding.js";
+import {
+  runtimeBindingSchema,
+  type RuntimeBinding,
+} from "../../../src/server/connectors/binding.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import type {
   AdapterCallContext,
   ConnectorAdapter,
 } from "../../../src/server/connectors/adapter.js";
-import type { ConnectionRecord, HandoffIssue } from "../../../src/server/connectors/ports.js";
+import type {
+  ConnectionRecord,
+  HandoffIssue,
+} from "../../../src/server/connectors/ports.js";
 import { agentConnectorProjection } from "../../../src/core/connectors/index.js";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
-import { startMcpFixture, type FixtureServer } from "../doubles/mcp-servers/harness.js";
+import {
+  startMcpFixture,
+  type FixtureServer,
+} from "../doubles/mcp-servers/harness.js";
 
 /*
  * The adapter against the current-profile fixture: what the host's rules add
@@ -32,7 +41,10 @@ const SECOND_TOKEN = "current-token-b";
 let fixture: FixtureServer;
 
 before(async () => {
-  fixture = await startMcpFixture("current", { token: TOKEN, secondToken: SECOND_TOKEN });
+  fixture = await startMcpFixture("current", {
+    token: TOKEN,
+    secondToken: SECOND_TOKEN,
+  });
 });
 after(async () => {
   await fixture?.stop();
@@ -57,7 +69,9 @@ function binding(overrides: Partial<RuntimeBinding> = {}): RuntimeBinding {
     approvedAt: "2026-09-18T00:00:00.000Z",
     policyRevision: "policy-1",
     tenantId: "tenant-a",
-    destinations: [{ id: "server", origin: fixture.origin, network: "loopback-fixture" }],
+    destinations: [
+      { id: "server", origin: fixture.origin, network: "loopback-fixture" },
+    ],
     operations: [
       {
         operationRef: "op:echo",
@@ -159,7 +173,9 @@ function binding(overrides: Partial<RuntimeBinding> = {}): RuntimeBinding {
     configuration: [],
     permittedTargets: [],
     reviewedDigest: DIGEST,
-    settings: { mcp: { profile: "2026-07-28", endpointPath: "/mcp", auth: "bearer" } },
+    settings: {
+      mcp: { profile: "2026-07-28", endpointPath: "/mcp", auth: "bearer" },
+    },
     ...overrides,
   });
 }
@@ -193,7 +209,9 @@ async function harness(
     bindingRef: bound.bindingRef,
     custody: "host-owned" as const,
   };
-  const credentialRef = await ports.credentials.store(scope, { bearer: options.token ?? TOKEN });
+  const credentialRef = await ports.credentials.store(scope, {
+    bearer: options.token ?? TOKEN,
+  });
   const connection: ConnectionRecord = {
     connectionRef,
     bindingRef: bound.bindingRef,
@@ -242,17 +260,14 @@ test("the adapter reports a capability row per profile and refuses stdio outrigh
   const adapter: ConnectorAdapter = createMcpRemoteAdapter();
   const rows = adapter.capabilities(new Set());
   const invoke = rows.filter((row) => row.dimension === "invoke");
-  assert.deepEqual(
-    invoke.map((row) => row.profile).sort(),
-    [
-      "mcp-2025-06-18",
-      "mcp-2025-06-18-stdio",
-      "mcp-2025-11-25",
-      "mcp-2025-11-25-stdio",
-      "mcp-2026-07-28",
-      "mcp-2026-07-28-stdio",
-    ],
-  );
+  assert.deepEqual(invoke.map((row) => row.profile).sort(), [
+    "mcp-2025-06-18",
+    "mcp-2025-06-18-stdio",
+    "mcp-2025-11-25",
+    "mcp-2025-11-25-stdio",
+    "mcp-2026-07-28",
+    "mcp-2026-07-28-stdio",
+  ]);
   for (const row of invoke.filter((item) => !item.profile.endsWith("-stdio"))) {
     assert.equal(row.implementation, "implemented");
     assert.equal(row.evidence, "protocol-fixture");
@@ -260,7 +275,10 @@ test("the adapter reports a capability row per profile and refuses stdio outrigh
   for (const row of invoke.filter((item) => item.profile.endsWith("-stdio"))) {
     assert.equal(row.implementation, "unsupported");
     assert.equal(row.evidence, "not-tested");
-    assert.match(row.limitations.join(" "), /stdio transports are not supported/);
+    assert.match(
+      row.limitations.join(" "),
+      /stdio transports are not supported/,
+    );
   }
   const revoke = rows.find((row) => row.dimension === "revoke");
   assert.equal(revoke?.implementation, "unsupported");
@@ -282,9 +300,15 @@ test("verify records what it observed and names what it does not establish", asy
   assert.equal(claim.kind, "credential-accepted");
   assert.equal(claim.issuer, "provider");
   assert.deepEqual(claim.target, { kind: "mcp-server", id: fixture.origin });
-  assert.ok(claim.limitations.includes("server identity not attested beyond TLS origin"));
+  assert.ok(
+    claim.limitations.includes(
+      "server identity not attested beyond TLS origin",
+    ),
+  );
   assert.equal(claim.bindingRevision, 3);
-  assert.deepEqual(result.adapterState?.unsupportedExtensions, ["io.modelcontextprotocol/tasks"]);
+  assert.deepEqual(result.adapterState?.unsupportedExtensions, [
+    "io.modelcontextprotocol/tasks",
+  ]);
   assert.equal(result.adapterState?.protocolVersion, "2026-07-28");
 });
 
@@ -293,15 +317,24 @@ test("verification without a credential is denied and carries the challenge, not
   const result = await h.adapter.verify!(h.ctx);
   assert.equal(result.state, "denied");
   assert.equal(result.code, "authorization-required");
-  const challenge = result.adapterState?.challenge as { requestedScopes: string[]; authorizationServers: string[] };
+  const challenge = result.adapterState?.challenge as {
+    requestedScopes: string[];
+    authorizationServers: string[];
+  };
   assert.deepEqual(challenge.requestedScopes, ["mcp:tools", "mcp:resources"]);
-  assert.deepEqual(challenge.authorizationServers, [`${fixture.origin}/authorization`]);
+  assert.deepEqual(challenge.authorizationServers, [
+    `${fixture.origin}/authorization`,
+  ]);
 });
 
 test("an operation the binding does not name never reaches the wire", async () => {
   const h = await harness();
   await assert.rejects(
-    h.adapter.invoke!(h.ctx, { operationRef: "op:nowhere", input: {}, commandId: "c1" }),
+    h.adapter.invoke!(h.ctx, {
+      operationRef: "op:nowhere",
+      input: {},
+      commandId: "c1",
+    }),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.code === "denied" &&
@@ -314,9 +347,14 @@ test("an operation the binding does not name never reaches the wire", async () =
 test("a non-MCP transport under an MCP binding is refused", async () => {
   const h = await harness();
   await assert.rejects(
-    h.adapter.invoke!(h.ctx, { operationRef: "op:http", input: {}, commandId: "c1" }),
+    h.adapter.invoke!(h.ctx, {
+      operationRef: "op:http",
+      input: {},
+      commandId: "c1",
+    }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "mcp.operation.transport-not-mcp",
+      error instanceof ConnectorError &&
+      error.detail === "mcp.operation.transport-not-mcp",
   );
   const report = await fixture.report();
   assert.equal(report.wire.length, 0);
@@ -331,7 +369,9 @@ test("invocation routes to tools, resources and prompts and keeps their semantic
   });
   assert.equal(tool.state, "complete");
   assert.equal(tool.outputClassification, "public");
-  assert.deepEqual((tool.output as { content: unknown[] }).content, [{ type: "text", text: "hi" }]);
+  assert.deepEqual((tool.output as { content: unknown[] }).content, [
+    { type: "text", text: "hi" },
+  ]);
 
   const resource = await h.adapter.invoke!(h.ctx, {
     operationRef: "op:note",
@@ -340,7 +380,11 @@ test("invocation routes to tools, resources and prompts and keeps their semantic
   });
   assert.equal(resource.state, "complete");
   assert.equal(resource.outputClassification, "personal");
-  assert.ok((resource.output as { contents: Array<{ uri: string }> }).contents[0]!.uri.startsWith("note:///"));
+  assert.ok(
+    (
+      resource.output as { contents: Array<{ uri: string }> }
+    ).contents[0]!.uri.startsWith("note:///"),
+  );
 
   const prompt = await h.adapter.invoke!(h.ctx, {
     operationRef: "op:summarize",
@@ -365,9 +409,14 @@ test("a resource template variable is bounded, encoded and never allowed to esca
   const h = await harness();
   // Not a string: refused before anything is sent.
   await assert.rejects(
-    h.adapter.invoke!(h.ctx, { operationRef: "op:note", input: { name: { evil: true } }, commandId: "c1" }),
+    h.adapter.invoke!(h.ctx, {
+      operationRef: "op:note",
+      input: { name: { evil: true } },
+      commandId: "c1",
+    }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "mcp.resource.variable-invalid",
+      error instanceof ConnectorError &&
+      error.detail === "mcp.resource.variable-invalid",
   );
   // A traversal-shaped name is percent-encoded into the template rather than
   // escaping it, so the server simply does not know that resource.
@@ -382,7 +431,10 @@ test("a resource template variable is bounded, encoded and never allowed to esca
   const read = report.wire.find(
     (entry) => (entry.body as { method?: string }).method === "resources/read",
   );
-  assert.equal((read!.body as { params: { uri: string } }).params.uri, "note:///..%2Fsecret");
+  assert.equal(
+    (read!.body as { params: { uri: string } }).params.uri,
+    "note:///..%2Fsecret",
+  );
 });
 
 test("a dropped response to a consequential call is indeterminate, journaled, and never repeated", async () => {
@@ -425,7 +477,10 @@ test("a request for input suspends the intent privately and resumes it once", as
   assert.equal(proposal.kind, "input-required");
   assert.equal(proposal.presentation, "in-app");
   assert.equal(proposal.intent, "mcp.input-required");
-  assert.ok(proposal.private.requestState, "the server's opaque state stays private");
+  assert.ok(
+    proposal.private.requestState,
+    "the server's opaque state stays private",
+  );
   assert.ok((proposal.private.inputRequests ?? "").includes("github_login"));
   assert.equal(JSON.stringify(started).includes("octocat"), false);
 
@@ -441,25 +496,37 @@ test("a request for input suspends the intent privately and resumes it once", as
   assert.equal(JSON.stringify(summary).includes("octocat"), false);
 
   const record = await h.ports.handoffs.present(h.ctx.actor, handoffRef);
-  const resumed = await h.adapter.resumeInput(h.ctx, record!, { name: "octocat", remember: "true" });
+  const resumed = await h.adapter.resumeInput(h.ctx, record!, {
+    name: "octocat",
+    remember: "true",
+  });
   assert.equal(resumed.state, "complete");
   assert.equal(resumed.outputClassification, "personal");
   // What the person typed reached the server and nothing else.
   const report = await fixture.report();
   const seen = report.inputsSeen?.[0] as {
-    inputResponses: { github_login: { action: string; content: { name: string; remember: boolean } } };
+    inputResponses: {
+      github_login: {
+        action: string;
+        content: { name: string; remember: boolean };
+      };
+    };
   };
   assert.equal(seen.inputResponses.github_login.action, "accept");
   assert.equal(seen.inputResponses.github_login.content.name, "octocat");
   assert.equal(seen.inputResponses.github_login.content.remember, true);
   assert.equal(JSON.stringify(resumed).includes("octocat"), false);
   assert.equal(
-    JSON.stringify(agentConnectorProjection({ ...h.connection, handoff: summary })).includes("octocat"),
+    JSON.stringify(
+      agentConnectorProjection({ ...h.connection, handoff: summary }),
+    ).includes("octocat"),
     false,
   );
 
   // One use: the same continuation cannot be replayed.
-  const replayed = await h.adapter.resumeInput(h.ctx, record!, { name: "octocat" });
+  const replayed = await h.adapter.resumeInput(h.ctx, record!, {
+    name: "octocat",
+  });
   assert.equal(replayed.state, "denied");
   assert.equal(replayed.code, "mcp.handoff.not-pending");
   const after = await fixture.report();
@@ -483,12 +550,16 @@ test("a continuation for an older generation or a changed binding is refused", a
   const record = await h.ports.handoffs.present(h.ctx.actor, handoffRef);
 
   const newerGeneration = { ...h.ctx, generation: 2 };
-  const stale = await h.adapter.resumeInput(newerGeneration, record!, { name: "octocat" });
+  const stale = await h.adapter.resumeInput(newerGeneration, record!, {
+    name: "octocat",
+  });
   assert.equal(stale.state, "denied");
   assert.equal(stale.code, "mcp.handoff.stale-generation");
 
   const changedBinding = { ...h.ctx, binding: binding({ revision: 4 }) };
-  const reviewed = await h.adapter.resumeInput(changedBinding, record!, { name: "octocat" });
+  const reviewed = await h.adapter.resumeInput(changedBinding, record!, {
+    name: "octocat",
+  });
   assert.equal(reviewed.state, "denied");
   assert.equal(reviewed.code, "mcp.binding.changed");
 
@@ -514,7 +585,8 @@ test("values that do not match the requested schema are refused before the retry
   await assert.rejects(
     h.adapter.resumeInput(h.ctx, record!, { nickname: "octocat" }),
     (error: unknown) =>
-      error instanceof ConnectorError && (error.detail ?? "").startsWith("mcp.input."),
+      error instanceof ConnectorError &&
+      (error.detail ?? "").startsWith("mcp.input."),
   );
   const report = await fixture.report();
   assert.equal(report.inputsSeen?.length ?? 0, 0);
@@ -534,7 +606,14 @@ test("a server-suggested URL is kept private, shown to nobody else and never fet
   assert.equal(proposal.presentation, "popup");
   assert.equal(proposal.private.url, `${fixture.origin}/out-of-band/connect`);
   // The URL is private material: the model-visible result carries none of it.
-  assert.equal(JSON.stringify({ state: started.state, code: started.code, output: started.output }).includes("out-of-band"), false);
+  assert.equal(
+    JSON.stringify({
+      state: started.state,
+      code: started.code,
+      output: started.output,
+    }).includes("out-of-band"),
+    false,
+  );
   const { summary } = await h.ports.handoffs.issue({
     ...proposal,
     actor: h.ctx.actor,
@@ -584,7 +663,11 @@ test("cancellation mid-call leaves the outcome unknown and the call unrepeated",
     ],
   });
   const ctx = { ...h.ctx, binding: withSlow };
-  const call = h.adapter.invoke!(ctx, { operationRef: "op:slow", input: {}, commandId: "c1" });
+  const call = h.adapter.invoke!(ctx, {
+    operationRef: "op:slow",
+    input: {},
+    commandId: "c1",
+  });
   await new Promise((resolve) => setTimeout(resolve, 150));
   h.controller.abort();
   const result = await call;
@@ -599,7 +682,11 @@ test("cancellation mid-call leaves the outcome unknown and the call unrepeated",
 test("disconnect is local only and says what MCP cannot do", async () => {
   const h = await harness();
   const result = await h.adapter.disconnect!(h.ctx, "upstream");
-  assert.deepEqual(result, { local: "applied", broker: "not-attempted", upstream: "unsupported" });
+  assert.deepEqual(result, {
+    local: "applied",
+    broker: "not-attempted",
+    upstream: "unsupported",
+  });
   const revoked = await h.adapter.revoke!(h.ctx);
   assert.equal(revoked.upstream, "unsupported");
   const report = await fixture.report();
@@ -607,7 +694,10 @@ test("disconnect is local only and says what MCP cannot do", async () => {
 });
 
 test("two principals sharing one cache never see each other's lists", async () => {
-  const cache = new McpResultCache(Date.now, { cacheMaxTtlMs: 60_000, cacheMaxEntries: 64 });
+  const cache = new McpResultCache(Date.now, {
+    cacheMaxTtlMs: 60_000,
+    cacheMaxEntries: 64,
+  });
   const first = await harness({ adapter: { cache }, token: TOKEN });
   const second = await harness({
     actor: { ...fixtureActor, subjectId: "subject-2", sessionId: "session-2" },

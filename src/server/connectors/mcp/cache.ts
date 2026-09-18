@@ -52,14 +52,25 @@ export class McpResultCache {
   private readonly entries = new Map<string, Entry>();
   constructor(
     private readonly now: () => number,
-    private readonly limits: Pick<McpLimits, "cacheMaxTtlMs" | "cacheMaxEntries">,
+    private readonly limits: Pick<
+      McpLimits,
+      "cacheMaxTtlMs" | "cacheMaxEntries"
+    >,
   ) {}
 
-  private key(principal: CachePrincipal, method: string, params: unknown): string {
+  private key(
+    principal: CachePrincipal,
+    method: string,
+    params: unknown,
+  ): string {
     return `${principalKey(principal)}|${method}|${paramsDigest(params)}`;
   }
 
-  get<T>(principal: CachePrincipal, method: string, params: unknown): T | undefined {
+  get<T>(
+    principal: CachePrincipal,
+    method: string,
+    params: unknown,
+  ): T | undefined {
     const key = this.key(principal, method, params);
     const entry = this.entries.get(key);
     if (!entry) return undefined;
@@ -78,7 +89,10 @@ export class McpResultCache {
     method: string,
     params: unknown,
     value: unknown,
-    hint: { ttlMs: number | undefined; cacheScope: "public" | "private" | undefined },
+    hint: {
+      ttlMs: number | undefined;
+      cacheScope: "public" | "private" | undefined;
+    },
   ): void {
     // Absent or negative ttl is immediately stale (caching utility §ttl); a
     // ttl above the host bound is clamped to it.

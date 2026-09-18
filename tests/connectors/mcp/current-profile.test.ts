@@ -36,7 +36,10 @@ function client(options: { token?: string | null } = {}): McpClient {
     profile: "2026-07-28",
     endpoint: fixture.endpoint,
     fetch: globalThis.fetch,
-    auth: token === null ? { kind: "none" } : { kind: "bearer", use: (work) => work(token) },
+    auth:
+      token === null
+        ? { kind: "none" }
+        : { kind: "bearer", use: (work) => work(token) },
     limits: { requestTimeoutMs: 5000, listenMaxMs: 2000 },
   });
 }
@@ -55,7 +58,8 @@ test("discovery uses server/discover, with no handshake and no session", async (
   assert.equal(request!.headers["mcp-protocol-version"], "2026-07-28");
   assert.equal(request!.headers["mcp-method"], "server/discover");
   assert.equal(request!.headers["mcp-session-id"], undefined);
-  const meta = (request!.body as { params: { _meta: Record<string, unknown> } }).params._meta;
+  const meta = (request!.body as { params: { _meta: Record<string, unknown> } })
+    .params._meta;
   assert.equal(meta["io.modelcontextprotocol/protocolVersion"], "2026-07-28");
   assert.ok(meta["io.modelcontextprotocol/clientCapabilities"]);
   assert.ok(meta["io.modelcontextprotocol/clientInfo"]);
@@ -66,7 +70,11 @@ test("the wire log of a current-profile session contains only current-profile me
   await connection.discover();
   await connection.listTools();
   await connection.listResources();
-  await connection.callTool({ name: "echo", arguments: { text: "hi" }, effect: "read" });
+  await connection.callTool({
+    name: "echo",
+    arguments: { text: "hi" },
+    effect: "read",
+  });
 
   const report = await fixture.report();
   const methods = methodsSeen(report);
@@ -78,8 +86,14 @@ test("the wire log of a current-profile session contains only current-profile me
     assert.equal(request.headers["mcp-session-id"], undefined);
     assert.equal(request.headers["last-event-id"], undefined);
     assert.equal(request.headers["mcp-protocol-version"], "2026-07-28");
-    const body = request.body as { params?: { _meta?: Record<string, unknown>; protocolVersion?: unknown } };
-    assert.equal(body.params?.protocolVersion, undefined, "version travels in _meta, not in params");
+    const body = request.body as {
+      params?: { _meta?: Record<string, unknown>; protocolVersion?: unknown };
+    };
+    assert.equal(
+      body.params?.protocolVersion,
+      undefined,
+      "version travels in _meta, not in params",
+    );
     assert.equal(
       body.params?._meta?.["io.modelcontextprotocol/protocolVersion"],
       "2026-07-28",
@@ -99,8 +113,13 @@ test("an unauthenticated request surfaces the parsed challenge and its metadata"
   assert.equal(challenge.status, 401);
   assert.deepEqual(challenge.challengeScopes, ["mcp:tools", "mcp:resources"]);
   assert.deepEqual(challenge.requestedScopes, ["mcp:tools", "mcp:resources"]);
-  assert.equal(challenge.resourceMetadataUrl, `${fixture.origin}/.well-known/oauth-protected-resource/mcp`);
-  assert.deepEqual(challenge.metadata?.authorizationServers, [`${fixture.origin}/authorization`]);
+  assert.equal(
+    challenge.resourceMetadataUrl,
+    `${fixture.origin}/.well-known/oauth-protected-resource/mcp`,
+  );
+  assert.deepEqual(challenge.metadata?.authorizationServers, [
+    `${fixture.origin}/authorization`,
+  ]);
   assert.equal(challenge.canonicalResource, `${fixture.origin}/mcp`);
   assert.deepEqual(challenge.issues, []);
   // The revision's documented registration order is reported, not a claim
@@ -151,19 +170,32 @@ test("tool listing follows cursors, bounds pages and excludes invalid header ann
   // The annotation under `oneOf` is not statically reachable, so that one
   // definition is dropped and the rest stay usable.
   assert.ok(!names.includes("sneaky_header"));
-  assert.ok(listed.warnings.some((code) => code.startsWith("mcp.tool.excluded.invalid-x-mcp-header")));
+  assert.ok(
+    listed.warnings.some((code) =>
+      code.startsWith("mcp.tool.excluded.invalid-x-mcp-header"),
+    ),
+  );
   const regional = listed.items.find((tool) => tool.name === "regional_query");
-  assert.deepEqual(regional?.headerParameters, [{ path: ["region"], header: "Region" }]);
+  assert.deepEqual(regional?.headerParameters, [
+    { path: ["region"], header: "Region" },
+  ]);
   // A server that tries to steer headers through annotations or _meta is
   // flagged, and nothing it suggested is used.
-  assert.ok(listed.warnings.some((code) => code.startsWith("mcp.tool.header-suggestion-ignored")));
+  assert.ok(
+    listed.warnings.some((code) =>
+      code.startsWith("mcp.tool.header-suggestion-ignored"),
+    ),
+  );
 
   const report = await fixture.report();
   const listRequests = mcpRequests(report).filter(
     (entry) => (entry.body as { method?: string }).method === "tools/list",
   );
   assert.equal(listRequests.length, 2);
-  assert.equal((listRequests[1]!.body as { params: { cursor?: string } }).params.cursor, "page-2");
+  assert.equal(
+    (listRequests[1]!.body as { params: { cursor?: string } }).params.cursor,
+    "page-2",
+  );
 });
 
 test("designated tool parameters are mirrored into Mcp-Param headers the server validates", async () => {
@@ -185,10 +217,10 @@ test("designated tool parameters are mirrored into Mcp-Param headers the server 
 test("resources and prompts keep their own semantics", async () => {
   const connection = client();
   const resources = await connection.listResources();
-  assert.deepEqual(
-    resources.items.map((resource) => resource.uri).sort(),
-    ["note:///ada/private", "note:///shared"],
-  );
+  assert.deepEqual(resources.items.map((resource) => resource.uri).sort(), [
+    "note:///ada/private",
+    "note:///shared",
+  ]);
   assert.equal(resources.cacheScope, "private");
 
   const templates = await connection.listResourceTemplates();
@@ -201,11 +233,15 @@ test("resources and prompts keep their own semantics", async () => {
 
   const missing = await connection.readResource({ uri: "note:///nowhere" });
   assert.equal(missing.kind, "failed");
-  if (missing.kind === "failed") assert.equal(missing.code, "mcp.resource.not-found");
+  if (missing.kind === "failed")
+    assert.equal(missing.code, "mcp.resource.not-found");
 
   const prompts = await connection.listPrompts();
   assert.equal(prompts.items[0]?.name, "summarize");
-  const prompt = await connection.getPrompt({ name: "summarize", arguments: { note: "n1" } });
+  const prompt = await connection.getPrompt({
+    name: "summarize",
+    arguments: { note: "n1" },
+  });
   assert.equal(prompt.kind, "complete");
   if (prompt.kind === "complete") {
     assert.equal(prompt.payload.description, "Summarize a note");
@@ -234,8 +270,12 @@ test("input_required suspends and resumes the same call, and the answers reach t
     name: "needs_input",
     arguments: { repo: "ceremony" },
     effect: "read",
-    inputResponses: { github_login: { action: "accept", content: { name: "octocat" } } },
-    ...(first.requestState !== undefined ? { requestState: first.requestState } : {}),
+    inputResponses: {
+      github_login: { action: "accept", content: { name: "octocat" } },
+    },
+    ...(first.requestState !== undefined
+      ? { requestState: first.requestState }
+      : {}),
   });
   assert.equal(second.kind, "complete");
   if (second.kind !== "complete") return;
@@ -270,7 +310,11 @@ test("headers a server suggests through annotations or _meta are ignored", async
   const call = mcpRequests(report).find(
     (entry) => (entry.body as { method?: string }).method === "tools/call",
   );
-  assert.equal(call!.headers.authorization, `Bearer ${TOKEN}`, "the host's credential is unchanged");
+  assert.equal(
+    call!.headers.authorization,
+    `Bearer ${TOKEN}`,
+    "the host's credential is unchanged",
+  );
   assert.equal(
     Object.keys(call!.headers).some((name) => name.startsWith("mcp-param-")),
     false,
@@ -313,7 +357,11 @@ test("a dropped response to a read is retried within its budget", async () => {
     fetch: globalThis.fetch,
     auth: { kind: "bearer", use: (work) => work(TOKEN) },
     limits: { requestTimeoutMs: 3000, readRetries: 1 },
-  }).callTool({ name: "create_note", arguments: { title: "n" }, effect: "read" });
+  }).callTool({
+    name: "create_note",
+    arguments: { title: "n" },
+    effect: "read",
+  });
   assert.equal(outcome.kind, "failed");
   const report = await fixture.report();
   assert.equal(report.toolCalls, 2, "a read may be reissued once");
@@ -332,11 +380,20 @@ test("cancelling mid-call leaves one call and an unknown outcome for a write", a
   controller.abort();
   const outcome = await call;
   assert.equal(outcome.kind, "indeterminate");
-  if (outcome.kind === "indeterminate") assert.equal(outcome.code, "mcp.cancelled");
+  if (outcome.kind === "indeterminate")
+    assert.equal(outcome.code, "mcp.cancelled");
   const report = await fixture.report();
-  assert.equal(report.toolCalls, 1, "cancellation must not produce a second call");
   assert.equal(
-    mcpRequests(report).some((entry) => (entry.body as { method?: string }).method === "notifications/cancelled"),
+    report.toolCalls,
+    1,
+    "cancellation must not produce a second call",
+  );
+  assert.equal(
+    mcpRequests(report).some(
+      (entry) =>
+        (entry.body as { method?: string }).method ===
+        "notifications/cancelled",
+    ),
     false,
     "on this transport, closing the stream is the cancellation",
   );
@@ -344,10 +401,18 @@ test("cancelling mid-call leaves one call and an unknown outcome for a write", a
 
 test("an advertised extension is reported unsupported rather than negotiated", async () => {
   const discovery = await client().discover();
-  assert.deepEqual(discovery.extensions.advertised, ["io.modelcontextprotocol/tasks"]);
+  assert.deepEqual(discovery.extensions.advertised, [
+    "io.modelcontextprotocol/tasks",
+  ]);
   assert.deepEqual(discovery.extensions.supported, []);
-  assert.deepEqual(discovery.extensions.unsupported, ["io.modelcontextprotocol/tasks"]);
-  assert.ok(discovery.warnings.includes("mcp.extension.unsupported:io.modelcontextprotocol/tasks"));
+  assert.deepEqual(discovery.extensions.unsupported, [
+    "io.modelcontextprotocol/tasks",
+  ]);
+  assert.ok(
+    discovery.warnings.includes(
+      "mcp.extension.unsupported:io.modelcontextprotocol/tasks",
+    ),
+  );
   const report = await fixture.report();
   assert.equal(
     methodsSeen(report).some((method) => method.startsWith("tasks/")),
@@ -363,10 +428,15 @@ test("the notification stream is a POST subscription and is bounded", async () =
   });
   assert.equal(result.supported, true);
   assert.deepEqual(result.acknowledged, { toolsListChanged: true });
-  assert.ok(result.events.some((event) => event.method === "notifications/tools/list_changed"));
+  assert.ok(
+    result.events.some(
+      (event) => event.method === "notifications/tools/list_changed",
+    ),
+  );
   const report = await fixture.report();
   const listen = mcpRequests(report).find(
-    (entry) => (entry.body as { method?: string }).method === "subscriptions/listen",
+    (entry) =>
+      (entry.body as { method?: string }).method === "subscriptions/listen",
   );
   assert.equal(listen!.method, "POST");
   assert.equal(
@@ -377,8 +447,12 @@ test("the notification stream is a POST subscription and is bounded", async () =
 });
 
 test("a personalized list is never served to a second principal", async () => {
-  const { McpResultCache } = await import("../../../src/server/connectors/mcp/cache.js");
-  const store = new McpResultCache(Date.now, { cacheMaxTtlMs: 60_000, cacheMaxEntries: 32 });
+  const { McpResultCache } =
+    await import("../../../src/server/connectors/mcp/cache.js");
+  const store = new McpResultCache(Date.now, {
+    cacheMaxTtlMs: 60_000,
+    cacheMaxEntries: 32,
+  });
   const build = (who: string, token: string) =>
     createMcpClient({
       profile: "2026-07-28",
@@ -401,8 +475,16 @@ test("a personalized list is never served to a second principal", async () => {
   const cachedAgain = await build("ada", TOKEN).listTools();
   const other = await build("beatrix", "current-token-b").listTools();
   assert.ok(first.items.some((tool) => tool.name === "greet_ada"));
-  assert.equal(cachedAgain.fromCache, true, "the same principal may reuse its own list");
-  assert.equal(other.fromCache, false, "another principal must not be served it");
+  assert.equal(
+    cachedAgain.fromCache,
+    true,
+    "the same principal may reuse its own list",
+  );
+  assert.equal(
+    other.fromCache,
+    false,
+    "another principal must not be served it",
+  );
   assert.ok(other.items.some((tool) => tool.name === "greet_beatrix"));
   assert.ok(!other.items.some((tool) => tool.name === "greet_ada"));
 });

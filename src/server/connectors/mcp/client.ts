@@ -6,7 +6,12 @@ import {
   type AuthorizationChallenge,
 } from "./authorization.js";
 import { McpResultCache, type CachePrincipal } from "./cache.js";
-import { BoundsError, TransportError, exchange, type HttpReply } from "./http.js";
+import {
+  BoundsError,
+  TransportError,
+  exchange,
+  type HttpReply,
+} from "./http.js";
 import { parseInputRequests, type ParsedInputRequest } from "./input.js";
 import {
   CURRENT_PROFILE,
@@ -168,7 +173,11 @@ export type McpOutcome<T> =
       legacy?: { elicitationDigest: string; finalIsError: boolean };
       warnings: string[];
     }
-  | { kind: "authorization-required"; challenge: AuthorizationChallenge; warnings: string[] }
+  | {
+      kind: "authorization-required";
+      challenge: AuthorizationChallenge;
+      warnings: string[];
+    }
   | {
       kind: "failed";
       code: string;
@@ -189,7 +198,11 @@ export type McpDiscovery = {
   serverInfo?: Implementation;
   instructions?: string;
   /** Extension identifiers the server advertised; none are negotiated by this client. */
-  extensions: { advertised: string[]; supported: string[]; unsupported: string[] };
+  extensions: {
+    advertised: string[];
+    supported: string[];
+    unsupported: string[];
+  };
   warnings: string[];
 };
 
@@ -223,7 +236,11 @@ type RpcOptions = {
 };
 
 type RpcResult =
-  | { kind: "result"; result: Record<string, unknown>; deferred: DeferredElicitation[] }
+  | {
+      kind: "result";
+      result: Record<string, unknown>;
+      deferred: DeferredElicitation[];
+    }
   | { kind: "error"; error: JsonRpcError; status: number }
   | { kind: "authorization-required"; challenge: AuthorizationChallenge }
   | { kind: "failed"; code: string; applied: "no" | "unknown" }
@@ -242,7 +259,9 @@ class Warnings {
   }
 }
 
-const CLIENT_CAPABILITIES = Object.freeze({ elicitation: { form: {}, url: {} } });
+const CLIENT_CAPABILITIES = Object.freeze({
+  elicitation: { form: {}, url: {} },
+});
 
 export function definitionDigest(tool: {
   name: string;
@@ -267,13 +286,15 @@ export function definitionDigest(tool: {
 function valueAtPath(value: unknown, path: string[]): unknown {
   let current: unknown = value;
   for (const segment of path) {
-    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    if (!current || typeof current !== "object" || Array.isArray(current))
+      return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
 }
 
-const HEADER_SUGGESTION = /^(x-mcp-header|headers?|authorization|cookie|set-cookie|bearer|proxy-authorization)$/i;
+const HEADER_SUGGESTION =
+  /^(x-mcp-header|headers?|authorization|cookie|set-cookie|bearer|proxy-authorization)$/i;
 
 /** Servers may not steer headers or credentials through `_meta` or annotations; any attempt is flagged. */
 function headerSuggestions(value: unknown, depth = 0): boolean {
@@ -299,8 +320,14 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 export interface McpClient {
   readonly profile: McpProfileId;
-  discover(options?: { signal?: AbortSignal; refresh?: boolean }): Promise<McpDiscovery>;
-  listTools(options?: { signal?: AbortSignal; refresh?: boolean }): Promise<McpList<McpTool>>;
+  discover(options?: {
+    signal?: AbortSignal;
+    refresh?: boolean;
+  }): Promise<McpDiscovery>;
+  listTools(options?: {
+    signal?: AbortSignal;
+    refresh?: boolean;
+  }): Promise<McpList<McpTool>>;
   listResources(options?: {
     signal?: AbortSignal;
     refresh?: boolean;
@@ -309,7 +336,10 @@ export interface McpClient {
     signal?: AbortSignal;
     refresh?: boolean;
   }): Promise<McpList<ResourceTemplateDefinition>>;
-  listPrompts(options?: { signal?: AbortSignal; refresh?: boolean }): Promise<McpList<PromptDefinition>>;
+  listPrompts(options?: {
+    signal?: AbortSignal;
+    refresh?: boolean;
+  }): Promise<McpList<PromptDefinition>>;
   callTool(request: {
     name: string;
     arguments: Record<string, unknown>;
@@ -340,8 +370,15 @@ export interface McpClient {
     maxMs?: number;
   }): Promise<ListenResult>;
   /** One read-only request, purely to read a 401/403 challenge; invokes nothing. */
-  probeAuthorization(options?: { signal?: AbortSignal }): Promise<AuthorizationChallenge | undefined>;
-  state(): { era: McpEra; protocolVersion: string; usedProfile: McpProfileId; session: boolean };
+  probeAuthorization(options?: {
+    signal?: AbortSignal;
+  }): Promise<AuthorizationChallenge | undefined>;
+  state(): {
+    era: McpEra;
+    protocolVersion: string;
+    usedProfile: McpProfileId;
+    session: boolean;
+  };
   close(): void;
 }
 
@@ -349,14 +386,32 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   const located =
     options.endpoint ??
     (options.destination
-      ? new URL(options.destination.endpointPath ?? "/mcp", options.destination.origin)
+      ? new URL(
+          options.destination.endpointPath ?? "/mcp",
+          options.destination.origin,
+        )
       : undefined);
-  if (!located) throw new ConnectorError("invalid-request", { detail: "mcp.endpoint.missing" });
+  if (!located)
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.endpoint.missing",
+    });
   const endpoint = new URL(located);
-  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
-    throw new ConnectorError("invalid-request", { detail: "mcp.endpoint.invalid" });
-  if (options.destination && endpoint.origin !== new URL(options.destination.origin).origin)
-    throw new ConnectorError("network-policy", { detail: "mcp.endpoint.escaped-destination" });
+  if (
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  )
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.endpoint.invalid",
+    });
+  if (
+    options.destination &&
+    endpoint.origin !== new URL(options.destination.origin).origin
+  )
+    throw new ConnectorError("network-policy", {
+      detail: "mcp.endpoint.escaped-destination",
+    });
   const limits = resolveLimits(options.limits);
   const now = options.now ?? Date.now;
   const compatibility = options.compatibility ?? "pinned";
@@ -387,7 +442,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   function principal(): CachePrincipal | undefined {
     if (!cache) return undefined;
-    return { ...cache.principal, profile: `${cache.principal.profile}:${state.era}:${state.protocolVersion}` };
+    return {
+      ...cache.principal,
+      profile: `${cache.principal.profile}:${state.era}:${state.protocolVersion}`,
+    };
   }
 
   async function withAuthorization<T>(
@@ -399,7 +457,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   /* ----------------------------------------------------------- envelopes */
 
-  function modernParams(params: Record<string, unknown> | undefined): Record<string, unknown> {
+  function modernParams(
+    params: Record<string, unknown> | undefined,
+  ): Record<string, unknown> {
     return {
       ...(params ?? {}),
       _meta: {
@@ -411,20 +471,27 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     };
   }
 
-  function modernHeaders(method: string, name?: string, headerParameters?: Record<string, string>) {
+  function modernHeaders(
+    method: string,
+    name?: string,
+    headerParameters?: Record<string, string>,
+  ) {
     const headers: Record<string, string> = {
       [HEADER_NAMES.protocolVersion]: state.protocolVersion,
       [HEADER_NAMES.method]: method,
     };
-    if (name !== undefined) headers[HEADER_NAMES.name] = encodeMcpHeaderValue(name);
+    if (name !== undefined)
+      headers[HEADER_NAMES.name] = encodeMcpHeaderValue(name);
     for (const [header, value] of Object.entries(headerParameters ?? {}))
-      headers[`${HEADER_NAMES.paramPrefix}${header}`.toLowerCase()] = encodeMcpHeaderValue(value);
+      headers[`${HEADER_NAMES.paramPrefix}${header}`.toLowerCase()] =
+        encodeMcpHeaderValue(value);
     return headers;
   }
 
   function legacyHeaders(afterInitialize: boolean): Record<string, string> {
     const headers: Record<string, string> = {};
-    if (afterInitialize) headers[HEADER_NAMES.protocolVersion] = state.protocolVersion;
+    if (afterInitialize)
+      headers[HEADER_NAMES.protocolVersion] = state.protocolVersion;
     if (state.session) headers[HEADER_NAMES.sessionId] = state.session;
     return headers;
   }
@@ -451,7 +518,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   /* ------------------------------------------------------- legacy session */
 
-  async function ensureInitialized(warnings: Warnings, signal?: AbortSignal): Promise<RpcResult | undefined> {
+  async function ensureInitialized(
+    warnings: Warnings,
+    signal?: AbortSignal,
+  ): Promise<RpcResult | undefined> {
     if (state.era !== "legacy" || state.initialized) return undefined;
     if (!state.initializing) {
       state.initializing = (async () => {
@@ -469,7 +539,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     }
   }
 
-  async function initialize(warnings: Warnings, signal?: AbortSignal): Promise<RpcResult | undefined> {
+  async function initialize(
+    warnings: Warnings,
+    signal?: AbortSignal,
+  ): Promise<RpcResult | undefined> {
     const id = nextId();
     const body = {
       jsonrpc: "2.0",
@@ -502,22 +575,41 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       return transportFailure(error, "read");
     }
     if (reply.status === 401 || reply.status === 403)
-      return { kind: "authorization-required", challenge: await challengeFor(reply, signal) };
+      return {
+        kind: "authorization-required",
+        challenge: await challengeFor(reply, signal),
+      };
     const message = await singleMessage(reply, id, warnings, signal, "read");
     if (message.kind !== "result") {
-      if (message.kind === "error" && compatibility === "auto-detect" && looksModern(message)) {
+      if (
+        message.kind === "error" &&
+        compatibility === "auto-detect" &&
+        looksModern(message)
+      ) {
         switchToModern(warnings, "initialize-refused");
         return undefined;
       }
       return message;
     }
     const parsed = initializeResultSchema.safeParse(message.result);
-    if (!parsed.success) return { kind: "failed", code: "mcp.protocol.initialize-invalid", applied: "no" };
+    if (!parsed.success)
+      return {
+        kind: "failed",
+        code: "mcp.protocol.initialize-invalid",
+        applied: "no",
+      };
     const negotiated = parsed.data.protocolVersion;
     if (negotiated !== state.protocolVersion) {
       const profile = profileFor(requestedProfile);
-      if (compatibility === "pinned" || !profile.negotiableVersions.includes(negotiated))
-        return { kind: "failed", code: "mcp.protocol.version-mismatch", applied: "no" };
+      if (
+        compatibility === "pinned" ||
+        !profile.negotiableVersions.includes(negotiated)
+      )
+        return {
+          kind: "failed",
+          code: "mcp.protocol.version-mismatch",
+          applied: "no",
+        };
       warnings.add(`mcp.protocol.negotiated:${negotiated}`);
       state.protocolVersion = negotiated;
       if (isProfileId(negotiated)) state.usedProfile = negotiated;
@@ -525,7 +617,11 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     const session = reply.headers.get(HEADER_NAMES.sessionId);
     if (session !== null) {
       if (!SESSION_ID.test(session))
-        return { kind: "failed", code: "mcp.session.invalid-id", applied: "no" };
+        return {
+          kind: "failed",
+          code: "mcp.session.invalid-id",
+          applied: "no",
+        };
       state.session = session;
     }
     state.capabilities = parsed.data.capabilities;
@@ -551,18 +647,30 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           limits,
         ),
       );
-      if (ack.status >= 300) warnings.add(`mcp.protocol.initialized-status:${ack.status}`);
+      if (ack.status >= 300)
+        warnings.add(`mcp.protocol.initialized-status:${ack.status}`);
     } catch {
       warnings.add("mcp.protocol.initialized-undelivered");
     }
     return undefined;
   }
 
-  function looksModern(message: { kind: "error"; error: JsonRpcError; status: number }): boolean {
-    if (message.error.code === MODERN_ERROR_CODES.unsupportedProtocolVersion) return true;
-    if (message.error.code === JSON_RPC_ERROR_CODES.methodNotFound && message.status === 404) return true;
+  function looksModern(message: {
+    kind: "error";
+    error: JsonRpcError;
+    status: number;
+  }): boolean {
+    if (message.error.code === MODERN_ERROR_CODES.unsupportedProtocolVersion)
+      return true;
+    if (
+      message.error.code === JSON_RPC_ERROR_CODES.methodNotFound &&
+      message.status === 404
+    )
+      return true;
     const data = unsupportedVersionDataSchema.safeParse(message.error.data);
-    return Boolean(data.success && data.data.supported?.includes(CURRENT_PROFILE));
+    return Boolean(
+      data.success && data.data.supported?.includes(CURRENT_PROFILE),
+    );
   }
 
   /* ------------------------------------------------------------ transport */
@@ -570,11 +678,19 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   function transportFailure(error: unknown, effect: Effect): RpcResult {
     if (error instanceof BoundsError)
       return effect === "read"
-        ? { kind: "failed", code: `mcp.bounds.${error.code}`, applied: "unknown" }
+        ? {
+            kind: "failed",
+            code: `mcp.bounds.${error.code}`,
+            applied: "unknown",
+          }
         : { kind: "indeterminate", code: `mcp.bounds.${error.code}` };
     if (error instanceof TransportError) {
       if (error.phase === "undelivered")
-        return { kind: "failed", code: "mcp.transport.undelivered", applied: "no" };
+        return {
+          kind: "failed",
+          code: "mcp.transport.undelivered",
+          applied: "no",
+        };
       const code =
         error.phase === "aborted"
           ? "mcp.cancelled"
@@ -591,7 +707,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       : { kind: "indeterminate", code: "mcp.transport.error" };
   }
 
-  async function challengeFor(reply: HttpReply, signal?: AbortSignal): Promise<AuthorizationChallenge> {
+  async function challengeFor(
+    reply: HttpReply,
+    signal?: AbortSignal,
+  ): Promise<AuthorizationChallenge> {
     const profile = profileFor(state.usedProfile);
     return resolveAuthorizationChallenge({
       response: { status: reply.status, headers: reply.headers },
@@ -605,12 +724,18 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   }
 
   function canonicalResource(): string {
-    const path = endpoint.pathname.endsWith("/") ? endpoint.pathname.slice(0, -1) : endpoint.pathname;
+    const path = endpoint.pathname.endsWith("/")
+      ? endpoint.pathname.slice(0, -1)
+      : endpoint.pathname;
     return `${endpoint.origin}${path}`;
   }
 
   /** Posts a JSON-RPC response or notification (legacy only); the server answers 202. */
-  async function postLegacyMessage(message: Record<string, unknown>, warnings: Warnings, signal?: AbortSignal): Promise<void> {
+  async function postLegacyMessage(
+    message: Record<string, unknown>,
+    warnings: Warnings,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
       const reply = await withAuthorization((authorization) =>
         exchange(
@@ -627,7 +752,8 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           limits,
         ),
       );
-      if (reply.status >= 300) warnings.add(`mcp.protocol.response-status:${reply.status}`);
+      if (reply.status >= 300)
+        warnings.add(`mcp.protocol.response-status:${reply.status}`);
     } catch {
       warnings.add("mcp.protocol.response-undelivered");
     }
@@ -635,13 +761,21 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   /** Answers a server request found on a legacy stream; modern streams never carry them. */
   async function answerServerRequest(
-    request: { id: RequestId; method: string; params: Record<string, unknown> | undefined },
+    request: {
+      id: RequestId;
+      method: string;
+      params: Record<string, unknown> | undefined;
+    },
     warnings: Warnings,
     deferred: DeferredElicitation[],
     signal?: AbortSignal,
   ): Promise<void> {
     const respond = (payload: { result: unknown } | { error: JsonRpcError }) =>
-      postLegacyMessage({ jsonrpc: "2.0", id: request.id, ...payload }, warnings, signal);
+      postLegacyMessage(
+        { jsonrpc: "2.0", id: request.id, ...payload },
+        warnings,
+        signal,
+      );
     switch (request.method) {
       case "ping":
         return respond({ result: {} });
@@ -651,12 +785,20 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       case "sampling/createMessage":
         warnings.add("mcp.sampling.refused");
         return respond({
-          error: { code: JSON_RPC_ERROR_CODES.methodNotFound, message: "Sampling is not offered by this client" },
+          error: {
+            code: JSON_RPC_ERROR_CODES.methodNotFound,
+            message: "Sampling is not offered by this client",
+          },
         });
       case "elicitation/create": {
         const params = elicitationParamsSchema.safeParse(request.params ?? {});
         if (!params.success)
-          return respond({ error: { code: JSON_RPC_ERROR_CODES.invalidParams, message: "Invalid elicitation" } });
+          return respond({
+            error: {
+              code: JSON_RPC_ERROR_CODES.invalidParams,
+              message: "Invalid elicitation",
+            },
+          });
         const digest = createHash("sha256")
           .update(
             canonicalConnectorJson({
@@ -670,7 +812,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         let decision: ElicitationDecision;
         try {
           decision = options.onElicitation
-            ? await options.onElicitation(params.data, { requestId: request.id, method: request.method })
+            ? await options.onElicitation(params.data, {
+                requestId: request.id,
+                method: request.method,
+              })
             : { result: { action: "cancel" }, deferred: true };
         } catch {
           decision = { result: { action: "cancel" }, deferred: true };
@@ -679,16 +824,22 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         return respond({ result: decision.result });
       }
       default:
-        warnings.add(`mcp.extension.unsupported-request:${request.method.replace(/[^a-z0-9/_.-]/gi, "").slice(0, 60)}`);
+        warnings.add(
+          `mcp.extension.unsupported-request:${request.method.replace(/[^a-z0-9/_.-]/gi, "").slice(0, 60)}`,
+        );
         return respond({
-          error: { code: JSON_RPC_ERROR_CODES.methodNotFound, message: "Method not supported by this client" },
+          error: {
+            code: JSON_RPC_ERROR_CODES.methodNotFound,
+            message: "Method not supported by this client",
+          },
         });
     }
   }
 
   function handleNotification(method: string): void {
     if (method === "notifications/tools/list_changed") invalidate("tools/list");
-    else if (method === "notifications/prompts/list_changed") invalidate("prompts/list");
+    else if (method === "notifications/prompts/list_changed")
+      invalidate("prompts/list");
     else if (method === "notifications/resources/list_changed") {
       invalidate("resources/list");
       invalidate("resources/templates/list");
@@ -716,7 +867,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     const interpret = (message: JsonRpcMessage): RpcResult | undefined => {
       if (message.kind === "result" && String(message.id) === id)
         return { kind: "result", result: message.result, deferred };
-      if (message.kind === "error" && (message.id === null || String(message.id) === id))
+      if (
+        message.kind === "error" &&
+        (message.id === null || String(message.id) === id)
+      )
         return { kind: "error", error: message.error, status: reply.status };
       return undefined;
     };
@@ -725,17 +879,31 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       const outcome = interpret(message);
       if (outcome) return outcome;
       if (reply.status >= 400)
-        return { kind: "failed", code: `mcp.http.${reply.status}`, applied: reply.status >= 500 ? "unknown" : "no" };
-      return { kind: "failed", code: "mcp.protocol.unexpected-message", applied: "unknown" };
+        return {
+          kind: "failed",
+          code: `mcp.http.${reply.status}`,
+          applied: reply.status >= 500 ? "unknown" : "no",
+        };
+      return {
+        kind: "failed",
+        code: "mcp.protocol.unexpected-message",
+        applied: "unknown",
+      };
     }
     if (reply.kind === "stream") {
       if (reply.status >= 400)
-        return { kind: "failed", code: `mcp.http.${reply.status}`, applied: reply.status >= 500 ? "unknown" : "no" };
+        return {
+          kind: "failed",
+          code: `mcp.http.${reply.status}`,
+          applied: reply.status >= 500 ? "unknown" : "no",
+        };
       try {
         for await (const frame of reply.frames()) {
           let value: unknown;
           try {
-            value = parseBoundedJson(frame.data, { maxDepth: limits.maxJsonDepth });
+            value = parseBoundedJson(frame.data, {
+              maxDepth: limits.maxJsonDepth,
+            });
           } catch {
             warnings.add("mcp.protocol.frame-invalid");
             continue;
@@ -743,11 +911,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           const message = classifyJsonRpc(value);
           const outcome = interpret(message);
           if (outcome) return outcome;
-          if (message.kind === "notification") handleNotification(message.method);
+          if (message.kind === "notification")
+            handleNotification(message.method);
           else if (message.kind === "request") {
-            if (state.era === "legacy") await answerServerRequest(message, warnings, deferred, signal);
+            if (state.era === "legacy")
+              await answerServerRequest(message, warnings, deferred, signal);
             else warnings.add("mcp.protocol.server-request-refused");
-          } else if (message.kind === "invalid") warnings.add("mcp.protocol.frame-invalid");
+          } else if (message.kind === "invalid")
+            warnings.add("mcp.protocol.frame-invalid");
         }
       } catch (error) {
         return transportFailure(error, effect);
@@ -758,32 +929,51 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     }
     if (reply.kind === "empty") {
       if (reply.status >= 400)
-        return { kind: "failed", code: `mcp.http.${reply.status}`, applied: reply.status >= 500 ? "unknown" : "no" };
+        return {
+          kind: "failed",
+          code: `mcp.http.${reply.status}`,
+          applied: reply.status >= 500 ? "unknown" : "no",
+        };
       // 202 to a request is a protocol violation: the request was accepted but no answer will come.
       return effect === "read"
-        ? { kind: "failed", code: "mcp.protocol.no-response", applied: "unknown" }
+        ? {
+            kind: "failed",
+            code: "mcp.protocol.no-response",
+            applied: "unknown",
+          }
         : { kind: "indeterminate", code: "mcp.protocol.no-response" };
     }
     return {
       kind: "failed",
-      code: reply.status >= 400 ? `mcp.http.${reply.status}` : "mcp.transport.unexpected-content-type",
+      code:
+        reply.status >= 400
+          ? `mcp.http.${reply.status}`
+          : "mcp.transport.unexpected-content-type",
       applied: reply.status >= 500 || reply.status < 400 ? "unknown" : "no",
     };
   }
 
   /* ------------------------------------------------------------------ rpc */
 
-  async function rpc(method: string, params: Record<string, unknown> | undefined, rpcOptions: RpcOptions): Promise<RpcResult> {
+  async function rpc(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    rpcOptions: RpcOptions,
+  ): Promise<RpcResult> {
     const attempt = rpcOptions.attempt ?? 0;
     const retry = async (reason: string): Promise<RpcResult> => {
       rpcOptions.warnings.add(`mcp.retry:${reason}`);
       await delay(Math.min(250 * (attempt + 1), 1000), rpcOptions.signal);
       return rpc(method, params, { ...rpcOptions, attempt: attempt + 1 });
     };
-    const mayRetry = (budget: number) => attempt < budget && !rpcOptions.signal?.aborted;
+    const mayRetry = (budget: number) =>
+      attempt < budget && !rpcOptions.signal?.aborted;
 
     if (state.era === "legacy") {
-      const failure = await ensureInitialized(rpcOptions.warnings, rpcOptions.signal);
+      const failure = await ensureInitialized(
+        rpcOptions.warnings,
+        rpcOptions.signal,
+      );
       if (failure) return failure;
       if (state.era !== "legacy") return rpc(method, params, rpcOptions);
     }
@@ -804,7 +994,11 @@ export function createMcpClient(options: McpClientOptions): McpClient {
             url: endpoint,
             method: "POST",
             headers: modern
-              ? modernHeaders(method, rpcOptions.name, rpcOptions.headerParameters)
+              ? modernHeaders(
+                  method,
+                  rpcOptions.name,
+                  rpcOptions.headerParameters,
+                )
               : legacyHeaders(true),
             body,
             ...(authorization ? { authorization } : {}),
@@ -816,24 +1010,50 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       );
     } catch (error) {
       const failure = transportFailure(error, rpcOptions.effect);
-      if (failure.kind === "failed" && failure.code === "mcp.transport.undelivered" && mayRetry(rpcOptions.effect === "read" ? limits.readRetries : 1))
+      if (
+        failure.kind === "failed" &&
+        failure.code === "mcp.transport.undelivered" &&
+        mayRetry(rpcOptions.effect === "read" ? limits.readRetries : 1)
+      )
         return retry("undelivered");
-      if (failure.kind === "failed" && rpcOptions.effect === "read" && failure.applied === "unknown" && failure.code !== "mcp.cancelled" && mayRetry(limits.readRetries))
+      if (
+        failure.kind === "failed" &&
+        rpcOptions.effect === "read" &&
+        failure.applied === "unknown" &&
+        failure.code !== "mcp.cancelled" &&
+        mayRetry(limits.readRetries)
+      )
         return retry(failure.code.replace(/^mcp\./, ""));
-      if (failure.kind === "indeterminate" && failure.code === "mcp.cancelled" && !modern)
+      if (
+        failure.kind === "indeterminate" &&
+        failure.code === "mcp.cancelled" &&
+        !modern
+      )
         await postLegacyMessage(
-          { jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "cancelled" } },
+          {
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: { requestId: id, reason: "cancelled" },
+          },
           rpcOptions.warnings,
         );
       return failure;
     }
 
     if (reply.status === 401 || reply.status === 403)
-      return { kind: "authorization-required", challenge: await challengeFor(reply, rpcOptions.signal) };
+      return {
+        kind: "authorization-required",
+        challenge: await challengeFor(reply, rpcOptions.signal),
+      };
 
     // Legacy: a 404 for a session the server no longer knows means "start a
     // new session"; the request was not processed. Reads are reissued once.
-    if (!modern && reply.status === 404 && state.session && !rpcOptions.reinitialized) {
+    if (
+      !modern &&
+      reply.status === 404 &&
+      state.session &&
+      !rpcOptions.reinitialized
+    ) {
       state.initialized = false;
       state.session = undefined;
       invalidate();
@@ -844,65 +1064,148 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     }
 
     if (reply.status === 429 || (reply.status >= 500 && reply.status <= 599)) {
-      if (rpcOptions.effect === "read" && mayRetry(limits.readRetries)) return retry(`http-${reply.status}`);
-      if (reply.status === 429) return { kind: "failed", code: "mcp.http.429", applied: "no" };
+      if (rpcOptions.effect === "read" && mayRetry(limits.readRetries))
+        return retry(`http-${reply.status}`);
+      if (reply.status === 429)
+        return { kind: "failed", code: "mcp.http.429", applied: "no" };
       return rpcOptions.effect === "read"
-        ? { kind: "failed", code: `mcp.http.${reply.status}`, applied: "unknown" }
+        ? {
+            kind: "failed",
+            code: `mcp.http.${reply.status}`,
+            applied: "unknown",
+          }
         : { kind: "indeterminate", code: `mcp.http.${reply.status}` };
     }
 
-    const message = await singleMessage(reply, id, rpcOptions.warnings, rpcOptions.signal, rpcOptions.effect);
+    const message = await singleMessage(
+      reply,
+      id,
+      rpcOptions.warnings,
+      rpcOptions.signal,
+      rpcOptions.effect,
+    );
 
     if (message.kind === "error") {
       if (modern) {
-        if (!isRecognizedModernError(message.error) && reply.status >= 400 && reply.status < 500) {
+        if (
+          !isRecognizedModernError(message.error) &&
+          reply.status >= 400 &&
+          reply.status < 500
+        ) {
           // Not a modern error body on a 4xx: the documented sign of a legacy server.
           if (compatibility === "auto-detect" && !rpcOptions.reinitialized) {
             switchToLegacy(rpcOptions.warnings, `http-${reply.status}`);
             return rpc(method, params, { ...rpcOptions, reinitialized: true });
           }
-          return { kind: "failed", code: "mcp.profile.legacy-server", applied: "no" };
+          return {
+            kind: "failed",
+            code: "mcp.profile.legacy-server",
+            applied: "no",
+          };
         }
-        if (message.error.code === MODERN_ERROR_CODES.unsupportedProtocolVersion) {
-          const data = unsupportedVersionDataSchema.safeParse(message.error.data);
+        if (
+          message.error.code === MODERN_ERROR_CODES.unsupportedProtocolVersion
+        ) {
+          const data = unsupportedVersionDataSchema.safeParse(
+            message.error.data,
+          );
           const supported = data.success ? (data.data.supported ?? []) : [];
-          const mutual = profileFor(requestedProfile).negotiableVersions.find((v) => supported.includes(v));
-          if (compatibility !== "pinned" && mutual && mutual !== state.protocolVersion && !rpcOptions.reinitialized) {
+          const mutual = profileFor(requestedProfile).negotiableVersions.find(
+            (v) => supported.includes(v),
+          );
+          if (
+            compatibility !== "pinned" &&
+            mutual &&
+            mutual !== state.protocolVersion &&
+            !rpcOptions.reinitialized
+          ) {
             rpcOptions.warnings.add(`mcp.protocol.negotiated:${mutual}`);
             state.protocolVersion = mutual;
             return rpc(method, params, { ...rpcOptions, reinitialized: true });
           }
-          if (compatibility === "auto-detect" && !mutual && supported.some((v) => v < CURRENT_PROFILE) && !rpcOptions.reinitialized) {
+          if (
+            compatibility === "auto-detect" &&
+            !mutual &&
+            supported.some((v) => v < CURRENT_PROFILE) &&
+            !rpcOptions.reinitialized
+          ) {
             switchToLegacy(rpcOptions.warnings, "unsupported-version");
             return rpc(method, params, { ...rpcOptions, reinitialized: true });
           }
-          return { kind: "failed", code: "mcp.protocol.version-unsupported", applied: "no" };
+          return {
+            kind: "failed",
+            code: "mcp.protocol.version-unsupported",
+            applied: "no",
+          };
         }
-        if (message.error.code === MODERN_ERROR_CODES.headerMismatch && method === "tools/call" && rpcOptions.effect === "read" && !rpcOptions.reinitialized) {
+        if (
+          message.error.code === MODERN_ERROR_CODES.headerMismatch &&
+          method === "tools/call" &&
+          rpcOptions.effect === "read" &&
+          !rpcOptions.reinitialized
+        ) {
           // The tool's header annotations may have changed: refresh the list once and retry.
           invalidate("tools/list");
           rpcOptions.warnings.add("mcp.header-mismatch.refreshed");
-          const refreshed = await listTools({ ...(rpcOptions.signal ? { signal: rpcOptions.signal } : {}), refresh: true });
-          const tool = refreshed.items.find((item) => item.name === params?.name);
-          const headerParameters = tool ? mirroredHeaders(tool, (params?.arguments as Record<string, unknown> | undefined) ?? {}) : {};
-          return rpc(method, params, { ...rpcOptions, headerParameters, reinitialized: true });
+          const refreshed = await listTools({
+            ...(rpcOptions.signal ? { signal: rpcOptions.signal } : {}),
+            refresh: true,
+          });
+          const tool = refreshed.items.find(
+            (item) => item.name === params?.name,
+          );
+          const headerParameters = tool
+            ? mirroredHeaders(
+                tool,
+                (params?.arguments as Record<string, unknown> | undefined) ??
+                  {},
+              )
+            : {};
+          return rpc(method, params, {
+            ...rpcOptions,
+            headerParameters,
+            reinitialized: true,
+          });
         }
-      } else if (compatibility === "auto-detect" && looksModern(message) && !rpcOptions.reinitialized) {
+      } else if (
+        compatibility === "auto-detect" &&
+        looksModern(message) &&
+        !rpcOptions.reinitialized
+      ) {
         switchToModern(rpcOptions.warnings, "modern-error");
         return rpc(method, params, { ...rpcOptions, reinitialized: true });
       }
       return message;
     }
 
-    if (message.kind === "failed" && message.code === "mcp.transport.dropped" && rpcOptions.effect === "read" && mayRetry(limits.readRetries))
+    if (
+      message.kind === "failed" &&
+      message.code === "mcp.transport.dropped" &&
+      rpcOptions.effect === "read" &&
+      mayRetry(limits.readRetries)
+    )
       return retry("dropped-response");
-    if (message.kind === "failed" && modern && reply.status >= 400 && reply.status < 500 && !message.code.startsWith("mcp.protocol")) {
+    if (
+      message.kind === "failed" &&
+      modern &&
+      reply.status >= 400 &&
+      reply.status < 500 &&
+      !message.code.startsWith("mcp.protocol")
+    ) {
       // A 4xx without any JSON-RPC body is likewise not a modern server.
-      if (compatibility === "auto-detect" && !rpcOptions.reinitialized && reply.status !== 404) {
+      if (
+        compatibility === "auto-detect" &&
+        !rpcOptions.reinitialized &&
+        reply.status !== 404
+      ) {
         switchToLegacy(rpcOptions.warnings, `http-${reply.status}`);
         return rpc(method, params, { ...rpcOptions, reinitialized: true });
       }
-      return { kind: "failed", code: "mcp.profile.legacy-server", applied: "no" };
+      return {
+        kind: "failed",
+        code: "mcp.profile.legacy-server",
+        applied: "no",
+      };
     }
     return message;
   }
@@ -910,7 +1213,12 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   /* ------------------------------------------------------------- results */
 
   type Interpreted<T> =
-    | { kind: "complete"; value: T; ttlMs?: number; cacheScope?: "public" | "private" }
+    | {
+        kind: "complete";
+        value: T;
+        ttlMs?: number;
+        cacheScope?: "public" | "private";
+      }
     | { kind: "input-required"; result: InputRequiredResult }
     | { kind: "failed"; code: string };
 
@@ -923,20 +1231,33 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   ): Interpreted<T> {
     const resultType = result.resultType;
     if (resultType === undefined) {
-      if (state.era === "modern") warnings.add("mcp.result.result-type-missing");
+      if (state.era === "modern")
+        warnings.add("mcp.result.result-type-missing");
     } else if (resultType === "input_required") {
       if (!allowInputRequired || state.era !== "modern")
         return { kind: "failed", code: "mcp.result.unexpected-input-required" };
       const parsed = inputRequiredResultSchema.safeParse(result);
-      if (!parsed.success) return { kind: "failed", code: "mcp.result.input-required-invalid" };
-      if (parsed.data.inputRequests === undefined && parsed.data.requestState === undefined)
+      if (!parsed.success)
+        return { kind: "failed", code: "mcp.result.input-required-invalid" };
+      if (
+        parsed.data.inputRequests === undefined &&
+        parsed.data.requestState === undefined
+      )
         return { kind: "failed", code: "mcp.result.input-required-invalid" };
       return { kind: "input-required", result: parsed.data };
-    } else if (resultType !== "complete") return { kind: "failed", code: "mcp.result.unknown-type" };
+    } else if (resultType !== "complete")
+      return { kind: "failed", code: "mcp.result.unknown-type" };
     const value = parse(result);
-    if (value === undefined) return { kind: "failed", code: "mcp.result.invalid" };
-    const ttl = typeof result.ttlMs === "number" && Number.isFinite(result.ttlMs) ? result.ttlMs : undefined;
-    const scope = result.cacheScope === "public" || result.cacheScope === "private" ? result.cacheScope : undefined;
+    if (value === undefined)
+      return { kind: "failed", code: "mcp.result.invalid" };
+    const ttl =
+      typeof result.ttlMs === "number" && Number.isFinite(result.ttlMs)
+        ? result.ttlMs
+        : undefined;
+    const scope =
+      result.cacheScope === "public" || result.cacheScope === "private"
+        ? result.cacheScope
+        : undefined;
     return {
       kind: "complete",
       value,
@@ -948,7 +1269,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   function boundText(text: string, warnings: Warnings, code: string): string {
     if (Buffer.byteLength(text, "utf8") <= limits.maxTextBytes) return text;
     warnings.add(code);
-    return Buffer.from(text, "utf8").subarray(0, limits.maxTextBytes).toString("utf8");
+    return Buffer.from(text, "utf8")
+      .subarray(0, limits.maxTextBytes)
+      .toString("utf8");
   }
 
   function boundBlocks(blocks: unknown[], warnings: Warnings): ContentBlock[] {
@@ -965,12 +1288,23 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       }
       const { _meta, ...block } = parsed.data;
       void _meta;
-      if (block.text !== undefined) block.text = boundText(block.text, warnings, "mcp.output.text-truncated");
-      if (block.data !== undefined && Buffer.byteLength(block.data, "utf8") > limits.maxStructuredBytes) {
+      if (block.text !== undefined)
+        block.text = boundText(
+          block.text,
+          warnings,
+          "mcp.output.text-truncated",
+        );
+      if (
+        block.data !== undefined &&
+        Buffer.byteLength(block.data, "utf8") > limits.maxStructuredBytes
+      ) {
         warnings.add("mcp.output.binary-dropped");
         delete block.data;
       }
-      if (block.resource && jsonByteLength(block.resource) > limits.maxStructuredBytes) {
+      if (
+        block.resource &&
+        jsonByteLength(block.resource) > limits.maxStructuredBytes
+      ) {
         warnings.add("mcp.output.resource-dropped");
         delete block.resource;
       }
@@ -987,43 +1321,77 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   ): McpOutcome<T> {
     switch (message.kind) {
       case "authorization-required":
-        return { kind: "authorization-required", challenge: message.challenge, warnings: warnings.codes };
+        return {
+          kind: "authorization-required",
+          challenge: message.challenge,
+          warnings: warnings.codes,
+        };
       case "failed":
-        return { kind: "failed", code: message.code, applied: message.applied, warnings: warnings.codes };
+        return {
+          kind: "failed",
+          code: message.code,
+          applied: message.applied,
+          warnings: warnings.codes,
+        };
       case "indeterminate":
-        return { kind: "indeterminate", code: message.code, warnings: warnings.codes };
+        return {
+          kind: "indeterminate",
+          code: message.code,
+          warnings: warnings.codes,
+        };
       case "error":
         return {
           kind: "failed",
           code: errorCode(message.error),
           applied: appliedAfterError(message.error),
-          error: { code: message.error.code, message: message.error.message.slice(0, 500) },
+          error: {
+            code: message.error.code,
+            message: message.error.message.slice(0, 500),
+          },
           warnings: warnings.codes,
         };
       case "result": {
-        const interpreted = interpretResult(message.result, parse, warnings, allowInputRequired);
+        const interpreted = interpretResult(
+          message.result,
+          parse,
+          warnings,
+          allowInputRequired,
+        );
         if (interpreted.kind === "failed")
-          return { kind: "failed", code: interpreted.code, applied: "unknown", warnings: warnings.codes };
+          return {
+            kind: "failed",
+            code: interpreted.code,
+            applied: "unknown",
+            warnings: warnings.codes,
+          };
         if (interpreted.kind === "input-required") {
           const { requests, unknown } = parseInputRequests(interpreted.result);
-          for (const id of unknown) warnings.add(`mcp.input.unknown-request:${id.slice(0, 40)}`);
+          for (const id of unknown)
+            warnings.add(`mcp.input.unknown-request:${id.slice(0, 40)}`);
           return {
             kind: "input-required",
             requests,
             unknownRequests: unknown,
-            ...(interpreted.result.requestState !== undefined ? { requestState: interpreted.result.requestState } : {}),
+            ...(interpreted.result.requestState !== undefined
+              ? { requestState: interpreted.result.requestState }
+              : {}),
             warnings: warnings.codes,
           };
         }
         if (message.deferred.length) {
           const first = message.deferred[0]!;
-          const finalIsError = Boolean((message.result as { isError?: unknown }).isError);
+          const finalIsError = Boolean(
+            (message.result as { isError?: unknown }).isError,
+          );
           return {
             kind: "input-required",
             requests: [
               {
                 id: "legacy",
-                kind: (first.params.mode ?? "form") === "url" ? "elicitation-url" : "elicitation-form",
+                kind:
+                  (first.params.mode ?? "form") === "url"
+                    ? "elicitation-url"
+                    : "elicitation-form",
                 method: "elicitation/create",
                 elicitation: first.params,
               },
@@ -1037,8 +1405,12 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           kind: "complete",
           payload: interpreted.value,
           cache: {
-            ...(interpreted.ttlMs !== undefined ? { ttlMs: interpreted.ttlMs } : {}),
-            ...(interpreted.cacheScope !== undefined ? { cacheScope: interpreted.cacheScope } : {}),
+            ...(interpreted.ttlMs !== undefined
+              ? { ttlMs: interpreted.ttlMs }
+              : {}),
+            ...(interpreted.cacheScope !== undefined
+              ? { cacheScope: interpreted.cacheScope }
+              : {}),
           },
           warnings: warnings.codes,
         };
@@ -1065,37 +1437,55 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       case JSON_RPC_ERROR_CODES.internal:
         return "mcp.upstream-error";
       default:
-        return error.code >= -32099 && error.code <= -32000 ? "mcp.upstream-error" : "mcp.upstream-error";
+        return error.code >= -32099 && error.code <= -32000
+          ? "mcp.upstream-error"
+          : "mcp.upstream-error";
     }
   }
 
   /** Requests refused before execution leave nothing behind; internal errors may. */
   function appliedAfterError(error: JsonRpcError): "no" | "unknown" {
     return error.code === JSON_RPC_ERROR_CODES.internal ||
-      (error.code >= -32099 && error.code <= -32000 && error.code !== JSON_RPC_ERROR_CODES.legacyResourceNotFound)
+      (error.code >= -32099 &&
+        error.code <= -32000 &&
+        error.code !== JSON_RPC_ERROR_CODES.legacyResourceNotFound)
       ? "unknown"
       : "no";
   }
 
   /* ----------------------------------------------------------- discovery */
 
-  function extensionsOf(capabilities: ServerCapabilities, warnings: Warnings): McpDiscovery["extensions"] {
-    const advertised = new Set<string>(Object.keys(capabilities.extensions ?? {}));
+  function extensionsOf(
+    capabilities: ServerCapabilities,
+    warnings: Warnings,
+  ): McpDiscovery["extensions"] {
+    const advertised = new Set<string>(
+      Object.keys(capabilities.extensions ?? {}),
+    );
     if (capabilities.tasks) advertised.add("tasks");
-    for (const key of Object.keys(capabilities.experimental ?? {})) advertised.add(`experimental:${key}`);
+    for (const key of Object.keys(capabilities.experimental ?? {}))
+      advertised.add(`experimental:${key}`);
     const list = [...advertised].map((name) => name.slice(0, 120)).slice(0, 32);
     for (const name of list) warnings.add(`mcp.extension.unsupported:${name}`);
     return { advertised: list, supported: [], unsupported: list };
   }
 
-  async function discover(discoverOptions: { signal?: AbortSignal; refresh?: boolean } = {}): Promise<McpDiscovery> {
+  async function discover(
+    discoverOptions: { signal?: AbortSignal; refresh?: boolean } = {},
+  ): Promise<McpDiscovery> {
     const warnings = new Warnings(options.onWarning);
     const signal = discoverOptions.signal;
     if (state.era === "modern") {
-      const message = await rpc("server/discover", {}, { effect: "read", warnings, ...(signal ? { signal } : {}) });
+      const message = await rpc(
+        "server/discover",
+        {},
+        { effect: "read", warnings, ...(signal ? { signal } : {}) },
+      );
       if (state.era !== "modern") return discover(discoverOptions);
       if (message.kind === "authorization-required")
-        throw new ConnectorError("unauthenticated", { detail: "mcp.authorization-required" });
+        throw new ConnectorError("unauthenticated", {
+          detail: "mcp.authorization-required",
+        });
       if (message.kind !== "result") throw discoveryFailure(message);
       const interpreted = interpretResult(
         message.result,
@@ -1107,7 +1497,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         false,
       );
       if (interpreted.kind !== "complete")
-        throw new ConnectorError("upstream-rejected", { detail: "mcp.discover.invalid" });
+        throw new ConnectorError("upstream-rejected", {
+          detail: "mcp.discover.invalid",
+        });
       const result = interpreted.value;
       if (!result.supportedVersions.includes(state.protocolVersion))
         warnings.add("mcp.discover.version-not-listed");
@@ -1115,13 +1507,16 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       state.supportedVersions = result.supportedVersions;
       state.instructions = result.instructions;
       const info = result._meta?.[META_KEYS.serverInfo];
-      state.serverInfo = info && typeof info === "object" ? (info as Implementation) : undefined;
+      state.serverInfo =
+        info && typeof info === "object" ? (info as Implementation) : undefined;
       state.discoveredAt = now();
     } else {
       const failure = await ensureInitialized(warnings, signal);
       if (failure) {
         if (failure.kind === "authorization-required")
-          throw new ConnectorError("unauthenticated", { detail: "mcp.authorization-required" });
+          throw new ConnectorError("unauthenticated", {
+            detail: "mcp.authorization-required",
+          });
         throw discoveryFailure(failure);
       }
       if (state.era !== "legacy") return discover(discoverOptions);
@@ -1132,10 +1527,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       usedProfile: state.usedProfile,
       era: state.era,
       protocolVersion: state.protocolVersion,
-      ...(state.supportedVersions ? { supportedVersions: [...state.supportedVersions] } : {}),
+      ...(state.supportedVersions
+        ? { supportedVersions: [...state.supportedVersions] }
+        : {}),
       capabilities,
       ...(state.serverInfo ? { serverInfo: state.serverInfo } : {}),
-      ...(state.instructions !== undefined ? { instructions: state.instructions.slice(0, 4096) } : {}),
+      ...(state.instructions !== undefined
+        ? { instructions: state.instructions.slice(0, 4096) }
+        : {}),
       extensions: extensionsOf(capabilities, warnings),
       warnings: warnings.codes,
     };
@@ -1144,24 +1543,40 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   function discoveryFailure(message: RpcResult): ConnectorError {
     if (message.kind === "error") {
       const code = errorCode(message.error);
-      return new ConnectorError(code === "mcp.protocol.version-unsupported" ? "unsupported" : "upstream-rejected", {
-        detail: code,
-      });
+      return new ConnectorError(
+        code === "mcp.protocol.version-unsupported"
+          ? "unsupported"
+          : "upstream-rejected",
+        {
+          detail: code,
+        },
+      );
     }
     if (message.kind === "failed") {
-      if (message.code === "mcp.profile.legacy-server" || message.code.startsWith("mcp.protocol.version"))
+      if (
+        message.code === "mcp.profile.legacy-server" ||
+        message.code.startsWith("mcp.protocol.version")
+      )
         return new ConnectorError("unsupported", { detail: message.code });
-      if (message.code === "mcp.cancelled") return new ConnectorError("cancelled", { detail: message.code });
+      if (message.code === "mcp.cancelled")
+        return new ConnectorError("cancelled", { detail: message.code });
       return new ConnectorError(
-        message.code.startsWith("mcp.transport") || message.code.startsWith("mcp.http.5") ? "upstream-unavailable" : "upstream-rejected",
+        message.code.startsWith("mcp.transport") ||
+          message.code.startsWith("mcp.http.5")
+          ? "upstream-unavailable"
+          : "upstream-rejected",
         { detail: message.code.replace(/[^a-z0-9.-]/g, "").slice(0, 120) },
       );
     }
     if (message.kind === "indeterminate")
       return new ConnectorError("indeterminate", { detail: message.code });
     if (message.kind === "authorization-required")
-      return new ConnectorError("unauthenticated", { detail: "mcp.authorization-required" });
-    return new ConnectorError("upstream-rejected", { detail: "mcp.discover.invalid" });
+      return new ConnectorError("unauthenticated", {
+        detail: "mcp.authorization-required",
+      });
+    return new ConnectorError("upstream-rejected", {
+      detail: "mcp.discover.invalid",
+    });
   }
 
   /* ---------------------------------------------------------------- lists */
@@ -1169,15 +1584,20 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   async function list<T>(
     method: string,
     itemsKey: "tools" | "resources" | "resourceTemplates" | "prompts",
-    parseResult: (value: Record<string, unknown>) => { items: unknown[]; nextCursor?: string } | undefined,
+    parseResult: (
+      value: Record<string, unknown>,
+    ) => { items: unknown[]; nextCursor?: string } | undefined,
     parseItem: (item: unknown, warnings: Warnings) => T | undefined,
     listOptions: { signal?: AbortSignal; refresh?: boolean },
   ): Promise<McpList<T>> {
     const warnings = new Warnings(options.onWarning);
     const who = principal();
     if (who && !listOptions.refresh) {
-      const cached = cache?.store.get<McpList<T>>(who, method, { pages: "all" });
-      if (cached) return { ...cached, fromCache: true, warnings: warnings.codes };
+      const cached = cache?.store.get<McpList<T>>(who, method, {
+        pages: "all",
+      });
+      if (cached)
+        return { ...cached, fromCache: true, warnings: warnings.codes };
     }
     const items: T[] = [];
     let cursor: string | undefined;
@@ -1186,19 +1606,40 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     let ttlMs: number | undefined;
     let cacheScope: "public" | "private" | undefined;
     for (;;) {
-      const message = await rpc(method, cursor === undefined ? {} : { cursor }, {
-        effect: "read",
-        warnings,
-        ...(listOptions.signal ? { signal: listOptions.signal } : {}),
-      });
+      const message = await rpc(
+        method,
+        cursor === undefined ? {} : { cursor },
+        {
+          effect: "read",
+          warnings,
+          ...(listOptions.signal ? { signal: listOptions.signal } : {}),
+        },
+      );
       if (message.kind !== "result") throw listFailure(message);
-      const interpreted = interpretResult(message.result, parseResult, warnings, false);
+      const interpreted = interpretResult(
+        message.result,
+        parseResult,
+        warnings,
+        false,
+      );
       if (interpreted.kind !== "complete")
-        throw new ConnectorError("upstream-rejected", { detail: interpreted.kind === "failed" ? interpreted.code : "mcp.result.invalid" });
+        throw new ConnectorError("upstream-rejected", {
+          detail:
+            interpreted.kind === "failed"
+              ? interpreted.code
+              : "mcp.result.invalid",
+        });
       pages++;
       const pageTtl = interpreted.ttlMs;
-      ttlMs = ttlMs === undefined ? pageTtl : pageTtl === undefined ? ttlMs : Math.min(ttlMs, pageTtl);
-      if (interpreted.cacheScope) cacheScope = cacheScope === "private" ? "private" : interpreted.cacheScope;
+      ttlMs =
+        ttlMs === undefined
+          ? pageTtl
+          : pageTtl === undefined
+            ? ttlMs
+            : Math.min(ttlMs, pageTtl);
+      if (interpreted.cacheScope)
+        cacheScope =
+          cacheScope === "private" ? "private" : interpreted.cacheScope;
       for (const raw of interpreted.value.items) {
         if (items.length >= limits.maxListItems) {
           truncated = true;
@@ -1210,7 +1651,11 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       }
       const next = interpreted.value.nextCursor;
       if (next === undefined || truncated) break;
-      if (next.length === 0 || next.length > limits.maxCursorLength || /\p{Cc}/u.test(next)) {
+      if (
+        next.length === 0 ||
+        next.length > limits.maxCursorLength ||
+        /\p{Cc}/u.test(next)
+      ) {
         warnings.add("mcp.list.cursor-rejected");
         truncated = true;
         break;
@@ -1232,13 +1677,21 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       warnings: warnings.codes,
     };
     if (who && !truncated)
-      cache?.store.set(who, method, { pages: "all" }, { ...result, warnings: [] }, { ttlMs, cacheScope });
+      cache?.store.set(
+        who,
+        method,
+        { pages: "all" },
+        { ...result, warnings: [] },
+        { ttlMs, cacheScope },
+      );
     return result;
   }
 
   function listFailure(message: RpcResult): ConnectorError {
     if (message.kind === "authorization-required")
-      return new ConnectorError("unauthenticated", { detail: "mcp.authorization-required" });
+      return new ConnectorError("unauthenticated", {
+        detail: "mcp.authorization-required",
+      });
     return discoveryFailure(message);
   }
 
@@ -1260,29 +1713,48 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     return {
       name: tool.name,
       ...(tool.title !== undefined ? { title: tool.title } : {}),
-      ...(tool.description !== undefined ? { description: tool.description } : {}),
+      ...(tool.description !== undefined
+        ? { description: tool.description }
+        : {}),
       inputSchema: tool.inputSchema,
-      ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
-      ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+      ...(tool.outputSchema !== undefined
+        ? { outputSchema: tool.outputSchema }
+        : {}),
+      ...(tool.annotations !== undefined
+        ? { annotations: tool.annotations }
+        : {}),
       headerParameters: headers.parameters,
       definitionDigest: definitionDigest({
         name: tool.name,
-        ...(tool.description !== undefined ? { description: tool.description } : {}),
+        ...(tool.description !== undefined
+          ? { description: tool.description }
+          : {}),
         inputSchema: tool.inputSchema,
-        ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
-        ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+        ...(tool.outputSchema !== undefined
+          ? { outputSchema: tool.outputSchema }
+          : {}),
+        ...(tool.annotations !== undefined
+          ? { annotations: tool.annotations }
+          : {}),
       }),
     };
   }
 
-  function listTools(listOptions: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  function listTools(
+    listOptions: { signal?: AbortSignal; refresh?: boolean } = {},
+  ) {
     return list<McpTool>(
       "tools/list",
       "tools",
       (value) => {
         const parsed = listToolsResultSchema.safeParse(value);
         return parsed.success
-          ? { items: parsed.data.tools, ...(parsed.data.nextCursor !== undefined ? { nextCursor: parsed.data.nextCursor } : {}) }
+          ? {
+              items: parsed.data.tools,
+              ...(parsed.data.nextCursor !== undefined
+                ? { nextCursor: parsed.data.nextCursor }
+                : {}),
+            }
           : undefined;
       },
       parseTool,
@@ -1290,14 +1762,21 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     );
   }
 
-  function listResources(listOptions: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  function listResources(
+    listOptions: { signal?: AbortSignal; refresh?: boolean } = {},
+  ) {
     return list<ResourceDefinition>(
       "resources/list",
       "resources",
       (value) => {
         const parsed = listResourcesResultSchema.safeParse(value);
         return parsed.success
-          ? { items: parsed.data.resources, ...(parsed.data.nextCursor !== undefined ? { nextCursor: parsed.data.nextCursor } : {}) }
+          ? {
+              items: parsed.data.resources,
+              ...(parsed.data.nextCursor !== undefined
+                ? { nextCursor: parsed.data.nextCursor }
+                : {}),
+            }
           : undefined;
       },
       (raw, warnings) => {
@@ -1312,7 +1791,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     );
   }
 
-  function listResourceTemplates(listOptions: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  function listResourceTemplates(
+    listOptions: { signal?: AbortSignal; refresh?: boolean } = {},
+  ) {
     return list<ResourceTemplateDefinition>(
       "resources/templates/list",
       "resourceTemplates",
@@ -1321,7 +1802,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         return parsed.success
           ? {
               items: parsed.data.resourceTemplates,
-              ...(parsed.data.nextCursor !== undefined ? { nextCursor: parsed.data.nextCursor } : {}),
+              ...(parsed.data.nextCursor !== undefined
+                ? { nextCursor: parsed.data.nextCursor }
+                : {}),
             }
           : undefined;
       },
@@ -1337,14 +1820,21 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     );
   }
 
-  function listPrompts(listOptions: { signal?: AbortSignal; refresh?: boolean } = {}) {
+  function listPrompts(
+    listOptions: { signal?: AbortSignal; refresh?: boolean } = {},
+  ) {
     return list<PromptDefinition>(
       "prompts/list",
       "prompts",
       (value) => {
         const parsed = listPromptsResultSchema.safeParse(value);
         return parsed.success
-          ? { items: parsed.data.prompts, ...(parsed.data.nextCursor !== undefined ? { nextCursor: parsed.data.nextCursor } : {}) }
+          ? {
+              items: parsed.data.prompts,
+              ...(parsed.data.nextCursor !== undefined
+                ? { nextCursor: parsed.data.nextCursor }
+                : {}),
+            }
           : undefined;
       },
       (raw, warnings) => {
@@ -1362,19 +1852,26 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   /* -------------------------------------------------------- invocations */
 
   /** `Mcp-Param-*` values from the arguments, for the tool's validated annotations only. */
-  function mirroredHeaders(tool: McpTool, args: Record<string, unknown>): Record<string, string> {
+  function mirroredHeaders(
+    tool: McpTool,
+    args: Record<string, unknown>,
+  ): Record<string, string> {
     const headers: Record<string, string> = {};
     for (const parameter of tool.headerParameters) {
       const value = valueAtPath(args, parameter.path);
       if (value === undefined || value === null) continue;
       if (typeof value === "string") headers[parameter.header] = value;
-      else if (typeof value === "boolean") headers[parameter.header] = value ? "true" : "false";
-      else if (typeof value === "number" && Number.isSafeInteger(value)) headers[parameter.header] = String(value);
+      else if (typeof value === "boolean")
+        headers[parameter.header] = value ? "true" : "false";
+      else if (typeof value === "number" && Number.isSafeInteger(value))
+        headers[parameter.header] = String(value);
     }
     return headers;
   }
 
-  async function callTool(request: Parameters<McpClient["callTool"]>[0]): Promise<McpOutcome<CallToolPayload>> {
+  async function callTool(
+    request: Parameters<McpClient["callTool"]>[0],
+  ): Promise<McpOutcome<CallToolPayload>> {
     const warnings = new Warnings(options.onWarning);
     const signal = request.signal;
     let headerParameters: Record<string, string> = {};
@@ -1389,13 +1886,27 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       }
       const tool = tools?.items.find((item) => item.name === request.name);
       if (!tool) warnings.add("mcp.tool.not-listed");
-      if (request.expectedDigest !== undefined && tool && tool.definitionDigest !== request.expectedDigest)
-        return { kind: "failed", code: "mcp.tool.drift", applied: "no", warnings: warnings.codes };
-      if (tool && state.era === "modern") headerParameters = mirroredHeaders(tool, request.arguments);
+      if (
+        request.expectedDigest !== undefined &&
+        tool &&
+        tool.definitionDigest !== request.expectedDigest
+      )
+        return {
+          kind: "failed",
+          code: "mcp.tool.drift",
+          applied: "no",
+          warnings: warnings.codes,
+        };
+      if (tool && state.era === "modern")
+        headerParameters = mirroredHeaders(tool, request.arguments);
     }
-    const params: Record<string, unknown> = { name: request.name, arguments: request.arguments };
+    const params: Record<string, unknown> = {
+      name: request.name,
+      arguments: request.arguments,
+    };
     if (request.inputResponses) params.inputResponses = request.inputResponses;
-    if (request.requestState !== undefined) params.requestState = request.requestState;
+    if (request.requestState !== undefined)
+      params.requestState = request.requestState;
     const message = await rpc("tools/call", params, {
       effect: request.effect,
       name: request.name,
@@ -1414,7 +1925,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           isError: parsed.data.isError === true,
         };
         if (parsed.data.structuredContent !== undefined) {
-          if (jsonByteLength(parsed.data.structuredContent) > limits.maxStructuredBytes)
+          if (
+            jsonByteLength(parsed.data.structuredContent) >
+            limits.maxStructuredBytes
+          )
             warnings.add("mcp.output.structured-dropped");
           else payload.structuredContent = parsed.data.structuredContent;
         }
@@ -1424,11 +1938,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     );
   }
 
-  async function readResource(request: Parameters<McpClient["readResource"]>[0]): Promise<McpOutcome<ReadResourcePayload>> {
+  async function readResource(
+    request: Parameters<McpClient["readResource"]>[0],
+  ): Promise<McpOutcome<ReadResourcePayload>> {
     const warnings = new Warnings(options.onWarning);
     const params: Record<string, unknown> = { uri: request.uri };
     if (request.inputResponses) params.inputResponses = request.inputResponses;
-    if (request.requestState !== undefined) params.requestState = request.requestState;
+    if (request.requestState !== undefined)
+      params.requestState = request.requestState;
     const message = await rpc("resources/read", params, {
       effect: "read",
       name: request.uri,
@@ -1454,8 +1971,16 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           }
           const { _meta, ...content } = item.data;
           void _meta;
-          if (content.text !== undefined) content.text = boundText(content.text, warnings, "mcp.output.text-truncated");
-          if (content.blob !== undefined && Buffer.byteLength(content.blob, "utf8") > limits.maxStructuredBytes) {
+          if (content.text !== undefined)
+            content.text = boundText(
+              content.text,
+              warnings,
+              "mcp.output.text-truncated",
+            );
+          if (
+            content.blob !== undefined &&
+            Buffer.byteLength(content.blob, "utf8") > limits.maxStructuredBytes
+          ) {
             warnings.add("mcp.output.binary-dropped");
             delete content.blob;
           }
@@ -1465,17 +1990,23 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       },
       true,
     );
-    if (outcome.kind === "failed" && outcome.error?.code === JSON_RPC_ERROR_CODES.invalidParams)
+    if (
+      outcome.kind === "failed" &&
+      outcome.error?.code === JSON_RPC_ERROR_CODES.invalidParams
+    )
       return { ...outcome, code: "mcp.resource.not-found" };
     return outcome;
   }
 
-  async function getPrompt(request: Parameters<McpClient["getPrompt"]>[0]): Promise<McpOutcome<GetPromptPayload>> {
+  async function getPrompt(
+    request: Parameters<McpClient["getPrompt"]>[0],
+  ): Promise<McpOutcome<GetPromptPayload>> {
     const warnings = new Warnings(options.onWarning);
     const params: Record<string, unknown> = { name: request.name };
     if (request.arguments) params.arguments = request.arguments;
     if (request.inputResponses) params.inputResponses = request.inputResponses;
-    if (request.requestState !== undefined) params.requestState = request.requestState;
+    if (request.requestState !== undefined)
+      params.requestState = request.requestState;
     const message = await rpc("prompts/get", params, {
       effect: "read",
       name: request.name,
@@ -1503,7 +2034,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           if (content) messages.push({ role: item.data.role, content });
         }
         return {
-          ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+          ...(parsed.data.description !== undefined
+            ? { description: parsed.data.description }
+            : {}),
           messages,
         };
       },
@@ -1513,21 +2046,39 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   /* --------------------------------------------------------- listening */
 
-  async function listen(listenOptions: Parameters<McpClient["listen"]>[0]): Promise<ListenResult> {
+  async function listen(
+    listenOptions: Parameters<McpClient["listen"]>[0],
+  ): Promise<ListenResult> {
     const warnings = new Warnings(options.onWarning);
-    const maxEvents = Math.min(listenOptions.maxEvents ?? limits.listenMaxEvents, limits.listenMaxEvents);
-    const maxMs = Math.min(listenOptions.maxMs ?? limits.listenMaxMs, limits.listenMaxMs);
+    const maxEvents = Math.min(
+      listenOptions.maxEvents ?? limits.listenMaxEvents,
+      limits.listenMaxEvents,
+    );
+    const maxMs = Math.min(
+      listenOptions.maxMs ?? limits.listenMaxMs,
+      limits.listenMaxMs,
+    );
     const events: ListenResult["events"] = [];
-    const finish = (closedBy: ListenResult["closedBy"], acknowledged?: ListenFilter, supported = true): ListenResult => ({
+    const finish = (
+      closedBy: ListenResult["closedBy"],
+      acknowledged?: ListenFilter,
+      supported = true,
+    ): ListenResult => ({
       supported,
       ...(acknowledged ? { acknowledged } : {}),
       events,
       closedBy,
       warnings: warnings.codes,
     });
-    const record = (method: string, params: Record<string, unknown> | undefined): void => {
+    const record = (
+      method: string,
+      params: Record<string, unknown> | undefined,
+    ): void => {
       if (events.length >= maxEvents) return;
-      const bounded = params && jsonByteLength(params) <= limits.maxResponseBytes ? params : undefined;
+      const bounded =
+        params && jsonByteLength(params) <= limits.maxResponseBytes
+          ? params
+          : undefined;
       events.push({ method, ...(bounded ? { params: bounded } : {}) });
       handleNotification(method);
     };
@@ -1553,20 +2104,36 @@ export function createMcpClient(options: McpClientOptions): McpClient {
           ),
         );
       } catch (error) {
-        return finish(error instanceof TransportError && error.phase === "timeout" ? "limit" : "error");
+        return finish(
+          error instanceof TransportError && error.phase === "timeout"
+            ? "limit"
+            : "error",
+        );
       }
       if (reply.status === 405) return finish("unsupported", undefined, false);
-      if (reply.kind !== "stream") return finish("error", undefined, reply.status < 400);
+      if (reply.kind !== "stream")
+        return finish("error", undefined, reply.status < 400);
       try {
         for await (const frame of reply.frames()) {
-          const message = classifyJsonRpc(parseBoundedJson(frame.data, { maxDepth: limits.maxJsonDepth }));
-          if (message.kind === "notification") record(message.method, message.params);
-          else if (message.kind === "request") await answerServerRequest(message, warnings, [], listenOptions.signal);
+          const message = classifyJsonRpc(
+            parseBoundedJson(frame.data, { maxDepth: limits.maxJsonDepth }),
+          );
+          if (message.kind === "notification")
+            record(message.method, message.params);
+          else if (message.kind === "request")
+            await answerServerRequest(
+              message,
+              warnings,
+              [],
+              listenOptions.signal,
+            );
           if (events.length >= maxEvents) return finish("limit");
         }
       } catch (error) {
-        if (error instanceof TransportError && error.phase === "timeout") return finish("limit");
-        if (error instanceof TransportError && error.phase === "aborted") return finish("client");
+        if (error instanceof TransportError && error.phase === "timeout")
+          return finish("limit");
+        if (error instanceof TransportError && error.phase === "aborted")
+          return finish("client");
         return finish("error");
       }
       return finish("server");
@@ -1581,7 +2148,12 @@ export function createMcpClient(options: McpClientOptions): McpClient {
             url: endpoint,
             method: "POST",
             headers: modernHeaders("subscriptions/listen"),
-            body: { jsonrpc: "2.0", id, method: "subscriptions/listen", params: modernParams({ notifications: listenOptions.filter }) },
+            body: {
+              jsonrpc: "2.0",
+              id,
+              method: "subscriptions/listen",
+              params: modernParams({ notifications: listenOptions.filter }),
+            },
             ...(authorization ? { authorization } : {}),
             ...(listenOptions.signal ? { signal: listenOptions.signal } : {}),
             timeoutMs: maxMs,
@@ -1590,46 +2162,62 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         ),
       );
     } catch (error) {
-      return finish(error instanceof TransportError && error.phase === "timeout" ? "limit" : "error");
+      return finish(
+        error instanceof TransportError && error.phase === "timeout"
+          ? "limit"
+          : "error",
+      );
     }
     if (reply.kind !== "stream") {
       if (reply.kind === "json") {
         const message = classifyJsonRpc(reply.body);
-        if (message.kind === "error") warnings.add(`mcp.listen.refused:${message.error.code}`);
+        if (message.kind === "error")
+          warnings.add(`mcp.listen.refused:${message.error.code}`);
       }
       return finish("unsupported", undefined, false);
     }
     let acknowledged: ListenFilter | undefined;
     try {
       for await (const frame of reply.frames()) {
-        const message = classifyJsonRpc(parseBoundedJson(frame.data, { maxDepth: limits.maxJsonDepth }));
+        const message = classifyJsonRpc(
+          parseBoundedJson(frame.data, { maxDepth: limits.maxJsonDepth }),
+        );
         if (message.kind === "notification") {
-          const meta = message.params?._meta as Record<string, unknown> | undefined;
+          const meta = message.params?._meta as
+            Record<string, unknown> | undefined;
           if (String(meta?.[META_KEYS.subscriptionId]) !== id) {
             warnings.add("mcp.listen.foreign-subscription");
             continue;
           }
           if (message.method === "notifications/subscriptions/acknowledged") {
             const filter = message.params?.notifications;
-            acknowledged = filter && typeof filter === "object" ? (filter as ListenFilter) : {};
+            acknowledged =
+              filter && typeof filter === "object"
+                ? (filter as ListenFilter)
+                : {};
             continue;
           }
           if (!acknowledged) {
             warnings.add("mcp.listen.unacknowledged-notification");
             continue;
           }
-          if (message.method === "notifications/cancelled") return finish("server", acknowledged);
+          if (message.method === "notifications/cancelled")
+            return finish("server", acknowledged);
           record(message.method, message.params);
           if (events.length >= maxEvents) return finish("limit", acknowledged);
-        } else if (message.kind === "result" && String(message.id) === id) return finish("server", acknowledged);
+        } else if (message.kind === "result" && String(message.id) === id)
+          return finish("server", acknowledged);
         else if (message.kind === "error") {
           warnings.add(`mcp.listen.refused:${message.error.code}`);
           return finish("error", acknowledged);
-        } else if (message.kind === "request") warnings.add("mcp.protocol.server-request-refused");
+        } else if (message.kind === "request")
+          warnings.add("mcp.protocol.server-request-refused");
       }
     } catch (error) {
-      if (error instanceof TransportError && error.phase === "timeout") return finish("limit", acknowledged);
-      if (error instanceof TransportError && error.phase === "aborted") return finish("client", acknowledged);
+      if (error instanceof TransportError && error.phase === "timeout")
+        return finish("limit", acknowledged);
+      if (error instanceof TransportError && error.phase === "aborted")
+        return finish("client", acknowledged);
       return finish("error", acknowledged);
     }
     return finish("server", acknowledged);
@@ -1648,12 +2236,18 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     listen,
     async probeAuthorization(probeOptions = {}) {
       const warnings = new Warnings(options.onWarning);
-      const message = await rpc("tools/list", {}, {
-        effect: "read",
-        warnings,
-        ...(probeOptions.signal ? { signal: probeOptions.signal } : {}),
-      }).catch(() => undefined);
-      return message?.kind === "authorization-required" ? message.challenge : undefined;
+      const message = await rpc(
+        "tools/list",
+        {},
+        {
+          effect: "read",
+          warnings,
+          ...(probeOptions.signal ? { signal: probeOptions.signal } : {}),
+        },
+      ).catch(() => undefined);
+      return message?.kind === "authorization-required"
+        ? message.challenge
+        : undefined;
     },
     state: () => ({
       era: state.era,

@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { SignJWT, exportJWK, generateKeyPair, type CryptoKey } from "jose";
+import {
+  SignJWT,
+  createLocalJWKSet,
+  exportJWK,
+  generateKeyPair,
+  jwtVerify,
+  type CryptoKey,
+  type CryptoKeyPair,
+} from "jose";
 import {
   startHttpFixture,
   type FixtureReply,
@@ -79,9 +87,21 @@ const json = (status: number, body: unknown): FixtureReply => ({
   body: body as Record<string, unknown>,
 });
 
+/*
+ * Key generation is the slowest part of standing this up, and the keys carry
+ * no state: each double serves its own JWKS at its own origin, so one tenant
+ * pair and one foreign pair per test process are enough.
+ */
+let tenantKeys: Promise<CryptoKeyPair> | undefined;
+let foreignKeys: Promise<CryptoKeyPair> | undefined;
+const tenantKeyPair = () =>
+  (tenantKeys ??= generateKeyPair("RS256", { extractable: true }));
+const foreignKeyPair = () =>
+  (foreignKeys ??= generateKeyPair("RS256", { extractable: true }));
+
 export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
-  const tenant = await generateKeyPair("RS256", { extractable: true });
-  const foreign = await generateKeyPair("RS256", { extractable: true });
+  const tenant = await tenantKeyPair();
+  const foreign = await foreignKeyPair();
   const kid = "tenant-key-1";
   const jwk = { ...(await exportJWK(tenant.publicKey)), kid, alg: "RS256" };
   const grantTypes = new Set(
@@ -204,7 +224,6 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
               error_description: "Unknown or expired refresh token",
             });
         } else {
-          const { jwtVerify, createLocalJWKSet } = await import("jose");
           try {
             const verified = await jwtVerify(
               values.subject_token,
@@ -280,7 +299,6 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
             title: "Unauthorized",
             detail: "A bearer token is required.",
           });
-        const { jwtVerify, createLocalJWKSet } = await import("jose");
         let scopes: string[] = [];
         let subject = "";
         try {

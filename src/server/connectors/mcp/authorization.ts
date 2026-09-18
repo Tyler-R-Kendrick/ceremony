@@ -47,7 +47,10 @@ export function parseBearerChallenge(
     rest = rest.slice(part[0].length);
     if (part[4] !== ",") break;
     // A following challenge (another scheme) ends this one's parameter list.
-    if (/^\s*[A-Za-z0-9!#$%&'*+.^_`|~-]+\s+[A-Za-z0-9]/.test(rest) && !/^\s*[^\s=]+\s*=/.test(rest))
+    if (
+      /^\s*[A-Za-z0-9!#$%&'*+.^_`|~-]+\s+[A-Za-z0-9]/.test(rest) &&
+      !/^\s*[^\s=]+\s*=/.test(rest)
+    )
       break;
   }
   if (!any && rest.trim() !== "") return undefined;
@@ -141,7 +144,11 @@ export async function resolveAuthorizationChallenge(input: {
   if (advertised) {
     if (URL.canParse(advertised)) {
       const url = new URL(advertised);
-      if (url.origin === input.endpoint.origin && !url.username && !url.password)
+      if (
+        url.origin === input.endpoint.origin &&
+        !url.username &&
+        !url.password
+      )
         candidates.push(url.href);
       else issues.push("metadata-origin-mismatch");
     } else issues.push("metadata-url-malformed");
@@ -151,7 +158,9 @@ export async function resolveAuthorizationChallenge(input: {
     candidates.push(
       `${input.endpoint.origin}/.well-known/oauth-protected-resource${path}`,
     );
-  candidates.push(`${input.endpoint.origin}/.well-known/oauth-protected-resource`);
+  candidates.push(
+    `${input.endpoint.origin}/.well-known/oauth-protected-resource`,
+  );
 
   let metadata: ProtectedResourceMetadata | undefined;
   let resourceMetadataUrl: string | undefined;
@@ -174,7 +183,9 @@ export async function resolveAuthorizationChallenge(input: {
       continue;
     }
     if (reply.kind !== "json" || reply.status !== 200) {
-      issues.push(reply.status === 404 ? "metadata-not-found" : "metadata-malformed");
+      issues.push(
+        reply.status === 404 ? "metadata-not-found" : "metadata-malformed",
+      );
       continue;
     }
     const parsed = protectedResourceMetadataSchema.safeParse(reply.body);
@@ -200,7 +211,9 @@ export async function resolveAuthorizationChallenge(input: {
       resource: parsed.data.resource,
       authorizationServers: servers,
       scopesSupported: parsed.data.scopes_supported ?? [],
-      bearerMethodsSupported: parsed.data.bearer_methods_supported ?? ["header"],
+      bearerMethodsSupported: parsed.data.bearer_methods_supported ?? [
+        "header",
+      ],
       ...(parsed.data.resource_name
         ? { resourceName: parsed.data.resource_name.replace(/\p{Cc}/gu, "") }
         : {}),

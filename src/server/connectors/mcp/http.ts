@@ -138,7 +138,10 @@ async function readBounded(
 }
 
 function mediaType(headers: Headers): string {
-  return (headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  return (headers.get("content-type") ?? "")
+    .split(";")[0]!
+    .trim()
+    .toLowerCase();
 }
 
 /**
@@ -178,12 +181,20 @@ export async function exchange(
   const type = mediaType(response.headers);
   if (response.status === 202 || response.status === 204) {
     await response.body?.cancel().catch(() => undefined);
-    return { kind: "empty", status: response.status, headers: response.headers };
+    return {
+      kind: "empty",
+      status: response.status,
+      headers: response.headers,
+    };
   }
   if (type === "text/event-stream") {
     const body = response.body;
     if (!body)
-      return { kind: "empty", status: response.status, headers: response.headers };
+      return {
+        kind: "empty",
+        status: response.status,
+        headers: response.headers,
+      };
     return {
       kind: "stream",
       status: response.status,
@@ -210,20 +221,33 @@ export async function exchange(
     }
   }
   if (!text.length)
-    return { kind: "empty", status: response.status, headers: response.headers };
-  return { kind: "text", status: response.status, headers: response.headers, text };
+    return {
+      kind: "empty",
+      status: response.status,
+      headers: response.headers,
+    };
+  return {
+    kind: "text",
+    status: response.status,
+    headers: response.headers,
+    text,
+  };
 }
 
 async function* frames(
   body: ReadableStream<Uint8Array>,
-  limits: Pick<McpLimits, "maxResponseBytes" | "maxStreamBytes" | "maxStreamFrames">,
+  limits: Pick<
+    McpLimits,
+    "maxResponseBytes" | "maxStreamBytes" | "maxStreamFrames"
+  >,
   signal: AbortSignal,
 ): AsyncGenerator<SseFrame, void, undefined> {
   const reader = body.getReader();
   const parser = new SseParser();
   let count = 0;
   const check = (frame: SseFrame): SseFrame => {
-    if (++count > limits.maxStreamFrames) throw new BoundsError("too-many-frames");
+    if (++count > limits.maxStreamFrames)
+      throw new BoundsError("too-many-frames");
     if (Buffer.byteLength(frame.data, "utf8") > limits.maxResponseBytes)
       throw new BoundsError("frame-too-large");
     return frame;

@@ -45,13 +45,19 @@ export type ConnectorInvokeOutput = {
   /** Present only when the operation's output classification permits a model to see it. */
   output?: unknown;
   code?: string;
-  handoff?: { kind: ConnectorHandoffSummary["kind"]; state: ConnectorHandoffSummary["state"] };
+  handoff?: {
+    kind: ConnectorHandoffSummary["kind"];
+    state: ConnectorHandoffSummary["state"];
+  };
 };
 
 export type ConnectorConnectOutput = {
   connectionRef: string;
   lifecycle: ConnectionSummary["lifecycle"];
-  handoff?: { kind: ConnectorHandoffSummary["kind"]; state: ConnectorHandoffSummary["state"] };
+  handoff?: {
+    kind: ConnectorHandoffSummary["kind"];
+    state: ConnectorHandoffSummary["state"];
+  };
 };
 
 /**
@@ -62,9 +68,18 @@ export type ConnectorConnectOutput = {
  */
 export interface ConnectorToolDependencies {
   catalog(actor: ActorContext): Promise<CatalogEntry[]>;
-  status(actor: ActorContext, connectionRef: string): Promise<ConnectionSummary | undefined>;
-  connect(actor: ActorContext, input: ConnectorConnectInput): Promise<ConnectorConnectOutput>;
-  invoke(actor: ActorContext, input: ConnectorInvokeInput): Promise<ConnectorInvokeOutput>;
+  status(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<ConnectionSummary | undefined>;
+  connect(
+    actor: ActorContext,
+    input: ConnectorConnectInput,
+  ): Promise<ConnectorConnectOutput>;
+  invoke(
+    actor: ActorContext,
+    input: ConnectorInvokeInput,
+  ): Promise<ConnectorInvokeOutput>;
 }
 
 export interface ConnectorToolContext {
@@ -83,18 +98,26 @@ export const connectorToolInputs = {
   catalog: z.strictObject({}),
   status: z.strictObject({ connectionRef: identifier }),
   connect: z.strictObject({
-    connectorId: identifier.describe("A connector this deployment offers, from connector_catalog."),
+    connectorId: identifier.describe(
+      "A connector this deployment offers, from connector_catalog.",
+    ),
     accountSwitch: z
       .boolean()
       .optional()
-      .describe("Only when a person has said they want to change the connected account."),
+      .describe(
+        "Only when a person has said they want to change the connected account.",
+      ),
     interruption: z.enum(["allowed", "none"]).optional(),
   }),
   invoke: z.strictObject({
     connectionRef: identifier,
-    operationRef: identifier.describe("An approved operation of this connection's binding."),
+    operationRef: identifier.describe(
+      "An approved operation of this connection's binding.",
+    ),
     input: z.unknown(),
-    commandId: identifier.describe("Your own id for this attempt, so a retry is not a second attempt."),
+    commandId: identifier.describe(
+      "Your own id for this attempt, so a retry is not a second attempt.",
+    ),
   }),
 } as const;
 
@@ -103,7 +126,10 @@ function text(value: unknown) {
 }
 
 function refusal(message: string) {
-  return { isError: true as const, content: [{ type: "text" as const, text: message }] };
+  return {
+    isError: true as const,
+    content: [{ type: "text" as const, text: message }],
+  };
 }
 
 /**
@@ -121,7 +147,9 @@ export function registerConnectorServerTools(
     try {
       return text(await operate(actor));
     } catch (error) {
-      context.onerror?.(error instanceof Error ? error : new Error(String(error)));
+      context.onerror?.(
+        error instanceof Error ? error : new Error(String(error)),
+      );
       return refusal(explainConnectorError(error).message);
     }
   };
@@ -135,7 +163,9 @@ export function registerConnectorServerTools(
     },
     async () =>
       await run(async (actor) => ({
-        connectors: (await deps.catalog(actor)).map((entry) => publicCatalogProjection(entry)),
+        connectors: (await deps.catalog(actor)).map((entry) =>
+          publicCatalogProjection(entry),
+        ),
       })),
   );
 
@@ -150,7 +180,9 @@ export function registerConnectorServerTools(
       await run(async (actor) => {
         const checked = connectorToolInputs.status.parse(input);
         const summary = await deps.status(actor, checked.connectionRef);
-        return summary ? agentConnectorProjection(summary) : { connection: "not-found" };
+        return summary
+          ? agentConnectorProjection(summary)
+          : { connection: "not-found" };
       }),
   );
 
@@ -166,8 +198,12 @@ export function registerConnectorServerTools(
         const checked = connectorToolInputs.connect.parse(input);
         const outcome = await deps.connect(actor, {
           connectorId: checked.connectorId,
-          ...(checked.accountSwitch === undefined ? {} : { accountSwitch: checked.accountSwitch }),
-          ...(checked.interruption === undefined ? {} : { interruption: checked.interruption }),
+          ...(checked.accountSwitch === undefined
+            ? {}
+            : { accountSwitch: checked.accountSwitch }),
+          ...(checked.interruption === undefined
+            ? {}
+            : { interruption: checked.interruption }),
         });
         // A positive allowlist: whatever the service returns, only these three
         // facts leave, and the handoff contributes its kind and state alone.
@@ -175,7 +211,12 @@ export function registerConnectorServerTools(
           connectionRef: outcome.connectionRef,
           lifecycle: outcome.lifecycle,
           ...(outcome.handoff
-            ? { handoff: { kind: outcome.handoff.kind, state: outcome.handoff.state } }
+            ? {
+                handoff: {
+                  kind: outcome.handoff.kind,
+                  state: outcome.handoff.state,
+                },
+              }
             : {}),
         };
       }),
@@ -204,14 +245,20 @@ export function registerConnectorServerTools(
           // Output reaches the model only when the binding classified it
           // public. Personal and secret results exist, and are readable by the
           // person in the application, but are withheld from this transport.
-          ...(outcome.state === "complete" && outcome.outputClassification === "public"
+          ...(outcome.state === "complete" &&
+          outcome.outputClassification === "public"
             ? { output: outcome.output }
             : outcome.state === "complete"
               ? { output: "withheld-by-policy" }
               : {}),
           ...(outcome.code ? { code: outcome.code } : {}),
           ...(outcome.handoff
-            ? { handoff: { kind: outcome.handoff.kind, state: outcome.handoff.state } }
+            ? {
+                handoff: {
+                  kind: outcome.handoff.kind,
+                  state: outcome.handoff.state,
+                },
+              }
             : {}),
         };
       }),

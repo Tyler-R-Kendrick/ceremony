@@ -85,13 +85,19 @@ export type McpChallengeState = {
   issues: string[];
 };
 
-export function summarizeChallenge(challenge: AuthorizationChallenge): McpChallengeState {
+export function summarizeChallenge(
+  challenge: AuthorizationChallenge,
+): McpChallengeState {
   return {
     status: challenge.status,
     ...(challenge.error ? { error: challenge.error } : {}),
     requestedScopes: challenge.requestedScopes.slice(0, 32),
-    authorizationServers: (challenge.metadata?.authorizationServers ?? []).slice(0, 8),
-    ...(challenge.resourceMetadataUrl ? { resourceMetadataUrl: challenge.resourceMetadataUrl } : {}),
+    authorizationServers: (
+      challenge.metadata?.authorizationServers ?? []
+    ).slice(0, 8),
+    ...(challenge.resourceMetadataUrl
+      ? { resourceMetadataUrl: challenge.resourceMetadataUrl }
+      : {}),
     canonicalResource: challenge.canonicalResource,
     clientRegistration: [...challenge.clientRegistration],
     issues: challenge.issues.slice(0, 16),
@@ -118,7 +124,10 @@ export type BeginMcpOAuth = (
 
 /** Vends a bearer for an externally brokered connection without exporting it. */
 export interface McpBrokerPort {
-  useBearer<T>(ctx: AdapterCallContext, work: (token: string) => Promise<T>): Promise<T>;
+  useBearer<T>(
+    ctx: AdapterCallContext,
+    work: (token: string) => Promise<T>,
+  ): Promise<T>;
 }
 
 export type McpRemoteAdapterOptions = {
@@ -139,11 +148,15 @@ const BEARER_FIELDS = ["bearer", "access_token", "token", "apiKey"] as const;
 function settingsOf(binding: RuntimeBinding): McpBindingSettings {
   const raw = (binding.settings as Record<string, unknown>).mcp;
   if (raw === undefined)
-    throw new ConnectorError("invalid-request", { detail: "mcp.binding.settings-missing" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.binding.settings-missing",
+    });
   try {
     return parseMcpBindingSettings(raw);
   } catch {
-    throw new ConnectorError("invalid-request", { detail: "mcp.binding.settings-invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.binding.settings-invalid",
+    });
   }
 }
 
@@ -153,20 +166,34 @@ function endpointFor(ctx: AdapterCallContext, operation?: BoundOperation): URL {
     ? destinationFor(ctx.binding, operation)
     : ctx.binding.destinations[0];
   if (!destination)
-    throw new ConnectorError("network-policy", { detail: "mcp.binding.no-destination" });
+    throw new ConnectorError("network-policy", {
+      detail: "mcp.binding.no-destination",
+    });
   const url = new URL(settings.endpointPath, destination.origin);
   if (url.origin !== destination.origin)
-    throw new ConnectorError("network-policy", { detail: "mcp.binding.endpoint-escaped" });
+    throw new ConnectorError("network-policy", {
+      detail: "mcp.binding.endpoint-escaped",
+    });
   const prefix = destination.pathPrefix;
-  if (prefix && !(url.pathname === prefix || url.pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)))
-    throw new ConnectorError("network-policy", { detail: "mcp.binding.endpoint-outside-prefix" });
+  if (
+    prefix &&
+    !(
+      url.pathname === prefix ||
+      url.pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
+    )
+  )
+    throw new ConnectorError("network-policy", {
+      detail: "mcp.binding.endpoint-outside-prefix",
+    });
   return url;
 }
 
 function credentialScope(ctx: AdapterCallContext): CredentialScope {
   const connection = ctx.connection;
   if (!connection)
-    throw new ConnectorError("invalid-request", { detail: "mcp.connection.missing" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.connection.missing",
+    });
   return {
     tenantId: connection.tenantId,
     ownerKind: connection.ownerKind,
@@ -177,15 +204,25 @@ function credentialScope(ctx: AdapterCallContext): CredentialScope {
   };
 }
 
-function authFor(ctx: AdapterCallContext, options: McpRemoteAdapterOptions, settings: McpBindingSettings): McpAuth {
+function authFor(
+  ctx: AdapterCallContext,
+  options: McpRemoteAdapterOptions,
+  settings: McpBindingSettings,
+): McpAuth {
   if (settings.auth === "none") return { kind: "none" };
   if (settings.auth === "broker") {
     const broker = options.broker;
-    if (!broker) throw new ConnectorError("configuration-required", { detail: "mcp.broker.missing" });
+    if (!broker)
+      throw new ConnectorError("configuration-required", {
+        detail: "mcp.broker.missing",
+      });
     return { kind: "bearer", use: (work) => broker.useBearer(ctx, work) };
   }
   const ref = ctx.connection?.credentialRef;
-  if (!ref) throw new ConnectorError("unauthenticated", { detail: "mcp.credential.missing" });
+  if (!ref)
+    throw new ConnectorError("unauthenticated", {
+      detail: "mcp.credential.missing",
+    });
   const scope = credentialScope(ctx);
   return {
     kind: "bearer",
@@ -194,13 +231,21 @@ function authFor(ctx: AdapterCallContext, options: McpRemoteAdapterOptions, sett
         const token = BEARER_FIELDS.map((field) => material[field]).find(
           (value) => typeof value === "string" && value.length > 0,
         );
-        if (!token) throw new ConnectorError("unauthenticated", { detail: "mcp.credential.not-a-bearer" });
+        if (!token)
+          throw new ConnectorError("unauthenticated", {
+            detail: "mcp.credential.not-a-bearer",
+          });
         return work(token);
       }),
   };
 }
 
-type ClientBundle = { client: McpClient; settings: McpBindingSettings; limits: McpLimits; endpoint: URL };
+type ClientBundle = {
+  client: McpClient;
+  settings: McpBindingSettings;
+  limits: McpLimits;
+  endpoint: URL;
+};
 
 function clientFor(
   ctx: AdapterCallContext,
@@ -233,7 +278,9 @@ function clientFor(
               connectionRef: connection.connectionRef,
               generation: ctx.generation,
               profile: settings.profile,
-              ...(connection.credentialRef ? { credentialRef: connection.credentialRef } : {}),
+              ...(connection.credentialRef
+                ? { credentialRef: connection.credentialRef }
+                : {}),
             },
           },
         }
@@ -256,7 +303,9 @@ function effectDigest(input: {
   request: unknown;
   round: number;
 }): string {
-  return createHash("sha256").update(canonicalConnectorJson(input)).digest("hex");
+  return createHash("sha256")
+    .update(canonicalConnectorJson(input))
+    .digest("hex");
 }
 
 /* ------------------------------------------------------------- invocation */
@@ -284,36 +333,59 @@ function targetFor(operation: BoundOperation, input: unknown): TransportTarget {
       for (const token of variables) {
         const name = token.slice(1, -1);
         const value = (input as Record<string, unknown> | undefined)?.[name];
-        if (typeof value !== "string" || value.length === 0 || value.length > 512 || /\p{Cc}/u.test(value))
-          throw new ConnectorError("invalid-request", { detail: "mcp.resource.variable-invalid" });
+        if (
+          typeof value !== "string" ||
+          value.length === 0 ||
+          value.length > 512 ||
+          /\p{Cc}/u.test(value)
+        )
+          throw new ConnectorError("invalid-request", {
+            detail: "mcp.resource.variable-invalid",
+          });
         uri = uri.replace(token, encodeURIComponent(value));
       }
       if (/\{|\}/.test(uri))
-        throw new ConnectorError("invalid-request", { detail: "mcp.resource.template-unresolved" });
+        throw new ConnectorError("invalid-request", {
+          detail: "mcp.resource.template-unresolved",
+        });
       return { kind: "mcp-resource", uri };
     }
     default:
-      throw new ConnectorError("denied", { detail: "mcp.operation.transport-not-mcp" });
+      throw new ConnectorError("denied", {
+        detail: "mcp.operation.transport-not-mcp",
+      });
   }
 }
 
-function requireOperation(ctx: AdapterCallContext, operationRef: string): BoundOperation {
+function requireOperation(
+  ctx: AdapterCallContext,
+  operationRef: string,
+): BoundOperation {
   const operation = boundOperation(ctx.binding, operationRef);
   // A tool, resource or prompt that is not in the binding is refused here,
   // before anything is sent: being listed by the server is not approval.
-  if (!operation) throw new ConnectorError("denied", { detail: "mcp.operation.not-bound" });
+  if (!operation)
+    throw new ConnectorError("denied", { detail: "mcp.operation.not-bound" });
   return operation;
 }
 
 function promptArguments(input: unknown): Record<string, string> | undefined {
   if (input === undefined || input === null) return undefined;
   if (typeof input !== "object" || Array.isArray(input))
-    throw new ConnectorError("invalid-request", { detail: "mcp.prompt.arguments-invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.prompt.arguments-invalid",
+    });
   const args: Record<string, string> = {};
-  for (const [name, value] of Object.entries(input as Record<string, unknown>)) {
+  for (const [name, value] of Object.entries(
+    input as Record<string, unknown>,
+  )) {
     if (typeof value === "string") args[name] = value;
-    else if (typeof value === "number" || typeof value === "boolean") args[name] = String(value);
-    else throw new ConnectorError("invalid-request", { detail: "mcp.prompt.arguments-invalid" });
+    else if (typeof value === "number" || typeof value === "boolean")
+      args[name] = String(value);
+    else
+      throw new ConnectorError("invalid-request", {
+        detail: "mcp.prompt.arguments-invalid",
+      });
   }
   return args;
 }
@@ -321,7 +393,9 @@ function promptArguments(input: unknown): Record<string, string> | undefined {
 function toolArguments(input: unknown): Record<string, unknown> {
   if (input === undefined || input === null) return {};
   if (typeof input !== "object" || Array.isArray(input))
-    throw new ConnectorError("invalid-request", { detail: "mcp.tool.arguments-invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "mcp.tool.arguments-invalid",
+    });
   return input as Record<string, unknown>;
 }
 
@@ -333,7 +407,10 @@ async function performCall(
   operation: BoundOperation,
   input: unknown,
   ctx: AdapterCallContext,
-  continuation?: { inputResponses: Record<string, unknown>; requestState?: string },
+  continuation?: {
+    inputResponses: Record<string, unknown>;
+    requestState?: string;
+  },
 ): Promise<McpOutcome<AnyPayload>> {
   const signal = ctx.signal;
   switch (target.kind) {
@@ -345,16 +422,24 @@ async function performCall(
         effect: operation.effect,
         signal,
         ...(pinned ? { expectedDigest: pinned } : {}),
-        ...(continuation?.inputResponses ? { inputResponses: continuation.inputResponses } : {}),
-        ...(continuation?.requestState !== undefined ? { requestState: continuation.requestState } : {}),
+        ...(continuation?.inputResponses
+          ? { inputResponses: continuation.inputResponses }
+          : {}),
+        ...(continuation?.requestState !== undefined
+          ? { requestState: continuation.requestState }
+          : {}),
       });
     }
     case "mcp-resource":
       return bundle.client.readResource({
         uri: target.uri,
         signal,
-        ...(continuation?.inputResponses ? { inputResponses: continuation.inputResponses } : {}),
-        ...(continuation?.requestState !== undefined ? { requestState: continuation.requestState } : {}),
+        ...(continuation?.inputResponses
+          ? { inputResponses: continuation.inputResponses }
+          : {}),
+        ...(continuation?.requestState !== undefined
+          ? { requestState: continuation.requestState }
+          : {}),
       });
     case "mcp-prompt": {
       const args = promptArguments(input);
@@ -362,8 +447,12 @@ async function performCall(
         name: target.promptName,
         ...(args ? { arguments: args } : {}),
         signal,
-        ...(continuation?.inputResponses ? { inputResponses: continuation.inputResponses } : {}),
-        ...(continuation?.requestState !== undefined ? { requestState: continuation.requestState } : {}),
+        ...(continuation?.inputResponses
+          ? { inputResponses: continuation.inputResponses }
+          : {}),
+        ...(continuation?.requestState !== undefined
+          ? { requestState: continuation.requestState }
+          : {}),
       });
     }
   }
@@ -401,7 +490,9 @@ function suspendedFor(input: {
         ...(request.elicitation ? { elicitation: request.elicitation } : {}),
       })),
     ),
-    ...(input.requestState !== undefined ? { requestState: input.requestState } : {}),
+    ...(input.requestState !== undefined
+      ? { requestState: input.requestState }
+      : {}),
     round: input.round,
     ...(input.effectRef ? { effectRef: input.effectRef } : {}),
     ...(input.legacyDigest ? { elicitationDigest: input.legacyDigest } : {}),
@@ -412,12 +503,16 @@ function payloadOf(payload: AnyPayload): unknown {
   if ("contents" in payload) return { contents: payload.contents };
   if ("messages" in payload)
     return {
-      ...(payload.description !== undefined ? { description: payload.description } : {}),
+      ...(payload.description !== undefined
+        ? { description: payload.description }
+        : {}),
       messages: payload.messages,
     };
   return {
     content: payload.content,
-    ...(payload.structuredContent !== undefined ? { structuredContent: payload.structuredContent } : {}),
+    ...(payload.structuredContent !== undefined
+      ? { structuredContent: payload.structuredContent }
+      : {}),
     isError: payload.isError,
   };
 }
@@ -430,8 +525,16 @@ async function invokeInternal(
     request: unknown;
     commandId: string;
     round: number;
-    continuation?: { inputResponses: Record<string, unknown>; requestState?: string };
-    legacyAnswer?: { digest: string; values: FormValues; action: ResumeAction; requests: ParsedInputRequest[] };
+    continuation?: {
+      inputResponses: Record<string, unknown>;
+      requestState?: string;
+    };
+    legacyAnswer?: {
+      digest: string;
+      values: FormValues;
+      action: ResumeAction;
+      requests: ParsedInputRequest[];
+    };
   },
 ): Promise<InvokeResult> {
   const { operation } = input;
@@ -455,7 +558,9 @@ async function invokeInternal(
     });
     const begun = await ctx.environment.effects.begin({
       actor: ctx.actor,
-      ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+      ...(ctx.connection
+        ? { connectionRef: ctx.connection.connectionRef }
+        : {}),
       bindingRef: ctx.binding.bindingRef,
       operation: operation.operationRef,
       digest,
@@ -468,11 +573,26 @@ async function invokeInternal(
       // make a business operation idempotent, so a prior attempt whose
       // outcome is unknown is reported, never repeated (AC-MCP-03).
       if (prior.status === "applied")
-        return { ...base, state: "complete", code: "already-applied", effectRef };
+        return {
+          ...base,
+          state: "complete",
+          code: "already-applied",
+          effectRef,
+        };
       if (prior.status === "indeterminate" || prior.status === "reconciled")
-        return { ...base, state: "indeterminate", code: "reconciliation-required", effectRef };
+        return {
+          ...base,
+          state: "indeterminate",
+          code: "reconciliation-required",
+          effectRef,
+        };
       if (prior.status === "failed")
-        return { ...base, state: "failed", code: "previous-attempt-failed", effectRef };
+        return {
+          ...base,
+          state: "failed",
+          code: "previous-attempt-failed",
+          effectRef,
+        };
     }
   }
 
@@ -484,10 +604,17 @@ async function invokeInternal(
           onElicitation: async (params) => {
             if (elicitationDigest(params) !== legacyAnswer.digest)
               return { result: { action: "cancel" as const }, deferred: true };
-            const responses = buildInputResponses(legacyAnswer.requests, legacyAnswer.values, legacyAnswer.action);
+            const responses = buildInputResponses(
+              legacyAnswer.requests,
+              legacyAnswer.values,
+              legacyAnswer.action,
+            );
             const answer = responses[legacyAnswer.requests[0]?.id ?? "legacy"];
             return {
-              result: answer && "action" in answer ? answer : { action: "cancel" as const },
+              result:
+                answer && "action" in answer
+                  ? answer
+                  : { action: "cancel" as const },
               deferred: false,
             };
           },
@@ -497,7 +624,14 @@ async function invokeInternal(
 
   let outcome: McpOutcome<AnyPayload>;
   try {
-    outcome = await performCall(bundle, target, operation, input.request, ctx, input.continuation);
+    outcome = await performCall(
+      bundle,
+      target,
+      operation,
+      input.request,
+      ctx,
+      input.continuation,
+    );
   } catch (error) {
     if (effectRef)
       await ctx.environment.effects.complete(effectRef, {
@@ -522,14 +656,30 @@ async function invokeInternal(
 
   switch (outcome.kind) {
     case "complete":
-      return finish("applied", { ...base, state: "complete", output: payloadOf(outcome.payload) });
+      return finish("applied", {
+        ...base,
+        state: "complete",
+        output: payloadOf(outcome.payload),
+      });
     case "authorization-required":
-      return finish("not-applied", { ...base, state: "denied", code: "authorization-required" });
+      return finish("not-applied", {
+        ...base,
+        state: "denied",
+        code: "authorization-required",
+      });
     case "indeterminate":
-      return finish("indeterminate", { ...base, state: "indeterminate", code: sanitize(outcome.code) });
+      return finish("indeterminate", {
+        ...base,
+        state: "indeterminate",
+        code: sanitize(outcome.code),
+      });
     case "failed":
       return outcome.applied === "unknown" && consequential
-        ? finish("indeterminate", { ...base, state: "indeterminate", code: sanitize(outcome.code) })
+        ? finish("indeterminate", {
+            ...base,
+            state: "indeterminate",
+            code: sanitize(outcome.code),
+          })
         : finish(outcome.applied === "unknown" ? "indeterminate" : "failed", {
             ...base,
             state: "failed",
@@ -537,9 +687,17 @@ async function invokeInternal(
           });
     case "input-required": {
       if (outcome.requests.some((request) => request.kind === "sampling"))
-        return finish("not-applied", { ...base, state: "denied", code: "mcp.sampling.refused" });
+        return finish("not-applied", {
+          ...base,
+          state: "denied",
+          code: "mcp.sampling.refused",
+        });
       if (input.round + 1 >= bundle.limits.maxInputRounds)
-        return finish("not-applied", { ...base, state: "failed", code: "mcp.input.too-many-rounds" });
+        return finish("not-applied", {
+          ...base,
+          state: "failed",
+          code: "mcp.input.too-many-rounds",
+        });
       const suspended = suspendedFor({
         ctx,
         settings: bundle.settings,
@@ -548,10 +706,14 @@ async function invokeInternal(
         endpoint: bundle.endpoint,
         request: input.request,
         requests: outcome.requests,
-        ...(outcome.requestState !== undefined ? { requestState: outcome.requestState } : {}),
+        ...(outcome.requestState !== undefined
+          ? { requestState: outcome.requestState }
+          : {}),
         round: input.round + 1,
         ...(effectRef ? { effectRef } : {}),
-        ...(outcome.legacy ? { legacyDigest: outcome.legacy.elicitationDigest } : {}),
+        ...(outcome.legacy
+          ? { legacyDigest: outcome.legacy.elicitationDigest }
+          : {}),
         mode: outcome.legacy ? "legacy-elicitation" : "input-required",
       });
       const handoff: HandoffProposal = buildInputHandoff(suspended, {
@@ -560,7 +722,12 @@ async function invokeInternal(
         expiresInMs: options.inputHandoffMs ?? 15 * 60_000,
         limits: bundle.limits,
       });
-      return finish("not-applied", { ...base, state: "human-required", code: "input-required", handoff });
+      return finish("not-applied", {
+        ...base,
+        state: "human-required",
+        code: "input-required",
+        handoff,
+      });
     }
   }
 }
@@ -604,25 +771,37 @@ export async function resumeInput(
     code,
   });
   if (!operation) return unmet("mcp.operation.not-bound");
-  if (ctx.binding.revision !== suspended.bindingRevision) return unmet("mcp.binding.changed");
-  if (record.generation !== ctx.generation) return unmet("mcp.handoff.stale-generation");
-  if (record.state !== "issued" && record.state !== "waiting") return unmet("mcp.handoff.not-pending");
+  if (ctx.binding.revision !== suspended.bindingRevision)
+    return unmet("mcp.binding.changed");
+  if (record.generation !== ctx.generation)
+    return unmet("mcp.handoff.stale-generation");
+  if (record.state !== "issued" && record.state !== "waiting")
+    return unmet("mcp.handoff.not-pending");
   if (record.expiresAt <= ctx.environment.now()) return unmet("expired");
-  if (suspended.profile !== settings.profile) return unmet("mcp.binding.profile-changed");
-  if (suspended.round >= limits.maxInputRounds) return unmet("mcp.input.too-many-rounds");
+  if (suspended.profile !== settings.profile)
+    return unmet("mcp.binding.profile-changed");
+  if (suspended.round >= limits.maxInputRounds)
+    return unmet("mcp.input.too-many-rounds");
   const endpoint = endpointFor(ctx, operation);
-  if (endpoint.href !== suspended.destination) return unmet("mcp.binding.destination-changed");
+  if (endpoint.href !== suspended.destination)
+    return unmet("mcp.binding.destination-changed");
 
   const request: unknown = JSON.parse(suspended.input);
-  if (inputDigest(request) !== suspended.inputDigest) return unmet("mcp.input.digest-mismatch");
+  if (inputDigest(request) !== suspended.inputDigest)
+    return unmet("mcp.input.digest-mismatch");
   const stored = JSON.parse(suspended.inputRequests) as ParsedInputRequest[];
   const requests: ParsedInputRequest[] = Array.isArray(stored) ? stored : [];
-  if (requests.some((entry) => entry.kind === "sampling")) return unmet("mcp.sampling.refused");
+  if (requests.some((entry) => entry.kind === "sampling"))
+    return unmet("mcp.sampling.refused");
 
   // One use: consuming the handoff before the call means a replayed
   // continuation cannot reach the server a second time.
   try {
-    await ctx.environment.handoffs.complete(record.handoffRef, ctx.generation, "completed");
+    await ctx.environment.handoffs.complete(
+      record.handoffRef,
+      ctx.generation,
+      "completed",
+    );
   } catch {
     return unmet("mcp.handoff.not-pending");
   }
@@ -634,7 +813,12 @@ export async function resumeInput(
       request,
       commandId: suspended.commandId,
       round: suspended.round,
-      legacyAnswer: { digest: suspended.elicitationDigest, values, action, requests },
+      legacyAnswer: {
+        digest: suspended.elicitationDigest,
+        values,
+        action,
+        requests,
+      },
     });
   }
   const inputResponses = buildInputResponses(requests, values, action);
@@ -645,7 +829,9 @@ export async function resumeInput(
     round: suspended.round,
     continuation: {
       inputResponses,
-      ...(suspended.requestState !== undefined ? { requestState: suspended.requestState } : {}),
+      ...(suspended.requestState !== undefined
+        ? { requestState: suspended.requestState }
+        : {}),
     },
   });
 }
@@ -670,7 +856,12 @@ const DIMENSIONS = [
 export function createMcpRemoteAdapter(
   options: McpRemoteAdapterOptions = {},
 ): ConnectorAdapter & {
-  resumeInput(ctx: AdapterCallContext, record: HandoffRecord, values: FormValues, action?: ResumeAction): Promise<InvokeResult>;
+  resumeInput(
+    ctx: AdapterCallContext,
+    record: HandoffRecord,
+    values: FormValues,
+    action?: ResumeAction,
+  ): Promise<InvokeResult>;
 } {
   const adapterVersion = options.adapterVersion ?? MCP_ADAPTER_VERSION;
   const identity = { adapterVersion, runtime: "hosted-server" as const };
@@ -681,7 +872,10 @@ export function createMcpRemoteAdapter(
     for (const id of mcpProfileIds) {
       const profile = capabilityProfileLabel(id);
       const era = profileFor(id);
-      const supported: Record<(typeof DIMENSIONS)[number], Partial<CapabilityStatus>> = {
+      const supported: Record<
+        (typeof DIMENSIONS)[number],
+        Partial<CapabilityStatus>
+      > = {
         discover: {
           limitations: [
             era.era === "modern"
@@ -691,9 +885,15 @@ export function createMcpRemoteAdapter(
         },
         import: {
           implementation: "unsupported",
-          limitations: ["A live server is not a portable definition; registry import belongs to the registry adapter."],
+          limitations: [
+            "A live server is not a portable definition; registry import belongs to the registry adapter.",
+          ],
         },
-        configure: { limitations: ["Configuration is the binding's pinned profile, endpoint and operations."] },
+        configure: {
+          limitations: [
+            "Configuration is the binding's pinned profile, endpoint and operations.",
+          ],
+        },
         authorize: {
           limitations: [
             `Delegated to the host OAuth profile; client registration follows this revision's order: ${era.clientRegistration.join(", ")}.`,
@@ -703,7 +903,9 @@ export function createMcpRemoteAdapter(
           ],
         },
         verify: {
-          limitations: ["Server identity is not attested beyond the TLS origin."],
+          limitations: [
+            "Server identity is not attested beyond the TLS origin.",
+          ],
         },
         invoke: {
           limitations: [
@@ -718,9 +920,15 @@ export function createMcpRemoteAdapter(
               : "Change notifications through the bounded GET stream where the server offers one; no webhook delivery.",
           ],
         },
-        reconnect: { limitations: ["Reconnect re-runs authorization against the same pinned resource."] },
+        reconnect: {
+          limitations: [
+            "Reconnect re-runs authorization against the same pinned resource.",
+          ],
+        },
         disconnect: {
-          limitations: ["Local only: MCP defines no disconnect or revocation operation."],
+          limitations: [
+            "Local only: MCP defines no disconnect or revocation operation.",
+          ],
         },
         revoke: {
           implementation: "unsupported",
@@ -730,11 +938,15 @@ export function createMcpRemoteAdapter(
         },
         export: {
           implementation: "unsupported",
-          limitations: ["Export of a server description belongs to the registry adapter."],
+          limitations: [
+            "Export of a server description belongs to the registry adapter.",
+          ],
         },
         delegate: {
           implementation: "unsupported",
-          limitations: ["No sampling, no roots, no task extension: this client offers a server no host capabilities."],
+          limitations: [
+            "No sampling, no roots, no task extension: this client offers a server no host capabilities.",
+          ],
         },
       };
       for (const dimension of DIMENSIONS) {
@@ -743,8 +955,12 @@ export function createMcpRemoteAdapter(
           capabilityStatus(identity, {
             dimension,
             profile,
-            ...(row.implementation ? { implementation: row.implementation } : {}),
-            ...(row.implementation === "unsupported" ? {} : { evidence: "protocol-fixture" as const }),
+            ...(row.implementation
+              ? { implementation: row.implementation }
+              : {}),
+            ...(row.implementation === "unsupported"
+              ? {}
+              : { evidence: "protocol-fixture" as const }),
             limitations: row.limitations ?? [],
           }),
         );
@@ -776,27 +992,41 @@ export function createMcpRemoteAdapter(
     support: "provider-backed",
     custody: ["host-owned", "no-credential", "external-credential-broker"],
     configuration: [],
-    profiles: [...mcpProfileIds.map((id) => capabilityProfileLabel(id)), "http-bearer", "oauth-authorization-code", "none"],
+    profiles: [
+      ...mcpProfileIds.map((id) => capabilityProfileLabel(id)),
+      "http-bearer",
+      "oauth-authorization-code",
+      "none",
+    ],
     capabilities,
 
     async authorize(ctx, intent): Promise<AuthorizationStart> {
       const settings = settingsOf(ctx.binding);
       if (settings.auth === "none") return { kind: "verify" };
       if (settings.auth === "broker")
-        return options.broker ? { kind: "verify" } : { kind: "unsupported", code: "mcp.broker.missing" };
+        return options.broker
+          ? { kind: "verify" }
+          : { kind: "unsupported", code: "mcp.broker.missing" };
       if (settings.bearerConfiguration) {
-        const present = await ctx.environment.configuration.present([settings.bearerConfiguration]);
+        const present = await ctx.environment.configuration.present([
+          settings.bearerConfiguration,
+        ]);
         return present.has(settings.bearerConfiguration)
           ? { kind: "verify" }
-          : { kind: "configuration-required", missing: [settings.bearerConfiguration] };
+          : {
+              kind: "configuration-required",
+              missing: [settings.bearerConfiguration],
+            };
       }
-      if (ctx.connection?.credentialRef && !intent.accountSwitch) return { kind: "verify" };
+      if (ctx.connection?.credentialRef && !intent.accountSwitch)
+        return { kind: "verify" };
       // No credential yet: ask the server what it wants, then hand the whole
       // challenge to the host's OAuth profile. This adapter never speaks to an
       // authorization server itself.
       const challenge = await probeChallenge(ctx, settings);
       if (!challenge) return { kind: "verify" };
-      if (!options.beginOAuth) return { kind: "unsupported", code: "mcp.oauth.hook-missing" };
+      if (!options.beginOAuth)
+        return { kind: "unsupported", code: "mcp.oauth.hook-missing" };
       return options.beginOAuth(ctx, {
         challenge,
         intent,
@@ -836,21 +1066,28 @@ export function createMcpRemoteAdapter(
             requestedProfile: discovery.requestedProfile,
             era: discovery.era,
             protocolVersion: discovery.protocolVersion,
-            ...(discovery.supportedVersions ? { supportedVersions: discovery.supportedVersions } : {}),
+            ...(discovery.supportedVersions
+              ? { supportedVersions: discovery.supportedVersions }
+              : {}),
             capabilities: Object.keys(discovery.capabilities).slice(0, 32),
             unsupportedExtensions: discovery.extensions.unsupported,
             warnings: discovery.warnings.slice(0, 32),
           },
         };
       } catch (error) {
-        if (error instanceof ConnectorError && error.code === "unauthenticated") {
+        if (
+          error instanceof ConnectorError &&
+          error.code === "unauthenticated"
+        ) {
           const settings = settingsOf(ctx.binding);
           const challenge = await probeChallenge(ctx, settings);
           return {
             state: "denied",
             claims: [],
             code: "authorization-required",
-            ...(challenge ? { adapterState: { challenge: summarizeChallenge(challenge) } } : {}),
+            ...(challenge
+              ? { adapterState: { challenge: summarizeChallenge(challenge) } }
+              : {}),
           };
         }
         if (error instanceof ConnectorError && error.code === "cancelled")
@@ -869,7 +1106,11 @@ export function createMcpRemoteAdapter(
       if (input.kind === "poll") return this.verify!(ctx);
       // Input values are continued through resumeInput, which needs the
       // handoff record the command layer holds; they are not accepted here.
-      return { state: "denied", claims: [], code: "mcp.completion.unsupported-input" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "mcp.completion.unsupported-input",
+      };
     },
 
     async invoke(ctx, request: InvokeRequest): Promise<InvokeResult> {
@@ -884,7 +1125,10 @@ export function createMcpRemoteAdapter(
 
     async disconnect(ctx, scope: DisconnectScope): Promise<DisconnectResult> {
       if (ctx.connection)
-        await ctx.environment.handoffs.cancelAll(ctx.connection.connectionRef, "disconnect");
+        await ctx.environment.handoffs.cancelAll(
+          ctx.connection.connectionRef,
+          "disconnect",
+        );
       // MCP has no disconnect, delete or revoke operation. Forgetting the
       // connection locally is all that can honestly be claimed; a grant is
       // revoked at the authorization server, which is a different intent.
@@ -896,7 +1140,11 @@ export function createMcpRemoteAdapter(
     },
 
     async revoke(): Promise<DisconnectResult> {
-      return { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" };
+      return {
+        local: "not-attempted",
+        broker: "not-attempted",
+        upstream: "unsupported",
+      };
     },
 
     resumeInput(ctx, record, values, action) {
