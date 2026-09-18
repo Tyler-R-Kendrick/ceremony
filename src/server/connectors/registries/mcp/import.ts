@@ -137,6 +137,36 @@ type Redaction = {
   field: "value" | "default" | "placeholder";
 };
 
+/*
+ * SEC-F3. A name that any reasonable reader would call a credential.
+ *
+ * This is the same expression the publication projection in `projections.ts`
+ * already applies, and that was the defect: the two surfaces in this one
+ * module disagreed about what a secret is. Import trusted `isSecret` alone, so
+ * a publisher who pasted a credential into a value and forgot the flag got it
+ * stored verbatim in the normalized definition and republished by the
+ * native-extension export, while publication would have stripped the same
+ * field on the strength of its name.
+ *
+ * `isSecret` is a publisher's claim, and a publisher who is careless or
+ * hostile is exactly the case this importer exists for, so the flag is taken
+ * as one input to the decision rather than the whole of it. The heuristic can
+ * over-redact -- a variable innocently named `PRIVATE_REGION` loses its
+ * default -- and that is the right direction to be wrong in: a redaction is
+ * recorded and visible to a reviewer, who can restore the value, whereas a
+ * leaked credential cannot be recalled.
+ */
+const credentialName =
+  /authorization|cookie|token|secret|api[-_]?key|password|credential|passwd|private/i;
+
+/** Whether a declared input's value must be treated as a credential. */
+function isSecretInput(input: RegistryInput): boolean {
+  return (
+    input.isSecret === true ||
+    (typeof input.name === "string" && credentialName.test(input.name))
+  );
+}
+
 /** A copy of an input with secret values removed; the field names stay so a reviewer sees what was there. */
 function inertInput<T extends RegistryInput>(
   input: T,
@@ -144,7 +174,7 @@ function inertInput<T extends RegistryInput>(
   redactions: Redaction[],
 ): T {
   const copy: Record<string, unknown> = { ...input };
-  if (input.isSecret === true) {
+  if (isSecretInput(input)) {
     for (const field of ["value", "default", "placeholder"] as const)
       if (typeof copy[field] === "string" && copy[field].length > 0) {
         copy[field] = undefined;
@@ -246,8 +276,10 @@ function collectConfiguration(
     );
     return;
   }
+  // Agrees with `inertInput` above by construction: a value the importer
+  // refuses to carry is never reported as a public configuration requirement.
   const classification: ConfigurationRequirement["classification"] =
-    input.isSecret === true
+    isSecretInput(input)
       ? "secret"
       : input.format === "filepath"
         ? "personal"

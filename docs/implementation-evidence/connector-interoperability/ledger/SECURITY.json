@@ -182,7 +182,7 @@
       "notes": "Fix for finding SEC-F1. publicServerJsonProjection now checks websiteUrl, repository.url, every icons[].src, every packages[].transport.url and every packages[].registryBaseUrl against isPubliclyRoutableUrl, in addition to remotes[].url, and reports them through the existing privateRemoteUrls channel that publicSubregistryProjection already uses to exclude an entry. The field keeps its name so no consumer changes. The 44 existing tests/connectors/registry-mcp tests still pass."
     }
   ],
-  "findings": [
+  "securityFindings": [
     {
       "id": "SEC-F1",
       "severity": "medium",
@@ -198,24 +198,28 @@
     {
       "id": "SEC-F2",
       "severity": "low",
-      "status": "open",
+      "status": "resolved",
       "title": "metadataCacheKey composes its parts with the length after the part, so the composition is not injective",
       "component": "src/server/connectors/auth/discovery.ts",
       "acceptanceIds": ["AC-AUTH-02"],
       "impact": "Defence in depth only. The key is `${tenantId ?? ''}#${tenantId?.length ?? 0}#${issuer}`. Because the length follows its part rather than preceding it, ('a', '3#x') and ('a#1', 'x') both produce 'a#1#3#x'. Two tenants would then share one cached authorization-server metadata document. Not reachable today: tenant identifiers match /^[a-zA-Z0-9_.:@/-]{1,200}$/ and so cannot contain '#', and assertIssuerIdentifier runs before the key is built and rejects an issuer with a fragment. No exploit exists; the composition should still be the injective one.",
       "reproduction": "metadataCacheKey('a', '3#x') === metadataCacheKey('a#1', 'x'). tests/connectors/security/threat-model.test.ts asserts the reachable properties (distinct tenants differ, a trailing-slash issuer is a different key) and deliberately does not assert the unreachable collision away.",
-      "proposedPatch": "In src/server/connectors/auth/discovery.ts, replace the body of metadataCacheKey with: return `${(tenantId ?? '').length}:${tenantId ?? ''}|${issuer}`; This is the length-prefixed form charter section 3.1 recommends. It changes cache keys, which only invalidates an in-process cache."
+      "proposedPatch": "In src/server/connectors/auth/discovery.ts, replace the body of metadataCacheKey with: return `${(tenantId ?? '').length}:${tenantId ?? ''}|${issuer}`; This is the length-prefixed form charter section 3.1 recommends. It changes cache keys, which only invalidates an in-process cache.",
+      "resolution": "Fixed by the integrator. metadataCacheKey is length-prefixed: `${tenant.length}:${tenant}|${issuer.length}:${issuer}`, so every part is self-delimiting and no arrangement of the parts composes to another's string. tests/connectors/auth/cache-key.test.ts asserts the named collision and then the general property over 2000 generated pairs, because 83 auth tests passed with the broken key: nothing had asked the question.",
+      "tests": ["tests/connectors/auth/cache-key.test.ts"]
     },
     {
       "id": "SEC-F3",
       "severity": "low",
-      "status": "open",
+      "status": "resolved",
       "title": "The registry importer redacts a declared value only when the publisher set isSecret",
       "component": "src/server/connectors/registries/mcp/import.ts",
       "acceptanceIds": ["AC-IMP-13", "AC-MCP-08"],
       "impact": "A publisher who pastes a credential into environmentVariables[].value and forgets isSecret gets that value stored verbatim in the normalized definition and republished by exportDefinitionProjection(definition, { includeNativeExtensions: true }). The public subregistry projection does apply a name heuristic (sensitiveName matches token, secret, api-key, password, credential, authorization, cookie, private), so the two surfaces in the same module disagree about what a secret is. No public leak today: the default export, the agent projection and the public subregistry all exclude it, and includeNativeExtensions is an operator opt-in the export docstring already warns about.",
       "reproduction": "importServerJson with packages[0].environmentVariables = [{ name: 'GITHUB_TOKEN', value: 'ghp_CANARY_PLAIN' }, { name: 'MARKED', value: 'ghp_CANARY_MARKED', isSecret: true }]. The marked value is removed with a security.secret-value-redacted issue and a redaction record; the unmarked one survives into definition.nativeExtensions and into the native-extension export.",
-      "proposedPatch": "Apply the same name heuristic at import that projections.ts already applies at publication: treat a value as secret when isSecret is true OR the input's name matches /authorization|cookie|token|secret|api[-_]?key|password|credential|passwd|private/i, and record the redaction the same way. Owner: REGISTRY swarm."
+      "proposedPatch": "Apply the same name heuristic at import that projections.ts already applies at publication: treat a value as secret when isSecret is true OR the input's name matches /authorization|cookie|token|secret|api[-_]?key|password|credential|passwd|private/i, and record the redaction the same way. Owner: REGISTRY swarm.",
+      "resolution": "Fixed by the integrator, as the finding proposed. The importer now treats a value as a credential when isSecret is true OR the declared name matches the same expression the publication projection in that module already used, so the two surfaces no longer disagree about what a secret is. The configuration classification reads the same predicate, so a value the importer refuses to carry is never reported as a public requirement. The heuristic can over-redact, which is the right direction: a redaction is recorded, visible to a reviewer and reversible, while a leaked credential is not. tests/connectors/registry-mcp/credential-names.test.ts asserts an unmarked credential-named value is redacted, a marked one still is, an ordinary value survives, the native-extension export no longer carries either canary, and the field names are kept so a reviewer sees what was removed.",
+      "tests": ["tests/connectors/registry-mcp/credential-names.test.ts"]
     },
     {
       "id": "SEC-F4",

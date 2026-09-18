@@ -141,11 +141,28 @@ function clampTtl(value: number): number {
   return Math.max(MIN_TTL_MS, Math.min(MAX_TTL_MS, value));
 }
 
+/**
+ * The cache key for one tenant's view of one issuer.
+ *
+ * Length-prefixed, not length-suffixed. The previous spelling put the length
+ * after the value it measured, which does not separate anything: with
+ * `${tenant}#${tenant.length}#${issuer}`, the pair ("a", "3#x") and the pair
+ * ("a#1", "x") both compose to `a#1#3#x`, so one tenant's cached metadata
+ * could be served for another's issuer. Unreachable today -- a tenant id
+ * cannot contain `#`, and `assertIssuerIdentifier` rejects an issuer carrying
+ * a fragment before this is ever called -- but a key whose safety rests on
+ * two validators elsewhere is a key that breaks when either one moves.
+ *
+ * With the length first, every part is self-delimiting: a reader knows how
+ * many characters to take before it reaches any separator, so no arrangement
+ * of the parts can produce the same string as a different arrangement.
+ */
 export function metadataCacheKey(
   tenantId: string | undefined,
   issuer: string,
 ): string {
-  return `${tenantId ?? ""}#${tenantId?.length ?? 0}#${issuer}`;
+  const tenant = tenantId ?? "";
+  return `${tenant.length}:${tenant}|${issuer.length}:${issuer}`;
 }
 
 /**
