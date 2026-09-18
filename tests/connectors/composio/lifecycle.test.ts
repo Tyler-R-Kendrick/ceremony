@@ -94,7 +94,8 @@ describe("Composio lifecycle mapping", () => {
       assert.equal(result.state, state, status);
       assert.equal(result.code, code, status);
       assert.equal(
-        (result.adapterState as { composioLifecycle?: string }).composioLifecycle,
+        (result.adapterState as { composioLifecycle?: string })
+          .composioLifecycle,
         composioLifecycle(status),
       );
       // Nothing of the broker's credential bag survives verification.
@@ -204,7 +205,11 @@ describe("Composio negative-capability report", () => {
             enabled: true,
             composio_managed_auth_schemes: ["OAUTH2"],
             auth_config_details: [
-              { mode: "OAUTH2", name: "GitHub OAuth", required_scopes: ["repo"] },
+              {
+                mode: "OAUTH2",
+                name: "GitHub OAuth",
+                required_scopes: ["repo"],
+              },
             ],
             meta: { toolkit_version: TOOLKIT_VERSION },
           },
@@ -259,7 +264,8 @@ describe("Composio negative-capability report", () => {
     for (const issue of report.issues) {
       if (issue.severity === "blocking")
         assert.notEqual(issue.executionImpact, "none", issue.code);
-      if (issue.severity === "info") assert.equal(issue.executionImpact, "none");
+      if (issue.severity === "info")
+        assert.equal(issue.executionImpact, "none");
     }
     const deprecated = report.issues.find(
       (issue) => issue.code === "composio.tool.deprecated",

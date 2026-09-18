@@ -93,7 +93,9 @@ function readArguments(
     throw invalid("composio.arguments.shape");
   const declared = new Set(settings.arguments ?? []);
   const out: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(input as Record<string, unknown>)) {
+  for (const [name, value] of Object.entries(
+    input as Record<string, unknown>,
+  )) {
     if (isReservedObjectKey(name) || reservedArgumentNames.has(name))
       throw invalid("composio.arguments.reserved");
     if (!declared.has(name)) throw invalid("composio.arguments.unknown");
@@ -152,7 +154,9 @@ function resolveAccount(call: ComposioCall): string {
  */
 async function assertReviewedTool(
   call: ComposioCall,
-  shared: { toolChecks: Map<string, { at: number; digest: string; version: string }> },
+  shared: {
+    toolChecks: Map<string, { at: number; digest: string; version: string }>;
+  },
   toolSlug: string,
   version: string,
   settings: ComposioOperationSettings,
@@ -301,7 +305,10 @@ export async function composioInvoke(
   if (!operation) throw denied("composio.operation.unbound");
   const route = composioRoute(operation);
   toolAllowed(call, route);
-  if (route.kind !== "tool" && (call.settings.execution ?? "direct") !== "session")
+  if (
+    route.kind !== "tool" &&
+    (call.settings.execution ?? "direct") !== "session"
+  )
     throw new ConnectorError("unsupported", {
       detail: "composio.execution.profile",
     });
@@ -429,9 +436,7 @@ async function executeDirect(
 ): Promise<ExecutionOutcome> {
   const response = await call.client.send({
     method: "POST",
-    path: call.client.path(
-      `/tools/execute/${encodePathSegment(toolSlug)}`,
-    ),
+    path: call.client.path(`/tools/execute/${encodePathSegment(toolSlug)}`),
     body: {
       user_id: call.userId,
       connected_account_id: input.accountId,
@@ -457,8 +462,7 @@ async function executeInSession(
     consequential: boolean;
   },
 ): Promise<ExecutionOutcome> {
-  const toolSlug =
-    route.kind === "meta" ? route.metaTool : route.toolSlug;
+  const toolSlug = route.kind === "meta" ? route.metaTool : route.toolSlug;
   const suffix = route.kind === "meta" ? "execute_meta" : "execute";
   const run = async (sessionId: string) =>
     call.client.send({

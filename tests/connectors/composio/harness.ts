@@ -427,7 +427,9 @@ export function stringsIn(value: unknown, out: string[] = []): string[] {
   if (typeof value === "string") out.push(value);
   else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
   else if (value && typeof value === "object")
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, item] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
       out.push(key);
       stringsIn(item, out);
     }

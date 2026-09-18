@@ -229,7 +229,9 @@ export const connectedAccountSchema = z.looseObject({
   auth_config: accountAuthConfigSchema,
   status: z.string().min(1),
   user_id: z.string().min(1),
-  state: z.looseObject({ authScheme: text, val: z.unknown().optional() }).nullish(),
+  state: z
+    .looseObject({ authScheme: text, val: z.unknown().optional() })
+    .nullish(),
   data: looseRecord.nullish(),
   created_at: text,
   updated_at: text,

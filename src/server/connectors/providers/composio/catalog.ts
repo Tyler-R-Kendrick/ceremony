@@ -113,7 +113,8 @@ export async function listToolkits(
   for (const toolkit of page.items) {
     if (!composioToolkitSlugSchema.safeParse(toolkit.slug).success) continue;
     const version = toolkitVersionOf(toolkit);
-    if (!version) issues.push(versionAbsent("toolkit", `/items/${toolkit.slug}`));
+    if (!version)
+      issues.push(versionAbsent("toolkit", `/items/${toolkit.slug}`));
     const schemes = toolkit.composio_managed_auth_schemes ?? [];
     items.push({
       identity: identity(call, toolkit.slug, version ?? UNVERSIONED),
@@ -240,7 +241,9 @@ export async function fetchConnectedAccounts(
     method: "GET",
     path: call.client.path("/connected_accounts"),
     query: {
-      limit: String(Math.min(Math.max(options.limit ?? LIST_LIMIT, 1), LIST_LIMIT)),
+      limit: String(
+        Math.min(Math.max(options.limit ?? LIST_LIMIT, 1), LIST_LIMIT),
+      ),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       user_ids: [call.userId],
       toolkit_slugs: [call.settings.toolkit.slug],
@@ -342,7 +345,9 @@ export async function fetchTools(
     path: call.client.path("/tools"),
     query: {
       toolkit_slug: call.settings.toolkit.slug,
-      limit: String(Math.min(Math.max(options.limit ?? LIST_LIMIT, 1), LIST_LIMIT)),
+      limit: String(
+        Math.min(Math.max(options.limit ?? LIST_LIMIT, 1), LIST_LIMIT),
+      ),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.query ? { query: options.query } : {}),
     },

@@ -1,0 +1,1608 @@
+{
+  "lockVersion": 1,
+  "pinnedAt": "2026-09-18",
+  "owner": "DOCS swarm",
+  "about": "One record per external specification, standards draft or vendor document that a delivered connector adapter depends on, plus the Ceremony-internal profile identifiers the ledgers cite so that every `sourceProfileIds` entry resolves. Records are drawn from the swarm ledgers under ./ledger/; the `recordedBy` field names the ledger that pinned the facts. Licence fields say exactly how the licence was established; `not-read-here` means nobody in this execution read the licence and no reuse beyond citation is claimed. No external manual is copied into this repository: adapters restate wire facts (paths, field names, header names, documented constraints) and cite the document.",
+  "rules": [
+    "A digest identifies bytes. It is not trust, not authorization and not a certification.",
+    "An SDK's open-source licence does not license the vendor's catalog assets: app names, logos, marks, category data, connector catalogs, icon sets and curated app lists are separately owned and are neither redistributed nor embedded by any adapter here.",
+    "Where a document is a draft, the exact draft revision is recorded and no finalized-standard or certified claim is made anywhere.",
+    "Where a vendor publishes no operation for an intended lifecycle action, the adapter records the native limitation. No endpoint is invented to fill a gap in a document.",
+    "Every record's facts were read from the document itself. No record here is evidence that a live account, a paid plan or a provider certification exists."
+  ],
+  "records": [
+    {
+      "id": "openapi-3.2.1",
+      "kind": "specification",
+      "title": "OpenAPI Specification v3.2.1",
+      "url": "https://spec.openapis.org/oas/v3.2.1.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.2.1",
+      "revision": "published 10 September 2026",
+      "digest": null,
+      "digestNote": "not captured: the readers dispatch on the document's declared version field, not on a pinned copy of the specification",
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "\"This document is licensed under The Apache License, Version 2.0.\" Copyright © 2026 the Linux Foundation.",
+        "evidence": "read from the published document by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Wire semantics are implemented; no specification text, schema file or example document is copied into this repository. Field names and keyword names are facts about the format.",
+      "dependents": {
+        "adapters": ["openapi-http"],
+        "profiles": ["openapi-3.2", "openapi-http-executable/1"],
+        "modules": ["src/server/connectors/formats/openapi/"]
+      },
+      "recordedBy": ["HTTP"],
+      "notes": "3.2 additionalOperations and QUERY operations are read and preserved but cannot be bound: only the seven methods the binding contract carries are executable (structure.unsupported-method)."
+    },
+    {
+      "id": "openapi-3.1.2",
+      "kind": "specification",
+      "title": "OpenAPI Specification v3.1.2",
+      "url": "https://spec.openapis.org/oas/v3.1.2.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.1.2",
+      "revision": "3.1 line; reader dispatches on any declared 3.1.x",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the 3.2.1 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/oas/v3.2.1.html, 2026-09-18; the 3.1.2 page itself was not separately read for its licence in this execution"
+      },
+      "reuse": "Same as openapi-3.2.1. The 3.1 JSON Schema dialect is preserved as declared; it is not rewritten into another dialect.",
+      "dependents": {
+        "adapters": ["openapi-http"],
+        "profiles": ["openapi-3.1", "openapi-http-executable/1"],
+        "modules": ["src/server/connectors/formats/openapi/"]
+      },
+      "recordedBy": ["HTTP", "IMPORT"],
+      "notes": "Cited by IMPORT as `openapi-3.1` and by HTTP as `openapi-3.1.2`; both name the same 3.1 line."
+    },
+    {
+      "id": "openapi-3.1",
+      "kind": "alias",
+      "title": "OpenAPI 3.1 line (alias of openapi-3.1.2)",
+      "url": "https://spec.openapis.org/oas/v3.1.2.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.1.x",
+      "revision": "alias record so the IMPORT ledger's spelling resolves",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "See openapi-3.1.2.",
+        "evidence": "see openapi-3.1.2"
+      },
+      "reuse": "See openapi-3.1.2.",
+      "dependents": {
+        "adapters": [],
+        "profiles": ["openapi-3.1"],
+        "modules": ["src/server/connectors/import/diff.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Alias only. The refresh differ classifies security-sensitive pointers per format family, not per patch version."
+    },
+    {
+      "id": "openapi-3.0.3",
+      "kind": "specification",
+      "title": "OpenAPI Specification v3.0.3",
+      "url": "https://spec.openapis.org/oas/v3.0.3.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.0.3",
+      "revision": "3.0 line; reader dispatches on any declared 3.0.x",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the 3.2.1 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/oas/v3.2.1.html, 2026-09-18"
+      },
+      "reuse": "Same as openapi-3.2.1. The 3.0 `nullable` keyword and the 3.0 schema subset are preserved as declared, not upgraded.",
+      "dependents": {
+        "adapters": ["openapi-http", "supabase-management (source document)"],
+        "profiles": ["openapi-3.0", "openapi-http-executable/1"],
+        "modules": ["src/server/connectors/formats/openapi/"]
+      },
+      "recordedBy": ["HTTP"],
+      "notes": "The Supabase Management API document and the Vercel OpenAPI document are both OpenAPI 3.0.x; see supabase-management-api-v1 and vercel-connect-rest-2026-09."
+    },
+    {
+      "id": "openapi-2.0",
+      "kind": "specification",
+      "title": "Swagger (OpenAPI) Specification 2.0",
+      "url": "https://spec.openapis.org/oas/v2.0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2.0",
+      "revision": "alias of swagger-2.0 as the IMPORT ledger spells it",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the 3.2.1 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/oas/v3.2.1.html, 2026-09-18"
+      },
+      "reuse": "See swagger-2.0.",
+      "dependents": {
+        "adapters": ["openapi-http"],
+        "profiles": ["swagger-2.0"],
+        "modules": ["src/server/connectors/formats/openapi/read.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Alias record; the implementation is the same reader as swagger-2.0."
+    },
+    {
+      "id": "swagger-2.0",
+      "kind": "specification",
+      "title": "Swagger (OpenAPI) Specification 2.0",
+      "url": "https://spec.openapis.org/oas/v2.0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2.0",
+      "revision": "final 2.0 document",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the 3.2.1 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/oas/v3.2.1.html, 2026-09-18"
+      },
+      "reuse": "Wire semantics only. `host`, `basePath` and `schemes` become declared servers; `body`/`formData` parameters become a request body; `collectionFormat` is translated to style/explode. No text is copied.",
+      "dependents": {
+        "adapters": ["openapi-http", "microsoft-custom-connector (source family)"],
+        "profiles": ["swagger-2.0"],
+        "modules": ["src/server/connectors/formats/openapi/read.ts"]
+      },
+      "recordedBy": ["HTTP"],
+      "notes": "Microsoft custom connectors publish Swagger 2.0 with x-ms-* extensions; the import family is the same reader plus the extension handling in formats/microsoft/."
+    },
+    {
+      "id": "overlay-1.1.0",
+      "kind": "specification",
+      "title": "Overlay Specification v1.1.0",
+      "url": "https://spec.openapis.org/overlay/v1.1.0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.1.0",
+      "revision": "published 14 January 2026",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "\"This document is licensed under The Apache License, Version 2.0.\" Copyright © 2026 the Linux Foundation.",
+        "evidence": "read from the published document by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Overlay actions are implemented over an explicitly documented JSONPath subset. This is not a conformance claim: Overlay 1.1.0 requires full RFC 9535 for interoperable documents, and an overlay using a construct outside the subset is refused rather than partially applied.",
+      "dependents": {
+        "adapters": ["openapi-http (import pipeline)"],
+        "profiles": ["overlay-1.1"],
+        "modules": ["src/server/connectors/formats/overlay/"]
+      },
+      "recordedBy": ["HTTP"],
+      "notes": "1.1.0 adds primitive targets, array-to-array concatenation and `copy` over 1.0.0."
+    },
+    {
+      "id": "overlay-1.0.0",
+      "kind": "specification",
+      "title": "Overlay Specification v1.0.0",
+      "url": "https://spec.openapis.org/overlay/v1.0.0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.0.0",
+      "revision": "1.0 line; the patch component of the declared `overlay` field is ignored per the specification",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the Overlay 1.1.0 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/overlay/v1.1.0.html, 2026-09-18"
+      },
+      "reuse": "Same as overlay-1.1.0.",
+      "dependents": {
+        "adapters": ["openapi-http (import pipeline)"],
+        "profiles": ["overlay-1.0"],
+        "modules": ["src/server/connectors/formats/overlay/apply.ts"]
+      },
+      "recordedBy": ["HTTP"],
+      "notes": "In 1.0.0, `update` merges into object targets and appends one entry to array targets; primitive targets and `copy` do not exist."
+    },
+    {
+      "id": "arazzo-1.1.0",
+      "kind": "specification",
+      "title": "The Arazzo Specification v1.1.0",
+      "url": "https://spec.openapis.org/arazzo/v1.1.0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.1.0",
+      "revision": "published 17 May 2026",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "\"This document is licensed under The Apache License, Version 2.0.\" Copyright © 2026 the Linux Foundation.",
+        "evidence": "read from the published document by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Document model and criteria semantics are implemented; no document text or example workflow is copied. The executable profile is a documented subset, described in docs/specifications/arazzo-profiles.md.",
+      "dependents": {
+        "adapters": ["arazzo (format importer and compiler)"],
+        "profiles": ["arazzo-1.1.0"],
+        "modules": ["src/server/connectors/formats/arazzo/"]
+      },
+      "recordedBy": ["WORKFLOW"],
+      "notes": "A 1.1.0 document holding 1.1-only constructs cannot be exported as 1.0.1: each is a blocking export.version-downgrade-loss and no document is produced."
+    },
+    {
+      "id": "arazzo-1.0.1",
+      "kind": "specification",
+      "title": "The Arazzo Specification v1.0.1",
+      "url": "https://spec.openapis.org/arazzo/v1.0.1.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.0.1",
+      "revision": "the version the existing studio authoring envelope constrains",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "OpenAPI Initiative documents are published under The Apache License, Version 2.0 (established on the Arazzo 1.1.0 document of the same series).",
+        "evidence": "licence read on https://spec.openapis.org/arazzo/v1.1.0.html, 2026-09-18"
+      },
+      "reuse": "Same as arazzo-1.1.0.",
+      "dependents": {
+        "adapters": ["arazzo (format importer and compiler)", "ceremony studio (existing v1 envelope)"],
+        "profiles": ["arazzo-1.0.1", "arazzo-profile-1.0.1 (Ceremony constrained schema)"],
+        "modules": [
+          "src/server/connectors/formats/arazzo/",
+          "src/server/arazzo.ts",
+          "src/core/connector-authoring.ts"
+        ]
+      },
+      "recordedBy": ["WORKFLOW"],
+      "notes": "The existing bounded executor in src/server/arazzo.ts and the studio's constrained schema are unchanged; the new reader is a separate, wider surface with its own conformance result."
+    },
+    {
+      "id": "asyncapi-3.1.0",
+      "kind": "specification",
+      "title": "AsyncAPI Specification 3.1.0",
+      "url": "https://www.asyncapi.com/docs/reference/specification/v3.1.0",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.1.0",
+      "revision": "3.1.0 reference page",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "\"The AsyncAPI Specification is licensed under The Apache License, Version 2.0.\"",
+        "evidence": "read from the published document by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Channel, message, operation, server and binding identity are preserved through normalization. No broker runtime is implemented and no specification text is copied.",
+      "dependents": {
+        "adapters": ["asyncapi (event description importer)"],
+        "profiles": ["asyncapi-3.1"],
+        "modules": ["src/server/connectors/events/asyncapi.ts"]
+      },
+      "recordedBy": ["EVENT"],
+      "notes": "Only an inbound operation whose every declared protocol is http/https claims transport `http-webhook`; ws, kafka, amqp, mqtt, googlepubsub and the rest keep transport `unsupported` with the native transport preserved."
+    },
+    {
+      "id": "asyncapi-3.0.0",
+      "kind": "specification",
+      "title": "AsyncAPI Specification 3.0.0",
+      "url": "https://www.asyncapi.com/docs/reference/specification/v3.0.0",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.0.0",
+      "revision": "3.0.0 reference page; exercised through the streetlights-kafka fixture",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "The AsyncAPI Specification is licensed under The Apache License, Version 2.0 (established on the 3.1.0 document of the same series).",
+        "evidence": "licence read on https://www.asyncapi.com/docs/reference/specification/v3.1.0, 2026-09-18"
+      },
+      "reuse": "Same as asyncapi-3.1.0. The declared version string is preserved, never upgraded.",
+      "dependents": {
+        "adapters": ["asyncapi (event description importer)"],
+        "profiles": ["asyncapi-3.0"],
+        "modules": ["src/server/connectors/events/asyncapi.ts"]
+      },
+      "recordedBy": ["EVENT", "IMPORT"],
+      "notes": "Cited by IMPORT as `asyncapi-3.0`; the same document."
+    },
+    {
+      "id": "asyncapi-3.0",
+      "kind": "alias",
+      "title": "AsyncAPI 3.0 line (alias of asyncapi-3.0.0)",
+      "url": "https://www.asyncapi.com/docs/reference/specification/v3.0.0",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "3.0.x",
+      "revision": "alias record so the IMPORT ledger's spelling resolves",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "See asyncapi-3.0.0.",
+        "evidence": "see asyncapi-3.0.0"
+      },
+      "reuse": "See asyncapi-3.0.0.",
+      "dependents": {
+        "adapters": [],
+        "profiles": ["asyncapi-3.0"],
+        "modules": ["src/server/connectors/import/diff.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Alias only."
+    },
+    {
+      "id": "cloudevents-1.0",
+      "kind": "specification",
+      "title": "CloudEvents core specification, 1.0 attribute set",
+      "url": "https://cloudevents.io/",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.0",
+      "revision": "the page read on 2026-09-18 reported 1.0.3-wip as the working document; the implementation accepts specversion \"1.0\" only",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "The cloudevents/spec repository is licensed under the Apache License, Version 2.0.",
+        "evidence": "read from https://raw.githubusercontent.com/cloudevents/spec/main/LICENSE by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Attribute names and required/optional rules are implemented. Only the JSON event format is supported; binary mode (data_base64) is refused with ConnectorError(\"unsupported\").",
+      "dependents": {
+        "adapters": ["events envelope mapper"],
+        "profiles": ["cloudevents-1.0"],
+        "modules": ["src/server/connectors/events/envelope.ts"]
+      },
+      "recordedBy": ["EVENT"],
+      "notes": "fromCloudEvent returns an explicitly UnverifiedEvent: a CloudEvent carries no proof, so reading one can never produce a verified envelope."
+    },
+    {
+      "id": "standard-webhooks-1.0.0",
+      "kind": "specification",
+      "title": "Standard Webhooks specification 1.0.0",
+      "url": "https://www.standardwebhooks.com/",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.0.0",
+      "revision": "standard-webhooks/standard-webhooks, spec/standard-webhooks.md",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0",
+        "statement": "The standard-webhooks/standard-webhooks repository LICENSE is the Apache License, Version 2.0.",
+        "evidence": "read from https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/main/LICENSE by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "The symmetric v1 scheme is implemented, including the published test vector, which is reproduced as a test assertion rather than redistributed as documentation. The asymmetric v1a (ed25519) scheme is recognized and reported as unsupported-scheme.",
+      "dependents": {
+        "adapters": ["standard-webhooks verifier", "connector event receiver"],
+        "profiles": ["standard-webhooks-1.0"],
+        "modules": [
+          "src/server/connectors/events/standard-webhooks.ts",
+          "src/server/connectors/events/verification.ts"
+        ]
+      },
+      "recordedBy": ["EVENT"],
+      "notes": "Timestamp tolerance defaults to 300s and is bounded to 1..86400s in both directions; a host cannot configure the window away."
+    },
+    {
+      "id": "mcp-2026-07-28",
+      "kind": "specification",
+      "title": "Model Context Protocol specification, revision 2026-07-28",
+      "url": "https://modelcontextprotocol.io/specification/2026-07-28/changelog",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2026-07-28",
+      "revision": "17 specification pages read; each verified fact is listed in ledger/MCP.json under verifiedAgainstSpecText",
+      "digest": null,
+      "digestNote": "no page digest was captured; the ledger records per-page verified statements instead",
+      "licence": {
+        "spdx": "Apache-2.0 (specification) / MIT (older contributions) / CC-BY-4.0 (documentation excluding specifications)",
+        "statement": "The modelcontextprotocol LICENSE file carries all three: Apache-2.0 for new code and specification contributions, MIT for older contributions where relicensing consent was not obtained, CC-BY-4.0 for documentation excluding specifications. Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.",
+        "evidence": "read from https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/LICENSE by the DOCS swarm, 2026-09-18"
+      },
+      "reuse": "Wire behaviour is implemented from the specification text; no specification prose is reproduced in this repository beyond short cited statements of fact in ledgers. The `io.modelcontextprotocol/` `_meta` prefix is reserved by the specification and is used only as the specification defines it.",
+      "dependents": {
+        "adapters": ["mcp-client", "supabase-mcp"],
+        "profiles": ["mcp-2026-07-28"],
+        "modules": [
+          "src/server/connectors/mcp/",
+          "src/server/connectors/providers/supabase/hosted-mcp.ts"
+        ]
+      },
+      "recordedBy": ["MCP", "SUPABASE"],
+      "notes": "Four behaviours are explicitly host policy rather than specification requirements and are recorded as inferred, not verified, in ledger/MCP.json: the unauthenticated probe request, treating HTTP 202 to a request as 'no response will arrive', clamping ttlMs to a host maximum, and numeric stream and pagination bounds."
+    },
+    {
+      "id": "mcp-2026-07-28-authorization",
+      "kind": "specification",
+      "title": "Model Context Protocol 2026-07-28: Authorization",
+      "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2026-07-28",
+      "revision": "authorization, authorization-server-discovery and client-registration pages",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0 (specification)",
+        "statement": "See mcp-2026-07-28.",
+        "evidence": "see mcp-2026-07-28"
+      },
+      "reuse": "The 401 challenge shape, the well-known path-insertion order and the client-registration priority are implemented. Registration metadata does not override host trust policy.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "mcp-client"],
+        "profiles": ["mcp-2026-07-28-authorization"],
+        "modules": [
+          "src/server/connectors/auth/discovery.ts",
+          "src/server/connectors/auth/client.ts"
+        ]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Dynamic Client Registration is deprecated in this revision but remains implemented, because providers that require it exist; the configured profile serves them without claiming universal current behaviour."
+    },
+    {
+      "id": "mcp-enterprise-managed-authorization",
+      "kind": "specification-extension",
+      "title": "MCP enterprise managed authorization extension",
+      "url": "https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "extension page as published on 2026-09-18",
+      "revision": "not separately versioned on the page read",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0 (specification) / CC-BY-4.0 (documentation)",
+        "statement": "See mcp-2026-07-28; the extension is published in the same project.",
+        "evidence": "see mcp-2026-07-28"
+      },
+      "reuse": "Read for the token-exchange profile only. ID-JAG (urn:ietf:params:oauth:token-type:id-jag) is unsupported by default and requires an explicit host policy flag.",
+      "dependents": {
+        "adapters": ["connector OAuth token exchange"],
+        "profiles": ["mcp-enterprise-managed-authorization"],
+        "modules": ["src/server/connectors/auth/token-exchange.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "An extension is negotiated, never assumed."
+    },
+    {
+      "id": "mcp-2025-11-25",
+      "kind": "specification",
+      "title": "Model Context Protocol specification, revision 2025-11-25",
+      "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2025-11-25",
+      "revision": "lifecycle, transports, authorization and elicitation pages",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0 (specification) / MIT / CC-BY-4.0",
+        "statement": "See mcp-2026-07-28.",
+        "evidence": "see mcp-2026-07-28"
+      },
+      "reuse": "Implemented as a separate legacy wire profile with its own handshake, session and stream behaviour. Protocols are never mixed within one message.",
+      "dependents": {
+        "adapters": ["mcp-client", "supabase-mcp"],
+        "profiles": ["mcp-2025-11-25"],
+        "modules": ["src/server/connectors/mcp/profiles.ts"]
+      },
+      "recordedBy": ["MCP", "SUPABASE"],
+      "notes": "-32042 URLElicitationRequiredError and notifications/elicitation/complete exist in this revision only."
+    },
+    {
+      "id": "mcp-2025-06-18",
+      "kind": "specification",
+      "title": "Model Context Protocol specification, revision 2025-06-18",
+      "url": "https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2025-06-18",
+      "revision": "lifecycle and transports pages",
+      "digest": null,
+      "licence": {
+        "spdx": "Apache-2.0 (specification) / MIT / CC-BY-4.0",
+        "statement": "See mcp-2026-07-28.",
+        "evidence": "see mcp-2026-07-28"
+      },
+      "reuse": "Read to establish what the legacy era's client capabilities and authorization options are; Client ID Metadata Documents are not part of this revision, which is what the capability rows report.",
+      "dependents": {
+        "adapters": ["mcp-client"],
+        "profiles": ["mcp-2025-06-18"],
+        "modules": ["src/server/connectors/mcp/profiles.ts"]
+      },
+      "recordedBy": ["MCP"],
+      "notes": "Negotiating 2025-06-18 from a 2025-11-25 request is treated as staying inside the legacy era; the specification describes version negotiation without naming eras. Recorded as inferred, not verified."
+    },
+    {
+      "id": "mcp-registry-api-v0.1",
+      "kind": "vendor-api",
+      "title": "Official MCP Registry REST API, /v0.1",
+      "url": "https://registry.modelcontextprotocol.io/openapi.yaml",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "OpenAPI 3.1.0 document, info.version 1.0.0, API path prefix /v0.1",
+      "revision": "preview; base URL https://registry.modelcontextprotocol.io",
+      "digest": null,
+      "digestNote": "no digest captured for the OpenAPI document; the server.json schema it references is separately digested",
+      "licence": {
+        "spdx": "Apache-2.0 (project licence, per mcp-2026-07-28)",
+        "statement": "Published in the same project as the MCP specification; the registry's own repository was not separately read for a licence in this execution.",
+        "evidence": "not-read-here for the registry repository; MCP project LICENSE read 2026-09-18"
+      },
+      "reuse": "The documented query parameters, pagination and publication route are implemented. No registry content is redistributed: a snapshot is tenant-scoped, encrypted host state, and the public subregistry serves only rows the host explicitly marked public.",
+      "dependents": {
+        "adapters": ["mcp-registry"],
+        "profiles": ["mcp-registry-api-v0.1"],
+        "modules": ["src/server/connectors/registries/mcp/"]
+      },
+      "recordedBy": ["REGISTRY"],
+      "notes": "Preview status is part of the record. Publication is disabled on the official source constant and no publication was authorized or performed. A registry status field is provenance, not code safety."
+    },
+    {
+      "id": "server-json-2025-12-11",
+      "kind": "schema",
+      "title": "MCP server.json schema, 2025-12-11",
+      "url": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2025-12-11",
+      "revision": "pinned independently of the registry API version",
+      "digest": "sha256:3fba09590c99f61735d234822279f4223fab9e300c0a81e81c91ab62a4114de0",
+      "licence": {
+        "spdx": "Apache-2.0 (project licence, per mcp-2026-07-28)",
+        "statement": "Published in the same project as the MCP specification.",
+        "evidence": "MCP project LICENSE read 2026-09-18; the schema file's own header was not separately read for a licence"
+      },
+      "reuse": "Field names and their meanings are implemented. Documents declaring the pre-2025-09-16 snake_case field names are refused rather than translated.",
+      "dependents": {
+        "adapters": ["mcp-registry"],
+        "profiles": ["server-json-2025-12-11"],
+        "modules": [
+          "src/server/connectors/registries/mcp/import.ts",
+          "src/server/connectors/registries/mcp/export.ts"
+        ]
+      },
+      "recordedBy": ["REGISTRY"],
+      "notes": "The reader accepts declared schema versions 2025-09-16, 2025-09-29, 2025-10-11, 2025-10-17 and 2025-12-11; anything else is imported with a version.schema-unpinned or version.schema-unspecified issue. This is the only record in this lock that carries a captured document digest."
+    },
+    {
+      "id": "vercel-connect-rest-2026-09",
+      "kind": "vendor-api",
+      "title": "Vercel Connect documentation and REST API",
+      "url": "https://vercel.com/docs/connect",
+      "retrievedAt": "2026-09-18T00:35:23Z",
+      "upstreamVersion": "per-operation: endpoint versions differ by operation (v1 and v2 paths coexist)",
+      "revision": "https://vercel.com/docs/connect last_updated 2026-08-28; REST Connect pages last_updated 2026-09-18; the machine-readable document at https://openapi.vercel.sh is OpenAPI 3.0.3, info.version 0.0.1, 10837734 bytes",
+      "digest": null,
+      "digestNote": "byte length recorded (10837734) but no digest was captured for the OpenAPI document",
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. @vercel/connect 2.3.0 and @vercel/oidc 3.8.8 were read from their published npm tarballs for correspondence only and are NOT dependencies of this repository.",
+        "evidence": "not-read-here; no licence page was retrieved in this execution"
+      },
+      "reuse": "Documented paths, request and response field names and header names are restated in code and in adapter tests. No documentation text, no OpenAPI document and no SDK source is copied into this repository. Vercel's connector catalog, provider list, marks and logos are not redistributed or embedded; reading the SDK does not license those assets.",
+      "dependents": {
+        "adapters": ["vercel-connect"],
+        "profiles": ["vercel-connect-rest-2026-09"],
+        "modules": ["src/server/connectors/providers/vercel/"]
+      },
+      "recordedBy": ["VERCEL"],
+      "notes": "The SDK's in-process LRU token cache would duplicate credential custody and must stay disabled in favour of CredentialCustodyPort if the SDK is ever adopted."
+    },
+    {
+      "id": "vercel-connect-triggers-2026-08-20",
+      "kind": "vendor-doc",
+      "title": "Vercel Connect: Triggers",
+      "url": "https://vercel.com/docs/connect/concepts/triggers",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "page last_updated 2026-08-20",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "See vercel-connect-rest-2026-09.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The documented forwarding model is implemented. The documentation does NOT publish the outbound signature header name or algorithm, so nothing about Vercel's outbound wire format is asserted anywhere in this repository.",
+      "dependents": {
+        "adapters": ["forwarded-delivery verifier", "vercel-connect"],
+        "profiles": ["vercel-connect-triggers-2026-08-20"],
+        "modules": ["src/server/connectors/events/forwarded.ts"]
+      },
+      "recordedBy": ["EVENT"],
+      "notes": "This is the source of a named, deliberate limitation: verifyForwardedDelivery takes the forwarder's verifier as an injected dependency, and the verifier used in tests is explicitly a stand-in, not a claim about Vercel's wire format."
+    },
+    {
+      "id": "supabase-management-api-v1",
+      "kind": "vendor-api",
+      "title": "Supabase API (v1) OpenAPI document and Management API reference",
+      "url": "https://api.supabase.com/api/v1-json",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "OpenAPI 3.0.0, document title \"Supabase API (v1)\"",
+      "revision": "fetched 2026-09-18; base URL https://api.supabase.com",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Supabase's documentation and OpenAPI document are the vendor's copyrighted publication; no open licence is offered for them and none is assumed.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Documented routes, field names, identifier patterns and rate limits are restated in code and in the independent loopback double. The document itself is not vendored into this repository.",
+      "dependents": {
+        "adapters": ["supabase-management"],
+        "profiles": ["supabase-management-api-v1"],
+        "modules": ["src/server/connectors/providers/supabase/management.ts"]
+      },
+      "recordedBy": ["SUPABASE"],
+      "notes": "Named native limitation: no pagination parameter is documented for GET /v1/organizations or GET /v1/projects, so the adapter windows one bounded response and reports the absence as a discover issue rather than inventing page parameters."
+    },
+    {
+      "id": "supabase-oauth-2026-09",
+      "kind": "vendor-doc",
+      "title": "Build a Supabase OAuth integration",
+      "url": "https://supabase.com/docs/guides/integrations/build-a-supabase-oauth-integration",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "page as published on 2026-09-18",
+      "revision": "not separately versioned by the vendor",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "See supabase-management-api-v1.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The documented authorize and token requests are implemented. The request `scope` parameter is marked deprecated because scopes are configured when the OAuth app is created; the adapter never sends it and the double rejects a request that carries one.",
+      "dependents": {
+        "adapters": ["supabase-management"],
+        "profiles": ["supabase-oauth-2026-09"],
+        "modules": ["src/server/connectors/providers/supabase/management.ts"]
+      },
+      "recordedBy": ["SUPABASE"],
+      "notes": "Unverified in the document: access-token and refresh-token lifetimes, and whether refresh tokens always rotate. The adapter keeps the presented refresh token when the response omits a new one, and the double exercises both."
+    },
+    {
+      "id": "postgrest-select-v1",
+      "kind": "specification",
+      "title": "PostgREST v13 API reference: tables and views, pagination and count",
+      "url": "https://docs.postgrest.org/en/v13/references/api/tables_views.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "PostgREST v13 documentation",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "The PostgREST documentation's licence was not read here. Only query-string semantics are implemented; no documentation text is copied.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Vertical and horizontal filtering, the operator vocabulary, ordering, limit/offset and Range headers are implemented as a bounded read-only subset over host-approved tables and columns.",
+      "dependents": {
+        "adapters": ["supabase-data-api"],
+        "profiles": ["postgrest-select-v1"],
+        "modules": ["src/server/connectors/providers/supabase/data-api.ts"]
+      },
+      "recordedBy": ["SUPABASE"],
+      "notes": "Reads only: no insert, update, delete, RPC or embedded resource; only the default exposed schema."
+    },
+    {
+      "id": "supabase-wrappers-catalog-v1",
+      "kind": "vendor-doc",
+      "title": "Supabase Wrappers (Foreign Data Wrappers) overview",
+      "url": "https://supabase.com/docs/guides/database/extensions/wrappers/overview",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "page as published on 2026-09-18",
+      "revision": "not separately versioned by the vendor",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "See supabase-management-api-v1.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "One statement is quoted verbatim in code comments and in the capability limitation because its exact wording matters: \"Foreign Data Wrappers do not provide Row Level Security, thus it is not advised to expose them via your API.\" DDL shapes are restated, not copied wholesale.",
+      "dependents": {
+        "adapters": ["supabase-wrappers"],
+        "profiles": ["supabase-wrappers-catalog-v1"],
+        "modules": ["src/server/connectors/providers/supabase/wrappers.ts"]
+      },
+      "recordedBy": ["SUPABASE"],
+      "notes": "Unverified: the overview page reachable here did not list pg_foreign_server / pg_foreign_table / pg_foreign_data_wrapper explicitly. The catalog shape the descriptor consumes is modelled on those standard PostgreSQL catalogs and is supplied by the host's ApprovedQueryPort rather than read by this module."
+    },
+    {
+      "id": "nango-http-api-2026-09",
+      "kind": "vendor-api",
+      "title": "Nango HTTP API reference and platform guides",
+      "url": "https://nango.dev/docs/reference/backend/http-api/connect/sessions/create",
+      "retrievedAt": "2026-09-18T00:37:47Z",
+      "upstreamVersion": "documented API document version string \"Nango API 1.0.0\"; individual endpoints are not separately versioned and the paths carry no version prefix",
+      "revision": "wire facts taken from the OpenAPI 3.1 fragments embedded in each reference page (fetched as raw markdown) plus the auth, webhook and Zero YAML guides",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Nango's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. Nango's own sync engine is not reimplemented and no Nango source is vendored.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Documented paths, headers, body fields and webhook semantics are restated in code and in the independent loopback double. Nango's integration catalog and provider logos are not redistributed.",
+      "dependents": {
+        "adapters": ["nango"],
+        "profiles": ["nango-http-api-2026-09"],
+        "modules": ["src/server/connectors/providers/nango/"]
+      },
+      "recordedBy": ["NANGO"],
+      "notes": "Correction recorded against an earlier circulating description: webhook verification uses X-Nango-Hmac-Sha256, an HMAC-SHA256 over the raw body keyed with the environment webhook signing key (a different secret from the API key). The legacy plain-digest X-Nango-Signature is documented as not to be used and is ignored even when it is correct. Named native limitations: GET /integrations documents no pagination, so the adapter pages one bounded response client-side; no endpoint is documented for revoking a provider grant upstream or for cancelling an in-flight sync run, so revoke reports unsupported and cancel maps to pause and says so."
+    },
+    {
+      "id": "pipedream-connect-rest-2026-09",
+      "kind": "vendor-api",
+      "title": "Pipedream Connect REST API and managed auth documentation",
+      "url": "https://pipedream.com/docs/connect",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "unversioned documentation set; API base https://api.pipedream.com/v1",
+      "revision": "39 documentation pages read; two pages (/docs/connect/api-reference/errors and /docs/connect/api-reference/make-proxy-request) returned 404 and error shapes were taken from the individual endpoint pages instead",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Pipedream's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. @pipedream/sdk is NOT installed and is not used; the documented HTTP API is implemented directly.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Documented routes, headers, identifier patterns, rate limits and the trigger webhook signature scheme are restated in code and in the independent double. Pipedream's app catalog, component registry content, app slugs as a collection, and app images are not redistributed or embedded.",
+      "dependents": {
+        "adapters": ["pipedream-connect"],
+        "profiles": ["pipedream-connect-rest-2026-09"],
+        "modules": ["src/server/connectors/providers/pipedream/"]
+      },
+      "recordedBy": ["PIPEDREAM"],
+      "notes": "Named unverified areas: the query parameters Pipedream appends to success_redirect_uri / error_redirect_uri are not documented, so the return is treated purely as a correlation signal and the account is always established by a trusted server query; no documented idempotency key exists for POST /actions/run or POST /triggers/deploy, so the double models the conservative case and the adapter deduplicates host-side."
+    },
+    {
+      "id": "airbyte-protocol-v0",
+      "kind": "specification",
+      "title": "Airbyte protocol",
+      "url": "https://docs.airbyte.com/platform/understanding-airbyte/airbyte-protocol",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "protocol as published on 2026-09-18",
+      "revision": "not separately versioned on the page read",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "Airbyte's documentation licence was not read here. No Airbyte source is vendored and no ETL engine is reimplemented.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Catalog and stream semantics, sync modes and state shapes are implemented for import and delegation. Records never flow through Ceremony: the adapter delegates jobs and reads status.",
+      "dependents": {
+        "adapters": ["airbyte"],
+        "profiles": ["airbyte-protocol-v0"],
+        "modules": ["src/server/connectors/providers/airbyte/protocol.ts"]
+      },
+      "recordedBy": ["DATA"],
+      "notes": "Named native limitation: the public Airbyte API documents no source check_connection operation, so verify() infers reachability from a live stream-properties discovery and records that limitation on the claim. The deprecated Configuration API is deliberately not called."
+    },
+    {
+      "id": "airbyte-api-v1-2026-09",
+      "kind": "vendor-api",
+      "title": "Airbyte public API v1",
+      "url": "https://docs.airbyte.com/platform/understanding-airbyte/airbyte-protocol",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "public API v1 as documented on 2026-09-18",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "See airbyte-protocol-v0.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Documented job, status and cancel routes are restated in code and in the independent double.",
+      "dependents": {
+        "adapters": ["airbyte"],
+        "profiles": ["airbyte-api-v1-2026-09"],
+        "modules": ["src/server/connectors/providers/airbyte/api.ts"]
+      },
+      "recordedBy": ["DATA"],
+      "notes": "Documented job types are sync and reset only; the job type comes from the approved operation and can never be supplied by input."
+    },
+    {
+      "id": "hasura-ndc-0.2",
+      "kind": "specification",
+      "title": "Hasura Native Data Connector (NDC) specification",
+      "url": "https://hasura.github.io/ndc-spec/",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "^0.2.0, implemented against 0.2.5 (latest in the published changelog on 2026-09-18)",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "The ndc-spec licence was not read here. No specification text is copied; capabilities and schema semantics are implemented.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Capabilities and schema discovery plus a policy-bound query/mutation adapter preserving native shapes and the declared version. A connector declaring 0.1.x is blocked with a version diagnostic rather than downgraded.",
+      "dependents": {
+        "adapters": ["hasura-ndc"],
+        "profiles": ["hasura-ndc-0.2"],
+        "modules": ["src/server/connectors/providers/hasura-ndc/"]
+      },
+      "recordedBy": ["DATA"],
+      "notes": "Relational query/mutation capabilities introduced in 0.2.1-0.2.3 are preserved as declarations but not executed; explain endpoints, metrics, query variables and grouping are declared capabilities the policy never requests."
+    },
+    {
+      "id": "merge-unified-2026-09",
+      "kind": "vendor-api",
+      "title": "Merge Unified API: linked accounts and platform metadata",
+      "url": "https://docs.merge.dev/merge-unified/platform-and-account-metadata/linked-accounts",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "documentation as published on 2026-09-18",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Merge's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Linked-account onboarding and status, account-specific capability discovery and bounded normalized reads are implemented. No universal field guarantee is made and nothing is flattened across accounts.",
+      "dependents": {
+        "adapters": ["merge"],
+        "profiles": ["merge-unified-2026-09"],
+        "modules": ["src/server/connectors/providers/merge/"]
+      },
+      "recordedBy": ["DATA"],
+      "notes": "Merge documents passthrough as a plan-gated and per-integration feature (passthrough_available); the adapter honours the binding's fixed route and reports the upstream refusal rather than working around it. Merge documents no operation that revokes the end user's upstream grant, so disconnect(upstream) reports unsupported. No plan, price or entitlement is claimed here."
+    },
+    {
+      "id": "cloud-search-acl-2026-09",
+      "kind": "vendor-doc",
+      "title": "Google Cloud Search connectors: identity and ACL model",
+      "url": "https://developers.google.com/workspace/cloud-search/docs/guides/connectors",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "documentation as published on 2026-09-18",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Google's developer documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The documented ACL model informs an ACL-preserving descriptor and a conservative evaluator. No indexer and no crawler is built, and Cloud Search's own query-time serving is not reimplemented.",
+      "dependents": {
+        "adapters": ["retrieval descriptors"],
+        "profiles": ["cloud-search-acl-2026-09"],
+        "modules": ["src/server/connectors/formats/retrieval/"]
+      },
+      "recordedBy": ["DATA"],
+      "notes": "Service-account ingestion is not end-user read permission: end-user authorization uses current policy and freshness, not the ingestion credential or a stale cache."
+    },
+    {
+      "id": "rfc9700",
+      "kind": "rfc",
+      "title": "RFC 9700: Best Current Practice for OAuth 2.0 Security",
+      "url": "https://www.rfc-editor.org/rfc/rfc9700.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 9700",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "RFC text is published by the IETF under the IETF Trust's legal provisions. No RFC text is copied into this repository; the requirements are implemented.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The security baseline for the connector authorization module. Implicit and password grants are preserved as unsupported profiles with blocking issues; no usable credential path is invented for them.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "openapi-http"],
+        "profiles": ["rfc9700"],
+        "modules": ["src/server/connectors/auth/"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Baseline, not a certification."
+    },
+    {
+      "id": "rfc9728",
+      "kind": "rfc",
+      "title": "RFC 9728: OAuth 2.0 Protected Resource Metadata",
+      "url": "https://www.rfc-editor.org/rfc/rfc9728.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 9728",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Implemented on both sides: the existing inbound Ceremony MCP endpoint publishes protected-resource metadata, and the outbound connector client reads it, with the well-known insertion preserving a terminating slash.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "mcp-client", "ceremony MCP server (existing)"],
+        "profiles": ["rfc9728"],
+        "modules": [
+          "src/server/connectors/auth/discovery.ts",
+          "src/server/mcp.ts"
+        ]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Signed resource metadata is read but not signature-verified; recorded as an unmet item in ledger/OAUTH.json."
+    },
+    {
+      "id": "rfc8414",
+      "kind": "rfc",
+      "title": "RFC 8414: OAuth 2.0 Authorization Server Metadata",
+      "url": "https://www.rfc-editor.org/rfc/rfc8414.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 8414",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Authorization-server metadata discovery with exact issuer comparison: no trailing-slash or case tolerance, by design.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["rfc8414"],
+        "modules": ["src/server/connectors/auth/discovery.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "`signed_metadata` is read but not signature-verified."
+    },
+    {
+      "id": "openid-connect-discovery-1.0",
+      "kind": "specification",
+      "title": "OpenID Connect Discovery 1.0",
+      "url": "https://openid.net/specs/openid-connect-discovery-1_0.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.0",
+      "revision": "published specification",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "OpenID Foundation specification licence",
+        "statement": "Published by the OpenID Foundation under its own specification licence; the licence text was not read here and no redistribution is claimed.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Discovery-document reading only. An `openIdConnect` OpenAPI scheme yields a derived issuer only when `openIdConnectUrl` ends in the standard /.well-known/openid-configuration suffix; any other spelling becomes an unsupported profile with a blocking issue rather than a guessed issuer.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "openapi-http"],
+        "profiles": ["openid-connect-discovery-1.0"],
+        "modules": [
+          "src/server/connectors/auth/discovery.ts",
+          "src/server/connectors/formats/openapi/security.ts"
+        ]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Discovery is implemented; a full OIDC relying-party login ceremony is a separate family and is not claimed here."
+    },
+    {
+      "id": "rfc7636",
+      "kind": "rfc",
+      "title": "RFC 7636: Proof Key for Code Exchange (PKCE)",
+      "url": "https://www.rfc-editor.org/rfc/rfc7636.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 7636",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "S256 only. An issuer advertising only `plain` is reported unsupported rather than downgraded.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "supabase-management", "vercel-connect"],
+        "profiles": ["rfc7636"],
+        "modules": ["src/server/connectors/auth/authorization-code.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "PKCE is a protection within the authorization-code flow, not a flow of its own."
+    },
+    {
+      "id": "rfc9207",
+      "kind": "rfc",
+      "title": "RFC 9207: OAuth 2.0 Authorization Server Issuer Identification",
+      "url": "https://www.rfc-editor.org/rfc/rfc9207.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 9207",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The `iss` callback parameter is compared exactly. Display canonicalization never weakens the protocol comparison.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["rfc9207"],
+        "modules": ["src/server/connectors/auth/authorization-code.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "AC-AUTH-04."
+    },
+    {
+      "id": "rfc8628",
+      "kind": "rfc",
+      "title": "RFC 8628: OAuth 2.0 Device Authorization Grant",
+      "url": "https://www.rfc-editor.org/rfc/rfc8628.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 8628",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Device flow with interval and slow_down backoff. Device codes and user codes are protected transient material and reach only the authenticated initiating human.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "openapi-http"],
+        "profiles": ["rfc8628"],
+        "modules": ["src/server/connectors/auth/device.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "The OpenAPI device authorization flow object exists only in 3.2; the same object under 3.0/3.1 becomes an unsupported profile with a blocking security.unknown-flow issue."
+    },
+    {
+      "id": "rfc9126",
+      "kind": "rfc",
+      "title": "RFC 9126: OAuth 2.0 Pushed Authorization Requests",
+      "url": "https://www.rfc-editor.org/rfc/rfc9126.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 9126",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Pushed authorization requests are used when the issuer advertises the endpoint.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["rfc9126"],
+        "modules": ["src/server/connectors/auth/authorization-code.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": ""
+    },
+    {
+      "id": "oauth-2.1-draft-16",
+      "kind": "draft",
+      "title": "The OAuth 2.1 Authorization Framework (Internet-Draft)",
+      "url": "https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/",
+      "retrievedAt": "2026-09-17",
+      "upstreamVersion": "draft-ietf-oauth-v2-1-16",
+      "revision": "revision -16 observed 2026-09-17",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Internet-Draft; IETF Trust Legal Provisions apply",
+        "statement": "See rfc9700. An Internet-Draft is work in progress and may be changed or withdrawn at any time.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Read as guidance. This is a draft: no finalized-standard status, conformance or certification is claimed anywhere in this repository, and the exact draft revision is recorded.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["oauth-2.1-draft-16"],
+        "modules": ["src/server/connectors/auth/"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Recording the draft revision is the point of this record."
+    },
+    {
+      "id": "draft-ietf-oauth-client-id-metadata-document-03",
+      "kind": "draft",
+      "title": "OAuth Client ID Metadata Document (Internet-Draft)",
+      "url": "https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/",
+      "retrievedAt": "2026-09-17",
+      "upstreamVersion": "draft-ietf-oauth-client-id-metadata-document-03",
+      "revision": "revision -03 observed 2026-09-17",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Internet-Draft; IETF Trust Legal Provisions apply",
+        "statement": "See oauth-2.1-draft-16.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "CIMD is implemented at this exact draft revision. The document body is produced by the existing clientMetadataDocument() and the host must serve it at the returned client id; this module returns the artifact and its storage key but does not mount the route.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "mcp-client"],
+        "profiles": ["draft-ietf-oauth-client-id-metadata-document-03"],
+        "modules": ["src/server/connectors/auth/client.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Draft. No certification is claimed. Registration metadata does not override host trust policy."
+    },
+    {
+      "id": "rfc7591",
+      "kind": "rfc",
+      "title": "RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc7591.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 7591",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Dynamic registration with client_secret_basic/post or none. private_key_jwt registration is not requested dynamically, and RFC 7592 registration-access-token lifecycle is stored but not exercised.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "mcp-client"],
+        "profiles": ["rfc7591"],
+        "modules": ["src/server/connectors/auth/client.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "DCR requires the author capability; an executor is refused. Registration is once per tenant+issuer+redirect+host-origin and refuses a registration endpoint on an origin the issuer metadata does not own."
+    },
+    {
+      "id": "rfc8707",
+      "kind": "rfc",
+      "title": "RFC 8707: Resource Indicators for OAuth 2.0",
+      "url": "https://www.rfc-editor.org/rfc/rfc8707.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 8707",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Resource parameters are sent so an access token is bound to the intended protected resource. A token valid for another resource or audience is not accepted or forwarded.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "mcp-client"],
+        "profiles": ["rfc8707"],
+        "modules": ["src/server/connectors/auth/permissions.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "AC-AUTH-05."
+    },
+    {
+      "id": "rfc9396",
+      "kind": "rfc",
+      "title": "RFC 9396: OAuth 2.0 Rich Authorization Requests",
+      "url": "https://www.rfc-editor.org/rfc/rfc9396.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 9396",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "`authorization_details` is sent and the reported details are recorded separately from the requested ones.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["rfc9396"],
+        "modules": ["src/server/connectors/auth/permissions.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": ""
+    },
+    {
+      "id": "rfc8693",
+      "kind": "rfc",
+      "title": "RFC 8693: OAuth 2.0 Token Exchange",
+      "url": "https://www.rfc-editor.org/rfc/rfc8693.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 8693",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Exchange exists only where host policy enables it for that issuer; the port cannot be constructed otherwise, so arbitrary subject-token exchange has no code path.",
+      "dependents": {
+        "adapters": ["connector OAuth module", "auth0-token-vault"],
+        "profiles": ["rfc8693"],
+        "modules": ["src/server/connectors/auth/token-exchange.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "The returned token is verified (exact iss, aud, sub, act.sub) through jose against the AS JWKS before anything is stored. JWT verification requires an asymmetric alg; symmetric-signed tokens are refused."
+    },
+    {
+      "id": "rfc7662",
+      "kind": "rfc",
+      "title": "RFC 7662: OAuth 2.0 Token Introspection",
+      "url": "https://www.rfc-editor.org/rfc/rfc7662.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 7662",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Introspection verifies an opaque exchanged token. Where the issuer publishes no introspection endpoint the exchange is refused as unverifiable rather than trusted.",
+      "dependents": {
+        "adapters": ["connector OAuth module"],
+        "profiles": ["rfc7662"],
+        "modules": ["src/server/connectors/auth/token-exchange.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Periodic re-introspection to refresh VerificationClaim validity is recorded as an unmet item in ledger/OAUTH.json."
+    },
+    {
+      "id": "json-rfc8259",
+      "kind": "rfc",
+      "title": "RFC 8259: The JavaScript Object Notation (JSON) Data Interchange Format",
+      "url": "https://www.rfc-editor.org/rfc/rfc8259.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 8259",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "A strict scanner over the document text detects duplicate keys before JSON.parse collapses them, and bounds depth, node count, key and string lengths.",
+      "dependents": {
+        "adapters": ["import pipeline"],
+        "profiles": ["json-rfc8259"],
+        "modules": ["src/server/connectors/import/parse.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "JSON.parse silently keeps the last member and a reviver runs only after the collapse, which is why the scanner exists."
+    },
+    {
+      "id": "json-pointer-rfc6901",
+      "kind": "rfc",
+      "title": "RFC 6901: JavaScript Object Notation (JSON) Pointer",
+      "url": "https://www.rfc-editor.org/rfc/rfc6901.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "RFC 6901",
+      "revision": "published RFC",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "IETF Trust Legal Provisions apply to RFC text",
+        "statement": "See rfc9700.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Only JSON pointer fragments resolve. A plain-name fragment ($anchor, #Pet) and a JSON Schema $id-relative base are reported unsupported rather than guessed at.",
+      "dependents": {
+        "adapters": ["import pipeline", "openapi-http", "asyncapi"],
+        "profiles": ["json-pointer-rfc6901"],
+        "modules": ["src/server/connectors/import/references.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": ""
+    },
+    {
+      "id": "yaml-1.2-core",
+      "kind": "specification",
+      "title": "YAML 1.2 specification, core schema",
+      "url": "https://yaml.org/spec/1.2.2/",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1.2.2",
+      "revision": "core schema only",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "The YAML specification's licence was not read here. No specification text is copied.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "YAML is read only as YAML 1.2 with the core schema. An explicit %YAML 1.1 directive is refused rather than reinterpreted, because 1.1 changes the meaning of unquoted yes/no/on/off and of sexagesimal scalars.",
+      "dependents": {
+        "adapters": ["import pipeline"],
+        "profiles": ["yaml-1.2-core"],
+        "modules": ["src/server/connectors/import/parse.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Explicit !!binary, !!timestamp, !!omap, !!set and !!pairs tags are refused; merge keys (<<) are refused rather than applied; a multi-document stream is refused instead of silently using the first document."
+    },
+    {
+      "id": "yaml@2.9.0",
+      "kind": "dependency",
+      "title": "yaml (npm package) 2.9.0",
+      "url": "https://www.npmjs.com/package/yaml/v/2.9.0",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2.9.0",
+      "revision": "already resolved in package-lock.json as a dev transitive; promoted to a runtime dependency by the integrator",
+      "digest": null,
+      "digestNote": "the lockfile records the package integrity hash; it is not duplicated here",
+      "licence": {
+        "spdx": "ISC",
+        "statement": "ISC, as recorded by the INT swarm when promoting the package.",
+        "evidence": "recorded in ledger/INT.json (INT-03); the package's LICENSE file was not separately read by the DOCS swarm"
+      },
+      "reuse": "Used as a bounded YAML composer with schema core, uniqueKeys, stringKeys, merge false and resolveKnownTags false. Every result is rebuilt into a fresh plain-object graph before a caller sees it.",
+      "dependents": {
+        "adapters": ["import pipeline"],
+        "profiles": ["yaml@2.9.0"],
+        "modules": ["src/server/connectors/import/parse.ts"]
+      },
+      "recordedBy": ["IMPORT", "INT"],
+      "notes": "The only dependency added for connector interoperability so far. Foreign connector package install hooks are never run as part of ingestion."
+    },
+    {
+      "id": "undici-7",
+      "kind": "dependency",
+      "title": "undici 7 (existing dependency)",
+      "url": "https://undici.nodejs.org/",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "7.x as resolved in package-lock.json",
+      "revision": "baseline dependency, not added by this work",
+      "digest": null,
+      "licence": {
+        "spdx": "MIT",
+        "statement": "undici is published by the Node.js project under the MIT licence.",
+        "evidence": "not-read-here; recorded from the package's published metadata rather than a licence file read in this execution"
+      },
+      "reuse": "The approved fetcher builds on the existing DNS-pinned agent so the address check runs inside socket creation on the exact answers the socket uses.",
+      "dependents": {
+        "adapters": ["import pipeline", "every HTTP adapter through ctx.environment.fetch"],
+        "profiles": ["undici-7"],
+        "modules": [
+          "src/server/connectors/import/network.ts",
+          "src/server/public-auth-fetch.ts"
+        ]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "TLS certificate pinning is not part of this fetcher; it inherits the platform trust store."
+    },
+    {
+      "id": "node-22-dns",
+      "kind": "platform",
+      "title": "Node.js 22 DNS resolution behaviour",
+      "url": "https://nodejs.org/docs/latest-v22.x/api/dns.html",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "Node 22.22.2 in this environment; >=22.12 engine, Node 24 documented target",
+      "revision": "read 2026-09-18",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "Node.js documentation licence (MIT for the project)",
+        "statement": "Not read here; no documentation text is copied.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Lookup behaviour is what makes DNS-rebinding defence possible: the address check is bound to the answers the socket actually uses.",
+      "dependents": {
+        "adapters": ["import pipeline"],
+        "profiles": ["node-22-dns"],
+        "modules": ["src/server/connectors/import/network.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Named limitation: a loopback fixture binds to 127.0.0.0/8, which classifies as loopback rather than private, so an end-to-end connection to an administrator-approved private origin cannot be demonstrated offline."
+    },
+    {
+      "id": "json-schema-draft-2020-12",
+      "kind": "specification",
+      "title": "JSON Schema Draft 2020-12",
+      "url": "https://json-schema.org/draft/2020-12/schema",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2020-12",
+      "revision": "the dialect the generated Ceremony schemas declare",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "not established in this execution",
+        "statement": "Not read here. The generated schema documents are produced from this repository's own Zod contracts; no JSON Schema specification text is copied.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The dialect the generated documents under docs/specifications/schemas/ declare, and the dialect ajv validates them with in the contract tests.",
+      "dependents": {
+        "adapters": ["contract schema generation"],
+        "profiles": ["json-schema-draft-2020-12"],
+        "modules": [
+          "scripts/specifications.ts",
+          "docs/specifications/schemas/"
+        ]
+      },
+      "recordedBy": ["CONTRACT"],
+      "notes": "ajv@8.20.0 is used through its own draft-2020-12 entry point with two inline format definitions; ajv-formats is not installed and no dependency was proposed."
+    },
+    {
+      "id": "ceremony-connector/1",
+      "kind": "internal",
+      "title": "Ceremony connector authoring envelope, version 1",
+      "url": "docs/specifications/connector-manifest.md",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "unchanged by the interoperability work",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Preserved exactly: saved v1 projects still validate, still export through exportConnectorFiles, and their exported documents still run through the existing bounded Arazzo executor.",
+      "dependents": {
+        "adapters": ["ceremony studio"],
+        "profiles": ["ceremony-connector/1"],
+        "modules": ["src/core/connector-authoring.ts"]
+      },
+      "recordedBy": ["CONTRACT"],
+      "notes": "Internal profile identifier; listed so every ledger sourceProfileId resolves."
+    },
+    {
+      "id": "ceremony-connector/2",
+      "kind": "internal",
+      "title": "Ceremony connector interoperability envelope, version 2",
+      "url": "docs/specifications/connector-interoperability.md",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2",
+      "revision": "defined by the CONTRACT swarm in src/core/connectors/envelope.ts",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Wraps a description; optionally embeds an unchanged v1 project.",
+      "dependents": {
+        "adapters": ["every connector adapter's export dimension"],
+        "profiles": ["ceremony-connector/2"],
+        "modules": ["src/core/connectors/envelope.ts"]
+      },
+      "recordedBy": ["CONTRACT", "IMPORT", "OAUTH"],
+      "notes": "Cited by OAUTH as `ceremony-connector-v2`; the same profile."
+    },
+    {
+      "id": "ceremony-connector-v2",
+      "kind": "alias",
+      "title": "Alias of ceremony-connector/2",
+      "url": "docs/specifications/connector-interoperability.md",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2",
+      "revision": "alias record so the OAUTH ledger's spelling resolves",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "See ceremony-connector/2.",
+        "evidence": "in-repository"
+      },
+      "reuse": "See ceremony-connector/2.",
+      "dependents": {
+        "adapters": [],
+        "profiles": ["ceremony-connector/2"],
+        "modules": ["src/server/connectors/auth/handoff.ts"]
+      },
+      "recordedBy": ["OAUTH"],
+      "notes": "Alias only."
+    },
+    {
+      "id": "ceremony-manifest-v1",
+      "kind": "internal",
+      "title": "Ceremony connector manifest, version 1",
+      "url": "docs/specifications/connector-manifest.md",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "unchanged",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "The public manifest remains non-executable; imported URLs never enter it.",
+      "dependents": {
+        "adapters": ["connector command registration bridge"],
+        "profiles": ["ceremony-manifest-v1"],
+        "modules": ["src/server/connectors/commands/registration.ts"]
+      },
+      "recordedBy": ["COMMAND"],
+      "notes": "Internal profile identifier."
+    },
+    {
+      "id": "ceremony-connector-commands-2026-09",
+      "kind": "internal",
+      "title": "Ceremony connector command surface",
+      "url": "src/server/connectors/commands/service.ts",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "2026-09",
+      "revision": "defined by the COMMAND swarm",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Every browser control, HTTP route, MCP tool and WebMCP tool goes through the same authenticated commands.",
+      "dependents": {
+        "adapters": ["all"],
+        "profiles": ["ceremony-connector-commands-2026-09"],
+        "modules": ["src/server/connectors/commands/"]
+      },
+      "recordedBy": ["COMMAND"],
+      "notes": "Internal profile identifier."
+    },
+    {
+      "id": "ceremony-connector-http-v1",
+      "kind": "internal",
+      "title": "Ceremony connector HTTP route table",
+      "url": "src/server/connectors/commands/http.ts",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "answers only /api/v1/connectors/*",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Mounted by the integrator through the existing handler chain.",
+      "dependents": {
+        "adapters": ["all"],
+        "profiles": ["ceremony-connector-http-v1"],
+        "modules": ["src/server/connectors/commands/http.ts"]
+      },
+      "recordedBy": ["COMMAND"],
+      "notes": "Internal profile identifier."
+    },
+    {
+      "id": "ceremony-connector-state/1",
+      "kind": "internal",
+      "title": "Ceremony connector persisted state schemas, version 1",
+      "url": "src/server/connectors/state/schemas.ts",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "defined by the STATE swarm",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Additive record kinds over the existing encrypted store; no second vault.",
+      "dependents": {
+        "adapters": ["all, through the command layer's ports"],
+        "profiles": ["ceremony-connector-state/1"],
+        "modules": ["src/server/connectors/state/"]
+      },
+      "recordedBy": ["STATE"],
+      "notes": "Internal profile identifier."
+    },
+    {
+      "id": "sourceRecordSchema-v1",
+      "kind": "internal",
+      "title": "Ceremony connector source record, version 1",
+      "url": "docs/specifications/schemas/connector-source-v1.schema.json",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "generated from src/core/connectors/contracts.ts",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own contract.",
+        "evidence": "in-repository"
+      },
+      "reuse": "Every captured source is content-addressed over identity, digest, origin and capture time, so a refresh is always a new record.",
+      "dependents": {
+        "adapters": ["import pipeline"],
+        "profiles": ["sourceRecordSchema-v1"],
+        "modules": ["src/server/connectors/import/source.ts"]
+      },
+      "recordedBy": ["IMPORT"],
+      "notes": "Internal profile identifier."
+    },
+    {
+      "id": "fixture-http-1",
+      "kind": "internal",
+      "title": "Ceremony loopback provider fixture",
+      "url": "tests/connectors/doubles/fixture-adapter.ts",
+      "retrievedAt": "2026-09-18",
+      "upstreamVersion": "1",
+      "revision": "test double, not a vendor",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "internal",
+        "statement": "This repository's own test fixture.",
+        "evidence": "in-repository"
+      },
+      "reuse": "A loopback double on an ephemeral port. It proves wire correctness and command discipline; it is never live or vendor-certified behaviour and is shown in the directory as a fixture entry, visibly separate from provider-backed integrations.",
+      "dependents": {
+        "adapters": ["fixture adapter"],
+        "profiles": ["fixture-http-1"],
+        "modules": ["tests/connectors/doubles/fixture-adapter.ts"]
+      },
+      "recordedBy": ["COMMAND"],
+      "notes": "Internal profile identifier."
+    }
+  ]
+}

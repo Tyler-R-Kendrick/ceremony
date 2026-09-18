@@ -59,7 +59,10 @@ describe("Composio execution", () => {
   it("sends the documented direct execution body and classifies the output", async () => {
     const h = await start({ ...withAccount });
     const connection = activeConnection(h.binding);
-    const result = await h.adapter.invoke!(h.context({ connection }), request());
+    const result = await h.adapter.invoke!(
+      h.context({ connection }),
+      request(),
+    );
     assert.equal(result.state, "complete");
     assert.equal(result.outputClassification, "personal");
     assert.equal(result.effect, "read");
@@ -71,11 +74,17 @@ describe("Composio execution", () => {
     assert.ok(executed);
     const body = bodyOf(executed);
     assert.equal(body.user_id, h.userId);
-    assert.equal(body.connected_account_id, connection.externalIds.connectedAccountId);
+    assert.equal(
+      body.connected_account_id,
+      connection.externalIds.connectedAccountId,
+    );
     assert.equal(body.version, TOOLKIT_VERSION);
     assert.deepEqual(body.arguments, { per_page: 10 });
     // The pinned version was checked against the live catalogue first.
-    assert.equal(h.double.received("GET", `/api/v3/tools/${READ_TOOL}`).length, 1);
+    assert.equal(
+      h.double.received("GET", `/api/v3/tools/${READ_TOOL}`).length,
+      1,
+    );
   });
 
   it("refuses an argument the operation did not declare", async () => {
@@ -210,7 +219,10 @@ describe("Composio execution", () => {
         error.code === "denied" &&
         error.detail === "composio.meta-tool.unapproved",
     );
-    assert.equal(h.double.received("POST", "/api/v3/tool_router/session").length, 0);
+    assert.equal(
+      h.double.received("POST", "/api/v3/tool_router/session").length,
+      0,
+    );
   });
 
   it("creates a session with connection management off and executes the approved tool", async () => {
@@ -246,7 +258,10 @@ describe("Composio execution", () => {
     );
     const executeBody = bodyOf(executed!);
     assert.equal(executeBody.tool_slug, READ_TOOL);
-    assert.equal(executeBody.account, connection.externalIds.connectedAccountId);
+    assert.equal(
+      executeBody.account,
+      connection.externalIds.connectedAccountId,
+    );
     // The session's MCP URL is a private handle; it never reaches a result.
     const text = stringsIn(result).join(" ");
     assert.ok(!text.includes("/mcp/"));
@@ -274,9 +289,8 @@ describe("Composio execution", () => {
         error.detail === "composio.session.meta-tool-unapproved",
     );
     assert.equal(
-      h.double.requests.filter((item) =>
-        item.url.pathname.endsWith("/execute"),
-      ).length,
+      h.double.requests.filter((item) => item.url.pathname.endsWith("/execute"))
+        .length,
       0,
     );
   });
@@ -368,7 +382,10 @@ describe("Composio execution", () => {
       },
     });
     const connection = activeConnection(h.binding);
-    const result = await h.adapter.invoke!(h.context({ connection }), request());
+    const result = await h.adapter.invoke!(
+      h.context({ connection }),
+      request(),
+    );
     assert.equal(result.state, "complete");
   });
 
@@ -384,7 +401,10 @@ describe("Composio execution", () => {
       },
     });
     const connection = activeConnection(h.binding);
-    const result = await h.adapter.invoke!(h.context({ connection }), request());
+    const result = await h.adapter.invoke!(
+      h.context({ connection }),
+      request(),
+    );
     assert.equal(result.state, "failed");
     assert.equal(result.code, "composio.tool.failed");
     assert.equal(result.output, undefined);
@@ -444,10 +464,7 @@ describe("Composio execution", () => {
     const connection = activeConnection(h.binding, { generation: 1 });
     await assert.rejects(
       () =>
-        h.adapter.invoke!(
-          h.context({ connection, generation: 2 }),
-          request(),
-        ),
+        h.adapter.invoke!(h.context({ connection, generation: 2 }), request()),
       (error: unknown) =>
         error instanceof ConnectorError &&
         error.detail === "composio.connection.stale-generation",
@@ -462,7 +479,10 @@ describe("Composio execution", () => {
       externalIds: {
         connectedAccountId: ACCOUNT_B,
         authConfigId: h.binding.settings.authConfigs
-          ? String((h.binding.settings as never as { authConfigs: string[] }).authConfigs[0])
+          ? String(
+              (h.binding.settings as never as { authConfigs: string[] })
+                .authConfigs[0],
+            )
           : "",
         toolkitSlug: TOOLKIT,
         userId: h.userId,

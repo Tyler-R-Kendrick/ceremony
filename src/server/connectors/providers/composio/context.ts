@@ -92,7 +92,8 @@ export function prepareComposioCall(
     throw denied("composio.binding.adapter");
   if (ctx.binding.tenantId !== ctx.actor.tenantId)
     throw denied("composio.tenant.mismatch");
-  if (ctx.binding.status !== "approved") throw denied("composio.binding.status");
+  if (ctx.binding.status !== "approved")
+    throw denied("composio.binding.status");
   const settings = readComposioSettings(ctx.binding);
   const owner = resolveOwner(ctx, ownerKind);
   const base = settings.apiBase ?? COMPOSIO_API_BASE;

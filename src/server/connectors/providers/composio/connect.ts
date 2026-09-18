@@ -13,7 +13,11 @@ import {
   fetchConnectedAccounts,
   getConnectedAccount,
 } from "./catalog.js";
-import { deploymentOrigin, guardConnection, type ComposioCall } from "./context.js";
+import {
+  deploymentOrigin,
+  guardConnection,
+  type ComposioCall,
+} from "./context.js";
 import {
   composioAuthConfigIdSchema,
   composioConnectedAccountIdSchema,
@@ -114,17 +118,27 @@ export async function selectAccount(
       throw new ConnectorError("invalid-request", {
         detail: "composio.account.id-invalid",
       });
-    if (recorded !== undefined && requested !== undefined && requested !== recorded) {
+    if (
+      recorded !== undefined &&
+      requested !== undefined &&
+      requested !== recorded
+    ) {
       // Switching the account behind an existing connection is an explicit
       // human intent, never a side effect of naming a different target.
-      if (!intent?.accountSwitch) throw denied("composio.account.switch-required");
+      if (!intent?.accountSwitch)
+        throw denied("composio.account.switch-required");
     }
-    if (!permitted(call, pinned)) throw denied("composio.account.not-permitted");
-    return { kind: "account", account: await getConnectedAccount(call, pinned) };
+    if (!permitted(call, pinned))
+      throw denied("composio.account.not-permitted");
+    return {
+      kind: "account",
+      account: await getConnectedAccount(call, pinned),
+    };
   }
   const { accounts } = await fetchConnectedAccounts(call);
   const usable = accounts.filter(
-    (account) => isExecutableStatus(account.status) && permitted(call, account.id),
+    (account) =>
+      isExecutableStatus(account.status) && permitted(call, account.id),
   );
   if (usable.length === 0) return { kind: "none" };
   if (usable.length === 1 && call.settings.accountSelection === "single-active")
@@ -205,7 +219,11 @@ export async function composioAuthorize(
       kind: "human-required",
       code: "composio.account.selection-required",
     };
-  if (choice.kind === "account" && mode === "authorize" && !intent.accountSwitch)
+  if (
+    choice.kind === "account" &&
+    mode === "authorize" &&
+    !intent.accountSwitch
+  )
     // Already connected and usable: verification, not a new grant.
     return { kind: "verify" };
   if (intent.interruption === "none")
@@ -464,6 +482,7 @@ export async function composioVerify(
       };
     return completionFor(call, choice.account);
   }
-  if (!permitted(call, accountId)) throw denied("composio.account.not-permitted");
+  if (!permitted(call, accountId))
+    throw denied("composio.account.not-permitted");
   return completionFor(call, await getConnectedAccount(call, accountId));
 }

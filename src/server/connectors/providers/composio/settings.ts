@@ -76,7 +76,9 @@ export const composioBindingSettingsSchema = z.strictObject({
   /** Auth configs whose connected accounts this binding may use. */
   authConfigs: z.array(composioAuthConfigIdSchema).min(1).max(16),
   /** Documented API base path; defaults to the frozen `/api/v3`. */
-  apiBase: z.enum(COMPOSIO_API_BASES as unknown as [string, ...string[]]).optional(),
+  apiBase: z
+    .enum(COMPOSIO_API_BASES as unknown as [string, ...string[]])
+    .optional(),
   /** Which documented execution profile this binding uses. */
   execution: z.enum(["direct", "session"]).optional(),
   /** Tool slugs this binding approves. Nothing outside it executes. */
@@ -92,7 +94,12 @@ export const composioBindingSettingsSchema = z.strictObject({
       enableWaitForConnections: z.boolean().optional(),
       enableConnectionRemoval: z.boolean().optional(),
       maxAccountsPerToolkit: z.number().int().min(1).max(32).optional(),
-      ttlMs: z.number().int().min(60_000).max(24 * 60 * 60 * 1000).optional(),
+      ttlMs: z
+        .number()
+        .int()
+        .min(60_000)
+        .max(24 * 60 * 60 * 1000)
+        .optional(),
     })
     .optional(),
   /**
@@ -158,7 +165,9 @@ export function composioRoute(operation: BoundOperation): ComposioRoute {
     throw unsupported("composio.transport.unsupported");
   const route = transport.route;
   if (route.startsWith("session:")) {
-    const slug = composioToolSlugSchema.safeParse(route.slice("session:".length));
+    const slug = composioToolSlugSchema.safeParse(
+      route.slice("session:".length),
+    );
     if (!slug.success) throw unsupported("composio.route.tool-slug");
     return { kind: "session-tool", toolSlug: slug.data };
   }

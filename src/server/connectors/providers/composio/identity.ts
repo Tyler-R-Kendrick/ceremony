@@ -100,7 +100,10 @@ export function composioUserId(owner: ComposioOwner, key?: Uint8Array): string {
  * honestly name; the auth config and account ids are recorded separately on the
  * connection and are what actually pin it.
  */
-export function composioAuthorityInstance(origin: string, base: string): string {
+export function composioAuthorityInstance(
+  origin: string,
+  base: string,
+): string {
   return `composio:${origin}${base}`;
 }
 

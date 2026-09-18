@@ -297,7 +297,13 @@ function sanitizePackage(pkg: RegistryPackage): Sanitized {
 /**
  * A positive-allowlist copy of a server.json fit for publication: known fields
  * only, descriptions clipped to the registry's limits, secret input values
- * removed. Reports the remote URLs that must not leave the deployment.
+ * removed. Reports every URL it would emit that must not leave the deployment.
+ *
+ * A private address can be spelled in more places than `remotes[].url`: a
+ * package transport, a package registry base URL, a website, a repository or
+ * an icon are all published verbatim, so each one is checked against the same
+ * routability rule. The field keeps its name for compatibility; a non-empty
+ * list means the entry is not publishable, whichever field named the network.
  */
 export function publicServerJsonProjection(
   server: ServerJson,
@@ -309,14 +315,22 @@ export function publicServerJsonProjection(
 } {
   let redactions = 0;
   const privateRemoteUrls: string[] = [];
+  const checkUrl = (value: string | undefined): void => {
+    if (value !== undefined && value !== "" && !isPubliclyRoutableUrl(value))
+      privateRemoteUrls.push(value);
+  };
   const out: Record<string, unknown> = {};
   if (server.$schema) out.$schema = server.$schema;
   out.name = server.name;
   out.description = server.description.slice(0, 100) || server.name;
   if (server.title) out.title = server.title.slice(0, 100);
   out.version = server.version;
-  if (server.websiteUrl) out.websiteUrl = server.websiteUrl;
+  if (server.websiteUrl) {
+    checkUrl(server.websiteUrl);
+    out.websiteUrl = server.websiteUrl;
+  }
   if (server.repository) {
+    checkUrl(server.repository.url);
     const repository: Record<string, unknown> = {
       url: server.repository.url,
       source: server.repository.source,
@@ -327,14 +341,19 @@ export function publicServerJsonProjection(
     out.repository = repository;
   }
   if (server.icons)
-    out.icons = server.icons.map((icon) => ({
-      src: icon.src,
-      ...(icon.mimeType ? { mimeType: icon.mimeType } : {}),
-      ...(icon.sizes ? { sizes: icon.sizes } : {}),
-      ...(icon.theme ? { theme: icon.theme } : {}),
-    }));
+    out.icons = server.icons.map((icon) => {
+      checkUrl(icon.src);
+      return {
+        src: icon.src,
+        ...(icon.mimeType ? { mimeType: icon.mimeType } : {}),
+        ...(icon.sizes ? { sizes: icon.sizes } : {}),
+        ...(icon.theme ? { theme: icon.theme } : {}),
+      };
+    });
   if (server.packages)
     out.packages = server.packages.map((pkg) => {
+      checkUrl(pkg.transport.url);
+      checkUrl(pkg.registryBaseUrl);
       const sanitized = sanitizePackage(pkg);
       redactions += sanitized.redactions;
       return sanitized.value;
