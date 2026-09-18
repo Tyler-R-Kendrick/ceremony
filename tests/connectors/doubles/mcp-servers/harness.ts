@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
@@ -47,7 +47,9 @@ export async function startMcpFixture(
   options: { token?: string; secondToken?: string } = {},
 ): Promise<FixtureServer> {
   const script = fileURLToPath(new URL(SERVERS[kind], import.meta.url));
-  const child: ChildProcessWithoutNullStreams = spawn(
+  // stdio ["ignore","pipe","pipe"] gives a child with no stdin and both
+  // output streams present; the inferred type says exactly that.
+  const child = spawn(
     process.execPath,
     ["--no-experimental-webstorage", "--import", "tsx", script],
     {

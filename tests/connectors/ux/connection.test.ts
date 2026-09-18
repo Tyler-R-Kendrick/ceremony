@@ -60,6 +60,9 @@ test("every drawer control becomes an input to the connect command", async () =>
     await view.fill("#connector-profile", "oauth");
     await view.fill("#connector-target", "octocat");
     await view.fill("#connector-interruption", "none");
+    // The interruption budget is a constraint the server reports back on, not
+    // an instruction to find another way in.
+    assert.match(view.text, /constraint, not a bypass/);
     await view.click("Connect GitHub (native app)");
     const sent = fixture.requests.find((item) => item.path === "/connections");
     assert.ok(sent, "no connect command was sent");
@@ -75,9 +78,8 @@ test("every drawer control becomes an input to the connect command", async () =>
       },
     });
     assert.equal(lifecycle(view), "human-required");
-    // The interruption budget is a constraint the server reports back on, not
-    // an instruction to find another way in.
-    assert.match(view.text, /constraint, not a bypass/);
+    // "none" ended in a person being needed, which is what the copy promised.
+    assert.match(view.text, /interruption\.not\.permitted/);
   } finally {
     await view.close();
   }

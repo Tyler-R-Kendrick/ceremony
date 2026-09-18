@@ -68,7 +68,9 @@ function buildServer(token: string): McpServer {
   server.registerTool(
     `greet_${who}`,
     { description: `Personalized for ${who}.`, inputSchema: {} },
-    async () => ({ content: [{ type: "text", text: `hello ${who}` }] }),
+    async () => ({
+      content: [{ type: "text" as const, text: `hello ${who}` }],
+    }),
   );
 
   server.registerTool(
@@ -93,7 +95,7 @@ function buildServer(token: string): McpServer {
     async () => {
       state.effects.push({ tool: "slow_note", at: Date.now(), arguments: {} });
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      return { content: [{ type: "text", text: "eventually" }] };
+      return { content: [{ type: "text" as const, text: "eventually" }] };
     },
   );
 
@@ -390,7 +392,7 @@ const server = createServer(async (req, res) => {
     method: req.method ?? "GET",
     headers,
     ...(raw.length && req.method !== "GET" && req.method !== "HEAD"
-      ? { body: raw }
+      ? { body: new Uint8Array(raw) }
       : {}),
   });
 

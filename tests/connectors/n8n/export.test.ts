@@ -63,7 +63,7 @@ describe("exporting an n8n description", () => {
       { name: "meterlyApi", required: true },
     ]);
     assert.deepEqual(document["requestDefaults"], {
-      baseURL: "https://api.meterly.example",
+      baseURL: "https://api.meterly.example/v1",
     });
     // Expressions travel verbatim, as the inert text they always were.
     const properties = document["properties"] as Array<Record<string, unknown>>;

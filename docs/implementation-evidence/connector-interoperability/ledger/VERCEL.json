@@ -55,7 +55,7 @@
         "Connector create/update bodies are carried as a bounded opaque `data` object per connector type; the adapter does not validate provider-specific credential shapes (16 type variants in the OpenAPI document)",
         "GET /v1/connect/networks and the other /v1/connect/networks operations are out of scope: they are Secure Compute networks, not Connect connectors"
       ],
-      "notes": "Each of the ten management operations is pinned to its own documented version and path in vercelConnectOperationTable, and a binding whose transport disagrees is refused (assertTransportMatches). Team scope comes from VERCEL_TEAM_ID and must also be a permitted target; a caller-supplied teamId is an unknown input. Pagination follows `pagination.next`. Administrative operations (create/update/delete/link/unlink/trigger-destinations) go through a policy hook that defaults to the host `admin` capability; deleting a connector other projects still link returns human-required with the impact list until the exact set is acknowledged."
+      "notes": "Each of the eleven management operations is pinned to its own documented version and path in vercelConnectOperationTable, and a binding whose transport disagrees is refused (assertTransportMatches). Team scope comes from VERCEL_TEAM_ID and must also be a permitted target; a caller-supplied teamId is an unknown input. Pagination follows `pagination.next`. Administrative operations (create/update/delete/link/unlink/trigger-destinations) go through a policy hook that defaults to the host `admin` capability; deleting a connector other projects still link returns human-required with the impact list until the exact set is acknowledged."
     },
     {
       "id": "VC-02",
@@ -206,7 +206,7 @@
     },
     {
       "target": "bound operations",
-      "description": "vercelManagementBoundOperations() returns the ten management operations already pinned to their documented method, path, version and destination id `api`, with admin operations marked consent:'confirm'. The integrator may narrow the set but must not alter a transport."
+      "description": "vercelManagementBoundOperations() returns the eleven management operations already pinned to their documented method, path, version and destination id `api`, with admin operations marked consent:'confirm'. The integrator may narrow the set but must not alter a transport."
     },
     {
       "target": "return route (hosted HTTP)",

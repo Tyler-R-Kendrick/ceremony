@@ -1030,8 +1030,9 @@ export function ConnectorConnection({
               onChange={(event) => setTargetId(event.target.value.trim())}
             />
             <span className="connector-muted">
-              Verification must name this exact target. Where the provider
-              offers a list, you will be asked to pick from it after signing in.
+              The server must observe this exact account or workspace before the
+              connection counts as working. Where the provider offers a list,
+              you are asked to pick from it after signing in.
             </span>
           </label>
           <fieldset className="connector-field">

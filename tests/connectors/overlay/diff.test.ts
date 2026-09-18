@@ -12,7 +12,18 @@ import {
  * approval granted against the previous document is no longer reusable.
  */
 
-const document = () => ({
+type Scopes = Record<string, string>;
+type Requirement = Record<string, string[]>;
+type Schemes = Record<string, Record<string, unknown>>;
+
+const document = (): {
+  openapi: string;
+  info: { title: string; version: string };
+  servers: Array<{ url: string }>;
+  security: Requirement[];
+  paths: Record<string, Record<string, Record<string, unknown>>>;
+  components: { securitySchemes: Schemes };
+} => ({
   openapi: "3.1.0",
   info: { title: "Approved", version: "1.0.0" },
   servers: [{ url: "https://approved.example.test" }],
@@ -103,8 +114,11 @@ test("an overlay that widens a scope is flagged security", () => {
 test("narrowing a scope is reported but does not invalidate the approval", () => {
   const before = document();
   const after = document();
-  after.components.securitySchemes.oauth.flows.authorizationCode.scopes =
-    {} as Record<string, string>;
+  const flows = after.components.securitySchemes.oauth!.flows as Record<
+    string,
+    { scopes: Scopes }
+  >;
+  flows.authorizationCode!.scopes = {};
   const result = diffOverlay(before, after);
   assert.ok(kinds(result).includes("scope-narrowed"));
   assert.equal(result.securityAffected, false);
@@ -158,7 +172,7 @@ test("an overlay that changes a security requirement is flagged security", () =>
   // Changing the document default affects every operation that inherits it.
   const before = document();
   const after = document();
-  after.security = [] as Array<Record<string, string[]>>;
+  after.security = [];
   const documentLevel = diffOverlay(before, after);
   assert.ok(kinds(documentLevel).includes("security-requirement-changed"));
   assert.equal(documentLevel.approvalReusable, false);

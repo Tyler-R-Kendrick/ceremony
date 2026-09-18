@@ -262,12 +262,6 @@ test("a user subject gets a private handoff whose correlation is the request id"
     "the return route is built from the deployment origin",
   );
 
-  const requestId = (
-    double.routed("connect.authorize").at(-1)!.body as Record<string, unknown>
-  )["subject"]
-    ? Object.values(double.calls).length
-    : 0;
-  assert.ok(requestId >= 0);
   assert.equal(
     start.handoff.correlationKey,
     start.handoff.private["request"],
@@ -288,6 +282,7 @@ test("a user subject gets a private handoff whose correlation is the request id"
   );
   assert.equal(issued.summary.kind, "provider-browser");
   assert.equal(issued.summary.generation, connection.generation);
+  assert.equal(issued.summary.state, "issued");
   void binding;
 });
 

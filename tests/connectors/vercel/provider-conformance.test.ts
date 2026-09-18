@@ -193,25 +193,19 @@ test("Ceremony's OIDC fixture serves discovery, PKCE and a code exchange Connect
 });
 
 test("the reference development issuer honours resource indicators, and the harness reports it", async (t) => {
-  let origin = "";
-  const dev = await createDevIssuer({
-    origin: "http://127.0.0.1:1",
-    audiences: ["http://127.0.0.1:1/resource"],
-    subject: "conformance",
-  });
-  // The issuer is built once its own origin is known, so bind first.
+  // The issuer signs and advertises its own origin, so the port is claimed
+  // before the issuer is built.
   const probe = createServer(() => {});
   probe.listen(0, "127.0.0.1");
   await once(probe, "listening");
   const port = (probe.address() as AddressInfo).port;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
-  origin = `http://127.0.0.1:${port}`;
+  const origin = `http://127.0.0.1:${port}`;
   const issuer = await createDevIssuer({
     origin,
     audiences: [`${origin}/resource`],
     subject: "conformance",
   });
-  void dev;
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));

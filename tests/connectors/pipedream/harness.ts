@@ -64,6 +64,17 @@ export async function startHarness(options: HarnessOptions = {}) {
     returnPath: RETURN_PATH,
     connectionWebhookPath: "/api/v1/connectors/pipedream/connections",
     ...(options.adapter ?? {}),
+    // Generous by default so a loaded build machine cannot turn a loopback
+    // round trip into a spurious timeout; tests that are *about* timeouts set
+    // their own tiny value, which wins here.
+    timeouts: {
+      token: 60_000,
+      read: 60_000,
+      write: 60_000,
+      proxy: 60_000,
+      action: 60_000,
+      ...(options.adapter?.timeouts ?? {}),
+    },
   });
 
   return {

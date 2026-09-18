@@ -189,7 +189,8 @@ async function bind(
     assert.ok(found, `${nativeId} did not compile`);
     return found.operationRef;
   };
-  return { server, read, compiled, binding, adapter, refFor, ...context };
+  // `context` already carries the binding it was built from.
+  return { server, read, compiled, adapter, refFor, ...context };
 }
 
 test("a GET reaches the exact path the binding pins, with the path parameter encoded once", async (t) => {

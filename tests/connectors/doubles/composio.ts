@@ -118,11 +118,16 @@ export type ComposioDoubleOptions = {
 
 export type ComposioDouble = Awaited<ReturnType<typeof startComposioDouble>>;
 
-const json = (status: number, body: unknown) => ({ status, body: body as never });
+const json = (status: number, body: unknown) => ({
+  status,
+  body: body as never,
+});
 const badRequest = (error: string) => json(400, { error });
 const notFound = () => json(404, { error: "not_found" });
 
-function readJson(request: RecordedRequest): Record<string, unknown> | undefined {
+function readJson(
+  request: RecordedRequest,
+): Record<string, unknown> | undefined {
   if (!request.body.length) return undefined;
   try {
     const value: unknown = JSON.parse(request.body.toString("utf8"));
@@ -163,8 +168,11 @@ export async function startComposioDouble(options: ComposioDoubleOptions) {
   /** Set once the loopback server is listening; the handler runs only after that. */
   let origin = "";
   /** Every created connected account and the callback URL it was created with. */
-  const created: Array<{ id: string; callbackUrl: string; authConfigId: string }> =
-    [];
+  const created: Array<{
+    id: string;
+    callbackUrl: string;
+    authConfigId: string;
+  }> = [];
 
   const fixture = await startHttpFixture((request) => {
     const url = request.url;
@@ -218,7 +226,8 @@ export async function startComposioDouble(options: ComposioDoubleOptions) {
             (account) =>
               (!userIds.length || userIds.includes(account.user_id)) &&
               (!slugs.length || slugs.includes(account.toolkit.slug)) &&
-              (!configIds.length || configIds.includes(account.auth_config.id)) &&
+              (!configIds.length ||
+                configIds.includes(account.auth_config.id)) &&
               (!statuses.length || statuses.includes(account.status)),
           ),
         ),
@@ -228,7 +237,8 @@ export async function startComposioDouble(options: ComposioDoubleOptions) {
     if (request.method === "POST" && path === "/connected_accounts") {
       const body = readJson(request);
       const authConfig = body?.auth_config as { id?: unknown } | undefined;
-      const connection = body?.connection as Record<string, unknown> | undefined;
+      const connection = body?.connection as
+        Record<string, unknown> | undefined;
       if (typeof authConfig?.id !== "string")
         return badRequest("auth_config.id is required");
       const config = authConfigs.find((item) => item.id === authConfig.id);
