@@ -992,6 +992,8 @@ export function AddConnection({
     });
   const state = (index: number) =>
     step === index ? "active" : step > index ? "done" : "upcoming";
+  /** Opened on the run by a resume link, rather than walked to from step one. */
+  const resumed = initialStep === 4;
   return (
     <>
       <button
@@ -1021,6 +1023,17 @@ export function AddConnection({
             <Glyph name="close" />
           </button>
         </div>
+        {/*
+          A resume link is not a wizard. Somebody who followed one has already
+          configured this connection and came back to finish it, so the run is
+          the first thing in the drawer and the steps that produced it sit
+          under it, still open to anybody who wants to change something. Put
+          the other way round, four rows of wizard scaffolding push the button
+          the person came to press off the bottom of a phone.
+        */}
+        {resumed && (
+          <div className="run-region">{renderRun(draft, compiled)}</div>
+        )}
         <Step
           index={1}
           title={entry.name}
@@ -1236,7 +1249,9 @@ export function AddConnection({
               </button>
             </div>
           </section>
-          <div className="run-region">{renderRun(draft, compiled)}</div>
+          {!resumed && (
+            <div className="run-region">{renderRun(draft, compiled)}</div>
+          )}
           <div className="step-actions">
             <button
               type="button"

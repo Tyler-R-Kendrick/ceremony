@@ -166,8 +166,15 @@ interface FamilyProjection {
   frames(draft: ConnectionDraft): string[];
   /** Credential roles typed at the entry origin. Empty means none, ever. */
   roles(draft: ConnectionDraft): string[];
-  /** Capabilities this family's mechanics need of whatever browser runs it. */
-  required: RequiredCapabilities;
+  /**
+   * Capabilities this family's mechanics need of whatever browser runs it.
+   *
+   * A function of the draft, like every other member here, because some of
+   * them genuinely change with what was chosen: a registration handed to the
+   * provider's own surface needs a window the opener can recognise again, and
+   * one filled in here does not.
+   */
+  required(draft: ConnectionDraft): RequiredCapabilities;
   /** Values this family collects that a login plan does not carry, and why. */
   notCarried: readonly { key: string; label: string; reason: string }[];
 }
@@ -188,7 +195,7 @@ const oauth: FamilyProjection = {
   // A provider's own sign-in page receives the person's provider credential,
   // never this connection's. Nothing is typed by the ceremony here.
   roles: () => [],
-  required: { popupBinding: true },
+  required: () => ({ popupBinding: true }),
   notCarried: [
     {
       key: "clientIdName",
@@ -210,7 +217,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
   "oauth-client-credentials": {
     ...oauth,
     // Nobody is present, so nothing may pop up and nothing may be asked.
-    required: {},
+    required: () => ({}),
   },
   "api-key": {
     entry: (draft) => value(draft, "service"),
@@ -219,7 +226,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     extra: () => [],
     frames: () => [],
     roles: () => ["key"],
-    required: {},
+    required: () => ({}),
     notCarried: [
       {
         key: "uid",
@@ -258,7 +265,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     extra: () => [],
     frames: () => [],
     roles: () => ["identifier", "token"],
-    required: {},
+    required: () => ({}),
     notCarried: [
       {
         key: "identifierLabel",
@@ -279,7 +286,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     extra: (draft) => [value(draft, "verificationUri")],
     frames: () => [],
     roles: () => [],
-    required: {},
+    required: () => ({}),
     notCarried: [],
   },
   "github-app": {
@@ -291,8 +298,14 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     roles: () => [],
     // Manifest registration and installation both hand off through a window
     // the opener has to be able to recognise again.
-    required: { popupBinding: true },
+    required: () => ({ popupBinding: true }),
     notCarried: [
+      {
+        key: "namespace",
+        label: "GitHub namespace",
+        reason:
+          "Names where the App is installed, which the installation ceremony settles at GitHub against the account signed in there. A browser session plan carries origins, capabilities and an account policy — never an installation target.",
+      },
       {
         key: "appIdName",
         label: "App ID environment name",
@@ -319,7 +332,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
       value(draft, "sequence") === "identifier"
         ? ["identifier", "password"]
         : ["password"],
-    required: { frameBinding: true, popupBinding: true },
+    required: () => ({ frameBinding: true, popupBinding: true }),
     notCarried: [],
   },
   "account-registration": {
@@ -334,7 +347,13 @@ const projections: Record<AuthFamily, FamilyProjection> = {
       ["none", "provider", "issued-token"].includes(value(draft, "secret"))
         ? []
         : ["password"],
-    required: {},
+    // Registration run in the provider's own surface hands off through a
+    // window, and the opener has to be able to recognise that window again
+    // when it comes back. Filling the form here needs nothing of the sort.
+    required: (draft) =>
+      value(draft, "createdBy") === "provider-browser"
+        ? { popupBinding: true }
+        : {},
     notCarried: [
       {
         key: "identifier",
@@ -351,7 +370,7 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     extra: () => [],
     frames: () => [],
     roles: () => [],
-    required: {},
+    required: () => ({}),
     notCarried: [],
   },
 };
@@ -438,7 +457,7 @@ export function projectDraft(
       ? "return-to-user"
       : "dispose";
   const required: RequiredCapabilities = {
-    ...projection.required,
+    ...projection.required(draft),
     // Replaying a recorded sign-in means the browser has to be able to save
     // and restore what the recording established.
     ...(draft.capabilities.includes("teaching") ||

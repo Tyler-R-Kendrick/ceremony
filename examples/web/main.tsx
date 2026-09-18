@@ -39,23 +39,31 @@ const liveMode = entryParams.get("mode") !== "test";
  */
 const openConnectionKey = "ceremony:open-connection";
 /**
- * The connection this tab had open, remembered across a same-origin round trip.
+ * The connection this tab had open, handed from one load of it to the next.
  *
- * Signing in, approving at a provider or returning from a callback leaves and
- * re-enters this document, and the host's configured return path carries no
- * query string of its own. Without this, somebody sent away mid-connection
- * comes back to the directory — the one place they were not trying to go.
- * Per tab and per origin, so a new tab still starts by browsing, and wrapped
- * because a locked-down browser is allowed to refuse storage entirely.
+ * Approving at a provider or returning from a callback leaves and re-enters
+ * this document, and the host's configured return path carries no query string
+ * of its own beyond the run hint. Without this, somebody sent away
+ * mid-connection comes back to the directory — the one place they were not
+ * trying to go.
+ *
+ * It is written as the document goes away and taken back by the next load, so
+ * it exists only while no document does: a page that is on screen stores
+ * nothing, which is what lets this application keep no client-side record of a
+ * connection at all. It is per tab and per origin, so a new tab still starts by
+ * browsing, and every access is wrapped because a locked-down browser is
+ * allowed to refuse storage entirely.
  */
-function rememberedConnection(): string | null {
+function takeRememberedConnection(): string | null {
   try {
-    return sessionStorage.getItem(openConnectionKey);
+    const remembered = sessionStorage.getItem(openConnectionKey);
+    sessionStorage.removeItem(openConnectionKey);
+    return remembered;
   } catch {
     return null;
   }
 }
-function rememberConnection(id: string | undefined) {
+function handOffConnection(id: string | undefined) {
   try {
     if (id) sessionStorage.setItem(openConnectionKey, id);
     else sessionStorage.removeItem(openConnectionKey);
@@ -63,8 +71,8 @@ function rememberConnection(id: string | undefined) {
     // A tab that may not store simply does not remember. Nothing else changes.
   }
 }
-const openedOnConnector =
-  entryParams.get("connector") ?? rememberedConnection();
+const handedOverConnection = takeRememberedConnection();
+const openedOnConnector = entryParams.get("connector") ?? handedOverConnection;
 /**
  * Whether this page load is somebody coming back to a connection they had
  * already started, rather than arriving to browse.
@@ -124,8 +132,19 @@ function App() {
   );
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
   const [delegation, setDelegation] = useState(false);
+  // Handed to the next load of this tab as this one goes away, and taken back
+  // by it immediately. `pagehide` covers the reload, the provider round trip
+  // and the tab closing alike; a document restored from the back/forward cache
+  // never reloaded, so it clears what its own hand-off left behind.
   useEffect(() => {
-    rememberConnection(open ? connectorId : undefined);
+    const handOff = () => handOffConnection(open ? connectorId : undefined);
+    const reclaim = () => handOffConnection(undefined);
+    addEventListener("pagehide", handOff);
+    addEventListener("pageshow", reclaim);
+    return () => {
+      removeEventListener("pagehide", handOff);
+      removeEventListener("pageshow", reclaim);
+    };
   }, [open, connectorId]);
   useEffect(() => {
     void fetch("/api/config")
@@ -329,6 +348,20 @@ function App() {
             <TeachingConnection
               key={connector.id}
               connectorId={connector.id}
+              /*
+               * Signing out ends a session, not a connection. The default is to
+               * replace the location with `/`, which since this page grew a
+               * directory means landing somewhere with no sign-in control on
+               * it — the person is signed out and has nowhere to sign back in.
+               * Reloading the connection they were on is what they asked for,
+               * and the reload is what clears the surface: sign-out returns
+               * `clear-site-data`, so nothing of the old session survives it.
+               */
+              onSignedOut={() => {
+                location.replace(
+                  `/?connector=${encodeURIComponent(connector.id)}${liveMode ? "" : "&mode=test"}`,
+                );
+              }}
               onDeleted={() => {
                 void fetch("/api/config")
                   .then((response) => response.json())
