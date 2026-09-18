@@ -76,13 +76,21 @@ test("AC-STATE-08: an existing database keeps its records while connector state 
   const tenant = "tenant-migrate";
   // Rows written by the existing persistence code, before any connector state.
   await store.transaction(async (tx) => {
-    await tx.put({ tenant, kind: "run", id: "run:legacy" }, { status: "active" }, null);
+    await tx.put(
+      { tenant, kind: "run", id: "run:legacy" },
+      { status: "active" },
+      null,
+    );
     await tx.put(
       { tenant, kind: "handoff", id: "oauth-code:legacy" },
       { phase: "waiting", expires: 1 },
       null,
     );
-    await tx.put({ tenant, kind: "outbox", id: "delivery:legacy" }, { status: "pending" }, null);
+    await tx.put(
+      { tenant, kind: "outbox", id: "delivery:legacy" },
+      { status: "pending" },
+      null,
+    );
   });
 
   // Re-running the migration on a populated database is safe and additive.
@@ -96,7 +104,11 @@ test("AC-STATE-08: an existing database keeps its records while connector state 
 
   // Old and new coexist, each under its own kind.
   const legacy = await store.transaction(async (tx) => ({
-    run: await tx.get<{ status: string }>({ tenant, kind: "run", id: "run:legacy" }),
+    run: await tx.get<{ status: string }>({
+      tenant,
+      kind: "run",
+      id: "run:legacy",
+    }),
     handoff: await tx.get<{ phase: string }>({
       tenant,
       kind: "handoff",
@@ -175,7 +187,9 @@ test("AC-STATE-02: a crashed worker's intent survives and reconciles after resta
   const admin = new Pool(database.config);
   admin.on("error", () => {});
   try {
-    await admin.query("UPDATE ceremony_claims SET expires=0 WHERE kind='connector-effect'");
+    await admin.query(
+      "UPDATE ceremony_claims SET expires=0 WHERE kind='connector-effect'",
+    );
   } finally {
     await admin.end();
   }
@@ -195,14 +209,17 @@ test("AC-STATE-02: a crashed worker's intent survives and reconciles after resta
     );
     assert.equal(unresolved[0]!.commandId, "command-crash");
 
-    const reconciled = await revived.effects.reconcile(
-      actor,
-      seen.effectRef,
-      { status: "applied", code: "provider.reconciled", at: Date.now() },
-    );
+    const reconciled = await revived.effects.reconcile(actor, seen.effectRef, {
+      status: "applied",
+      code: "provider.reconciled",
+      at: Date.now(),
+    });
     assert.equal(reconciled.status, "applied");
     assert.deepEqual(await revived.effects.listUnresolved(actor), []);
-    assert.equal((await revived.effects.begin(intent)).prior?.status, "applied");
+    assert.equal(
+      (await revived.effects.begin(intent)).prior?.status,
+      "applied",
+    );
   } finally {
     await restarted.close();
   }
@@ -284,7 +301,10 @@ test("AC-STATE-08: closing and reopening the database preserves connector state"
     const ports = createConnectorPorts(second);
     const read = await ports.connections.get(actor, record.connectionRef);
     assert.equal(read?.record.externalIds.connectionId, "conn_restart");
-    assert.equal((await ports.evidence.list(actor, record.connectionRef)).length, 1);
+    assert.equal(
+      (await ports.evidence.list(actor, record.connectionRef)).length,
+      1,
+    );
     assert.equal((await ports.definitions.listDefinitions(tenant)).length, 1);
     assert.equal(
       await ports.credentials.use(
@@ -352,7 +372,10 @@ test("STATE-06: no transaction is open while the provider call is in flight", as
       },
     );
     assert.equal(result.value, "done");
-    assert.equal((await ports.effects.get(actor, result.effectRef))?.status, "applied");
+    assert.equal(
+      (await ports.effects.get(actor, result.effectRef))?.status,
+      "applied",
+    );
   } finally {
     await second.close();
   }
@@ -404,9 +427,14 @@ test("STATE-06: diagnostics carry codes, never provider text or material", async
   );
   await capture(ports.credentials.use(scope, "cred:unknown", async () => 1));
   await capture(
-    ports.connections.update(actorFor(tenant, "other"), record.connectionRef, 1, {
-      lifecycle: "degraded",
-    }),
+    ports.connections.update(
+      actorFor(tenant, "other"),
+      record.connectionRef,
+      1,
+      {
+        lifecycle: "degraded",
+      },
+    ),
   );
   await capture(
     ports.connections.recordDisconnect(actor, record.connectionRef, 99, {
@@ -416,7 +444,9 @@ test("STATE-06: diagnostics carry codes, never provider text or material", async
       upstream: "not-attempted",
     }),
   );
-  await capture(ports.drift.invalidateForDrift(actor, record.connectionRef, {}));
+  await capture(
+    ports.drift.invalidateForDrift(actor, record.connectionRef, {}),
+  );
 
   assert.equal(failures.length, 5);
   for (const failure of failures) {
@@ -451,16 +481,19 @@ test("STATE-06: encrypted local development state reopens and stays unreadable w
       "conn_local",
     );
     assert.equal(
-      (await reopened.connections.findByExternalId(
-        tenant,
-        record.authorityInstance,
-        "connectionId",
-        "conn_local",
-      ))?.record.connectionRef,
+      (
+        await reopened.connections.findByExternalId(
+          tenant,
+          record.authorityInstance,
+          "connectionId",
+          "conn_local",
+        )
+      )?.record.connectionRef,
       record.connectionRef,
     );
     assert.equal(
-      (await reopened.definitions.getBinding(tenant, "binding:fixture"))?.revision,
+      (await reopened.definitions.getBinding(tenant, "binding:fixture"))
+        ?.revision,
       1,
     );
     assert.equal(
@@ -468,7 +501,10 @@ test("STATE-06: encrypted local development state reopens and stays unreadable w
       1,
     );
 
-    await fixture.reopen({ current: "other", keys: { other: randomBytes(32) } });
+    await fixture.reopen({
+      current: "other",
+      keys: { other: randomBytes(32) },
+    });
     await assert.rejects(
       createConnectorPorts(fixture.store).connections.get(
         actor,

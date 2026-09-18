@@ -42,12 +42,18 @@ const overlay = (version: string, actions: unknown[]) => ({
 });
 
 test("the overlay version selects the profile and is never guessed", () => {
-  const missing = applyOverlay(base(), { info: { title: "x", version: "1" }, actions: [] });
+  const missing = applyOverlay(base(), {
+    info: { title: "x", version: "1" },
+    actions: [],
+  });
   assert.equal(missing.applied, false);
   assert.equal(missing.issues[0]?.code, "version.missing");
   assert.equal(missing.issues[0]?.severity, "blocking");
 
-  const future = applyOverlay(base(), overlay("2.0.0", [{ target: "$", update: {} }]));
+  const future = applyOverlay(
+    base(),
+    overlay("2.0.0", [{ target: "$", update: {} }]),
+  );
   assert.equal(future.applied, false);
   assert.equal(future.issues[0]?.code, "version.unsupported");
 
@@ -66,7 +72,10 @@ test("update merges into an object target recursively", () => {
     overlay("1.0.0", [
       {
         target: "$.paths['/a'].get",
-        update: { summary: "Added", responses: { "404": { description: "gone" } } },
+        update: {
+          summary: "Added",
+          responses: { "404": { description: "gone" } },
+        },
       },
     ]),
   );
@@ -86,18 +95,25 @@ test("1.0.0 appends a single entry to an array target and refuses an array updat
   const appended = applyOverlay(
     base(),
     overlay("1.0.0", [
-      { target: "$.paths['/a'].get.parameters", update: { name: "newParam", in: "query" } },
+      {
+        target: "$.paths['/a'].get.parameters",
+        update: { name: "newParam", in: "query" },
+      },
     ]),
   );
   assert.equal(appended.applied, true);
-  const parameters = (appended.document as ReturnType<typeof base>).paths["/a"].get.parameters;
+  const parameters = (appended.document as ReturnType<typeof base>).paths["/a"]
+    .get.parameters;
   assert.equal(parameters.length, 3);
   assert.deepEqual(parameters[2], { name: "newParam", in: "query" });
 
   const refused = applyOverlay(
     base(),
     overlay("1.0.0", [
-      { target: "$.paths['/a'].get.parameters", update: [{ name: "x", in: "query" }] },
+      {
+        target: "$.paths['/a'].get.parameters",
+        update: [{ name: "x", in: "query" }],
+      },
     ]),
   );
   assert.equal(refused.applied, false);
@@ -118,8 +134,9 @@ test("1.1.0 concatenates an array update and appends anything else", () => {
     ]),
   );
   assert.equal(concatenated.applied, true);
-  const parameters = (concatenated.document as ReturnType<typeof base>).paths["/a"].get
-    .parameters;
+  const parameters = (concatenated.document as ReturnType<typeof base>).paths[
+    "/a"
+  ].get.parameters;
   assert.equal(parameters.length, 4);
   assert.deepEqual(parameters[3], { name: "skip", in: "query" });
 });
@@ -130,14 +147,20 @@ test("1.1.0 replaces a primitive target; 1.0.0 refuses one", () => {
     overlay("1.1.0", [{ target: "$.info.title", update: "Renamed" }]),
   );
   assert.equal(replaced.applied, true);
-  assert.equal((replaced.document as ReturnType<typeof base>).info.title, "Renamed");
+  assert.equal(
+    (replaced.document as ReturnType<typeof base>).info.title,
+    "Renamed",
+  );
 
   const refused = applyOverlay(
     base(),
     overlay("1.0.0", [{ target: "$.info.title", update: "Renamed" }]),
   );
   assert.equal(refused.applied, false);
-  assert.equal(refused.issues[0]?.code, "structure.primitive-target-unsupported");
+  assert.equal(
+    refused.issues[0]?.code,
+    "structure.primitive-target-unsupported",
+  );
   // The document is returned unchanged when an action cannot be applied.
   assert.deepEqual(refused.document, base());
 });
@@ -148,21 +171,30 @@ test("remove deletes the target from its container, and 1.1.0 removes primitives
     overlay("1.0.0", [{ target: "$.paths['/b']", remove: true }]),
   );
   assert.equal(removed.applied, true);
-  assert.deepEqual(Object.keys((removed.document as ReturnType<typeof base>).paths), ["/a"]);
+  assert.deepEqual(
+    Object.keys((removed.document as ReturnType<typeof base>).paths),
+    ["/a"],
+  );
 
   const primitive = applyOverlay(
     base(),
     overlay("1.1.0", [{ target: "$.paths['/a'].get.tags[1]", remove: true }]),
   );
   assert.equal(primitive.applied, true);
-  assert.deepEqual((primitive.document as ReturnType<typeof base>).paths["/a"].get.tags, ["one"]);
+  assert.deepEqual(
+    (primitive.document as ReturnType<typeof base>).paths["/a"].get.tags,
+    ["one"],
+  );
 
   const refusedIn10 = applyOverlay(
     base(),
     overlay("1.0.0", [{ target: "$.paths['/a'].get.tags[1]", remove: true }]),
   );
   assert.equal(refusedIn10.applied, false);
-  assert.equal(refusedIn10.issues[0]?.code, "structure.primitive-target-unsupported");
+  assert.equal(
+    refusedIn10.issues[0]?.code,
+    "structure.primitive-target-unsupported",
+  );
 });
 
 test("removing several array items by index does not shift the wrong ones", () => {
@@ -186,12 +218,18 @@ test("actions apply in order, each to the result of the previous one", () => {
     base(),
     overlay("1.0.0", [
       { target: "$.paths['/b']", remove: true },
-      { target: "$.paths", update: { "/b": { get: { operationId: "recreated" } } } },
+      {
+        target: "$.paths",
+        update: { "/b": { get: { operationId: "recreated" } } },
+      },
       { target: "$.paths['/b'].get", update: { summary: "second pass" } },
     ]),
   );
   assert.equal(result.applied, true);
-  const document = result.document as Record<string, Record<string, Record<string, Record<string, unknown>>>>;
+  const document = result.document as Record<
+    string,
+    Record<string, Record<string, Record<string, unknown>>>
+  >;
   assert.equal(document.paths?.["/b"]?.get?.operationId, "recreated");
   assert.equal(document.paths?.["/b"]?.get?.summary, "second pass");
   assert.deepEqual(
@@ -203,7 +241,9 @@ test("actions apply in order, each to the result of the previous one", () => {
 test("a target selecting zero nodes succeeds without changing the document", () => {
   const result = applyOverlay(
     base(),
-    overlay("1.0.0", [{ target: "$.paths['/nonexistent'].get", update: { summary: "x" } }]),
+    overlay("1.0.0", [
+      { target: "$.paths['/nonexistent'].get", update: { summary: "x" } },
+    ]),
   );
   assert.equal(result.applied, true);
   assert.deepEqual(result.document, base());
@@ -215,17 +255,27 @@ test("a target selecting zero nodes succeeds without changing the document", () 
 test("a wildcard and a recursive descent select every matching node", () => {
   const result = applyOverlay(
     base(),
-    overlay("1.0.0", [{ target: "$.paths.*.get", update: { "x-marked": true } }]),
+    overlay("1.0.0", [
+      { target: "$.paths.*.get", update: { "x-marked": true } },
+    ]),
   );
   assert.equal(result.applied, true);
   const document = result.document as ReturnType<typeof base>;
-  assert.equal((document.paths["/a"].get as Record<string, unknown>)["x-marked"], true);
-  assert.equal((document.paths["/b"].get as Record<string, unknown>)["x-marked"], true);
+  assert.equal(
+    (document.paths["/a"].get as Record<string, unknown>)["x-marked"],
+    true,
+  );
+  assert.equal(
+    (document.paths["/b"].get as Record<string, unknown>)["x-marked"],
+    true,
+  );
   assert.equal(result.actions[0]?.matched, 2);
 
   const descent = applyOverlay(
     base(),
-    overlay("1.0.0", [{ target: "$..responses", update: { "500": { description: "boom" } } }]),
+    overlay("1.0.0", [
+      { target: "$..responses", update: { "500": { description: "boom" } } },
+    ]),
   );
   assert.equal(descent.applied, true);
   assert.equal(descent.actions[0]?.matched, 2);
@@ -233,7 +283,10 @@ test("a wildcard and a recursive descent select every matching node", () => {
 
 test("selectors outside the documented subset are refused, not approximated", () => {
   for (const [target, reason] of [
-    ["$.paths.*.get.parameters[?@.name == 'dummy']", "filter-selector-unsupported"],
+    [
+      "$.paths.*.get.parameters[?@.name == 'dummy']",
+      "filter-selector-unsupported",
+    ],
     ["$.list[0:2]", "slice-selector-unsupported"],
     ["$.list[0,1]", "union-selector-unsupported"],
     ["$.list[-1]", "negative-index-unsupported"],
@@ -244,9 +297,14 @@ test("selectors outside the documented subset are refused, not approximated", ()
     assert.equal(parsed.ok, false, `${target} should not parse`);
     assert.equal(parsed.ok === false && parsed.reason, reason);
 
-    const result = applyOverlay(base(), overlay("1.1.0", [{ target, update: {} }]));
+    const result = applyOverlay(
+      base(),
+      overlay("1.1.0", [{ target, update: {} }]),
+    );
     assert.equal(result.applied, false);
-    const issue = result.issues.find((item) => item.code === "structure.unsupported-selector");
+    const issue = result.issues.find(
+      (item) => item.code === "structure.unsupported-selector",
+    );
     assert.ok(issue, `${target} produced no unsupported-selector issue`);
     assert.equal(issue.severity, "blocking");
     assert.equal(issue.executionImpact, "blocks-definition");
@@ -293,9 +351,13 @@ test("a recursive descent is bounded by a node budget rather than running away",
   const wide: Record<string, unknown> = {};
   for (let index = 0; index < 200; index++)
     wide[`branch${index}`] = { child: { leaf: index } };
-  const result = applyOverlay(wide, overlay("1.1.0", [{ target: "$..leaf", update: 0 }]), {
-    limits: { maxSelectionNodes: 50 },
-  });
+  const result = applyOverlay(
+    wide,
+    overlay("1.1.0", [{ target: "$..leaf", update: 0 }]),
+    {
+      limits: { maxSelectionNodes: 50 },
+    },
+  );
   assert.equal(result.applied, false);
   assert.equal(result.issues[0]?.code, "structure.selection-budget");
   assert.deepEqual(result.document, wide);
@@ -306,7 +368,10 @@ test("a document that cannot be serialized within bounds is refused, not thrown"
   // it as a bounded diagnostic instead of letting the error escape.
   let shared: Record<string, unknown> = { leaf: true };
   for (let index = 0; index < 400; index++) shared = { a: shared, b: shared };
-  const result = applyOverlay(shared, overlay("1.1.0", [{ target: "$.a", update: {} }]));
+  const result = applyOverlay(
+    shared,
+    overlay("1.1.0", [{ target: "$.a", update: {} }]),
+  );
   assert.equal(result.applied, false);
   assert.equal(result.issues[0]?.code, "structure.document-too-large");
   assert.equal(result.issues[0]?.severity, "blocking");
@@ -315,7 +380,12 @@ test("a document that cannot be serialized within bounds is refused, not thrown"
 test("an update whose property types are incompatible is an error, not an overwrite", () => {
   const result = applyOverlay(
     base(),
-    overlay("1.1.0", [{ target: "$.paths['/a'].get", update: { parameters: { not: "an array" } } }]),
+    overlay("1.1.0", [
+      {
+        target: "$.paths['/a'].get",
+        update: { parameters: { not: "an array" } },
+      },
+    ]),
   );
   assert.equal(result.applied, false);
   assert.equal(result.issues[0]?.code, "structure.incompatible-update");
@@ -338,17 +408,20 @@ test("copy is a 1.1.0 feature and must select exactly one node", () => {
   };
   const copied = applyOverlay(
     document,
-    overlay("1.1.0", [{ target: "$.paths['/target']", copy: "$.paths['/source']" }]),
+    overlay("1.1.0", [
+      { target: "$.paths['/target']", copy: "$.paths['/source']" },
+    ]),
   );
   assert.equal(copied.applied, true);
-  assert.deepEqual(
-    (copied.document as typeof document).paths["/target"],
-    { get: { operationId: "s" } },
-  );
+  assert.deepEqual((copied.document as typeof document).paths["/target"], {
+    get: { operationId: "s" },
+  });
 
   const inTenZero = applyOverlay(
     document,
-    overlay("1.0.0", [{ target: "$.paths['/target']", copy: "$.paths['/source']" }]),
+    overlay("1.0.0", [
+      { target: "$.paths['/target']", copy: "$.paths['/source']" },
+    ]),
   );
   assert.equal(inTenZero.applied, false);
   assert.equal(inTenZero.issues[0]?.code, "structure.copy-unsupported");
@@ -362,10 +435,16 @@ test("copy is a 1.1.0 feature and must select exactly one node", () => {
 });
 
 test("extends is pinned to the source by digest or identity", () => {
-  const source = { digest: "a".repeat(64), identity: "https://base.example.test/openapi.json" };
+  const source = {
+    digest: "a".repeat(64),
+    identity: "https://base.example.test/openapi.json",
+  };
   const byIdentity = applyOverlay(
     base(),
-    { ...overlay("1.0.0", [{ target: "$.info", update: { title: "x" } }]), extends: source.identity },
+    {
+      ...overlay("1.0.0", [{ target: "$.info", update: { title: "x" } }]),
+      extends: source.identity,
+    },
     { source },
   );
   assert.equal(byIdentity.extends?.match, "identity");
@@ -392,7 +471,11 @@ test("extends is pinned to the source by digest or identity", () => {
   assert.equal(mismatched.extends?.match, "mismatch");
   // Applying anyway is the caller's decision, and it is warned about.
   assert.equal(mismatched.applied, true);
-  assert.ok(mismatched.issues.some((issue) => issue.code === "structure.extends-mismatch"));
+  assert.ok(
+    mismatched.issues.some(
+      (issue) => issue.code === "structure.extends-mismatch",
+    ),
+  );
 
   const required = applyOverlay(
     base(),
@@ -415,7 +498,10 @@ test("application records transformation provenance with input and output digest
   assert.equal(result.adaptation.step, "overlay-1.1.0");
   assert.match(result.adaptation.inputDigest, /^[a-f0-9]{64}$/);
   assert.match(result.adaptation.outputDigest, /^[a-f0-9]{64}$/);
-  assert.notEqual(result.adaptation.inputDigest, result.adaptation.outputDigest);
+  assert.notEqual(
+    result.adaptation.inputDigest,
+    result.adaptation.outputDigest,
+  );
 
   // The same overlay over the same document yields the same digests.
   const again = applyOverlay(
@@ -428,14 +514,22 @@ test("application records transformation provenance with input and output digest
 test("the input document is never mutated", () => {
   const document = base();
   const snapshot = JSON.stringify(document);
-  applyOverlay(document, overlay("1.0.0", [{ target: "$.paths['/a']", remove: true }]));
+  applyOverlay(
+    document,
+    overlay("1.0.0", [{ target: "$.paths['/a']", remove: true }]),
+  );
   assert.equal(JSON.stringify(document), snapshot);
 });
 
 test("an overlay cannot inject a prototype through a target or an update", () => {
   const result = applyOverlay(
     { a: {} },
-    overlay("1.1.0", [{ target: "$.a", update: JSON.parse('{"__proto__": {"polluted": true}}') }]),
+    overlay("1.1.0", [
+      {
+        target: "$.a",
+        update: JSON.parse('{"__proto__": {"polluted": true}}'),
+      },
+    ]),
   );
   assert.equal(result.applied, true);
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
@@ -443,13 +537,25 @@ test("an overlay cannot inject a prototype through a target or an update", () =>
     Object.getPrototypeOf(result.document as object),
     Object.prototype,
   );
-  assert.equal((Object.prototype as Record<string, unknown>).polluted, undefined);
+  assert.equal(
+    (Object.prototype as Record<string, unknown>).polluted,
+    undefined,
+  );
 });
 
 test("an overlay with no actions, or a non-object overlay, is refused", () => {
-  assert.equal(applyOverlay(base(), overlay("1.0.0", [])).issues[0]?.code, "structure.actions-missing");
-  assert.equal(applyOverlay(base(), "not an overlay").issues[0]?.code, "structure.not-an-object");
-  const rootRemove = applyOverlay(base(), overlay("1.1.0", [{ target: "$", remove: true }]));
+  assert.equal(
+    applyOverlay(base(), overlay("1.0.0", [])).issues[0]?.code,
+    "structure.actions-missing",
+  );
+  assert.equal(
+    applyOverlay(base(), "not an overlay").issues[0]?.code,
+    "structure.not-an-object",
+  );
+  const rootRemove = applyOverlay(
+    base(),
+    overlay("1.1.0", [{ target: "$", remove: true }]),
+  );
   assert.equal(rootRemove.applied, false);
   assert.equal(rootRemove.issues[0]?.code, "structure.remove-root");
 });

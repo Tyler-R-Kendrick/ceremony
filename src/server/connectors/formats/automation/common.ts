@@ -44,7 +44,9 @@ export function safeText(value: unknown, max = 500): string {
     .replace(/\s+/g, " ")
     .trim();
   if (cleaned.length <= max) return cleaned;
-  return `${Array.from(cleaned).slice(0, Math.max(0, max - 1)).join("")}…`;
+  return `${Array.from(cleaned)
+    .slice(0, Math.max(0, max - 1))
+    .join("")}…`;
 }
 
 /** A short token (a key, a type name, a method) that may appear inside a message. */
@@ -73,10 +75,7 @@ export type SourceLocation = { file?: string; line: number; column: number };
 export function locate(path: string, location?: SourceLocation): string {
   if (!location) return path.slice(0, 1024);
   const file = location.file ? safeText(location.file, 120) : "source";
-  return `${path} (${file}:${location.line}:${location.column})`.slice(
-    0,
-    1024,
-  );
+  return `${path} (${file}:${location.line}:${location.column})`.slice(0, 1024);
 }
 
 export function makeIssue(input: IssueInput): CompatibilityIssue {

@@ -104,7 +104,8 @@ function opaqueReason(value: StaticValue | undefined): string | undefined {
 function literalUrl(value: StaticValue | undefined): string | undefined {
   const text = asString(value);
   if (text === undefined || isN8nExpression(text)) return undefined;
-  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text)) return undefined;
+  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text))
+    return undefined;
   const parsed = new URL(text);
   return parsed.username || parsed.password ? undefined : text;
 }
@@ -125,7 +126,9 @@ function configurationName(
   const base = `N8N_${clean(nodeName)}_${clean(property)}`
     .replace(/_{2,}/g, "_")
     .slice(0, 96);
-  let candidate = CREDENTIAL_NAME.test(base) ? base : `N8N_${clean(property)}`.slice(0, 96);
+  let candidate = CREDENTIAL_NAME.test(base)
+    ? base
+    : `N8N_${clean(property)}`.slice(0, 96);
   if (!CREDENTIAL_NAME.test(candidate)) candidate = "N8N_CREDENTIAL";
   let counter = 2;
   while (used.has(candidate)) {
@@ -177,7 +180,9 @@ function readCredential(
     });
   const name = asString(objectValue(credential, "name"));
   const displayName = asString(objectValue(credential, "displayName"));
-  const documentationUrl = asString(objectValue(credential, "documentationUrl"));
+  const documentationUrl = asString(
+    objectValue(credential, "documentationUrl"),
+  );
   if (name !== undefined) result.native["name"] = name;
   if (displayName !== undefined) result.native["displayName"] = displayName;
   if (documentationUrl !== undefined)
@@ -199,7 +204,8 @@ function readCredential(
         dimension: "configure",
         severity: "warning",
         disposition: "unsupported",
-        message: "A credential property has no literal name and was not imported.",
+        message:
+          "A credential property has no literal name and was not imported.",
       });
       continue;
     }
@@ -224,12 +230,18 @@ function readCredential(
   if (literalProperties.length) result.native["properties"] = literalProperties;
 
   const test = objectValue(credential, "test");
-  const testBaseUrl = literalUrl(objectValue(objectValue(test, "request"), "baseURL"));
+  const testBaseUrl = literalUrl(
+    objectValue(objectValue(test, "request"), "baseURL"),
+  );
   if (testBaseUrl !== undefined) {
-    result.servers.push([new URL(testBaseUrl).origin, "Declared credential test endpoint"]);
+    result.servers.push([
+      new URL(testBaseUrl).origin,
+      "Declared credential test endpoint",
+    ]);
     result.native["test"] = {
       baseURL: testBaseUrl,
-      ...(asString(objectValue(objectValue(test, "request"), "url")) !== undefined
+      ...(asString(objectValue(objectValue(test, "request"), "url")) !==
+      undefined
         ? { url: asString(objectValue(objectValue(test, "request"), "url")) }
         : {}),
     };
@@ -243,7 +255,8 @@ function readCredential(
   if (extendsList?.length) result.native["extends"] = extendsList;
   const authUrl = defaults.get("authUrl");
   const tokenUrl = defaults.get("accessTokenUrl");
-  const declaresOauth2 = extendsList?.some((item) => /oAuth2/i.test(item)) === true;
+  const declaresOauth2 =
+    extendsList?.some((item) => /oAuth2/i.test(item)) === true;
   if (declaresOauth2 || authUrl !== undefined || tokenUrl !== undefined) {
     if (
       authUrl !== undefined &&
@@ -260,7 +273,10 @@ function readCredential(
         authorizationEndpoint: authUrl,
         tokenEndpoint: tokenUrl,
         scopes: scope
-          ? scope.split(/[\s,]+/).filter(Boolean).slice(0, 64)
+          ? scope
+              .split(/[\s,]+/)
+              .filter(Boolean)
+              .slice(0, 64)
           : [],
         scopeSemantics: scope ? "provider-scopes" : "unknown",
         clientRegistration: "pre-registered",
@@ -269,7 +285,10 @@ function readCredential(
       });
       result.profileIds.push("n8n-oauth2");
       for (const url of [authUrl, tokenUrl])
-        result.servers.push([new URL(url).origin, "Declared OAuth 2.0 endpoint"]);
+        result.servers.push([
+          new URL(url).origin,
+          "Declared OAuth 2.0 endpoint",
+        ]);
       return result;
     }
     result.profiles.push({
@@ -353,7 +372,9 @@ function readCredential(
     return result;
   }
   const firstEntry = (value: StaticValue | undefined) =>
-    value?.kind === "object" ? value.entries.find((entry) => entry.key) : undefined;
+    value?.kind === "object"
+      ? value.entries.find((entry) => entry.key)
+      : undefined;
   const headerEntry = firstEntry(header);
   if (headerEntry) {
     const headerValue = asString(headerEntry.value) ?? "";
@@ -539,7 +560,9 @@ export async function readN8nNode(
     });
   }
 
-  const name = description ? asString(objectValue(description, "name")) : undefined;
+  const name = description
+    ? asString(objectValue(description, "name"))
+    : undefined;
   const displayName = description
     ? asString(objectValue(description, "displayName"))
     : undefined;
@@ -562,7 +585,9 @@ export async function readN8nNode(
   // `version` is a number or an array of numbers; `defaultVersion` names the
   // one a new workflow gets. Both are preserved, and the identity carries the
   // node version, not a version of this importer.
-  const versionValue = description ? objectValue(description, "version") : undefined;
+  const versionValue = description
+    ? objectValue(description, "version")
+    : undefined;
   const versionList = asArray(versionValue)
     ?.map((item) => asNumber(item))
     .filter((item): item is number => item !== undefined)
@@ -632,13 +657,17 @@ export async function readN8nNode(
     input.credentialsSource === undefined ? undefined : "credentials.ts",
   );
   for (const limitation of credential.limitations) limitations.add(limitation);
-  for (const [origin, note] of credential.servers) declaredServers.set(origin, note);
+  for (const [origin, note] of credential.servers)
+    declaredServers.set(origin, note);
 
   const declaredCredentials = asArray(
     description ? objectValue(description, "credentials") : undefined,
   );
   const credentialNames: Array<{ name: string; required: boolean }> = [];
-  for (const entry of (declaredCredentials ?? []).slice(0, N8N_LIMITS.credentials)) {
+  for (const entry of (declaredCredentials ?? []).slice(
+    0,
+    N8N_LIMITS.credentials,
+  )) {
     const credentialName = asString(objectValue(entry, "name"));
     if (credentialName === undefined) continue;
     credentialNames.push({
@@ -746,7 +775,13 @@ export async function readN8nNode(
           code: "executable-code.function",
           category: "executable-code",
           pointer: locate(
-            pointer("properties", propertyIndex, "options", optionIndex, "routing"),
+            pointer(
+              "properties",
+              propertyIndex,
+              "options",
+              optionIndex,
+              "routing",
+            ),
             { ...(option.loc as Loc), ...(file ? { file } : {}) },
           ),
           dimension: "invoke",
@@ -775,7 +810,8 @@ export async function readN8nNode(
             "Approve an exact path template in the binding instead of deriving one from an expression.",
         });
       for (const resource of resources) {
-        const composed = resource === undefined ? value : `${resource}.${value}`;
+        const composed =
+          resource === undefined ? value : `${resource}.${value}`;
         const id = asNativeId(composed);
         if (id === undefined) continue;
         candidates.push({
@@ -847,7 +883,8 @@ export async function readN8nNode(
           !resourceShow.includes(candidate.resource))
       )
         continue;
-      if (operationShow && !operationShow.includes(candidate.operation)) continue;
+      if (operationShow && !operationShow.includes(candidate.operation))
+        continue;
       const copied = toJsonValue(property);
       if (copied !== undefined) fields.push(inertCopy(copied));
       else
@@ -864,9 +901,13 @@ export async function readN8nNode(
     }
     const extensions: Record<string, unknown> = {
       operation: candidate.operation,
-      ...(candidate.resource === undefined ? {} : { resource: candidate.resource }),
+      ...(candidate.resource === undefined
+        ? {}
+        : { resource: candidate.resource }),
       ...(candidate.action === undefined ? {} : { action: candidate.action }),
-      ...(candidate.routing === undefined ? {} : { routing: candidate.routing }),
+      ...(candidate.routing === undefined
+        ? {}
+        : { routing: candidate.routing }),
       implementation: isProgrammatic ? "programmatic" : "declarative",
       ...(fields.length ? { parameters: fields } : {}),
     };
@@ -874,7 +915,9 @@ export async function readN8nNode(
       kind: "action",
       nativeId: candidate.nativeId,
       ...(candidate.label ? { label: safeText(candidate.label, 200) } : {}),
-      ...(candidate.summary ? { summary: safeText(candidate.summary, 500) } : {}),
+      ...(candidate.summary
+        ? { summary: safeText(candidate.summary, 500) }
+        : {}),
       // n8n does not declare whether an operation reads or writes, and an HTTP
       // method is not that declaration. Host policy classifies the effect.
       effect: "unknown",
@@ -900,7 +943,9 @@ export async function readN8nNode(
     });
 
   const packageValue =
-    input.packageJson === undefined ? undefined : fromJsonValue(input.packageJson);
+    input.packageJson === undefined
+      ? undefined
+      : fromJsonValue(input.packageJson);
   const n8nBlock = objectValue(packageValue, "n8n");
   const nativeExtensions: Record<string, unknown> = {
     profile,
@@ -933,10 +978,12 @@ export async function readN8nNode(
     ...(description && objectValue(description, "group")
       ? { group: inertCopy(toJsonValue(objectValue(description, "group"))) }
       : {}),
-    ...(description && asString(objectValue(description, "subtitle")) !== undefined
+    ...(description &&
+    asString(objectValue(description, "subtitle")) !== undefined
       ? { subtitle: asString(objectValue(description, "subtitle")) }
       : {}),
-    ...(description && asBoolean(objectValue(description, "usableAsTool")) !== undefined
+    ...(description &&
+    asBoolean(objectValue(description, "usableAsTool")) !== undefined
       ? { usableAsTool: asBoolean(objectValue(description, "usableAsTool")) }
       : {}),
     ...(asString(objectValue(packageValue, "name")) === undefined
@@ -947,7 +994,11 @@ export async function readN8nNode(
       : { packageVersion: asString(objectValue(packageValue, "version")) }),
     ...(asNumber(objectValue(n8nBlock, "n8nNodesApiVersion")) === undefined
       ? {}
-      : { n8nNodesApiVersion: asNumber(objectValue(n8nBlock, "n8nNodesApiVersion")) }),
+      : {
+          n8nNodesApiVersion: asNumber(
+            objectValue(n8nBlock, "n8nNodesApiVersion"),
+          ),
+        }),
     limitations: [...limitations].slice(0, 32),
   };
 
@@ -964,7 +1015,8 @@ export async function readN8nNode(
       ecosystem: N8N_ECOSYSTEM,
       authorityNamespace: safeText(
         hint.authorityNamespace ??
-          (asString(objectValue(packageValue, "name")) ?? ""),
+          asString(objectValue(packageValue, "name")) ??
+          "",
         256,
       ),
       nativeId,

@@ -18,7 +18,10 @@
       "flow": "accessCode",
       "authorizationUrl": "https://auth.example.test/authorize",
       "tokenUrl": "https://auth.example.test/token",
-      "scopes": { "inventory:read": "Read inventory", "inventory:write": "Change inventory" }
+      "scopes": {
+        "inventory:read": "Read inventory",
+        "inventory:write": "Change inventory"
+      }
     },
     "implicit_oauth": {
       "type": "oauth2",
@@ -34,27 +37,68 @@
         "operationId": "listItems",
         "summary": "List inventory items",
         "parameters": [
-          { "name": "tags", "in": "query", "type": "array", "items": { "type": "string" }, "collectionFormat": "multi" },
-          { "name": "limit", "in": "query", "type": "integer", "format": "int32", "minimum": 1, "maximum": 100 }
+          {
+            "name": "tags",
+            "in": "query",
+            "type": "array",
+            "items": { "type": "string" },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
+          }
         ],
         "responses": {
-          "200": { "description": "Items", "schema": { "type": "array", "items": { "$ref": "#/definitions/Item" } } }
+          "200": {
+            "description": "Items",
+            "schema": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/Item" }
+            }
+          }
         }
       },
       "post": {
         "operationId": "createItem",
         "summary": "Create an inventory item",
-        "security": [{ "legacy_oauth": ["inventory:write"] }, { "api_key": [], "basic_auth": [] }],
-        "parameters": [{ "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/Item" } }],
-        "responses": { "201": { "description": "Created", "schema": { "$ref": "#/definitions/Item" } } }
+        "security": [
+          { "legacy_oauth": ["inventory:write"] },
+          { "api_key": [], "basic_auth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        }
       }
     },
     "/items/{itemId}": {
-      "parameters": [{ "name": "itemId", "in": "path", "required": true, "type": "string" }],
+      "parameters": [
+        { "name": "itemId", "in": "path", "required": true, "type": "string" }
+      ],
       "get": {
         "operationId": "getItem",
         "security": [],
-        "responses": { "200": { "description": "Item", "schema": { "$ref": "#/definitions/Item" } } }
+        "responses": {
+          "200": {
+            "description": "Item",
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        }
       },
       "delete": {
         "operationId": "deleteItem",
@@ -62,11 +106,15 @@
       }
     },
     "/items/{itemId}/photo": {
-      "parameters": [{ "name": "itemId", "in": "path", "required": true, "type": "string" }],
+      "parameters": [
+        { "name": "itemId", "in": "path", "required": true, "type": "string" }
+      ],
       "post": {
         "operationId": "uploadPhoto",
         "consumes": ["multipart/form-data"],
-        "parameters": [{ "name": "file", "in": "formData", "required": true, "type": "file" }],
+        "parameters": [
+          { "name": "file", "in": "formData", "required": true, "type": "file" }
+        ],
         "responses": { "200": { "description": "Stored" } }
       }
     }

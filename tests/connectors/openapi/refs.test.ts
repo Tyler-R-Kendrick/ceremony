@@ -36,7 +36,11 @@ const withRefs = (extra: Record<string, unknown> = {}) => ({
   },
   components: {
     parameters: {
-      Page: { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+      Page: {
+        name: "page",
+        in: "query",
+        schema: { type: "integer", minimum: 1 },
+      },
     },
     responses: {
       Common: {
@@ -86,7 +90,11 @@ test("a responses entry that is not a status code is not read as a response", as
     read.operations[0]?.responses.map((item) => item.status),
     ["200"],
   );
-  assert.ok(read.issues.some((issue) => issue.code === "structure.invalid-response-key"));
+  assert.ok(
+    read.issues.some(
+      (issue) => issue.code === "structure.invalid-response-key",
+    ),
+  );
 });
 
 test("an unresolvable in-document reference blocks its operation without failing the document", async () => {
@@ -115,7 +123,11 @@ test("an unresolvable in-document reference blocks its operation without failing
     }),
   );
   assert.ok(isReadResult(read));
-  assert.ok(read.issues.some((issue) => issue.code === "structure.reference-unresolved"));
+  assert.ok(
+    read.issues.some(
+      (issue) => issue.code === "structure.reference-unresolved",
+    ),
+  );
   // The unrelated operation is still there and still compilable.
   const compiled = compileOperations(read.definition, read, {
     destinationId: destination.id,
@@ -135,7 +147,11 @@ test("a reference cycle between schemas is bounded, not followed forever", async
           operationId: "a",
           requestBody: {
             required: true,
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Loop" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Loop" },
+              },
+            },
           },
           responses: {
             "200": {
@@ -162,7 +178,9 @@ test("a reference cycle between schemas is bounded, not followed forever", async
   // The cycle is reported as an unresolved reference and blocks that operation.
   assert.ok(
     compiled.blocked.some((entry) =>
-      entry.issues.some((issue) => issue.code === "schema.reference-unresolved"),
+      entry.issues.some(
+        (issue) => issue.code === "schema.reference-unresolved",
+      ),
     ),
   );
   assert.deepEqual(compiled.executable, []);
@@ -174,8 +192,9 @@ test("a recursive schema validates real values to an explicit depth", async () =
     destinationId: destination.id,
     destination,
   });
-  const operationRef = compiled.operations.find((item) => item.nativeId === "putTree")!
-    .operationRef;
+  const operationRef = compiled.operations.find(
+    (item) => item.nativeId === "putTree",
+  )!.operationRef;
   const plan = compiled.plans[operationRef]!;
   const schema = plan.requestBody!.schema;
 
@@ -190,7 +209,10 @@ test("a recursive schema validates real values to an explicit depth", async () =
   );
   // A violation deep inside the recursion is still caught.
   const deepFailure = validateValue(
-    { name: "root", children: [{ name: "child", children: [{ children: [] }] }] },
+    {
+      name: "root",
+      children: [{ name: "child", children: [{ children: [] }] }],
+    },
     schema,
     plan.definitions,
   );
@@ -198,9 +220,14 @@ test("a recursive schema validates real values to an explicit depth", async () =
 
   // Beyond the explicit depth the validator refuses rather than recursing on.
   let deep: Record<string, unknown> = { name: "leaf", children: [] };
-  for (let index = 0; index < 200; index++) deep = { name: "n", children: [deep] };
-  const bounded = validateValue(deep, schema, plan.definitions, { maxDepth: 16 });
-  assert.ok(bounded.some((failure) => failure.code === "schema.depth-exceeded"));
+  for (let index = 0; index < 200; index++)
+    deep = { name: "n", children: [deep] };
+  const bounded = validateValue(deep, schema, plan.definitions, {
+    maxDepth: 16,
+  });
+  assert.ok(
+    bounded.some((failure) => failure.code === "schema.depth-exceeded"),
+  );
 });
 
 test("mutually recursive schemas compile and validate without expanding forever", async () => {
@@ -209,8 +236,9 @@ test("mutually recursive schemas compile and validate without expanding forever"
     destinationId: destination.id,
     destination,
   });
-  const operationRef = compiled.operations.find((item) => item.nativeId === "putPerson")!
-    .operationRef;
+  const operationRef = compiled.operations.find(
+    (item) => item.nativeId === "putPerson",
+  )!.operationRef;
   const plan = compiled.plans[operationRef]!;
   assert.deepEqual(
     validateValue(
@@ -221,7 +249,9 @@ test("mutually recursive schemas compile and validate without expanding forever"
     [],
   );
   // Both sides of the mutual reference are named entries, not inlined copies.
-  assert.ok(Object.keys(plan.definitions).some((key) => key.endsWith("/Person")));
+  assert.ok(
+    Object.keys(plan.definitions).some((key) => key.endsWith("/Person")),
+  );
   assert.ok(Object.keys(plan.definitions).some((key) => key.endsWith("/Team")));
 });
 
@@ -234,7 +264,9 @@ test("an external reference without a resolver is reported, never fetched", asyn
       "/a": {
         get: {
           operationId: "a",
-          parameters: [{ $ref: "https://attacker.example.test/params.json#/Evil" }],
+          parameters: [
+            { $ref: "https://attacker.example.test/params.json#/Evil" },
+          ],
           responses: { "200": { description: "ok" } },
         },
       },
@@ -242,7 +274,9 @@ test("an external reference without a resolver is reported, never fetched", asyn
   });
   assert.ok(isReadResult(read));
   assert.ok(
-    read.issues.some((issue) => issue.code === "structure.external-reference-unresolved"),
+    read.issues.some(
+      (issue) => issue.code === "structure.external-reference-unresolved",
+    ),
   );
   // The parameter behind the reference is not invented.
   assert.deepEqual(read.operations[0]?.parameters, []);
@@ -258,7 +292,9 @@ test("an external reference is fetched only through the host hook, which may ref
       "/a": {
         get: {
           operationId: "a",
-          parameters: [{ $ref: "https://shared.example.test/params.json#/Page" }],
+          parameters: [
+            { $ref: "https://shared.example.test/params.json#/Page" },
+          ],
           responses: {
             "200": {
               description: "ok",
@@ -272,7 +308,9 @@ test("an external reference is fetched only through the host hook, which may ref
   const resolved = await readOpenApi(document, {
     resolveExternal: async (ref) => {
       asked.push(ref);
-      return { Page: { name: "page", in: "query", schema: { type: "integer" } } };
+      return {
+        Page: { name: "page", in: "query", schema: { type: "integer" } },
+      };
     },
   });
   assert.ok(isReadResult(resolved));
@@ -309,7 +347,10 @@ test("reference fragments this resolver does not implement are refused", () => {
     uri: "",
     fragment: "/components/schemas/A",
   });
-  assert.deepEqual(splitReference("other.json"), { uri: "other.json", fragment: "" });
+  assert.deepEqual(splitReference("other.json"), {
+    uri: "other.json",
+    fragment: "",
+  });
   assert.deepEqual(parsePointer("/a~1b/c~0d"), ["a/b", "c~d"]);
   // A plain-name anchor is not a JSON pointer and is not guessed at.
   assert.equal(parsePointer("anchorName"), undefined);
@@ -320,7 +361,10 @@ test("the reader refuses a document that exceeds its node budget", async () => {
   const paths: Record<string, unknown> = {};
   for (let index = 0; index < 50; index++)
     paths[`/p${index}`] = {
-      get: { operationId: `op${index}`, responses: { "200": { description: "ok" } } },
+      get: {
+        operationId: `op${index}`,
+        responses: { "200": { description: "ok" } },
+      },
     };
   const read = await readOpenApi(
     { openapi: "3.1.0", info: { title: "Big", version: "1" }, paths },
@@ -350,13 +394,16 @@ test("a document key named like a prototype never becomes a prototype", async ()
           },
         },
       },
-      components: { schemas: { "__proto__": { polluted: true } } },
+      components: { schemas: { __proto__: { polluted: true } } },
     }),
   );
   const read = await readOpenApi(hostile);
   assert.ok(isReadResult(read));
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
-  assert.equal((Object.prototype as Record<string, unknown>).polluted, undefined);
+  assert.equal(
+    (Object.prototype as Record<string, unknown>).polluted,
+    undefined,
+  );
   const compiled = compileOperations(read.definition, read, {
     destinationId: destination.id,
     destination,

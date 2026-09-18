@@ -79,7 +79,11 @@ test("AC-STATE-01: two PostgreSQL workers rotating one credential make exactly o
   assert.equal(two.ref, ref);
   assert.equal(one.expiresAt, two.expiresAt);
   assert.equal(
-    await b.credentials.use(scope, ref, async (m) => m.refreshToken === "rotating-2"),
+    await b.credentials.use(
+      scope,
+      ref,
+      async (m) => m.refreshToken === "rotating-2",
+    ),
     true,
   );
 });
@@ -173,12 +177,14 @@ test("AC-STATE-08: two workers binding the same external response leave exactly 
   assert.ok(winner);
   assert.equal(winner.record.connectionRef, alsoWinner?.record.connectionRef);
   assert.equal(
-    (await b.connections.listByExternalId(
-      "tenant-race",
-      authority,
-      "connectionId",
-      "conn_race_1",
-    )).length,
+    (
+      await b.connections.listByExternalId(
+        "tenant-race",
+        authority,
+        "connectionId",
+        "conn_race_1",
+      )
+    ).length,
     1,
   );
   // The loser's record did not survive its rolled-back transaction.
@@ -195,8 +201,12 @@ test("AC-STATE-08: two workers binding the same external response leave exactly 
 });
 
 test("AC-STATE-06: the per-authority budget is shared between workers and isolated per tenant", async () => {
-  const a = createConnectorPorts(workerA, { throttle: { limit: 3, windowMs: 60_000 } });
-  const b = createConnectorPorts(workerB, { throttle: { limit: 3, windowMs: 60_000 } });
+  const a = createConnectorPorts(workerA, {
+    throttle: { limit: 3, windowMs: 60_000 },
+  });
+  const b = createConnectorPorts(workerB, {
+    throttle: { limit: 3, windowMs: 60_000 },
+  });
   const authority = "https://api.vercel.com";
 
   assert.equal((await a.throttle.reserve("tenant-x", authority)).remaining, 2);
@@ -245,7 +255,8 @@ test("STATE-04: a fixed window reopens on its own schedule", async () => {
   });
   try {
     assert.equal(
-      (await ports.throttle.reserve("tenant-w", "https://api.example")).remaining,
+      (await ports.throttle.reserve("tenant-w", "https://api.example"))
+        .remaining,
       0,
     );
     await assert.rejects(
@@ -254,7 +265,8 @@ test("STATE-04: a fixed window reopens on its own schedule", async () => {
     );
     now += 1_001;
     assert.equal(
-      (await ports.throttle.reserve("tenant-w", "https://api.example")).remaining,
+      (await ports.throttle.reserve("tenant-w", "https://api.example"))
+        .remaining,
       0,
     );
     // An open circuit outlives the window until its cooldown ends.
@@ -291,7 +303,10 @@ test("AC-STATE-08: two workers racing one effect digest run the provider call on
   const call = async () => {
     calls++;
     await delay(20);
-    return { outcome: { status: "applied" as const, at: Date.now() }, value: 1 };
+    return {
+      outcome: { status: "applied" as const, at: Date.now() },
+      value: 1,
+    };
   };
   const [first, second] = await Promise.all([
     a.effects.execute(intent, call),

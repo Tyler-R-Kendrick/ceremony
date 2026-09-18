@@ -122,8 +122,10 @@ test("STATE-03: completion is routed by correlation, one-use, and fenced by gene
   await withPorts(async (ports) => {
     const actor = actorFor("tenant-a");
     const { record, issued } = await issueFor(ports, actor);
-    const correlation = (await ports.handoffs.present(actor, issued.handoffRef))!
-      .correlationKey!;
+    const correlation = (await ports.handoffs.present(
+      actor,
+      issued.handoffRef,
+    ))!.correlationKey!;
 
     const routed = await ports.handoffs.resolveCorrelation(
       "tenant-a",
@@ -157,7 +159,11 @@ test("STATE-03: completion is routed by correlation, one-use, and fenced by gene
 
     // AC-AUTH-06: the same code delivered twice does not repeat the effect.
     await assert.rejects(
-      ports.handoffs.complete(issued.handoffRef, routed!.generation, "completed"),
+      ports.handoffs.complete(
+        issued.handoffRef,
+        routed!.generation,
+        "completed",
+      ),
       (error: unknown) =>
         error instanceof ConnectorError &&
         error.detail === "handoff.already-completed",
@@ -192,7 +198,11 @@ test("AC-AUTH-07: a delayed callback cannot complete across a generation change"
     // The late callback can neither reactivate the old attempt nor overwrite
     // the newer connection.
     await assert.rejects(
-      ports.handoffs.complete(issued.handoffRef, before.generation, "completed"),
+      ports.handoffs.complete(
+        issued.handoffRef,
+        before.generation,
+        "completed",
+      ),
       (error: unknown) =>
         error instanceof ConnectorError && error.code === "conflict",
     );
@@ -355,47 +365,48 @@ test("AC-STATE-02: intent is persisted before the effect and a repeated digest n
 });
 
 test("AC-STATE-02: an effect interrupted by a dead worker is reported indeterminate", async () => {
-  await withPorts(
-    async (ports, store) => {
-      const actor = actorFor("tenant-a");
-      const intent = {
-        actor,
-        operation: "pipedream.action.run",
-        digest: "digest-orphan",
-      };
-      const begun = await ports.effects.begin(intent);
-      assert.equal(begun.prior, undefined);
+  await withPorts(async (ports, store) => {
+    const actor = actorFor("tenant-a");
+    const intent = {
+      actor,
+      operation: "pipedream.action.run",
+      digest: "digest-orphan",
+    };
+    const begun = await ports.effects.begin(intent);
+    assert.equal(begun.prior, undefined);
 
-      // While the worker holds its lease, a second caller must not repeat the call.
-      const inFlight = await ports.effects.begin(intent);
-      assert.equal(inFlight.effectRef, begun.effectRef);
-      assert.equal(inFlight.prior?.status, "indeterminate");
-      assert.equal(inFlight.prior?.code, "effect.in-flight");
+    // While the worker holds its lease, a second caller must not repeat the call.
+    const inFlight = await ports.effects.begin(intent);
+    assert.equal(inFlight.effectRef, begun.effectRef);
+    assert.equal(inFlight.prior?.status, "indeterminate");
+    assert.equal(inFlight.prior?.code, "effect.in-flight");
 
-      // The worker dies: its lease lapses (the store's own cancellation, as a
-      // lease expiry does) and the effect becomes an orphan.
-      await store.transaction((tx) =>
-        tx.cancel(effectKey(actor.tenantId, begun.effectRef)),
-      );
-      const orphaned = await ports.effects.begin(intent);
-      assert.equal(orphaned.effectRef, begun.effectRef);
-      assert.equal(orphaned.prior?.status, "indeterminate");
-      assert.equal(orphaned.prior?.code, "effect.orphaned");
-      const unresolved = await ports.effects.listUnresolved(actor);
-      assert.equal(unresolved.length, 1);
-      assert.equal(unresolved[0]!.status, "orphaned");
+    // The worker dies: its lease lapses (the store's own cancellation, as a
+    // lease expiry does) and the effect becomes an orphan.
+    await store.transaction((tx) =>
+      tx.cancel(effectKey(actor.tenantId, begun.effectRef)),
+    );
+    const orphaned = await ports.effects.begin(intent);
+    assert.equal(orphaned.effectRef, begun.effectRef);
+    assert.equal(orphaned.prior?.status, "indeterminate");
+    assert.equal(orphaned.prior?.code, "effect.orphaned");
+    const unresolved = await ports.effects.listUnresolved(actor);
+    assert.equal(unresolved.length, 1);
+    assert.equal(unresolved[0]!.status, "orphaned");
 
-      // Reconciliation — not a blind retry — records what actually happened.
-      const reconciled = await ports.effects.reconcile(actor, begun.effectRef, {
-        status: "reconciled",
-        code: "provider.no-such-run",
-        at: ports.now(),
-      });
-      assert.equal(reconciled.status, "reconciled");
-      assert.deepEqual(await ports.effects.listUnresolved(actor), []);
-      assert.equal((await ports.effects.begin(intent)).prior?.status, "reconciled");
-    },
-  );
+    // Reconciliation — not a blind retry — records what actually happened.
+    const reconciled = await ports.effects.reconcile(actor, begun.effectRef, {
+      status: "reconciled",
+      code: "provider.no-such-run",
+      at: ports.now(),
+    });
+    assert.equal(reconciled.status, "reconciled");
+    assert.deepEqual(await ports.effects.listUnresolved(actor), []);
+    assert.equal(
+      (await ports.effects.begin(intent)).prior?.status,
+      "reconciled",
+    );
+  });
 });
 
 test("STATE-03: a worker that lost its lease cannot record an outcome", async () => {
@@ -518,7 +529,10 @@ test("STATE-03: evidence is invalidated with a reason and stops being listed", a
       ),
       1,
     );
-    assert.deepEqual(await ports.evidence.list(actor, record.connectionRef), []);
+    assert.deepEqual(
+      await ports.evidence.list(actor, record.connectionRef),
+      [],
+    );
     // A reason must be a sanitized code, never provider prose with control characters.
     await assert.rejects(
       ports.evidence.invalidate(

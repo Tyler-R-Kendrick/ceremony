@@ -70,7 +70,9 @@ export function createDefinitionStore(
       const tenantId = checkTenant(rawTenant);
       const parsed = sourceRecordSchema.safeParse(rawSource);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "source.record" });
+        throw new ConnectorError("invalid-request", {
+          detail: "source.record",
+        });
       const source: SourceRecord = parsed.data;
       await transact(store, async (tx) => {
         const key = sourceKey(tenantId, source.sourceRef);
@@ -81,7 +83,9 @@ export function createDefinitionStore(
             existing.value.source.digest.value !== source.digest.value ||
             !sameJson(existing.value.source.identity, source.identity)
           )
-            throw new ConnectorError("conflict", { detail: "source.immutable" });
+            throw new ConnectorError("conflict", {
+              detail: "source.immutable",
+            });
           await tx.put(
             key,
             { schemaVersion: SCHEMA_VERSION, source },
@@ -99,8 +103,13 @@ export function createDefinitionStore(
       return transact(
         store,
         async (tx) =>
-          (await readRecord(tx, sourceKey(tenantId, sourceRef), storedSourceSchema))
-            ?.value.source,
+          (
+            await readRecord(
+              tx,
+              sourceKey(tenantId, sourceRef),
+              storedSourceSchema,
+            )
+          )?.value.source,
       );
     },
 
@@ -117,13 +126,21 @@ export function createDefinitionStore(
         const existing = await readRecord(tx, key, storedDefinitionSchema);
         if (existing) {
           if (sameJson(existing.value.definition, definition)) return;
-          throw new ConnectorError("conflict", { detail: "definition.immutable" });
+          throw new ConnectorError("conflict", {
+            detail: "definition.immutable",
+          });
         }
         try {
-          await tx.put(key, { schemaVersion: SCHEMA_VERSION, definition }, null);
+          await tx.put(
+            key,
+            { schemaVersion: SCHEMA_VERSION, definition },
+            null,
+          );
         } catch (error) {
           if (error instanceof PersistenceConflict)
-            throw new ConnectorError("conflict", { detail: "definition.immutable" });
+            throw new ConnectorError("conflict", {
+              detail: "definition.immutable",
+            });
           throw error;
         }
       });
@@ -172,7 +189,9 @@ export function createDefinitionStore(
     async putBinding(rawBinding) {
       const parsed = runtimeBindingSchema.safeParse(rawBinding);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "binding.record" });
+        throw new ConnectorError("invalid-request", {
+          detail: "binding.record",
+        });
       const binding: RuntimeBinding = parsed.data;
       const tenantId = checkTenant(binding.tenantId);
       await transact(store, async (tx) => {
@@ -237,7 +256,10 @@ export function createDefinitionStore(
           "head:",
           bindingHeadSchema,
           ({ value }) => {
-            heads.push({ bindingRef: value.bindingRef, revision: value.revision });
+            heads.push({
+              bindingRef: value.bindingRef,
+              revision: value.revision,
+            });
           },
         );
         const bindings: RuntimeBinding[] = [];
@@ -256,7 +278,9 @@ export function createDefinitionStore(
           )
             bindings.push(binding);
         }
-        return bindings.sort((a, b) => a.bindingRef.localeCompare(b.bindingRef));
+        return bindings.sort((a, b) =>
+          a.bindingRef.localeCompare(b.bindingRef),
+        );
       });
     },
 

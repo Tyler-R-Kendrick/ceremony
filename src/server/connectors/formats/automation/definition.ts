@@ -81,7 +81,9 @@ export async function buildAutomationDefinition(
     identity: input.identity,
     importer: input.importer,
     display: {
-      name: safeText(input.display.name, 200) || input.identity.nativeId.slice(0, 200),
+      name:
+        safeText(input.display.name, 200) ||
+        input.identity.nativeId.slice(0, 200),
       description: safeText(input.display.description, 500),
       ecosystem: input.display.ecosystem,
       ...(input.display.service ? { service: input.display.service } : {}),
@@ -90,13 +92,15 @@ export async function buildAutomationDefinition(
     configuration: input.configuration,
     capabilities: input.capabilities,
     events: input.events,
-    declaredServers: input.declaredServers.slice(0, MAX_SERVERS).map((server) => ({
-      url: server.url.slice(0, 2048),
-      ...(server.description
-        ? { description: safeText(server.description, 500) }
-        : {}),
-      status: "declared" as const,
-    })),
+    declaredServers: input.declaredServers
+      .slice(0, MAX_SERVERS)
+      .map((server) => ({
+        url: server.url.slice(0, 2048),
+        ...(server.description
+          ? { description: safeText(server.description, 500) }
+          : {}),
+        status: "declared" as const,
+      })),
     compatibility: {
       issues: input.issues,
       dimensions: staticDimensions(input.dimensions),
@@ -163,7 +167,9 @@ export function automationSupportedSubset(
       a.url < b.url ? -1 : a.url > b.url ? 1 : 0,
     ),
     capabilities: [...definition.capabilities]
-      .sort((a, b) => (a.nativeId < b.nativeId ? -1 : a.nativeId > b.nativeId ? 1 : 0))
+      .sort((a, b) =>
+        a.nativeId < b.nativeId ? -1 : a.nativeId > b.nativeId ? 1 : 0,
+      )
       .map((capability) => ({
         kind: capability.kind,
         nativeId: capability.nativeId,

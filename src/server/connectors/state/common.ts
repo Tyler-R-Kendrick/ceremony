@@ -84,7 +84,10 @@ export async function readRecord<T extends z.ZodType>(
 ): Promise<{ revision: number; value: z.output<T> } | undefined> {
   const record = await tx.get(key);
   if (!record) return undefined;
-  return { revision: record.revision, value: parseStored(schema, record.value) };
+  return {
+    revision: record.revision,
+    value: parseStored(schema, record.value),
+  };
 }
 
 /** Runs one transaction, translating optimistic-concurrency failures into the connector vocabulary. */

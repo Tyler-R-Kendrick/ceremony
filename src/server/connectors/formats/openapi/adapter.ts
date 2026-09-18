@@ -131,7 +131,10 @@ function profileById(
 async function withCredentials<T>(
   ctx: AdapterCallContext,
   plan: OperationPlan,
-  work: (headers: Record<string, string>, query: Array<[string, string]>) => Promise<T>,
+  work: (
+    headers: Record<string, string>,
+    query: Array<[string, string]>,
+  ) => Promise<T>,
 ): Promise<T> {
   const headers: Record<string, string> = {};
   const query: Array<[string, string]> = [];
@@ -165,7 +168,8 @@ async function withCredentials<T>(
         }
         case "http-basic": {
           const user = material[`username:${profile.id}`] ?? material.username;
-          const password = material[`password:${profile.id}`] ?? material.password;
+          const password =
+            material[`password:${profile.id}`] ?? material.password;
           if (user === undefined || password === undefined)
             throw new ConnectorError("unauthenticated", {
               detail: "openapi.credential-missing",
@@ -202,8 +206,10 @@ async function withCredentials<T>(
 export function createOpenApiHttpAdapter(
   options: OpenApiAdapterOptions = {},
 ): ConnectorAdapter {
-  const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs;
-  const maxResponseBytes = options.maxResponseBytes ?? DEFAULTS.maxResponseBytes;
+  const requestTimeoutMs =
+    options.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs;
+  const maxResponseBytes =
+    options.maxResponseBytes ?? DEFAULTS.maxResponseBytes;
   const maxImportBytes = options.maxImportBytes ?? DEFAULTS.maxImportBytes;
   const parseDocument = options.parseDocument ?? defaultParse;
   const evidence = options.evidence ?? "protocol-fixture";
@@ -320,7 +326,9 @@ export function createOpenApiHttpAdapter(
           dimension: "delegate",
           profile,
           implementation: "unsupported",
-          limitations: ["There is no third party to delegate to in this profile."],
+          limitations: [
+            "There is no third party to delegate to in this profile.",
+          ],
         }),
       ];
       return rows;
@@ -449,10 +457,14 @@ export function createOpenApiHttpAdapter(
 
       return withCredentials(ctx, plan, async (authHeaders, authQuery) => {
         const url = new URL(serialized.url.href);
-        for (const [name, value] of authQuery) url.searchParams.append(name, value);
+        for (const [name, value] of authQuery)
+          url.searchParams.append(name, value);
         const headers = new Headers();
         for (const [name, value] of Object.entries(serialized.headers)) {
-          if (RESERVED_REQUEST_HEADERS.has(name) || Object.hasOwn(authHeaders, name))
+          if (
+            RESERVED_REQUEST_HEADERS.has(name) ||
+            Object.hasOwn(authHeaders, name)
+          )
             throw new ConnectorError("invalid-request", {
               detail: "openapi.header-collision",
             });
@@ -477,7 +489,9 @@ export function createOpenApiHttpAdapter(
         );
         const { effectRef, prior } = await ctx.environment.effects.begin({
           actor: ctx.actor,
-          ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+          ...(ctx.connection
+            ? { connectionRef: ctx.connection.connectionRef }
+            : {}),
           bindingRef: ctx.binding.bindingRef,
           operation: request.operationRef,
           digest,
@@ -492,7 +506,11 @@ export function createOpenApiHttpAdapter(
             : {}),
           commandId: request.commandId,
         });
-        if (prior && bound.replay !== "read-only" && prior.status !== "not-applied")
+        if (
+          prior &&
+          bound.replay !== "read-only" &&
+          prior.status !== "not-applied"
+        )
           return {
             state: prior.status === "applied" ? "complete" : "indeterminate",
             outputClassification: bound.outputClassification,
@@ -539,7 +557,11 @@ export function createOpenApiHttpAdapter(
         if (exceeded) {
           const applied = response.ok && bound.effect !== "read";
           await ctx.environment.effects.complete(effectRef, {
-            status: applied ? "applied" : response.ok ? "applied" : "not-applied",
+            status: applied
+              ? "applied"
+              : response.ok
+                ? "applied"
+                : "not-applied",
             code: "openapi.response-too-large",
             at: ctx.environment.now(),
           });
@@ -556,7 +578,9 @@ export function createOpenApiHttpAdapter(
         let parseFailed = false;
         if (json && bytes.byteLength) {
           try {
-            output = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+            output = JSON.parse(
+              new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+            );
           } catch {
             parseFailed = true;
           }
@@ -564,14 +588,23 @@ export function createOpenApiHttpAdapter(
         if (!response.ok) {
           await ctx.environment.effects.complete(effectRef, {
             status: response.status >= 500 ? "indeterminate" : "not-applied",
-            code: response.status >= 500 ? "upstream-unavailable" : "upstream-rejected",
+            code:
+              response.status >= 500
+                ? "upstream-unavailable"
+                : "upstream-rejected",
             at: ctx.environment.now(),
           });
           return {
-            state: response.status >= 500 && bound.effect !== "read" ? "indeterminate" : "failed",
+            state:
+              response.status >= 500 && bound.effect !== "read"
+                ? "indeterminate"
+                : "failed",
             outputClassification: bound.outputClassification,
             effect: bound.effect,
-            code: response.status >= 500 ? "upstream-unavailable" : "upstream-rejected",
+            code:
+              response.status >= 500
+                ? "upstream-unavailable"
+                : "upstream-rejected",
             effectRef,
           };
         }
@@ -682,7 +715,9 @@ export function createOpenApiHttpAdapter(
       });
       return {
         mediaType: "application/openapi+json",
-        bytes: new TextEncoder().encode(JSON.stringify(result.document, null, 2)),
+        bytes: new TextEncoder().encode(
+          JSON.stringify(result.document, null, 2),
+        ),
         losses: result.losses,
       };
     },

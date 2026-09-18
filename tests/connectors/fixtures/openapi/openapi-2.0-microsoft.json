@@ -11,8 +11,14 @@
   "consumes": ["application/json"],
   "produces": ["application/json"],
   "x-ms-connector-metadata": [
-    { "propertyName": "Website", "propertyValue": "https://contoso.example.test" },
-    { "propertyName": "Privacy policy", "propertyValue": "https://contoso.example.test/privacy" }
+    {
+      "propertyName": "Website",
+      "propertyValue": "https://contoso.example.test"
+    },
+    {
+      "propertyName": "Privacy policy",
+      "propertyValue": "https://contoso.example.test/privacy"
+    }
   ],
   "x-ms-api-annotation": { "family": "ContosoTickets", "revision": 1 },
   "securityDefinitions": {
@@ -41,7 +47,10 @@
         "responses": {
           "200": {
             "description": "Tickets",
-            "schema": { "type": "array", "items": { "$ref": "#/definitions/Ticket" } }
+            "schema": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/Ticket" }
+            }
           }
         }
       },
@@ -49,8 +58,20 @@
         "operationId": "CreateTicket",
         "summary": "Create a ticket",
         "x-ms-visibility": "advanced",
-        "parameters": [{ "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/Ticket" } }],
-        "responses": { "201": { "description": "Created", "schema": { "$ref": "#/definitions/Ticket" } } }
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/Ticket" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": { "$ref": "#/definitions/Ticket" }
+          }
+        }
       }
     },
     "/queues": {
@@ -58,7 +79,19 @@
         "operationId": "ListQueues",
         "x-ms-visibility": "internal",
         "responses": {
-          "200": { "description": "Queues", "schema": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } } } } }
+          "200": {
+            "description": "Queues",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -66,7 +99,15 @@
       "get": {
         "operationId": "TestConnection",
         "x-ms-visibility": "internal",
-        "responses": { "200": { "description": "Reachable", "schema": { "type": "object", "properties": { "ok": { "type": "boolean" } } } } }
+        "responses": {
+          "200": {
+            "description": "Reachable",
+            "schema": {
+              "type": "object",
+              "properties": { "ok": { "type": "boolean" } }
+            }
+          }
+        }
       }
     }
   },

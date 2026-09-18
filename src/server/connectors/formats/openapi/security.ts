@@ -25,17 +25,18 @@ import { entriesOf, isRecord } from "./refs.js";
  */
 
 /** Profile kinds the OpenAPI HTTP adapter can present credentials for. */
-export const EXECUTABLE_PROFILE_KINDS: ReadonlySet<AuthenticationProfile["kind"]> =
-  new Set<AuthenticationProfile["kind"]>([
-    "api-key",
-    "http-basic",
-    "http-bearer",
-    "oauth-authorization-code",
-    "oauth-client-credentials",
-    "oauth-device",
-    "openid-connect",
-    "none",
-  ]);
+export const EXECUTABLE_PROFILE_KINDS: ReadonlySet<
+  AuthenticationProfile["kind"]
+> = new Set<AuthenticationProfile["kind"]>([
+  "api-key",
+  "http-basic",
+  "http-bearer",
+  "oauth-authorization-code",
+  "oauth-client-credentials",
+  "oauth-device",
+  "openid-connect",
+  "none",
+]);
 
 const identifierPattern = /^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$/;
 const reserved = new Set(["__proto__", "prototype", "constructor"]);
@@ -127,8 +128,18 @@ type FlowName =
 
 const flowKinds: Record<OpenApiProfile, readonly string[]> = {
   "swagger-2.0": ["implicit", "password", "application", "accessCode"],
-  "openapi-3.0": ["implicit", "password", "clientCredentials", "authorizationCode"],
-  "openapi-3.1": ["implicit", "password", "clientCredentials", "authorizationCode"],
+  "openapi-3.0": [
+    "implicit",
+    "password",
+    "clientCredentials",
+    "authorizationCode",
+  ],
+  "openapi-3.1": [
+    "implicit",
+    "password",
+    "clientCredentials",
+    "authorizationCode",
+  ],
   "openapi-3.2": [
     "implicit",
     "password",
@@ -280,7 +291,10 @@ function oauthFlowProfile(input: {
     executionImpact: "blocks-authorization",
     message: `The OAuth "${token(input.flow, 40)}" flow is not supported (RFC 9700 discourages it); operations that require only this scheme cannot execute.`,
   });
-  return { profile: unsupportedProfile(id, label, `oauth2:${input.flow}`), native };
+  return {
+    profile: unsupportedProfile(id, label, `oauth2:${input.flow}`),
+    native,
+  };
 }
 
 function unsupportedScheme(
@@ -316,11 +330,18 @@ const CREDENTIAL_KEY =
 function sanitizeExtensionValue(value: unknown, depth = 0): unknown {
   if (depth > 16) return null;
   if (Array.isArray(value))
-    return value.slice(0, 256).map((item) => sanitizeExtensionValue(item, depth + 1));
+    return value
+      .slice(0, 256)
+      .map((item) => sanitizeExtensionValue(item, depth + 1));
   if (isRecord(value)) {
     const out: Record<string, unknown> = {};
     for (const [key, item] of entriesOf(value)) {
-      if (EXAMPLE_KEY.test(key) || CREDENTIAL_KEY.test(key) || key === "default") continue;
+      if (
+        EXAMPLE_KEY.test(key) ||
+        CREDENTIAL_KEY.test(key) ||
+        key === "default"
+      )
+        continue;
       out[key] = sanitizeExtensionValue(item, depth + 1);
     }
     return out;
@@ -368,12 +389,17 @@ export function readSecurityScheme(input: {
   const type = typeof raw.type === "string" ? raw.type : "";
   const deprecated = raw.deprecated === true;
   const extensions = extensionsOf(raw);
-  const base = (profiles: AuthenticationProfile[], native: ReadSecurityScheme["native"]) => ({
+  const base = (
+    profiles: AuthenticationProfile[],
+    native: ReadSecurityScheme["native"],
+  ) => ({
     name,
     type,
     pointer,
     profiles,
-    executable: profiles.some((item) => EXECUTABLE_PROFILE_KINDS.has(item.kind)),
+    executable: profiles.some((item) =>
+      EXECUTABLE_PROFILE_KINDS.has(item.kind),
+    ),
     deprecated,
     extensions,
     native,
@@ -400,7 +426,9 @@ export function readSecurityScheme(input: {
   if (type === "apiKey") {
     const placement = raw.in;
     const allowed =
-      profile === "swagger-2.0" ? ["query", "header"] : ["query", "header", "cookie"];
+      profile === "swagger-2.0"
+        ? ["query", "header"]
+        : ["query", "header", "cookie"];
     const parameterName = typeof raw.name === "string" ? raw.name : "";
     const id = profileIdFor(name, usedIds);
     if (typeof placement !== "string" || !allowed.includes(placement)) {
@@ -417,7 +445,8 @@ export function readSecurityScheme(input: {
     if (
       !/^[^\p{Cc}\s]+$/u.test(parameterName) ||
       parameterName.length > 120 ||
-      (placement === "header" && !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(parameterName))
+      (placement === "header" &&
+        !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(parameterName))
     ) {
       unsupportedScheme(
         issues,
@@ -478,7 +507,11 @@ export function readSecurityScheme(input: {
     });
   }
   if (type === "oauth2") {
-    const flows: Array<{ flow: string; raw: Record<string, unknown>; pointer: string }> = [];
+    const flows: Array<{
+      flow: string;
+      raw: Record<string, unknown>;
+      pointer: string;
+    }> = [];
     if (profile === "swagger-2.0") {
       const flow = typeof raw.flow === "string" ? raw.flow : "";
       flows.push({ flow, raw, pointer });
@@ -518,7 +551,8 @@ export function readSecurityScheme(input: {
       );
       const result = oauthFlowProfile({
         id,
-        label: flows.length === 1 ? label : safeText(`${name} (${entry.flow})`, 100),
+        label:
+          flows.length === 1 ? label : safeText(`${name} (${entry.flow})`, 100),
         flow: entry.flow,
         raw: entry.raw,
         profile,
@@ -535,9 +569,12 @@ export function readSecurityScheme(input: {
   }
   if (type === "openIdConnect" && profile !== "swagger-2.0") {
     const id = profileIdFor(name, usedIds);
-    const url = typeof raw.openIdConnectUrl === "string" ? raw.openIdConnectUrl : "";
+    const url =
+      typeof raw.openIdConnectUrl === "string" ? raw.openIdConnectUrl : "";
     const suffix = "/.well-known/openid-configuration";
-    const issuer = url.endsWith(suffix) ? safeUrl(url.slice(0, -suffix.length)) : undefined;
+    const issuer = url.endsWith(suffix)
+      ? safeUrl(url.slice(0, -suffix.length))
+      : undefined;
     if (!issuer) {
       unsupportedScheme(
         issues,
@@ -629,7 +666,10 @@ export function normalizeRequirements(input: {
       });
       return;
     }
-    const requirement: SecurityRequirement = { schemes: [], pointer: itemPointer };
+    const requirement: SecurityRequirement = {
+      schemes: [],
+      pointer: itemPointer,
+    };
     for (const [scheme, scopesRaw] of entriesOf(item)) {
       const scopes = Array.isArray(scopesRaw)
         ? scopesRaw
@@ -659,7 +699,9 @@ export function normalizeRequirements(input: {
       requirement.schemes.push({
         scheme,
         scopes,
-        profileIds: declared ? declared.profiles.map((profile) => profile.id) : [],
+        profileIds: declared
+          ? declared.profiles.map((profile) => profile.id)
+          : [],
         known,
         executable: declared?.executable ?? false,
       });
@@ -687,7 +729,8 @@ export function effectiveSecurity(input: {
     });
     if (own) return { source: "operation", alternatives: own };
   }
-  if (documentSecurity) return { source: "document", alternatives: documentSecurity };
+  if (documentSecurity)
+    return { source: "document", alternatives: documentSecurity };
   return { source: "none", alternatives: [] };
 }
 
@@ -718,5 +761,11 @@ export function securityRequirementsFor(
     for (const entry of alternative.schemes)
       for (const id of entry.profileIds)
         if (!profileIds.includes(id)) profileIds.push(id);
-  return { source, alternatives, anonymous, executableAlternatives, profileIds };
+  return {
+    source,
+    alternatives,
+    anonymous,
+    executableAlternatives,
+    profileIds,
+  };
 }

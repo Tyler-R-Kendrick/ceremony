@@ -158,7 +158,11 @@ function extensionEntries(
   source: Record<string, unknown>,
   pointer: string,
 ): ExtensionEntry[] {
-  return Object.entries(source).map(([name, value]) => ({ pointer, name, value }));
+  return Object.entries(source).map(([name, value]) => ({
+    pointer,
+    name,
+    value,
+  }));
 }
 
 /**
@@ -193,10 +197,14 @@ function collectDocumentExtensions(walk: SwaggerWalk): ExtensionEntry[] {
   for (const scheme of Object.values(walk.securityDefinitions))
     entries.push(...extensionEntries(scheme.extensions, scheme.pointer));
   for (const operation of walk.operations) {
-    entries.push(...extensionEntries(operation.pathItemExtensions, operation.pointer));
+    entries.push(
+      ...extensionEntries(operation.pathItemExtensions, operation.pointer),
+    );
     entries.push(...extensionEntries(operation.extensions, operation.pointer));
     for (const parameter of operation.parameters) {
-      entries.push(...extensionEntries(parameter.extensions, parameter.pointer));
+      entries.push(
+        ...extensionEntries(parameter.extensions, parameter.pointer),
+      );
       for (const node of parameter.nested)
         entries.push(...extensionEntries(node.extensions, node.pointer));
     }
@@ -234,7 +242,9 @@ export function configurationNameFor(
 
 function profileId(raw: string, taken: Set<string>): string {
   const cleaned = raw.replace(/[^a-zA-Z0-9_.:-]/g, "-").slice(0, 96);
-  let candidate = /^[a-zA-Z]/.test(cleaned) ? cleaned : `ms-${cleaned}`.slice(0, 96);
+  let candidate = /^[a-zA-Z]/.test(cleaned)
+    ? cleaned
+    : `ms-${cleaned}`.slice(0, 96);
   if (!identifierSchema.safeParse(candidate).success) candidate = "ms-profile";
   let unique = candidate;
   for (let index = 2; taken.has(unique) && index < 1000; index++)
@@ -319,10 +329,9 @@ function buildAuthentication(
     setName: string | undefined,
   ): void => {
     const labelBase = parameter.ui.displayName ?? parameter.name;
-    const label = safeText(
-      setName ? `${setName}: ${labelBase}` : labelBase,
-      100,
-    ) || parameter.name;
+    const label =
+      safeText(setName ? `${setName}: ${labelBase}` : labelBase, 100) ||
+      parameter.name;
     const idBase = setName ? `${setName}-${parameter.name}` : parameter.name;
     switch (parameter.kind) {
       case "securestring": {
@@ -396,7 +405,9 @@ function buildAuthentication(
         const authorizationEndpoint = httpsOrLoopback(
           custom.authorizationurl ?? custom.authorizationUrl,
         );
-        const tokenEndpoint = httpsOrLoopback(custom.tokenurl ?? custom.tokenUrl);
+        const tokenEndpoint = httpsOrLoopback(
+          custom.tokenurl ?? custom.tokenUrl,
+        );
         if (
           (custom.authorizationurl && !authorizationEndpoint) ||
           (custom.tokenurl && !tokenEndpoint)
@@ -473,9 +484,15 @@ function buildAuthentication(
 
   // Swagger security definitions describe how a request carries the credential.
   for (const scheme of Object.values(walk.securityDefinitions)) {
-    const label = safeText(scheme.description ?? scheme.name, 100) || scheme.name;
+    const label =
+      safeText(scheme.description ?? scheme.name, 100) || scheme.name;
     if (scheme.type === "apiKey") {
-      const placement = scheme.in === "query" ? "query" : scheme.in === "header" ? "header" : undefined;
+      const placement =
+        scheme.in === "query"
+          ? "query"
+          : scheme.in === "header"
+            ? "header"
+            : undefined;
       if (!placement || !scheme.parameterName) {
         issues.push({
           code: "security.api-key-incomplete",
@@ -507,7 +524,12 @@ function buildAuthentication(
       // Power Platform does not support the client-credentials ("application") flow.
       if (scheme.flow === "application" || scheme.flow === "password") {
         const id = profileId(`oauth2-${scheme.name}`, taken);
-        profiles.push({ id, label, kind: "unsupported", native: `oauth2 ${token(scheme.flow, 32)}` });
+        profiles.push({
+          id,
+          label,
+          kind: "unsupported",
+          native: `oauth2 ${token(scheme.flow, 32)}`,
+        });
         schemeProfiles[scheme.name] = [id];
         issues.push({
           code: "security.oauth-flow-unsupported",
@@ -555,7 +577,12 @@ function buildAuthentication(
       schemeProfiles[scheme.name] = [id];
     } else {
       const id = profileId(`native-${scheme.name}`, taken);
-      profiles.push({ id, label, kind: "unsupported", native: token(scheme.type, 120) });
+      profiles.push({
+        id,
+        label,
+        kind: "unsupported",
+        native: token(scheme.type, 120),
+      });
       schemeProfiles[scheme.name] = [id];
       issues.push({
         code: "security.scheme-unsupported",
@@ -581,7 +608,9 @@ function buildAuthentication(
   if (!profiles.length) {
     const anonymous =
       walk.documentSecurity !== undefined &&
-      walk.documentSecurity.every((alternative) => alternative.schemes.length === 0);
+      walk.documentSecurity.every(
+        (alternative) => alternative.schemes.length === 0,
+      );
     profiles.push({
       id: "none",
       label: anonymous ? "No authentication" : "No declared authentication",
@@ -589,10 +618,18 @@ function buildAuthentication(
       reason: "public",
     });
   }
-  return { profiles, configuration, configurationNames, profileSets, schemeProfiles };
+  return {
+    profiles,
+    configuration,
+    configurationNames,
+    profileSets,
+    schemeProfiles,
+  };
 }
 
-const triggerKind = (extensions: Record<string, unknown>): "single" | "batch" | undefined => {
+const triggerKind = (
+  extensions: Record<string, unknown>,
+): "single" | "batch" | undefined => {
   const value = extensions["x-ms-trigger"];
   return value === "single" || value === "batch" ? value : undefined;
 };
@@ -609,10 +646,13 @@ const visibilityOf = (
 /** A parameter or body property flagged with `"x-ms-notification-url": true`. */
 function notificationUrlField(operation: WalkedOperation): string | undefined {
   for (const parameter of operation.parameters) {
-    if (parameter.extensions["x-ms-notification-url"] === true) return parameter.name;
+    if (parameter.extensions["x-ms-notification-url"] === true)
+      return parameter.name;
     for (const node of parameter.nested)
       if (node.extensions["x-ms-notification-url"] === true)
-        return node.pathString ? `${parameter.name}/${node.pathString}` : parameter.name;
+        return node.pathString
+          ? `${parameter.name}/${node.pathString}`
+          : parameter.name;
   }
   return undefined;
 }
@@ -732,7 +772,10 @@ export async function readCustomConnector(
     const scoped = policy.operationNames && policy.operationNames.length > 0;
     if (!scoped) policyAppliesToAll = true;
     for (const name of policy.operationNames ?? [])
-      policyScopes.set(name, [...(policyScopes.get(name) ?? []), policy.templateId]);
+      policyScopes.set(name, [
+        ...(policyScopes.get(name) ?? []),
+        policy.templateId,
+      ]);
     issues.push({
       code: "policy.template-unsupported",
       category: "policy",
@@ -753,7 +796,10 @@ export async function readCustomConnector(
     (properties?.connectionParameters ?? []).some(
       (parameter) => parameter.kind === "gatewaySetting",
     );
-  if ((properties?.capabilities ?? []).includes("gateway") && !gatewayRequiredByParameter(properties))
+  if (
+    (properties?.capabilities ?? []).includes("gateway") &&
+    !gatewayRequiredByParameter(properties)
+  )
     issues.push({
       code: "network.gateway-capability",
       category: "network",
@@ -782,28 +828,40 @@ export async function readCustomConnector(
 
   for (const operation of walk.operations) {
     const operationVisibility = visibilityOf(operation.extensions);
-    if (operationVisibility) visibility[operation.nativeId] = operationVisibility;
+    if (operationVisibility)
+      visibility[operation.nativeId] = operationVisibility;
     for (const parameter of operation.parameters) {
       const parameterVisibility = visibilityOf(parameter.extensions);
       if (parameterVisibility)
-        visibility[`${operation.nativeId}/${parameter.name}`] = parameterVisibility;
+        visibility[`${operation.nativeId}/${parameter.name}`] =
+          parameterVisibility;
     }
     for (const issue of issues.blockingUnder(operation.pointer))
       addBlocked(operation.nativeId, issue.code);
     if (scriptAppliesToAll || scriptScope.has(operation.nativeId))
       addBlocked(operation.nativeId, "executable-code.custom-script");
-    if (policyAppliesToAll) addBlocked(operation.nativeId, "policy.template-unsupported");
+    if (policyAppliesToAll)
+      addBlocked(operation.nativeId, "policy.template-unsupported");
     for (const template of policyScopes.get(operation.nativeId) ?? [])
-      addBlocked(operation.nativeId, `policy.template-unsupported:${template}`.slice(0, 120));
-    if (gatewayRequired) addBlocked(operation.nativeId, "network.gateway-required");
+      addBlocked(
+        operation.nativeId,
+        `policy.template-unsupported:${template}`.slice(0, 120),
+      );
+    if (gatewayRequired)
+      addBlocked(operation.nativeId, "network.gateway-required");
 
     const trigger = triggerKind(operation.extensions);
     const notificationField = notificationUrlField(operation);
     if (trigger) {
       const schemaRef = notificationSchemaRef(operation);
       if (notificationField) {
-        const created = operation.responses.find((response) => response.status === "201");
-        if (!created || !created.headers.some((header) => header.toLowerCase() === "location"))
+        const created = operation.responses.find(
+          (response) => response.status === "201",
+        );
+        if (
+          !created ||
+          !created.headers.some((header) => header.toLowerCase() === "location")
+        )
           issues.push({
             code: "structure.webhook-unsubscribe-unknown",
             category: "structure",
@@ -816,7 +874,9 @@ export async function readCustomConnector(
           });
         events.push({
           nativeId: operation.nativeId,
-          ...(operation.summary ? { label: safeText(operation.summary, 200) } : {}),
+          ...(operation.summary
+            ? { label: safeText(operation.summary, 200) }
+            : {}),
           transport: "http-webhook",
           verification: "unknown",
           ...(schemaRef ? { messageSchemaRef: schemaRef } : {}),
@@ -836,7 +896,9 @@ export async function readCustomConnector(
       } else {
         events.push({
           nativeId: operation.nativeId,
-          ...(operation.summary ? { label: safeText(operation.summary, 200) } : {}),
+          ...(operation.summary
+            ? { label: safeText(operation.summary, 200) }
+            : {}),
           transport: "unsupported",
           nativeTransport: "polling",
           verification: "none",
@@ -857,8 +919,12 @@ export async function readCustomConnector(
       }
     }
 
-    const body = operation.parameters.find((parameter) => parameter.in === "body");
-    const success = operation.responses.find((response) => /^2/.test(response.status));
+    const body = operation.parameters.find(
+      (parameter) => parameter.in === "body",
+    );
+    const success = operation.responses.find((response) =>
+      /^2/.test(response.status),
+    );
     // Extensions are grouped by where they were written, so an export can put
     // each one back on its own node instead of guessing.
     const groupBudget = Object.freeze({
@@ -872,7 +938,10 @@ export async function readCustomConnector(
       groupBudget,
     );
     const pathExtensions = packExtensions(
-      extensionEntries(operation.pathItemExtensions, pathItemPointerOf(operation)),
+      extensionEntries(
+        operation.pathItemExtensions,
+        pathItemPointerOf(operation),
+      ),
       groupBudget,
     );
     const parameterExtensions = packExtensions(
@@ -913,11 +982,15 @@ export async function readCustomConnector(
           deprecated: operation.deprecated,
           ...(operationVisibility ? { visibility: operationVisibility } : {}),
           ...(trigger ? { trigger } : {}),
-          ...(notificationField ? { notificationUrlField: notificationField } : {}),
+          ...(notificationField
+            ? { notificationUrlField: notificationField }
+            : {}),
           parameters: operation.parameters.slice(0, 64).map(parameterRecord),
           responses: operation.responses.map((response) => ({
             status: response.status,
-            ...(response.description ? { description: response.description } : {}),
+            ...(response.description
+              ? { description: response.description }
+              : {}),
             ...(response.headers.length ? { headers: response.headers } : {}),
           })),
           security: {
@@ -929,8 +1002,12 @@ export async function readCustomConnector(
               })),
             ),
           },
-          ...(operation.consumes.length ? { consumes: operation.consumes } : {}),
-          ...(operation.produces.length ? { produces: operation.produces } : {}),
+          ...(operation.consumes.length
+            ? { consumes: operation.consumes }
+            : {}),
+          ...(operation.produces.length
+            ? { produces: operation.produces }
+            : {}),
         },
         ...(operationExtensions.length
           ? { "x-ms-operation-extensions": operationExtensions }
@@ -996,7 +1073,10 @@ export async function readCustomConnector(
         : {}),
       nativeExtensions,
     });
-    if (!blocked[operation.nativeId]?.length && operation.identity === "operationId")
+    if (
+      !blocked[operation.nativeId]?.length &&
+      operation.identity === "operationId"
+    )
       executableCandidates.push(operation.nativeId);
   }
 
@@ -1016,7 +1096,8 @@ export async function readCustomConnector(
       !Array.isArray(testConnection)
     ) {
       const record = testConnection as Record<string, unknown>;
-      const operationId = typeof record.operationId === "string" ? record.operationId : "";
+      const operationId =
+        typeof record.operationId === "string" ? record.operationId : "";
       const target = walk.operations.find(
         (operation) =>
           operation.identity === "operationId" &&
@@ -1096,97 +1177,125 @@ export async function readCustomConnector(
 
   const nativeExtensions = fitBlock(
     {
-    "x-ms-extensions": documentExtensions,
-    "microsoft-custom-connector": {
-      ...(settings.connectorId ? { connectorId: settings.connectorId } : {}),
-      ...(settings.environment ? { environment: settings.environment } : {}),
-      ...(properties?.publisher ? { publisher: properties.publisher } : {}),
-      ...(properties?.stackOwner ? { stackOwner: properties.stackOwner } : {}),
-      ...(properties?.iconBrandColor
-        ? { iconBrandColor: properties.iconBrandColor }
-        : {}),
-      capabilities: properties?.capabilities ?? [],
-      connectionParameters: [
-        ...(properties?.connectionParameters ?? []).map((parameter) =>
-          connectionParameterRecord(parameter, undefined, auth.configurationNames),
-        ),
-        ...(properties?.connectionParameterSets?.values ?? []).flatMap((set) =>
-          set.parameters.map((parameter) =>
-            connectionParameterRecord(parameter, set.name, auth.configurationNames),
+      "x-ms-extensions": documentExtensions,
+      "microsoft-custom-connector": {
+        ...(settings.connectorId ? { connectorId: settings.connectorId } : {}),
+        ...(settings.environment ? { environment: settings.environment } : {}),
+        ...(properties?.publisher ? { publisher: properties.publisher } : {}),
+        ...(properties?.stackOwner
+          ? { stackOwner: properties.stackOwner }
+          : {}),
+        ...(properties?.iconBrandColor
+          ? { iconBrandColor: properties.iconBrandColor }
+          : {}),
+        capabilities: properties?.capabilities ?? [],
+        connectionParameters: [
+          ...(properties?.connectionParameters ?? []).map((parameter) =>
+            connectionParameterRecord(
+              parameter,
+              undefined,
+              auth.configurationNames,
+            ),
           ),
-        ),
-      ],
-      ...(properties?.connectionParameterSets
-        ? {
-            connectionParameterSets: {
-              ...(properties.connectionParameterSets.displayName
-                ? { displayName: properties.connectionParameterSets.displayName }
-                : {}),
-              values: properties.connectionParameterSets.values.map((set) => ({
-                name: set.name,
-                ...(set.displayName ? { displayName: set.displayName } : {}),
-                ...(set.allowSharing === undefined
-                  ? {}
-                  : { allowSharing: set.allowSharing }),
-                parameters: set.parameters.map((parameter) => parameter.name),
-              })),
-            },
-          }
-        : {}),
-      policyTemplateInstances: (properties?.policyTemplateInstances ?? []).map(
-        (policy) => ({
+          ...(properties?.connectionParameterSets?.values ?? []).flatMap(
+            (set) =>
+              set.parameters.map((parameter) =>
+                connectionParameterRecord(
+                  parameter,
+                  set.name,
+                  auth.configurationNames,
+                ),
+              ),
+          ),
+        ],
+        ...(properties?.connectionParameterSets
+          ? {
+              connectionParameterSets: {
+                ...(properties.connectionParameterSets.displayName
+                  ? {
+                      displayName:
+                        properties.connectionParameterSets.displayName,
+                    }
+                  : {}),
+                values: properties.connectionParameterSets.values.map(
+                  (set) => ({
+                    name: set.name,
+                    ...(set.displayName
+                      ? { displayName: set.displayName }
+                      : {}),
+                    ...(set.allowSharing === undefined
+                      ? {}
+                      : { allowSharing: set.allowSharing }),
+                    parameters: set.parameters.map(
+                      (parameter) => parameter.name,
+                    ),
+                  }),
+                ),
+              },
+            }
+          : {}),
+        policyTemplateInstances: (
+          properties?.policyTemplateInstances ?? []
+        ).map((policy) => ({
           templateId: policy.templateId,
           ...(policy.title ? { title: policy.title } : {}),
           parameters: policy.parameters,
-          ...(policy.operationNames ? { operationNames: policy.operationNames } : {}),
+          ...(policy.operationNames
+            ? { operationNames: policy.operationNames }
+            : {}),
           executable: false,
-        }),
-      ),
-      script: {
-        present: scriptPresent,
-        ...(settings.script ? { file: settings.script } : {}),
-        operations: scriptOperations ?? [],
-        appliesToAllOperations: scriptAppliesToAll,
-        executable: false,
-      },
-      gateway: { required: gatewayRequired, available: false },
-      /** Presentation hints only. Visibility never decides authorization or classification. */
-      presentation: { visibility, profileSets: auth.profileSets },
-      /** Security definitions exactly as written, so an export re-emits them rather than inventing them. */
-      securityDefinitions: Object.values(walk.securityDefinitions).map((scheme) => ({
-        name: scheme.name,
-        type: scheme.type,
-        profileIds: auth.schemeProfiles[scheme.name] ?? [],
-        ...(scheme.in ? { in: scheme.in } : {}),
-        ...(scheme.parameterName ? { parameterName: scheme.parameterName } : {}),
-        ...(scheme.flow ? { flow: scheme.flow } : {}),
-        ...(scheme.authorizationUrl
-          ? { authorizationUrl: scheme.authorizationUrl }
+        })),
+        script: {
+          present: scriptPresent,
+          ...(settings.script ? { file: settings.script } : {}),
+          operations: scriptOperations ?? [],
+          appliesToAllOperations: scriptAppliesToAll,
+          executable: false,
+        },
+        gateway: { required: gatewayRequired, available: false },
+        /** Presentation hints only. Visibility never decides authorization or classification. */
+        presentation: { visibility, profileSets: auth.profileSets },
+        /** Security definitions exactly as written, so an export re-emits them rather than inventing them. */
+        securityDefinitions: Object.values(walk.securityDefinitions).map(
+          (scheme) => ({
+            name: scheme.name,
+            type: scheme.type,
+            profileIds: auth.schemeProfiles[scheme.name] ?? [],
+            ...(scheme.in ? { in: scheme.in } : {}),
+            ...(scheme.parameterName
+              ? { parameterName: scheme.parameterName }
+              : {}),
+            ...(scheme.flow ? { flow: scheme.flow } : {}),
+            ...(scheme.authorizationUrl
+              ? { authorizationUrl: scheme.authorizationUrl }
+              : {}),
+            ...(scheme.tokenUrl ? { tokenUrl: scheme.tokenUrl } : {}),
+            scopes: scheme.scopes,
+            ...(scheme.description ? { description: scheme.description } : {}),
+          }),
+        ),
+        ...(walk.documentSecurity
+          ? {
+              security: walk.documentSecurity.map((alternative) =>
+                alternative.schemes.map((entry) => ({
+                  scheme: entry.scheme,
+                  scopes: entry.scopes,
+                })),
+              ),
+            }
           : {}),
-        ...(scheme.tokenUrl ? { tokenUrl: scheme.tokenUrl } : {}),
-        scopes: scheme.scopes,
-        ...(scheme.description ? { description: scheme.description } : {}),
-      })),
-      ...(walk.documentSecurity
-        ? {
-            security: walk.documentSecurity.map((alternative) =>
-              alternative.schemes.map((entry) => ({
-                scheme: entry.scheme,
-                scopes: entry.scopes,
-              })),
-            ),
-          }
-        : {}),
-      document: {
-        ...(walk.host ? { host: walk.host } : {}),
-        ...(walk.basePath ? { basePath: walk.basePath } : {}),
-        schemes: walk.schemes,
-        ...(walk.consumes.length ? { consumes: walk.consumes } : {}),
-        ...(walk.produces.length ? { produces: walk.produces } : {}),
+        document: {
+          ...(walk.host ? { host: walk.host } : {}),
+          ...(walk.basePath ? { basePath: walk.basePath } : {}),
+          schemes: walk.schemes,
+          ...(walk.consumes.length ? { consumes: walk.consumes } : {}),
+          ...(walk.produces.length ? { produces: walk.produces } : {}),
+        },
       },
-    },
-    "microsoft-dynamic-fields": dynamicFields,
-    ...(verifierCandidate ? { "microsoft-test-connection": verifierCandidate } : {}),
+      "microsoft-dynamic-fields": dynamicFields,
+      ...(verifierCandidate
+        ? { "microsoft-test-connection": verifierCandidate }
+        : {}),
     },
     ["x-ms-extensions", "microsoft-dynamic-fields"],
     (key) =>
@@ -1203,7 +1312,8 @@ export async function readCustomConnector(
 
   const identity: ConnectorSourceIdentity = {
     ecosystem: MICROSOFT_ECOSYSTEM,
-    authorityNamespace: input.identity?.authorityNamespace ?? settings.environment ?? "",
+    authorityNamespace:
+      input.identity?.authorityNamespace ?? settings.environment ?? "",
     nativeId:
       input.identity?.nativeId ?? settings.connectorId ?? walk.info.title,
     nativeVersion: input.identity?.nativeVersion ?? walk.info.version,
@@ -1222,7 +1332,9 @@ export async function readCustomConnector(
       ? "requires-configuration"
       : "unsupported",
     verify: verifierCandidate ? "requires-configuration" : "unsupported",
-    invoke: executableCandidates.length ? "requires-configuration" : "unsupported",
+    invoke: executableCandidates.length
+      ? "requires-configuration"
+      : "unsupported",
     events: events.some((event) => event.transport === "http-webhook")
       ? "requires-configuration"
       : events.length
@@ -1233,15 +1345,21 @@ export async function readCustomConnector(
 
   const body = {
     schemaVersion: 1 as const,
-    definitionRef: input.definitionRef ?? "definition:microsoft-custom-connector",
+    definitionRef:
+      input.definitionRef ?? "definition:microsoft-custom-connector",
     identity,
     sourceRef: input.sourceRef ?? "source:microsoft-custom-connector",
-    importer: { id: MICROSOFT_IMPORTER.id, version: MICROSOFT_IMPORTER.version },
+    importer: {
+      id: MICROSOFT_IMPORTER.id,
+      version: MICROSOFT_IMPORTER.version,
+    },
     display: {
       name: safeText(walk.info.title, 200) || "Custom connector",
       description: safeText(walk.info.description ?? "", 500),
       ecosystem: MICROSOFT_ECOSYSTEM,
-      ...(/^[a-z0-9][a-z0-9._-]*$/.test(serviceKey) ? { service: serviceKey } : {}),
+      ...(/^[a-z0-9][a-z0-9._-]*$/.test(serviceKey)
+        ? { service: serviceKey }
+        : {}),
     },
     authentication: auth.profiles,
     configuration: auth.configuration,
@@ -1273,7 +1391,9 @@ export async function readCustomConnector(
   };
 }
 
-function gatewayRequiredByParameter(properties: ApiProperties | undefined): boolean {
+function gatewayRequiredByParameter(
+  properties: ApiProperties | undefined,
+): boolean {
   return (properties?.connectionParameters ?? []).some(
     (parameter) => parameter.kind === "gatewaySetting",
   );
@@ -1291,7 +1411,9 @@ function connectionParameterRecord(
     type: parameter.kind === "unknown" ? parameter.nativeType : parameter.kind,
     required: parameter.ui.required,
     hidden: parameter.ui.hidden,
-    ...(parameter.ui.displayName ? { displayName: parameter.ui.displayName } : {}),
+    ...(parameter.ui.displayName
+      ? { displayName: parameter.ui.displayName }
+      : {}),
     pointer: parameter.pointer,
   };
   const names = [
@@ -1306,7 +1428,9 @@ function connectionParameterRecord(
       ? {
           identityProvider: parameter.identityProvider,
           scopes: parameter.scopes,
-          ...(parameter.redirectMode ? { redirectMode: parameter.redirectMode } : {}),
+          ...(parameter.redirectMode
+            ? { redirectMode: parameter.redirectMode }
+            : {}),
           customParameterNames: Object.keys(parameter.customParameters),
         }
       : {}),

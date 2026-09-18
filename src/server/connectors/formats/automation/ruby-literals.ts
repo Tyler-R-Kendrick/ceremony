@@ -220,7 +220,9 @@ export function tokenizeRuby(
     }
     const start = index;
     // Heredocs carry free text that is never a literal this reader uses.
-    const heredoc = /^<<[-~]?(['"`]?)([A-Za-z_]\w*)\1/.exec(text.slice(index, index + 64));
+    const heredoc = /^<<[-~]?(['"`]?)([A-Za-z_]\w*)\1/.exec(
+      text.slice(index, index + 64),
+    );
     if (heredoc) {
       const terminator = heredoc[2]!;
       const bodyStart = text.indexOf("\n", index);
@@ -235,8 +237,13 @@ export function tokenizeRuby(
       index = stop;
       continue;
     }
-    if (char === "%" && /^[qwWiI]?[[({<|]/.test(text.slice(index + 1, index + 3))) {
-      const openerIndex = /^[qwWiI]/.test(text[index + 1] ?? "") ? index + 2 : index + 1;
+    if (
+      char === "%" &&
+      /^[qwWiI]?[[({<|]/.test(text.slice(index + 1, index + 3))
+    ) {
+      const openerIndex = /^[qwWiI]/.test(text[index + 1] ?? "")
+        ? index + 2
+        : index + 1;
       const opener = text[openerIndex];
       const closers: Record<string, string> = {
         "[": "]",
@@ -288,7 +295,10 @@ export function tokenizeRuby(
       const interpolated = quote === '"' && /#\{/.test(raw);
       const value =
         quote === "'"
-          ? raw.replaceAll("\\'", "'").replaceAll("\\\\", "\\").slice(0, limits.stringLength)
+          ? raw
+              .replaceAll("\\'", "'")
+              .replaceAll("\\\\", "\\")
+              .slice(0, limits.stringLength)
           : decodeDoubleQuoted(raw, limits.stringLength);
       // A quoted label: `"Authorization": value`.
       if (!interpolated && text[scan] === ":" && text[scan + 1] !== ":") {
@@ -321,7 +331,11 @@ export function tokenizeRuby(
           raw += text[scan];
           scan++;
         }
-        push({ kind: "symbol", value: raw.slice(0, limits.stringLength), loc: loc(start) });
+        push({
+          kind: "symbol",
+          value: raw.slice(0, limits.stringLength),
+          loc: loc(start),
+        });
         index = scan + 1;
         continue;
       }
@@ -329,7 +343,11 @@ export function tokenizeRuby(
         let scan = index + 1;
         while (scan < text.length && IDENTIFIER_PART.test(text[scan]!)) scan++;
         if (text[scan] === "?" || text[scan] === "!") scan++;
-        push({ kind: "symbol", value: text.slice(index + 1, scan), loc: loc(start) });
+        push({
+          kind: "symbol",
+          value: text.slice(index + 1, scan),
+          loc: loc(start),
+        });
         index = scan;
         continue;
       }
@@ -443,12 +461,16 @@ function skipToEnd(state: State, index: number): number {
     const token = state.tokens[scan]!;
     if (token.kind === "name") {
       if (BLOCK_OPENERS.has(token.value)) depth++;
-      else if (CONDITIONAL_OPENERS.has(token.value) && token.startsLine) depth++;
+      else if (CONDITIONAL_OPENERS.has(token.value) && token.startsLine)
+        depth++;
       else if (token.value === "end") {
         depth--;
         if (depth === 0) return scan + 1;
       }
-    } else if (token.kind === "punct" && ["{", "[", "("].includes(token.value)) {
+    } else if (
+      token.kind === "punct" &&
+      ["{", "[", "("].includes(token.value)
+    ) {
       scan = skipBrackets(state, scan);
       continue;
     }
@@ -466,7 +488,8 @@ function skipOpaque(
   const token = state.tokens[index];
   if (!token) return { reason: "truncated", next: index };
   if (token.kind === "heredoc") return { reason: "heredoc", next: index + 1 };
-  if (token.kind === "percent") return { reason: "percent-literal", next: index + 1 };
+  if (token.kind === "percent")
+    return { reason: "percent-literal", next: index + 1 };
   if (token.kind === "dynamic-string")
     return { reason: "interpolation", next: index + 1 };
   if (isPunct(token, "*") || isPunct(token, "**"))
@@ -474,8 +497,12 @@ function skipOpaque(
   if (isPunct(token, "->")) {
     let scan = index + 1;
     if (isPunct(state.tokens[scan], "(")) scan = skipBrackets(state, scan);
-    if (isPunct(state.tokens[scan], "{")) return { reason: "lambda", next: skipBrackets(state, scan) };
-    if (state.tokens[scan]?.kind === "name" && state.tokens[scan]!.value === "do")
+    if (isPunct(state.tokens[scan], "{"))
+      return { reason: "lambda", next: skipBrackets(state, scan) };
+    if (
+      state.tokens[scan]?.kind === "name" &&
+      state.tokens[scan]!.value === "do"
+    )
       return { reason: "lambda", next: skipToEnd(state, scan) };
     return { reason: "lambda", next: scan };
   }
@@ -485,11 +512,18 @@ function skipOpaque(
     if (isPunct(state.tokens[scan], "(")) scan = skipBrackets(state, scan);
     const next = state.tokens[scan];
     if (next?.kind === "name" && next.value === "do")
-      return { reason: isLambda ? "lambda" : "block", next: skipToEnd(state, scan) };
+      return {
+        reason: isLambda ? "lambda" : "block",
+        next: skipToEnd(state, scan),
+      };
     if (isPunct(next, "{"))
-      return { reason: isLambda ? "lambda" : "block", next: skipBrackets(state, scan) };
+      return {
+        reason: isLambda ? "lambda" : "block",
+        next: skipBrackets(state, scan),
+      };
     if (scan > index + 1) return { reason: "method-call", next: scan };
-    if (isPunct(next, "[")) return { reason: "reference", next: skipBrackets(state, scan) };
+    if (isPunct(next, "["))
+      return { reason: "reference", next: skipBrackets(state, scan) };
     if (isPunct(next, ".") || isPunct(next, "::")) {
       let chain = scan;
       while (chain < state.tokens.length) {
@@ -500,7 +534,8 @@ function skipOpaque(
         }
         if (current.kind === "name") {
           chain++;
-          if (isPunct(state.tokens[chain], "(")) chain = skipBrackets(state, chain);
+          if (isPunct(state.tokens[chain], "("))
+            chain = skipBrackets(state, chain);
           continue;
         }
         break;
@@ -533,7 +568,10 @@ function parseValue(
 ): { value: RubyValue; next: number } {
   const token = state.tokens[index];
   if (!token)
-    return { value: { kind: "opaque", reason: "truncated", loc: FALLBACK }, next: index };
+    return {
+      value: { kind: "opaque", reason: "truncated", loc: FALLBACK },
+      next: index,
+    };
   if (++state.nodes > state.limits.nodes || depth > state.limits.depth) {
     state.truncated = true;
     return {
@@ -546,13 +584,19 @@ function parseValue(
     let value = token.value;
     let scan = index + 1;
     while (state.tokens[scan]?.kind === "string") {
-      value = `${value}${state.tokens[scan]!.value}`.slice(0, state.limits.stringLength);
+      value = `${value}${state.tokens[scan]!.value}`.slice(
+        0,
+        state.limits.stringLength,
+      );
       scan++;
     }
     return { value: { kind: "string", value, loc: token.loc }, next: scan };
   }
   if (token.kind === "symbol")
-    return { value: { kind: "symbol", value: token.value, loc: token.loc }, next: index + 1 };
+    return {
+      value: { kind: "symbol", value: token.value, loc: token.loc },
+      next: index + 1,
+    };
   if (token.kind === "number")
     return {
       value: { kind: "number", value: token.numeric ?? 0, loc: token.loc },
@@ -561,7 +605,11 @@ function parseValue(
   if (token.kind === "name") {
     if (token.value === "true" || token.value === "false")
       return {
-        value: { kind: "boolean", value: token.value === "true", loc: token.loc },
+        value: {
+          kind: "boolean",
+          value: token.value === "true",
+          loc: token.loc,
+        },
         next: index + 1,
       };
     if (token.value === "nil")
@@ -570,7 +618,11 @@ function parseValue(
   if (isPunct(token, "-") && state.tokens[index + 1]?.kind === "number") {
     const numberToken = state.tokens[index + 1]!;
     return {
-      value: { kind: "number", value: -(numberToken.numeric ?? 0), loc: token.loc },
+      value: {
+        kind: "number",
+        value: -(numberToken.numeric ?? 0),
+        loc: token.loc,
+      },
       next: index + 2,
     };
   }
@@ -708,7 +760,10 @@ export function rubyString(value: RubyValue | undefined): string | undefined {
 export function rubyBoolean(value: RubyValue | undefined): boolean | undefined {
   if (value?.kind === "boolean") return value.value;
   // Workato's own examples write `optional: "true"`; a quoted boolean is one.
-  if (value?.kind === "string" && (value.value === "true" || value.value === "false"))
+  if (
+    value?.kind === "string" &&
+    (value.value === "true" || value.value === "false")
+  )
     return value.value === "true";
   return undefined;
 }
@@ -717,7 +772,9 @@ export function rubyNumber(value: RubyValue | undefined): number | undefined {
   return value?.kind === "number" ? value.value : undefined;
 }
 
-export function rubyArray(value: RubyValue | undefined): RubyValue[] | undefined {
+export function rubyArray(
+  value: RubyValue | undefined,
+): RubyValue[] | undefined {
   return value?.kind === "array" ? value.items : undefined;
 }
 
@@ -758,21 +815,29 @@ export function toJsonValue(value: RubyValue | undefined): unknown {
 }
 
 /** Wraps plain JSON (the static profile) in the same tree shape. */
-export function fromJsonValue(value: unknown, loc: RubyLoc = FALLBACK): RubyValue {
+export function fromJsonValue(
+  value: unknown,
+  loc: RubyLoc = FALLBACK,
+): RubyValue {
   if (value === null) return { kind: "nil", loc };
   if (typeof value === "string") return { kind: "string", value, loc };
   if (typeof value === "number")
     return { kind: "number", value: Number.isFinite(value) ? value : 0, loc };
   if (typeof value === "boolean") return { kind: "boolean", value, loc };
   if (Array.isArray(value))
-    return { kind: "array", items: value.map((item) => fromJsonValue(item, loc)), loc };
+    return {
+      kind: "array",
+      items: value.map((item) => fromJsonValue(item, loc)),
+      loc,
+    };
   if (typeof value === "object") {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null)
       return { kind: "opaque", reason: "expression", loc };
     const source = value as Record<string, unknown>;
     // The static profile spells a Ruby lambda as `{"$lambda": true}`.
-    if (source["$lambda"] === true) return { kind: "opaque", reason: "lambda", loc };
+    if (source["$lambda"] === true)
+      return { kind: "opaque", reason: "lambda", loc };
     const entries: RubyEntry[] = [];
     for (const key of Object.keys(source)) {
       if (["__proto__", "prototype", "constructor"].includes(key)) continue;

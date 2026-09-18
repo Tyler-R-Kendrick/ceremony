@@ -38,7 +38,10 @@ async function approve(
   const binding = makeBinding({
     destination,
     operations: compiled.operations,
-    settings: { ...compiled.settings, "openapi-http-profiles": read.definition.authentication },
+    settings: {
+      ...compiled.settings,
+      "openapi-http-profiles": read.definition.authentication,
+    },
     definition: read.definition,
   });
   return { read, compiled, binding };
@@ -47,9 +50,14 @@ async function approve(
 test("an export with a binding carries only the approved operations", async () => {
   const { read, compiled, binding } = await approve("openapi-3.1-catalog.json");
   const result = exportOpenApi(read.definition, { binding });
-  const paths = result.document.paths as Record<string, Record<string, unknown>>;
+  const paths = result.document.paths as Record<
+    string,
+    Record<string, unknown>
+  >;
   const exported = Object.values(paths).flatMap((item) =>
-    Object.values(item).map((operation) => (operation as { operationId: string }).operationId),
+    Object.values(item).map(
+      (operation) => (operation as { operationId: string }).operationId,
+    ),
   );
   assert.deepEqual(exported.sort(), compiled.executable.slice().sort());
   // Operations the binding did not approve are deliberately absent, and the
@@ -57,7 +65,9 @@ test("an export with a binding carries only the approved operations", async () =
   assert.ok(!exported.includes("bulkUpload"));
   assert.ok(!exported.includes("mergeProducts"));
   assert.ok(
-    result.losses.some((loss) => loss.code === "policy.unapproved-operations-omitted"),
+    result.losses.some(
+      (loss) => loss.code === "policy.unapproved-operations-omitted",
+    ),
   );
 });
 
@@ -70,7 +80,9 @@ test("an export never carries a private destination or a configuration value", a
   assert.ok(!text.includes("catalog.example.test"));
   // The omission of the declared servers is itself reported.
   assert.ok(
-    result.losses.some((loss) => loss.code === "network.declared-servers-not-exported"),
+    result.losses.some(
+      (loss) => loss.code === "network.declared-servers-not-exported",
+    ),
   );
 });
 
@@ -86,8 +98,9 @@ test("an unsupported authentication profile blocks the export of what depends on
   assert.equal(loss.category, "security");
   assert.equal(loss.disposition, "unsupported");
   // The digest scheme the runtime cannot execute is not republished as usable.
-  const schemes = (result.document.components as { securitySchemes?: Record<string, unknown> })
-    ?.securitySchemes;
+  const schemes = (
+    result.document.components as { securitySchemes?: Record<string, unknown> }
+  )?.securitySchemes;
   assert.ok(!Object.hasOwn(schemes ?? {}, "digest"));
 });
 
@@ -101,7 +114,9 @@ test("a fully supported description round-trips its claimed semantics", async ()
   // The approved operations survive with their methods and paths.
   const original = new Map(
     read.operations
-      .filter((item) => binding.operations.some((bound) => bound.nativeId === item.nativeId))
+      .filter((item) =>
+        binding.operations.some((bound) => bound.nativeId === item.nativeId),
+      )
       .map((item) => [item.nativeId, item]),
   );
   for (const operation of reread.operations) {
@@ -133,7 +148,10 @@ test("security semantics survive a round trip: alternatives, AND and scopes", as
   assert.ok(
     listBefore.alternatives.some(
       (alternative) =>
-        alternative.schemes.map((entry) => entry.scheme).sort().join() === "apiKey,tenantHeader",
+        alternative.schemes
+          .map((entry) => entry.scheme)
+          .sort()
+          .join() === "apiKey,tenantHeader",
     ),
   );
 
@@ -145,7 +163,9 @@ test("security semantics survive a round trip: alternatives, AND and scopes", as
 });
 
 test("a re-read export compiles to the same executable subset", async () => {
-  const { read, binding, compiled } = await approve("openapi-3.1-recursive.json");
+  const { read, binding, compiled } = await approve(
+    "openapi-3.1-recursive.json",
+  );
   const exported = exportOpenApi(read.definition, { binding });
   const reread = await readOpenApi(exported.document);
   assert.ok(isReadResult(reread));
@@ -153,12 +173,17 @@ test("a re-read export compiles to the same executable subset", async () => {
     destinationId: destination.id,
     destination,
   });
-  assert.deepEqual(recompiled.executable.sort(), compiled.executable.slice().sort());
+  assert.deepEqual(
+    recompiled.executable.sort(),
+    compiled.executable.slice().sort(),
+  );
   // Method and path template survive the round trip identically.
   const before = new Map(
     compiled.operations.map((item) => [
       item.nativeId,
-      item.transport.kind === "http" ? `${item.transport.method} ${item.transport.pathTemplate}` : "",
+      item.transport.kind === "http"
+        ? `${item.transport.method} ${item.transport.pathTemplate}`
+        : "",
     ]),
   );
   for (const operation of recompiled.operations)
@@ -172,7 +197,10 @@ test("a re-read export compiles to the same executable subset", async () => {
 test("effect and consent travel as host policy, not as source facts", async () => {
   const { read, binding } = await approve("openapi-3.1-catalog.json");
   const exported = exportOpenApi(read.definition, { binding });
-  const paths = exported.document.paths as Record<string, Record<string, Record<string, unknown>>>;
+  const paths = exported.document.paths as Record<
+    string,
+    Record<string, Record<string, unknown>>
+  >;
   const create = Object.values(paths)
     .flatMap((item) => Object.values(item))
     .find((operation) => operation.operationId === "createProduct");
@@ -200,7 +228,11 @@ test("a partially supported description reports its losses and still exports the
   assert.ok(isReadResult(reread));
   // What survives is exactly the approved subset, not a widened one.
   assert.equal(reread.operations.length, binding.operations.length);
-  assert.ok(reread.operations.every((item) => compiled.executable.includes(item.nativeId)));
+  assert.ok(
+    reread.operations.every((item) =>
+      compiled.executable.includes(item.nativeId),
+    ),
+  );
 });
 
 test("an export without a binding publishes no executable operations", async () => {
@@ -208,7 +240,9 @@ test("an export without a binding publishes no executable operations", async () 
   const exported = exportOpenApi(read.definition);
   assert.deepEqual(exported.document.paths, {});
   assert.ok(
-    exported.losses.some((loss) => loss.code === "policy.no-binding-no-operations"),
+    exported.losses.some(
+      (loss) => loss.code === "policy.no-binding-no-operations",
+    ),
   );
 });
 
@@ -217,13 +251,17 @@ test("native extensions are withheld unless the operator asks for them", async (
     assumeJsonWhenUndeclared: false,
   });
   const withheld = exportOpenApi(read.definition, { binding });
-  assert.ok(!JSON.stringify(withheld.document).includes("x-ms-connector-metadata"));
+  assert.ok(
+    !JSON.stringify(withheld.document).includes("x-ms-connector-metadata"),
+  );
 
   const included = exportOpenApi(read.definition, {
     binding,
     includeNativeExtensions: true,
   });
-  assert.ok(JSON.stringify(included.document).includes("x-ms-connector-metadata"));
+  assert.ok(
+    JSON.stringify(included.document).includes("x-ms-connector-metadata"),
+  );
 });
 
 test("the credential canary never reaches an export, with or without extensions", async () => {
@@ -235,23 +273,42 @@ test("the credential canary never reaches an export, with or without extensions"
   const binding = makeBinding({
     destination,
     operations: compiled.operations,
-    settings: { ...compiled.settings, "openapi-http-profiles": read.definition.authentication },
+    settings: {
+      ...compiled.settings,
+      "openapi-http-profiles": read.definition.authentication,
+    },
     definition: read.definition,
   });
   for (const includeNativeExtensions of [false, true]) {
-    const exported = exportOpenApi(read.definition, { binding, includeNativeExtensions });
+    const exported = exportOpenApi(read.definition, {
+      binding,
+      includeNativeExtensions,
+    });
     const text = JSON.stringify(exported.document);
-    assert.ok(!text.includes("CANARY_SECRET_9f3"), "the exported document leaked the canary");
+    assert.ok(
+      !text.includes("CANARY_SECRET_9f3"),
+      "the exported document leaked the canary",
+    );
     for (const value of allStrings(exported.losses))
-      assert.ok(!value.includes("CANARY_SECRET_9f3"), "a loss report leaked the canary");
+      assert.ok(
+        !value.includes("CANARY_SECRET_9f3"),
+        "a loss report leaked the canary",
+      );
   }
 });
 
 test("events are not republished as an approved surface", async () => {
   const { read, binding } = await approve("openapi-3.1-catalog.json");
   const exported = exportOpenApi(read.definition, { binding });
-  assert.equal((exported.document as { webhooks?: unknown }).webhooks, undefined);
-  assert.ok(exported.losses.some((loss) => loss.code === "structure.events-not-exported"));
+  assert.equal(
+    (exported.document as { webhooks?: unknown }).webhooks,
+    undefined,
+  );
+  assert.ok(
+    exported.losses.some(
+      (loss) => loss.code === "structure.events-not-exported",
+    ),
+  );
 });
 
 test("the adapter's export dimension emits bytes and losses through the contract", async () => {
@@ -277,7 +334,8 @@ test("the adapter's export dimension emits bytes and losses through the contract
       includeNativeExtensions: false,
     }),
     (error: { code?: string; detail?: string }) =>
-      error.code === "unsupported" && error.detail === "openapi.export-format-unsupported",
+      error.code === "unsupported" &&
+      error.detail === "openapi.export-format-unsupported",
   );
 });
 
@@ -326,7 +384,9 @@ test("an unreadable import yields diagnostics and no definition", async () => {
   const context = await harness({ binding });
   const adapter = createOpenApiHttpAdapter();
   const outcome = await adapter.import!(context.ctx, {
-    bytes: new TextEncoder().encode(JSON.stringify({ info: { title: "No version" } })),
+    bytes: new TextEncoder().encode(
+      JSON.stringify({ info: { title: "No version" } }),
+    ),
     mediaType: "application/json",
     origin: { kind: "upload" },
   });
@@ -341,6 +401,7 @@ test("an unreadable import yields diagnostics and no definition", async () => {
       origin: { kind: "upload" },
     }),
     (error: { code?: string; detail?: string }) =>
-      error.code === "invalid-request" && error.detail === "openapi.document-unparseable",
+      error.code === "invalid-request" &&
+      error.detail === "openapi.document-unparseable",
   );
 });

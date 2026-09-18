@@ -6,7 +6,10 @@
     "description": "An OpenAPI 3.0 description exercising requestBody, cookie parameters, deepObject serialization, callbacks and alternative security."
   },
   "servers": [
-    { "url": "https://billing.example.test/api/{stage}", "variables": { "stage": { "default": "v2", "enum": ["v2", "beta"] } } }
+    {
+      "url": "https://billing.example.test/api/{stage}",
+      "variables": { "stage": { "default": "v2", "enum": ["v2", "beta"] } }
+    }
   ],
   "security": [{ "apiKeyQuery": [] }, { "oauth": ["billing:read"] }],
   "paths": {
@@ -14,12 +17,36 @@
       "get": {
         "operationId": "listInvoices",
         "parameters": [
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "paid", "void"] } },
-          { "name": "ids", "in": "query", "style": "form", "explode": false, "schema": { "type": "array", "items": { "type": "string" } } },
-          { "name": "X-Request-Trace", "in": "header", "schema": { "type": "string" } }
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["open", "paid", "void"] }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "style": "form",
+            "explode": false,
+            "schema": { "type": "array", "items": { "type": "string" } }
+          },
+          {
+            "name": "X-Request-Trace",
+            "in": "header",
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
-          "200": { "description": "Invoices", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Invoice" } } } } }
+          "200": {
+            "description": "Invoices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Invoice" }
+                }
+              }
+            }
+          }
         }
       },
       "post": {
@@ -27,15 +54,29 @@
         "security": [{ "oauth": ["billing:write"] }],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice" } } }
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Invoice" }
+            }
+          }
         },
         "responses": {
-          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice" } } } }
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          }
         },
         "callbacks": {
           "invoicePaid": {
             "{$request.body#/callbackUrl}": {
-              "post": { "operationId": "invoicePaidCallback", "responses": { "204": { "description": "Acknowledged" } } }
+              "post": {
+                "operationId": "invoicePaidCallback",
+                "responses": { "204": { "description": "Acknowledged" } }
+              }
             }
           }
         }
@@ -44,9 +85,23 @@
     "/invoices/{invoiceId}": {
       "get": {
         "operationId": "getInvoice",
-        "parameters": [{ "name": "invoiceId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
         "responses": {
-          "200": { "description": "Invoice", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice" } } } }
+          "200": {
+            "description": "Invoice",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          }
         }
       }
     },
@@ -54,23 +109,62 @@
       "get": {
         "operationId": "searchInvoices",
         "parameters": [
-          { "name": "filter", "in": "query", "style": "deepObject", "explode": true, "schema": { "type": "object", "properties": { "min": { "type": "number" } } } }
+          {
+            "name": "filter",
+            "in": "query",
+            "style": "deepObject",
+            "explode": true,
+            "schema": {
+              "type": "object",
+              "properties": { "min": { "type": "number" } }
+            }
+          }
         ],
-        "responses": { "200": { "description": "Results", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } }
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
       }
     },
     "/session": {
       "get": {
         "operationId": "readSession",
-        "parameters": [{ "name": "session", "in": "cookie", "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Session", "content": { "application/json": { "schema": { "type": "object" } } } } }
+        "parameters": [
+          { "name": "session", "in": "cookie", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session",
+            "content": {
+              "application/json": { "schema": { "type": "object" } }
+            }
+          }
+        }
       }
     },
     "/exports/{exportId}": {
       "get": {
         "operationId": "downloadExport",
-        "parameters": [{ "name": "exportId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "CSV", "content": { "text/csv": { "schema": { "type": "string" } } } } }
+        "parameters": [
+          {
+            "name": "exportId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV",
+            "content": { "text/csv": { "schema": { "type": "string" } } }
+          }
+        }
       }
     }
   },
@@ -84,7 +178,10 @@
             "authorizationUrl": "https://auth.example.test/authorize",
             "tokenUrl": "https://auth.example.test/token",
             "refreshUrl": "https://auth.example.test/refresh",
-            "scopes": { "billing:read": "Read invoices", "billing:write": "Create invoices" }
+            "scopes": {
+              "billing:read": "Read invoices",
+              "billing:write": "Create invoices"
+            }
           },
           "clientCredentials": {
             "tokenUrl": "https://auth.example.test/token",

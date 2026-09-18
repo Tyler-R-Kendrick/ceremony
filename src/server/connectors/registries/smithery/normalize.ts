@@ -362,7 +362,7 @@ export async function normalizeSmitheryServer(
 export function smitherySourceRecord(input: {
   bytes: Uint8Array;
   qualifiedName: string;
-  namespace?: string | null;
+  namespace?: string | null | undefined;
   origin: SourceRecord["origin"];
   capturedAt: string;
   digest: string;

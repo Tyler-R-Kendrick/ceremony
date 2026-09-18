@@ -57,7 +57,8 @@ test("STATE-02: material is stored once, used in a callback and never returned t
 
     // Returning the material — directly, nested, or inside a URL — is refused.
     for (const leak of [
-      async (material: Readonly<Record<string, string>>) => material.accessToken,
+      async (material: Readonly<Record<string, string>>) =>
+        material.accessToken,
       async (material: Readonly<Record<string, string>>) => ({
         deep: [{ token: material.accessToken }],
       }),
@@ -77,7 +78,10 @@ test("STATE-02: material is stored once, used in a callback and never returned t
           assert.equal(error.code, "denied");
           assert.equal(error.detail, "credential.material-in-result");
           // The refusal itself must not quote what it refused.
-          assert.equal(`${error.message}${error.stack}`.includes(CANARY), false);
+          assert.equal(
+            `${error.message}${error.stack}`.includes(CANARY),
+            false,
+          );
           return true;
         },
       );
@@ -160,7 +164,11 @@ test("STATE-02: expiry has a safety margin and refresh rotates under single flig
     );
     assert.equal(await ports.credentials.needsRefresh(scope, ref), false);
     assert.equal(
-      await ports.credentials.use(scope, ref, async (m) => m.accessToken.length),
+      await ports.credentials.use(
+        scope,
+        ref,
+        async (m) => m.accessToken.length,
+      ),
       `${CANARY}-1`.length,
     );
 
@@ -178,7 +186,8 @@ test("STATE-02: expiry has a safety margin and refresh rotates under single flig
     await assert.rejects(
       ports.credentials.use(scope, ref, async () => "ok"),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "credential.expired",
+        error instanceof ConnectorError &&
+        error.detail === "credential.expired",
     );
 
     // Two concurrent refreshes share one upstream call.
@@ -224,7 +233,9 @@ test("AC-STATE-01: a refresh computed against an older generation cannot overwri
   const ports = createConnectorPorts(store);
   try {
     const scope = credentialScope("tenant-a");
-    const ref = await ports.credentials.store(scope, { accessToken: "token-1" });
+    const ref = await ports.credentials.store(scope, {
+      accessToken: "token-1",
+    });
     await assert.rejects(
       ports.credentials.refresh(scope, ref, async () => {
         // While this rotation was in flight the credential was replaced.
@@ -256,7 +267,9 @@ test("STATE-02: a failing refresh releases its lease and keeps the previous mate
   const ports = createConnectorPorts(store);
   try {
     const scope = credentialScope("tenant-a");
-    const ref = await ports.credentials.store(scope, { accessToken: "token-1" });
+    const ref = await ports.credentials.store(scope, {
+      accessToken: "token-1",
+    });
     await assert.rejects(
       ports.credentials.refresh(scope, ref, async () => {
         throw new Error(`upstream said ${CANARY}`);
@@ -264,14 +277,20 @@ test("STATE-02: a failing refresh releases its lease and keeps the previous mate
       /upstream said/,
     );
     // The lease is free, so a later refresh proceeds rather than waiting it out.
-    const rotated = await ports.credentials.refresh(scope, ref, async (current) => {
-      assert.equal(current.accessToken, "token-1");
-      return { material: { accessToken: "token-2" } };
-    });
+    const rotated = await ports.credentials.refresh(
+      scope,
+      ref,
+      async (current) => {
+        assert.equal(current.accessToken, "token-1");
+        return { material: { accessToken: "token-2" } };
+      },
+    );
     assert.equal(rotated.ref, ref);
     assert.equal(
-      await ports.credentials.use(scope, ref, async (m) =>
-        m.accessToken === "token-2",
+      await ports.credentials.use(
+        scope,
+        ref,
+        async (m) => m.accessToken === "token-2",
       ),
       true,
     );
@@ -283,8 +302,10 @@ test("STATE-02: a failing refresh releases its lease and keeps the previous mate
         error.detail === "credential.material-empty",
     );
     assert.equal(
-      await ports.credentials.use(scope, ref, async (m) =>
-        m.accessToken === "token-2",
+      await ports.credentials.use(
+        scope,
+        ref,
+        async (m) => m.accessToken === "token-2",
       ),
       true,
     );
@@ -314,7 +335,10 @@ test("STATE-02: broker, attended-browser and no-credential custody keep their ow
         "brokerEnvironment",
       ]);
       // No upstream token was copied into host custody.
-      assert.equal(Object.values(material).some((v) => v.includes("token")), false);
+      assert.equal(
+        Object.values(material).some((v) => v.includes("token")),
+        false,
+      );
       return "ok";
     });
 
@@ -343,7 +367,9 @@ test("STATE-02: broker, attended-browser and no-credential custody keep their ow
     );
 
     // A no-credential connection stores a record with nothing in it.
-    const publicScope = credentialScope("tenant-a", { custody: "no-credential" });
+    const publicScope = credentialScope("tenant-a", {
+      custody: "no-credential",
+    });
     const publicRef = await ports.credentials.store(publicScope, {});
     assert.equal(
       (await ports.credentials.describe(publicScope, publicRef))?.custody,
@@ -375,9 +401,14 @@ test("STATE-02: no canary reaches listings, index records, diagnostics or the da
     });
     const ref = await ports.credentials.store(scope, { accessToken: CANARY });
     const current = await ports.connections.get(actor, record.connectionRef);
-    await ports.connections.update(actor, record.connectionRef, current!.revision, {
-      credentialRef: ref,
-    });
+    await ports.connections.update(
+      actor,
+      record.connectionRef,
+      current!.revision,
+      {
+        credentialRef: ref,
+      },
+    );
 
     const surfaces = JSON.stringify([
       await ports.connections.list(actor),
@@ -410,7 +441,11 @@ test("STATE-02: no canary reaches listings, index records, diagnostics or the da
     // ... and the material is still usable after the reopen, so it was stored, not dropped.
     const reopened = createConnectorPorts(fixture.store);
     assert.equal(
-      await reopened.credentials.use(scope, ref, async (m) => m.accessToken === CANARY),
+      await reopened.credentials.use(
+        scope,
+        ref,
+        async (m) => m.accessToken === CANARY,
+      ),
       true,
     );
   } finally {

@@ -169,7 +169,8 @@ export async function harness(input: {
 /** Every string a result, issue list or projection could carry, flattened for canary checks. */
 export function allStrings(value: unknown, out: string[] = []): string[] {
   if (typeof value === "string") out.push(value);
-  else if (Array.isArray(value)) for (const item of value) allStrings(item, out);
+  else if (Array.isArray(value))
+    for (const item of value) allStrings(item, out);
   else if (value && typeof value === "object")
     for (const item of Object.values(value)) allStrings(item, out);
   return out;
@@ -178,12 +179,19 @@ export function allStrings(value: unknown, out: string[] = []): string[] {
 export function invokeAdapter(
   adapter: ConnectorAdapter,
   ctx: AdapterCallContext,
-  request: { operationRef: string; input: unknown; commandId?: string; idempotencyKey?: string },
+  request: {
+    operationRef: string;
+    input: unknown;
+    commandId?: string;
+    idempotencyKey?: string;
+  },
 ) {
   return adapter.invoke!(ctx, {
     operationRef: request.operationRef,
     input: request.input,
     commandId: request.commandId ?? `command:${randomUUID()}`,
-    ...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
+    ...(request.idempotencyKey
+      ? { idempotencyKey: request.idempotencyKey }
+      : {}),
   });
 }

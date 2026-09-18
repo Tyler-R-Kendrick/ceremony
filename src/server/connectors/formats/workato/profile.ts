@@ -61,7 +61,8 @@ export const WORKATO_PROFILES = Object.freeze({
 
 export const WORKATO_SOURCES = Object.freeze({
   sdk: "https://docs.workato.com/developing-connectors/sdk.html",
-  reference: "https://docs.workato.com/en/developing-connectors/sdk/sdk-reference.md",
+  reference:
+    "https://docs.workato.com/en/developing-connectors/sdk/sdk-reference.md",
   authorization:
     "https://docs.workato.com/en/developing-connectors/sdk/sdk-reference/connection/authorization.md",
   retrievedAt: "2026-09-18",

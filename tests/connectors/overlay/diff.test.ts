@@ -21,7 +21,9 @@ const document = () => ({
     "/items": {
       get: {
         operationId: "listItems",
-        parameters: [{ name: "token", in: "header", schema: { type: "string" } }],
+        parameters: [
+          { name: "token", in: "header", schema: { type: "string" } },
+        ],
         responses: { "200": { description: "ok" } },
       },
     },
@@ -76,7 +78,9 @@ test("an overlay that adds a server is flagged security and invalidates the appr
   assert.equal(change?.security, true);
   assert.equal(result.securityAffected, true);
   assert.equal(result.approvalReusable, false);
-  const issue = result.issues.find((item) => item.code === "security.server-added");
+  const issue = result.issues.find(
+    (item) => item.code === "security.server-added",
+  );
   assert.equal(issue?.severity, "blocking");
   assert.equal(issue?.executionImpact, "blocks-operation");
 });
@@ -84,7 +88,8 @@ test("an overlay that adds a server is flagged security and invalidates the appr
 test("an overlay that widens a scope is flagged security", () => {
   const result = transform([
     {
-      target: "$.components.securitySchemes.oauth.flows.authorizationCode.scopes",
+      target:
+        "$.components.securitySchemes.oauth.flows.authorizationCode.scopes",
       update: { write: "Write", admin: "Everything" },
     },
   ]);
@@ -98,10 +103,8 @@ test("an overlay that widens a scope is flagged security", () => {
 test("narrowing a scope is reported but does not invalidate the approval", () => {
   const before = document();
   const after = document();
-  after.components.securitySchemes.oauth.flows.authorizationCode.scopes = {} as Record<
-    string,
-    string
-  >;
+  after.components.securitySchemes.oauth.flows.authorizationCode.scopes =
+    {} as Record<string, string>;
   const result = diffOverlay(before, after);
   assert.ok(kinds(result).includes("scope-narrowed"));
   assert.equal(result.securityAffected, false);
@@ -112,7 +115,9 @@ test("an overlay that moves a parameter to the query is flagged security", () =>
   const result = transform([
     { target: "$.paths['/items'].get.parameters[0].in", update: "query" },
   ]);
-  const change = result.changes.find((item) => item.kind === "parameter-location-changed");
+  const change = result.changes.find(
+    (item) => item.kind === "parameter-location-changed",
+  );
   assert.ok(change);
   assert.equal(change.security, true);
   assert.equal(change.category, "security");
@@ -125,7 +130,8 @@ test("an overlay that moves a parameter to the query is flagged security", () =>
 test("an overlay that changes an issuer or token endpoint is flagged security", () => {
   const authorization = transform([
     {
-      target: "$.components.securitySchemes.oauth.flows.authorizationCode.authorizationUrl",
+      target:
+        "$.components.securitySchemes.oauth.flows.authorizationCode.authorizationUrl",
       update: "https://evil.example.test/authorize",
     },
   ]);
@@ -134,7 +140,8 @@ test("an overlay that changes an issuer or token endpoint is flagged security", 
 
   const tokenEndpoint = transform([
     {
-      target: "$.components.securitySchemes.oauth.flows.authorizationCode.tokenUrl",
+      target:
+        "$.components.securitySchemes.oauth.flows.authorizationCode.tokenUrl",
       update: "https://evil.example.test/token",
     },
   ]);
@@ -162,7 +169,12 @@ test("an overlay that adds an operation is flagged security", () => {
     {
       target: "$.paths",
       update: {
-        "/admin": { post: { operationId: "escalate", responses: { "200": { description: "ok" } } } },
+        "/admin": {
+          post: {
+            operationId: "escalate",
+            responses: { "200": { description: "ok" } },
+          },
+        },
       },
     },
   ]);
@@ -198,7 +210,8 @@ test("an overlay that changes a security scheme's placement is flagged security"
 test("removing a security scheme an operation relies on is flagged security", () => {
   const before = document();
   const after = document();
-  after.components.securitySchemes = {} as typeof after.components.securitySchemes;
+  after.components.securitySchemes =
+    {} as typeof after.components.securitySchemes;
   const result = diffOverlay(before, after);
   assert.ok(kinds(result).includes("security-scheme-changed"));
   assert.equal(result.approvalReusable, false);
@@ -208,19 +221,26 @@ test("cosmetic changes are reported without invalidating the approval", () => {
   const result = transform([
     {
       target: "$.paths['/items'].get",
-      update: { summary: "A nicer summary", description: "More words", tags: ["items"] },
+      update: {
+        summary: "A nicer summary",
+        description: "More words",
+        tags: ["items"],
+      },
     },
   ]);
   assert.equal(result.securityAffected, false);
   assert.equal(result.approvalReusable, true);
-  for (const issue of result.issues) assert.notEqual(issue.severity, "blocking");
+  for (const issue of result.issues)
+    assert.notEqual(issue.severity, "blocking");
 });
 
 test("adding a query or header parameter is a security change; removing one is not", () => {
   const added = transform([
     {
       target: "$.paths['/items'].get.parameters",
-      update: [{ name: "impersonate", in: "query", schema: { type: "string" } }],
+      update: [
+        { name: "impersonate", in: "query", schema: { type: "string" } },
+      ],
     },
   ]);
   assert.ok(kinds(added).includes("parameter-added"));
@@ -262,9 +282,13 @@ test("a diff over a document whose operations moved servers catches the per-oper
 test("the diff never echoes a document value into its messages", () => {
   const before = document();
   const after = document();
-  after.servers = [{ url: "https://secret-internal-host.example.test/CANARY_SECRET_9f3" }];
+  after.servers = [
+    { url: "https://secret-internal-host.example.test/CANARY_SECRET_9f3" },
+  ];
   const result = diffOverlay(before, after);
   assert.ok(result.securityAffected);
-  for (const change of result.changes) assert.ok(!change.detail.includes("CANARY_SECRET_9f3"));
-  for (const issue of result.issues) assert.ok(!issue.message.includes("CANARY_SECRET_9f3"));
+  for (const change of result.changes)
+    assert.ok(!change.detail.includes("CANARY_SECRET_9f3"));
+  for (const issue of result.issues)
+    assert.ok(!issue.message.includes("CANARY_SECRET_9f3"));
 });

@@ -92,7 +92,10 @@ const petstore = (extra: Record<string, unknown> = {}) => ({
             description: "Pets",
             content: {
               "application/json": {
-                schema: { type: "array", items: { $ref: "#/components/schemas/Pet" } },
+                schema: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/Pet" },
+                },
               },
             },
           },
@@ -102,12 +105,20 @@ const petstore = (extra: Record<string, unknown> = {}) => ({
         operationId: "createPet",
         requestBody: {
           required: true,
-          content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } },
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Pet" },
+            },
+          },
         },
         responses: {
           "201": {
             description: "Created",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Pet" },
+              },
+            },
           },
         },
       },
@@ -115,11 +126,22 @@ const petstore = (extra: Record<string, unknown> = {}) => ({
     "/pets/{petId}": {
       get: {
         operationId: "getPet",
-        parameters: [{ name: "petId", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "petId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": {
             description: "Pet",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Pet" },
+              },
+            },
           },
         },
       },
@@ -161,7 +183,9 @@ async function bind(
   });
   const adapter = createOpenApiHttpAdapter();
   const refFor = (nativeId: string) => {
-    const found = compiled.operations.find((item) => item.nativeId === nativeId);
+    const found = compiled.operations.find(
+      (item) => item.nativeId === nativeId,
+    );
     assert.ok(found, `${nativeId} did not compile`);
     return found.operationRef;
   };
@@ -287,7 +311,8 @@ test("input is validated against the compiled schema before anything is sent", a
         input: { body },
       }),
       (error: { code?: string; detail?: string }) =>
-        error.code === "invalid-request" && error.detail === "openapi.input-schema-rejected",
+        error.code === "invalid-request" &&
+        error.detail === "openapi.input-schema-rejected",
     );
   // Nothing reached the network.
   assert.equal(fixtureState.server.requests.length, 0);
@@ -340,9 +365,14 @@ test("a credential never leaks into the result, the effect journal or an error",
   for (const text of allStrings(result))
     assert.ok(!text.includes(CANARY), `result leaked the canary: ${text}`);
   for (const text of allStrings(fixtureState.ports.inspect.effects()))
-    assert.ok(!text.includes(CANARY), `the effect journal leaked the canary: ${text}`);
+    assert.ok(
+      !text.includes(CANARY),
+      `the effect journal leaked the canary: ${text}`,
+    );
   // The upstream body never becomes the public failure message either.
-  assert.ok(!allStrings(result).some((text) => text.includes("upstream exploded")));
+  assert.ok(
+    !allStrings(result).some((text) => text.includes("upstream exploded")),
+  );
 });
 
 test("an AND alternative presents both credentials on the same request", async (t) => {
@@ -386,7 +416,10 @@ test("basic and bearer credentials are placed as Authorization, never from input
     operationRef: bearer.refFor("listPets"),
     input: {},
   });
-  assert.equal(bearer.server.requests[0]?.headers.authorization, "Bearer token-value");
+  assert.equal(
+    bearer.server.requests[0]?.headers.authorization,
+    "Bearer token-value",
+  );
 });
 
 test("an operation with security: [] sends no credential at all", async (t) => {
@@ -397,7 +430,10 @@ test("an operation with security: [] sends no credential at all", async (t) => {
           operationId: "openPets",
           security: [],
           responses: {
-            "200": { description: "ok", content: { "application/json": { schema: { type: "object" } } } },
+            "200": {
+              description: "ok",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
           },
         },
       },
@@ -451,17 +487,26 @@ test("a header parameter value carrying a control character is refused", async (
   await assert.rejects(
     invokeAdapter(fixtureState.adapter, fixtureState.ctx, {
       operationRef: fixtureState.refFor("listPets"),
-      input: { "X-Trace": `abc${String.fromCharCode(13)}${String.fromCharCode(10)}X-Evil: 1` },
+      input: {
+        "X-Trace": `abc${String.fromCharCode(13)}${String.fromCharCode(10)}X-Evil: 1`,
+      },
     }),
-    (error: { detail?: string }) => error.detail === "openapi.header-value-invalid",
+    (error: { detail?: string }) =>
+      error.detail === "openapi.header-value-invalid",
   );
   assert.equal(fixtureState.server.requests.length, 0);
 });
 
 test("a response larger than the bound is refused rather than truncated", async (t) => {
-  const big = JSON.stringify(Array.from({ length: 5000 }, (_, index) => ({ name: `pet-${index}` })));
+  const big = JSON.stringify(
+    Array.from({ length: 5000 }, (_, index) => ({ name: `pet-${index}` })),
+  );
   const fixtureState = await bind(t, {
-    handler: () => ({ status: 200, body: big, headers: { "content-type": "application/json" } }),
+    handler: () => ({
+      status: 200,
+      body: big,
+      headers: { "content-type": "application/json" },
+    }),
     compile: { maxResponseBytes: 512 },
     credential: { apiKey: "key-value" },
   });
@@ -575,17 +620,28 @@ test("the effect journal records the request digest and replays a repeated write
     operationRef: fixtureState.refFor("createPet"),
     input: { body: { name: "Rex" } },
   };
-  const first = await invokeAdapter(fixtureState.adapter, fixtureState.ctx, request);
+  const first = await invokeAdapter(
+    fixtureState.adapter,
+    fixtureState.ctx,
+    request,
+  );
   assert.equal(first.state, "complete");
   assert.equal(served, 1);
-  const second = await invokeAdapter(fixtureState.adapter, fixtureState.ctx, request);
+  const second = await invokeAdapter(
+    fixtureState.adapter,
+    fixtureState.ctx,
+    request,
+  );
   // The same effect is not applied twice: the journal answers instead.
   assert.equal(second.state, "complete");
   assert.equal(served, 1);
   assert.equal(second.effectRef, first.effectRef);
 
   // A read is not gated the same way: it may be repeated.
-  const readRequest = { operationRef: fixtureState.refFor("getPet"), input: { petId: "1" } };
+  const readRequest = {
+    operationRef: fixtureState.refFor("getPet"),
+    input: { petId: "1" },
+  };
   await invokeAdapter(fixtureState.adapter, fixtureState.ctx, readRequest);
   await invokeAdapter(fixtureState.adapter, fixtureState.ctx, readRequest);
   assert.equal(served, 3);
@@ -602,7 +658,8 @@ test("an unbound operation ref cannot be invoked", async (t) => {
       input: {},
     }),
     (error: { code?: string; detail?: string }) =>
-      error.code === "not-found" && error.detail === "openapi.operation-not-bound",
+      error.code === "not-found" &&
+      error.detail === "openapi.operation-not-bound",
   );
   assert.equal(fixtureState.server.requests.length, 0);
 });
@@ -613,17 +670,26 @@ test("a plan that disagrees with its bound operation is refused", async (t) => {
     credential: { apiKey: "key-value" },
   });
   const operationRef = fixtureState.refFor("getPet");
-  const settings = structuredClone(fixtureState.binding.settings) as Record<string, unknown>;
-  const plans = (settings["openapi-http"] as { plans: Record<string, { method: string }> }).plans;
+  const settings = structuredClone(fixtureState.binding.settings) as Record<
+    string,
+    unknown
+  >;
+  const plans = (
+    settings["openapi-http"] as { plans: Record<string, { method: string }> }
+  ).plans;
   plans[operationRef]!.method = "DELETE";
   const tampered = {
     ...fixtureState.ctx,
     binding: { ...fixtureState.binding, settings },
   };
   await assert.rejects(
-    invokeAdapter(fixtureState.adapter, tampered, { operationRef, input: { petId: "1" } }),
+    invokeAdapter(fixtureState.adapter, tampered, {
+      operationRef,
+      input: { petId: "1" },
+    }),
     (error: { code?: string; detail?: string }) =>
-      error.code === "conflict" && error.detail === "openapi.plan-binding-mismatch",
+      error.code === "conflict" &&
+      error.detail === "openapi.plan-binding-mismatch",
   );
   assert.equal(fixtureState.server.requests.length, 0);
 });
@@ -656,7 +722,11 @@ test("verify uses an approved read operation and claims only credential acceptan
   assert.equal(result.claims[0]?.kind, "credential-accepted");
   // A 200 is not an account identity claim, and the limitation says so.
   assert.notEqual(result.claims[0]?.kind, "account-identity");
-  assert.ok(result.claims[0]?.limitations.some((text) => text.includes("not which account")));
+  assert.ok(
+    result.claims[0]?.limitations.some((text) =>
+      text.includes("not which account"),
+    ),
+  );
   assert.equal(result.target, undefined);
 });
 
@@ -676,10 +746,16 @@ test("disconnect and revoke report local scope only, never an upstream claim", a
     handler: () => ({ status: 200, body: [] }),
     credential: { apiKey: "key-value" },
   });
-  const local = await fixtureState.adapter.disconnect!(fixtureState.ctx, "local");
+  const local = await fixtureState.adapter.disconnect!(
+    fixtureState.ctx,
+    "local",
+  );
   assert.equal(local.local, "applied");
   assert.equal(local.upstream, "unsupported");
-  const upstream = await fixtureState.adapter.disconnect!(fixtureState.ctx, "upstream");
+  const upstream = await fixtureState.adapter.disconnect!(
+    fixtureState.ctx,
+    "upstream",
+  );
   assert.equal(upstream.upstream, "unsupported");
   assert.equal(upstream.local, "not-attempted");
   const revoked = await fixtureState.adapter.revoke!(fixtureState.ctx);
@@ -695,10 +771,18 @@ test("capabilities report per dimension and never claim evidence for an unsuppor
   assert.equal(byDimension.get("events")?.implementation, "unsupported");
   assert.equal(byDimension.get("revoke")?.implementation, "unsupported");
   assert.equal(byDimension.get("delegate")?.implementation, "unsupported");
-  for (const dimension of ["import", "configure", "authorize", "verify", "invoke", "export"] as const)
+  for (const dimension of [
+    "import",
+    "configure",
+    "authorize",
+    "verify",
+    "invoke",
+    "export",
+  ] as const)
     assert.equal(byDimension.get(dimension)?.implementation, "implemented");
   for (const row of rows)
-    if (row.implementation === "unsupported") assert.equal(row.evidence, "not-tested");
+    if (row.implementation === "unsupported")
+      assert.equal(row.evidence, "not-tested");
   assert.equal(adapter.id, "openapi-http");
   assert.equal(adapter.ecosystem, "openapi");
   assert.equal(adapter.runtime, "hosted-server");

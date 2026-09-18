@@ -75,7 +75,9 @@ export function connectionRecord(
   } as ConnectionRecord;
 }
 
-export function claim(input: Partial<VerificationClaim> = {}): VerificationClaim {
+export function claim(
+  input: Partial<VerificationClaim> = {},
+): VerificationClaim {
   return {
     kind: "account-identity",
     evidenceRef: `evidence:${randomUUID()}`,

@@ -11,20 +11,59 @@
       "get": {
         "operationId": "getTree",
         "responses": {
-          "200": { "description": "Tree", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Node" } } } }
+          "200": {
+            "description": "Tree",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Node" }
+              }
+            }
+          }
         }
       },
       "post": {
         "operationId": "putTree",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Node" } } } },
-        "responses": { "200": { "description": "Stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Node" } } } } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Node" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Node" }
+              }
+            }
+          }
+        }
       }
     },
     "/people": {
       "post": {
         "operationId": "putPerson",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Person" } } } },
-        "responses": { "200": { "description": "Stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Person" } } } } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Person" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Person" }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -35,7 +74,10 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string" },
-          "children": { "type": "array", "items": { "$ref": "#/components/schemas/Node" } }
+          "children": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Node" }
+          }
         }
       },
       "Person": {
@@ -50,7 +92,10 @@
         "type": "object",
         "properties": {
           "lead": { "$ref": "#/components/schemas/Person" },
-          "members": { "type": "array", "items": { "$ref": "#/components/schemas/Person" } }
+          "members": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Person" }
+          }
         }
       }
     }

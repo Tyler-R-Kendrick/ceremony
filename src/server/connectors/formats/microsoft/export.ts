@@ -71,7 +71,11 @@ const operationRecordSchema = z.object({
     .object({
       source: z.enum(["operation", "document", "none"]),
       alternatives: z
-        .array(z.array(z.object({ scheme: z.string(), scopes: z.array(z.string()) })))
+        .array(
+          z.array(
+            z.object({ scheme: z.string(), scopes: z.array(z.string()) }),
+          ),
+        )
         .default([]),
     })
     .optional(),
@@ -97,7 +101,9 @@ const connectorRecordSchema = z.object({
     )
     .default([]),
   security: z
-    .array(z.array(z.object({ scheme: z.string(), scopes: z.array(z.string()) })))
+    .array(
+      z.array(z.object({ scheme: z.string(), scopes: z.array(z.string()) })),
+    )
     .optional(),
   document: z
     .object({
@@ -140,7 +146,8 @@ function placeExtensions(
 ): void {
   for (const entry of entries) {
     if (!entry.name.startsWith("x-")) continue;
-    if (isObject(entry.value) && Object.hasOwn(entry.value, "$omitted")) continue;
+    if (isObject(entry.value) && Object.hasOwn(entry.value, "$omitted"))
+      continue;
     target[entry.name] = entry.value;
   }
 }
@@ -194,7 +201,8 @@ export function exportCustomConnector(
     document.host = origin.host;
     document.schemes = [origin.protocol.replace(":", "")];
     if (destination.pathPrefix) document.basePath = destination.pathPrefix;
-    else if (record.document.basePath) document.basePath = record.document.basePath;
+    else if (record.document.basePath)
+      document.basePath = record.document.basePath;
     if (record.document.host && record.document.host !== origin.host)
       losses.push({
         code: "network.host-rebound",
@@ -209,10 +217,13 @@ export function exportCustomConnector(
   } else {
     if (record.document.host) document.host = record.document.host;
     if (record.document.basePath) document.basePath = record.document.basePath;
-    if (record.document.schemes.length) document.schemes = record.document.schemes;
+    if (record.document.schemes.length)
+      document.schemes = record.document.schemes;
   }
-  if (record.document.consumes?.length) document.consumes = record.document.consumes;
-  if (record.document.produces?.length) document.produces = record.document.produces;
+  if (record.document.consumes?.length)
+    document.consumes = record.document.consumes;
+  if (record.document.produces?.length)
+    document.produces = record.document.produces;
 
   if (record.securityDefinitions.length) {
     const definitions: JsonObject = {};
@@ -298,7 +309,8 @@ export function exportCustomConnector(
         placeExtensions(
           emitted,
           parameterEntries.data.filter(
-            (entry) => entry.parameter === parameter.name && entry.pathString === "",
+            (entry) =>
+              entry.parameter === parameter.name && entry.pathString === "",
           ),
         );
       if (parameter.in === "body") {
@@ -316,7 +328,8 @@ export function exportCustomConnector(
         });
         const nested = parameterEntries.success
           ? parameterEntries.data.filter(
-              (entry) => entry.parameter === parameter.name && entry.pathString !== "",
+              (entry) =>
+                entry.parameter === parameter.name && entry.pathString !== "",
             )
           : [];
         if (nested.length)
@@ -367,11 +380,16 @@ export function exportCustomConnector(
       parameters,
       responses,
     };
-    if (operation.consumes?.length) emittedOperation.consumes = operation.consumes;
-    if (operation.produces?.length) emittedOperation.produces = operation.produces;
+    if (operation.consumes?.length)
+      emittedOperation.consumes = operation.consumes;
+    if (operation.produces?.length)
+      emittedOperation.produces = operation.produces;
     if (operation.security?.source === "operation")
-      emittedOperation.security = operation.security.alternatives.map((alternative) =>
-        Object.fromEntries(alternative.map((entry) => [entry.scheme, entry.scopes])),
+      emittedOperation.security = operation.security.alternatives.map(
+        (alternative) =>
+          Object.fromEntries(
+            alternative.map((entry) => [entry.scheme, entry.scopes]),
+          ),
       );
     const operationEntries = z
       .array(extensionEntrySchema)

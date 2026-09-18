@@ -34,7 +34,12 @@ export interface ConnectorSourceArtifacts extends SourceArtifactPort {
     tenantId: string,
     artifactRef: string,
   ): Promise<
-    | { digest: string; mediaType: string; byteLength: number; retainUntil?: number }
+    | {
+        digest: string;
+        mediaType: string;
+        byteLength: number;
+        retainUntil?: number;
+      }
     | undefined
   >;
 }
@@ -49,17 +54,23 @@ export function createSourceArtifactPort(
   const time = timeSource(options.now);
   const maxBytes = options.maxBytes ?? 8 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
-    throw new ConnectorError("invalid-request", { detail: "artifact.max-bytes" });
+    throw new ConnectorError("invalid-request", {
+      detail: "artifact.max-bytes",
+    });
 
   return {
     async put(rawTenant, bytes, meta) {
       const tenantId = checkTenant(rawTenant);
       if (!(bytes instanceof Uint8Array) || bytes.byteLength > maxBytes)
-        throw new ConnectorError("invalid-request", { detail: "artifact.bytes" });
+        throw new ConnectorError("invalid-request", {
+          detail: "artifact.bytes",
+        });
       const mediaType = mediaTypeSchema.safeParse(meta?.mediaType);
       const retainUntil = retainSchema.safeParse(meta?.retainUntil);
       if (!mediaType.success || !retainUntil.success)
-        throw new ConnectorError("invalid-request", { detail: "artifact.meta" });
+        throw new ConnectorError("invalid-request", {
+          detail: "artifact.meta",
+        });
       const digest = createHash("sha256").update(bytes).digest("hex");
       if (meta.digest !== digest)
         throw new ConnectorError("invalid-request", {
@@ -78,7 +89,10 @@ export function createSourceArtifactPort(
               : Math.max(_previous, retainUntil.data);
           await tx.put(
             key,
-            { ...base, ...(merged === undefined ? {} : { retainUntil: merged }) },
+            {
+              ...base,
+              ...(merged === undefined ? {} : { retainUntil: merged }),
+            },
             existing.revision,
           );
           return;
@@ -151,7 +165,10 @@ export function createSourceArtifactPort(
       const tenantId = checkTenant(rawTenant);
       if (!refPattern.test(artifactRef)) return;
       await transact(store, async (tx) => {
-        const key = artifactKey(tenantId, artifactRef.slice("artifact:".length));
+        const key = artifactKey(
+          tenantId,
+          artifactRef.slice("artifact:".length),
+        );
         const record = await tx.get(key);
         if (record) await tx.delete(key, record.revision);
       });

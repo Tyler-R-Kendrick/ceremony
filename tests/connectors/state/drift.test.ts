@@ -103,7 +103,10 @@ test("AC-STATE-05: a changed binding revision invalidates evidence and requires 
     assert.equal(after?.record.verification, undefined);
     assert.equal(after?.record.lastOutcome, "drift.binding-revision");
     assert.equal(isVerificationCurrent(after!.record, clock.now()), false);
-    assert.deepEqual(await ports.evidence.list(actor, record.connectionRef), []);
+    assert.deepEqual(
+      await ports.evidence.list(actor, record.connectionRef),
+      [],
+    );
     assert.equal(
       (await ports.evidence.listAll(actor, record.connectionRef))[0]?.stale
         ?.reason,
@@ -113,10 +116,7 @@ test("AC-STATE-05: a changed binding revision invalidates evidence and requires 
     assert.equal(invalidations.length, 1);
     assert.equal(invalidations[0]!.connectionRef, record.connectionRef);
     assert.equal(invalidations[0]!.reason, "drift.binding-revision");
-    assert.equal(
-      invalidations[0]!.authorityInstance,
-      record.authorityInstance,
-    );
+    assert.equal(invalidations[0]!.authorityInstance, record.authorityInstance);
     assert.match(invalidations[0]!.keyDigest!, /^[a-f0-9]{64}$/);
   } finally {
     await store.close();
@@ -148,7 +148,10 @@ test("AC-STATE-05: policy and configuration drift revalidate without forcing a n
       "drift.policy-revision",
       "drift.configuration-revision",
     ]);
-    assert.deepEqual(await ports.evidence.list(actor, record.connectionRef), []);
+    assert.deepEqual(
+      await ports.evidence.list(actor, record.connectionRef),
+      [],
+    );
 
     // Drift with nothing changed is a programming error, not a silent no-op.
     await assert.rejects(
@@ -191,7 +194,8 @@ test("AC-STATE-05: expired verification moves the connection out of active", asy
 
     // Before expiry nothing changes.
     assert.equal(
-      (await ports.drift.expireVerification(actor, record.connectionRef)).expired,
+      (await ports.drift.expireVerification(actor, record.connectionRef))
+        .expired,
       false,
     );
     assert.equal(

@@ -47,9 +47,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Own, non-reserved entries of an object in source order. */
-export function entriesOf(
-  value: Record<string, unknown>,
-): [string, unknown][] {
+export function entriesOf(value: Record<string, unknown>): [string, unknown][] {
   return Object.keys(value)
     .filter((key) => !reservedKeys.has(key))
     .map((key) => [key, value[key]]);

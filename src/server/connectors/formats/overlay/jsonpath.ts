@@ -31,8 +31,7 @@ export type Segment =
   | { kind: "descend-wildcard" };
 
 export type ParseResult =
-  | { ok: true; segments: Segment[] }
-  | { ok: false; reason: string; at: number };
+  { ok: true; segments: Segment[] } | { ok: false; reason: string; at: number };
 
 const NAME_START = /[A-Za-z_]/;
 const NAME_PART = /[A-Za-z0-9_-]/;
@@ -50,7 +49,9 @@ export function parseJsonPath(expression: string): ParseResult {
       const descend = expression[index + 1] === ".";
       index += descend ? 2 : 1;
       if (expression[index] === "*") {
-        segments.push(descend ? { kind: "descend-wildcard" } : { kind: "wildcard" });
+        segments.push(
+          descend ? { kind: "descend-wildcard" } : { kind: "wildcard" },
+        );
         index += 1;
         continue;
       }
@@ -72,9 +73,12 @@ export function parseJsonPath(expression: string): ParseResult {
       const start = index;
       if (index >= expression.length || !NAME_START.test(expression[index]!))
         return { ok: false, reason: "expected-name", at: index };
-      while (index < expression.length && NAME_PART.test(expression[index]!)) index += 1;
+      while (index < expression.length && NAME_PART.test(expression[index]!))
+        index += 1;
       const name = expression.slice(start, index);
-      segments.push(descend ? { kind: "descend-name", name } : { kind: "name", name });
+      segments.push(
+        descend ? { kind: "descend-name", name } : { kind: "name", name },
+      );
       continue;
     }
     if (character === "[") {
@@ -140,7 +144,8 @@ function readBracket(expression: string, start: number): BracketResult {
   }
   if (/[0-9]/.test(character ?? "")) {
     const digitsStart = index;
-    while (index < expression.length && /[0-9]/.test(expression[index]!)) index += 1;
+    while (index < expression.length && /[0-9]/.test(expression[index]!))
+      index += 1;
     if (expression[index] === ":")
       return { ok: false, reason: "slice-selector-unsupported", at: index };
     if (expression[index] === ",")
@@ -194,7 +199,9 @@ export function selectNodes(
   segments: readonly Segment[],
   budget: { nodes: number; limit: number },
 ): Match[] {
-  let current: Match[] = [{ parent: undefined, key: undefined, value: root, path: "$" }];
+  let current: Match[] = [
+    { parent: undefined, key: undefined, value: root, path: "$" },
+  ];
   const charge = () => {
     if (++budget.nodes > budget.limit) throw new SelectionBudgetExceeded();
   };
@@ -271,10 +278,7 @@ export function selectNodes(
                   value: item.value[key],
                   path: pathStep(item.path, key),
                 };
-                if (
-                  segment.kind === "descend-wildcard" ||
-                  key === segment.name
-                )
+                if (segment.kind === "descend-wildcard" || key === segment.name)
                   next.push(child);
                 stack.push(child);
               }

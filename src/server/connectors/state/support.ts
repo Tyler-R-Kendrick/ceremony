@@ -39,13 +39,24 @@ export function createSupportSnapshotStore(
       const tenantId = checkTenant(rawTenant);
       const parsed = supportSnapshotSchema.safeParse(rawSnapshot);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "support.snapshot" });
+        throw new ConnectorError("invalid-request", {
+          detail: "support.snapshot",
+        });
       const snapshot = parsed.data;
       await transact(store, async (tx) => {
-        const key = supportKey(tenantId, snapshot.adapterId, snapshot.adapterVersion);
+        const key = supportKey(
+          tenantId,
+          snapshot.adapterId,
+          snapshot.adapterVersion,
+        );
         const existing = await readRecord(tx, key, storedSupportSchema);
-        if (existing && existing.value.snapshot.capturedAt > snapshot.capturedAt)
-          throw new ConnectorError("conflict", { detail: "support.older-capture" });
+        if (
+          existing &&
+          existing.value.snapshot.capturedAt > snapshot.capturedAt
+        )
+          throw new ConnectorError("conflict", {
+            detail: "support.older-capture",
+          });
         await tx.put(
           key,
           { schemaVersion: SCHEMA_VERSION, snapshot },

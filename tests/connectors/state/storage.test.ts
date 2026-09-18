@@ -81,7 +81,10 @@ test("STATE-01: sources and definitions round-trip, definitions are immutable pe
     // Writing the identical definition again is a no-op, not a conflict.
     await ports.definitions.putDefinition("tenant-a", definition);
     assert.deepEqual(
-      await ports.definitions.getDefinition("tenant-a", definition.definitionRef),
+      await ports.definitions.getDefinition(
+        "tenant-a",
+        definition.definitionRef,
+      ),
       definition,
     );
     await assert.rejects(
@@ -90,7 +93,8 @@ test("STATE-01: sources and definitions round-trip, definitions are immutable pe
         display: { ...definition.display, name: "Renamed" },
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "definition.immutable",
+        error instanceof ConnectorError &&
+        error.detail === "definition.immutable",
     );
     assert.deepEqual(
       (await ports.definitions.listDefinitions("tenant-a")).map(
@@ -111,7 +115,10 @@ test("STATE-01: binding revisions are immutable and each revision stays readable
     const first = runtimeBinding({ tenantId: "tenant-a", revision: 1 });
     await ports.definitions.putBinding(first);
     await assert.rejects(
-      ports.definitions.putBinding({ ...first, reviewedDigest: "f".repeat(64) }),
+      ports.definitions.putBinding({
+        ...first,
+        reviewedDigest: "f".repeat(64),
+      }),
       (error: unknown) =>
         error instanceof ConnectorError &&
         error.code === "conflict" &&
@@ -127,7 +134,8 @@ test("STATE-01: binding revisions are immutable and each revision stays readable
     });
     await ports.definitions.putBinding(second);
     assert.equal(
-      (await ports.definitions.getBinding("tenant-a", first.bindingRef))?.revision,
+      (await ports.definitions.getBinding("tenant-a", first.bindingRef))
+        ?.revision,
       2,
     );
     assert.equal(
@@ -136,14 +144,16 @@ test("STATE-01: binding revisions are immutable and each revision stays readable
       "c".repeat(64),
     );
     assert.equal(
-      (await ports.definitions.getBinding("tenant-a", first.bindingRef, 3)),
+      await ports.definitions.getBinding("tenant-a", first.bindingRef, 3),
       undefined,
     );
     assert.deepEqual(
-      (await ports.definitions.listBindingRevisions(
-        "tenant-a",
-        first.bindingRef,
-      )).map((item) => item.revision),
+      (
+        await ports.definitions.listBindingRevisions(
+          "tenant-a",
+          first.bindingRef,
+        )
+      ).map((item) => item.revision),
       [1, 2],
     );
     assert.deepEqual(
@@ -177,7 +187,10 @@ test("STATE-01: connections are owner scoped and foreign reads are indistinguish
     const read = await ports.connections.get(owner, record.connectionRef);
     assert.equal(read?.revision, 1);
     assert.equal(read?.record.displayName, "Fixture connection");
-    assert.equal(await ports.connections.get(other, record.connectionRef), undefined);
+    assert.equal(
+      await ports.connections.get(other, record.connectionRef),
+      undefined,
+    );
     assert.equal(
       await ports.connections.get(foreignTenant, record.connectionRef),
       undefined,
@@ -188,7 +201,9 @@ test("STATE-01: connections are owner scoped and foreign reads are indistinguish
     );
     assert.deepEqual(await ports.connections.list(other), []);
     assert.deepEqual(
-      (await ports.connections.list(owner)).map((item) => item.record.connectionRef),
+      (await ports.connections.list(owner)).map(
+        (item) => item.record.connectionRef,
+      ),
       [record.connectionRef],
     );
     assert.deepEqual(
@@ -337,9 +352,14 @@ test("STATE-01: an external identifier binds to one owner per tenant and authori
 
     // Releasing the identifier frees it for a later owner.
     const current = await ports.connections.get(actorA, first.connectionRef);
-    await ports.connections.update(actorA, first.connectionRef, current!.revision, {
-      externalIds: {},
-    });
+    await ports.connections.update(
+      actorA,
+      first.connectionRef,
+      current!.revision,
+      {
+        externalIds: {},
+      },
+    );
     assert.equal(
       await ports.connections.findByExternalId(
         "tenant-a",
@@ -386,7 +406,10 @@ test("STATE-01: a shared grant identifier may be carried by several connections"
         [a.connectionRef, b.connectionRef].sort(),
       );
       assert.deepEqual(
-        await ports.connections.sharedWith(actorFor("tenant-a"), a.connectionRef),
+        await ports.connections.sharedWith(
+          actorFor("tenant-a"),
+          a.connectionRef,
+        ),
         [b.connectionRef],
       );
       // An exclusive name is still exclusive alongside a shared one.
@@ -413,7 +436,9 @@ test("STATE-01: keys are digests, native spelling lives inside the encrypted val
     });
     await ports.connections.create(record);
     const ids = await store.transaction(async (tx) => [
-      ...(await tx.list("tenant-a", "connector-connection")).map((row) => row.id),
+      ...(await tx.list("tenant-a", "connector-connection")).map(
+        (row) => row.id,
+      ),
       ...(await tx.list("tenant-a", "connector-connection-index")).map(
         (row) => row.id,
       ),
@@ -548,7 +573,8 @@ test("STATE-01: support snapshots record measured capability evidence per adapte
     await assert.rejects(
       ports.support.put("tenant-a", snapshot),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "support.older-capture",
+        error instanceof ConnectorError &&
+        error.detail === "support.older-capture",
     );
     assert.equal((await ports.support.list("tenant-a")).length, 1);
     assert.deepEqual(await ports.support.list("tenant-b"), []);
@@ -573,11 +599,18 @@ test("STATE-01: evidence is appended per connection and never returned to anothe
         target: { kind: "account", id: "acct_other" },
       }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "evidence.ref-in-use",
+        error instanceof ConnectorError &&
+        error.detail === "evidence.ref-in-use",
     );
-    assert.equal((await ports.evidence.list(owner, record.connectionRef)).length, 1);
+    assert.equal(
+      (await ports.evidence.list(owner, record.connectionRef)).length,
+      1,
+    );
     assert.deepEqual(
-      await ports.evidence.list(actorFor("tenant-a", "subject-2"), record.connectionRef),
+      await ports.evidence.list(
+        actorFor("tenant-a", "subject-2"),
+        record.connectionRef,
+      ),
       [],
     );
     await assert.rejects(

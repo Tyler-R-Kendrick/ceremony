@@ -20,7 +20,9 @@ const destination = loopbackDestination("https://example.test", "api");
 const compileFixture = async (
   name: string,
   options: Partial<Parameters<typeof compileOperations>[2]> = {},
-): Promise<CompileResult & { read: Awaited<ReturnType<typeof readFixture>> }> => {
+): Promise<
+  CompileResult & { read: Awaited<ReturnType<typeof readFixture>> }
+> => {
   const read = await readFixture(name);
   const result = compileOperations(read.definition, read, {
     destinationId: destination.id,
@@ -33,7 +35,9 @@ const compileFixture = async (
 const blockedCodes = (result: CompileResult, nativeId: string): string[] => {
   const entry = result.blocked.find((item) => item.nativeId === nativeId);
   assert.ok(entry, `${nativeId} was expected to be blocked but was not`);
-  return entry.issues.filter((issue) => issue.severity === "blocking").map((issue) => issue.code);
+  return entry.issues
+    .filter((issue) => issue.severity === "blocking")
+    .map((issue) => issue.code);
 };
 
 test("an unsupported feature blocks only its own operation", async () => {
@@ -55,7 +59,9 @@ test("an unsupported feature blocks only its own operation", async () => {
   // The rest of the document stays discoverable: every operation is still a
   // capability of the definition, blocked or not.
   for (const id of ["searchInvoices", "readSession", "downloadExport"])
-    assert.ok(result.read.definition.capabilities.some((item) => item.nativeId === id));
+    assert.ok(
+      result.read.definition.capabilities.some((item) => item.nativeId === id),
+    );
 });
 
 test("non-JSON request and response bodies are blocked with serialization codes", async () => {
@@ -73,9 +79,15 @@ test("non-JSON request and response bodies are blocked with serialization codes"
 
 test("an unsupported schema keyword blocks only the operation that uses it", async () => {
   const result = await compileFixture("openapi-3.1-catalog.json");
-  assert.deepEqual(blockedCodes(result, "mergeProducts"), ["schema.unsupported-keyword"]);
-  const entry = result.blocked.find((item) => item.nativeId === "mergeProducts");
-  const issue = entry?.issues.find((item) => item.code === "schema.unsupported-keyword");
+  assert.deepEqual(blockedCodes(result, "mergeProducts"), [
+    "schema.unsupported-keyword",
+  ]);
+  const entry = result.blocked.find(
+    (item) => item.nativeId === "mergeProducts",
+  );
+  const issue = entry?.issues.find(
+    (item) => item.code === "schema.unsupported-keyword",
+  );
   assert.ok(issue?.message.includes("allOf"));
   assert.equal(issue?.category, "schema");
   assert.equal(issue?.executionImpact, "blocks-operation");
@@ -90,19 +102,28 @@ test("3.2 constructs outside the subset block precisely", async () => {
     "serialization.querystring-parameter-unsupported",
   ]);
   // QUERY and PURGE are not HTTP methods a bound operation can carry.
-  assert.deepEqual(blockedCodes(result, "queryVehicles"), ["structure.unsupported-method"]);
-  assert.deepEqual(blockedCodes(result, "purgeVehicles"), ["structure.unsupported-method"]);
+  assert.deepEqual(blockedCodes(result, "queryVehicles"), [
+    "structure.unsupported-method",
+  ]);
+  assert.deepEqual(blockedCodes(result, "purgeVehicles"), [
+    "structure.unsupported-method",
+  ]);
   assert.ok(result.executable.includes("listVehicles"));
   assert.ok(result.executable.includes("updateVehicle"));
 });
 
 test("a compiled operation pins destination, method and path template", async () => {
   const result = await compileFixture("openapi-3.1-catalog.json");
-  const bound = result.operations.find((item) => item.nativeId === "getProduct");
+  const bound = result.operations.find(
+    (item) => item.nativeId === "getProduct",
+  );
   assert.ok(bound);
   assert.equal(bound.destinationId, "api");
   assert.equal(bound.transport.kind, "http");
-  assert.equal(bound.transport.kind === "http" && bound.transport.method, "GET");
+  assert.equal(
+    bound.transport.kind === "http" && bound.transport.method,
+    "GET",
+  );
   // The declared server's path becomes the prefix; the destination supplies the origin.
   assert.equal(
     bound.transport.kind === "http" && bound.transport.pathTemplate,
@@ -133,10 +154,16 @@ test("policy defaults: GET is read with read-only replay, everything else is unk
 test("a host review may relax policy, and an inconsistent review is refused", async () => {
   const relaxed = await compileFixture("openapi-3.1-catalog.json", {
     review: {
-      listProducts: { consent: "none", outputClassification: "public", cost: "free" },
+      listProducts: {
+        consent: "none",
+        outputClassification: "public",
+        cost: "free",
+      },
     },
   });
-  const list = relaxed.operations.find((item) => item.nativeId === "listProducts");
+  const list = relaxed.operations.find(
+    (item) => item.nativeId === "listProducts",
+  );
   assert.equal(list?.consent, "none");
   assert.equal(list?.outputClassification, "public");
   assert.equal(list?.cost, "free");
@@ -145,29 +172,38 @@ test("a host review may relax policy, and an inconsistent review is refused", as
   const bad = await compileFixture("openapi-3.1-catalog.json", {
     review: { createProduct: { replay: "read-only" } },
   });
-  assert.deepEqual(blockedCodes(bad, "createProduct"), ["policy.invalid-review"]);
+  assert.deepEqual(blockedCodes(bad, "createProduct"), [
+    "policy.invalid-review",
+  ]);
 
   // A review may declare a non-GET operation read-only, and it is recorded as
   // the host's decision rather than a fact the description established.
   const reviewed = await compileFixture("openapi-3.1-catalog.json", {
     review: { createProduct: { effect: "read", replay: "read-only" } },
   });
-  const created = reviewed.operations.find((item) => item.nativeId === "createProduct");
+  const created = reviewed.operations.find(
+    (item) => item.nativeId === "createProduct",
+  );
   assert.equal(created?.effect, "read");
-  assert.ok(reviewed.issues.some((issue) => issue.code === "policy.effect-overridden"));
+  assert.ok(
+    reviewed.issues.some((issue) => issue.code === "policy.effect-overridden"),
+  );
 });
 
 test("a target parameter the operation does not declare is refused", async () => {
   const result = await compileFixture("openapi-3.1-catalog.json", {
     review: { getProduct: { targetParameters: ["tenantId"] } },
   });
-  assert.deepEqual(blockedCodes(result, "getProduct"), ["policy.target-parameter-unknown"]);
+  assert.deepEqual(blockedCodes(result, "getProduct"), [
+    "policy.target-parameter-unknown",
+  ]);
 
   const good = await compileFixture("openapi-3.1-catalog.json", {
     review: { getProduct: { targetParameters: ["productId"] } },
   });
   assert.deepEqual(
-    good.operations.find((item) => item.nativeId === "getProduct")?.targetParameters,
+    good.operations.find((item) => item.nativeId === "getProduct")
+      ?.targetParameters,
     ["productId"],
   );
 });
@@ -179,27 +215,36 @@ test("an operation whose alternatives are all unexecutable is blocked, not silen
     servers: [{ url: "https://locked.example.test" }],
     components: { securitySchemes: { mtls: { type: "mutualTLS" } } },
     security: [{ mtls: [] }],
-    paths: { "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } } },
+    paths: {
+      "/a": {
+        get: { operationId: "a", responses: { "200": { description: "ok" } } },
+      },
+    },
   });
   assert.ok(isReadResult(read));
   const result = compileOperations(read.definition, read, {
     destinationId: destination.id,
     destination,
   });
-  assert.deepEqual(blockedCodes(result, "a"), ["security.unsupported-requirement"]);
+  assert.deepEqual(blockedCodes(result, "a"), [
+    "security.unsupported-requirement",
+  ]);
   assert.deepEqual(result.operations, []);
 });
 
 test("an operation compiles anonymously only when the source says an alternative is anonymous", async () => {
   const result = await compileFixture("openapi-3.1-catalog.json");
-  const health = result.plans[
-    result.operations.find((item) => item.nativeId === "health")!.operationRef
-  ];
+  const health =
+    result.plans[
+      result.operations.find((item) => item.nativeId === "health")!.operationRef
+    ];
   assert.deepEqual(health?.security.profiles, []);
   // A secured operation carries its conjunction, in full.
-  const list = result.plans[
-    result.operations.find((item) => item.nativeId === "listProducts")!.operationRef
-  ];
+  const list =
+    result.plans[
+      result.operations.find((item) => item.nativeId === "listProducts")!
+        .operationRef
+    ];
   assert.deepEqual(
     list?.security.profiles.map((entry) => entry.scheme).sort(),
     ["apiKey", "tenantHeader"],
@@ -208,17 +253,28 @@ test("an operation compiles anonymously only when the source says an alternative
 
 test("binding only some profiles selects an alternative those profiles satisfy", async () => {
   // With only the OAuth profile bound, the AND alternative cannot be chosen.
-  const result = await compileFixture("openapi-3.1-catalog.json", { profiles: ["oauth"] });
-  const list = result.plans[
-    result.operations.find((item) => item.nativeId === "listProducts")!.operationRef
-  ];
-  assert.deepEqual(list?.security.profiles.map((entry) => entry.scheme), ["oauth"]);
+  const result = await compileFixture("openapi-3.1-catalog.json", {
+    profiles: ["oauth"],
+  });
+  const list =
+    result.plans[
+      result.operations.find((item) => item.nativeId === "listProducts")!
+        .operationRef
+    ];
+  assert.deepEqual(
+    list?.security.profiles.map((entry) => entry.scheme),
+    ["oauth"],
+  );
   assert.deepEqual(list?.security.profiles[0]?.scopes, ["catalog:read"]);
 
   // With no profile bound at all, secured operations are blocked and the
   // anonymous one still compiles.
-  const none = await compileFixture("openapi-3.1-catalog.json", { profiles: [] });
-  assert.deepEqual(blockedCodes(none, "listProducts"), ["security.profile-not-bound"]);
+  const none = await compileFixture("openapi-3.1-catalog.json", {
+    profiles: [],
+  });
+  assert.deepEqual(blockedCodes(none, "listProducts"), [
+    "security.profile-not-bound",
+  ]);
   assert.ok(none.executable.includes("health"));
 });
 
@@ -228,11 +284,23 @@ test("a path template and its parameters must agree", async () => {
     info: { title: "Mismatch", version: "1" },
     servers: [{ url: "https://mismatch.example.test" }],
     paths: {
-      "/a/{missing}": { get: { operationId: "missing", responses: { "200": { description: "ok" } } } },
+      "/a/{missing}": {
+        get: {
+          operationId: "missing",
+          responses: { "200": { description: "ok" } },
+        },
+      },
       "/b": {
         get: {
           operationId: "unused",
-          parameters: [{ name: "extra", in: "path", required: true, schema: { type: "string" } }],
+          parameters: [
+            {
+              name: "extra",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
           responses: { "200": { description: "ok" } },
         },
       },
@@ -243,8 +311,12 @@ test("a path template and its parameters must agree", async () => {
     destinationId: destination.id,
     destination,
   });
-  assert.deepEqual(blockedCodes(result, "missing"), ["structure.path-parameter-missing"]);
-  assert.deepEqual(blockedCodes(result, "unused"), ["structure.path-parameter-unused"]);
+  assert.deepEqual(blockedCodes(result, "missing"), [
+    "structure.path-parameter-missing",
+  ]);
+  assert.deepEqual(blockedCodes(result, "unused"), [
+    "structure.path-parameter-unused",
+  ]);
 });
 
 test("a header parameter that is reserved, hop-by-hop or Authorization is refused", async () => {
@@ -256,21 +328,27 @@ test("a header parameter that is reserved, hop-by-hop or Authorization is refuse
       "/auth": {
         get: {
           operationId: "authHeader",
-          parameters: [{ name: "Authorization", in: "header", schema: { type: "string" } }],
+          parameters: [
+            { name: "Authorization", in: "header", schema: { type: "string" } },
+          ],
           responses: { "200": { description: "ok" } },
         },
       },
       "/hop": {
         get: {
           operationId: "hopHeader",
-          parameters: [{ name: "Connection", in: "header", schema: { type: "string" } }],
+          parameters: [
+            { name: "Connection", in: "header", schema: { type: "string" } },
+          ],
           responses: { "200": { description: "ok" } },
         },
       },
       "/ignored": {
         get: {
           operationId: "ignoredHeader",
-          parameters: [{ name: "Accept", in: "header", schema: { type: "string" } }],
+          parameters: [
+            { name: "Accept", in: "header", schema: { type: "string" } },
+          ],
           responses: { "200": { description: "ok" } },
         },
       },
@@ -281,13 +359,19 @@ test("a header parameter that is reserved, hop-by-hop or Authorization is refuse
     destinationId: destination.id,
     destination,
   });
-  assert.deepEqual(blockedCodes(result, "authHeader"), ["security.header-parameter-reserved"]);
-  assert.deepEqual(blockedCodes(result, "hopHeader"), ["serialization.reserved-header-parameter"]);
+  assert.deepEqual(blockedCodes(result, "authHeader"), [
+    "security.header-parameter-reserved",
+  ]);
+  assert.deepEqual(blockedCodes(result, "hopHeader"), [
+    "serialization.reserved-header-parameter",
+  ]);
   // Accept is ignored by the specification, not an error; the operation compiles.
   assert.ok(result.executable.includes("ignoredHeader"));
-  const ignored = result.plans[
-    result.operations.find((item) => item.nativeId === "ignoredHeader")!.operationRef
-  ];
+  const ignored =
+    result.plans[
+      result.operations.find((item) => item.nativeId === "ignoredHeader")!
+        .operationRef
+    ];
   assert.deepEqual(ignored?.parameters, []);
 });
 
@@ -301,7 +385,11 @@ test("object-valued parameters are refused; arrays of primitives are kept", asyn
         get: {
           operationId: "objectParameter",
           parameters: [
-            { name: "where", in: "query", schema: { type: "object", properties: { a: { type: "string" } } } },
+            {
+              name: "where",
+              in: "query",
+              schema: { type: "object", properties: { a: { type: "string" } } },
+            },
           ],
           responses: { "200": { description: "ok" } },
         },
@@ -310,7 +398,11 @@ test("object-valued parameters are refused; arrays of primitives are kept", asyn
         get: {
           operationId: "arrayParameter",
           parameters: [
-            { name: "ids", in: "query", schema: { type: "array", items: { type: "string" } } },
+            {
+              name: "ids",
+              in: "query",
+              schema: { type: "array", items: { type: "string" } },
+            },
           ],
           responses: { "200": { description: "ok" } },
         },
@@ -330,19 +422,32 @@ test("object-valued parameters are refused; arrays of primitives are kept", asyn
 
 test("recursive schemas compile into a definitions table without expanding forever", async () => {
   const result = await compileFixture("openapi-3.1-recursive.json");
-  assert.deepEqual(result.executable.sort(), ["getTree", "putPerson", "putTree"]);
-  const plan = result.plans[
-    result.operations.find((item) => item.nativeId === "putTree")!.operationRef
-  ];
+  assert.deepEqual(result.executable.sort(), [
+    "getTree",
+    "putPerson",
+    "putTree",
+  ]);
+  const plan =
+    result.plans[
+      result.operations.find((item) => item.nativeId === "putTree")!
+        .operationRef
+    ];
   assert.ok(plan);
   assert.equal(plan.requestBody?.schema.kind, "ref");
   // The self-reference is a named entry, not an inlined infinite tree.
-  const node = plan.definitions[
-    plan.requestBody?.schema.kind === "ref" ? plan.requestBody.schema.name : ""
-  ];
+  const node =
+    plan.definitions[
+      plan.requestBody?.schema.kind === "ref"
+        ? plan.requestBody.schema.name
+        : ""
+    ];
   assert.equal(node?.kind, "node");
-  const children = node?.kind === "node" ? node.properties?.children : undefined;
-  assert.equal(children?.kind === "node" ? children.items?.kind : undefined, "ref");
+  const children =
+    node?.kind === "node" ? node.properties?.children : undefined;
+  assert.equal(
+    children?.kind === "node" ? children.items?.kind : undefined,
+    "ref",
+  );
 });
 
 test("settings carry a plan per bound operation and nothing else executable", async () => {
@@ -362,17 +467,24 @@ test("a verifier must be an approved read operation", async () => {
   const bad = await compileFixture("openapi-3.1-catalog.json", {
     verifier: { nativeId: "createProduct" },
   });
-  assert.ok(bad.issues.some((issue) => issue.code === "policy.verifier-not-read"));
-  assert.equal((bad.settings["openapi-http"] as { verifier?: unknown }).verifier, undefined);
+  assert.ok(
+    bad.issues.some((issue) => issue.code === "policy.verifier-not-read"),
+  );
+  assert.equal(
+    (bad.settings["openapi-http"] as { verifier?: unknown }).verifier,
+    undefined,
+  );
 
   const good = await compileFixture("openapi-3.1-catalog.json", {
     verifier: { nativeId: "health" },
   });
-  const verifier = (good.settings["openapi-http"] as { verifier?: { operationRef: string } })
-    .verifier;
+  const verifier = (
+    good.settings["openapi-http"] as { verifier?: { operationRef: string } }
+  ).verifier;
   assert.ok(verifier);
   assert.equal(
-    good.operations.find((item) => item.operationRef === verifier.operationRef)?.nativeId,
+    good.operations.find((item) => item.operationRef === verifier.operationRef)
+      ?.nativeId,
     "health",
   );
 });
@@ -406,15 +518,26 @@ test("a server variable without a default or an approved value blocks the operat
   const read = await readOpenApi({
     openapi: "3.1.0",
     info: { title: "Variable", version: "1" },
-    servers: [{ url: "https://v.example.test/{tenant}", variables: { tenant: { default: "" } } }],
-    paths: { "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } } },
+    servers: [
+      {
+        url: "https://v.example.test/{tenant}",
+        variables: { tenant: { default: "" } },
+      },
+    ],
+    paths: {
+      "/a": {
+        get: { operationId: "a", responses: { "200": { description: "ok" } } },
+      },
+    },
   });
   assert.ok(isReadResult(read));
   const blocked = compileOperations(read.definition, read, {
     destinationId: destination.id,
     destination,
   });
-  assert.deepEqual(blockedCodes(blocked, "a"), ["network.server-variable-unresolved"]);
+  assert.deepEqual(blockedCodes(blocked, "a"), [
+    "network.server-variable-unresolved",
+  ]);
 
   // A reviewed value resolves it; the value comes from the host, not the document.
   const resolved = compileOperations(read.definition, read, {

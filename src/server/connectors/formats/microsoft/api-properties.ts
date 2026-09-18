@@ -25,7 +25,12 @@ import { IssueList, pointer, safeText, token } from "./issues.js";
  */
 
 export const API_PROPERTIES_LIMITS = Object.freeze({
-  document: { depth: 32, nodes: 20_000, bytes: 1024 * 1024, stringLength: 16_384 },
+  document: {
+    depth: 32,
+    nodes: 20_000,
+    bytes: 1024 * 1024,
+    stringLength: 16_384,
+  },
   parameters: 64,
   sets: 16,
   policies: 64,
@@ -259,7 +264,8 @@ function readParameter(
           const lower = key.toLowerCase();
           if (isReservedObjectKey(lower) || !NAME.test(lower)) continue;
           const inner = isObject(value) ? value.value : value;
-          if (typeof inner === "string") customParameters[lower] = inner.slice(0, 2048);
+          if (typeof inner === "string")
+            customParameters[lower] = inner.slice(0, 2048);
           else if (typeof inner === "boolean" || typeof inner === "number")
             customParameters[lower] = String(inner);
         }
@@ -318,7 +324,12 @@ function readParameters(
   return entries
     .slice(0, API_PROPERTIES_LIMITS.parameters)
     .flatMap(([name, raw]) => {
-      const parameter = readParameter(name, raw, `${at}/${escape(name)}`, issues);
+      const parameter = readParameter(
+        name,
+        raw,
+        `${at}/${escape(name)}`,
+        issues,
+      );
       return parameter ? [parameter] : [];
     });
 }
@@ -351,7 +362,8 @@ export function readApiProperties(document: unknown): ApiPropertiesResult {
       severity: "blocking",
       disposition: "rejected",
       executionImpact: "blocks-definition",
-      message: 'apiProperties.json must be an object with a "properties" object.',
+      message:
+        'apiProperties.json must be an object with a "properties" object.',
     });
     return { ok: false, issues: issues.toArray() };
   }
@@ -382,44 +394,52 @@ export function readApiProperties(document: unknown): ApiPropertiesResult {
     connectionParameterSets = {
       ...(displayName ? { displayName } : {}),
       ...(description ? { description } : {}),
-      values: values.slice(0, API_PROPERTIES_LIMITS.sets).flatMap((raw, index) => {
-        const at = `#/properties/connectionParameterSets/values/${index}`;
-        const name = isObject(raw) ? text(raw.name, 120) : "";
-        if (!isObject(raw) || !name || seen.has(name)) {
-          issues.push({
-            code: "structure.connection-parameter-set-invalid",
-            category: "structure",
-            pointer: at,
-            dimension: "configure",
-            severity: "warning",
-            disposition: "adapted",
-            message: "A connection parameter set needs a unique name.",
-          });
-          return [];
-        }
-        seen.add(name);
-        const setUi = isObject(raw.uiDefinition) ? raw.uiDefinition : {};
-        const metadata = isObject(raw.metadata) ? raw.metadata : {};
-        const setDisplayName = optional(setUi.displayName, 120);
-        const setDescription = optional(setUi.description, 500);
-        return [
-          {
-            name,
-            ...(setDisplayName ? { displayName: setDisplayName } : {}),
-            ...(setDescription ? { description: setDescription } : {}),
-            ...(typeof metadata.allowSharing === "boolean"
-              ? { allowSharing: metadata.allowSharing }
-              : {}),
-            parameters: readParameters(raw.parameters, `${at}/parameters`, issues),
-            pointer: at,
-          },
-        ];
-      }),
+      values: values
+        .slice(0, API_PROPERTIES_LIMITS.sets)
+        .flatMap((raw, index) => {
+          const at = `#/properties/connectionParameterSets/values/${index}`;
+          const name = isObject(raw) ? text(raw.name, 120) : "";
+          if (!isObject(raw) || !name || seen.has(name)) {
+            issues.push({
+              code: "structure.connection-parameter-set-invalid",
+              category: "structure",
+              pointer: at,
+              dimension: "configure",
+              severity: "warning",
+              disposition: "adapted",
+              message: "A connection parameter set needs a unique name.",
+            });
+            return [];
+          }
+          seen.add(name);
+          const setUi = isObject(raw.uiDefinition) ? raw.uiDefinition : {};
+          const metadata = isObject(raw.metadata) ? raw.metadata : {};
+          const setDisplayName = optional(setUi.displayName, 120);
+          const setDescription = optional(setUi.description, 500);
+          return [
+            {
+              name,
+              ...(setDisplayName ? { displayName: setDisplayName } : {}),
+              ...(setDescription ? { description: setDescription } : {}),
+              ...(typeof metadata.allowSharing === "boolean"
+                ? { allowSharing: metadata.allowSharing }
+                : {}),
+              parameters: readParameters(
+                raw.parameters,
+                `${at}/parameters`,
+                issues,
+              ),
+              pointer: at,
+            },
+          ];
+        }),
     };
   }
   const policyTemplateInstances: PolicyTemplateInstance[] = [];
   if (Array.isArray(properties.policyTemplateInstances)) {
-    if (properties.policyTemplateInstances.length > API_PROPERTIES_LIMITS.policies)
+    if (
+      properties.policyTemplateInstances.length > API_PROPERTIES_LIMITS.policies
+    )
       issues.push({
         code: "structure.policy-count",
         category: "policy",
@@ -452,7 +472,11 @@ export function readApiProperties(document: unknown): ApiPropertiesResult {
             .filter(([name]) => name !== "x-ms-apimTemplate-operationName")
             .map(([name, value]) => ({
               name: safeText(name, 120),
-              valueType: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
+              valueType: Array.isArray(value)
+                ? "array"
+                : value === null
+                  ? "null"
+                  : typeof value,
             })),
           ...(operationNames ? { operationNames } : {}),
           pointer: at,
@@ -474,7 +498,10 @@ export function readApiProperties(document: unknown): ApiPropertiesResult {
           ),
         }
       : {}),
-    capabilities: stringList(properties.capabilities, API_PROPERTIES_LIMITS.capabilities),
+    capabilities: stringList(
+      properties.capabilities,
+      API_PROPERTIES_LIMITS.capabilities,
+    ),
     ...(iconBrandColor && /^#[0-9a-fA-F]{3,8}$/.test(iconBrandColor)
       ? { iconBrandColor }
       : {}),
@@ -500,7 +527,12 @@ export function readConnectorSettings(document: unknown): ConnectorSettings {
   if (connectorId) settings.connectorId = connectorId;
   const environment = optional(document.environment, 200);
   if (environment) settings.environment = environment;
-  for (const key of ["apiProperties", "apiDefinition", "icon", "script"] as const) {
+  for (const key of [
+    "apiProperties",
+    "apiDefinition",
+    "icon",
+    "script",
+  ] as const) {
     const value = optional(document[key], 260);
     if (value) settings[key] = value;
   }

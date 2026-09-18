@@ -16,12 +16,36 @@
           { "name": "region", "in": "query", "schema": { "type": "string" } },
           { "name": "active", "in": "query", "schema": { "type": "boolean" } }
         ],
-        "responses": { "200": { "description": "Vehicles", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Vehicle" } } } } } }
+        "responses": {
+          "200": {
+            "description": "Vehicles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Vehicle" }
+                }
+              }
+            }
+          }
+        }
       },
       "query": {
         "operationId": "queryVehicles",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "description": "Results", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } }
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
       },
       "additionalOperations": {
         "PURGE": {
@@ -33,18 +57,56 @@
     "/vehicles/{vehicleId}": {
       "patch": {
         "operationId": "updateVehicle",
-        "parameters": [{ "name": "vehicleId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Vehicle" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Vehicle" } } } } }
+        "parameters": [
+          {
+            "name": "vehicleId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Vehicle" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Vehicle" }
+              }
+            }
+          }
+        }
       }
     },
     "/search": {
       "get": {
         "operationId": "searchRaw",
         "parameters": [
-          { "name": "rawQuery", "in": "querystring", "content": { "application/x-www-form-urlencoded": { "schema": { "type": "object" } } } }
+          {
+            "name": "rawQuery",
+            "in": "querystring",
+            "content": {
+              "application/x-www-form-urlencoded": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
         ],
-        "responses": { "200": { "description": "Results", "content": { "application/json": { "schema": { "type": "object" } } } } }
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": { "schema": { "type": "object" } }
+            }
+          }
+        }
       }
     }
   },
@@ -52,7 +114,9 @@
     "vehicleMoved": {
       "post": {
         "operationId": "vehicleMovedWebhook",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
         "responses": { "204": { "description": "Acknowledged" } }
       }
     }
@@ -66,7 +130,10 @@
           "deviceAuthorization": {
             "deviceAuthorizationUrl": "https://auth.example.test/device",
             "tokenUrl": "https://auth.example.test/token",
-            "scopes": { "fleet:read": "Read the fleet", "fleet:write": "Change the fleet" }
+            "scopes": {
+              "fleet:read": "Read the fleet",
+              "fleet:write": "Change the fleet"
+            }
           }
         }
       },
@@ -76,7 +143,11 @@
       "Vehicle": {
         "type": "object",
         "required": ["id"],
-        "properties": { "id": { "type": "string" }, "plate": { "type": "string" }, "active": { "type": "boolean" } }
+        "properties": {
+          "id": { "type": "string" },
+          "plate": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
       }
     }
   }

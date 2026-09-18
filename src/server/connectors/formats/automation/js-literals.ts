@@ -163,7 +163,10 @@ function decodeEscape(
     case "x": {
       const hex = text.slice(index + 1, index + 3);
       if (/^[0-9a-fA-F]{2}$/.test(hex))
-        return { value: String.fromCharCode(parseInt(hex, 16)), next: index + 3 };
+        return {
+          value: String.fromCharCode(parseInt(hex, 16)),
+          next: index + 3,
+        };
       return { value: "x", next: index + 1 };
     }
     case "u": {
@@ -179,7 +182,10 @@ function decodeEscape(
       }
       const hex = text.slice(index + 1, index + 5);
       if (/^[0-9a-fA-F]{4}$/.test(hex))
-        return { value: String.fromCharCode(parseInt(hex, 16)), next: index + 5 };
+        return {
+          value: String.fromCharCode(parseInt(hex, 16)),
+          next: index + 5,
+        };
       return { value: "u", next: index + 1 };
     }
     case "\n":
@@ -200,8 +206,7 @@ export function tokenizeJs(
   limits: JsLimits = JS_LIMITS,
 ): { tokens: JsToken[]; truncated: boolean } {
   const tokens: JsToken[] = [];
-  if (text.length > limits.bytes)
-    return { tokens, truncated: true };
+  if (text.length > limits.bytes) return { tokens, truncated: true };
   let index = 0;
   let line = 1;
   let lineStart = 0;
@@ -214,13 +219,15 @@ export function tokenizeJs(
         lineStart = scan + 1;
       }
   };
-  const previousSignificant = (): JsToken | undefined => tokens[tokens.length - 1];
+  const previousSignificant = (): JsToken | undefined =>
+    tokens[tokens.length - 1];
   const regexAllowed = (): boolean => {
     const previous = previousSignificant();
     if (!previous) return true;
     if (previous.kind === "punct")
       return ![")", "]", "}", "++", "--"].includes(previous.value);
-    if (previous.kind === "name") return REGEX_PRECEDING_KEYWORDS.has(previous.value);
+    if (previous.kind === "name")
+      return REGEX_PRECEDING_KEYWORDS.has(previous.value);
     return false;
   };
 
@@ -373,7 +380,10 @@ export function tokenizeJs(
         continue;
       }
     }
-    if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(text[index + 1] ?? ""))) {
+    if (
+      /[0-9]/.test(char) ||
+      (char === "." && /[0-9]/.test(text[index + 1] ?? ""))
+    ) {
       let scan = index;
       if (char === "0" && /[xXbBoO]/.test(text[index + 1] ?? "")) {
         scan += 2;
@@ -404,7 +414,11 @@ export function tokenizeJs(
     if (IDENTIFIER_START.test(char)) {
       let scan = index + 1;
       while (scan < text.length && IDENTIFIER_PART.test(text[scan]!)) scan++;
-      tokens.push({ kind: "name", value: text.slice(index, scan), loc: loc(start) });
+      tokens.push({
+        kind: "name",
+        value: text.slice(index, scan),
+        loc: loc(start),
+      });
       index = scan;
       continue;
     }
@@ -448,8 +462,13 @@ function skipBalanced(state: ParseState, index: number): number {
   while (scan < state.tokens.length) {
     const token = state.tokens[scan]!;
     if (token.kind === "punct") {
-      if (token.value === "{" || token.value === "[" || token.value === "(") depth++;
-      else if (token.value === "}" || token.value === "]" || token.value === ")") {
+      if (token.value === "{" || token.value === "[" || token.value === "(")
+        depth++;
+      else if (
+        token.value === "}" ||
+        token.value === "]" ||
+        token.value === ")"
+      ) {
         depth--;
         if (depth === 0) return scan + 1;
       }
@@ -473,7 +492,8 @@ function skipOpaqueValue(
   if (!first) return { reason: "truncated", next: index };
   let reason: OpaqueReason = "expression";
   if (first.kind === "regex") reason = "regex";
-  else if (first.kind === "template" && first.dynamic) reason = "template-expression";
+  else if (first.kind === "template" && first.dynamic)
+    reason = "template-expression";
   else if (first.kind === "name") {
     if (first.value === "function") reason = "function";
     else if (first.value === "async") reason = "function";
@@ -496,7 +516,8 @@ function skipOpaqueValue(
         scan = skipped === scan ? scan + 1 : skipped;
         continue;
       }
-      if (token.value === "}" || token.value === "]" || token.value === ")") break;
+      if (token.value === "}" || token.value === "]" || token.value === ")")
+        break;
       if (token.value === "," || token.value === ";") break;
       if (token.value === "=>") sawArrow = true;
     }
@@ -528,15 +549,24 @@ export function parseValue(
     };
   }
   if (token.kind === "string")
-    return { value: { kind: "string", value: token.value, loc: token.loc }, next: index + 1 };
+    return {
+      value: { kind: "string", value: token.value, loc: token.loc },
+      next: index + 1,
+    };
   if (token.kind === "template" && !token.dynamic)
-    return { value: { kind: "string", value: token.value, loc: token.loc }, next: index + 1 };
+    return {
+      value: { kind: "string", value: token.value, loc: token.loc },
+      next: index + 1,
+    };
   if (token.kind === "number")
     return {
       value: { kind: "number", value: token.numeric ?? 0, loc: token.loc },
       next: index + 1,
     };
-  if (token.kind === "name" && (token.value === "true" || token.value === "false"))
+  if (
+    token.kind === "name" &&
+    (token.value === "true" || token.value === "false")
+  )
     return {
       value: { kind: "boolean", value: token.value === "true", loc: token.loc },
       next: index + 1,
@@ -621,9 +651,16 @@ export function parseValue(
       let keyIndex = scan;
       while (
         at(state, keyIndex)?.kind === "name" &&
-        ["async", "get", "set", "static", "readonly", "public", "private", "protected"].includes(
-          at(state, keyIndex)!.value,
-        ) &&
+        [
+          "async",
+          "get",
+          "set",
+          "static",
+          "readonly",
+          "public",
+          "private",
+          "protected",
+        ].includes(at(state, keyIndex)!.value) &&
         at(state, keyIndex + 1) !== undefined &&
         !isPunct(at(state, keyIndex + 1), ":") &&
         !isPunct(at(state, keyIndex + 1), ",") &&
@@ -700,7 +737,10 @@ export type JsParse = {
   limits: JsLimits;
 };
 
-export function parseJsSource(text: string, limits: JsLimits = JS_LIMITS): JsParse {
+export function parseJsSource(
+  text: string,
+  limits: JsLimits = JS_LIMITS,
+): JsParse {
   const { tokens, truncated } = tokenizeJs(text, limits);
   return { tokens, truncated, limits };
 }
@@ -741,7 +781,8 @@ function skipTypeAnnotation(parse: JsParse, index: number): number {
   while (scan < parse.tokens.length) {
     const token = parse.tokens[scan]!;
     if (token.kind === "punct") {
-      if (token.value === "=" || token.value === ";" || token.value === ",") break;
+      if (token.value === "=" || token.value === ";" || token.value === ",")
+        break;
       if (token.value === "<" || token.value === "[" || token.value === "(") {
         if (token.value === "<") {
           // Generic arguments; balance angle brackets by counting.
@@ -790,13 +831,20 @@ export function findExportedValueIndex(parse: JsParse): number | undefined {
         declarations.set(nameAt(parse, index + 1)!, valueIndex + 1);
       continue;
     }
-    if (name === "module" && punctAt(parse, index + 1, ".") && nameAt(parse, index + 2) === "exports") {
+    if (
+      name === "module" &&
+      punctAt(parse, index + 1, ".") &&
+      nameAt(parse, index + 2) === "exports"
+    ) {
       if (punctAt(parse, index + 3, "=")) {
         const target = nameAt(parse, index + 4);
         if (
           target !== undefined &&
-          !["function", "async", "class", "true", "false", "null"].includes(target) &&
-          (punctAt(parse, index + 5, ";") || parse.tokens[index + 5] === undefined)
+          !["function", "async", "class", "true", "false", "null"].includes(
+            target,
+          ) &&
+          (punctAt(parse, index + 5, ";") ||
+            parse.tokens[index + 5] === undefined)
         ) {
           indirect = target;
           continue;
@@ -805,7 +853,11 @@ export function findExportedValueIndex(parse: JsParse): number | undefined {
       }
       continue;
     }
-    if (name === "exports" && punctAt(parse, index + 1, ".") && nameAt(parse, index + 2) === "default") {
+    if (
+      name === "exports" &&
+      punctAt(parse, index + 1, ".") &&
+      nameAt(parse, index + 2) === "default"
+    ) {
       if (punctAt(parse, index + 3, "=")) return index + 4;
       continue;
     }
@@ -838,7 +890,8 @@ export function findClassPropertyIndex(
   for (let index = 0; index < parse.tokens.length; index++) {
     if (nameAt(parse, index) !== property) continue;
     const previous = parse.tokens[index - 1];
-    if (previous?.kind === "punct" && [".", "?."].includes(previous.value)) continue;
+    if (previous?.kind === "punct" && [".", "?."].includes(previous.value))
+      continue;
     const valueIndex = skipTypeAnnotation(parse, index + 1);
     if (punctAt(parse, valueIndex, "=") && !punctAt(parse, valueIndex + 1, "="))
       return valueIndex + 1;
@@ -953,14 +1006,21 @@ export function toJsonValue(value: StaticValue | undefined): unknown {
 }
 
 /** Wraps a plain JSON value in the literal tree shape, for the exported-JSON path. */
-export function fromJsonValue(value: unknown, loc: JsLoc = FALLBACK_LOC): StaticValue {
+export function fromJsonValue(
+  value: unknown,
+  loc: JsLoc = FALLBACK_LOC,
+): StaticValue {
   if (value === null) return { kind: "null", loc };
   if (typeof value === "string") return { kind: "string", value, loc };
   if (typeof value === "number")
     return { kind: "number", value: Number.isFinite(value) ? value : 0, loc };
   if (typeof value === "boolean") return { kind: "boolean", value, loc };
   if (Array.isArray(value))
-    return { kind: "array", items: value.map((item) => fromJsonValue(item, loc)), loc };
+    return {
+      kind: "array",
+      items: value.map((item) => fromJsonValue(item, loc)),
+      loc,
+    };
   if (typeof value === "object") {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null)

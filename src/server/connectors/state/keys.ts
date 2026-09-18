@@ -8,7 +8,10 @@ import { paddedRevision, sha256Hex } from "./common.js";
  * exact spelling, inside the encrypted value they index.
  */
 
-export const connectionKey = (tenant: string, connectionRef: string): RecordKey => ({
+export const connectionKey = (
+  tenant: string,
+  connectionRef: string,
+): RecordKey => ({
   tenant,
   kind: "connector-connection",
   id: `connection:${sha256Hex(connectionRef)}`,
@@ -137,7 +140,10 @@ export const bindingKey = (
   id: `binding:${sha256Hex(bindingRef)}:${paddedRevision(revision)}`,
 });
 
-export const bindingHeadKey = (tenant: string, bindingRef: string): RecordKey => ({
+export const bindingHeadKey = (
+  tenant: string,
+  bindingRef: string,
+): RecordKey => ({
   tenant,
   kind: "connector-binding",
   id: `head:${sha256Hex(bindingRef)}`,

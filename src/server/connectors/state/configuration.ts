@@ -16,8 +16,7 @@ const configurationName = /^[A-Z][A-Z0-9_]{0,95}$/;
 
 function checkNames(names: readonly string[]): ReadonlySet<string> {
   const set = new Set<string>();
-  for (const name of names)
-    if (configurationName.test(name)) set.add(name);
+  for (const name of names) if (configurationName.test(name)) set.add(name);
   return set;
 }
 
@@ -74,7 +73,9 @@ export function createHostConfigurationPort(input: {
     },
     async present(names) {
       return new Set(
-        names.filter((name) => allowed.has(name) && Boolean(input.values[name])),
+        names.filter(
+          (name) => allowed.has(name) && Boolean(input.values[name]),
+        ),
       );
     },
     async revision() {

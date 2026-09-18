@@ -119,7 +119,15 @@ export const dynamicFieldContractSchema = z.strictObject({
   /** Present only when the referenced operation exists exactly once in the document. */
   operation: z
     .strictObject({
-      method: z.enum(["GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH"]),
+      method: z.enum([
+        "GET",
+        "PUT",
+        "POST",
+        "DELETE",
+        "OPTIONS",
+        "HEAD",
+        "PATCH",
+      ]),
       pathTemplate: z.string().max(1024),
       /** Operation ref the binding candidate uses for this dynamic operation. */
       operationRef: z.string().max(200),
@@ -221,8 +229,18 @@ const CONTROL_OR_BIDI = /\p{Cc}|\p{Cf}/gu;
  * collapsed and the length is bounded. Values are kept as primitives and
  * bounded; an object or array can never be an option value.
  */
-export function sanitizeTitle(value: unknown, max = DYNAMIC_OPTION_LIMITS.titleLength): string {
-  const text = typeof value === "string" ? value : value === null || value === undefined ? "" : typeof value === "object" ? "" : String(value);
+export function sanitizeTitle(
+  value: unknown,
+  max = DYNAMIC_OPTION_LIMITS.titleLength,
+): string {
+  const text =
+    typeof value === "string"
+      ? value
+      : value === null || value === undefined
+        ? ""
+        : typeof value === "object"
+          ? ""
+          : String(value);
   let stripped = text;
   for (let round = 0; round < 4 && TAGS.test(stripped); round++)
     stripped = stripped.replace(TAGS, " ");
@@ -238,7 +256,8 @@ export function normalizeOptionValue(
 ): string | number | boolean | null | undefined {
   if (value === null) return null;
   if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? value : undefined;
   if (typeof value === "string") {
     const cleaned = value.replace(CONTROL_OR_BIDI, "");
     return cleaned.length > DYNAMIC_OPTION_LIMITS.valueLength
@@ -312,7 +331,10 @@ export function extractSchema(
       return Object.fromEntries(
         Object.entries(value)
           .filter(([key]) => !isReservedObjectKey(key))
-          .map(([key, item]) => [key.replace(CONTROL_OR_BIDI, ""), clean(item)]),
+          .map(([key, item]) => [
+            key.replace(CONTROL_OR_BIDI, ""),
+            clean(item),
+          ]),
       );
     return value;
   };
@@ -370,7 +392,8 @@ function readBindings(
     ? new Set(target.parameters.map((item) => item.name))
     : undefined;
   const newer =
-    extension === "x-ms-dynamic-list" || extension === "x-ms-dynamic-properties";
+    extension === "x-ms-dynamic-list" ||
+    extension === "x-ms-dynamic-properties";
   const bindings: DynamicParameterBinding[] = [];
   if (raw.parameters !== undefined && !isObject(raw.parameters)) {
     issues.push({
@@ -385,7 +408,9 @@ function readBindings(
     blockedBy.push("structure.dynamic-parameters-shape");
     return bindings;
   }
-  const entries = Object.entries(isObject(raw.parameters) ? raw.parameters : {});
+  const entries = Object.entries(
+    isObject(raw.parameters) ? raw.parameters : {},
+  );
   if (entries.length > 32) {
     issues.push({
       code: "structure.dynamic-parameter-count",
@@ -438,11 +463,20 @@ function readBindings(
           });
           blockedBy.push("structure.dynamic-reference-unresolved");
         }
-        binding = { target: targetPath, source: "parameter", reference, resolved };
+        binding = {
+          target: targetPath,
+          source: "parameter",
+          reference,
+          resolved,
+        };
       } else if (newer && Object.hasOwn(spec, "value")) {
         const literal = literalSchema.safeParse(spec.value);
         if (literal.success)
-          binding = { target: targetPath, source: "static", value: literal.data };
+          binding = {
+            target: targetPath,
+            source: "static",
+            value: literal.data,
+          };
       }
     } else if (!newer) {
       const literal = literalSchema.safeParse(spec);
@@ -555,7 +589,9 @@ function buildContract(
     if (value !== undefined) selection.value = value;
   }
   const visibility = visibilityOf(site.extensions);
-  const suffix = site.pathString ? `${site.name}/${site.pathString}` : site.name;
+  const suffix = site.pathString
+    ? `${site.name}/${site.pathString}`
+    : site.name;
   const id = safeText(
     `${kind}:${host.nativeId}:${site.location}:${suffix}`,
     400,
@@ -566,7 +602,11 @@ function buildContract(
     extension,
     preferred: true,
     hostOperationId: host.nativeId,
-    field: { location: site.location, name: site.name, pathString: site.pathString },
+    field: {
+      location: site.location,
+      name: site.name,
+      pathString: site.pathString,
+    },
     sourcePointer: pointer,
     ...(visibility ? { visibility } : {}),
     operationId,
@@ -650,11 +690,20 @@ export function extractDynamicFields(
     `${contract.hostOperationId} ${contract.field.location} ${contract.field.name} ${contract.field.pathString}`;
   const newer = new Set(
     contracts
-      .filter((contract) => contract.kind === "list" || contract.kind === "properties")
-      .map((contract) => `${key(contract)} ${contract.kind === "list" ? "options" : "schema"}`),
+      .filter(
+        (contract) =>
+          contract.kind === "list" || contract.kind === "properties",
+      )
+      .map(
+        (contract) =>
+          `${key(contract)} ${contract.kind === "list" ? "options" : "schema"}`,
+      ),
   );
   return contracts.map((contract) => {
-    const family = contract.kind === "values" || contract.kind === "list" ? "options" : "schema";
+    const family =
+      contract.kind === "values" || contract.kind === "list"
+        ? "options"
+        : "schema";
     const superseded =
       (contract.kind === "values" || contract.kind === "schema") &&
       newer.has(`${key(contract)} ${family}`);

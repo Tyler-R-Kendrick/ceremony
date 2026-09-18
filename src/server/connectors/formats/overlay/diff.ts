@@ -77,9 +77,14 @@ function serverUrls(document: unknown, path: string): Map<string, string> {
   };
   collect(document.servers, `${path}/servers`);
   // Swagger 2.0 spells its single server across three fields.
-  if (typeof document.host === "string" || typeof document.basePath === "string") {
+  if (
+    typeof document.host === "string" ||
+    typeof document.basePath === "string"
+  ) {
     const schemes = Array.isArray(document.schemes)
-      ? document.schemes.filter((item): item is string => typeof item === "string")
+      ? document.schemes.filter(
+          (item): item is string => typeof item === "string",
+        )
       : [""];
     for (const scheme of schemes)
       found.set(
@@ -93,7 +98,10 @@ function serverUrls(document: unknown, path: string): Map<string, string> {
       collect(item.servers, `${path}/paths/${route}/servers`);
       for (const [method, operation] of entriesOf(item))
         if (METHODS.has(method) && isRecord(operation))
-          collect(operation.servers, `${path}/paths/${route}/${method}/servers`);
+          collect(
+            operation.servers,
+            `${path}/paths/${route}/${method}/servers`,
+          );
     }
   return found;
 }
@@ -113,11 +121,23 @@ function operations(document: unknown): Map<string, OperationView> {
     for (const [method, operation] of entriesOf(item)) {
       if (!METHODS.has(method) || !isRecord(operation)) continue;
       const parameters = new Map<string, { in: string; required: boolean }>();
-      for (const raw of [...shared, ...(Array.isArray(operation.parameters) ? operation.parameters : [])])
-        if (isRecord(raw) && typeof raw.name === "string" && typeof raw.in === "string")
-          parameters.set(raw.name, { in: raw.in, required: raw.required === true });
+      for (const raw of [
+        ...shared,
+        ...(Array.isArray(operation.parameters) ? operation.parameters : []),
+      ])
+        if (
+          isRecord(raw) &&
+          typeof raw.name === "string" &&
+          typeof raw.in === "string"
+        )
+          parameters.set(raw.name, {
+            in: raw.in,
+            required: raw.required === true,
+          });
       found.set(`${method.toUpperCase()} ${route}`, {
-        ...(Object.hasOwn(operation, "security") ? { security: operation.security } : {}),
+        ...(Object.hasOwn(operation, "security")
+          ? { security: operation.security }
+          : {}),
         parameters,
         ...(operation.requestBody === undefined
           ? {}
@@ -144,7 +164,8 @@ function schemes(document: unknown): Map<string, Record<string, unknown>> {
 function schemeScopes(scheme: Record<string, unknown>): Set<string> {
   const scopes = new Set<string>();
   const add = (value: unknown) => {
-    if (isRecord(value)) for (const [name] of entriesOf(value)) scopes.add(name);
+    if (isRecord(value))
+      for (const [name] of entriesOf(value)) scopes.add(name);
   };
   add(scheme.scopes);
   if (isRecord(scheme.flows))
@@ -166,7 +187,8 @@ function schemeIssuer(scheme: Record<string, unknown>): string[] {
           "refreshUrl",
           "deviceAuthorizationUrl",
         ] as const)
-          if (typeof flow[key] === "string") urls.push(`${name}.${key}=${flow[key]}`);
+          if (typeof flow[key] === "string")
+            urls.push(`${name}.${key}=${flow[key]}`);
   for (const key of ["authorizationUrl", "tokenUrl"] as const)
     if (typeof scheme[key] === "string") urls.push(`${key}=${scheme[key]}`);
   return urls.sort();
@@ -206,7 +228,9 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
       dimension: change.security ? "invoke" : "import",
       severity: change.security ? "blocking" : "info",
       disposition: change.security ? "rejected" : "adapted",
-      ...(change.security ? { executionImpact: "blocks-operation" as const } : {}),
+      ...(change.security
+        ? { executionImpact: "blocks-operation" as const }
+        : {}),
       message: change.detail,
     });
   };
@@ -231,7 +255,8 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
         kind: "server-removed",
         category: "network",
         security: false,
-        detail: "The transformation removes a declared server; operations pinned to it lose their declared destination.",
+        detail:
+          "The transformation removes a declared server; operations pinned to it lose their declared destination.",
       });
 
   const beforeOperations = operations(before);
@@ -252,7 +277,8 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
     const beforeRequirements = requirementText(previous.security);
     const afterRequirements = requirementText(view.security);
     if (
-      canonicalConnectorJson(beforeRequirements) !== canonicalConnectorJson(afterRequirements)
+      canonicalConnectorJson(beforeRequirements) !==
+      canonicalConnectorJson(afterRequirements)
     )
       record({
         path: `#/paths/${token(key, 160)}/security`,
@@ -268,7 +294,10 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
         record({
           path: `#/paths/${token(key, 160)}/parameters/${token(name, 64)}`,
           kind: "parameter-added",
-          category: parameter.in === "query" || parameter.in === "header" ? "security" : "structure",
+          category:
+            parameter.in === "query" || parameter.in === "header"
+              ? "security"
+              : "structure",
           security: parameter.in === "query" || parameter.in === "header",
           detail:
             "The transformation adds a parameter the approved document did not describe; a value the approval never reviewed would be carried on the request.",
@@ -291,7 +320,8 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
           kind: "parameter-removed",
           category: "structure",
           security: false,
-          detail: "The transformation removes a parameter the approved document described.",
+          detail:
+            "The transformation removes a parameter the approved document described.",
         });
     if (previous.requestBody !== view.requestBody)
       record({
@@ -299,7 +329,8 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
         kind: "request-body-changed",
         category: "schema",
         security: false,
-        detail: "The transformation changes the request body description; the compiled schema must be rebuilt before it is used.",
+        detail:
+          "The transformation changes the request body description; the compiled schema must be rebuilt before it is used.",
       });
   }
   for (const [key] of beforeOperations)
@@ -309,7 +340,8 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
         kind: "operation-removed",
         category: "structure",
         security: false,
-        detail: "The transformation removes an operation the approved document described.",
+        detail:
+          "The transformation removes an operation the approved document described.",
       });
 
   const beforeSchemes = schemes(before);
@@ -327,7 +359,11 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
       });
       continue;
     }
-    if (previous.type !== scheme.type || previous.in !== scheme.in || previous.name !== scheme.name)
+    if (
+      previous.type !== scheme.type ||
+      previous.in !== scheme.in ||
+      previous.name !== scheme.name
+    )
       record({
         path: at("#/components/securitySchemes", name),
         kind: "security-scheme-changed",
@@ -338,7 +374,10 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
       });
     const beforeIssuer = schemeIssuer(previous);
     const afterIssuer = schemeIssuer(scheme);
-    if (canonicalConnectorJson(beforeIssuer) !== canonicalConnectorJson(afterIssuer))
+    if (
+      canonicalConnectorJson(beforeIssuer) !==
+      canonicalConnectorJson(afterIssuer)
+    )
       record({
         path: at("#/components/securitySchemes", name),
         kind: "issuer-changed",
@@ -350,7 +389,9 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
     const beforeScopes = schemeScopes(previous);
     const afterScopes = schemeScopes(scheme);
     const added = [...afterScopes].filter((scope) => !beforeScopes.has(scope));
-    const removed = [...beforeScopes].filter((scope) => !afterScopes.has(scope));
+    const removed = [...beforeScopes].filter(
+      (scope) => !afterScopes.has(scope),
+    );
     if (added.length)
       record({
         path: at("#/components/securitySchemes", name),
@@ -379,8 +420,12 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
           "The transformation removes a security scheme the approved document declared; operations that referenced it can no longer be satisfied as reviewed.",
       });
 
-  const beforeRoot = requirementText(isRecord(before) ? before.security : undefined);
-  const afterRoot = requirementText(isRecord(after) ? after.security : undefined);
+  const beforeRoot = requirementText(
+    isRecord(before) ? before.security : undefined,
+  );
+  const afterRoot = requirementText(
+    isRecord(after) ? after.security : undefined,
+  );
   if (canonicalConnectorJson(beforeRoot) !== canonicalConnectorJson(afterRoot))
     record({
       path: "#/security",

@@ -52,8 +52,7 @@ export function pointer(...segments: Array<string | number>): string {
     segments
       .map(
         (segment) =>
-          "/" +
-          String(segment).replaceAll("~", "~0").replaceAll("/", "~1"),
+          "/" + String(segment).replaceAll("~", "~0").replaceAll("/", "~1"),
       )
       .join("");
   const cleaned = built.replace(CONTROL, "");

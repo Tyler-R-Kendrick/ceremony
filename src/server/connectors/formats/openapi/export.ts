@@ -144,8 +144,12 @@ function securitySchemeFor(
             ...(profile.authorizationEndpoint
               ? { authorizationUrl: profile.authorizationEndpoint }
               : {}),
-            ...(profile.tokenEndpoint ? { tokenUrl: profile.tokenEndpoint } : {}),
-            scopes: Object.fromEntries(profile.scopes.map((scope) => [scope, ""])),
+            ...(profile.tokenEndpoint
+              ? { tokenUrl: profile.tokenEndpoint }
+              : {}),
+            scopes: Object.fromEntries(
+              profile.scopes.map((scope) => [scope, ""]),
+            ),
           },
         },
       };
@@ -154,8 +158,12 @@ function securitySchemeFor(
         type: "oauth2",
         flows: {
           clientCredentials: {
-            ...(profile.tokenEndpoint ? { tokenUrl: profile.tokenEndpoint } : {}),
-            scopes: Object.fromEntries(profile.scopes.map((scope) => [scope, ""])),
+            ...(profile.tokenEndpoint
+              ? { tokenUrl: profile.tokenEndpoint }
+              : {}),
+            scopes: Object.fromEntries(
+              profile.scopes.map((scope) => [scope, ""]),
+            ),
           },
         },
       };
@@ -189,7 +197,10 @@ export function exportOpenApi(
   const names = componentNames(plans);
 
   const capabilityById = new Map(
-    definition.capabilities.map((capability) => [capability.nativeId, capability]),
+    definition.capabilities.map((capability) => [
+      capability.nativeId,
+      capability,
+    ]),
   );
   const profileById = new Map(
     definition.authentication.map((profile) => [profile.id, profile]),
@@ -373,7 +384,10 @@ export function exportOpenApi(
     openapi: EXPORT_VERSION,
     info: {
       title: safeText(options.title ?? definition.display.name, 200),
-      version: safeText(options.version ?? definition.identity.nativeVersion, 128),
+      version: safeText(
+        options.version ?? definition.identity.nativeVersion,
+        128,
+      ),
       ...(definition.display.description
         ? { description: safeText(definition.display.description, 500) }
         : {}),

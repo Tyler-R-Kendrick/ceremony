@@ -9,7 +9,12 @@ import {
   type BoundOperation,
 } from "../../binding.js";
 import { IssueCollector, safeText, token } from "./issues.js";
-import { READER_VERSION, type ReadOperation, type ReadParameter, type ReadResult } from "./model.js";
+import {
+  READER_VERSION,
+  type ReadOperation,
+  type ReadParameter,
+  type ReadResult,
+} from "./model.js";
 import {
   HTTP_METHODS,
   PLAN_SETTINGS_KEY,
@@ -27,7 +32,10 @@ import {
   type SchemaProblem,
   type CompileSchemaContext,
 } from "./schema.js";
-import { EXECUTABLE_PROFILE_KINDS, securityRequirementsFor } from "./security.js";
+import {
+  EXECUTABLE_PROFILE_KINDS,
+  securityRequirementsFor,
+} from "./security.js";
 
 /*
  * The compiler turns read operations into bound operations plus plans for the
@@ -103,7 +111,10 @@ const RESERVED_HEADERS = new Set([
 const IGNORED_HEADERS = new Set(["accept", "content-type"]);
 const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
-export function operationRefFor(definition: Pick<NormalizedDefinition, "definitionRef">, nativeId: string): string {
+export function operationRefFor(
+  definition: Pick<NormalizedDefinition, "definitionRef">,
+  nativeId: string,
+): string {
   const hash = createHash("sha256").update(nativeId).digest("hex").slice(0, 16);
   return `${definition.definitionRef.slice(0, 150)}:op:${hash}`;
 }
@@ -155,7 +166,8 @@ function problemsToIssues(
           pointer: problem.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "A binary value cannot be carried in a JSON body by this adapter; the operation is blocked.",
+          message:
+            "A binary value cannot be carried in a JSON body by this adapter; the operation is blocked.",
         });
         break;
       case "schema.dialect-unsupported":
@@ -165,7 +177,8 @@ function problemsToIssues(
           pointer: problem.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "The schema declares a dialect this runtime does not implement; the operation is blocked rather than validated under different semantics.",
+          message:
+            "The schema declares a dialect this runtime does not implement; the operation is blocked rather than validated under different semantics.",
         });
         break;
       case "schema.reference-unresolved":
@@ -175,7 +188,8 @@ function problemsToIssues(
           pointer: problem.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "A schema reference could not be resolved within the document or the fetched external documents; the operation is blocked.",
+          message:
+            "A schema reference could not be resolved within the document or the fetched external documents; the operation is blocked.",
         });
         break;
       case "schema.too-deep":
@@ -185,7 +199,8 @@ function problemsToIssues(
           pointer: problem.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "The schema nests deeper than the compiler's explicit limit; the operation is blocked.",
+          message:
+            "The schema nests deeper than the compiler's explicit limit; the operation is blocked.",
         });
         break;
       case "schema.invalid":
@@ -195,7 +210,8 @@ function problemsToIssues(
           pointer: problem.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "The schema is not a valid Schema Object for this OpenAPI version; the operation is blocked.",
+          message:
+            "The schema is not a valid Schema Object for this OpenAPI version; the operation is blocked.",
         });
         break;
     }
@@ -208,13 +224,16 @@ function primitiveShape(
   hops = 0,
 ): "primitive" | "array" | "complex" | "unknown" {
   if (hops > 8) return "unknown";
-  const resolved = schema.kind === "ref" ? definitions.get(schema.name) : schema;
+  const resolved =
+    schema.kind === "ref" ? definitions.get(schema.name) : schema;
   if (!resolved || resolved === "compiling") return "unknown";
-  if (resolved.kind === "ref") return primitiveShape(resolved, definitions, hops + 1);
+  if (resolved.kind === "ref")
+    return primitiveShape(resolved, definitions, hops + 1);
   if (resolved.kind === "any") return "unknown";
   if (resolved.kind === "never") return "complex";
   const types = resolved.types ?? [];
-  if (types.length === 0) return resolved.properties || resolved.items ? "complex" : "unknown";
+  if (types.length === 0)
+    return resolved.properties || resolved.items ? "complex" : "unknown";
   if (types.includes("object")) return "complex";
   if (types.includes("array")) {
     const items = resolved.items;
@@ -230,15 +249,19 @@ function serverPrefix(
   options: CompileOptions,
   issues: IssueCollector,
 ): string | undefined {
-  if (options.pathPrefix !== undefined) return normalizePrefix(options.pathPrefix);
+  if (options.pathPrefix !== undefined)
+    return normalizePrefix(options.pathPrefix);
   let server = operation.servers[0];
   if (options.server?.url !== undefined) {
-    server = operation.servers.find((item) => item.url === options.server?.url) ?? {
+    server = operation.servers.find(
+      (item) => item.url === options.server?.url,
+    ) ?? {
       url: options.server.url,
       variables: {},
       pointer: "#",
     };
-  } else if (options.server?.index !== undefined) server = operation.servers[options.server.index];
+  } else if (options.server?.index !== undefined)
+    server = operation.servers[options.server.index];
   if (!server) {
     issues.add({
       code: "network.no-declared-server",
@@ -246,7 +269,8 @@ function serverPrefix(
       pointer: operation.pointer,
       dimension: "invoke",
       severity: "info",
-      message: "The operation declares no server; its path is bound directly under the approved destination.",
+      message:
+        "The operation declares no server; its path is bound directly under the approved destination.",
     });
     return "";
   }
@@ -255,7 +279,11 @@ function serverPrefix(
   url = url.replace(/\{([^{}]+)\}/g, (_match, name: string) => {
     const supplied = options.server?.variables?.[name];
     const declared = server?.variables[name];
-    if (supplied !== undefined && (!declared?.enum || declared.enum.includes(supplied))) return supplied;
+    if (
+      supplied !== undefined &&
+      (!declared?.enum || declared.enum.includes(supplied))
+    )
+      return supplied;
     if (declared && declared.default) return declared.default;
     missing.push(name);
     return "";
@@ -282,11 +310,16 @@ function serverPrefix(
         pointer: server.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "The declared server URL cannot be parsed; the operation is blocked until a path prefix is supplied by review.",
+        message:
+          "The declared server URL cannot be parsed; the operation is blocked until a path prefix is supplied by review.",
       });
       return undefined;
     }
-    if (options.destination && !url.startsWith("//") && parsed.origin !== options.destination.origin)
+    if (
+      options.destination &&
+      !url.startsWith("//") &&
+      parsed.origin !== options.destination.origin
+    )
       issues.add({
         code: "network.destination-differs-from-declared",
         category: "network",
@@ -294,7 +327,8 @@ function serverPrefix(
         dimension: "invoke",
         severity: "warning",
         disposition: "adapted",
-        message: "The approved destination differs from the server the document declares; requests go only to the approved destination.",
+        message:
+          "The approved destination differs from the server the document declares; requests go only to the approved destination.",
       });
     return normalizePrefix(parsed.pathname);
   }
@@ -341,7 +375,8 @@ function compileOne(input: {
   let boundable = false;
   for (const alternative of alternatives.alternatives) {
     if (alternative.schemes.length === 0) continue;
-    if (!alternative.schemes.every((entry) => entry.known && entry.executable)) continue;
+    if (!alternative.schemes.every((entry) => entry.known && entry.executable))
+      continue;
     boundable = true;
     const picked = alternative.schemes.map((entry) => ({
       entry,
@@ -368,7 +403,8 @@ function compileOne(input: {
         dimension: "invoke",
         severity: "blocking",
         disposition: "requires-configuration",
-        message: "No bound authentication profile satisfies any of the operation's security alternatives; bind a profile the operation accepts.",
+        message:
+          "No bound authentication profile satisfies any of the operation's security alternatives; bind a profile the operation accepts.",
       });
     else
       issues.add({
@@ -378,18 +414,29 @@ function compileOne(input: {
         dimension: "invoke",
         severity: "blocking",
         disposition: "unsupported",
-        message: "Every security alternative of the operation requires a scheme this runtime cannot execute or the document does not declare; the operation is blocked.",
+        message:
+          "Every security alternative of the operation requires a scheme this runtime cannot execute or the document does not declare; the operation is blocked.",
       });
   }
 
   const definitions = new Map<string, CompiledSchema | "compiling">();
   const problems: SchemaProblem[] = [];
-  const schemaContext: CompileSchemaContext = { resolver: read.resolver, profile: read.profile, definitions, problems };
+  const schemaContext: CompileSchemaContext = {
+    resolver: read.resolver,
+    profile: read.profile,
+    definitions,
+    problems,
+  };
   const dialectOk = isSupportedDialect(read.profile, read.dialect);
   const seenProblems = new Set<string>();
   const compileParameterSchema = (parameter: ReadParameter): CompiledSchema => {
-    if (!Object.hasOwn(parameter, "schema") || parameter.schema === undefined) return { kind: "any" };
-    return compileSchema(parameter.schema, { documentKey: "", pointer: `${parameter.pointer}/schema` }, schemaContext);
+    if (!Object.hasOwn(parameter, "schema") || parameter.schema === undefined)
+      return { kind: "any" };
+    return compileSchema(
+      parameter.schema,
+      { documentKey: "", pointer: `${parameter.pointer}/schema` },
+      schemaContext,
+    );
   };
 
   const planParameters: PlanParameter[] = [];
@@ -405,7 +452,8 @@ function compileOne(input: {
         pointer: parameter.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "Cookie parameters are not part of the executable subset; the operation is blocked.",
+        message:
+          "Cookie parameters are not part of the executable subset; the operation is blocked.",
       });
       continue;
     }
@@ -416,7 +464,8 @@ function compileOne(input: {
         pointer: parameter.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "Whole-querystring parameters are not part of the executable subset; the operation is blocked.",
+        message:
+          "Whole-querystring parameters are not part of the executable subset; the operation is blocked.",
       });
       continue;
     }
@@ -427,7 +476,8 @@ function compileOne(input: {
         pointer: parameter.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "Parameters serialized through a media type are not part of the executable subset; the operation is blocked.",
+        message:
+          "Parameters serialized through a media type are not part of the executable subset; the operation is blocked.",
       });
       continue;
     }
@@ -441,7 +491,8 @@ function compileOne(input: {
           dimension: "invoke",
           severity: "warning",
           disposition: "adapted",
-          message: "A header parameter named Accept or Content-Type is ignored, as the specification requires; the adapter sets these headers itself.",
+          message:
+            "A header parameter named Accept or Content-Type is ignored, as the specification requires; the adapter sets these headers itself.",
         });
         continue;
       }
@@ -453,7 +504,8 @@ function compileOne(input: {
           dimension: "invoke",
           severity: "blocking",
           disposition: "unsupported",
-          message: "The operation describes Authorization as an input header; credentials are placed only from custody, never from input, so the operation is blocked.",
+          message:
+            "The operation describes Authorization as an input header; credentials are placed only from custody, never from input, so the operation is blocked.",
         });
         continue;
       }
@@ -464,7 +516,8 @@ function compileOne(input: {
           pointer: parameter.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "A header parameter names a hop-by-hop or transport header that callers can never set; the operation is blocked.",
+          message:
+            "A header parameter names a hop-by-hop or transport header that callers can never set; the operation is blocked.",
         });
         continue;
       }
@@ -475,7 +528,8 @@ function compileOne(input: {
           pointer: parameter.pointer,
           dimension: "invoke",
           severity: "blocking",
-          message: "A header parameter name is not a valid HTTP field name; the operation is blocked.",
+          message:
+            "A header parameter name is not a valid HTTP field name; the operation is blocked.",
         });
         continue;
       }
@@ -503,7 +557,8 @@ function compileOne(input: {
         pointer: parameter.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "Only primitive values and arrays of primitives are serialized as parameters; object-valued parameters block the operation.",
+        message:
+          "Only primitive values and arrays of primitives are serialized as parameters; object-valued parameters block the operation.",
       });
       continue;
     }
@@ -522,9 +577,13 @@ function compileOne(input: {
 
   // Path template integrity: every expression has a parameter and every path parameter has an expression.
   const prefix = serverPrefix(operation, options, issues);
-  const expressions = [...operation.path.matchAll(/\{([^{}]*)\}/g)].map((match) => match[1] ?? "");
+  const expressions = [...operation.path.matchAll(/\{([^{}]*)\}/g)].map(
+    (match) => match[1] ?? "",
+  );
   const pathParameterNames = new Set(
-    planParameters.filter((parameter) => parameter.in === "path").map((parameter) => parameter.name),
+    planParameters
+      .filter((parameter) => parameter.in === "path")
+      .map((parameter) => parameter.name),
   );
   for (const name of expressions)
     if (!pathParameterNames.has(name))
@@ -551,7 +610,9 @@ function compileOne(input: {
     prefix !== undefined &&
     (!/^\/[^\p{Cc}?#]*$/u.test(pathTemplate) ||
       pathTemplate.includes("//") ||
-      pathTemplate.split("/").some((segment) => segment === "." || segment === ".."))
+      pathTemplate
+        .split("/")
+        .some((segment) => segment === "." || segment === ".."))
   )
     issues.add({
       code: "structure.invalid-path-template",
@@ -559,7 +620,8 @@ function compileOne(input: {
       pointer,
       dimension: "invoke",
       severity: "blocking",
-      message: "The combined server path and operation path is not a single normalized absolute path; the operation is blocked.",
+      message:
+        "The combined server path and operation path is not a single normalized absolute path; the operation is blocked.",
     });
 
   // Request body: JSON only.
@@ -568,7 +630,9 @@ function compileOne(input: {
     const body = operation.requestBody;
     const json = body.content.find((item) => isJsonMediaType(item.mediaType));
     const undeclared = body.content.find((item) => item.mediaType === "*/*");
-    const unresolved = body.content.find((item) => item.mediaType === "unresolved");
+    const unresolved = body.content.find(
+      (item) => item.mediaType === "unresolved",
+    );
     if (unresolved)
       issues.add({
         code: "structure.reference-unresolved",
@@ -576,7 +640,8 @@ function compileOne(input: {
         pointer: body.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "The request body reference could not be resolved; the operation is blocked.",
+        message:
+          "The request body reference could not be resolved; the operation is blocked.",
       });
     else if (json || (undeclared && options.assumeJsonWhenUndeclared)) {
       const chosenMedia = json ?? undeclared!;
@@ -588,14 +653,23 @@ function compileOne(input: {
           dimension: "invoke",
           severity: "warning",
           disposition: "adapted",
-          message: "The document declares no request media type; JSON is assumed because the host review said so.",
+          message:
+            "The document declares no request media type; JSON is assumed because the host review said so.",
         });
       const schema =
         chosenMedia.schema === undefined
           ? ({ kind: "any" } as CompiledSchema)
-          : compileSchema(chosenMedia.schema, { documentKey: "", pointer: `${chosenMedia.pointer}/schema` }, schemaContext);
+          : compileSchema(
+              chosenMedia.schema,
+              { documentKey: "", pointer: `${chosenMedia.pointer}/schema` },
+              schemaContext,
+            );
       if (chosenMedia.schema !== undefined) usesSchema = true;
-      requestBody = { required: body.required, mediaType: "application/json", schema };
+      requestBody = {
+        required: body.required,
+        mediaType: "application/json",
+        schema,
+      };
     } else if (undeclared)
       issues.add({
         code: "serialization.request-media-type-undeclared",
@@ -603,8 +677,10 @@ function compileOne(input: {
         pointer: body.pointer,
         dimension: "invoke",
         severity: "blocking",
-        message: "The document does not declare the request media type; the operation is blocked unless the host review assumes JSON.",
-        remediation: "Declare `consumes` in the source or compile with assumeJsonWhenUndeclared.",
+        message:
+          "The document does not declare the request media type; the operation is blocked unless the host review assumes JSON.",
+        remediation:
+          "Declare `consumes` in the source or compile with assumeJsonWhenUndeclared.",
       });
     else
       issues.add({
@@ -620,9 +696,16 @@ function compileOne(input: {
   // Responses: success bodies must be JSON when they exist at all.
   const responses: OperationPlan["responses"] = [];
   for (const response of operation.responses) {
-    const json = response.content.some((item) => isJsonMediaType(item.mediaType));
-    const undeclared = response.content.some((item) => item.mediaType === "*/*");
-    const success = /^2/.test(response.status) || response.status.toLowerCase() === "default" || response.status === "2XX";
+    const json = response.content.some((item) =>
+      isJsonMediaType(item.mediaType),
+    );
+    const undeclared = response.content.some(
+      (item) => item.mediaType === "*/*",
+    );
+    const success =
+      /^2/.test(response.status) ||
+      response.status.toLowerCase() === "default" ||
+      response.status === "2XX";
     if (success && response.content.length && !json) {
       if (undeclared && options.assumeJsonWhenUndeclared)
         issues.add({
@@ -632,11 +715,14 @@ function compileOne(input: {
           dimension: "invoke",
           severity: "warning",
           disposition: "adapted",
-          message: "The document declares no response media type; JSON is assumed because the host review said so.",
+          message:
+            "The document declares no response media type; JSON is assumed because the host review said so.",
         });
       else
         issues.add({
-          code: undeclared ? "serialization.response-media-type-undeclared" : "serialization.unsupported-response-media-type",
+          code: undeclared
+            ? "serialization.response-media-type-undeclared"
+            : "serialization.unsupported-response-media-type",
           category: "serialization",
           pointer: response.pointer,
           dimension: "invoke",
@@ -646,7 +732,10 @@ function compileOne(input: {
             : `A success response is only available as "${token(response.content[0]?.mediaType, 64)}"; this adapter reads JSON responses only, so the operation is blocked.`,
         });
     }
-    responses.push({ status: response.status.slice(0, 8), json: json || (undeclared && options.assumeJsonWhenUndeclared === true) });
+    responses.push({
+      status: response.status.slice(0, 8),
+      json: json || (undeclared && options.assumeJsonWhenUndeclared === true),
+    });
   }
 
   if (usesSchema && !dialectOk)
@@ -656,7 +745,8 @@ function compileOne(input: {
       pointer: "#/jsonSchemaDialect",
       dimension: "invoke",
       severity: "blocking",
-      message: "The document's default schema dialect is not implemented; operations with schemas are blocked rather than validated under different semantics.",
+      message:
+        "The document's default schema dialect is not implemented; operations with schemas are blocked rather than validated under different semantics.",
     });
   problemsToIssues(problems, issues, seenProblems);
 
@@ -673,11 +763,13 @@ function compileOne(input: {
         dimension: "invoke",
         severity: "info",
         disposition: "adapted",
-        message: "The host review declares a non-GET operation read-only; the description alone could not establish that.",
+        message:
+          "The host review declares a non-GET operation read-only; the description alone could not establish that.",
       });
     effect = review.effect;
   }
-  const replay: BoundOperation["replay"] = review.replay ?? (effect === "read" ? "read-only" : "none");
+  const replay: BoundOperation["replay"] =
+    review.replay ?? (effect === "read" ? "read-only" : "none");
   if (replay === "read-only" && effect !== "read")
     issues.add({
       code: "policy.invalid-review",
@@ -685,7 +777,8 @@ function compileOne(input: {
       pointer,
       dimension: "invoke",
       severity: "blocking",
-      message: "Only a read operation can claim read-only replay; the review is inconsistent and the operation is blocked.",
+      message:
+        "Only a read operation can claim read-only replay; the review is inconsistent and the operation is blocked.",
     });
   const targetParameters = review.targetParameters ?? [];
   for (const name of targetParameters)
@@ -698,12 +791,18 @@ function compileOne(input: {
         severity: "blocking",
         message: `The review names "${token(name, 32)}" as a target parameter but the operation declares no such usable parameter.`,
       });
-  const description = safeText(review.description ?? operation.summary ?? "", 500);
+  const description = safeText(
+    review.description ?? operation.summary ?? "",
+    500,
+  );
 
-  if (issues.blocking() || !chosen || prefix === undefined) return { issues: issues.issues };
+  if (issues.blocking() || !chosen || prefix === undefined)
+    return { issues: issues.issues };
 
   const finalDefinitions: Record<string, CompiledSchema> = {};
-  for (const [name, schema] of definitions) finalDefinitions[name] = schema === "compiling" ? { kind: "never" } : schema;
+  for (const [name, schema] of definitions)
+    finalDefinitions[name] =
+      schema === "compiling" ? { kind: "never" } : schema;
   const operationRef = operationRefFor(definition, operation.nativeId);
   try {
     const plan = operationPlanSchema.parse({
@@ -716,7 +815,9 @@ function compileOne(input: {
       responses,
       security: chosen,
       definitions: finalDefinitions,
-      ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
+      ...(options.maxResponseBytes
+        ? { maxResponseBytes: options.maxResponseBytes }
+        : {}),
     });
     const bound = boundOperationSchema.parse({
       operationRef,
@@ -729,7 +830,9 @@ function compileOne(input: {
       consent: review.consent ?? "confirm",
       replay,
       targetParameters,
-      ...(chosen.profiles[0] ? { authenticationProfile: chosen.profiles[0].profileId } : {}),
+      ...(chosen.profiles[0]
+        ? { authenticationProfile: chosen.profiles[0].profileId }
+        : {}),
       ...(description ? { description } : {}),
     });
     return { operation: bound, plan, issues: issues.issues };
@@ -740,7 +843,8 @@ function compileOne(input: {
       pointer,
       dimension: "invoke",
       severity: "blocking",
-      message: "The operation could not be expressed as a valid bound operation; it is blocked.",
+      message:
+        "The operation could not be expressed as a valid bound operation; it is blocked.",
     });
     return { issues: issues.issues };
   }
@@ -759,7 +863,10 @@ export function compileOperations(
   const allowedProfiles =
     options.profiles ??
     definition.authentication
-      .filter((profile) => EXECUTABLE_PROFILE_KINDS.has(profile.kind) && profile.kind !== "none")
+      .filter(
+        (profile) =>
+          EXECUTABLE_PROFILE_KINDS.has(profile.kind) && profile.kind !== "none",
+      )
       .map((profile) => profile.id);
   const include = options.include ? new Set(options.include) : undefined;
   const operations: BoundOperation[] = [];
@@ -767,17 +874,26 @@ export function compileOperations(
   const issues: CompatibilityIssue[] = [];
   const blocked: CompileResult["blocked"] = [];
   const executable: string[] = [];
-  const capabilityIds = new Set(definition.capabilities.map((capability) => capability.nativeId));
+  const capabilityIds = new Set(
+    definition.capabilities.map((capability) => capability.nativeId),
+  );
   for (const operation of read.operations) {
     if (include && !include.has(operation.nativeId)) continue;
     if (!capabilityIds.has(operation.nativeId)) continue;
-    const result = compileOne({ operation, definition, read, options, allowedProfiles });
+    const result = compileOne({
+      operation,
+      definition,
+      read,
+      options,
+      allowedProfiles,
+    });
     issues.push(...result.issues);
     if (result.operation && result.plan) {
       operations.push(result.operation);
       plans[result.operation.operationRef] = result.plan;
       executable.push(operation.nativeId);
-    } else blocked.push({ nativeId: operation.nativeId, issues: result.issues });
+    } else
+      blocked.push({ nativeId: operation.nativeId, issues: result.issues });
   }
   let verifier: PlanSettings["verifier"];
   if (options.verifier) {
@@ -792,13 +908,16 @@ export function compileOperations(
         dimension: "verify",
         severity: "blocking",
         executionImpact: "blocks-authorization",
-        message: "The verifier named by the host is not a compiled read operation; verification cannot use it.",
+        message:
+          "The verifier named by the host is not a compiled read operation; verification cannot use it.",
       });
       issues.push(...collector.issues);
     } else
       verifier = {
         operationRef,
-        ...(options.verifier.input === undefined ? {} : { input: options.verifier.input }),
+        ...(options.verifier.input === undefined
+          ? {}
+          : { input: options.verifier.input }),
       };
   }
   const settings: PlanSettings = {

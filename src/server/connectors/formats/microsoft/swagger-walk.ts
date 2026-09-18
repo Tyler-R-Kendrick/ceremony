@@ -36,25 +36,20 @@ export const SWAGGER_WALK_LIMITS = Object.freeze({
   schemaDepth: 24,
   schemaNodes: 4096,
   extensionKeys: 64,
-  extensionValue: { depth: 16, nodes: 2048, bytes: 64 * 1024, stringLength: 8192 },
+  extensionValue: {
+    depth: 16,
+    nodes: 2048,
+    bytes: 64 * 1024,
+    stringLength: 8192,
+  },
   refDepth: 32,
   securityDefinitions: 32,
 });
 
 export type HttpMethod =
-  | "GET"
-  | "PUT"
-  | "POST"
-  | "DELETE"
-  | "OPTIONS"
-  | "HEAD"
-  | "PATCH";
+  "GET" | "PUT" | "POST" | "DELETE" | "OPTIONS" | "HEAD" | "PATCH";
 export type SwaggerParameterLocation =
-  | "path"
-  | "query"
-  | "header"
-  | "formData"
-  | "body";
+  "path" | "query" | "header" | "formData" | "body";
 
 /** A schema node worth indexing: it carries an extension, a password format or a default. */
 export interface SchemaNode {
@@ -174,7 +169,13 @@ const methodKeys: Record<string, HttpMethod> = {
   head: "HEAD",
   patch: "PATCH",
 };
-const locations = new Set<string>(["path", "query", "header", "formData", "body"]);
+const locations = new Set<string>([
+  "path",
+  "query",
+  "header",
+  "formData",
+  "body",
+]);
 const NAME = /^[^\p{Cc}]{1,256}$/u;
 const PATH = /^\/[^\p{Cc}?#\s]*$/u;
 const STATUS = /^(default|[1-5]\d\d|[1-5]XX)$/;
@@ -188,7 +189,9 @@ const stringList = (value: unknown, max = 32): string[] =>
     : [];
 
 const optionalText = (value: unknown, max: number) =>
-  typeof value === "string" && value.length ? { text: safeText(value, max) } : undefined;
+  typeof value === "string" && value.length
+    ? { text: safeText(value, max) }
+    : undefined;
 
 type Deref = (
   node: unknown,
@@ -323,7 +326,14 @@ function walkSchemaNodes(
     seen: readonly string[];
   };
   const stack: Frame[] = [
-    { schema: root, pointer: rootPointer, pathString: "", required: false, depth: 0, seen: [] },
+    {
+      schema: root,
+      pointer: rootPointer,
+      pathString: "",
+      required: false,
+      depth: 0,
+      seen: [],
+    },
   ];
   while (stack.length) {
     const frame = stack.pop()!;
@@ -525,7 +535,9 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
         ...(typeof raw.name === "string"
           ? { parameterName: safeText(raw.name, 120) }
           : {}),
-        ...(typeof raw.flow === "string" ? { flow: safeText(raw.flow, 32) } : {}),
+        ...(typeof raw.flow === "string"
+          ? { flow: safeText(raw.flow, 32) }
+          : {}),
         ...(typeof raw.authorizationUrl === "string"
           ? { authorizationUrl: raw.authorizationUrl.slice(0, 2048) }
           : {}),
@@ -561,7 +573,11 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
                   executionImpact: "blocks-operation",
                   message: `Security requirement names ${token(scheme)}, which securityDefinitions does not declare.`,
                 });
-              return { scheme: safeText(scheme, 120), scopes: stringList(scopes, 64), known };
+              return {
+                scheme: safeText(scheme, 120),
+                scopes: stringList(scopes, 64),
+                known,
+              };
             })
         : [],
     }));
@@ -594,7 +610,10 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
       disposition: "adapted",
       message: `Only the first ${SWAGGER_WALK_LIMITS.paths} paths are imported.`,
     });
-  for (const [path, rawItem] of pathEntries.slice(0, SWAGGER_WALK_LIMITS.paths)) {
+  for (const [path, rawItem] of pathEntries.slice(
+    0,
+    SWAGGER_WALK_LIMITS.paths,
+  )) {
     const itemPointer = pointer("paths", path);
     if (!PATH.test(path) || path.length > 1024) {
       issues.push({
@@ -660,7 +679,8 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
             severity: "blocking",
             disposition: "rejected",
             executionImpact: "blocks-operation",
-            message: "A parameter needs a valid name and a Swagger 2.0 location.",
+            message:
+              "A parameter needs a valid name and a Swagger 2.0 location.",
           });
           return;
         }
@@ -731,7 +751,9 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           });
         rawOperation.parameters
           .slice(0, SWAGGER_WALK_LIMITS.parameters)
-          .forEach((raw, index) => readParameter(raw, `${at}/parameters/${index}`));
+          .forEach((raw, index) =>
+            readParameter(raw, `${at}/parameters/${index}`),
+          );
       }
       for (const templateName of templateParameters)
         if (!parameters.has(`path ${templateName}`))
@@ -747,10 +769,9 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           });
       const responses: WalkedResponse[] = [];
       if (isObject(rawOperation.responses))
-        for (const [status, raw] of Object.entries(rawOperation.responses).slice(
-          0,
-          SWAGGER_WALK_LIMITS.responses,
-        )) {
+        for (const [status, raw] of Object.entries(
+          rawOperation.responses,
+        ).slice(0, SWAGGER_WALK_LIMITS.responses)) {
           if (!STATUS.test(status)) continue;
           const responsePointer = `${at}/responses/${status}`;
           const resolved = deref(raw, responsePointer);
@@ -770,7 +791,9 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           responses.push({
             status,
             ...(desc ? { description: desc.text } : {}),
-            ...(response.schema !== undefined ? { schema: response.schema } : {}),
+            ...(response.schema !== undefined
+              ? { schema: response.schema }
+              : {}),
             headers: isObject(response.headers)
               ? Object.keys(response.headers)
                   .filter((name) => NAME.test(name))
@@ -781,7 +804,10 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
             nested,
           });
         }
-      const operationSecurity = readSecurity(rawOperation.security, `${at}/security`);
+      const operationSecurity = readSecurity(
+        rawOperation.security,
+        `${at}/security`,
+      );
       const rawId = rawOperation.operationId;
       const validId =
         typeof rawId === "string" &&
@@ -797,7 +823,8 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
           dimension: "import",
           severity: "warning",
           disposition: "adapted",
-          message: "The operationId is not a usable identifier; the method and path identify the operation.",
+          message:
+            "The operationId is not a usable identifier; the method and path identify the operation.",
         });
       const summary = optionalText(rawOperation.summary, 200);
       const operationDescription = optionalText(rawOperation.description, 500);
@@ -809,7 +836,9 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
         path,
         pointer: at,
         ...(summary ? { summary: summary.text } : {}),
-        ...(operationDescription ? { description: operationDescription.text } : {}),
+        ...(operationDescription
+          ? { description: operationDescription.text }
+          : {}),
         deprecated: rawOperation.deprecated === true,
         tags: stringList(rawOperation.tags, 16),
         consumes: Array.isArray(rawOperation.consumes)
@@ -852,12 +881,19 @@ export function walkSwagger(document: unknown): SwaggerWalkResult {
         });
       }
 
-  const host = typeof document.host === "string" ? safeText(document.host, 253) : "";
+  const host =
+    typeof document.host === "string" ? safeText(document.host, 253) : "";
   const basePath =
-    typeof document.basePath === "string" ? safeText(document.basePath, 512) : "";
+    typeof document.basePath === "string"
+      ? safeText(document.basePath, 512)
+      : "";
   const walk: SwaggerWalk = {
     version: "2.0",
-    info: { title, version, ...(description ? { description: description.text } : {}) },
+    info: {
+      title,
+      version,
+      ...(description ? { description: description.text } : {}),
+    },
     ...(host ? { host } : {}),
     ...(basePath ? { basePath } : {}),
     schemes: stringList(document.schemes, 4),

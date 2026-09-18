@@ -15,10 +15,7 @@ import type { ReferenceResolver } from "./refs.js";
  */
 
 export type OpenApiProfile =
-  | "swagger-2.0"
-  | "openapi-3.0"
-  | "openapi-3.1"
-  | "openapi-3.2";
+  "swagger-2.0" | "openapi-3.0" | "openapi-3.1" | "openapi-3.2";
 
 export const OPENAPI_PROFILES: readonly OpenApiProfile[] = [
   "swagger-2.0",
@@ -31,13 +28,7 @@ export const READER_ID = "openapi-http-reader";
 export const READER_VERSION = "1.0.0";
 
 export type ParameterLocation =
-  | "path"
-  | "query"
-  | "header"
-  | "cookie"
-  | "querystring"
-  | "formData"
-  | "body";
+  "path" | "query" | "header" | "cookie" | "querystring" | "formData" | "body";
 
 export interface ReadServer {
   url: string;

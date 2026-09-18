@@ -95,7 +95,9 @@ type FunctionForm =
   | "truncated";
 
 /** Classifies a value that is code rather than data, or returns undefined. */
-function functionForm(value: StaticValue | undefined): FunctionForm | undefined {
+function functionForm(
+  value: StaticValue | undefined,
+): FunctionForm | undefined {
   if (!value) return undefined;
   if (value.kind === "opaque") return value.reason;
   if (value.kind === "string" && ZAPIER_FUNC_MARKER.test(value.value))
@@ -144,7 +146,8 @@ function literalUrl(value: StaticValue | undefined): string | undefined {
   if (request) return request.url;
   const text = asString(value);
   if (text === undefined || ZAPIER_CURLIES.test(text)) return undefined;
-  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text)) return undefined;
+  if (!/^https:\/\/[^\s]+$/i.test(text) || !URL.canParse(text))
+    return undefined;
   const parsed = new URL(text);
   return parsed.username || parsed.password ? undefined : text;
 }
@@ -230,7 +233,10 @@ function readAuthentication(
     result.native["hasTest"] = true;
   const used = new Set<string>();
   const fields = asArray(objectValue(authentication, "fields")) ?? [];
-  if (objectValue(authentication, "fields") && !asArray(objectValue(authentication, "fields")))
+  if (
+    objectValue(authentication, "fields") &&
+    !asArray(objectValue(authentication, "fields"))
+  )
     issues.add({
       code: "zapier.authentication.fields-not-literal",
       category: "structure",
@@ -241,7 +247,9 @@ function readAuthentication(
       message:
         "Authentication fields are computed rather than listed, so the connection form could not be imported.",
     });
-  for (const [index, field] of fields.slice(0, ZAPIER_LIMITS.configuration).entries()) {
+  for (const [index, field] of fields
+    .slice(0, ZAPIER_LIMITS.configuration)
+    .entries()) {
     const key = asString(objectValue(field, "key"));
     if (key === undefined) {
       issues.add({
@@ -251,7 +259,8 @@ function readAuthentication(
         dimension: "configure",
         severity: "warning",
         disposition: "unsupported",
-        message: "An authentication field has no literal key and was not imported.",
+        message:
+          "An authentication field has no literal key and was not imported.",
       });
       continue;
     }
@@ -259,7 +268,8 @@ function readAuthentication(
     const noSecret = asBoolean(objectValue(field, "isNoSecret"));
     const computed = asBoolean(objectValue(field, "computed")) === true;
     // AuthFieldSchema defaults `required` to true; only an explicit false opts out.
-    const required = asBoolean(objectValue(field, "required")) !== false && !computed;
+    const required =
+      asBoolean(objectValue(field, "required")) !== false && !computed;
     const classification: ConfigurationRequirement["classification"] =
       noSecret === true && !SENSITIVE_FIELD.test(key)
         ? "public"
@@ -279,7 +289,12 @@ function readAuthentication(
       classification,
       required,
       ...(label || help
-        ? { description: safeText(label ? `${label}. ${help ?? ""}` : (help ?? ""), 500) }
+        ? {
+            description: safeText(
+              label ? `${label}. ${help ?? ""}` : (help ?? ""),
+              500,
+            ),
+          }
         : {}),
     });
     if (computed)
@@ -386,7 +401,8 @@ function readAuthentication(
         id: "zapier-oauth2",
         label: "Zapier OAuth 2.0",
         kind: "oauth-authorization-code",
-        pkce: pkceFlag === true ? "S256" : pkceFlag === false ? "none" : "unknown",
+        pkce:
+          pkceFlag === true ? "S256" : pkceFlag === false ? "none" : "unknown",
         authorizationEndpoint: authorize,
         tokenEndpoint,
         scopes: scopeText
@@ -453,7 +469,11 @@ function readAuthentication(
     }
     default: {
       unsupported(
-        `zapier-${safeText(type, 40).replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase() || "unknown"}`,
+        `zapier-${
+          safeText(type, 40)
+            .replace(/[^a-zA-Z0-9]+/g, "-")
+            .toLowerCase() || "unknown"
+        }`,
         `The authentication type "${token(type, 40)}" is not one this runtime implements.`,
       );
     }
@@ -497,7 +517,10 @@ function readFieldList(
       issues.add({
         code: "zapier.field.not-literal",
         category: "schema",
-        pointer: locate(pointer(...path), { ...loc, ...(file ? { file } : {}) }),
+        pointer: locate(pointer(...path), {
+          ...loc,
+          ...(file ? { file } : {}),
+        }),
         dimension: "import",
         severity: "warning",
         disposition: "unsupported",
@@ -556,7 +579,10 @@ function readFieldList(
       limitations.add(
         "Some fields reference a search step to populate them; that step is not part of this description.",
       );
-    if (choices !== undefined && functionForm(objectValue(choices, "perform"))) {
+    if (
+      choices !== undefined &&
+      functionForm(objectValue(choices, "perform"))
+    ) {
       issues.add({
         code: "zapier.field.dynamic-choices",
         category: "policy",
@@ -644,7 +670,8 @@ function collectOperations(
       dimension: "import",
       severity: "warning",
       disposition: "unsupported",
-      message: "The resources collection is produced by code and was not imported.",
+      message:
+        "The resources collection is produced by code and was not imported.",
     });
   const methods: Array<{
     name: string;
@@ -858,13 +885,22 @@ export async function readZapierApp(
     auth.profileIds.push("zapier-none");
   }
 
-  for (const key of ["beforeRequest", "afterResponse", "hydrators", "beforeApp", "afterApp"] as const) {
+  for (const key of [
+    "beforeRequest",
+    "afterResponse",
+    "hydrators",
+    "beforeApp",
+    "afterApp",
+  ] as const) {
     const value = app ? objectValue(app, key) : undefined;
     if (!value) continue;
     issues.add({
       code: "executable-code.function",
       category: "executable-code",
-      pointer: locate(pointer(key), { ...value.loc, ...(file ? { file } : {}) }),
+      pointer: locate(pointer(key), {
+        ...value.loc,
+        ...(file ? { file } : {}),
+      }),
       dimension: "invoke",
       severity: "warning",
       disposition: "requires-configuration",
@@ -882,9 +918,11 @@ export async function readZapierApp(
     const template = literalRequest(requestTemplate);
     if (template) {
       literalRequestTemplate = template;
-      declaredServers.set(new URL(template.url).origin, "Declared request template");
-    }
-    else
+      declaredServers.set(
+        new URL(template.url).origin,
+        "Declared request template",
+      );
+    } else
       issues.add({
         code: "zapier.request-template.not-literal",
         category: "structure",
@@ -937,7 +975,8 @@ export async function readZapierApp(
     if (operation.collection === "resources") {
       const resourceKey = operation.path[1];
       const method = operation.path[2];
-      if (typeof resourceKey === "string") extensions["resourceKey"] = resourceKey;
+      if (typeof resourceKey === "string")
+        extensions["resourceKey"] = resourceKey;
       if (typeof method === "string") extensions["resourceMethod"] = method;
     }
     for (const key of ["search", "create", "update"] as const) {
@@ -952,7 +991,10 @@ export async function readZapierApp(
       const request = literalRequest(value);
       if (request) {
         performIsLiteral = true;
-        declaredServers.set(new URL(request.url).origin, "Declared operation endpoint");
+        declaredServers.set(
+          new URL(request.url).origin,
+          "Declared operation endpoint",
+        );
         extensions[performKey] = {
           ...(request.method ? { method: request.method } : {}),
           url: request.url,
@@ -1041,7 +1083,8 @@ export async function readZapierApp(
       dimension: "import",
       severity: "info",
       disposition: "adapted",
-      message: "The definition declares no triggers, searches, creates or resources.",
+      message:
+        "The definition declares no triggers, searches, creates or resources.",
     });
 
   const flags = app ? objectValue(app, "flags") : undefined;
@@ -1051,7 +1094,9 @@ export async function readZapierApp(
     ...(platformVersion ? { platformVersion } : {}),
     ...(version ? { appVersion: version } : {}),
     ...(Object.keys(auth.native).length ? { authentication: auth.native } : {}),
-    ...(literalRequestTemplate ? { requestTemplate: literalRequestTemplate } : {}),
+    ...(literalRequestTemplate
+      ? { requestTemplate: literalRequestTemplate }
+      : {}),
     ...(flags ? { flags: inertCopy(toJsonValue(flags)) } : {}),
     ...(throttle ? { throttle: inertCopy(toJsonValue(throttle)) } : {}),
     limitations: [...limitations].slice(0, 32),

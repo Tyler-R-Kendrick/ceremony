@@ -112,7 +112,8 @@ function displayBody(capability: NativeCapability): Record<string, unknown> {
   const extensions = capability.nativeExtensions ?? {};
   const display: Record<string, unknown> = {};
   if (capability.label !== undefined) display["label"] = capability.label;
-  if (capability.summary !== undefined) display["description"] = capability.summary;
+  if (capability.summary !== undefined)
+    display["description"] = capability.summary;
   if (extensions["hidden"] === true) display["hidden"] = true;
   return display;
 }

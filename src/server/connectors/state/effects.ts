@@ -88,8 +88,9 @@ export interface ConnectorEffectJournal extends EffectJournalPort {
 }
 
 /** Same value, exact-optional type: zod spells an absent `code` as `code?: string | undefined`. */
-const asOutcome = (outcome: z.infer<typeof effectOutcomeSchema>): EffectOutcome =>
-  compact(outcome) as EffectOutcome;
+const asOutcome = (
+  outcome: z.infer<typeof effectOutcomeSchema>,
+): EffectOutcome => compact(outcome) as EffectOutcome;
 
 const checkOutcome = (outcome: unknown): EffectOutcome => {
   const parsed = effectOutcomeSchema.safeParse(outcome);
@@ -114,15 +115,25 @@ export function createEffectJournalPort(
       void _actor;
       const parsed = effectIntentInputSchema.safeParse(rest);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "effect.intent" });
+        throw new ConnectorError("invalid-request", {
+          detail: "effect.intent",
+        });
       const input = parsed.data;
       const attemptWorker = `${worker}-${randomUUID()}`;
-      const pointerKey = intentKey(actor.tenantId, input.operation, input.digest);
+      const pointerKey = intentKey(
+        actor.tenantId,
+        input.operation,
+        input.digest,
+      );
       for (let attempt = 0; ; attempt++) {
         try {
           const result = await transact(store, async (tx) => {
             const at = await time(tx);
-            const pointer = await readRecord(tx, pointerKey, effectPointerSchema);
+            const pointer = await readRecord(
+              tx,
+              pointerKey,
+              effectPointerSchema,
+            );
             if (pointer) {
               const key = effectKey(actor.tenantId, pointer.value.effectRef);
               const existing = await readRecord(tx, key, storedEffectSchema);
@@ -285,7 +296,9 @@ export function createEffectJournalPort(
           await tx.heartbeat(fence, leaseMs);
         } catch (error) {
           if (error instanceof PersistenceConflict)
-            throw new ConnectorError("conflict", { detail: "effect.lease-lost" });
+            throw new ConnectorError("conflict", {
+              detail: "effect.lease-lost",
+            });
           throw error;
         }
       });
@@ -313,7 +326,9 @@ export function createEffectJournalPort(
           await tx.claim(key, attemptWorker, leaseMs);
         } catch (error) {
           if (error instanceof PersistenceConflict)
-            throw new ConnectorError("conflict", { detail: "effect.in-flight" });
+            throw new ConnectorError("conflict", {
+              detail: "effect.in-flight",
+            });
           throw error;
         }
         await tx.put(
@@ -366,7 +381,8 @@ export function createEffectJournalPort(
 
     async execute(intent, work) {
       const begun = await journal.begin(intent);
-      if (begun.prior) return { effectRef: begun.effectRef, prior: begun.prior };
+      if (begun.prior)
+        return { effectRef: begun.effectRef, prior: begun.prior };
       let result: { outcome: EffectOutcome; value: unknown };
       try {
         result = await work(begun.effectRef);

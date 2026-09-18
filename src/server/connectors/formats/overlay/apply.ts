@@ -100,7 +100,9 @@ export interface ApplyResult {
  */
 function digestOf(value: unknown): string | undefined {
   try {
-    return createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
+    return createHash("sha256")
+      .update(canonicalConnectorJson(value))
+      .digest("hex");
   } catch {
     return undefined;
   }
@@ -113,7 +115,8 @@ function cloneJson(value: unknown, limit: number): unknown {
   return JSON.parse(text);
 }
 
-type MergeOutcome = { ok: true; value: unknown } | { ok: false; reason: string };
+type MergeOutcome =
+  { ok: true; value: unknown } | { ok: false; reason: string };
 
 /**
  * The recursive merge both versions define: a property only in the target is
@@ -127,7 +130,8 @@ function mergeValue(
   depth: number,
   limits: ApplyLimits,
 ): MergeOutcome {
-  if (depth > limits.maxMergeDepth) return { ok: false, reason: "merge-too-deep" };
+  if (depth > limits.maxMergeDepth)
+    return { ok: false, reason: "merge-too-deep" };
   if (isRecord(target) && isRecord(update)) {
     const result: Record<string, unknown> = {};
     for (const [key, value] of entriesOf(target)) result[key] = value;
@@ -157,7 +161,8 @@ function setAt(match: Match, value: unknown): boolean {
     return true;
   }
   if (isRecord(match.parent) && typeof match.key === "string") {
-    if (["__proto__", "prototype", "constructor"].includes(match.key)) return false;
+    if (["__proto__", "prototype", "constructor"].includes(match.key))
+      return false;
     match.parent[match.key] = value;
     return true;
   }
@@ -171,7 +176,8 @@ function removeAt(match: Match): boolean {
     return true;
   }
   if (isRecord(match.parent) && typeof match.key === "string") {
-    if (["__proto__", "prototype", "constructor"].includes(match.key)) return false;
+    if (["__proto__", "prototype", "constructor"].includes(match.key))
+      return false;
     delete match.parent[match.key];
     return true;
   }
@@ -225,7 +231,10 @@ export function applyOverlay(
   overlay: unknown,
   options: ApplyOptions = {},
 ): ApplyResult {
-  const limits: ApplyLimits = { ...DEFAULT_APPLY_LIMITS, ...(options.limits ?? {}) };
+  const limits: ApplyLimits = {
+    ...DEFAULT_APPLY_LIMITS,
+    ...(options.limits ?? {}),
+  };
   const issues = new IssueCollector(512);
   const actions: ActionRecord[] = [];
   const fail = (): ApplyResult => ({
@@ -253,7 +262,9 @@ export function applyOverlay(
   // `extends` is provenance, and pinning it is how a reviewed overlay is kept
   // attached to the exact document it was reviewed against.
   const declared =
-    typeof overlay.extends === "string" ? safeText(overlay.extends, 2048) : undefined;
+    typeof overlay.extends === "string"
+      ? safeText(overlay.extends, 2048)
+      : undefined;
   let extendsMatch: NonNullable<ApplyResult["extends"]>["match"];
   if (!options.source?.digest && !options.source?.identity)
     extendsMatch = "unpinned";
@@ -275,7 +286,9 @@ export function applyOverlay(
       dimension: "import",
       severity: options.requireExtendsMatch ? "blocking" : "warning",
       disposition: options.requireExtendsMatch ? "rejected" : "adapted",
-      ...(options.requireExtendsMatch ? { executionImpact: "blocks-definition" as const } : {}),
+      ...(options.requireExtendsMatch
+        ? { executionImpact: "blocks-definition" as const }
+        : {}),
       message:
         "The overlay names a target document other than the pinned source; applying it would transform a document the overlay was not written for.",
     });
@@ -302,7 +315,8 @@ export function applyOverlay(
       severity: "blocking",
       disposition: "rejected",
       executionImpact: "blocks-definition",
-      message: "The overlay declares no actions; the array is required and must hold at least one action.",
+      message:
+        "The overlay declares no actions; the array is required and must hold at least one action.",
     });
     return { ...fail(), extends: extendsInfo };
   }
@@ -315,7 +329,8 @@ export function applyOverlay(
       severity: "blocking",
       disposition: "rejected",
       executionImpact: "blocks-definition",
-      message: "The overlay declares more actions than the applier allows; nothing is applied.",
+      message:
+        "The overlay declares more actions than the applier allows; nothing is applied.",
     });
     return { ...fail(), extends: extendsInfo };
   }
@@ -334,7 +349,8 @@ export function applyOverlay(
       severity: "blocking",
       disposition: "rejected",
       executionImpact: "blocks-definition",
-      message: "The target document exceeds the applier's size budget; nothing is applied.",
+      message:
+        "The target document exceeds the applier's size budget; nothing is applied.",
     });
     return { ...fail(), extends: extendsInfo };
   }
@@ -347,7 +363,8 @@ export function applyOverlay(
       severity: "blocking",
       disposition: "rejected",
       executionImpact: "blocks-definition",
-      message: "The target document is not JSON-serializable and was not transformed.",
+      message:
+        "The target document is not JSON-serializable and was not transformed.",
     });
     return { ...fail(), extends: extendsInfo };
   }
@@ -377,7 +394,8 @@ export function applyOverlay(
         severity: "blocking",
         disposition: "rejected",
         executionImpact: "blocks-definition",
-        message: "An action declares no target expression; the overlay is not applied.",
+        message:
+          "An action declares no target expression; the overlay is not applied.",
       });
       return { ...fail(), extends: extendsInfo };
     }
@@ -421,7 +439,8 @@ export function applyOverlay(
         dimension: "import",
         severity: "warning",
         disposition: "adapted",
-        message: "An action declares neither update, copy nor remove; it changes nothing.",
+        message:
+          "An action declares neither update, copy nor remove; it changes nothing.",
       });
       actions.push({
         index,
@@ -448,12 +467,17 @@ export function applyOverlay(
         severity: "blocking",
         disposition: "rejected",
         executionImpact: "blocks-definition",
-        message: "Evaluating the target expression exceeded the applier's node budget; nothing is applied.",
+        message:
+          "Evaluating the target expression exceeded the applier's node budget; nothing is applied.",
       });
       return { ...fail(), extends: extendsInfo };
     }
 
-    const kind: ActionRecord["kind"] = remove ? "remove" : hasCopy ? "copy" : "update";
+    const kind: ActionRecord["kind"] = remove
+      ? "remove"
+      : hasCopy
+        ? "copy"
+        : "update";
     const description = safeText(raw.description, 500);
     const record: ActionRecord = {
       index,
@@ -487,7 +511,8 @@ export function applyOverlay(
             severity: "blocking",
             disposition: "rejected",
             executionImpact: "blocks-definition",
-            message: "An action targets the root document for removal; the overlay is not applied.",
+            message:
+              "An action targets the root document for removal; the overlay is not applied.",
           });
           return { ...fail(), extends: extendsInfo };
         }
@@ -524,7 +549,8 @@ export function applyOverlay(
           severity: "blocking",
           disposition: "rejected",
           executionImpact: "blocks-definition",
-          message: "A copy action's expression is not a string; the overlay is not applied.",
+          message:
+            "A copy action's expression is not a string; the overlay is not applied.",
         });
         return { ...fail(), extends: extendsInfo };
       }
@@ -558,7 +584,8 @@ export function applyOverlay(
           severity: "blocking",
           disposition: "rejected",
           executionImpact: "blocks-definition",
-          message: "Evaluating the copy expression exceeded the applier's node budget; nothing is applied.",
+          message:
+            "Evaluating the copy expression exceeded the applier's node budget; nothing is applied.",
         });
         return { ...fail(), extends: extendsInfo };
       }
@@ -583,7 +610,11 @@ export function applyOverlay(
     // "merge here, append there" depending on what the document happened to hold.
     const shapes = new Set(
       matches.map((match) =>
-        Array.isArray(match.value) ? "array" : isRecord(match.value) ? "object" : "primitive",
+        Array.isArray(match.value)
+          ? "array"
+          : isRecord(match.value)
+            ? "object"
+            : "primitive",
       ),
     );
     if (shapes.size > 1) {
@@ -620,7 +651,8 @@ export function applyOverlay(
       if (shape === "array") {
         const array = match.value as unknown[];
         // 1.0.0 appends one entry; 1.1.0 concatenates an array and appends anything else.
-        if (version === "1.1.0" && Array.isArray(updateValue)) array.push(...(updateValue as unknown[]));
+        if (version === "1.1.0" && Array.isArray(updateValue))
+          array.push(...(updateValue as unknown[]));
         else if (version === "1.0.0" && Array.isArray(updateValue)) {
           issues.add({
             code: "structure.array-update-not-an-entry",
@@ -639,7 +671,8 @@ export function applyOverlay(
         continue;
       }
       if (shape === "primitive") {
-        if (setAt(match, cloneJson(updateValue, limits.maxUpdateNodes))) record.applied += 1;
+        if (setAt(match, cloneJson(updateValue, limits.maxUpdateNodes)))
+          record.applied += 1;
         continue;
       }
       const merged = mergeValue(

@@ -283,7 +283,11 @@ export async function saveConnection(
     keyDigest: keyDigestOf(record),
     disconnect: extra.disconnect,
   });
-  return tx.put(connectionKey(tenantId, record.connectionRef), value, expectedRevision);
+  return tx.put(
+    connectionKey(tenantId, record.connectionRef),
+    value,
+    expectedRevision,
+  );
 }
 
 type ExternalEntry = { authorityInstance: string; name: string; value: string };
@@ -495,7 +499,9 @@ export function createConnectionStore(
           await saveConnection(tx, record.tenantId, record, {}, null);
         } catch (error) {
           if (error instanceof PersistenceConflict)
-            throw new ConnectorError("conflict", { detail: "connection.exists" });
+            throw new ConnectorError("conflict", {
+              detail: "connection.exists",
+            });
           throw error;
         }
         await reindex(tx, record.tenantId, undefined, record, at);
@@ -506,7 +512,12 @@ export function createConnectionStore(
     async get(rawActor, connectionRef) {
       const actor = checkActor(rawActor);
       return transact(store, async (tx) => {
-        const record = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const record = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         return record && entryOf(record.value, record.revision);
       });
     },
@@ -514,7 +525,9 @@ export function createConnectionStore(
     async update(rawActor, connectionRef, expectedRevision, patch) {
       const actor = checkActor(rawActor);
       if (!patch || typeof patch !== "object")
-        throw new ConnectorError("invalid-request", { detail: "connection.patch" });
+        throw new ConnectorError("invalid-request", {
+          detail: "connection.patch",
+        });
       for (const field of immutableFields)
         if (Object.hasOwn(patch, field))
           throw new ConnectorError("invalid-request", {
@@ -529,14 +542,25 @@ export function createConnectionStore(
       void _revision;
       const parsed = connectionPatchSchema.safeParse(rest);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "connection.patch" });
+        throw new ConnectorError("invalid-request", {
+          detail: "connection.patch",
+        });
       const changes = compact(parsed.data);
       const outcome = await transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         if (current.revision !== expectedRevision)
-          throw new ConnectorError("conflict", { detail: "connection.revision" });
+          throw new ConnectorError("conflict", {
+            detail: "connection.revision",
+          });
         const at = await time(tx);
         const before = current.value.record;
         const merged = asConnectionRecord(
@@ -607,11 +631,20 @@ export function createConnectionStore(
     async advanceGeneration(rawActor, connectionRef, expectedRevision) {
       const actor = checkActor(rawActor);
       const result = await transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         if (current.revision !== expectedRevision)
-          throw new ConnectorError("conflict", { detail: "connection.revision" });
+          throw new ConnectorError("conflict", {
+            detail: "connection.revision",
+          });
         const at = await time(tx);
         const record: ConnectionRecord = {
           ...current.value.record,
@@ -665,7 +698,12 @@ export function createConnectionStore(
     async sharedWith(rawActor, connectionRef) {
       const actor = checkActor(rawActor);
       return transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current) return [];
         return sharedRefs(tx, actor.tenantId, current.value.record);
       });
@@ -674,11 +712,20 @@ export function createConnectionStore(
     async assertDisconnectAllowed(rawActor, connectionRef, scope, opts = {}) {
       const actor = checkActor(rawActor);
       if (!disconnectScopeSchema.safeParse(scope).success)
-        throw new ConnectorError("invalid-request", { detail: "disconnect.scope" });
+        throw new ConnectorError("invalid-request", {
+          detail: "disconnect.scope",
+        });
       return transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         const sharedWith = await sharedRefs(
           tx,
           actor.tenantId,
@@ -716,11 +763,20 @@ export function createConnectionStore(
       const broker = parsedBroker.data;
       const upstream = parsedUpstream.data;
       const result = await transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         if (current.revision !== expectedRevision)
-          throw new ConnectorError("conflict", { detail: "connection.revision" });
+          throw new ConnectorError("conflict", {
+            detail: "connection.revision",
+          });
         const at = await time(tx);
         const before = current.value.record;
         const sharedWith = await sharedRefs(tx, actor.tenantId, before);

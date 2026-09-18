@@ -74,7 +74,10 @@ export const compiledSchemaSchema: z.ZodType<CompiledSchema> = z.lazy(() =>
   z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("any") }),
     z.strictObject({ kind: z.literal("never") }),
-    z.strictObject({ kind: z.literal("ref"), name: z.string().min(1).max(2048) }),
+    z.strictObject({
+      kind: z.literal("ref"),
+      name: z.string().min(1).max(2048),
+    }),
     z.strictObject({
       kind: z.literal("node"),
       types: z.array(z.enum(JSON_TYPES)).max(7).optional(),
@@ -92,9 +95,13 @@ export const compiledSchemaSchema: z.ZodType<CompiledSchema> = z.lazy(() =>
       maxItems: z.number().int().nonnegative().optional(),
       uniqueItems: z.boolean().optional(),
       items: compiledSchemaSchema.optional(),
-      properties: z.record(z.string().max(256), compiledSchemaSchema).optional(),
+      properties: z
+        .record(z.string().max(256), compiledSchemaSchema)
+        .optional(),
       required: z.array(z.string().max(256)).max(1024).optional(),
-      additionalProperties: z.union([z.boolean(), compiledSchemaSchema]).optional(),
+      additionalProperties: z
+        .union([z.boolean(), compiledSchemaSchema])
+        .optional(),
       minProperties: z.number().int().nonnegative().optional(),
       maxProperties: z.number().int().nonnegative().optional(),
       title: z.string().max(200).optional(),
@@ -242,7 +249,9 @@ function nonNegativeInt(value: unknown): number | undefined {
     : undefined;
 }
 function finite(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 /**
@@ -270,7 +279,10 @@ export function compileSchema(
   if (typeof raw.$ref === "string") {
     const siblings = entriesOf(raw)
       .map(([key]) => key)
-      .filter((key) => key !== "$ref" && !key.startsWith("x-") && !annotations.has(key));
+      .filter(
+        (key) =>
+          key !== "$ref" && !key.startsWith("x-") && !annotations.has(key),
+      );
     if (siblings.length)
       ctx.problems.push({
         code: "schema.unsupported-keyword",
@@ -285,12 +297,18 @@ export function compileSchema(
       });
       return { kind: "never" };
     }
-    const name = nameFor(resolved.resolved.documentKey, resolved.resolved.pointer);
+    const name = nameFor(
+      resolved.resolved.documentKey,
+      resolved.resolved.pointer,
+    );
     if (!ctx.definitions.has(name)) {
       ctx.definitions.set(name, "compiling");
       const compiled = compileSchema(
         resolved.resolved.value,
-        { documentKey: resolved.resolved.documentKey, pointer: resolved.resolved.pointer },
+        {
+          documentKey: resolved.resolved.documentKey,
+          pointer: resolved.resolved.pointer,
+        },
         ctx,
         depth + 1,
       );
@@ -303,15 +321,23 @@ export function compileSchema(
   for (const [key, value] of entriesOf(raw)) {
     if (key.startsWith("x-")) continue;
     if (annotations.has(key)) {
-      if (key === "$schema" && typeof value === "string" && !defaultDialects.has(value))
-        ctx.problems.push({ code: "schema.dialect-unsupported", pointer: location.pointer });
+      if (
+        key === "$schema" &&
+        typeof value === "string" &&
+        !defaultDialects.has(value)
+      )
+        ctx.problems.push({
+          code: "schema.dialect-unsupported",
+          pointer: location.pointer,
+        });
       if (key === "discriminator")
         ctx.problems.push({
           code: "schema.unsupported-keyword",
           pointer: location.pointer,
           keyword: key,
         });
-      if (key === "title" && typeof value === "string") node.title = value.slice(0, 200);
+      if (key === "title" && typeof value === "string")
+        node.title = value.slice(0, 200);
       if (key === "description" && typeof value === "string")
         node.description = value.replace(/\p{Cc}/gu, " ").slice(0, 500);
       if (key === "deprecated" && value === true) node.deprecated = true;
@@ -348,9 +374,17 @@ export function compileSchema(
         }
         const types: JsonType[] = [];
         for (const item of list)
-          if (typeof item === "string" && (JSON_TYPES as readonly string[]).includes(item))
+          if (
+            typeof item === "string" &&
+            (JSON_TYPES as readonly string[]).includes(item)
+          )
             types.push(item as JsonType);
-          else ctx.problems.push({ code: "schema.invalid", pointer: location.pointer, keyword: "type" });
+          else
+            ctx.problems.push({
+              code: "schema.invalid",
+              pointer: location.pointer,
+              keyword: "type",
+            });
         node.types = [...new Set([...(node.types ?? []), ...types])];
         break;
       }
@@ -363,12 +397,19 @@ export function compileSchema(
           });
           break;
         }
-        if (value === true) node.types = [...new Set([...(node.types ?? []), "null" as const])];
+        if (value === true)
+          node.types = [...new Set([...(node.types ?? []), "null" as const])];
         break;
       }
       case "enum": {
-        if (Array.isArray(value) && value.length <= 1024) node.enum = value.map(cloneJson);
-        else ctx.problems.push({ code: "schema.invalid", pointer: location.pointer, keyword: "enum" });
+        if (Array.isArray(value) && value.length <= 1024)
+          node.enum = value.map(cloneJson);
+        else
+          ctx.problems.push({
+            code: "schema.invalid",
+            pointer: location.pointer,
+            keyword: "enum",
+          });
         break;
       }
       case "const": {
@@ -386,7 +427,10 @@ export function compileSchema(
       case "format": {
         if (typeof value !== "string") break;
         if (value === "binary") {
-          ctx.problems.push({ code: "schema.binary-in-json", pointer: location.pointer });
+          ctx.problems.push({
+            code: "schema.binary-in-json",
+            pointer: location.pointer,
+          });
           break;
         }
         node.format = value.slice(0, 64);
@@ -408,11 +452,16 @@ export function compileSchema(
       case "exclusiveMaximum": {
         if (typeof value === "boolean") {
           if (modern) {
-            ctx.problems.push({ code: "schema.invalid", pointer: location.pointer, keyword: key });
+            ctx.problems.push({
+              code: "schema.invalid",
+              pointer: location.pointer,
+              keyword: key,
+            });
             break;
           }
           if (value) {
-            const bound = key === "exclusiveMinimum" ? raw.minimum : raw.maximum;
+            const bound =
+              key === "exclusiveMinimum" ? raw.minimum : raw.maximum;
             const number = finite(bound);
             if (number !== undefined) {
               node[key] = number;
@@ -456,7 +505,10 @@ export function compileSchema(
         }
         node.items = compileSchema(
           value,
-          { documentKey: location.documentKey, pointer: `${location.pointer}/items` },
+          {
+            documentKey: location.documentKey,
+            pointer: `${location.pointer}/items`,
+          },
           ctx,
           depth + 1,
         );
@@ -483,7 +535,10 @@ export function compileSchema(
       case "required": {
         if (Array.isArray(value))
           node.required = value
-            .filter((item): item is string => typeof item === "string" && item.length <= 256)
+            .filter(
+              (item): item is string =>
+                typeof item === "string" && item.length <= 256,
+            )
             .slice(0, 1024);
         break;
       }
@@ -533,7 +588,8 @@ const typeOf = (value: unknown): JsonType | undefined => {
   if (value === null) return "null";
   if (typeof value === "string") return "string";
   if (typeof value === "boolean") return "boolean";
-  if (typeof value === "number") return Number.isFinite(value) ? "number" : undefined;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? "number" : undefined;
   if (Array.isArray(value)) return "array";
   if (isRecord(value)) return "object";
   return undefined;
@@ -543,15 +599,21 @@ function formatValid(format: string, value: string): boolean {
   switch (format) {
     case "date-time":
       return (
-        /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/.test(value) &&
-        !Number.isNaN(Date.parse(value))
+        /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/.test(
+          value,
+        ) && !Number.isNaN(Date.parse(value))
       );
     case "date":
-      return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+      return (
+        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+      );
     case "time":
       return /^\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/.test(value);
     case "uuid":
-      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        value,
+      );
     case "email":
       return value.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
     case "uri":
@@ -590,7 +652,12 @@ export function validateValue(
   const failures: ValidationFailure[] = [];
   const maxDepth = options.maxDepth ?? 64;
   const budget = { nodes: 0, limit: options.maxNodes ?? 100_000 };
-  const check = (item: unknown, current: CompiledSchema, path: string, depth: number): void => {
+  const check = (
+    item: unknown,
+    current: CompiledSchema,
+    path: string,
+    depth: number,
+  ): void => {
     if (++budget.nodes > budget.limit) {
       if (!failures.some((failure) => failure.code === "schema.node-budget"))
         failures.push({ path, code: "schema.node-budget" });
@@ -622,17 +689,26 @@ export function validateValue(
     if (current.types && current.types.length) {
       const matches =
         current.types.includes(actual) ||
-        (actual === "number" && current.types.includes("integer") && Number.isInteger(item));
+        (actual === "number" &&
+          current.types.includes("integer") &&
+          Number.isInteger(item));
       if (!matches) {
         failures.push({ path, code: "schema.type" });
         return;
       }
     }
-    if (current.const !== undefined && canonicalConnectorJson(item) !== canonicalConnectorJson(current.const))
+    if (
+      current.const !== undefined &&
+      canonicalConnectorJson(item) !== canonicalConnectorJson(current.const)
+    )
       failures.push({ path, code: "schema.const" });
     if (current.enum) {
       const canonical = canonicalConnectorJson(item);
-      if (!current.enum.some((option) => canonicalConnectorJson(option) === canonical))
+      if (
+        !current.enum.some(
+          (option) => canonicalConnectorJson(option) === canonical,
+        )
+      )
         failures.push({ path, code: "schema.enum" });
     }
     if (typeof item === "number") {
@@ -640,16 +716,25 @@ export function validateValue(
         failures.push({ path, code: "schema.minimum" });
       if (current.maximum !== undefined && item > current.maximum)
         failures.push({ path, code: "schema.maximum" });
-      if (current.exclusiveMinimum !== undefined && item <= current.exclusiveMinimum)
+      if (
+        current.exclusiveMinimum !== undefined &&
+        item <= current.exclusiveMinimum
+      )
         failures.push({ path, code: "schema.exclusive-minimum" });
-      if (current.exclusiveMaximum !== undefined && item >= current.exclusiveMaximum)
+      if (
+        current.exclusiveMaximum !== undefined &&
+        item >= current.exclusiveMaximum
+      )
         failures.push({ path, code: "schema.exclusive-maximum" });
       if (current.multipleOf !== undefined) {
         const quotient = item / current.multipleOf;
         if (Math.abs(quotient - Math.round(quotient)) > 1e-9)
           failures.push({ path, code: "schema.multiple-of" });
       }
-      if (current.format === "int32" && (!Number.isInteger(item) || item < -2147483648 || item > 2147483647))
+      if (
+        current.format === "int32" &&
+        (!Number.isInteger(item) || item < -2147483648 || item > 2147483647)
+      )
         failures.push({ path, code: "schema.format" });
       if (current.format === "int64" && !Number.isInteger(item))
         failures.push({ path, code: "schema.format" });
@@ -669,8 +754,12 @@ export function validateValue(
       if (current.maxItems !== undefined && item.length > current.maxItems)
         failures.push({ path, code: "schema.max-items" });
       if (current.uniqueItems) {
-        if (item.length > 1024) failures.push({ path, code: "schema.unique-items-bound" });
-        else if (new Set(item.map((entry) => canonicalConnectorJson(entry))).size !== item.length)
+        if (item.length > 1024)
+          failures.push({ path, code: "schema.unique-items-bound" });
+        else if (
+          new Set(item.map((entry) => canonicalConnectorJson(entry))).size !==
+          item.length
+        )
           failures.push({ path, code: "schema.unique-items" });
       }
       if (current.items)
@@ -680,9 +769,15 @@ export function validateValue(
     }
     if (isRecord(item)) {
       const keys = entriesOf(item).map(([key]) => key);
-      if (current.minProperties !== undefined && keys.length < current.minProperties)
+      if (
+        current.minProperties !== undefined &&
+        keys.length < current.minProperties
+      )
         failures.push({ path, code: "schema.min-properties" });
-      if (current.maxProperties !== undefined && keys.length > current.maxProperties)
+      if (
+        current.maxProperties !== undefined &&
+        keys.length > current.maxProperties
+      )
         failures.push({ path, code: "schema.max-properties" });
       for (const name of current.required ?? [])
         if (!keys.includes(name))
@@ -692,7 +787,10 @@ export function validateValue(
         const childPath = `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
         if (property) check(item[key], property, childPath, depth + 1);
         else if (current.additionalProperties === false)
-          failures.push({ path: childPath, code: "schema.additional-property" });
+          failures.push({
+            path: childPath,
+            code: "schema.additional-property",
+          });
         else if (typeof current.additionalProperties === "object")
           check(item[key], current.additionalProperties, childPath, depth + 1);
       }

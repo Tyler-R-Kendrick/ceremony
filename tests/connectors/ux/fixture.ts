@@ -680,7 +680,7 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
     }
     if (path === "/import" && request.method === "POST") {
       const input = body as { kind?: string; text?: string; url?: string };
-      if (input.kind === "upload" && (input.text ?? "").includes(" "))
+      if (input.kind === "upload" && (input.text ?? "").trim() === "{}")
         return fail(400, "invalid-document", "That document could not be read.");
       const blocked = blockedDefinition();
       return json({

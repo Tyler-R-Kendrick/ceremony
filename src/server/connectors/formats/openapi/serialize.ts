@@ -146,7 +146,9 @@ export function serializeRequest(input: {
   const record = values as Record<string, unknown>;
   for (const key of Object.keys(record))
     if (FORBIDDEN_INPUT_KEYS.has(key))
-      reject("openapi.input-reserved-key", [{ code: "reserved-key", path: key }]);
+      reject("openapi.input-reserved-key", [
+        { code: "reserved-key", path: key },
+      ]);
 
   const definitions: SchemaDefinitions = plan.definitions;
   const declared = new Set(plan.parameters.map((parameter) => parameter.name));
@@ -319,7 +321,11 @@ export async function readBoundedBody(
   limit: number,
 ): Promise<{ bytes: Uint8Array; exceeded: boolean }> {
   const declared = response.headers.get("content-length");
-  if (declared !== null && /^\d{1,20}$/.test(declared) && Number(declared) > limit)
+  if (
+    declared !== null &&
+    /^\d{1,20}$/.test(declared) &&
+    Number(declared) > limit
+  )
     return { bytes: new Uint8Array(0), exceeded: true };
   const reader = response.body?.getReader();
   if (!reader) return { bytes: new Uint8Array(0), exceeded: false };

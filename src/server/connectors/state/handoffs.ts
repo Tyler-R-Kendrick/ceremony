@@ -114,7 +114,12 @@ export async function settlePendingHandoffs(
     if (!record || !pending(record.value.state)) continue;
     await tx.put(
       handoffKey(tenantId, handoffRef),
-      { ...record.value, state, reason, completedAt: at } satisfies StoredHandoff,
+      {
+        ...record.value,
+        state,
+        reason,
+        completedAt: at,
+      } satisfies StoredHandoff,
       record.revision,
     );
     await dropCorrelation(tx, tenantId, record.value);
@@ -171,7 +176,9 @@ export function createHandoffPort(
       void _actor;
       const parsed = handoffIssueInputSchema.safeParse(rest);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "handoff.input" });
+        throw new ConnectorError("invalid-request", {
+          detail: "handoff.input",
+        });
       const issue = parsed.data;
       const handoffRef = newRef("handoff");
       const record = await transact(store, async (tx) => {
@@ -199,7 +206,11 @@ export function createHandoffPort(
               handoffKey(actor.tenantId, existing.value.handoffRef),
               storedHandoffSchema,
             );
-            if (owner && pending(owner.value.state) && owner.value.expiresAt > at)
+            if (
+              owner &&
+              pending(owner.value.state) &&
+              owner.value.expiresAt > at
+            )
               throw new ConnectorError("conflict", {
                 detail: "handoff.correlation-in-use",
               });
@@ -305,7 +316,9 @@ export function createHandoffPort(
         .enum(["completed", "denied", "expired", "cancelled", "superseded"])
         .safeParse(state);
       if (!target.success || !Number.isSafeInteger(expectedGeneration))
-        throw new ConnectorError("invalid-request", { detail: "handoff.state" });
+        throw new ConnectorError("invalid-request", {
+          detail: "handoff.state",
+        });
       if (!isReference(handoffRef))
         throw new ConnectorError("not-found", { detail: "handoff.unknown" });
       return transact(store, async (tx) => {

@@ -16,7 +16,10 @@ import {
   type ConnectionOwnership,
   type ConnectorConnectionStore,
 } from "./connections.js";
-import { createEvidenceStore, type ConnectorEvidenceStore } from "./evidence.js";
+import {
+  createEvidenceStore,
+  type ConnectorEvidenceStore,
+} from "./evidence.js";
 import {
   createSourceArtifactPort,
   type ConnectorSourceArtifacts,
@@ -93,7 +96,8 @@ export function createConnectorPorts(
       ? { cacheInvalidation: options.cacheInvalidation }
       : {}),
   };
-  const lease = options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs };
+  const lease =
+    options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs };
   const credentials = createCredentialCustodyPort(store, {
     ...(options.now ? { now: options.now } : {}),
     ...(options.worker ? { worker: options.worker } : {}),

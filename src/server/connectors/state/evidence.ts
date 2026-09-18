@@ -47,7 +47,10 @@ export interface ConnectorEvidenceStore extends EvidenceStorePort {
   /** Current and stale claims with their invalidation reasons. */
   listAll(actor: ActorContext, connectionRef: string): Promise<EvidenceEntry[]>;
   /** Marks claims whose validity ended; returns the count. */
-  invalidateExpired(actor: ActorContext, connectionRef: string): Promise<number>;
+  invalidateExpired(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<number>;
 }
 
 /** Marks matching current claims stale inside the caller's transaction. */
@@ -124,7 +127,9 @@ export function createEvidenceStore(
       const actor = checkActor(rawActor);
       const parsed = verificationClaimSchema.safeParse(rawClaim);
       if (!parsed.success)
-        throw new ConnectorError("invalid-request", { detail: "evidence.claim" });
+        throw new ConnectorError("invalid-request", {
+          detail: "evidence.claim",
+        });
       const claim = parsed.data;
       await transact(store, async (tx) => {
         const connection = await loadOwnedConnection(
@@ -134,12 +139,20 @@ export function createEvidenceStore(
           owns,
         );
         if (!connection)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
-        const key = evidenceKey(actor.tenantId, connectionRef, claim.evidenceRef);
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
+        const key = evidenceKey(
+          actor.tenantId,
+          connectionRef,
+          claim.evidenceRef,
+        );
         const existing = await readRecord(tx, key, storedEvidenceSchema);
         if (existing) {
           if (sameJson(existing.value.claim, claim)) return;
-          throw new ConnectorError("conflict", { detail: "evidence.ref-in-use" });
+          throw new ConnectorError("conflict", {
+            detail: "evidence.ref-in-use",
+          });
         }
         try {
           await tx.put(
@@ -154,7 +167,9 @@ export function createEvidenceStore(
           );
         } catch (error) {
           if (error instanceof PersistenceConflict)
-            throw new ConnectorError("conflict", { detail: "evidence.ref-in-use" });
+            throw new ConnectorError("conflict", {
+              detail: "evidence.ref-in-use",
+            });
           throw error;
         }
       });
@@ -185,7 +200,9 @@ export function createEvidenceStore(
       const actor = checkActor(rawActor);
       const code = stateCodeSchema.safeParse(reason);
       if (!code.success)
-        throw new ConnectorError("invalid-request", { detail: "evidence.reason" });
+        throw new ConnectorError("invalid-request", {
+          detail: "evidence.reason",
+        });
       return transact(store, async (tx) => {
         if (!(await loadOwnedConnection(tx, actor, connectionRef, owns)))
           return 0;
@@ -212,7 +229,8 @@ export function createEvidenceStore(
           "verification.expired",
           at,
           (claim) =>
-            claim.validUntil !== undefined && Date.parse(claim.validUntil) <= at,
+            claim.validUntil !== undefined &&
+            Date.parse(claim.validUntil) <= at,
         );
       });
     },

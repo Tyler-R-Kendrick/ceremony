@@ -84,10 +84,20 @@ async function scenario(ports: Ports) {
     claim({ evidenceRef: "evidence:conformance" }),
   );
   assert.equal(appended, "evidence:conformance");
-  assert.equal((await ports.evidence.list(actor, record.connectionRef)).length, 1);
-  assert.deepEqual(await ports.evidence.list(stranger, record.connectionRef), []);
   assert.equal(
-    await ports.evidence.invalidate(actor, record.connectionRef, "drift.policy"),
+    (await ports.evidence.list(actor, record.connectionRef)).length,
+    1,
+  );
+  assert.deepEqual(
+    await ports.evidence.list(stranger, record.connectionRef),
+    [],
+  );
+  assert.equal(
+    await ports.evidence.invalidate(
+      actor,
+      record.connectionRef,
+      "drift.policy",
+    ),
     1,
   );
   assert.deepEqual(await ports.evidence.list(actor, record.connectionRef), []);
@@ -104,7 +114,10 @@ async function scenario(ports: Ports) {
   await assert.rejects(
     ports.credentials.use(credentialScope("tenant-b"), ref, async () => 1),
   );
-  assert.equal((await ports.credentials.describe(scope, ref))?.custody, "host-owned");
+  assert.equal(
+    (await ports.credentials.describe(scope, ref))?.custody,
+    "host-owned",
+  );
   let upstream = 0;
   const rotate = async () => {
     upstream++;
@@ -117,7 +130,11 @@ async function scenario(ports: Ports) {
   ]);
   assert.equal(upstream, 1);
   assert.equal(
-    await ports.credentials.use(scope, ref, async (m) => m.accessToken === "token-2"),
+    await ports.credentials.use(
+      scope,
+      ref,
+      async (m) => m.accessToken === "token-2",
+    ),
     true,
   );
 
@@ -139,18 +156,25 @@ async function scenario(ports: Ports) {
     (await ports.handoffs.present(actor, issued.handoffRef))?.private.url,
     "https://issuer.example/authorize",
   );
-  assert.equal(await ports.handoffs.present(stranger, issued.handoffRef), undefined);
+  assert.equal(
+    await ports.handoffs.present(stranger, issued.handoffRef),
+    undefined,
+  );
   assert.equal(
     (await ports.handoffs.resolveCorrelation("tenant-a", "state-conformance"))
       ?.handoffRef,
     issued.handoffRef,
   );
-  await assert.rejects(ports.handoffs.complete(issued.handoffRef, 5, "completed"));
+  await assert.rejects(
+    ports.handoffs.complete(issued.handoffRef, 5, "completed"),
+  );
   assert.equal(
     (await ports.handoffs.complete(issued.handoffRef, 0, "completed")).state,
     "completed",
   );
-  await assert.rejects(ports.handoffs.complete(issued.handoffRef, 0, "completed"));
+  await assert.rejects(
+    ports.handoffs.complete(issued.handoffRef, 0, "completed"),
+  );
 
   // A second handoff is cancelled wholesale on unlink.
   await ports.handoffs.issue({
@@ -164,7 +188,10 @@ async function scenario(ports: Ports) {
     intent: "authorize.device",
     private: { userCode: "ABCD" },
   });
-  assert.equal(await ports.handoffs.cancelAll(record.connectionRef, "unlink"), 1);
+  assert.equal(
+    await ports.handoffs.cancelAll(record.connectionRef, "unlink"),
+    1,
+  );
 
   // Effects: intent before the call, prior outcome instead of a second effect.
   const intent = {
@@ -175,12 +202,18 @@ async function scenario(ports: Ports) {
   };
   const begun = await ports.effects.begin(intent);
   assert.equal(begun.prior, undefined);
-  assert.equal((await ports.effects.begin(intent)).prior?.status, "indeterminate");
+  assert.equal(
+    (await ports.effects.begin(intent)).prior?.status,
+    "indeterminate",
+  );
   await ports.effects.complete(begun.effectRef, {
     status: "applied",
     at: ports.now(),
   });
-  assert.equal((await ports.effects.get(actor, begun.effectRef))?.status, "applied");
+  assert.equal(
+    (await ports.effects.get(actor, begun.effectRef))?.status,
+    "applied",
+  );
   assert.equal(
     await ports.effects.get(actorFor("tenant-b"), begun.effectRef),
     undefined,
@@ -196,7 +229,11 @@ async function scenario(ports: Ports) {
   );
   assert.equal(advanced.generation, 1);
   await assert.rejects(
-    ports.connections.advanceGeneration(actor, record.connectionRef, current!.revision),
+    ports.connections.advanceGeneration(
+      actor,
+      record.connectionRef,
+      current!.revision,
+    ),
   );
 }
 
@@ -245,7 +282,13 @@ test("STATE-01: configuration ports report names and revisions, never values", a
     // A name outside the declared set is never resolved, even when present.
     assert.equal(await session.read("UNRELATED"), undefined);
     assert.deepEqual(
-      [...(await session.present(["NANGO_SECRET_KEY", "NANGO_ENVIRONMENT", "UNRELATED"]))],
+      [
+        ...(await session.present([
+          "NANGO_SECRET_KEY",
+          "NANGO_ENVIRONMENT",
+          "UNRELATED",
+        ])),
+      ],
       ["NANGO_SECRET_KEY"],
     );
     const after = await session.revision();
@@ -261,9 +304,10 @@ test("STATE-01: configuration ports report names and revisions, never values", a
     });
     assert.equal(await host.read("VERCEL_TOKEN"), "vercel-token-1");
     assert.equal(await host.read("OTHER"), undefined);
-    assert.deepEqual([...(await host.present(["VERCEL_TOKEN", "OTHER"]))], [
-      "VERCEL_TOKEN",
-    ]);
+    assert.deepEqual(
+      [...(await host.present(["VERCEL_TOKEN", "OTHER"]))],
+      ["VERCEL_TOKEN"],
+    );
     const hostRevision = await host.revision();
     assert.equal(hostRevision.includes("vercel-token-1"), false);
     assert.equal(
@@ -308,7 +352,10 @@ test("STATE-01: a host ownership policy can own connections for an organization"
     await ports.connections.create(record);
     for (const subject of ["subject-1", "subject-2"])
       assert.ok(
-        await ports.connections.get(actorFor("tenant-a", subject), record.connectionRef),
+        await ports.connections.get(
+          actorFor("tenant-a", subject),
+          record.connectionRef,
+        ),
       );
     assert.equal(
       await ports.connections.get(
@@ -318,7 +365,10 @@ test("STATE-01: a host ownership policy can own connections for an organization"
       undefined,
     );
     assert.equal(
-      await ports.connections.get(actorFor("tenant-b", "subject-1"), record.connectionRef),
+      await ports.connections.get(
+        actorFor("tenant-b", "subject-1"),
+        record.connectionRef,
+      ),
       undefined,
     );
   } finally {

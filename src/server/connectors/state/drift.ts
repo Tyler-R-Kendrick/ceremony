@@ -106,9 +106,16 @@ export function createDriftInvalidator(
         drift.sourceDigestChanged || drift.bindingRevisionChanged,
       );
       const result = await transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         const at = await time(tx);
         const before = current.value.record;
         const evidenceInvalidated = await markEvidenceStale(
@@ -173,9 +180,16 @@ export function createDriftInvalidator(
     async expireVerification(rawActor, connectionRef) {
       const actor = checkActor(rawActor);
       const result = await transact(store, async (tx) => {
-        const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        const current = await loadOwnedConnection(
+          tx,
+          actor,
+          connectionRef,
+          owns,
+        );
         if (!current)
-          throw new ConnectorError("not-found", { detail: "connection.unknown" });
+          throw new ConnectorError("not-found", {
+            detail: "connection.unknown",
+          });
         const at = await time(tx);
         const before = current.value.record;
         const lapsed =
@@ -188,7 +202,8 @@ export function createDriftInvalidator(
           "verification.expired",
           at,
           (claim) =>
-            claim.validUntil !== undefined && Date.parse(claim.validUntil) <= at,
+            claim.validUntil !== undefined &&
+            Date.parse(claim.validUntil) <= at,
         );
         if (!lapsed || terminal.has(before.lifecycle))
           return {

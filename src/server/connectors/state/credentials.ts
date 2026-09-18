@@ -194,7 +194,9 @@ export function createCredentialCustodyPort(
   );
   const margin = options.expirySafetyMarginMs ?? 30_000;
   if (!Number.isSafeInteger(margin) || margin < 0)
-    throw new ConnectorError("invalid-request", { detail: "credential.margin" });
+    throw new ConnectorError("invalid-request", {
+      detail: "credential.margin",
+    });
   const waitMs = boundedDuration(options.waitMs ?? 25, "credential.wait", 5000);
   const refreshing = new Map<
     string,

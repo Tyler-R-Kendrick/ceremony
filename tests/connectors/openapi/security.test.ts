@@ -39,7 +39,8 @@ const read31 = async (paths: unknown, extra: Record<string, unknown> = {}) => {
         },
         oidc: {
           type: "openIdConnect",
-          openIdConnectUrl: "https://id.example.test/.well-known/openid-configuration",
+          openIdConnectUrl:
+            "https://id.example.test/.well-known/openid-configuration",
         },
         mtls: { type: "mutualTLS" },
         weird: { type: "quantumHandshake" },
@@ -52,27 +53,31 @@ const read31 = async (paths: unknown, extra: Record<string, unknown> = {}) => {
   return result;
 };
 
-const alternativesOf = (read: Awaited<ReturnType<typeof read31>>, id: string) => {
+const alternativesOf = (
+  read: Awaited<ReturnType<typeof read31>>,
+  id: string,
+) => {
   const found = read.operations.find((item) => item.nativeId === id);
   assert.ok(found, `operation ${id} missing`);
   return securityRequirementsFor(found);
 };
 
 test("alternatives are OR and schemes inside one requirement are AND", async () => {
-  const read = await read31(
-    {
-      "/a": {
-        get: {
-          operationId: "a",
-          security: [{ key: [] }, { basic: [], bearer: [] }],
-          responses: { "200": { description: "ok" } },
-        },
+  const read = await read31({
+    "/a": {
+      get: {
+        operationId: "a",
+        security: [{ key: [] }, { basic: [], bearer: [] }],
+        responses: { "200": { description: "ok" } },
       },
     },
-  );
+  });
   const security = alternativesOf(read, "a");
   assert.equal(security.alternatives.length, 2);
-  assert.deepEqual(security.alternatives[0]?.schemes.map((entry) => entry.scheme), ["key"]);
+  assert.deepEqual(
+    security.alternatives[0]?.schemes.map((entry) => entry.scheme),
+    ["key"],
+  );
   assert.deepEqual(
     security.alternatives[1]?.schemes.map((entry) => entry.scheme).sort(),
     ["basic", "bearer"],
@@ -85,7 +90,12 @@ test("alternatives are OR and schemes inside one requirement are AND", async () 
 test("an operation's security replaces the document default", async () => {
   const read = await read31(
     {
-      "/inherits": { get: { operationId: "inherits", responses: { "200": { description: "ok" } } } },
+      "/inherits": {
+        get: {
+          operationId: "inherits",
+          responses: { "200": { description: "ok" } },
+        },
+      },
       "/replaces": {
         get: {
           operationId: "replaces",
@@ -98,20 +108,32 @@ test("an operation's security replaces the document default", async () => {
   );
   const inherits = alternativesOf(read, "inherits");
   assert.equal(inherits.source, "document");
-  assert.deepEqual(inherits.alternatives[0]?.schemes.map((entry) => entry.scheme), ["key"]);
+  assert.deepEqual(
+    inherits.alternatives[0]?.schemes.map((entry) => entry.scheme),
+    ["key"],
+  );
 
   const replaces = alternativesOf(read, "replaces");
   assert.equal(replaces.source, "operation");
   // The document default is gone, not merged.
-  assert.deepEqual(replaces.alternatives.map((alternative) => alternative.schemes.map((entry) => entry.scheme)), [
-    ["bearer"],
-  ]);
+  assert.deepEqual(
+    replaces.alternatives.map((alternative) =>
+      alternative.schemes.map((entry) => entry.scheme),
+    ),
+    [["bearer"]],
+  );
 });
 
 test("an empty operation-level security list removes the inherited requirement", async () => {
   const read = await read31(
     {
-      "/open": { get: { operationId: "open", security: [], responses: { "200": { description: "ok" } } } },
+      "/open": {
+        get: {
+          operationId: "open",
+          security: [],
+          responses: { "200": { description: "ok" } },
+        },
+      },
     },
     { security: [{ key: [] }, { oauth: ["read"] }] },
   );
@@ -142,7 +164,9 @@ test("an explicit empty requirement object is one anonymous alternative beside t
 
 test("a document with no security at all is not the same as an empty requirement", async () => {
   const read = await read31({
-    "/none": { get: { operationId: "none", responses: { "200": { description: "ok" } } } },
+    "/none": {
+      get: { operationId: "none", responses: { "200": { description: "ok" } } },
+    },
   });
   const security = alternativesOf(read, "none");
   assert.equal(security.source, "none");
@@ -167,9 +191,13 @@ test("OAuth scopes are preserved per requirement, not merged across alternatives
 
 test("api-key placement comes from the scheme, in every location the version allows", async () => {
   const read = await read31({
-    "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } },
+    "/a": {
+      get: { operationId: "a", responses: { "200": { description: "ok" } } },
+    },
   });
-  const byId = new Map(read.definition.authentication.map((profile) => [profile.id, profile]));
+  const byId = new Map(
+    read.definition.authentication.map((profile) => [profile.id, profile]),
+  );
   const header = byId.get("key");
   assert.equal(header?.kind, "api-key");
   assert.equal(header.kind === "api-key" && header.placement, "header");
@@ -183,19 +211,27 @@ test("api-key placement comes from the scheme, in every location the version all
 
 test("http schemes map to basic and bearer, and an unsupported scheme blocks", async () => {
   const read = await read31({
-    "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } },
+    "/a": {
+      get: { operationId: "a", responses: { "200": { description: "ok" } } },
+    },
   });
-  const byId = new Map(read.definition.authentication.map((profile) => [profile.id, profile]));
+  const byId = new Map(
+    read.definition.authentication.map((profile) => [profile.id, profile]),
+  );
   assert.equal(byId.get("basic")?.kind, "http-basic");
   const bearer = byId.get("bearer");
   assert.equal(bearer?.kind, "http-bearer");
   assert.equal(bearer?.kind === "http-bearer" && bearer.format, "JWT");
 
   const catalog = await readFixture("openapi-3.1-catalog.json");
-  const digest = catalog.definition.authentication.find((profile) => profile.id === "digest");
+  const digest = catalog.definition.authentication.find(
+    (profile) => profile.id === "digest",
+  );
   assert.equal(digest?.kind, "unsupported");
   assert.equal(digest?.kind === "unsupported" && digest.native, "http:digest");
-  const issue = catalog.issues.find((item) => item.code === "security.unsupported-http-scheme");
+  const issue = catalog.issues.find(
+    (item) => item.code === "security.unsupported-http-scheme",
+  );
   assert.ok(issue);
   assert.equal(issue.severity, "blocking");
   assert.equal(issue.category, "security");
@@ -203,18 +239,28 @@ test("http schemes map to basic and bearer, and an unsupported scheme blocks", a
 
 test("openIdConnect yields an issuer only from the standard well-known form", async () => {
   const read = await read31({
-    "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } },
+    "/a": {
+      get: { operationId: "a", responses: { "200": { description: "ok" } } },
+    },
   });
-  const oidc = read.definition.authentication.find((profile) => profile.id === "oidc");
+  const oidc = read.definition.authentication.find(
+    (profile) => profile.id === "oidc",
+  );
   assert.equal(oidc?.kind, "openid-connect");
-  assert.equal(oidc?.kind === "openid-connect" && oidc.issuer, "https://id.example.test/");
+  assert.equal(
+    oidc?.kind === "openid-connect" && oidc.issuer,
+    "https://id.example.test/",
+  );
 
   const odd = await readOpenApi({
     openapi: "3.1.0",
     info: { title: "Odd", version: "1" },
     components: {
       securitySchemes: {
-        oidc: { type: "openIdConnect", openIdConnectUrl: "https://id.example.test/discovery" },
+        oidc: {
+          type: "openIdConnect",
+          openIdConnectUrl: "https://id.example.test/discovery",
+        },
       },
     },
     paths: {},
@@ -222,29 +268,48 @@ test("openIdConnect yields an issuer only from the standard well-known form", as
   assert.ok(isReadResult(odd));
   // An issuer is not guessed by trimming an arbitrary path.
   assert.equal(odd.definition.authentication[0]?.kind, "unsupported");
-  assert.ok(odd.issues.some((issue) => issue.code === "security.openid-issuer-underivable"));
+  assert.ok(
+    odd.issues.some(
+      (issue) => issue.code === "security.openid-issuer-underivable",
+    ),
+  );
 });
 
 test("mutualTLS is preserved and blocks authorization; unknown types become unsupported", async () => {
   const read = await read31({
-    "/a": { get: { operationId: "a", responses: { "200": { description: "ok" } } } },
+    "/a": {
+      get: { operationId: "a", responses: { "200": { description: "ok" } } },
+    },
   });
-  const mtls = read.definition.authentication.find((profile) => profile.id === "mtls");
+  const mtls = read.definition.authentication.find(
+    (profile) => profile.id === "mtls",
+  );
   assert.equal(mtls?.kind, "mutual-tls");
-  const mtlsIssue = read.issues.find((issue) => issue.code === "security.mutual-tls-not-executable");
+  const mtlsIssue = read.issues.find(
+    (issue) => issue.code === "security.mutual-tls-not-executable",
+  );
   assert.equal(mtlsIssue?.severity, "blocking");
   assert.equal(mtlsIssue?.executionImpact, "blocks-authorization");
 
-  const weird = read.definition.authentication.find((profile) => profile.id === "weird");
+  const weird = read.definition.authentication.find(
+    (profile) => profile.id === "weird",
+  );
   assert.equal(weird?.kind, "unsupported");
   // The native spelling survives for review; nothing executable is invented.
-  assert.equal(weird?.kind === "unsupported" && weird.native, "quantumHandshake");
-  assert.ok(read.issues.some((issue) => issue.code === "security.unsupported-scheme"));
+  assert.equal(
+    weird?.kind === "unsupported" && weird.native,
+    "quantumHandshake",
+  );
+  assert.ok(
+    read.issues.some((issue) => issue.code === "security.unsupported-scheme"),
+  );
 });
 
 test("3.x has no device flow: only 3.2 reads deviceAuthorization, and 3.1 refuses it", async () => {
   const fleet = await readFixture("openapi-3.2-fleet.json");
-  const device = fleet.definition.authentication.find((profile) => profile.id === "deviceOauth");
+  const device = fleet.definition.authentication.find(
+    (profile) => profile.id === "deviceOauth",
+  );
   assert.equal(device?.kind, "oauth-device");
   assert.equal(
     device?.kind === "oauth-device" && device.deviceAuthorizationEndpoint,
@@ -277,7 +342,9 @@ test("3.x has no device flow: only 3.2 reads deviceAuthorization, and 3.1 refuse
   });
   assert.ok(isReadResult(as31));
   assert.equal(as31.definition.authentication[0]?.kind, "unsupported");
-  const issue = as31.issues.find((item) => item.code === "security.unknown-flow");
+  const issue = as31.issues.find(
+    (item) => item.code === "security.unknown-flow",
+  );
   assert.equal(issue?.severity, "blocking");
 });
 
@@ -287,8 +354,13 @@ test("implicit and password flows are preserved as unsupported with blocking iss
     (profile) => profile.id === "oauth.password",
   );
   assert.equal(password?.kind, "unsupported");
-  assert.equal(password?.kind === "unsupported" && password.native, "oauth2:password");
-  const issue = billing.issues.find((item) => item.code === "security.unsupported-flow");
+  assert.equal(
+    password?.kind === "unsupported" && password.native,
+    "oauth2:password",
+  );
+  const issue = billing.issues.find(
+    (item) => item.code === "security.unsupported-flow",
+  );
   assert.equal(issue?.severity, "blocking");
   assert.equal(issue?.disposition, "unsupported");
 
@@ -300,23 +372,26 @@ test("implicit and password flows are preserved as unsupported with blocking iss
   // No usable credential is invented for a flow the runtime will not perform.
   assert.ok(
     !inventory.definition.authentication.some(
-      (profile) => profile.id === "implicit_oauth" && profile.kind !== "unsupported",
+      (profile) =>
+        profile.id === "implicit_oauth" && profile.kind !== "unsupported",
     ),
   );
 });
 
 test("Swagger 2.0 flow names map to their 3.x spelling without changing meaning", async () => {
   const read = await readFixture("swagger-2.0-inventory.json");
-  const legacy = read.definition.authentication.find((profile) => profile.id === "legacy_oauth");
+  const legacy = read.definition.authentication.find(
+    (profile) => profile.id === "legacy_oauth",
+  );
   assert.equal(legacy?.kind, "oauth-authorization-code");
   assert.equal(
     legacy?.kind === "oauth-authorization-code" && legacy.authorizationEndpoint,
     "https://auth.example.test/authorize",
   );
-  assert.deepEqual(legacy?.kind === "oauth-authorization-code" ? legacy.scopes : [], [
-    "inventory:read",
-    "inventory:write",
-  ]);
+  assert.deepEqual(
+    legacy?.kind === "oauth-authorization-code" ? legacy.scopes : [],
+    ["inventory:read", "inventory:write"],
+  );
 });
 
 test("one oauth2 scheme with several flows yields one profile per flow", async () => {
@@ -350,7 +425,9 @@ test("a requirement naming an undeclared scheme is blocking and satisfies nothin
   assert.equal(security.alternatives[0]?.schemes[0]?.known, false);
   assert.deepEqual(security.executableAlternatives, []);
   assert.equal(security.anonymous, false);
-  const issue = read.issues.find((item) => item.code === "security.unknown-scheme");
+  const issue = read.issues.find(
+    (item) => item.code === "security.unknown-scheme",
+  );
   assert.equal(issue?.severity, "blocking");
   assert.equal(issue?.executionImpact, "blocks-operation");
   // The requirement is not dropped: dropping it would widen access.
@@ -365,16 +442,28 @@ test("every capability lists only authentication profiles the definition declare
     "openapi-3.2-fleet.json",
   ]) {
     const read = await readFixture(name);
-    const declared = new Set(read.definition.authentication.map((profile) => profile.id));
+    const declared = new Set(
+      read.definition.authentication.map((profile) => profile.id),
+    );
     for (const capability of read.definition.capabilities)
       for (const id of capability.authentication ?? [])
-        assert.ok(declared.has(id), `${name}: ${capability.nativeId} names unknown profile ${id}`);
+        assert.ok(
+          declared.has(id),
+          `${name}: ${capability.nativeId} names unknown profile ${id}`,
+        );
   }
 });
 
 test("an unsupported security requirement is blocking under the contract, never informational", async () => {
   const read = await readFixture("openapi-3.1-catalog.json");
   for (const issue of read.issues)
-    if (issue.category === "security" && (issue.disposition === "unsupported" || issue.disposition === "rejected"))
-      assert.equal(issue.severity, "blocking", `${issue.code} was not blocking`);
+    if (
+      issue.category === "security" &&
+      (issue.disposition === "unsupported" || issue.disposition === "rejected")
+    )
+      assert.equal(
+        issue.severity,
+        "blocking",
+        `${issue.code} was not blocking`,
+      );
 });

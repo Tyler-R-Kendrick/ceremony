@@ -72,7 +72,9 @@ export const operationPlanSchema = z.strictObject({
     .optional(),
   /** Declared responses and whether a JSON body is documented for them; informational. */
   responses: z
-    .array(z.strictObject({ status: z.string().min(1).max(8), json: z.boolean() }))
+    .array(
+      z.strictObject({ status: z.string().min(1).max(8), json: z.boolean() }),
+    )
     .max(64),
   security: planSecuritySchema,
   definitions: z.record(z.string().min(1).max(1024), compiledSchemaSchema),
@@ -100,7 +102,9 @@ export const planSettingsSchema = z.strictObject({
 export type PlanSettings = z.infer<typeof planSettingsSchema>;
 
 /** The plan settings of a binding, or undefined when the binding carries none or carries an invalid one. */
-export function planSettingsOf(binding: RuntimeBinding): PlanSettings | undefined {
+export function planSettingsOf(
+  binding: RuntimeBinding,
+): PlanSettings | undefined {
   const raw = binding.settings[PLAN_SETTINGS_KEY];
   if (raw === undefined) return undefined;
   const parsed = planSettingsSchema.safeParse(raw);
@@ -112,6 +116,7 @@ export function planFromBinding(
   operationRef: string,
 ): OperationPlan | undefined {
   const settings = planSettingsOf(binding);
-  if (!settings || !Object.hasOwn(settings.plans, operationRef)) return undefined;
+  if (!settings || !Object.hasOwn(settings.plans, operationRef))
+    return undefined;
   return settings.plans[operationRef];
 }

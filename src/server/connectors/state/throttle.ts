@@ -57,12 +57,23 @@ export function createAuthorityThrottle(
   const defaultLimit = positive(options.limit ?? 60, "throttle.limit");
   const defaultWindow = positive(options.windowMs ?? 60_000, "throttle.window");
   const checkAuthority = (value: unknown) => {
-    if (typeof value !== "string" || value.length > 256 || /\p{Cc}/u.test(value))
-      throw new ConnectorError("invalid-request", { detail: "throttle.authority" });
+    if (
+      typeof value !== "string" ||
+      value.length > 256 ||
+      /\p{Cc}/u.test(value)
+    )
+      throw new ConnectorError("invalid-request", {
+        detail: "throttle.authority",
+      });
     return value;
   };
   const view = (
-    value: { count: number; expires: number; openUntil?: number; openCode?: string },
+    value: {
+      count: number;
+      expires: number;
+      openUntil?: number;
+      openCode?: string;
+    },
     limit: number,
   ): AuthorityBudget => ({
     count: value.count,
@@ -77,19 +88,29 @@ export function createAuthorityThrottle(
       const tenantId = checkTenant(rawTenant);
       const authority = checkAuthority(rawAuthority);
       const limit = positive(opts.limit ?? defaultLimit, "throttle.limit");
-      const windowMs = positive(opts.windowMs ?? defaultWindow, "throttle.window");
+      const windowMs = positive(
+        opts.windowMs ?? defaultWindow,
+        "throttle.window",
+      );
       return transact(store, async (tx) => {
         const key = budgetKey(tenantId, authority);
         const record = await readRecord(tx, key, budgetSchema);
         const now = await time(tx);
-        if (record?.value.openUntil !== undefined && record.value.openUntil > now)
-          throw new ConnectorError("rate-limited", { detail: "authority.circuit-open" });
+        if (
+          record?.value.openUntil !== undefined &&
+          record.value.openUntil > now
+        )
+          throw new ConnectorError("rate-limited", {
+            detail: "authority.circuit-open",
+          });
         const current =
           record && record.value.expires > now
             ? { count: record.value.count, expires: record.value.expires }
             : { count: 0, expires: now + windowMs };
         if (current.count >= limit)
-          throw new ConnectorError("rate-limited", { detail: "authority.budget" });
+          throw new ConnectorError("rate-limited", {
+            detail: "authority.budget",
+          });
         const next = {
           schemaVersion: 1 as const,
           count: current.count + 1,
@@ -106,7 +127,9 @@ export function createAuthorityThrottle(
       const cooldown = positive(cooldownMs, "throttle.cooldown");
       const parsedCode = stateCodeSchema.safeParse(code);
       if (!parsedCode.success)
-        throw new ConnectorError("invalid-request", { detail: "throttle.code" });
+        throw new ConnectorError("invalid-request", {
+          detail: "throttle.code",
+        });
       await transact(store, async (tx) => {
         const key = budgetKey(tenantId, authority);
         const record = await readRecord(tx, key, budgetSchema);
@@ -146,7 +169,10 @@ export function createAuthorityThrottle(
             count: inWindow ? value.count : 0,
             expires: inWindow ? value.expires : now,
             ...(value.openUntil !== undefined && value.openUntil > now
-              ? { openUntil: value.openUntil, ...(value.openCode ? { openCode: value.openCode } : {}) }
+              ? {
+                  openUntil: value.openUntil,
+                  ...(value.openCode ? { openCode: value.openCode } : {}),
+                }
               : {}),
           },
           defaultLimit,
