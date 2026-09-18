@@ -1,7 +1,11 @@
 import type { LookupAddress } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP, type LookupFunction } from "node:net";
-import { Agent, fetch as undiciFetch, type Response as UndiciResponse } from "undici";
+import {
+  Agent,
+  fetch as undiciFetch,
+  type Response as UndiciResponse,
+} from "undici";
 import {
   createPublicAuthLookup,
   isPublicAuthAddress,
@@ -140,7 +144,8 @@ const policyInvalid = () =>
 // A configured origin names one host. Anything that reads as a pattern is
 // refused rather than taken literally: an administrator who writes a wildcard
 // means a set, and this policy cannot express one.
-const plainHost = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.?$/;
+const plainHost =
+  /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.?$/;
 
 function exactOrigin(value: unknown): URL {
   if (typeof value !== "string" || !URL.canParse(value)) throw policyInvalid();
@@ -187,14 +192,12 @@ export function networkPolicy(input: NetworkPolicy): ResolvedPolicy {
     const loopback =
       host === "localhost" ||
       (isIP(host) !== 0 && classifyAddress(host) === "loopback");
-    if (
-      !(
-        url.protocol === "https:" ||
-        (url.protocol === "http:" &&
-          input.mode === "loopback-fixture" &&
-          loopback)
-      )
-    )
+    if (!(
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        input.mode === "loopback-fixture" &&
+        loopback)
+    ))
       throw policyInvalid();
   }
   const timeoutMs = boundedInteger(
@@ -515,7 +518,9 @@ function mapTransportError(
     (cause as { code?: unknown }).code === NETWORK_POLICY_ERROR_CODE
   )
     return new ConnectorError("network-policy", {
-      detail: String((cause as { detail?: unknown }).detail ?? "network.denied"),
+      detail: String(
+        (cause as { detail?: unknown }).detail ?? "network.denied",
+      ),
     });
   return new ConnectorError("upstream-unavailable", {
     detail: "network.connection-failed",

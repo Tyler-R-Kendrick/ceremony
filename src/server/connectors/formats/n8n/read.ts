@@ -923,6 +923,13 @@ export async function readN8nNode(
         ? {}
         : { requestDefaults: { baseURL: baseUrlText } }
       : { requestDefaults: { baseURL: baseUrl } }),
+    ...(properties === undefined
+      ? {}
+      : {
+          properties: inertCopy(
+            toJsonValue(objectValue(description!, "properties")),
+          ),
+        }),
     ...(description && objectValue(description, "group")
       ? { group: inertCopy(toJsonValue(objectValue(description, "group"))) }
       : {}),

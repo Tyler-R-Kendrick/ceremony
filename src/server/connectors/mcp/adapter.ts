@@ -565,14 +565,18 @@ async function invokeInternal(
   }
 }
 
+/** A failure code that is safe to publish: bounded, lower-case, no upstream text. */
 function sanitize(code: string): string {
+  const pattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$/;
   const cleaned = code
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^[^a-z]+/, "")
-    .replace(/-+$/, "");
-  const parts = cleaned.split(/[.-]/).filter(Boolean).slice(0, 8);
-  return parts.length ? parts.join(".") : "mcp.failed";
+    .replace(/([.-])[.-]+/g, "$1")
+    .replace(/[.-]+$/, "");
+  if (pattern.test(cleaned)) return cleaned;
+  const candidate = cleaned.split(/[.-]/).filter(Boolean).slice(0, 4).join(".");
+  return pattern.test(candidate) ? candidate : "mcp.failed";
 }
 
 /* --------------------------------------------------------------- resume */

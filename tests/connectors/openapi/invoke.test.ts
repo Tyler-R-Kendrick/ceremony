@@ -175,16 +175,36 @@ test("a GET reaches the exact path the binding pins, with the path parameter enc
   });
   const result = await invokeAdapter(fixtureState.adapter, fixtureState.ctx, {
     operationRef: fixtureState.refFor("getPet"),
-    input: { petId: "a/b c" },
+    input: { petId: "a b+c%d" },
   });
   assert.equal(result.state, "complete");
   assert.deepEqual(result.output, { name: "Rex" });
   const [request] = fixtureState.server.requests;
   assert.ok(request);
   assert.equal(request.method, "GET");
-  // The slash and the space are encoded; the template braces are gone.
-  assert.equal(request.url.pathname, "/api/pets/a%2Fb%20c");
+  // Encoded exactly once: the space, the plus and the percent are escaped and
+  // the template braces are gone.
+  assert.equal(request.url.pathname, "/api/pets/a%20b%2Bc%25d");
   assert.equal(request.url.search, "");
+});
+
+test("a slash inside a path parameter is refused with its own diagnostic", async (t) => {
+  const fixtureState = await bind(t, {
+    handler: () => ({ status: 200, body: {} }),
+    credential: { apiKey: "key-value" },
+  });
+  // %2F containment cannot be proven across intermediaries, so the value is
+  // refused before the request is built rather than silently reinterpreted.
+  await assert.rejects(
+    invokeAdapter(fixtureState.adapter, fixtureState.ctx, {
+      operationRef: fixtureState.refFor("getPet"),
+      input: { petId: "a/b" },
+    }),
+    (error: { code?: string; detail?: string }) =>
+      error.code === "invalid-request" &&
+      error.detail === "openapi.path-parameter-encoded-slash",
+  );
+  assert.equal(fixtureState.server.requests.length, 0);
 });
 
 test("query parameters are serialized per style: explode repeats, no-explode joins", async (t) => {
@@ -206,8 +226,10 @@ test("query parameters are serialized per style: explode repeats, no-explode joi
   assert.deepEqual(request.url.searchParams.getAll("joined"), ["c,d"]);
   assert.equal(request.url.searchParams.get("status"), "available");
   // The raw query string shows the exact encodings, not a normalized re-parse.
+  // The comma joining a non-exploded array is a delimiter, so it travels
+  // literally; only the item values themselves are percent-encoded.
   assert.ok(request.url.search.includes("exploded=a&exploded=b"));
-  assert.ok(request.url.search.includes("joined=c%2Cd"));
+  assert.ok(request.url.search.includes("joined=c,d"));
 });
 
 test("allowReserved is respected exactly where the source declares it", async (t) => {

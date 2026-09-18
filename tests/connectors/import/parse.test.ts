@@ -77,7 +77,10 @@ test("format detection cannot activate a parser the media type did not name", as
   );
   assert.equal(detectDocumentFormat({ mediaType: "", text: "a: 1" }), "yaml");
   assert.equal(
-    detectDocumentFormat({ mediaType: "application/vnd.oai.openapi+json", text: "{}" }),
+    detectDocumentFormat({
+      mediaType: "application/vnd.oai.openapi+json",
+      text: "{}",
+    }),
     "json",
   );
 });
@@ -123,7 +126,8 @@ test("JSON duplicate keys are refused instead of silently collapsing", async () 
     '{"x":[{"k":1,"k":2}]}',
   ])
     await expectConnectorError(
-      () => parseBoundedDocument(encode(text), { mediaType: "application/json" }),
+      () =>
+        parseBoundedDocument(encode(text), { mediaType: "application/json" }),
       "invalid-request",
       "json.duplicate-key",
     );
@@ -172,14 +176,17 @@ test("only YAML 1.2 core tags resolve; executable and binary tags are refused", 
     "a: !!python/object/apply:subprocess.check_output [['id']]",
   ])
     await expectConnectorError(
-      () => parseBoundedDocument(encode(text), { mediaType: "application/yaml" }),
+      () =>
+        parseBoundedDocument(encode(text), { mediaType: "application/yaml" }),
       "invalid-request",
       "yaml.tag-unsupported",
     );
   // The core schema's own tags stay usable and keep their meaning.
   assert.deepEqual(
     parseBoundedDocument(
-      encode('a: !!str 123\nb: !!int "5"\nc: !!bool true\nd: !!null ""\ne: !!seq [1]\n'),
+      encode(
+        'a: !!str 123\nb: !!int "5"\nc: !!bool true\nd: !!null ""\ne: !!seq [1]\n',
+      ),
       { mediaType: "application/yaml" },
     ).value,
     { a: "123", b: 5, c: true, d: null, e: [1] },
@@ -189,8 +196,7 @@ test("only YAML 1.2 core tags resolve; executable and binary tags are refused", 
 test("prototype-polluting keys are refused in both formats and nothing is mutated", async () => {
   for (const name of ["malicious-proto-key.json", "malicious-proto-key.yaml"])
     await expectConnectorError(
-      async () =>
-        parseBoundedDocument(await fixtureBytes(name)),
+      async () => parseBoundedDocument(await fixtureBytes(name)),
       "invalid-request",
       "document.reserved-key",
     );
@@ -201,13 +207,17 @@ test("prototype-polluting keys are refused in both formats and nothing is mutate
     '[{"prototype":1}]',
   ])
     await expectConnectorError(
-      () => parseBoundedDocument(encode(text), { mediaType: "application/json" }),
+      () =>
+        parseBoundedDocument(encode(text), { mediaType: "application/json" }),
       "invalid-request",
       "document.reserved-key",
     );
   const probe = {} as { polluted?: unknown };
   assert.equal(probe.polluted, undefined);
-  assert.equal(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"), false);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"),
+    false,
+  );
 
   // A parsed object is a plain own-property graph: the parser's own objects
   // never reach the caller, so a later mutation cannot travel through them.
@@ -231,14 +241,20 @@ test("alias amplification is refused before expansion, and cycles are refused", 
 
   await expectConnectorError(
     async () =>
-      parseBoundedDocument(await fixtureBytes("malicious-circular-alias.yaml"), {
-        mediaType: "application/yaml",
-      }),
+      parseBoundedDocument(
+        await fixtureBytes("malicious-circular-alias.yaml"),
+        {
+          mediaType: "application/yaml",
+        },
+      ),
     "invalid-request",
     "yaml.circular-alias",
   );
   await expectConnectorError(
-    () => parseBoundedDocument(encode("a: *missing\n"), { mediaType: "application/yaml" }),
+    () =>
+      parseBoundedDocument(encode("a: *missing\n"), {
+        mediaType: "application/yaml",
+      }),
     "invalid-request",
     "yaml.unresolved-alias",
   );
@@ -293,10 +309,13 @@ test("structural bounds hold for depth, node count, keys and string length", asy
   );
   await expectConnectorError(
     () =>
-      parseBoundedDocument(encode(`[${Array.from({ length: 50 }, (_, i) => i).join(",")}]`), {
-        mediaType: "application/json",
-        limits: { maxNodes: 10 },
-      }),
+      parseBoundedDocument(
+        encode(`[${Array.from({ length: 50 }, (_, i) => i).join(",")}]`),
+        {
+          mediaType: "application/json",
+          limits: { maxNodes: 10 },
+        },
+      ),
     "invalid-request",
     "document.too-many-nodes",
   );
@@ -331,10 +350,13 @@ test("structural bounds hold for depth, node count, keys and string length", asy
   // YAML is held to the same bounds by the same numbers.
   await expectConnectorError(
     () =>
-      parseBoundedDocument(encode(`a:\n${"  ".repeat(1)}b:\n    c:\n      d: 1\n`), {
-        mediaType: "application/yaml",
-        limits: { maxDepth: 2 },
-      }),
+      parseBoundedDocument(
+        encode(`a:\n${"  ".repeat(1)}b:\n    c:\n      d: 1\n`),
+        {
+          mediaType: "application/yaml",
+          limits: { maxDepth: 2 },
+        },
+      ),
     "invalid-request",
     "document.too-deep",
   );
@@ -458,13 +480,10 @@ test("text is UTF-8 without control characters, and the digest covers the exact 
     "invalid-request",
     "document.control-characters",
   );
-  const withBom = new Uint8Array([
-    0xef,
-    0xbb,
-    0xbf,
-    ...encode('{"a":1}'),
-  ]);
-  const parsed = parseBoundedDocument(withBom, { mediaType: "application/json" });
+  const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...encode('{"a":1}')]);
+  const parsed = parseBoundedDocument(withBom, {
+    mediaType: "application/json",
+  });
   assert.deepEqual(parsed.value, { a: 1 });
   // The digest is of the bytes as captured, byte-order mark included.
   assert.equal(
@@ -489,7 +508,8 @@ test("the parse-time bound is enforced", async () => {
 
 test("a rebuilt graph refuses foreign prototypes, cycles and non-JSON values", async () => {
   await expectConnectorError(
-    () => sanitizeGraph(Object.assign(Object.create({ inherited: 1 }), { a: 1 })),
+    () =>
+      sanitizeGraph(Object.assign(Object.create({ inherited: 1 }), { a: 1 })),
     "invalid-request",
     "document.prototype-tampered",
   );
@@ -560,7 +580,9 @@ test("benign fixtures import with the shape their format promises", async () => 
     ["recursive-schema.json", "application/json"],
     ["malicious-example-values.json", "application/json"],
   ] as const) {
-    const parsed = parseBoundedDocument(await fixtureBytes(name), { mediaType });
+    const parsed = parseBoundedDocument(await fixtureBytes(name), {
+      mediaType,
+    });
     assert.equal(typeof parsed.value, "object");
     assert.ok(parsed.byteLength > 0);
   }

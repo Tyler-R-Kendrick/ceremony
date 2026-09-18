@@ -129,7 +129,9 @@ export async function captureSource(
   const artifactRef = await artifacts.put(meta.tenantId, bytes, {
     mediaType: meta.mediaType,
     digest,
-    ...(meta.retainUntil === undefined ? {} : { retainUntil: meta.retainUntil }),
+    ...(meta.retainUntil === undefined
+      ? {}
+      : { retainUntil: meta.retainUntil }),
   });
   const record = sourceRecordSchema.safeParse({
     ...provenance.data,

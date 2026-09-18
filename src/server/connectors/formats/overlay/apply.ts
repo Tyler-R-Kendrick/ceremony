@@ -93,8 +93,18 @@ export interface ApplyResult {
   };
 }
 
-const digestOf = (value: unknown): string =>
-  createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
+/**
+ * A document may be deep, wide or full of shared references that expand
+ * exponentially when serialized. Digesting is therefore allowed to fail, and a
+ * failure is a bounded diagnostic rather than an exception out of the applier.
+ */
+function digestOf(value: unknown): string | undefined {
+  try {
+    return createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
 
 function cloneJson(value: unknown, limit: number): unknown {
   const text = JSON.stringify(value);
@@ -313,6 +323,7 @@ export function applyOverlay(
   const inputDigest = digestOf(document);
   let working: unknown;
   try {
+    if (inputDigest === undefined) throw new SelectionBudgetExceeded();
     working = cloneJson(document, limits.maxUpdateNodes);
   } catch {
     issues.add({
@@ -670,12 +681,16 @@ export function applyOverlay(
     version,
     issues: issues.issues,
     actions,
-    adaptation: {
-      step: `overlay-${version}`,
-      version: APPLIER_VERSION,
-      inputDigest,
-      outputDigest,
-    },
+    ...(inputDigest !== undefined && outputDigest !== undefined
+      ? {
+          adaptation: {
+            step: `overlay-${version}`,
+            version: APPLIER_VERSION,
+            inputDigest,
+            outputDigest,
+          },
+        }
+      : {}),
     extends: extendsInfo,
   };
 }

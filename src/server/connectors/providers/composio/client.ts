@@ -49,9 +49,11 @@ export type ComposioShared = {
   holds: Map<string, number>;
   /** Reviewed tool schema checks, keyed by binding revision, slug and version. */
   toolChecks: Map<string, { at: number; digest: string; version: string }>;
+  /** Execution sessions, keyed by tenant, binding revision, connection and account. */
+  sessions: Map<string, { sessionId: string; at: number }>;
 };
 export function createComposioShared(): ComposioShared {
-  return { holds: new Map(), toolChecks: new Map() };
+  return { holds: new Map(), toolChecks: new Map(), sessions: new Map() };
 }
 
 export type ComposioMethod = "GET" | "POST" | "PATCH" | "DELETE";

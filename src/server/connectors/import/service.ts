@@ -159,7 +159,11 @@ export function detectDocument(value: unknown): DetectedDocument {
     });
   const arazzo = versionText(root.arazzo);
   if (arazzo)
-    return withTitle({ ecosystem: "arazzo", formatName: "arazzo", version: arazzo });
+    return withTitle({
+      ecosystem: "arazzo",
+      formatName: "arazzo",
+      version: arazzo,
+    });
   const overlay = versionText(root.overlay);
   if (overlay)
     return withTitle({
@@ -227,7 +231,8 @@ function deriveIdentity(
   const identity = connectorSourceIdentitySchema.safeParse({
     ecosystem: hint.ecosystem ?? detected.ecosystem,
     authorityNamespace:
-      hint.authorityNamespace ?? (context.location ? context.location.host : ""),
+      hint.authorityNamespace ??
+      (context.location ? context.location.host : ""),
     nativeId: candidates[0],
     nativeVersion:
       hint.nativeVersion ?? versionText(info?.version) ?? "unversioned",
@@ -290,7 +295,9 @@ async function ingest(
   options: ImportOptions,
 ): Promise<IngestionResult> {
   const fileName =
-    input.fileName === undefined ? undefined : assertSafeFileName(input.fileName);
+    input.fileName === undefined
+      ? undefined
+      : assertSafeFileName(input.fileName);
   const mediaType = normalizeMediaType(input.mediaType);
   if (input.mediaType && !mediaType && input.mediaType.trim() !== "")
     throw new ConnectorError("invalid-request", {
@@ -326,7 +333,8 @@ async function ingest(
       },
       origin: input.origin,
       mediaType:
-        mediaType && !["application/octet-stream", "text/plain"].includes(mediaType)
+        mediaType &&
+        !["application/octet-stream", "text/plain"].includes(mediaType)
           ? mediaType
           : parsed.format === "json"
             ? "application/json"
@@ -542,7 +550,11 @@ export async function importLocalFixture(
     actor?: ActorContext | undefined;
   } = {},
 ): Promise<IngestionResult> {
-  if (typeof name !== "string" || !fixtureNamePattern.test(name) || name.includes(".."))
+  if (
+    typeof name !== "string" ||
+    !fixtureNamePattern.test(name) ||
+    name.includes("..")
+  )
     throw new ConnectorError("invalid-request", {
       detail: "import.fixture-name-invalid",
     });
@@ -563,7 +575,9 @@ export async function importLocalFixture(
     checked,
     bytes,
     {
-      mediaType: name.endsWith(".json") ? "application/json" : "application/yaml",
+      mediaType: name.endsWith(".json")
+        ? "application/json"
+        : "application/yaml",
       origin: { kind: "builtin-fixture" },
       fileName: name,
     },

@@ -442,12 +442,10 @@ test("AC-STATE-07/EVT-05: an unsigned or wrong-tenant lifecycle event cannot rev
     );
     assert.equal(valid.status, 200);
     await h.drain();
+    const dispatched = h.applied.at(0);
     assert.equal(h.applied.length, 1);
-    assert.deepEqual(h.applied[0]?.lifecycle, { kind: "revoked" });
-    assert.equal(
-      h.applied[0]?.envelope.providerEventType,
-      "connection.revoked",
-    );
+    assert.deepEqual(dispatched?.lifecycle, { kind: "revoked" });
+    assert.equal(dispatched?.envelope.providerEventType, "connection.revoked");
   } finally {
     await h.context.store.close();
   }
@@ -699,12 +697,13 @@ test("EVT-05: a vendor-signed subscription uses its registered verifier and noth
         hmacVendorVerifier({
           id: "acme-vendor",
           header: "x-acme-signature",
-          identify: (delivery) => ({
-            eventId:
+          identify: (delivery) => {
+            const id =
               delivery.headers instanceof Headers
-                ? (delivery.headers.get("x-acme-delivery") ?? undefined)
-                : undefined,
-          }),
+                ? delivery.headers.get("x-acme-delivery")
+                : undefined;
+            return id ? { eventId: id } : undefined;
+          },
         }),
       ],
       policy: { now: () => NOW },

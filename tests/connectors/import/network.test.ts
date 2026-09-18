@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { gzipSync } from "node:zlib";
@@ -68,7 +72,10 @@ test("URL policy refuses userinfo, schemes, literals and unexpected ports", () =
     assert.equal(decision.allowed, false, url);
     assert.equal(decision.allowed === false && decision.detail, detail, url);
   };
-  denied(`https://user:${CANARY}@api.example/spec.json`, "network.userinfo-forbidden");
+  denied(
+    `https://user:${CANARY}@api.example/spec.json`,
+    "network.userinfo-forbidden",
+  );
   denied("https://%75ser:pass@api.example/x", "network.userinfo-forbidden");
   denied("http://api.example/spec.json", "network.scheme-forbidden");
   denied("file:///etc/passwd", "network.scheme-forbidden");
@@ -83,7 +90,10 @@ test("URL policy refuses userinfo, schemes, literals and unexpected ports", () =
   denied("https://[::1]/x", "network.address-forbidden");
   denied("https://[::ffff:127.0.0.1]/x", "network.address-forbidden");
   denied("https://[::ffff:7f00:1]/x", "network.address-forbidden");
-  denied("https://169.254.169.254/latest/meta-data/", "network.address-forbidden");
+  denied(
+    "https://169.254.169.254/latest/meta-data/",
+    "network.address-forbidden",
+  );
   denied("https://[fe80::1]/x", "network.address-forbidden");
   denied("https://localhost/x", "network.address-forbidden");
   denied("https://api.localhost/x", "network.address-forbidden");
@@ -92,11 +102,17 @@ test("URL policy refuses userinfo, schemes, literals and unexpected ports", () =
   denied("https://api.example:8443/x", "network.port-forbidden");
   denied("not a url", "network.url-invalid");
 
-  const allowed = evaluateNetworkTarget("https://api.example/spec.json", policy);
+  const allowed = evaluateNetworkTarget(
+    "https://api.example/spec.json",
+    policy,
+  );
   assert.equal(allowed.allowed, true);
   assert.equal(allowed.allowed === true && allowed.network, "public");
   // The default HTTPS port is not an "unexpected port".
-  assert.equal(evaluateNetworkTarget("https://api.example:443/x", policy).allowed, true);
+  assert.equal(
+    evaluateNetworkTarget("https://api.example:443/x", policy).allowed,
+    true,
+  );
 });
 
 test("an administrator-approved private origin is scoped to exactly that origin", async (t) => {
@@ -105,8 +121,14 @@ test("an administrator-approved private origin is scoped to exactly that origin"
     mode: "approved-private",
     approvedPrivateOrigins: [approved, "https://10.0.0.7:8443"],
   });
-  assert.equal(evaluateNetworkTarget(`${approved}/spec.json`, policy).allowed, true);
-  assert.equal(evaluateNetworkTarget("https://10.0.0.7:8443/spec", policy).allowed, true);
+  assert.equal(
+    evaluateNetworkTarget(`${approved}/spec.json`, policy).allowed,
+    true,
+  );
+  assert.equal(
+    evaluateNetworkTarget("https://10.0.0.7:8443/spec", policy).allowed,
+    true,
+  );
   // Another port, another scheme or another private address is not covered by
   // the approval, and no document can add one.
   for (const [url, detail] of [
@@ -125,14 +147,24 @@ test("an administrator-approved private origin is scoped to exactly that origin"
   // public target: approving one private origin does not put the whole private
   // network behind the same policy. Its DNS answer is held to the public rule
   // and refused at connection time, without contacting anything.
-  const sibling = evaluateNetworkTarget("https://other.corp.example/spec.json", policy);
+  const sibling = evaluateNetworkTarget(
+    "https://other.corp.example/spec.json",
+    policy,
+  );
   assert.equal(sibling.allowed, true);
   assert.equal(sibling.allowed === true && sibling.network, "public");
   const approvedTarget = evaluateNetworkTarget(`${approved}/spec.json`, policy);
-  assert.equal(approvedTarget.allowed === true && approvedTarget.network, "approved-private");
+  assert.equal(
+    approvedTarget.allowed === true && approvedTarget.network,
+    "approved-private",
+  );
 
   const privateAnswer = async () => [{ address: "10.0.0.5", family: 4 }];
-  const fetcher = createApprovedFetch({ ...policy, lookup: privateAnswer, timeoutMs: 500 });
+  const fetcher = createApprovedFetch({
+    ...policy,
+    lookup: privateAnswer,
+    timeoutMs: 500,
+  });
   t.after(() => fetcher.close());
   await expectConnectorError(
     fetcher("https://other.corp.example/spec.json"),
@@ -153,8 +185,15 @@ test("an administrator-approved private origin is scoped to exactly that origin"
   // the private origin is refused, and the named host is treated as a plain
   // public target whose private DNS answer is refused at connection time.
   const plain = publicPolicy();
-  assert.equal(evaluateNetworkTarget("https://10.0.0.7:8443/spec", plain).allowed, false);
-  const unapproved = createApprovedFetch({ ...plain, lookup: privateAnswer, timeoutMs: 500 });
+  assert.equal(
+    evaluateNetworkTarget("https://10.0.0.7:8443/spec", plain).allowed,
+    false,
+  );
+  const unapproved = createApprovedFetch({
+    ...plain,
+    lookup: privateAnswer,
+    timeoutMs: 500,
+  });
   t.after(() => unapproved.close());
   await expectConnectorError(
     unapproved(`${approved}/spec.json`),
@@ -275,7 +314,9 @@ test("DNS failures and empty answers are policy denials, not silent fallbacks", 
 });
 
 test("redirects are followed manually, revalidated per hop and bounded", async (t) => {
-  const target = await startHttpFixture(() => ({ body: { reached: "second" } }));
+  const target = await startHttpFixture(() => ({
+    body: { reached: "second" },
+  }));
   t.after(() => target.close());
   const targetPort = hostPort(target.origin);
   const source = await startHttpFixture((request) => {
@@ -283,7 +324,8 @@ test("redirects are followed manually, revalidated per hop and bounded", async (
     if (to !== null) return { status: 302, headers: { location: to } };
     if (request.url.pathname === "/loop")
       return { status: 302, headers: { location: "/loop" } };
-    if (request.url.pathname === "/final") return { body: { reached: "first" } };
+    if (request.url.pathname === "/final")
+      return { body: { reached: "first" } };
     return { body: { path: request.url.pathname } };
   });
   t.after(() => source.close());
@@ -299,7 +341,9 @@ test("redirects are followed manually, revalidated per hop and bounded", async (
 
   // A cross-origin redirect is refused even though both ends are loopback.
   await expectConnectorError(
-    approved(`${origin}/start?to=${encodeURIComponent(`http://127.0.0.1:${targetPort}/x`)}`),
+    approved(
+      `${origin}/start?to=${encodeURIComponent(`http://127.0.0.1:${targetPort}/x`)}`,
+    ),
     "network-policy",
     "network.redirect-cross-origin",
   );
@@ -320,10 +364,16 @@ test("redirects are followed manually, revalidated per hop and bounded", async (
   // and each is refused for its own reason rather than a generic one.
   for (const [to, detail] of [
     ["http://10.0.0.5/x", "network.loopback-fixture-only"],
-    ["http://169.254.169.254/latest/meta-data/", "network.loopback-fixture-only"],
+    [
+      "http://169.254.169.254/latest/meta-data/",
+      "network.loopback-fixture-only",
+    ],
     ["http://[::ffff:127.0.0.1]/x", "network.loopback-fixture-only"],
     ["http://2130706433/x", "network.redirect-cross-origin"],
-    [`http://user:${CANARY}@127.0.0.1:${targetPort}/x`, "network.userinfo-forbidden"],
+    [
+      `http://user:${CANARY}@127.0.0.1:${targetPort}/x`,
+      "network.userinfo-forbidden",
+    ],
     ["file:///etc/passwd", "network.scheme-forbidden"],
   ] as const) {
     const error = await expectConnectorError(
@@ -345,7 +395,9 @@ test("redirects are followed manually, revalidated per hop and bounded", async (
     "network-policy",
     "network.redirect-refused",
   );
-  const manual = await approved(`${origin}/start?to=/final`, { redirect: "manual" });
+  const manual = await approved(`${origin}/start?to=/final`, {
+    redirect: "manual",
+  });
   assert.equal(manual.status, 302);
   assert.equal(manual.headers.get("location"), "/final");
 });
@@ -457,7 +509,9 @@ test("response size is bounded while streaming and Content-Length is never trust
     "network-policy",
     "network.response-too-large",
   );
-  assert.deepEqual(await (await approved(`${origin}/small`)).json(), { ok: true });
+  assert.deepEqual(await (await approved(`${origin}/small`)).json(), {
+    ok: true,
+  });
 });
 
 test("compressed responses are refused unless allowed, and then bounded by decoded size", async (t) => {
@@ -483,7 +537,10 @@ test("compressed responses are refused unless allowed, and then bounded by decod
   assert.equal(fixture.requests[0]?.headers["accept-encoding"], "identity");
 
   const lenient = createApprovedFetch(
-    loopbackPolicy({ allowCompressedResponses: true, maxResponseBytes: 256 * 1024 }),
+    loopbackPolicy({
+      allowCompressedResponses: true,
+      maxResponseBytes: 256 * 1024,
+    }),
   );
   t.after(() => lenient.close());
   const ok = await lenient(`${fixture.origin}/small`);
@@ -556,7 +613,11 @@ test("request shape is bounded and the transport owns its own framing headers", 
   );
   // A caller cannot smuggle a different Host or a hop-by-hop header.
   await approved(`${fixture.origin}/x`, {
-    headers: { host: "evil.example", "transfer-encoding": "chunked", accept: "application/json" },
+    headers: {
+      host: "evil.example",
+      "transfer-encoding": "chunked",
+      accept: "application/json",
+    },
   });
   const request = fixture.requests.at(-1)!;
   assert.equal(request.headers.host, new URL(fixture.origin).host);

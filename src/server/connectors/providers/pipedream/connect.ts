@@ -259,7 +259,9 @@ export async function pipedreamAuthorize(
       presentation: "popup",
       expiresAt,
       intent: mode === "reconnect" ? "pipedream.reconnect" : "pipedream.connect",
-      correlationKey: data.token,
+      // The routing index holds a digest, not the token: correlation needs to
+      // recognise a completion, not to be able to complete one.
+      correlationKey: sha256Hex(data.token),
       private: {
         connectToken: data.token,
         connectLinkUrl: link,
@@ -291,7 +293,7 @@ async function loadHandoff(
     if (!token.success) throw denied("pipedream.handoff.correlation");
     record = await ctx.environment.handoffs.resolveCorrelation(
       ctx.actor.tenantId,
-      token.data,
+      sha256Hex(token.data),
     );
   } else {
     const summary = connection.handoff;
@@ -603,8 +605,12 @@ export async function pipedreamComplete(
   } else if (input.kind === "input") {
     if (
       !constantEquals(
-        input.values.connect_token ?? "",
+        sha256Hex(input.values.connect_token ?? ""),
         record.correlationKey ?? "",
+      ) ||
+      !constantEquals(
+        input.values.connect_token ?? "",
+        record.private.connectToken ?? "",
       )
     )
       throw denied("pipedream.handoff.correlation");

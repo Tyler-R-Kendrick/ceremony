@@ -137,21 +137,24 @@ test("WorkOS relay checks target parameters against the connection's permitted t
     app.context({ connection: connectionRecord(binding) }),
     {
       operationRef: "operation:createIssue",
-      input: { parameters: { repository: "acme/widgets" }, body: { title: "x" } },
+      input: {
+        parameters: { owner: "acme", repository: "widgets" },
+        body: { title: "x" },
+      },
       commandId: "command:issue-1",
     },
   );
   assert.equal(allowed.state, "complete");
   assert.equal(
     (allowed.output as { body: Record<string, unknown> }).body.path,
-    "/repos/acme%2Fwidgets/issues",
+    "/repos/acme/widgets/issues",
   );
 
   await assert.rejects(
     adapter.invoke!(app.context({ connection: connectionRecord(binding) }), {
       operationRef: "operation:createIssue",
       input: {
-        parameters: { repository: "victim/private" },
+        parameters: { owner: "victim", repository: "private" },
         body: { title: "x" },
       },
       commandId: "command:issue-2",
@@ -378,7 +381,10 @@ test("WorkOS relay journals a write and refuses to replay it blindly", async () 
   const connection = connectionRecord(binding);
   const request = {
     operationRef: "operation:createIssue",
-    input: { parameters: { repository: "acme/widgets" }, body: { title: "x" } },
+    input: {
+        parameters: { owner: "acme", repository: "widgets" },
+        body: { title: "x" },
+      },
     commandId: "command:issue",
   };
   const first = await adapter.invoke!(app.context({ connection }), request);
@@ -390,7 +396,7 @@ test("WorkOS relay journals a write and refuses to replay it blindly", async () 
   assert.equal(second.code, "workos.relay.replayed");
   assert.equal(second.effectRef, first.effectRef);
   assert.equal(
-    workos.received("POST", "/relay/github/repos/acme%2Fwidgets/issues").length,
+    workos.received("POST", "/relay/github/repos/acme/widgets/issues").length,
     1,
   );
 
@@ -435,7 +441,10 @@ test("WorkOS relay reports an interrupted write as indeterminate rather than fai
   }) as typeof fetch;
   const result = await adapter.invoke!(context, {
     operationRef: "operation:createIssue",
-    input: { parameters: { repository: "acme/widgets" }, body: { title: "x" } },
+    input: {
+        parameters: { owner: "acme", repository: "widgets" },
+        body: { title: "x" },
+      },
     commandId: "command:dropped",
   });
   assert.equal(result.state, "indeterminate");

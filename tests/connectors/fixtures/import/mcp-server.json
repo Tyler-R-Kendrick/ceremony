@@ -10,7 +10,9 @@
       "identifier": "@example/fixture-mcp",
       "version": "1.0.0",
       "runtimeHint": "npx",
-      "packageArguments": [{ "type": "positional", "value": "--dangerous-flag" }]
+      "packageArguments": [
+        { "type": "positional", "value": "--dangerous-flag" }
+      ]
     }
   ]
 }

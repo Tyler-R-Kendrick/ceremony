@@ -47,7 +47,10 @@ const meta = (overrides: Record<string, unknown> = {}) => ({
   tenantId: "tenant-a",
   identity,
   format: { name: "openapi", version: "3.1.0" },
-  origin: { kind: "url" as const, location: "https://api.example/v1/openapi.yaml" },
+  origin: {
+    kind: "url" as const,
+    location: "https://api.example/v1/openapi.yaml",
+  },
   mediaType: "application/yaml",
   capturedAt: Date.UTC(2026, 8, 18, 12),
   ...overrides,
@@ -95,12 +98,19 @@ test("the byte digest and the normalized digest are different facts", async () =
   );
   const secondRecord = await captureSource(
     second,
-    meta({ mediaType: "application/json", capturedAt: Date.UTC(2026, 8, 18, 13) }),
+    meta({
+      mediaType: "application/json",
+      capturedAt: Date.UTC(2026, 8, 18, 13),
+    }),
     artifacts,
   );
   assert.notEqual(firstRecord.digest.value, secondRecord.digest.value);
-  const firstValue = parseBoundedDocument(first, { mediaType: "application/json" }).value;
-  const secondValue = parseBoundedDocument(second, { mediaType: "application/json" }).value;
+  const firstValue = parseBoundedDocument(first, {
+    mediaType: "application/json",
+  }).value;
+  const secondValue = parseBoundedDocument(second, {
+    mediaType: "application/json",
+  }).value;
   const firstNormalized = await normalizedDigestFor(firstValue);
   assert.equal(firstNormalized, await normalizedDigestFor(secondValue));
   assert.equal(firstNormalized, await canonicalDigest({ a: 1, b: 2 }));
@@ -111,7 +121,9 @@ test("the byte digest and the normalized digest are different facts", async () =
 
 test("origins are recorded without credentials, query strings or fragments", async () => {
   assert.equal(
-    sanitizeOriginLocation(`https://api.example/v1/spec.json?token=${CANARY}#frag`),
+    sanitizeOriginLocation(
+      `https://api.example/v1/spec.json?token=${CANARY}#frag`,
+    ),
     "https://api.example/v1/spec.json",
   );
   assert.equal(
@@ -216,7 +228,12 @@ test("a document full of credentials produces no diagnostic that contains them",
     publicCatalogProjection,
   );
   for (const issue of outcome.issues)
-    assertNoCanary(issue.message, issue.remediation, issue.sourcePointer, issue.code);
+    assertNoCanary(
+      issue.message,
+      issue.remediation,
+      issue.sourcePointer,
+      issue.code,
+    );
 
   // The bytes are in the artifact, and only there.
   const artifact = await ports.artifacts.get(
@@ -286,7 +303,11 @@ test("capture refuses empty bytes and invalid identities before writing an artif
   );
   await expectConnectorError(
     () =>
-      captureSource(encode("{}"), meta({ mediaType: "not a media type" }), artifacts),
+      captureSource(
+        encode("{}"),
+        meta({ mediaType: "not a media type" }),
+        artifacts,
+      ),
     "invalid-request",
     "source.record-invalid",
   );

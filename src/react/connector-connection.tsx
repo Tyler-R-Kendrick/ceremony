@@ -197,7 +197,10 @@ function DynamicField({
 }: {
   field: FieldDescriptor;
   values: Record<string, string>;
-  loadOptions(field: FieldDescriptor): Promise<FieldOption[]>;
+  loadOptions(
+    field: FieldDescriptor,
+    values: Record<string, string>,
+  ): Promise<FieldOption[]>;
 }) {
   const [options, setOptions] = useState<FieldOption[] | undefined>(
     field.options,
@@ -213,7 +216,7 @@ function DynamicField({
     if (!field.dynamic || missing.length) return;
     let live = true;
     setState("loading");
-    loadOptions(field)
+    loadOptions(field, values)
       .then((next) => {
         if (!live) return;
         setOptions(next);
@@ -283,7 +286,10 @@ function HandoffInputForm({
   busy: boolean;
   error: string;
   onSubmit(event: FormEvent<HTMLFormElement>): void;
-  loadOptions(field: FieldDescriptor): Promise<FieldOption[]>;
+  loadOptions(
+    field: FieldDescriptor,
+    values: Record<string, string>,
+  ): Promise<FieldOption[]>;
 }) {
   // Plain values are mirrored so dependent lists can be fetched; a secret
   // never is. Secrets are read from the form once, on submit, and handed
@@ -817,19 +823,21 @@ export function ConnectorConnection({
   };
 
   const loadOptions = useCallback(
-    async (field: FieldDescriptor): Promise<FieldOption[]> => {
+    async (
+      field: FieldDescriptor,
+      values: Record<string, string>,
+    ): Promise<FieldOption[]> => {
       const view = current.current;
       if (!view || !field.dynamic) return field.options ?? [];
+      // The values come from the form's own mirror of its non-secret fields,
+      // so a dependent lookup never reads the DOM and a secret never becomes
+      // an argument to one.
       const outcome = await client.invoke(view.connectionRef, {
         operationRef: field.dynamic.operationRef,
         input: Object.fromEntries(
           (field.dynamic.dependsOn ?? []).map((name) => [
             name,
-            (
-              document.querySelector<HTMLInputElement | HTMLSelectElement>(
-                `[name="${CSS.escape(name)}"]`,
-              )?.value ?? ""
-            ).toString(),
+            values[name] ?? "",
           ]),
         ),
       });

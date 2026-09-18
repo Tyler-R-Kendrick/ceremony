@@ -69,6 +69,15 @@ export const pipedreamOperationSettingsSchema = z.strictObject({
   body: z.enum(["none", "json"]).optional(),
   /** Proxy: allowlist of top-level body keys; absent means any bounded JSON. */
   bodyFields: z.array(propNameSchema).max(64).optional(),
+  /** Target kind each target-selecting parameter is checked against. */
+  targets: boundedRecord(
+    parameterNameSchema,
+    z
+      .string()
+      .max(64)
+      .regex(/^[a-z][a-z0-9-]*$/),
+    8,
+  ).optional(),
   /** Proxy: fixed upstream headers, forwarded through Pipedream's x-pd-proxy- prefix. */
   headers: boundedRecord(headerNameSchema, headerValueSchema, 16).optional(),
   timeoutMs: z.number().int().min(1000).max(300_000).optional(),

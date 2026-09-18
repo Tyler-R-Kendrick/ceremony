@@ -4,5 +4,7 @@
   "host": "legacy.example",
   "basePath": "/api",
   "schemes": ["https"],
-  "paths": { "/items": { "get": { "responses": { "200": { "description": "ok" } } } } }
+  "paths": {
+    "/items": { "get": { "responses": { "200": { "description": "ok" } } } }
+  }
 }

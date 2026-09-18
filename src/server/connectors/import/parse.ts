@@ -127,8 +127,11 @@ export function detectDocumentFormat(input: {
   const type = normalizeMediaType(input.mediaType);
   if (jsonMediaTypes.has(type) || type.endsWith("+json")) return "json";
   if (yamlMediaTypes.has(type) || type.endsWith("+yaml")) return "yaml";
-  if (!genericMediaTypes.has(type)) return fail("document.media-type-unsupported");
-  const extension = input.fileName?.toLowerCase().match(/\.([a-z0-9]{1,8})$/)?.[1];
+  if (!genericMediaTypes.has(type))
+    return fail("document.media-type-unsupported");
+  const extension = input.fileName
+    ?.toLowerCase()
+    .match(/\.([a-z0-9]{1,8})$/)?.[1];
   if (extension === "json") return "json";
   if (extension === "yaml" || extension === "yml") return "yaml";
   const first = input.text.match(/^[\s]*(\S)/u)?.[1];
@@ -562,7 +565,8 @@ function parseYaml(
   }
   // parseDocument only reports a second document when logging is enabled;
   // counting the stream is deterministic.
-  if ("empty" in documents || documents.length === 0) return fail("document.empty");
+  if ("empty" in documents || documents.length === 0)
+    return fail("document.empty");
   if (documents.length > 1) return fail("yaml.multiple-documents");
   const document = documents[0] as Document.Parsed;
   const directive = document.directives?.yaml;

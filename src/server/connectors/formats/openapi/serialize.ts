@@ -191,7 +191,16 @@ export function serializeRequest(input: {
         reject("openapi.path-parameter-empty", [
           { code: "empty", path: parameter.name },
         ]);
-      pathValues.set(parameter.name, encodeComponent(text, false));
+      const encoded = encodeComponent(text, false);
+      // A `/` inside a path segment has to travel as %2F, and intermediaries
+      // disagree about when to decode it, so containment inside the approved
+      // prefix cannot be proven. The value is refused with its own code rather
+      // than reaching the destination resolver as a generic policy failure.
+      if (/%2f/i.test(encoded))
+        reject("openapi.path-parameter-encoded-slash", [
+          { code: "encoded-slash", path: parameter.name },
+        ]);
+      pathValues.set(parameter.name, encoded);
       continue;
     }
     if (parameter.in === "header") {

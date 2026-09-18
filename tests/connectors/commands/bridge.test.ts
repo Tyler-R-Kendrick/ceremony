@@ -162,7 +162,11 @@ test("CMD-02: a reviewed connector runs as a v1 ceremony through the controller"
   const completed = await controller.callback("owner-1", started.id, location);
   assert.equal(completed.step, "complete");
   assert.ok(completed.outcome?.connectionRef.startsWith("connection:"));
-  assert.deepEqual(completed.outcome?.scopes, []);
+  assert.deepEqual(
+    completed.outcome?.scopes,
+    ["read", "write"],
+    "the outcome reports the scopes the method asked for",
+  );
   assert.ok(
     !JSON.stringify(completed).includes("code_verifier"),
     "no protected handoff material reaches the ceremony snapshot",
@@ -305,10 +309,9 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
   const harness = await createHarness();
   t.after(() => harness.close());
   const actor = human();
-  const { definitionRef, bindingRef, revision } = await reviewed(
-    harness,
-    actor,
-  );
+  const { definitionRef, bindingRef, revision } = await reviewed(harness, actor, {
+    operations: ["listItems"],
+  });
   const connected = await json(
     await harness.fetch("/api/v1/connectors/connections", {
       body: {
@@ -393,11 +396,9 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
     "createItem",
     second.revision as number,
   );
-  const oldWrite = operationRef(harness, bindingRef, "createItem", revision);
-  assert.notEqual(
-    newWrite,
-    oldWrite,
-    "the later revision issues its own operation references",
+  assert.throws(
+    () => operationRef(harness, bindingRef, "createItem", revision),
+    "the reviewed revision this connection uses never approved that operation",
   );
 
   const usingNew = await harness.fetch(

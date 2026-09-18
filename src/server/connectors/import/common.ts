@@ -23,7 +23,10 @@ export function unescapePointerSegment(segment: string): string {
   return segment.replace(/~1/g, "/").replace(/~0/g, "~");
 }
 
-export function appendPointer(pointer: string, segment: string | number): string {
+export function appendPointer(
+  pointer: string,
+  segment: string | number,
+): string {
   return `${pointer}/${typeof segment === "number" ? segment : escapePointerSegment(segment)}`;
 }
 

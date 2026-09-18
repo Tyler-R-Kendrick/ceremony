@@ -222,7 +222,7 @@ export function defaultSettings(app: string): Record<string, unknown> {
         headers: { "x-fixture-tag": "ceremony" },
       },
       "proxy.read-channel": { query: ["channel"] },
-      "proxy.team": { path: ["teamId"] },
+      "proxy.team": { path: ["teamId"], targets: { teamId: "slack-team" } },
       "action.send-message": {
         appProp: "slack",
         props: ["channel", "text"],
@@ -274,7 +274,7 @@ export function makeBinding(options: BindingOptions): RuntimeBinding {
       "PIPEDREAM_CLIENT_SECRET",
     ],
     permittedTargets: options.permittedTargets ?? [
-      { kind: "teamId", id: "T01PERMITTED" },
+      { kind: "slack-team", id: "T01PERMITTED" },
     ],
     reviewedDigest: "a".repeat(64),
     settings: options.settings ?? defaultSettings(app),

@@ -3,7 +3,12 @@ import {
   type CompatibilityIssue,
   type SourceRecord,
 } from "../../../core/connectors/index.js";
-import { appendPointer, isPlainObject, makeIssue, pushIssue } from "./common.js";
+import {
+  appendPointer,
+  isPlainObject,
+  makeIssue,
+  pushIssue,
+} from "./common.js";
 import { DEFAULT_PARSE_LIMITS } from "./limits.js";
 
 /*
@@ -54,17 +59,47 @@ type Rule = { pattern: string; code: string; kinds?: DiffChangeKind[] };
 // Ordered: the first matching rule wins, so specific OAuth and scope rules
 // precede the general security-scheme rule.
 const securityRules: readonly Rule[] = [
-  { pattern: "/components/securitySchemes/*/flows/*/authorizationUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/components/securitySchemes/*/flows/*/tokenUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/components/securitySchemes/*/flows/*/refreshUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/components/securitySchemes/*/openIdConnectUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/securityDefinitions/*/authorizationUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/securityDefinitions/*/tokenUrl", code: "security.oauth-endpoint-changed" },
-  { pattern: "/components/securitySchemes/*/flows/*/scopes/**", code: "security.scope-changed" },
-  { pattern: "/components/securitySchemes/*/flows/*/scopes", code: "security.scope-changed" },
-  { pattern: "/securityDefinitions/*/scopes/**", code: "security.scope-changed" },
+  {
+    pattern: "/components/securitySchemes/*/flows/*/authorizationUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/components/securitySchemes/*/flows/*/tokenUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/components/securitySchemes/*/flows/*/refreshUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/components/securitySchemes/*/openIdConnectUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/securityDefinitions/*/authorizationUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/securityDefinitions/*/tokenUrl",
+    code: "security.oauth-endpoint-changed",
+  },
+  {
+    pattern: "/components/securitySchemes/*/flows/*/scopes/**",
+    code: "security.scope-changed",
+  },
+  {
+    pattern: "/components/securitySchemes/*/flows/*/scopes",
+    code: "security.scope-changed",
+  },
+  {
+    pattern: "/securityDefinitions/*/scopes/**",
+    code: "security.scope-changed",
+  },
   { pattern: "/securityDefinitions/*/scopes", code: "security.scope-changed" },
-  { pattern: "/components/securitySchemes/**", code: "security.scheme-changed" },
+  {
+    pattern: "/components/securitySchemes/**",
+    code: "security.scheme-changed",
+  },
   { pattern: "/components/securitySchemes", code: "security.scheme-changed" },
   { pattern: "/securityDefinitions/**", code: "security.scheme-changed" },
   { pattern: "/securityDefinitions", code: "security.scheme-changed" },
@@ -72,7 +107,10 @@ const securityRules: readonly Rule[] = [
   { pattern: "/security", code: "security.requirement-changed" },
   { pattern: "/paths/*/*/security/**", code: "security.requirement-changed" },
   { pattern: "/paths/*/*/security", code: "security.requirement-changed" },
-  { pattern: "/operations/*/security/**", code: "security.requirement-changed" },
+  {
+    pattern: "/operations/*/security/**",
+    code: "security.requirement-changed",
+  },
   { pattern: "/operations/*/security", code: "security.requirement-changed" },
   { pattern: "/servers/*/security/**", code: "security.requirement-changed" },
   { pattern: "/servers/*/security", code: "security.requirement-changed" },
@@ -93,12 +131,29 @@ const securityRules: readonly Rule[] = [
   { pattern: "/remotes", code: "security.server-changed" },
   { pattern: "/packages/**", code: "security.package-changed" },
   { pattern: "/packages", code: "security.package-changed" },
-  { pattern: "/paths/*/*/parameters/*/in", code: "security.parameter-location-changed" },
-  { pattern: "/paths/*/parameters/*/in", code: "security.parameter-location-changed" },
-  { pattern: "/components/parameters/*/in", code: "security.parameter-location-changed" },
+  {
+    pattern: "/paths/*/*/parameters/*/in",
+    code: "security.parameter-location-changed",
+  },
+  {
+    pattern: "/paths/*/parameters/*/in",
+    code: "security.parameter-location-changed",
+  },
+  {
+    pattern: "/components/parameters/*/in",
+    code: "security.parameter-location-changed",
+  },
   { pattern: "/parameters/*/in", code: "security.parameter-location-changed" },
-  { pattern: "/paths/*", code: "security.path-changed", kinds: ["added", "removed"] },
-  { pattern: "/paths", code: "security.path-changed", kinds: ["added", "removed"] },
+  {
+    pattern: "/paths/*",
+    code: "security.path-changed",
+    kinds: ["added", "removed"],
+  },
+  {
+    pattern: "/paths",
+    code: "security.path-changed",
+    kinds: ["added", "removed"],
+  },
 ];
 const classificationKeys = new Set([
   "x-ceremony-classification",
@@ -164,11 +219,16 @@ function classify(
   if (last === "format" && (before === "password" || after === "password"))
     return { code: "security.classification-changed", category: "security" };
   for (const rule of securityRules)
-    if ((!rule.kinds || rule.kinds.includes(kind)) && matches(rule.pattern, segments))
+    if (
+      (!rule.kinds || rule.kinds.includes(kind)) &&
+      matches(rule.pattern, segments)
+    )
       return { code: rule.code, category: "security" };
   if (
     (segments.length === 1 && versionKeys.has(segments[0]!)) ||
-    (segments.length === 2 && segments[0] === "info" && segments[1] === "version")
+    (segments.length === 2 &&
+      segments[0] === "info" &&
+      segments[1] === "version")
   )
     return { code: "version.declared-version-changed", category: "version" };
   return { code: `structure.${kind}`, category: "structure" };
@@ -177,7 +237,10 @@ function classify(
 class DiffTruncated extends Error {}
 
 /** Compares two captures; see the module comment. */
-export function diffSources(previous: SourceSnapshot, next: SourceSnapshot): SourceDiff {
+export function diffSources(
+  previous: SourceSnapshot,
+  next: SourceSnapshot,
+): SourceDiff {
   const changes: DiffChange[] = [];
   const issues: CompatibilityIssue[] = [];
   const security: CompatibilityIssue[] = [];
@@ -239,7 +302,8 @@ export function diffSources(previous: SourceSnapshot, next: SourceSnapshot): Sou
       const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
       for (const key of keys) {
         const path = [...segments, key];
-        if (!Object.hasOwn(before, key)) record(path, "added", undefined, after[key]);
+        if (!Object.hasOwn(before, key))
+          record(path, "added", undefined, after[key]);
         else if (!Object.hasOwn(after, key))
           record(path, "removed", before[key], undefined);
         else walk(before[key], after[key], path, depth + 1);
@@ -250,7 +314,8 @@ export function diffSources(previous: SourceSnapshot, next: SourceSnapshot): Sou
       const length = Math.max(before.length, after.length);
       for (let index = 0; index < length; index++) {
         const path = [...segments, String(index)];
-        if (index >= before.length) record(path, "added", undefined, after[index]);
+        if (index >= before.length)
+          record(path, "added", undefined, after[index]);
         else if (index >= after.length)
           record(path, "removed", before[index], undefined);
         else walk(before[index], after[index], path, depth + 1);
@@ -285,7 +350,10 @@ export function diffSources(previous: SourceSnapshot, next: SourceSnapshot): Sou
       sourceRef: previous.record.sourceRef,
       digest: previous.record.digest.value,
     },
-    next: { sourceRef: next.record.sourceRef, digest: next.record.digest.value },
+    next: {
+      sourceRef: next.record.sourceRef,
+      digest: next.record.digest.value,
+    },
     changes,
     issues,
     security,

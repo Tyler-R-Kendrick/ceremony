@@ -39,7 +39,9 @@ const eventOf = (
   assert.ok(found, `expected an event descriptor for ${nativeId}`);
   return found;
 };
-const extensionOf = (event: { nativeExtensions?: Record<string, unknown> }) =>
+const extensionOf = (event: {
+  nativeExtensions?: Record<string, unknown> | undefined;
+}) =>
   (event.nativeExtensions as { asyncapi: Record<string, unknown> }).asyncapi;
 
 test("AC-NG-07/EVT-01: AsyncAPI 3.1.0 import yields events, never HTTP capabilities", async () => {

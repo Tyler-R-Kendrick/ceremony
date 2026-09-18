@@ -74,11 +74,23 @@ const actionInputSchema = z.strictObject({
 
 type ProxyRoute = Extract<PipedreamRoute, { kind: "proxy" }>;
 
+/**
+ * A parameter the operation marks as selecting a target must name a target
+ * kind the binding declared, and the value must be one of the connection's
+ * permitted targets. A binding that marks a parameter without saying what it
+ * selects is a configuration error, not a reason to skip the check.
+ */
 function assertPermittedTarget(
   binding: RuntimeBinding,
-  kind: string,
+  settings: PipedreamOperationSettings,
+  parameter: string,
   id: string,
 ): void {
+  const kind = settings.targets?.[parameter];
+  if (!kind)
+    throw new ConnectorError("configuration-required", {
+      detail: "pipedream.binding.target-kind",
+    });
   if (
     !binding.permittedTargets.some(
       (target) => target.kind === kind && target.id === id,
@@ -116,7 +128,7 @@ function buildUpstreamUrl(
     const value = supplied[name];
     if (value === undefined) throw invalidInput("pipedream.input.path-missing");
     if (operation.targetParameters.includes(name))
-      assertPermittedTarget(call.ctx.binding, name, value);
+      assertPermittedTarget(call.ctx.binding, settings, name, value);
     template = template.split(`{${name}}`).join(encodePathSegment(value));
   }
   const url = new URL(template);
@@ -129,7 +141,7 @@ function buildUpstreamUrl(
       throw invalidInput("pipedream.input.query-fixed");
     const value = String(raw);
     if (operation.targetParameters.includes(name))
-      assertPermittedTarget(call.ctx.binding, name, value);
+      assertPermittedTarget(call.ctx.binding, settings, name, value);
     url.searchParams.append(name, value);
   }
   return url;

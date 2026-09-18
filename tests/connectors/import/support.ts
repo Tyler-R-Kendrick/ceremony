@@ -142,7 +142,9 @@ export function importPorts() {
 }
 
 export async function fixtureBytes(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await readFile(new URL(name, `file://${IMPORT_FIXTURE_ROOT}`)));
+  return new Uint8Array(
+    await readFile(new URL(name, `file://${IMPORT_FIXTURE_ROOT}`)),
+  );
 }
 
 export const encode = (text: string) => new TextEncoder().encode(text);

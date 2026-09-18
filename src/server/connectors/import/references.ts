@@ -169,7 +169,8 @@ const failureIssue: Readonly<
     executionImpact: "blocks-operation",
     message:
       "Reference resolution exceeded the import's document, byte or resolution budget.",
-    remediation: "Reduce the number of referenced documents or split the import.",
+    remediation:
+      "Reduce the number of referenced documents or split the import.",
   },
   "document-invalid": {
     code: "reference.document-invalid",
@@ -326,7 +327,9 @@ export class ReferenceResolver {
       ref.length > this.limits.maxRefLength ||
       /\p{Cc}/u.test(ref)
     )
-      return { failure: this.failure("unsupported", "reference.malformed", from) };
+      return {
+        failure: this.failure("unsupported", "reference.malformed", from),
+      };
     const hash = ref.indexOf("#");
     const locator = hash === -1 ? ref : ref.slice(0, hash);
     const fragment = hash === -1 ? "" : ref.slice(hash + 1);
@@ -395,12 +398,18 @@ export class ReferenceResolver {
         : decoded.slice(1).split("/").map(unescapePointerSegment);
     if (segments.length > this.limits.maxPointerSegments)
       return {
-        failure: this.failure("unsupported", "reference.pointer-too-long", from),
+        failure: this.failure(
+          "unsupported",
+          "reference.pointer-too-long",
+          from,
+        ),
       };
     return {
       documentId,
       segments,
-      pointer: segments.map((segment) => `/${escapePointerSegment(segment)}`).join(""),
+      pointer: segments
+        .map((segment) => `/${escapePointerSegment(segment)}`)
+        .join(""),
     };
   }
 
@@ -440,7 +449,10 @@ export class ReferenceResolver {
     if (pending) return pending;
     const task = (async (): Promise<RegisteredDocument | Failure> => {
       if (this.externalDocuments >= this.limits.maxExternalDocuments)
-        return { status: "budget-exceeded", detail: "reference.document-budget" };
+        return {
+          status: "budget-exceeded",
+          detail: "reference.document-budget",
+        };
       this.externalDocuments++;
       let fetched: Awaited<ReturnType<ExternalDocumentFetch>>;
       try {
@@ -449,7 +461,10 @@ export class ReferenceResolver {
         return this.classifyFetchFailure(error);
       }
       if (!fetched || !(fetched.bytes instanceof Uint8Array))
-        return { status: "document-invalid", detail: "reference.document-invalid" };
+        return {
+          status: "document-invalid",
+          detail: "reference.document-invalid",
+        };
       if (
         this.externalBytes + fetched.bytes.byteLength >
         this.limits.maxExternalBytes
@@ -496,7 +511,10 @@ export class ReferenceResolver {
    * is the location of the object carrying the `$ref`; issues point at its
    * `$ref` member.
    */
-  async resolve(ref: unknown, from: ReferenceLocation): Promise<ReferenceOutcome> {
+  async resolve(
+    ref: unknown,
+    from: ReferenceLocation,
+  ): Promise<ReferenceOutcome> {
     if (++this.resolutions > this.limits.maxResolutions)
       return this.failure(
         "budget-exceeded",
@@ -517,7 +535,10 @@ export class ReferenceResolver {
     let value: unknown = document.value;
     for (const segment of parsed.segments) {
       if (Array.isArray(value)) {
-        if (!/^(0|[1-9][0-9]*)$/.test(segment) || Number(segment) >= value.length)
+        if (
+          !/^(0|[1-9][0-9]*)$/.test(segment) ||
+          Number(segment) >= value.length
+        )
           return this.failure("unresolved", "reference.pointer-missing", from);
         value = value[Number(segment)];
       } else if (isPlainObject(value) && Object.hasOwn(value, segment))
@@ -583,7 +604,11 @@ export class ReferenceResolver {
         }
         const key = `${outcome.documentId}#${outcome.pointer}`;
         if (stack.includes(key)) {
-          pushIssue(issues, seen, recursiveSchemaIssue(appendPointer(pointer, "$ref")));
+          pushIssue(
+            issues,
+            seen,
+            recursiveSchemaIssue(appendPointer(pointer, "$ref")),
+          );
           return { $ref: key };
         }
         return walk(

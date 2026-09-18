@@ -35,7 +35,10 @@ const at = (pointer = "") => ({ documentId: DOC, pointer });
 
 test("a JSON pointer resolves within one document without expanding anything", async () => {
   const { resolver, value } = await resolverFor("petstore-openapi-3.1.yaml");
-  const outcome = await resolver.resolve("#/components/schemas/Category", at("/x"));
+  const outcome = await resolver.resolve(
+    "#/components/schemas/Category",
+    at("/x"),
+  );
   assert.equal(outcome.status, "resolved");
   assert.equal(outcome.status === "resolved" && outcome.documentId, DOC);
   assert.equal(outcome.status === "resolved" && outcome.external, false);
@@ -50,18 +53,33 @@ test("a JSON pointer resolves within one document without expanding anything", a
   // The whole document is addressable, including the empty pointer.
   const root = await resolver.resolve("#", at());
   assert.deepEqual(root.status === "resolved" ? root.value : undefined, value);
-  const escaped = await resolver.resolve("#/paths/~1pets/get/operationId", at());
-  assert.equal(escaped.status === "resolved" ? escaped.value : undefined, "listPets");
+  const escaped = await resolver.resolve(
+    "#/paths/~1pets/get/operationId",
+    at(),
+  );
+  assert.equal(
+    escaped.status === "resolved" ? escaped.value : undefined,
+    "listPets",
+  );
   // Array indexes resolve; out-of-range and non-numeric indexes do not.
   const server = await resolver.resolve("#/servers/0/url", at());
   assert.equal(
     server.status === "resolved" ? server.value : undefined,
     "https://api.petstore.example/v2",
   );
-  for (const ref of ["#/servers/7", "#/servers/first", "#/servers/-1", "#/nope/x"]) {
+  for (const ref of [
+    "#/servers/7",
+    "#/servers/first",
+    "#/servers/-1",
+    "#/nope/x",
+  ]) {
     const missing = await resolver.resolve(ref, at());
+    assert.notEqual(missing.status, "resolved", ref);
+    assert.equal(
+      missing.status === "resolved" ? "" : missing.issue.severity,
+      "blocking",
+    );
     assert.equal(missing.status, "unresolved", ref);
-    assert.equal(missing.status !== "resolved" && missing.issue.severity, "blocking");
   }
 });
 
@@ -88,7 +106,10 @@ test("a recursive schema is preserved, reported as recursive and never expanded 
   );
   // Where the cycle closes, a reference remains in place of infinite depth.
   const expanded = expansion.value as {
-    properties: { left: { $ref?: string }; right: { properties: { root: unknown } } };
+    properties: {
+      left: { $ref?: string };
+      right: { properties: { root: unknown } };
+    };
   };
   assert.equal(typeof expanded.properties.left.$ref, "string");
   assert.equal(expanded.properties.left.$ref?.startsWith(`${DOC}#`), true);
@@ -126,7 +147,10 @@ test("an expansion that would exceed the bounds is refused with a blocking issue
   // The same document with a depth budget instead of a node budget.
   const shallow = new ReferenceResolver({ limits: { maxExpansionDepth: 4 } });
   shallow.register(DOC, document);
-  assert.equal((await shallow.expand({ $ref: "#/level0" }, at())).complete, false);
+  assert.equal(
+    (await shallow.expand({ $ref: "#/level0" }, at())).complete,
+    false,
+  );
 
   // Lazy resolution of the same document stays cheap and keeps working.
   const lazy = new ReferenceResolver();
@@ -136,7 +160,8 @@ test("an expansion that would exceed the bounds is refused with a blocking issue
 
 test("unresolved, unsupported, unsafe and unavailable references are distinct codes", async (t) => {
   const bytes = await fixtureBytes("malicious-private-refs.yaml");
-  const value = parseBoundedDocument(bytes, { mediaType: "application/yaml" }).value as {
+  const value = parseBoundedDocument(bytes, { mediaType: "application/yaml" })
+    .value as {
     components: { schemas: Record<string, { $ref: string }> };
   };
   const schemas = value.components.schemas;
@@ -159,7 +184,10 @@ test("unresolved, unsupported, unsafe and unavailable references are distinct co
 
   const outcomes: Record<string, string> = {};
   for (const [name, schema] of Object.entries(schemas)) {
-    const outcome = await resolver.resolve(schema.$ref, at(`/components/schemas/${name}`));
+    const outcome = await resolver.resolve(
+      schema.$ref,
+      at(`/components/schemas/${name}`),
+    );
     outcomes[name] = outcome.status;
     assertNoCanary(outcome);
   }
@@ -182,10 +210,11 @@ test("unresolved, unsupported, unsafe and unavailable references are distinct co
 
   // Each failure carries a blocking issue naming the $ref location.
   const codes = new Set(resolver.issues.map((issue) => issue.code));
-  assert.deepEqual(
-    [...codes].sort(),
-    ["reference.unresolved", "reference.unsafe", "reference.unsupported"],
-  );
+  assert.deepEqual([...codes].sort(), [
+    "reference.unresolved",
+    "reference.unsafe",
+    "reference.unsupported",
+  ]);
   for (const issue of resolver.issues) {
     assert.equal(issue.severity, "blocking");
     assert.ok(issue.sourcePointer.endsWith("/$ref"));
@@ -231,7 +260,9 @@ test("external references need an explicit hook and stay inside the document bud
       };
     },
   });
-  resolver.register(`${origin}/root.json`, { a: { $ref: "./doc0.json#/name" } });
+  resolver.register(`${origin}/root.json`, {
+    a: { $ref: "./doc0.json#/name" },
+  });
   const from = { documentId: `${origin}/root.json`, pointer: "/a" };
 
   const first = await resolver.resolve("./doc0.json#/name", from);
@@ -243,8 +274,14 @@ test("external references need an explicit hook and stay inside the document bud
   assert.deepEqual(served, ["/doc0.json"]);
 
   // The budget counts documents, and the fourth is refused rather than fetched.
-  assert.equal((await resolver.resolve("./doc1.json#/name", from)).status, "resolved");
-  assert.equal((await resolver.resolve("./doc2.json#/name", from)).status, "resolved");
+  assert.equal(
+    (await resolver.resolve("./doc1.json#/name", from)).status,
+    "resolved",
+  );
+  assert.equal(
+    (await resolver.resolve("./doc2.json#/name", from)).status,
+    "resolved",
+  );
   const overBudget = await resolver.resolve("./doc3.json#/name", from);
   assert.equal(overBudget.status, "budget-exceeded");
   assert.deepEqual(served, ["/doc0.json", "/doc1.json", "/doc2.json"]);
@@ -281,7 +318,10 @@ test("a byte budget bounds external documents even when the count does not", asy
   const root = `${fixture.origin}/root.json`;
   resolver.register(root, {});
   const from = { documentId: root, pointer: "" };
-  assert.equal((await resolver.resolve("./a.json#/padding", from)).status, "resolved");
+  assert.equal(
+    (await resolver.resolve("./a.json#/padding", from)).status,
+    "resolved",
+  );
   const second = await resolver.resolve("./b.json#/padding", from);
   assert.equal(second.status, "budget-exceeded");
   assert.ok(resolver.budget().externalBytes > 4_000);
@@ -300,22 +340,25 @@ test("a retrieval failure is temporarily unavailable, not a missing reference", 
     fetchExternal: async (url) => {
       const response = await approved(url.href);
       if (response.status === 404)
-        throw new (await import("../../../src/server/connectors/errors.js")).ConnectorError(
-          "not-found",
-          { detail: "import.status-404" },
-        );
+        throw new (
+          await import("../../../src/server/connectors/errors.js")
+        ).ConnectorError("not-found", { detail: "import.status-404" });
       if (!response.ok)
-        throw new (await import("../../../src/server/connectors/errors.js")).ConnectorError(
-          "upstream-unavailable",
-          { detail: "import.status-503" },
-        );
+        throw new (
+          await import("../../../src/server/connectors/errors.js")
+        ).ConnectorError("upstream-unavailable", {
+          detail: "import.status-503",
+        });
       return { bytes: new Uint8Array(await response.arrayBuffer()) };
     },
   });
   const root = `${fixture.origin}/root.json`;
   resolver.register(root, {});
   const from = { documentId: root, pointer: "" };
-  assert.equal((await resolver.resolve("./gone.json#/x", from)).status, "unresolved");
+  assert.equal(
+    (await resolver.resolve("./gone.json#/x", from)).status,
+    "unresolved",
+  );
   assert.equal(
     (await resolver.resolve("./later.json#/x", from)).status,
     "temporarily-unavailable",
@@ -346,8 +389,12 @@ test("an external document is parsed within the same bounds as an upload", async
     documentId: root,
     pointer: "",
   });
+  assert.notEqual(outcome.status, "resolved");
+  assert.equal(
+    outcome.status === "resolved" ? "" : outcome.detail,
+    "json.duplicate-key",
+  );
   assert.equal(outcome.status, "document-invalid");
-  assert.equal(outcome.status !== "resolved" && outcome.detail, "json.duplicate-key");
 });
 
 test("the registry is bounded and rejects unusable document identities", async () => {

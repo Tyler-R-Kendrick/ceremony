@@ -115,9 +115,7 @@ export type ProxyHandler = (input: {
   body: Buffer;
   connectionId: string;
   providerConfigKey: string;
-}) =>
-  | { status?: number; headers?: Record<string, string>; body?: unknown }
-  | undefined;
+}) => FixtureReply | undefined;
 
 export type ActionHandler = (input: {
   actionName: string;
@@ -125,7 +123,7 @@ export type ActionHandler = (input: {
   connectionId: string;
   providerConfigKey: string;
   async: boolean;
-}) => { status?: number; body?: unknown } | undefined;
+}) => FixtureReply | undefined;
 
 export type SyncStatusRow = {
   id?: string;

@@ -66,7 +66,10 @@ test("an identical refresh reports no change and invalidates nothing", async () 
 
 test("a benign refresh is a candidate revision that invalidates no approval", async () => {
   const previous = await snapshot("refresh-v1.yaml");
-  const next = await snapshot("refresh-v2-benign.yaml", Date.UTC(2026, 8, 19, 12));
+  const next = await snapshot(
+    "refresh-v2-benign.yaml",
+    Date.UTC(2026, 8, 19, 12),
+  );
   const diff = diffSources(previous.snapshot, next.snapshot);
   assert.equal(diff.identical, false);
   assert.equal(diff.security.length, 0);
@@ -78,20 +81,28 @@ test("a benign refresh is a candidate revision that invalidates no approval", as
     bindings: false,
   });
   // The changes are still reported, by pointer, as informational issues.
-  assert.ok(diff.changes.some((change) => change.pointer === "/info/description"));
   assert.ok(
-    diff.changes.some((change) => change.pointer === "/paths/~1items/get/summary"),
+    diff.changes.some((change) => change.pointer === "/info/description"),
   );
   assert.ok(
-    diff.changes.some((change) => change.code === "version.declared-version-changed"),
+    diff.changes.some(
+      (change) => change.pointer === "/paths/~1items/get/summary",
+    ),
   );
-  for (const issue of diff.issues)
-    assert.notEqual(issue.severity, "blocking");
+  assert.ok(
+    diff.changes.some(
+      (change) => change.code === "version.declared-version-changed",
+    ),
+  );
+  for (const issue of diff.issues) assert.notEqual(issue.severity, "blocking");
 });
 
 test("security-relevant changes are flagged by category and invalidate approvals", async () => {
   const previous = await snapshot("refresh-v1.yaml");
-  const next = await snapshot("refresh-v2-security.yaml", Date.UTC(2026, 8, 19, 12));
+  const next = await snapshot(
+    "refresh-v2-security.yaml",
+    Date.UTC(2026, 8, 19, 12),
+  );
   const diff = diffSources(previous.snapshot, next.snapshot);
   const codes = new Set(diff.security.map((issue) => issue.code));
   // Server host, token endpoint, added scope, parameter relocation and a new
@@ -152,7 +163,10 @@ test("a refresh never mutates the previous record", async () => {
 
 test("a pinned definition is never replaced because a catalog says latest", async () => {
   const previous = await snapshot("refresh-v1.yaml");
-  const next = await snapshot("refresh-v2-security.yaml", Date.UTC(2026, 8, 19, 12));
+  const next = await snapshot(
+    "refresh-v2-security.yaml",
+    Date.UTC(2026, 8, 19, 12),
+  );
   const pin = {
     sourceRef: previous.snapshot.record.sourceRef,
     digest: previous.snapshot.record.digest.value,
@@ -175,7 +189,9 @@ test("a pinned definition is never replaced because a catalog says latest", asyn
   );
   // If the pinned bytes are gone, the caller is told so rather than being
   // silently moved onto a different revision.
-  const missing = resolvePinnedSource(pin, [{ record: next.snapshot.record, latest: true }]);
+  const missing = resolvePinnedSource(pin, [
+    { record: next.snapshot.record, latest: true },
+  ]);
   assert.equal(missing.outcome, "pin-missing");
   assert.equal(missing.selected, undefined);
   // A record with the pinned ref but different bytes does not satisfy the pin.
@@ -183,18 +199,24 @@ test("a pinned definition is never replaced because a catalog says latest", asyn
     ...previous.snapshot.record,
     digest: { algorithm: "sha256" as const, value: "0".repeat(64) },
   };
-  assert.equal(resolvePinnedSource(pin, [{ record: tampered }]).outcome, "pin-missing");
+  assert.equal(
+    resolvePinnedSource(pin, [{ record: tampered }]).outcome,
+    "pin-missing",
+  );
 });
 
 test("a refresh from a URL re-retrieves through the approved fetcher only", async (t) => {
   let revision = 0;
   const fixture = await startHttpFixture(async (request) => {
-    if (request.url.pathname !== "/openapi.yaml") return { status: 404, body: "no" };
+    if (request.url.pathname !== "/openapi.yaml")
+      return { status: 404, body: "no" };
     revision += 1;
     return {
       headers: { "content-type": "application/yaml" },
       body: Buffer.from(
-        await fixtureBytes(revision === 1 ? "refresh-v1.yaml" : "refresh-v2-security.yaml"),
+        await fixtureBytes(
+          revision === 1 ? "refresh-v1.yaml" : "refresh-v2-security.yaml",
+        ),
       ),
     };
   });
@@ -213,7 +235,10 @@ test("a refresh from a URL re-retrieves through the approved fetcher only", asyn
     await import("../../../src/server/connectors/import/index.js")
   ).importFromUrl(importActor, `${fixture.origin}/openapi.yaml`, policy, ports);
   assert.equal(initial.source.origin.kind, "url");
-  assert.equal(initial.source.origin.location, `${fixture.origin}/openapi.yaml`);
+  assert.equal(
+    initial.source.origin.location,
+    `${fixture.origin}/openapi.yaml`,
+  );
 
   const refreshed = await refreshFromUrl(
     importActor,
@@ -242,10 +267,14 @@ test("a refresh from a URL re-retrieves through the approved fetcher only", asyn
 test("diff output is bounded and never carries document values", async () => {
   const previous = {
     record: (await snapshot("refresh-v1.yaml")).snapshot.record,
-    value: { info: { description: `before ${CANARY}` }, servers: [{ url: "https://a.example" }] },
+    value: {
+      info: { description: `before ${CANARY}` },
+      servers: [{ url: "https://a.example" }],
+    },
   };
   const next = {
-    record: (await snapshot("refresh-v2-benign.yaml", Date.UTC(2026, 8, 19))).snapshot.record,
+    record: (await snapshot("refresh-v2-benign.yaml", Date.UTC(2026, 8, 19)))
+      .snapshot.record,
     value: {
       info: { description: `after ${CANARY}` },
       servers: [{ url: `https://b.example?token=${CANARY}` }],
@@ -253,7 +282,9 @@ test("diff output is bounded and never carries document values", async () => {
   };
   const diff = diffSources(previous, next);
   assertNoCanary(diff.issues, diff.changes, refreshDecision(diff));
-  assert.ok(diff.security.some((issue) => issue.code === "security.server-changed"));
+  assert.ok(
+    diff.security.some((issue) => issue.code === "security.server-changed"),
+  );
 
   // A pathological pair of documents cannot produce unbounded output.
   const wide = (offset: number) =>
@@ -272,10 +303,16 @@ test("diff output is bounded and never carries document values", async () => {
 
 test("evaluateRefresh pairs the candidate with its decision", async () => {
   const previous = await snapshot("refresh-v1.yaml");
-  const candidate = await snapshot("refresh-v2-security.yaml", Date.UTC(2026, 8, 19));
+  const candidate = await snapshot(
+    "refresh-v2-security.yaml",
+    Date.UTC(2026, 8, 19),
+  );
   const result = evaluateRefresh(previous.snapshot, candidate.outcome);
   assert.equal(result.previous.sourceRef, previous.snapshot.record.sourceRef);
-  assert.equal(result.candidate.source.sourceRef, candidate.snapshot.record.sourceRef);
+  assert.equal(
+    result.candidate.source.sourceRef,
+    candidate.snapshot.record.sourceRef,
+  );
   assert.equal(result.diff.identical, false);
   assert.equal(result.decision.outcome, "security-review-required");
   assert.ok(result.decision.codes.includes("security.server-changed"));

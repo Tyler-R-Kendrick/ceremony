@@ -253,7 +253,7 @@ test("EVT-03: comparison is constant time and length-safe", () => {
     "base64",
   );
   const altered = Buffer.from(original);
-  altered[altered.length - 1] ^= 1;
+  altered[altered.length - 1] = (altered.at(-1) ?? 0) ^ 1;
   const nearMiss = new Headers(headers);
   nearMiss.set("webhook-signature", `v1,${altered.toString("base64")}`);
   assert.equal(

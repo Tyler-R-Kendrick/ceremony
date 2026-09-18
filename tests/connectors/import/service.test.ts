@@ -67,7 +67,10 @@ test("an upload becomes a candidate with provenance and no executable registrati
     { fileName: "petstore.yaml" },
   );
 
-  assert.equal(connectorImportResultSchema.safeParse(outcome.result).success, true);
+  assert.equal(
+    connectorImportResultSchema.safeParse(outcome.result).success,
+    true,
+  );
   assert.equal(outcome.result.sourceRef, outcome.source.sourceRef);
   // Import registers nothing: no definitions, no executable candidates.
   assert.deepEqual(outcome.result.definitions, []);
@@ -83,10 +86,16 @@ test("an upload becomes a candidate with provenance and no executable registrati
   assert.equal(outcome.source.identity.nativeId, "petstore.yaml");
   assert.equal(outcome.source.mediaType, "application/yaml");
   assert.match(outcome.document.normalizedDigest, /^[a-f0-9]{64}$/);
-  assert.notEqual(outcome.document.normalizedDigest, outcome.source.digest.value);
+  assert.notEqual(
+    outcome.document.normalizedDigest,
+    outcome.source.digest.value,
+  );
   // The stored record is the one that was returned.
   assert.deepEqual(
-    await ports.definitions.getSource(importActor.tenantId, outcome.source.sourceRef),
+    await ports.definitions.getSource(
+      importActor.tenantId,
+      outcome.source.sourceRef,
+    ),
     outcome.source,
   );
 });
@@ -116,8 +125,9 @@ test("each supported family is recognized, and an unknown one is stored as opaqu
   // A registry entry naming an npm package and arguments is inert data: it is
   // recorded, and nothing installs, spawns or pulls anything.
   const registry = imported.get("mcp-server.json")!;
-  const packages = (registry.document.value as { packages: Array<{ identifier: string }> })
-    .packages;
+  const packages = (
+    registry.document.value as { packages: Array<{ identifier: string }> }
+  ).packages;
   assert.equal(packages[0]?.identifier, "@example/fixture-mcp");
   assert.deepEqual(registry.result.executableCandidates, []);
 
@@ -141,14 +151,20 @@ test("detection reads declared markers and nothing else", () => {
   assert.equal(detectDocument({ swagger: "2.0" }).formatName, "swagger");
   assert.equal(detectDocument({ swagger: "1.2" }).ecosystem, "unknown");
   assert.equal(detectDocument({ arazzo: "1.1.0" }).ecosystem, "arazzo");
-  assert.equal(detectDocument({ overlay: "1.1.0" }).ecosystem, "openapi-overlay");
+  assert.equal(
+    detectDocument({ overlay: "1.1.0" }).ecosystem,
+    "openapi-overlay",
+  );
   assert.equal(
     detectDocument({ format: "ceremony-connector", version: 2 }).ecosystem,
     "ceremony",
   );
   assert.equal(
-    detectDocument({ protocolVersion: "0.3.0", skills: [], url: "https://a.example" })
-      .ecosystem,
+    detectDocument({
+      protocolVersion: "0.3.0",
+      skills: [],
+      url: "https://a.example",
+    }).ecosystem,
     "a2a",
   );
   // Nothing about a title or description can change what the document is.
@@ -160,7 +176,8 @@ test("detection reads declared markers and nothing else", () => {
   assert.equal(detectDocument(null).ecosystem, "unknown");
   // A title with control characters is dropped rather than carried into display.
   assert.equal(
-    detectDocument({ openapi: "3.1.0", info: { title: "bad\u0007title" } }).title,
+    detectDocument({ openapi: "3.1.0", info: { title: "bad\u0007title" } })
+      .title,
     undefined,
   );
 });
@@ -190,12 +207,20 @@ test("a URL import performs exactly one retrieval and no provider call", async (
     ["/v1/openapi.yaml"],
   );
   assert.equal(outcome.source.origin.kind, "url");
-  assert.equal(outcome.source.origin.location, `${fixture.origin}/v1/openapi.yaml`);
-  assert.equal(outcome.source.identity.authorityNamespace, new URL(fixture.origin).host);
+  assert.equal(
+    outcome.source.origin.location,
+    `${fixture.origin}/v1/openapi.yaml`,
+  );
+  assert.equal(
+    outcome.source.identity.authorityNamespace,
+    new URL(fixture.origin).host,
+  );
   assert.equal(outcome.source.identity.nativeId, "/v1/openapi.yaml");
   assert.deepEqual(outcome.result.executableCandidates, []);
   // The document declares a server and several references; none was contacted.
-  const declared = (outcome.document.value as { servers: Array<{ url: string }> }).servers;
+  const declared = (
+    outcome.document.value as { servers: Array<{ url: string }> }
+  ).servers;
   assert.equal(declared[0]?.url, "https://api.petstore.example/v2");
   assert.equal(fixture.requests.length, 1);
 });
@@ -206,10 +231,16 @@ test("URL ingestion refuses unsafe destinations before any request", async (t) =
   const ports = importPorts();
   for (const [url, detail] of [
     ["https://api.example/spec.json", "network.loopback-fixture-only"],
-    ["http://169.254.169.254/latest/meta-data/", "network.loopback-fixture-only"],
+    [
+      "http://169.254.169.254/latest/meta-data/",
+      "network.loopback-fixture-only",
+    ],
     ["http://10.0.0.5/spec.json", "network.loopback-fixture-only"],
     ["file:///etc/passwd", "network.scheme-forbidden"],
-    [`http://user:${CANARY}@127.0.0.1:1/spec.json`, "network.userinfo-forbidden"],
+    [
+      `http://user:${CANARY}@127.0.0.1:1/spec.json`,
+      "network.userinfo-forbidden",
+    ],
   ] as const) {
     const error = await expectConnectorError(
       importFromUrl(importActor, url, loopbackPolicy(), ports),
@@ -222,10 +253,18 @@ test("URL ingestion refuses unsafe destinations before any request", async (t) =
   assert.equal(ports.artifacts.entries().length, 0);
 
   // A non-200 answer is an upstream rejection, not an empty import.
-  const failing = await startHttpFixture(() => ({ status: 403, body: { error: "no" } }));
+  const failing = await startHttpFixture(() => ({
+    status: 403,
+    body: { error: "no" },
+  }));
   t.after(() => failing.close());
   await expectConnectorError(
-    importFromUrl(importActor, `${failing.origin}/spec.json`, loopbackPolicy(), ports),
+    importFromUrl(
+      importActor,
+      `${failing.origin}/spec.json`,
+      loopbackPolicy(),
+      ports,
+    ),
     "upstream-rejected",
     "import.status-403",
   );
@@ -233,13 +272,21 @@ test("URL ingestion refuses unsafe destinations before any request", async (t) =
 });
 
 test("a caller cannot substitute an unapproved fetcher", async (t) => {
-  const fixture = await startHttpFixture(() => ({ body: { openapi: "3.1.0" } }));
+  const fixture = await startHttpFixture(() => ({
+    body: { openapi: "3.1.0" },
+  }));
   t.after(() => fixture.close());
   const ports = importPorts();
   await expectConnectorError(
-    importFromUrl(importActor, `${fixture.origin}/spec.json`, loopbackPolicy(), ports, {
-      fetch: globalThis.fetch as never,
-    }),
+    importFromUrl(
+      importActor,
+      `${fixture.origin}/spec.json`,
+      loopbackPolicy(),
+      ports,
+      {
+        fetch: globalThis.fetch as never,
+      },
+    ),
     "invalid-request",
     "import.fetch-not-approved",
   );

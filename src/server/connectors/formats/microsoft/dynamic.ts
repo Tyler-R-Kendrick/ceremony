@@ -248,7 +248,11 @@ export function normalizeOptionValue(
   return undefined;
 }
 
-export type OptionSelection = { collection?: string; value?: string; title?: string };
+export type OptionSelection = {
+  collection?: string | undefined;
+  value?: string | undefined;
+  title?: string | undefined;
+};
 
 /** Turns an upstream payload into bounded, sanitized options, or names why it cannot. */
 export function extractOptions(

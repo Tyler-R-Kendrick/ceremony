@@ -60,7 +60,7 @@ export type FixtureProviderOptions = {
   account?: string;
   /** Force the consent step to require a second human interaction. */
   requireConsent?: boolean;
-  /** Fail the next write with a transport error after applying it upstream. */
+  /** Truncate the next write's response after applying it upstream: the effect happened, the answer did not arrive. */
   dropWriteResponse?: boolean;
 };
 
@@ -177,8 +177,13 @@ export async function startFixtureProvider(
       writes.set(key, (writes.get(key) ?? 0) + 1);
       if (state.dropWriteResponse) {
         state.dropWriteResponse = false;
-        // The effect happened upstream and the response never arrived.
-        throw new Error("connection reset");
+        // The write was applied upstream and the answer was cut off in
+        // transit. The client cannot tell whether it happened.
+        return {
+          status: 201,
+          headers: { "content-type": "application/json" },
+          body: '{"id":"item-1","stat',
+        };
       }
       return { status: 201, body: { id: `item-${writes.size}`, status: "created" } };
     }
