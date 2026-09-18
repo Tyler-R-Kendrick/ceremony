@@ -862,7 +862,31 @@ export function findExportedValueIndex(parse: JsParse): number | undefined {
       continue;
     }
     if (name === "export") {
-      if (nameAt(parse, index + 1) === "default") return index + 2;
+      if (nameAt(parse, index + 1) === "default") {
+        /*
+         * `export default definition;` names a value declared elsewhere, and is
+         * resolved through the declaration map exactly as its CommonJS twin
+         * `module.exports = definition;` already was. Returning the identifier
+         * position instead read the definition as an opaque reference, so a
+         * module written in the more common ES spelling reported itself
+         * unreadable while the same file written the other way read fine.
+         * An anonymous `export default { ... }`, or a function or class, still
+         * returns the position after `default`.
+         */
+        const target = nameAt(parse, index + 2);
+        if (
+          target !== undefined &&
+          !["function", "async", "class", "true", "false", "null"].includes(
+            target,
+          ) &&
+          (punctAt(parse, index + 3, ";") ||
+            parse.tokens[index + 3] === undefined)
+        ) {
+          indirect = target;
+          continue;
+        }
+        return index + 2;
+      }
       const kind = nameAt(parse, index + 1);
       if (kind === "const" || kind === "let" || kind === "var") {
         const declared = nameAt(parse, index + 2);
