@@ -155,6 +155,32 @@ function extensionEntries(
   return Object.entries(source).map(([name, value]) => ({ pointer, name, value }));
 }
 
+/**
+ * Shrinks an inert extension block until it fits the definition's bounds by
+ * dropping whole groups in the given order. A description that cannot carry
+ * everything says so rather than failing to parse.
+ */
+function fitBlock(
+  block: Record<string, unknown>,
+  dropOrder: readonly string[],
+  onDrop: (key: string) => void,
+): Record<string, unknown> {
+  const fitted = { ...block };
+  for (const key of ["", ...dropOrder]) {
+    if (key) {
+      if (!Object.hasOwn(fitted, key)) continue;
+      delete fitted[key];
+      onDrop(key);
+    }
+    if (
+      measureJsonValue(fitted, EXTENSION_LIMITS).ok &&
+      Object.keys(fitted).length <= EXTENSION_LIMITS.keys
+    )
+      return fitted;
+  }
+  return fitted;
+}
+
 /** Every x-ms-* extension in the document, with the pointer it was read from. */
 function collectDocumentExtensions(walk: SwaggerWalk): ExtensionEntry[] {
   const entries: ExtensionEntry[] = extensionEntries(walk.extensions, "#");

@@ -421,7 +421,7 @@ export async function startWorkOsPipesDouble(
           ...(answer.headers ?? {}),
           "x-relay-upstream-status": String(answer.status),
         },
-        body: answer.body ?? {},
+        body: (answer.body ?? {}) as Record<string, unknown>,
       };
     }
 

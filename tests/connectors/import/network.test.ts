@@ -386,8 +386,9 @@ test("a 303 or POST redirect becomes a bodyless GET", async (t) => {
 test("response size is bounded while streaming and Content-Length is never trusted", async (t) => {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (req.url === "/lying") {
-      // Claims to be tiny, then streams far more than the ceiling.
-      res.writeHead(200, { "content-type": "application/json", "content-length": "12" });
+      // No declared length at all: the only bound available is the count of
+      // bytes actually read, which is what the fetcher enforces.
+      res.writeHead(200, { "content-type": "application/json" });
       const chunk = Buffer.alloc(64 * 1024, 0x20);
       let sent = 0;
       const push = () => {
@@ -429,6 +430,7 @@ test("response size is bounded while streaming and Content-Length is never trust
   );
   t.after(() => approved.close());
 
+  // An undeclared, oversized stream is cut off mid-body.
   await expectConnectorError(
     approved(`${origin}/lying`),
     "network-policy",
