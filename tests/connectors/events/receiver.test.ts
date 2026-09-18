@@ -290,7 +290,7 @@ test("EVT-05: the negative matrix is refused with sanitized responses that never
     }
     // Nothing was admitted and nothing reached an adapter.
     await h.drain();
-    assert.deepEqual(h.applied, []);
+    assert.equal(h.applied.length, 0);
     // Every refusal is auditable by code without carrying the payload.
     const codes = h.audits.map((event) => event.code);
     assert.ok(codes.includes("unverified"));
@@ -332,7 +332,7 @@ test("EVT-05: an oversized body is refused while it streams, not after it is buf
     assert.equal(response.status, 413);
     assert.deepEqual(await response.json(), { error: "too-large" });
     await h.drain();
-    assert.deepEqual(h.applied, []);
+    assert.equal(h.applied.length, 0);
   } finally {
     await h.context.store.close();
   }
@@ -427,7 +427,7 @@ test("AC-STATE-07/EVT-05: an unsigned or wrong-tenant lifecycle event cannot rev
       await other.store.close();
     }
     await h.drain();
-    assert.deepEqual(h.applied, [], "no lifecycle event was ever dispatched");
+    assert.equal(h.applied.length, 0, "no lifecycle event was ever dispatched");
     // A properly signed revocation does reach the adapter, as a lifecycle hint.
     const valid = await h.receive(
       webhookRequest({
@@ -465,7 +465,7 @@ test("EVT-05: an event type outside the approved subscription is acknowledged bu
     assert.equal(response.status, 202);
     assert.deepEqual(await response.json(), { status: "ignored" });
     await h.drain();
-    assert.deepEqual(h.applied, []);
+    assert.equal(h.applied.length, 0);
   } finally {
     await h.context.store.close();
   }
