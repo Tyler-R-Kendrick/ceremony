@@ -113,6 +113,17 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByLabel("Stripe secret key")).toBeVisible();
 
+  // Continue removes the button that was pressed, so focus has somewhere to
+  // fall. Outside a dialog that declares aria-modal is not it: that puts a
+  // keyboard user at the top of the document with the dialog still over them,
+  // and takes Escape with them, because a document with nothing focused is not
+  // reliably given the key.
+  expect(
+    await page.evaluate(() =>
+      Boolean(document.activeElement?.closest(".connect-drawer")),
+    ),
+  ).toBe(true);
+
   // Escape closes the drawer and returns the directory, still navigable.
   await page.keyboard.press("Escape");
   await expect(drawer).toHaveCount(0);

@@ -626,6 +626,24 @@ export function AddConnection({
       if (opener.current?.isConnected) opener.current.focus();
     };
   }, [open]);
+  /**
+   * The step that replaces this one inherits the focus it held.
+   *
+   * Continue removes the button that was just pressed, so focus falls to the
+   * body — outside a dialog that declares `aria-modal`, which is the thing the
+   * trap above exists to prevent and it happened at every step rather than
+   * only at close. A keyboard user was put at the top of the document with the
+   * dialog still over it, and Escape went with them: the handler is on the
+   * window, and a document with nothing focused is not reliably given the key
+   * at all. That shows up as a modal nobody can dismiss.
+   *
+   * Focus already inside is left alone, so this never takes a field away from
+   * somebody mid-answer.
+   */
+  useEffect(() => {
+    if (!open || panel.current?.contains(document.activeElement)) return;
+    panel.current?.focus();
+  }, [open, step]);
   const toggle = (capability: Capability) =>
     set({
       capabilities: draft.capabilities.includes(capability)
