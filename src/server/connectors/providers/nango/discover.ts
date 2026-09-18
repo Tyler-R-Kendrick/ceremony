@@ -211,7 +211,7 @@ export async function discoverNango(
   return {
     items: pageItems.map((integration) => integrationItem(integration, resolved)),
     ...(offset + limit < matching.length
-      ? { nextCursor: encodeCursor({ page: (cursor?.page ?? 0) + 1 }) }
+      ? { nextCursor: encodeCursor({ page: (cursor?.page ?? 0) + 1, limit }) }
       : {}),
     freshness: { fetchedAt, stale: false, source: "live" },
     issues: [],

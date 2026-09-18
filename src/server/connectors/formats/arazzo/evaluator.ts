@@ -582,8 +582,10 @@ export function evaluateCondition(
     typeof condition === "string" ? parseCondition(condition) : condition;
   try {
     const result = evaluate(parsed.ast, context);
+    // A bare value is only a condition when it is boolean; `truthy` reports
+    // anything else rather than guessing at JavaScript truthiness.
     return {
-      satisfied: result.value === true,
+      satisfied: truthy(result.value),
       classification: result.classification,
     };
   } catch (error) {

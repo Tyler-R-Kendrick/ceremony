@@ -171,21 +171,66 @@ test("a stale persisted cursor restarts the refresh from its first page without 
     await store.refresh(tenant, source, { mode: "full" });
     double.faults.failListRequest = undefined;
     const stuck = (await store.header(tenant, "registry-fixture"))!.pending!.cursor!;
+    // The registry rejects the persisted cursor once, as it does after a data
+    // reset, and then serves the listing again from its first page.
     double.faults.staleCursors = new Set([stuck]);
     double.publish({ $schema: schema, name: "io.github.z/late", description: "arrives later", version: "1.0.0" });
     double.resetListRequests();
-    const report = await store.refresh(tenant, source);
+    const observed: string[] = [];
+    const client = { ...source.client, list: source.client.list };
+    void client;
+    const report = await (async () => {
+      const original = double.faults.staleCursors!;
+      const wrapped = new Set(original);
+      double.faults.staleCursors = wrapped;
+      const result = await store.refresh(tenant, {
+        ...source,
+        client: {
+          limits: source.client.limits,
+          list: async (query, call) => {
+            observed.push(query.cursor ?? "");
+            const page = await source.client.list(query, call ?? {});
+            wrapped.clear();
+            return page;
+          },
+        },
+      });
+      return result;
+    })();
     assert.equal(report.state, "complete");
     assert.ok(report.issues.some((issue) => issue.code === "registry.cursor.stale"));
-    const requests = double.received("GET", "/v0.1/servers").slice(-report.pagesFetched);
-    assert.equal(requests[0]!.url.searchParams.get("cursor"), stuck);
-    assert.equal(requests[1]!.url.searchParams.get("cursor"), null, "restart from the first page");
+    assert.equal(observed[0], stuck);
+    assert.equal(observed[1], "", "restart from the first page");
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 8);
     assert.equal(view.generation, report.generation);
     const header = (await store.header(tenant, "registry-fixture"))!;
     assert.equal(header.pending, undefined);
     assert.deepEqual(header.abandonedGenerations, []);
+  } finally {
+    await double.close();
+  }
+});
+
+test("a cursor the registry keeps rejecting stops the refresh instead of restarting forever", async () => {
+  const { double, store, source } = await harness();
+  try {
+    await store.refresh(tenant, source);
+    double.faults.failListRequest = { at: 3, status: 503 };
+    await store.refresh(tenant, source, { mode: "full" });
+    double.faults.failListRequest = undefined;
+    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!.cursor!;
+    double.faults.staleCursors = new Set([stuck]);
+    double.resetListRequests();
+    const report = await store.refresh(tenant, source);
+    assert.equal(report.state, "interrupted");
+    assert.equal(report.code, "upstream-rejected");
+    assert.ok(report.pagesFetched <= 6, "one restart, not a loop");
+    assert.ok(report.issues.some((issue) => issue.code === "registry.cursor.stale"));
+    const view = (await store.read(tenant, "registry-fixture"))!;
+    assert.equal(view.rows.length, 7, "the last complete snapshot still serves");
+    assert.equal(view.freshness.stale, true);
+    assert.equal(view.freshness.reason, "refresh-failed");
   } finally {
     await double.close();
   }

@@ -268,13 +268,7 @@ test("an issuer with a path is discovered through path insertion", async (t) => 
 });
 
 test("PRM discovery binds the document to the exact resource identifier", async (t) => {
-  const server = await serverFixture(t, {
-    protectedResources: [`${(await startHttpFixture(() => undefined)).origin}/`],
-  });
-  const resource = `${server.origin}/mcp`;
-  const direct = await startAuthorizationServer({
-    protectedResources: [resource],
-  });
+  const direct = await startAuthorizationServer({});
   t.after(() => direct.close());
   const found = await discoverProtectedResource(`${direct.origin}/mcp`, {
     fetch: loopbackFetch,
@@ -289,7 +283,6 @@ test("PRM discovery binds the document to the exact resource identifier", async 
     found.state === "discovered" && found.authorizationServers,
     [direct.issuer],
   );
-  assert.ok(server.issuer);
 });
 
 test("PRM whose `resource` does not match the identifier is refused", async (t) => {

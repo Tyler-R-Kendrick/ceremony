@@ -776,7 +776,10 @@ export function readAirbyteMessages(
       case "RECORD":
         if (message.record) {
           report.records.total++;
-          const key = streamKey(message.record);
+          const key = streamKey({
+            name: message.record.stream,
+            namespace: message.record.namespace,
+          });
           const entry = perStream.get(key) ?? {
             ...descriptorOf({
               name: message.record.stream,

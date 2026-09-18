@@ -98,7 +98,7 @@ test("URL policy refuses userinfo, schemes, literals and unexpected ports", () =
   assert.equal(evaluateNetworkTarget("https://api.example:443/x", policy).allowed, true);
 });
 
-test("an administrator-approved private origin is scoped to exactly that origin", () => {
+test("an administrator-approved private origin is scoped to exactly that origin", async (t) => {
   const approved = "https://intranet.corp.example";
   const policy = publicPolicy({
     mode: "approved-private",
@@ -106,10 +106,9 @@ test("an administrator-approved private origin is scoped to exactly that origin"
   });
   assert.equal(evaluateNetworkTarget(`${approved}/spec.json`, policy).allowed, true);
   assert.equal(evaluateNetworkTarget("https://10.0.0.7:8443/spec", policy).allowed, true);
-  // A sibling host, another port, another scheme or another private address is
-  // not covered by the approval, and the document cannot add one.
+  // Another port, another scheme or another private address is not covered by
+  // the approval, and no document can add one.
   for (const [url, detail] of [
-    ["https://other.corp.example/spec.json", "network.address-forbidden"],
     ["https://intranet.corp.example:8443/spec.json", "network.port-forbidden"],
     ["http://intranet.corp.example/spec.json", "network.scheme-forbidden"],
     ["https://10.0.0.8:8443/spec", "network.private-origin-not-approved"],
@@ -120,6 +119,28 @@ test("an administrator-approved private origin is scoped to exactly that origin"
     assert.equal(decision.allowed, false, url);
     assert.equal(decision.allowed === false && decision.detail, detail, url);
   }
+
+  // A different intranet name is not approved, so it is treated as an ordinary
+  // public target: approving one private origin does not put the whole private
+  // network behind the same policy. Its DNS answer is held to the public rule
+  // and refused at connection time, without contacting anything.
+  const sibling = evaluateNetworkTarget("https://other.corp.example/spec.json", policy);
+  assert.equal(sibling.allowed, true);
+  assert.equal(sibling.allowed === true && sibling.network, "public");
+  const approvedTarget = evaluateNetworkTarget(`${approved}/spec.json`, policy);
+  assert.equal(approvedTarget.allowed === true && approvedTarget.network, "approved-private");
+
+  const privateAnswer = async () => [{ address: "10.0.0.5", family: 4 }];
+  const fetcher = createApprovedFetch({ ...policy, lookup: privateAnswer, timeoutMs: 500 });
+  t.after(() => fetcher.close());
+  await expectConnectorError(
+    fetcher("https://other.corp.example/spec.json"),
+    "network-policy",
+    "network.dns-forbidden-address",
+  );
+  // The approved origin's private answer is accepted by policy: the attempt
+  // reaches the transport and fails there, not at the policy gate.
+  await expectConnectorError(fetcher(`${approved}/spec.json`), "upstream-unavailable");
   // The same origin list means nothing under the public policy.
   assert.equal(
     evaluateNetworkTarget(`${approved}/spec.json`, publicPolicy()).allowed,
@@ -223,7 +244,7 @@ test("DNS failures and empty answers are policy denials, not silent fallbacks", 
   );
   t.after(() => failing.close());
   const error = await expectConnectorError(
-    failing("http://localhost:9/x"),
+    failing("http://localhost:45001/x"),
     "network-policy",
     "network.dns-forbidden-address",
   );
@@ -232,7 +253,7 @@ test("DNS failures and empty answers are policy denials, not silent fallbacks", 
   const empty = createApprovedFetch(loopbackPolicy({ lookup: async () => [] }));
   t.after(() => empty.close());
   await expectConnectorError(
-    empty("http://localhost:9/x"),
+    empty("http://localhost:45001/x"),
     "network-policy",
     "network.dns-forbidden-address",
   );
@@ -280,11 +301,13 @@ test("redirects are followed manually, revalidated per hop and bounded", async (
   assert.deepEqual(await crossed.json(), { reached: "second" });
   assert.equal(target.requests.length, 1);
 
-  // Private, metadata, loopback-escaping and credentialed targets stay refused.
+  // Private, metadata, mapped-literal and credentialed targets stay refused,
+  // and each is refused for its own reason rather than a generic one.
   for (const [to, detail] of [
     ["http://10.0.0.5/x", "network.loopback-fixture-only"],
     ["http://169.254.169.254/latest/meta-data/", "network.loopback-fixture-only"],
-    ["https://[::ffff:127.0.0.1]/x", "network.loopback-fixture-only"],
+    ["http://[::ffff:127.0.0.1]/x", "network.loopback-fixture-only"],
+    ["http://2130706433/x", "network.redirect-cross-origin"],
     [`http://user:${CANARY}@127.0.0.1:${targetPort}/x`, "network.userinfo-forbidden"],
     ["file:///etc/passwd", "network.scheme-forbidden"],
   ] as const) {

@@ -185,17 +185,18 @@ export const connectionRecordSchema = connectionSummarySchema.safeExtend({
       "State exceeds its bounds",
     ),
 });
-export const connectionPatchSchema = connectionRecordSchema
-  .omit({
-    connectionRef: true,
-    tenantId: true,
-    ownerId: true,
-    ownerKind: true,
-    createdAt: true,
-    generation: true,
-    revision: true,
-  })
-  .partial();
+const {
+  connectionRef: _connectionRef,
+  tenantId: _tenantId,
+  ownerId: _ownerId,
+  ownerKind: _ownerKind,
+  createdAt: _createdAt,
+  generation: _generation,
+  revision: _revision,
+  ...patchableShape
+} = connectionRecordSchema.shape;
+/** Identity, ownership and the fenced counters are not patchable; everything else is. */
+export const connectionPatchSchema = z.strictObject(patchableShape).partial();
 
 export const disconnectOutcomeSchema = z.enum([
   "applied",

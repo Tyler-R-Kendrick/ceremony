@@ -3,10 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActorContext } from "../../../../src/core/operation-contracts.js";
-import type {
-  NormalizedDefinition,
-  SourceRecord,
-  VerificationClaim,
+import {
+  completeDimensions,
+  type NormalizedDefinition,
+  type SourceRecord,
+  type VerificationClaim,
 } from "../../../../src/core/connectors/index.js";
 import type { RuntimeBinding } from "../../../../src/server/connectors/binding.js";
 import type { ConnectionRecord } from "../../../../src/server/connectors/ports.js";
@@ -140,7 +141,7 @@ export function definitionRecord(
     declaredServers: [],
     compatibility: {
       issues: [],
-      dimensions: { import: "exact", invoke: "unsupported" },
+      dimensions: completeDimensions({ import: "exact" }),
     },
     nativeExtensions: {},
     ...input,

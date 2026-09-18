@@ -186,6 +186,8 @@ export type RegistryRefreshProgress = {
   issues: CompatibilityIssue[];
   droppedIssues: number;
   conflicts: number;
+  /** Restarts spent on a rejected cursor; bounded so a permanently stale cursor cannot loop. */
+  restarts: number;
 };
 
 export type RegistryPin = { name: string; version: string; pinnedAt: string };
@@ -268,6 +270,13 @@ export type RegistrySnapshotStoreOptions = {
   maxEntries?: number;
   maxIssues?: number;
 };
+
+/**
+ * One restart per refresh. A cursor the registry keeps rejecting would
+ * otherwise restart forever; after the budget the refresh stops as interrupted
+ * and the last complete snapshot keeps serving.
+ */
+const MAX_CURSOR_RESTARTS = 1;
 
 const shards = "0123456789abcdef".split("");
 const shardOf = (digest: string) => digest[0]!;
@@ -446,6 +455,7 @@ export class RegistrySnapshotStore {
       issues: [],
       droppedIssues: 0,
       conflicts: 0,
+      restarts: 0,
       ...(mode === "incremental" && since
         ? {
             updatedSince: new Date(
@@ -594,7 +604,11 @@ export class RegistrySnapshotStore {
           error instanceof ConnectorError ? error.code : "upstream-unavailable";
         const detail = error instanceof ConnectorError ? error.detail : undefined;
         pagesFetched++;
-        if (detail === "registry.cursor.stale" && pending.cursor !== undefined) {
+        if (
+          detail === "registry.cursor.stale" &&
+          pending.cursor !== undefined &&
+          pending.restarts < MAX_CURSOR_RESTARTS
+        ) {
           // The persisted cursor no longer works: restart this refresh from its
           // first page under a new generation number. The served generation is
           // not involved, and the abandoned staging is garbage-collected later.
@@ -604,6 +618,7 @@ export class RegistrySnapshotStore {
           const restarted = this.startPending(withoutPending, pending.mode);
           restarted.issues = [...pending.issues];
           restarted.droppedIssues = pending.droppedIssues;
+          restarted.restarts = pending.restarts + 1;
           this.addIssue(
             restarted,
             snapshotIssue(

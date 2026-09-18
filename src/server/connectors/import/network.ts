@@ -259,40 +259,40 @@ export function evaluateNetworkTarget(
   const literal = isIP(host) ? classifyAddress(host) : undefined;
   const approved = policy.approvedPrivateOrigins.includes(origin);
   const listed = policy.allowedOrigins.includes(origin);
-  const hop = context.hop ?? 0;
+  // The reasons are ordered most specific first, so a diagnostic names the
+  // real objection: a redirect to the metadata service reports the address,
+  // not merely that the hop crossed an origin.
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return deny("network.scheme-forbidden");
+  let network: NetworkMode;
+  if (policy.mode === "loopback-fixture") {
+    if (!(host === "localhost" || literal === "loopback"))
+      return deny("network.loopback-fixture-only");
+    network = "loopback-fixture";
+  } else {
+    if (url.protocol !== "https:") return deny("network.scheme-forbidden");
+    if (literal === "private") {
+      if (!(policy.mode === "approved-private" && approved))
+        return deny("network.private-origin-not-approved");
+    } else if (literal !== undefined && literal !== "public")
+      return deny("network.address-forbidden");
+    else if (
+      literal === undefined &&
+      (loopbackHosts.has(host) || host.endsWith(".localhost"))
+    )
+      return deny("network.address-forbidden");
+    if (url.port !== "" && !approved && !listed)
+      return deny("network.port-forbidden");
+    network = approved ? "approved-private" : "public";
+  }
   if (
-    hop > 0 &&
+    (context.hop ?? 0) > 0 &&
     context.initialOrigin !== undefined &&
     origin !== context.initialOrigin &&
     !listed
   )
     return deny("network.redirect-cross-origin");
-  if (policy.mode === "loopback-fixture") {
-    if (url.protocol !== "http:" && url.protocol !== "https:")
-      return deny("network.scheme-forbidden");
-    if (!(host === "localhost" || literal === "loopback"))
-      return deny("network.loopback-fixture-only");
-    return { allowed: true, url, origin, network: "loopback-fixture" };
-  }
-  if (url.protocol !== "https:") return deny("network.scheme-forbidden");
-  if (literal === "private") {
-    if (!(policy.mode === "approved-private" && approved))
-      return deny("network.private-origin-not-approved");
-  } else if (literal !== undefined && literal !== "public")
-    return deny("network.address-forbidden");
-  else if (
-    literal === undefined &&
-    (loopbackHosts.has(host) || host.endsWith(".localhost"))
-  )
-    return deny("network.address-forbidden");
-  if (url.port !== "" && !approved && !listed)
-    return deny("network.port-forbidden");
-  return {
-    allowed: true,
-    url,
-    origin,
-    network: approved ? "approved-private" : "public",
-  };
+  return { allowed: true, url, origin, network };
 }
 
 export const NETWORK_POLICY_ERROR_CODE = "ERR_CEREMONY_NETWORK_POLICY";
