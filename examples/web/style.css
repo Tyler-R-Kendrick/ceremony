@@ -120,6 +120,19 @@ button.primary {
 }
 nav {
   display: flex;
+  /*
+   * Wrap rather than overflow. This nav is a flex row and gained a fourth
+   * entry; at a phone width four buttons no longer fit on one line, and
+   * without wrapping the row forced the whole page to scroll sideways. The
+   * accessibility specifications assert `scrollWidth <= innerWidth` at 390px
+   * on every page that renders this shell, so one extra nav entry broke them
+   * all at once.
+   *
+   * Wrapping is also the right answer independent of the count: a navigation
+   * bar that grows should take a second line, never push the document wider
+   * than the viewport.
+   */
+  flex-wrap: wrap;
   gap: 8px;
 }
 nav button {
