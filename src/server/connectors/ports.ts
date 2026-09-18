@@ -282,18 +282,24 @@ export interface ConfigurationPort {
   revision(): Promise<string>;
 }
 
-/** Minimal verified-event shape adapters may return; the events module owns the full schema. */
+/**
+ * Minimal verified-event shape adapters may return; the events module owns the
+ * full schema (`verifiedEventEnvelopeSchema`) and every envelope it builds is
+ * assignable here. Optional fields admit an explicit `undefined` so a builder
+ * may spread one without dropping the key first; a reader sees `T | undefined`
+ * either way.
+ */
 export type VerifiedEventEnvelope = {
   eventId: string;
   authority: string;
   providerEventType: string;
   receivedAt: number;
-  sourceTime?: number;
+  sourceTime?: number | undefined;
   verification: {
     method: "standard-webhooks" | "vendor-signature" | "forwarder-signature";
-    keyId?: string;
+    keyId?: string | undefined;
   };
-  connectionRef?: ConnectionRef;
+  connectionRef?: ConnectionRef | undefined;
   payloadClassification: "public" | "personal" | "secret";
   payload: unknown;
 };

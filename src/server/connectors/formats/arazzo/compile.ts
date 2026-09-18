@@ -390,10 +390,10 @@ function profileSite(site: ExpressionSite, issue: Issue) {
       issue("arazzo.expression.pointer-unsupported", site.pointer);
     return;
   }
-  if (site.role === "output" && expression.kind !== "inputs") {
-    // Step output extraction expressions are mapped by the catalog, not evaluated.
-    return;
-  }
+  // A step output's extraction expression is mapped to a registered output by
+  // the catalog, so the host's operation decides what it means; this runtime
+  // never evaluates it against a response.
+  if (site.role === "output") return;
   issue("arazzo.expression.unsupported-context", site.pointer);
 }
 

@@ -557,11 +557,15 @@ export async function pipedreamInvoke(
   if (request.idempotencyKey !== undefined)
     // Pipedream documents no idempotency key for these endpoints; a host-supplied one proves nothing.
     throw new ConnectorError("unsupported", { detail: "pipedream.idempotency.unsupported" });
-  if (route.kind === "trigger") {
-    if (operation.replay !== "none" && operation.replay !== "reconciliation")
-      throw new ConnectorError("unsupported", { detail: "pipedream.replay.unsupported" });
-    return pipedreamTriggerInvoke(call, connection, operation, route.componentKey, request, commandId.data);
-  }
+  if (route.kind === "trigger")
+    return pipedreamTriggerInvoke(
+      call,
+      connection,
+      operation,
+      route,
+      request,
+      commandId.data,
+    );
   if (operation.replay !== "none" && operation.replay !== "read-only")
     throw new ConnectorError("unsupported", { detail: "pipedream.replay.unsupported" });
   if (route.kind === "proxy")

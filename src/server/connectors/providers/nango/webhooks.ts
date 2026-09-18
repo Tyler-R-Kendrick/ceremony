@@ -91,7 +91,11 @@ export function verifyNangoSignature(
 async function correlate(
   runtime: NangoRuntime,
   resolved: Resolved,
-  payload: { connectionId: string; providerConfigKey: string; tags?: Record<string, string> },
+  payload: {
+    connectionId: string;
+    providerConfigKey: string;
+    tags?: Record<string, string> | undefined;
+  },
   creation: boolean,
 ): Promise<string | undefined> {
   const { ctx } = resolved;

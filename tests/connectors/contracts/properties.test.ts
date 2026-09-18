@@ -188,12 +188,15 @@ test("property: prototype keys are refused wherever a source can place them and 
     (key) => ({
       name: "capability extension",
       parse: () =>
+        // The hostile block is placed raw: a parsing builder would throw here
+        // rather than report the refusal this property is about.
         normalizedDefinitionSchema.safeParse({
           ...buildDefinition(),
           capabilities: [
-            buildCapability({
+            {
+              ...buildCapability(),
               nativeExtensions: JSON.parse(`{${JSON.stringify(key)}:1}`),
-            }),
+            },
           ],
         }).success,
     }),
@@ -601,13 +604,17 @@ test("property: every implementation, evidence and configuration combination is 
           },
         );
         const valid = capabilityStatusSchema.safeParse(status).success;
+        const hasRef = status.evidenceRef !== undefined;
         assert.equal(
           valid,
-          !(configuration === "missing" && live.has(status.evidence)),
+          !(hasRef && status.evidence === "not-tested") &&
+            !(configuration === "missing" && live.has(status.evidence)),
           JSON.stringify(status),
         );
-        if (implementation === "unsupported")
+        if (implementation === "unsupported") {
           assert.equal(status.evidence, "not-tested");
+          assert.equal(hasRef, false);
+        }
       },
     ),
     options,

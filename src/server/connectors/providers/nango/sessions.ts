@@ -68,10 +68,8 @@ function parseIntent(intent: AuthorizationIntent) {
   const parsed = authorizationIntentSchema.safeParse(intent);
   if (!parsed.success)
     throw new ConnectorError("invalid-request", { detail: "nango.intent.invalid" });
-  if (
-    parsed.data.profileId &&
-    !Object.values(NANGO_PROFILE_IDS).includes(parsed.data.profileId)
-  )
+  const knownProfiles: readonly string[] = Object.values(NANGO_PROFILE_IDS);
+  if (parsed.data.profileId && !knownProfiles.includes(parsed.data.profileId))
     throw new ConnectorError("invalid-request", { detail: "nango.intent.profile" });
   return parsed.data;
 }

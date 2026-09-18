@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { z } from "zod";
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import {
   PersistenceConflict,
@@ -86,11 +87,15 @@ export interface ConnectorEffectJournal extends EffectJournalPort {
   ): Promise<{ effectRef: string; prior?: EffectOutcome; value?: T }>;
 }
 
+/** Same value, exact-optional type: zod spells an absent `code` as `code?: string | undefined`. */
+const asOutcome = (outcome: z.infer<typeof effectOutcomeSchema>): EffectOutcome =>
+  compact(outcome) as EffectOutcome;
+
 const checkOutcome = (outcome: unknown): EffectOutcome => {
   const parsed = effectOutcomeSchema.safeParse(outcome);
   if (!parsed.success)
     throw new ConnectorError("invalid-request", { detail: "effect.outcome" });
-  return compact(parsed.data);
+  return asOutcome(parsed.data);
 };
 
 export function createEffectJournalPort(
@@ -191,7 +196,10 @@ export function createEffectJournalPort(
             return { effectRef, fence };
           });
           if (result.fence) fences.set(result.effectRef, result.fence);
-          return compact({ effectRef: result.effectRef, prior: result.prior });
+          return {
+            effectRef: result.effectRef,
+            ...(result.prior ? { prior: asOutcome(result.prior) } : {}),
+          };
         } catch (error) {
           if (
             attempt === 0 &&
@@ -261,7 +269,7 @@ export function createEffectJournalPort(
         );
         if (!record || record.value.tenantId !== actor.tenantId)
           return undefined;
-        return record.value.outcome;
+        return record.value.outcome && asOutcome(record.value.outcome);
       });
     },
 
@@ -344,7 +352,7 @@ export function createEffectJournalPort(
                 connectionRef: value.connectionRef,
                 bindingRef: value.bindingRef,
                 commandId: value.commandId,
-                outcome: value.outcome,
+                outcome: value.outcome && asOutcome(value.outcome),
               }),
             );
           },

@@ -40,6 +40,12 @@ export const recordKinds = [
   "connector-artifact",
   "connector-budget",
   "connector-support",
+  // Verified inbound events (EVENT swarm). The inbox holds one first-writer
+  // record per (tenant, authority, delivery id) plus per-connection ordering
+  // watermarks; subscriptions hold approved delivery destinations and their
+  // route index. Both are additive and carry `schemaVersion`.
+  "connector-event-inbox",
+  "connector-event-subscription",
 ] as const;
 export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };

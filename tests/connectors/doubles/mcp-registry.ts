@@ -40,15 +40,17 @@ export type DoubleEntry = {
 
 export type RegistryDoubleFaults = {
   /** Fail the Nth list request (1-based). */
-  failListRequest?: { at: number; status?: number; disconnect?: boolean; repeat?: boolean };
+  failListRequest?:
+    | { at: number; status?: number; disconnect?: boolean; repeat?: boolean }
+    | undefined;
   /** Cursor values rejected with 400 as the registry does for unknown cursors. */
-  staleCursors?: Set<string>;
+  staleCursors?: Set<string> | undefined;
   /** Answer the next list request with `nextCursor` equal to the request cursor. */
-  loopOnce?: boolean;
+  loopOnce?: boolean | undefined;
   /** Serve a body larger than any sane page. */
-  oversizedList?: boolean;
+  oversizedList?: boolean | undefined;
   /** Serve syntactically broken JSON. */
-  malformedList?: boolean;
+  malformedList?: boolean | undefined;
 };
 
 export type McpRegistryDoubleOptions = {

@@ -731,6 +731,14 @@ export const eventDescriptorSchema = z.strictObject({
     .optional(),
   verification: z.enum(["standard-webhooks", "vendor", "none", "unknown"]),
   messageSchemaRef: pointerSchema.optional(),
+  /**
+   * Authentication profile ids the source declares for this event, with
+   * any-of semantics like a capability's. `[]` is a declared-anonymous
+   * delivery; absent means the source said nothing, which is not the same.
+   */
+  authentication: boundedList(identifierSchema, 16).optional(),
+  /** Inert native data (channel address, message identity, protocol bindings); never evaluated. */
+  nativeExtensions: nativeExtensionsSchema.optional(),
 });
 export type EventDescriptor = z.infer<typeof eventDescriptorSchema>;
 
@@ -831,12 +839,19 @@ export function refineNormalizedDefinition(
     fail("Duplicate capability identity");
   if (!unique(definition.events.map((event) => event.nativeId)))
     fail("Duplicate event identity");
+  for (const event of definition.events)
+    for (const id of event.authentication ?? [])
+      if (!known.has(id))
+        fail("Event references an unknown authentication profile");
   let extensionBytes = measureJsonValue(definition.nativeExtensions).measure
     .bytes;
   for (const capability of definition.capabilities)
     if (capability.nativeExtensions)
       extensionBytes += measureJsonValue(capability.nativeExtensions).measure
         .bytes;
+  for (const event of definition.events)
+    if (event.nativeExtensions)
+      extensionBytes += measureJsonValue(event.nativeExtensions).measure.bytes;
   if (extensionBytes > DEFINITION_LIMITS.extensionBytes)
     fail("Native extensions exceed the definition budget");
 }

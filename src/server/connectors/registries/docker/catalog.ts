@@ -1398,7 +1398,6 @@ export function readDockerMcpCatalog(
       uniqueKeys: true,
       schema: "core",
       version: "1.2",
-      maxAliasCount: limits.aliases,
       logLevel: "silent",
       strict: true,
     });

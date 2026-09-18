@@ -371,22 +371,22 @@ const jsonScalar = z.union([z.string().max(4096), z.number(), z.boolean(), z.nul
  * input contract.
  */
 export type JsonSubsetSchema = {
-  type?: JsonType | JsonType[];
-  properties?: Record<string, JsonSubsetSchema>;
-  required?: string[];
-  additionalProperties?: boolean;
-  items?: JsonSubsetSchema;
-  enum?: Array<string | number | boolean | null>;
-  const?: string | number | boolean | null;
-  minimum?: number;
-  maximum?: number;
-  minLength?: number;
-  maxLength?: number;
-  minItems?: number;
-  maxItems?: number;
-  description?: string;
+  type?: JsonType | JsonType[] | undefined;
+  properties?: Record<string, JsonSubsetSchema> | undefined;
+  required?: string[] | undefined;
+  additionalProperties?: boolean | undefined;
+  items?: JsonSubsetSchema | undefined;
+  enum?: Array<string | number | boolean | null> | undefined;
+  const?: string | number | boolean | null | undefined;
+  minimum?: number | undefined;
+  maximum?: number | undefined;
+  minLength?: number | undefined;
+  maxLength?: number | undefined;
+  minItems?: number | undefined;
+  maxItems?: number | undefined;
+  description?: string | undefined;
 };
-export const jsonSubsetSchema: z.ZodType<JsonSubsetSchema> = z.lazy(() =>
+export const jsonSubsetSchema: z.ZodType<JsonSubsetSchema, unknown> = z.lazy(() =>
   z.strictObject({
     type: z.union([jsonTypeSchema, z.array(jsonTypeSchema).min(1).max(7)]).optional(),
     properties: z

@@ -1173,13 +1173,16 @@ test("CON-01-EX: native extensions are bounded inert JSON and refuse reserved ke
     measure: { depth: 3, nodes: 7, bytes: 35 },
   });
   assert.equal(JSON_VALUE_LIMITS.depth, 16);
-  const big = (chars: number) =>
-    buildCapability({ nativeExtensions: { "x-blob": "y".repeat(chars) } });
+  // Each block stays inside the per-block string, node and byte bounds; the
+  // definition budget is what nine of them together exceed.
+  const blob = Array.from({ length: 15 }, () => "y".repeat(8000));
   const capabilities = (count: number) =>
-    Array.from({ length: count }, (_, index) => ({
-      ...big(120_000),
-      nativeId: `op${index}`,
-    }));
+    Array.from({ length: count }, (_, index) =>
+      buildCapability({
+        nativeId: `op${index}`,
+        nativeExtensions: { "x-blob": blob },
+      }),
+    );
   const definition = buildDefinition();
   assert.ok(
     normalizedDefinitionSchema.safeParse({

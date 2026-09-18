@@ -54,23 +54,23 @@ export type ReconcileHook = (input: {
   tenantId: string;
   subjectId: string;
   connectionRef: string;
-  subscriptionId?: string;
+  subscriptionId?: string | undefined;
   reason: "out-of-order" | "ambiguous" | "stale";
 }) => Promise<ReconcileOutcome>;
 
 export type EventDelivery = {
   tenantId: string;
   subjectId: string;
-  connectionRef?: string;
-  subscriptionId?: string;
+  connectionRef?: string | undefined;
+  subscriptionId?: string | undefined;
   deliveryId: string;
   envelope: VerifiedEventEnvelopeV1;
   /** Connection generation recorded at admission. */
-  generation?: number;
+  generation?: number | undefined;
   /** The generation advanced (cancel, reconnect, unlink) after admission; a consumer must not apply it. */
   stale: boolean;
   ordering: Ordering;
-  lifecycle?: LifecycleSignal;
+  lifecycle?: LifecycleSignal | undefined;
   attempt: number;
   /** Asks the authoritative API for the connection's real status instead of trusting event order. */
   reconcile(): Promise<ReconcileOutcome>;

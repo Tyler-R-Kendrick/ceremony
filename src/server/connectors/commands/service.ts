@@ -85,6 +85,7 @@ import {
   type ImportInput,
   type IntentInput,
   type InvokeInput,
+  type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
 import type { ConnectorPolicy, PolicySubject } from "./policy.js";
@@ -373,8 +374,10 @@ export class ConnectorCommandService {
     };
   }
 
-  private adapterFor(binding: Pick<RuntimeBinding, "adapterId">) {
-    const adapter = this.registry.get(binding.adapterId);
+  private adapterFor(binding: string | Pick<RuntimeBinding, "adapterId">) {
+    const adapter = this.registry.get(
+      typeof binding === "string" ? binding : binding.adapterId,
+    );
     if (!adapter)
       throw new ConnectorError("unsupported", { detail: "adapter.unavailable" });
     return adapter;
@@ -975,18 +978,7 @@ export class ConnectorCommandService {
   private compileOperation(
     definition: NormalizedDefinition,
     destinations: ApprovedDestination[],
-    approval: {
-      nativeId: string;
-      transport?: BoundOperation["transport"];
-      destination?: number | string;
-      effect?: BoundOperation["effect"];
-      outputClassification?: BoundOperation["outputClassification"];
-      cost?: BoundOperation["cost"];
-      consent?: BoundOperation["consent"];
-      replay?: BoundOperation["replay"];
-      targetParameters?: string[];
-      authenticationProfile?: string;
-    },
+    approval: OperationApproval,
     profileId: string | undefined,
     index: number,
   ): BoundOperation {
@@ -1246,8 +1238,8 @@ export class ConnectorCommandService {
     intent: IntentInput,
   ): Promise<{
     patch: ConnectionPatch;
-    presentation?: HumanPresentation;
-    unsupported?: string;
+    presentation?: HumanPresentation | undefined;
+    unsupported?: string | undefined;
   }> {
     const record = entry.record;
     switch (start.kind) {
@@ -1304,7 +1296,10 @@ export class ConnectorCommandService {
     proposal: HandoffProposal,
     intent: IntentInput,
     patch: ConnectionPatch,
-  ): Promise<{ patch: ConnectionPatch; presentation?: HumanPresentation }> {
+  ): Promise<{
+    patch: ConnectionPatch;
+    presentation?: HumanPresentation | undefined;
+  }> {
     if (intent.interruption === "none")
       return {
         patch: {
@@ -1361,7 +1356,10 @@ export class ConnectorCommandService {
     handoff: HandoffHandle | undefined,
     intent: IntentInput,
     mode: "authorize" | "verify",
-  ): Promise<{ patch: ConnectionPatch; presentation?: HumanPresentation }> {
+  ): Promise<{
+    patch: ConnectionPatch;
+    presentation?: HumanPresentation | undefined;
+  }> {
     const record = entry.record;
     const patch: ConnectionPatch = {};
     const finish = async (

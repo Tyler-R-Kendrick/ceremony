@@ -818,6 +818,24 @@
                 "type": "string",
                 "maxLength": 1024,
                 "pattern": "^[^\\p{Cc}]*$"
+              },
+              "authentication": {
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                }
+              },
+              "nativeExtensions": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[^\\p{Cc}]+$"
+                },
+                "additionalProperties": {}
               }
             },
             "required": ["nativeId", "transport", "verification"],

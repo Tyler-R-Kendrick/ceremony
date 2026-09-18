@@ -121,6 +121,8 @@ export const wrappersCatalogSchema = z.strictObject({
     .default([]),
 });
 export type WrappersCatalogMetadata = z.input<typeof wrappersCatalogSchema>;
+/** The same metadata after defaults are applied; every list is present. */
+type WrappersCatalog = z.output<typeof wrappersCatalogSchema>;
 
 export type WrapperOptionClassification = "secret" | "configuration";
 export type WrappersDescriptorOption = {
@@ -268,9 +270,9 @@ const qualified = (raw: string): { schema: string; name: string } => {
   return { schema: "public", name: stripIdentifier(raw) };
 };
 
-function readSql(sql: string): { catalog: WrappersCatalogMetadata; issues: CompatibilityIssue[] } {
+function readSql(sql: string): { catalog: WrappersCatalog; issues: CompatibilityIssue[] } {
   const issues: CompatibilityIssue[] = [];
-  const catalog: Required<WrappersCatalogMetadata> = { wrappers: [], servers: [], foreignTables: [] };
+  const catalog: WrappersCatalog = { wrappers: [], servers: [], foreignTables: [] };
   if (Buffer.byteLength(sql, "utf8") > LIMITS.sqlBytes) {
     issues.push(
       issue("supabase.wrappers.sql-too-large", "/sql", {

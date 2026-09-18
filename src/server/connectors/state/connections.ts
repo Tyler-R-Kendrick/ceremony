@@ -198,14 +198,38 @@ const immutableFields = [
   "createdAt",
 ] as const;
 
+/**
+ * A validated stored value whose record carries the port's exact optional
+ * properties. Zod spells an absent property `p?: T | undefined` and the port
+ * spells it `p?: T`; the runtime value is the same object, with absent keys
+ * genuinely absent, so this narrows the type and changes nothing else.
+ */
+export type LoadedConnection = {
+  revision: number;
+  value: {
+    schemaVersion: 1;
+    record: ConnectionRecord;
+    keyDigest: string;
+    disconnect?: DisconnectRecord;
+  };
+};
+
+function asConnectionRecord(
+  value: StoredConnectionValue["record"],
+): ConnectionRecord {
+  return compact(value) as ConnectionRecord;
+}
+
 function entryOf(
   value: StoredConnectionValue,
   revision: number,
 ): ConnectionEntry {
   const record: StoredConnectionRecord = {
-    ...structuredClone(value.record),
+    ...structuredClone(asConnectionRecord(value.record)),
     revision,
-    ...(value.disconnect ? { disconnect: structuredClone(value.disconnect) } : {}),
+    ...(value.disconnect
+      ? { disconnect: structuredClone(value.disconnect) }
+      : {}),
   };
   return { record, revision };
 }
@@ -214,13 +238,23 @@ export async function loadConnection(
   tx: AsyncTransaction,
   tenantId: string,
   connectionRef: string,
-): Promise<{ revision: number; value: StoredConnectionValue } | undefined> {
+): Promise<LoadedConnection | undefined> {
   if (!isReference(connectionRef)) return undefined;
-  return readRecord(
+  const record = await readRecord(
     tx,
     connectionKey(tenantId, connectionRef),
     storedConnectionSchema,
   );
+  if (!record) return undefined;
+  return {
+    revision: record.revision,
+    value: compact({
+      schemaVersion: record.value.schemaVersion,
+      record: asConnectionRecord(record.value.record),
+      keyDigest: record.value.keyDigest,
+      disconnect: record.value.disconnect,
+    }),
+  };
 }
 
 /** The owned record or nothing; ownership failures look exactly like absence. */
@@ -229,7 +263,7 @@ export async function loadOwnedConnection(
   actor: ActorContext,
   connectionRef: string,
   owns: ConnectionOwnership,
-): Promise<{ revision: number; value: StoredConnectionValue } | undefined> {
+): Promise<LoadedConnection | undefined> {
   const record = await loadConnection(tx, actor.tenantId, connectionRef);
   if (!record || !owns(actor, record.value.record)) return undefined;
   return record;
@@ -453,7 +487,7 @@ export function createConnectionStore(
         throw new ConnectorError("invalid-request", {
           detail: "connection.record",
         });
-      const record = parsed.data;
+      const record = asConnectionRecord(parsed.data);
       checkTenant(record.tenantId);
       await transact(store, async (tx) => {
         const at = await time(tx);
@@ -505,11 +539,13 @@ export function createConnectionStore(
           throw new ConnectorError("conflict", { detail: "connection.revision" });
         const at = await time(tx);
         const before = current.value.record;
-        const merged = connectionRecordSchema.parse({
-          ...before,
-          ...changes,
-          updatedAt: isoAt(at),
-        });
+        const merged = asConnectionRecord(
+          connectionRecordSchema.parse({
+            ...before,
+            ...changes,
+            updatedAt: isoAt(at),
+          }),
+        );
         await reindex(tx, actor.tenantId, before, merged, at);
         const revision = await saveConnection(
           tx,
@@ -662,21 +698,23 @@ export function createConnectionStore(
 
     async recordDisconnect(rawActor, connectionRef, expectedRevision, input) {
       const actor = checkActor(rawActor);
-      const outcomes = {
-        local: disconnectOutcomeSchema.safeParse(input?.local),
-        broker: disconnectOutcomeSchema.safeParse(input?.broker),
-        upstream: disconnectOutcomeSchema.safeParse(input?.upstream),
-      };
-      const scope = disconnectScopeSchema.safeParse(input?.scope);
+      const parsedScope = disconnectScopeSchema.safeParse(input?.scope);
+      const parsedLocal = disconnectOutcomeSchema.safeParse(input?.local);
+      const parsedBroker = disconnectOutcomeSchema.safeParse(input?.broker);
+      const parsedUpstream = disconnectOutcomeSchema.safeParse(input?.upstream);
       if (
-        !scope.success ||
-        !outcomes.local.success ||
-        !outcomes.broker.success ||
-        !outcomes.upstream.success
+        !parsedScope.success ||
+        !parsedLocal.success ||
+        !parsedBroker.success ||
+        !parsedUpstream.success
       )
         throw new ConnectorError("invalid-request", {
           detail: "disconnect.input",
         });
+      const scope = parsedScope.data;
+      const local = parsedLocal.data;
+      const broker = parsedBroker.data;
+      const upstream = parsedUpstream.data;
       const result = await transact(store, async (tx) => {
         const current = await loadOwnedConnection(tx, actor, connectionRef, owns);
         if (!current)
@@ -686,16 +724,13 @@ export function createConnectionStore(
         const at = await time(tx);
         const before = current.value.record;
         const sharedWith = await sharedRefs(tx, actor.tenantId, before);
-        const local = outcomes.local.data,
-          broker = outcomes.broker.data,
-          upstream = outcomes.upstream.data;
         const codes = [
           `disconnect.local.${local}`,
           `disconnect.broker.${broker}`,
           `disconnect.upstream.${upstream}`,
         ];
         if (
-          scope.data !== "local" &&
+          scope !== "local" &&
           sharedWith.length &&
           input.sharedImpactAcknowledged !== true
         )
@@ -720,7 +755,7 @@ export function createConnectionStore(
           ...(applied ? withoutVerification : before),
           lifecycle,
           generation: applied ? before.generation + 1 : before.generation,
-          lastOutcome: `disconnect.${scope.data}.${
+          lastOutcome: `disconnect.${scope}.${
             upstream === "applied"
               ? "upstream-revoked"
               : applied
@@ -732,7 +767,7 @@ export function createConnectionStore(
           updatedAt: isoAt(at),
         };
         const disconnect: DisconnectRecord = {
-          scope: scope.data,
+          scope,
           local,
           broker,
           upstream,
@@ -754,7 +789,7 @@ export function createConnectionStore(
             actor.tenantId,
             connectionRef,
             "cancelled",
-            `disconnect.${scope.data}`,
+            `disconnect.${scope}`,
             at,
           );
         return { record, disconnect, revision };
@@ -764,7 +799,7 @@ export function createConnectionStore(
         connectionRef,
         keyDigest: keyDigestOf(result.record),
         authorityInstance: result.record.authorityInstance,
-        reason: `disconnect.${scope.data}`,
+        reason: `disconnect.${scope}`,
       });
       return {
         record: {

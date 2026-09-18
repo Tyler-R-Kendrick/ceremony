@@ -133,6 +133,9 @@ export const proxyMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 export type ProxyMethod = (typeof proxyMethods)[number];
 const placeholderPattern = /\{([a-zA-Z_][a-zA-Z0-9_]{0,63})\}/g;
 
+export const triggerActions = ["deploy", "list", "delete"] as const;
+export type TriggerAction = (typeof triggerActions)[number];
+
 export type PipedreamRoute =
   | {
       kind: "proxy";
@@ -143,17 +146,19 @@ export type PipedreamRoute =
       placeholders: string[];
     }
   | { kind: "action"; componentKey: string }
-  | { kind: "trigger"; componentKey: string };
+  | { kind: "trigger"; action: TriggerAction; componentKey: string };
 
 const unsupported = () =>
   new ConnectorError("unsupported", { detail: "pipedream.route.invalid" });
 
 /**
  * Reads the adapter-owned routing out of a bound operation. Proxy routes are
- * `proxy:<METHOD>:<https URL>`, triggers `trigger:<component key>`, and
- * actions use the broker-action transport with the component key as the
- * action. Anything else is not a Pipedream operation; the caller never
- * supplies any of it.
+ * `proxy:<METHOD>:<https URL>`, trigger lifecycle routes are
+ * `trigger:<deploy|list|delete>:<component key>`, and actions use the
+ * broker-action transport with the component key as the action. Each trigger
+ * lifecycle step is its own bound operation so that deploying, listing and
+ * deleting carry their own effect, consent and replay policy. Anything else
+ * is not a Pipedream operation; the caller never supplies any of it.
  */
 export function pipedreamRoute(operation: BoundOperation): PipedreamRoute {
   const transport = operation.transport;
@@ -167,11 +172,18 @@ export function pipedreamRoute(operation: BoundOperation): PipedreamRoute {
       detail: "pipedream.transport.unsupported",
     });
   if (transport.route.startsWith("trigger:")) {
-    const key = pipedreamComponentKeySchema.safeParse(
-      transport.route.slice("trigger:".length),
-    );
-    if (!key.success) throw unsupported();
-    return { kind: "trigger", componentKey: key.data };
+    const rest = transport.route.slice("trigger:".length);
+    const separator = rest.indexOf(":");
+    if (separator <= 0) throw unsupported();
+    const action = rest.slice(0, separator);
+    const key = pipedreamComponentKeySchema.safeParse(rest.slice(separator + 1));
+    if (!key.success || !(triggerActions as readonly string[]).includes(action))
+      throw unsupported();
+    return {
+      kind: "trigger",
+      action: action as TriggerAction,
+      componentKey: key.data,
+    };
   }
   if (!transport.route.startsWith("proxy:")) throw unsupported();
   const rest = transport.route.slice("proxy:".length);
