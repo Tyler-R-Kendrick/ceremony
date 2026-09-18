@@ -115,8 +115,10 @@ branch. Integration was attempted and reached a substantially working state —
 the draft compiles against the real `browser-login` tool endpoint — but it
 stopped with directory-UX regressions from PR #39 itself still outstanding, so
 shipping it would have put known-broken UI on a branch whose other work is
-verified. The attempt is preserved on `claude/pr39-wizard-wip` rather than
-discarded or half-merged.
+verified. The attempt is preserved rather than discarded or
+half-merged: `claude/pr39-wizard-wip` carries the changes to tracked files and
+`claude/pr39-wizard-wip-newfiles` carries the new ones (the wizard, the catalog,
+the connect surface and its plan client).
 
 What this means today: the compiler is reachable through the authenticated
 server surface and is fully tested there, and the wizard still renders its own
