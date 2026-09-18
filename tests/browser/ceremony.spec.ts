@@ -93,7 +93,11 @@ test("the directory filters, searches and hands a chosen service to the drawer",
     "aria-pressed",
     "true",
   );
-  await expect(page.getByLabel("Stripe secret key")).toHaveCount(0);
+  // Hidden rather than absent: the connection stays mounted so its WebMCP
+  // tools outlive the drawer, which is what the surface did before the drawer
+  // existed. What matters here is that nobody is looking at a credential
+  // field on the step that asks how to reach the provider.
+  await expect(page.getByLabel("Stripe secret key")).toBeHidden();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   // Verification is on before anybody asks, because a connection that reads
