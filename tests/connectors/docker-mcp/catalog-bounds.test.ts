@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  parseImageReference,
   readDockerMcpCatalog,
   serverExecutionBlocked,
   type DockerCatalogReadResult,
@@ -170,15 +171,16 @@ test("a config entry that is not an object, or names nothing safely, is dropped"
       `      - name: "../escape"\n` +
       `      - name: fixture\n` +
       `        properties:\n` +
-      `          "__proto__": {type: string}\n` +
       `          "bad name": {type: string}\n` +
+      `          "9bad": {type: string}\n` +
       `          good_name: {type: string}\n`,
   );
   // Invariant: a config *name* becomes a configuration key downstream and a
   // config *property* becomes a key in a generated object; both must be safe
-  // identifiers, and `__proto__` is never a property name whatever a document
-  // says. Dropping them quietly would let a catalog choose a key the host
-  // never intended.
+  // identifiers. Dropping an unsafe one quietly would let a catalog choose a
+  // key the host never intended. (A literal `__proto__` key never reaches
+  // here: it refuses the whole document at the measuring step, which
+  // catalog.test.ts already pins.)
   assert.equal(server.config.length, 1);
   assert.equal(server.config[0]?.name, "fixture");
   assert.deepEqual(server.config[0]?.schema, {
@@ -343,7 +345,7 @@ test("every name is held to an identifier rule, not just the server id", () => {
   const { server } = readEntry(
     `    type: server\n` +
       `    image: ${PINNED}\n` +
-      `    tools:\n      - name: "../../etc/passwd"\n      - {}\n` +
+      `    tools:\n      - name: "../../etc/passwd"\n      - "a bare string"\n` +
       `    secrets:\n` +
       `      - {name: "__proto__", env: SAFE_ONE}\n` +
       `      - {name: bad.env, env: "9NOT_A_NAME"}\n` +
@@ -440,7 +442,10 @@ test("a tool container is described but never presented as runnable when its ima
   assert.deepEqual(server.tools[0]?.container?.command, ["run"]);
   const issue = issueAt(server, "docker-mcp.image.invalid");
   assert.equal(issue.severity, "blocking");
-  assert.equal(issue.sourcePointer, "/registry/fixture/tools/0/container/image");
+  assert.equal(
+    issue.sourcePointer,
+    "/registry/fixture/tools/0/container/image",
+  );
   assert.equal(serverExecutionBlocked(server), true);
 });
 
