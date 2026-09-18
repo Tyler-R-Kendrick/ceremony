@@ -1,0 +1,227 @@
+{
+  "swarm": "IDENTITY-BROKERS",
+  "sections": {
+    "workos-pipes": {
+      "adapter": "createWorkOsPipesAdapter(options) — id \"workos-pipes\", ecosystem \"workos\"",
+      "custody": [
+        "external-credential-broker (token-retrieval mode, profile workos-pipes-credentials)",
+        "external-execution-broker (Relay mode, profile workos-pipes-relay)"
+      ],
+      "sourceProfileIds": ["workos-pipes-rest-2026-09-18"],
+      "sourcesRetrievedAt": "2026-09-18T00:42:27Z",
+      "documentation": {
+        "verified": [
+          {
+            "url": "https://workos.com/docs/reference/pipes.md",
+            "facts": "POST /data-integrations/{slug}/token and POST /data-integrations/{slug}/credentials; request fields user_id (required), organization_id, connected_account_id, connection_owner (\"user\"|\"organization\"), supports_multiple_connections; 200 body {active:true, access_token:{object,access_token,expires_at,scopes,missing_scopes}} or {active:true, credential:{object,auth_method,value,...}}; inactive body {active:false, error:\"not_installed\"|\"needs_reauthorization\"} with the documented instruction to handle unknown future values gracefully; Authorization: Bearer <API key>."
+          },
+          {
+            "url": "https://workos.com/docs/reference/pipes/connected-account.md",
+            "facts": "POST /data-integrations/{slug}/authorize with user_id, organization_id, connection_owner, return_to, config → {url}; GET/DELETE /user_management/users/{user_id}/connected_accounts/{slug} and /organizations/{organization_id}/connected_accounts/{slug}; connected_account object fields object,id,user_id,organization_id,connection_role,account_identifier,account_display_name,scopes,auth_method,api_key_last_4,state (\"connected\"|\"needs_reauthorization\"),created_at,updated_at; DELETE returns 204 and explicitly does not revoke provider-side access."
+          },
+          {
+            "url": "https://workos.com/docs/reference/pipes/provider.md",
+            "facts": "GET /user_management/users/{user_id}/data_providers and GET /organizations/{organization_id}/data_providers with nested connected_account; provider fields object,id,name,description,slug,integration_type,credentials_type,scopes,auth_methods,connection_owner."
+          },
+          {
+            "url": "https://workos.com/docs/pipes/relay.md",
+            "facts": "Base URL https://api.workos.com/relay; URL routing via X-Relay-URL (HTTPS only) and path routing /relay/{slug}/{path}; headers Authorization (WorkOS API key, never forwarded), X-Relay-User (required), X-Relay-Organization (required iff the connection is organization-scoped, omitted otherwise), X-Relay-Provider; 402 {code:\"relay_authorization_required\", connection, message, authorization_url} with authorization_url null for API-key and client-credential connections; error codes relay_missing_url, relay_invalid_url, relay_user_required, relay_user_not_found, relay_provider_conflict, relay_credential_invalid, relay_provider_not_found, relay_provider_not_configured, relay_credential_error, relay_upstream_error; X-Relay-Upstream-Status on every proxied response; 5 MB body limit, 30 s upstream timeout, redirects not followed, hop-by-hop/cookie/X-Forwarded/X-Relay/X-WorkOS headers stripped."
+          },
+          {
+            "url": "https://workos.com/docs/pipes.md, https://workos.com/docs/pipes/organization-scoped-providers.md",
+            "facts": "Access tokens vs Relay comparison (missing connection: 200 {\"active\": false} vs 402 with authorization_url; user identified by user_id in the body vs X-Relay-User); organization overrides of enablement, scopes and credentials; Pipes Admin widget permission widgets:pipes:manage."
+          }
+        ],
+        "unverified": [
+          "Relay is documented as early access and must be enabled per team; a 404 with no code means relay is not enabled. Not exercisable without an account, so the adapter maps it to `unsupported` and the ledger records it as unverified.",
+          "No Pipes connection-lifecycle webhook profile was found in the retrieved documentation; the events dimension is reported unsupported rather than guessed."
+        ]
+      },
+      "workItems": [
+        {
+          "id": "IB-01",
+          "status": "implemented",
+          "files": [
+            "src/server/connectors/providers/workos/adapter.ts",
+            "src/server/connectors/providers/workos/ports.ts",
+            "src/server/connectors/providers/workos/wire.ts",
+            "src/server/connectors/providers/workos/http.ts",
+            "src/server/connectors/providers/workos/index.ts"
+          ],
+          "tests": [
+            "tests/connectors/workos/authorization.test.ts",
+            "tests/connectors/workos/fixtures.test.ts"
+          ],
+          "acceptanceIds": [
+            "AC-AUTH-01",
+            "AC-AUTH-02",
+            "AC-AUTH-07",
+            "AC-AUTH-08",
+            "AC-AUTH-09",
+            "AC-AUTH-16"
+          ],
+          "evidenceLevel": "protocol-fixture",
+          "limitations": [
+            "The WorkOS user and organization identifiers come from a host-supplied WorkOsPrincipalPort keyed by tenant+ownerKind+ownerId; an organization connection additionally requires organizationConnection === \"permitted\". A deployment without that port cannot use this adapter, by design.",
+            "A connected account with no account_identifier yields an ownership-claimed claim, not account-identity: the broker showed a connection, not which upstream account it is.",
+            "Live account evidence blocked: no authorized WorkOS environment credentials."
+          ],
+          "notes": "Authorization link is HandoffIssue.private; the return route is built from ctx.environment.origin and carries a correlation the completion must match, and completion always re-reads the connected-account record."
+        },
+        {
+          "id": "IB-02",
+          "status": "implemented",
+          "files": ["src/server/connectors/providers/workos/adapter.ts"],
+          "tests": [
+            "tests/connectors/workos/credentials.test.ts",
+            "tests/connectors/workos/relay.test.ts",
+            "tests/connectors/workos/fixtures.test.ts"
+          ],
+          "acceptanceIds": ["AC-EXT-05", "AC-STATE-03", "AC-STATE-06"],
+          "evidenceLevel": "protocol-fixture",
+          "limitations": [
+            "Refresh remains WorkOS's responsibility: the documentation states the token endpoint always returns a valid, refreshed token, so this adapter re-vends instead of refreshing upstream. When WorkOS omits expires_at the credential is stored under a bounded local lease (default 900 s).",
+            "Relay operations are bound HTTP operations: a path parameter that contains a slash cannot be expressed as one segment because `destinationUrl` refuses encoded slashes; model such targets as separate path segments (e.g. {owner}/{repository}).",
+            "The relay upstream response is bounded (default 1 MiB) and returned as {status, body}; streaming passthrough is not implemented.",
+            "Live Relay evidence blocked: Relay is early access and no authorized environment was available."
+          ],
+          "notes": "Credential and Relay modes are distinct binding profiles with distinct custody; a mismatch between settings.mode and binding.custody is refused in both directions and never falls back. A 200 with active:false (including an unknown future reason) maps to human-required/denied, never to a credential. Relay 402 becomes a private authorization handoff. Writes are journaled through effects.begin/complete; a repeated digest for a non-read operation returns the prior outcome and an interrupted write is indeterminate."
+        }
+      ]
+    },
+    "auth0-token-vault": {
+      "adapter": "createAuth0TokenVaultAdapter(options) — id \"auth0-token-vault\", ecosystem \"auth0\"",
+      "custody": ["external-credential-broker"],
+      "sourceProfileIds": [
+        "auth0-token-vault-2026-09-18",
+        "auth0-myaccount-api-1.0"
+      ],
+      "sourcesRetrievedAt": "2026-09-18T00:43:38Z",
+      "documentation": {
+        "verified": [
+          {
+            "url": "https://auth0.com/docs/secure/tokens/token-vault/refresh-token-exchange-with-token-vault, .../access-token-exchange-with-token-vault, .../privileged-worker-token-exchange-with-token-vault",
+            "facts": "POST /oauth/token with grant_type urn:auth0:params:oauth:grant-type:token-exchange:federated-connection-access-token; subject_token_type urn:ietf:params:oauth:token-type:refresh_token (refresh exchange), urn:ietf:params:oauth:token-type:access_token (access-token exchange), urn:ietf:params:oauth:token-type:jwt (privileged worker); requested_token_type http://auth0.com/oauth/token-type/federated-connection-access-token (or http://auth0.com/oauth/token-type/token-vault-access-token for the privileged worker); connection, optional scope (early access) and login_hint; 200 body {access_token, scope, expires_in, issued_token_type, token_type}; Auth0 returns 401 when it cannot find the user or a connected account on the named connection."
+          },
+          {
+            "url": "https://auth0.com/docs/secure/tokens/token-vault/configure-token-vault",
+            "facts": "The Token Vault grant type must be enabled on a first-party, confidential, OIDC-conformant client; an MFA policy of Always prevents retrieving a Token Vault access token."
+          },
+          {
+            "url": "https://auth0.com/docs/secure/tokens/token-vault/connected-accounts-for-token-vault and https://auth0.com/docs/oas/myaccount/myaccount-api-oas.json (My Account API 1.0)",
+            "facts": "Connected Accounts flow: POST /me/v1/connected-accounts/connect {connection, redirect_uri, state, scopes, code_challenge?} → {auth_session, connect_uri, connect_params.ticket, expires_in}; browser visits connect_uri?ticket=…; POST /me/v1/connected-accounts/complete {auth_session, connect_code, redirect_uri, code_verifier?} → {id (cac_…), connection, access_type, scopes, created_at}; GET /me/v1/connected-accounts/accounts (query connection, from, take) → {accounts[], next}; GET /me/v1/connected-accounts/connections → {connections[{name, strategy, scopes}]}; DELETE /me/v1/connected-accounts/accounts/{id} → 204; audience https://{domain}/me/ with scopes create|read|delete:me:connected_accounts; error body {type,status,title,detail,validation_errors}."
+          },
+          {
+            "url": "https://auth0.com/docs/oas/authentication/authentication-api-oas.json",
+            "facts": "Documented /oauth/token error bodies: 400 invalid_grant / invalid_request / unsupported_grant_type, 401 invalid_client and mfa_required, 403 access_denied, 429 too_many_requests."
+          }
+        ],
+        "unverified": [
+          "The Authentication API OpenAPI document does not describe the Token Vault grant, so the exchange's parameter set is taken from the Token Vault guides, which agree across the three exchange pages.",
+          "No documented error code distinguishes \"missing upstream refresh token\" from other invalid_grant cases; the adapter maps documented error codes (invalid_grant, consent_required, login_required, interaction_required, unmet_authentication_requirements) to reconnect-required and never parses error_description, which is provider text.",
+          "The privileged-worker exchange (subject_token_type …:jwt, requested_token_type …/token-vault-access-token) is representable in settings but is not exercised by a fixture; it is reported as unverified rather than claimed.",
+          "Auth0 documents no operation that revokes the upstream grant at the external provider; the revoke dimension is unsupported."
+        ]
+      },
+      "workItems": [
+        {
+          "id": "IB-03",
+          "status": "implemented",
+          "files": [
+            "src/server/connectors/providers/auth0/adapter.ts",
+            "src/server/connectors/providers/auth0/ports.ts",
+            "src/server/connectors/providers/auth0/wire.ts",
+            "src/server/connectors/providers/auth0/http.ts",
+            "src/server/connectors/providers/auth0/index.ts"
+          ],
+          "tests": [
+            "tests/connectors/auth0/linking.test.ts",
+            "tests/connectors/auth0/exchange.test.ts"
+          ],
+          "acceptanceIds": [
+            "AC-AUTH-05",
+            "AC-AUTH-06",
+            "AC-AUTH-07",
+            "AC-EXT-06",
+            "AC-EXT-03"
+          ],
+          "evidenceLevel": "protocol-fixture",
+          "limitations": [
+            "The subject token and the My Account API token come from a host-supplied HostIdentityTokenPort; a deployment without myAccountToken cannot list or link accounts and the adapter reports configuration-required rather than working around it.",
+            "The upstream provider token is usually opaque, so `tokenClaimsVerified` is false for it; when the returned token is a JWS with a key id it is verified against the tenant JWKS and refused if it does not verify.",
+            "Account selection requires an explicit host-approved target in binding.permittedTargets; several linked accounts with no selection yields human-required, never a heuristic choice.",
+            "Live tenant evidence blocked: no authorized Auth0 tenant."
+          ],
+          "notes": "The exchange is bound to the configured tenant issuer (destination origin derived from AUTH0_DOMAIN and compared exactly), the permitted subject-token types, the bound connection name, the connection's expected Auth0 subject and, for an access-token exchange, the binding's expected audience; an access-token subject is verified with jose jwtVerify against the tenant JWKS (issuer, audience and subject) before it is sent."
+        },
+        {
+          "id": "IB-04",
+          "status": "implemented",
+          "files": ["src/server/connectors/providers/auth0/adapter.ts"],
+          "tests": ["tests/connectors/auth0/lifecycle.test.ts"],
+          "acceptanceIds": ["AC-EXT-06", "AC-STATE-03", "AC-STATE-05"],
+          "evidenceLevel": "protocol-fixture",
+          "limitations": [
+            "A reconnect link is produced through the Connected Accounts connect endpoint; when the deployment holds no My Account token the mapping still reports reconnect-required, without a link.",
+            "unsupported_grant_type is reported as ConnectorError(\"unsupported\", \"auth0.grant.unsupported\"): an unavailable grant is a configuration fact, and no second grant is attempted."
+          ],
+          "notes": "Documented error codes map to reconnect-required / mfa-required / denied / rate-limited / upstream-unavailable; a removed link is auth0.account.removed (denied), a changed host subject is auth0.subject-changed, an expired host token is refused before the tenant is contacted. Local, broker and upstream disconnect are separate outcomes and revoke is unsupported."
+        },
+        {
+          "id": "IB-05",
+          "status": "implemented",
+          "files": [
+            "tests/connectors/fixtures/workos/vend-active.json",
+            "tests/connectors/fixtures/workos/vend-inactive.json",
+            "tests/connectors/fixtures/workos/relay-authorization-required.json",
+            "tests/connectors/fixtures/workos/connected-account-organization.json",
+            "tests/connectors/fixtures/auth0/exchange-success.json",
+            "tests/connectors/fixtures/auth0/exchange-errors.json",
+            "tests/connectors/fixtures/auth0/connected-accounts.json"
+          ],
+          "tests": [
+            "tests/connectors/workos/fixtures.test.ts",
+            "tests/connectors/auth0/fixtures.test.ts"
+          ],
+          "acceptanceIds": [
+            "AC-IMP-13",
+            "AC-AUTH-02",
+            "AC-AUTH-12",
+            "AC-EXT-05"
+          ],
+          "evidenceLevel": "protocol-fixture",
+          "limitations": [
+            "Fixtures are recorded documented payloads, not captured live traffic; each file records its source URL and retrieval date."
+          ],
+          "notes": "Provider fixtures live in separate directories and each recorded body names the vendor documentation it came from. Covered: unauthorized organization sharing (an organization-owned connected account returned on a user lookup is denied with workos.owner-mismatch), wrong issuer/user (foreign-tenant and other-subject tokens refused), unexpected exchange audience, Relay authorization-required, inactive credentials (including an unknown future reason), account removal, and canary sanitization across both providers. Two Auth0 subjects sharing one display email map to different connected accounts, and presenting one subject's token against the other's connection is denied."
+        }
+      ]
+    }
+  },
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createWorkOsPipesAdapter({ principals }) from src/server/connectors/providers/workos/index.ts. The host must supply a WorkOsPrincipalPort that maps {tenantId, ownerKind, ownerId} to {ownerId, userId, organizationId?, organizationConnection?}; organizationConnection must be \"permitted\" for an organization-owned connection. Optional options: returnPath (default /api/v1/connectors/workos/return), requestTimeoutMs, maxResponseBytes, handoffSeconds."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createAuth0TokenVaultAdapter({ identity }) from src/server/connectors/providers/auth0/index.ts. The host must supply a HostIdentityTokenPort with subjectToken() (the user's Auth0 refresh or access token in custody, carrying tokenType, subject and — for an access token — audience) and myAccountToken() (an access token for https://{AUTH0_DOMAIN}/me/ with create/read/delete:me:connected_accounts). Optional options: returnPath (default /api/v1/connectors/auth0/return), requestTimeoutMs, maxResponseBytes, handoffSeconds, jwksTtlMs."
+    },
+    {
+      "target": "route table (INT)",
+      "description": "mount two return routes that resolve the handoff by correlation and call the adapter's complete(): /api/v1/connectors/workos/return?correlation=… (WorkOS) and /api/v1/connectors/auth0/return?state=…&connect_code=… (Auth0). Neither route may treat the navigation itself as success; both adapters re-read authoritative state."
+    },
+    {
+      "target": "binding settings (INT)",
+      "description": "WorkOS bindings carry settings parsed by workOsSettingsSchema ({provider, mode: \"credentials\"|\"relay\", credentialEndpoint, multipleConnections, credentialLeaseSeconds, verificationTtlSeconds, relay:{routing, upstreamOrigin?, idempotencyHeader?, maxResponseBytes}}) with destination id \"api\" = https://api.workos.com, and custody matching the mode. Auth0 bindings carry settings parsed by auth0SettingsSchema ({connection, subjectTokenTypes, expectedAudience?, requestedTokenType, requestedScopes, connectScopes, verificationTtlSeconds, tokenLeaseSeconds, useLoginHint}) with destination id \"tenant\" = https://{AUTH0_DOMAIN}. Credential-mode WorkOS operations use transport {kind:\"broker-action\", action:\"workos.pipes.credentials\"}; Auth0 operations use \"auth0.token-vault.exchange\" and \"auth0.token-vault.accounts\"."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "Live-authorized evidence for both providers (no WorkOS environment, no Auth0 tenant); every capability is reported at protocol-fixture level.",
+    "WorkOS Pipes events/webhooks: no documented lifecycle webhook profile was found, so the events dimension is unsupported.",
+    "Auth0 privileged-worker (M2M) exchange: representable in settings, not fixture-tested."
+  ],
+  "externalEffectsPerformed": []
+}

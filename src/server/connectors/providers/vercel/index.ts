@@ -90,7 +90,8 @@ const configuration: readonly ConfigurationRequirement[] = [
     source: "host",
     classification: "public",
     required: true,
-    description: "Vercel team that owns the connectors; scopes every management call.",
+    description:
+      "Vercel team that owns the connectors; scopes every management call.",
   },
   {
     name: vercelConfigurationNames.managementToken,
@@ -165,14 +166,16 @@ export function createVercelConnectAdapter(
     configuration,
     profiles: [VERCEL_SOURCE_PROFILE, "external-broker"],
     capabilities(present) {
-      const workload = present.has(vercelConfigurationNames.teamId) &&
+      const workload =
+        present.has(vercelConfigurationNames.teamId) &&
         present.has(vercelConfigurationNames.workloadToken)
-        ? "ready"
-        : "missing";
-      const management = present.has(vercelConfigurationNames.teamId) &&
+          ? "ready"
+          : "missing";
+      const management =
+        present.has(vercelConfigurationNames.teamId) &&
         present.has(vercelConfigurationNames.managementToken)
-        ? "ready"
-        : "missing";
+          ? "ready"
+          : "missing";
       const status = (
         dimension: CapabilityStatus["dimension"],
         configurationState: CapabilityStatus["configuration"],
@@ -184,11 +187,16 @@ export function createVercelConnectAdapter(
           profile: VERCEL_SOURCE_PROFILE,
           implementation,
           configuration: configurationState,
-          evidence: implementation === "implemented" ? "protocol-fixture" : "not-tested",
+          evidence:
+            implementation === "implemented"
+              ? "protocol-fixture"
+              : "not-tested",
           limitations,
         });
       return [
-        status("discover", management, ["Lists the configured team's connectors through the management credential."]),
+        status("discover", management, [
+          "Lists the configured team's connectors through the management credential.",
+        ]),
         status("import", "not-applicable", [], "unsupported"),
         status("configure", "not-applicable"),
         status("authorize", workload, [
@@ -216,13 +224,16 @@ export function createVercelConnectAdapter(
       ];
     },
     discover: (ctx, input) => discoverConnectors(ctx, input),
-    authorize: (ctx, intent) => authorizeStart(ctx, intent, authorization, "authorize"),
+    authorize: (ctx, intent) =>
+      authorizeStart(ctx, intent, authorization, "authorize"),
     complete: (ctx, input) => completeAuthorization(ctx, input, authorization),
     verify: (ctx) => verifyConnection(ctx, authorization),
     async invoke(ctx, request) {
       const bound = boundOperation(ctx.binding, request.operationRef);
       if (!bound)
-        throw new ConnectorError("denied", { detail: "vercel.operation.unbound" });
+        throw new ConnectorError("denied", {
+          detail: "vercel.operation.unbound",
+        });
       const management: VercelManagementOperationId | undefined =
         managementOperationFor(bound);
       if (management)
@@ -230,7 +241,8 @@ export function createVercelConnectAdapter(
       return invokeProviderOperation(ctx, request, bound, authorization);
     },
     events: createVercelTriggerEvents(),
-    reconnect: (ctx, intent) => authorizeStart(ctx, intent, authorization, "reconnect"),
+    reconnect: (ctx, intent) =>
+      authorizeStart(ctx, intent, authorization, "reconnect"),
     disconnect: (ctx, scope) => disconnectConnection(ctx, scope, authorization),
     revoke: (ctx) => revokeGrant(ctx, authorization),
   };

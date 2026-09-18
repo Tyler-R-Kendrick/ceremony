@@ -48,7 +48,9 @@ const appSettings = (
   ...overrides,
 });
 
-async function fixture(options: { tokenLifetimeMs?: number; now?: () => number } = {}) {
+async function fixture(
+  options: { tokenLifetimeMs?: number; now?: () => number } = {},
+) {
   return startVercelConnect({
     teamId: TEAM,
     ...(options.tokenLifetimeMs !== undefined
@@ -125,7 +127,11 @@ function setup(
     apiOrigin: double.origin,
     teamId: TEAM,
     settings,
-    connectors: options.connectors ?? [CONNECTOR, APP_CONNECTOR, ANON_CONNECTOR],
+    connectors: options.connectors ?? [
+      CONNECTOR,
+      APP_CONNECTOR,
+      ANON_CONNECTOR,
+    ],
     projects: options.projects ?? [PROJECT],
     environments: options.environments ?? ["production"],
     installations: ["inst_a"],
@@ -273,7 +279,10 @@ test("verification names the target the token response reports, per subject kind
         app: {
           connector: APP_CONNECTOR,
           subject: { type: "app" },
-          installation: { mode: "installation-aware", installationId: "inst_a" },
+          installation: {
+            mode: "installation-aware",
+            installationId: "inst_a",
+          },
           scopes: ["chat:write"],
         },
       },
@@ -309,21 +318,26 @@ test("verification names the target the token response reports, per subject kind
 
   // No installation, no tenant, no subject: identity is unknown and the
   // claim says exactly that rather than implying an account.
-  const anonymous = setup(double, appSettings(ANON_CONNECTOR, {
-    profiles: {
-      app: {
-        connector: ANON_CONNECTOR,
-        subject: { type: "app" },
-        installation: { mode: "installation-free" },
-        scopes: ["send"],
+  const anonymous = setup(
+    double,
+    appSettings(ANON_CONNECTOR, {
+      profiles: {
+        app: {
+          connector: ANON_CONNECTOR,
+          subject: { type: "app" },
+          installation: { mode: "installation-free" },
+          scopes: ["send"],
+        },
       },
-    },
-  }));
+    }),
+  );
   double.grantApp(ANON_CONNECTOR, { scopes: ["send"] });
   const unknown = await adapter.verify!(anonymous.ctx);
   assert.equal(unknown.state, "complete");
   assert.equal(unknown.target?.kind, "vercel-connector");
-  assert.ok(unknown.claims[0]!.limitations.includes("account identity unknown"));
+  assert.ok(
+    unknown.claims[0]!.limitations.includes("account identity unknown"),
+  );
   assert.equal(
     unknown.claims.some((item) => item.kind === "account-identity"),
     false,
@@ -423,9 +437,13 @@ test("an expired token is reacquired once, even under concurrent use", async (t)
   const double = await fixture({ tokenLifetimeMs: 60_000, now: () => clock });
   t.after(double.close);
   double.grantApp(CONNECTOR, { scopes: ["read"] });
-  const { h, binding, connection, ctx } = setup(double, appSettings(CONNECTOR), {
-    now: () => clock,
-  });
+  const { h, binding, connection, ctx } = setup(
+    double,
+    appSettings(CONNECTOR),
+    {
+      now: () => clock,
+    },
+  );
   const adapter = createVercelConnectAdapter();
   const first = await adapter.verify!(ctx);
   assert.equal(first.state, "complete");
@@ -523,7 +541,10 @@ test("the configured team must also be an approved target", async (t) => {
   t.after(double.close);
   const h = harness();
   h.ports.configuration.set("VERCEL_TEAM_ID", "team_unreviewed");
-  h.ports.configuration.set(vercelConfigurationNames.workloadToken, WORKLOAD_TOKEN);
+  h.ports.configuration.set(
+    vercelConfigurationNames.workloadToken,
+    WORKLOAD_TOKEN,
+  );
   const binding = buildBinding({
     apiOrigin: double.origin,
     teamId: TEAM,

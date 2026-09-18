@@ -62,7 +62,8 @@ const jwksSchema = z.object({
 
 const JWKS_TTL_MS = 10 * 60_000;
 const BODY_LIMIT = 1_048_576;
-const bearerPattern = /^Bearer\s+([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
+const bearerPattern =
+  /^Bearer\s+([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
 
 export function createVercelTriggerEvents(): EventPort {
   const cache = new Map<string, { keys: JSONWebKeySet; fetchedAt: number }>();
@@ -77,7 +78,8 @@ export function createVercelTriggerEvents(): EventPort {
     if (!destination) return undefined;
     const cached = cache.get(destination.origin);
     const now = ctx.environment.now();
-    if (!force && cached && now - cached.fetchedAt < JWKS_TTL_MS) return cached.keys;
+    if (!force && cached && now - cached.fetchedAt < JWKS_TTL_MS)
+      return cached.keys;
     const url = destinationUrl(destination, VERCEL_OIDC_JWKS_PATH);
     const response = await ctx.environment.fetch(url, {
       method: "GET",
@@ -107,7 +109,10 @@ export function createVercelTriggerEvents(): EventPort {
         const teamId = await ctx.environment.configuration.read(
           vercelConfigurationNames.teamId,
         );
-        if (!teamId || !permitsTarget(ctx.binding, vercelTargetKinds.team, teamId))
+        if (
+          !teamId ||
+          !permitsTarget(ctx.binding, vercelTargetKinds.team, teamId)
+        )
           return undefined;
         let verified;
         for (const force of [false, true]) {
@@ -131,18 +136,31 @@ export function createVercelTriggerEvents(): EventPort {
         const claims = claimsSchema.safeParse(verified.payload);
         if (!claims.success) return undefined;
         const { iss, sub, owner_id, project_id, environment } = claims.data;
-        if (iss !== VERCEL_OIDC_ISSUER && !iss.startsWith(`${VERCEL_OIDC_ISSUER}/`))
+        if (
+          iss !== VERCEL_OIDC_ISSUER &&
+          !iss.startsWith(`${VERCEL_OIDC_ISSUER}/`)
+        )
           return undefined;
         if (owner_id !== teamId) return undefined;
         if (!permitsTarget(ctx.binding, vercelTargetKinds.project, project_id))
           return undefined;
-        if (!triggers.destinations.some((item) => item.projectId === project_id))
+        if (
+          !triggers.destinations.some((item) => item.projectId === project_id)
+        )
           return undefined;
-        if (!permitsTarget(ctx.binding, vercelTargetKinds.environment, environment))
+        if (
+          !permitsTarget(
+            ctx.binding,
+            vercelTargetKinds.environment,
+            environment,
+          )
+        )
           return undefined;
         if (delivery.body.byteLength > BODY_LIMIT) return undefined;
         const text = new TextDecoder().decode(delivery.body);
-        let payload: unknown = { raw: Buffer.from(delivery.body).toString("base64") };
+        let payload: unknown = {
+          raw: Buffer.from(delivery.body).toString("base64"),
+        };
         let providerEventType = "vercel-connect.trigger";
         if (/json/i.test(delivery.headers.get("content-type") ?? "")) {
           try {
@@ -151,7 +169,8 @@ export function createVercelTriggerEvents(): EventPort {
             payload = json;
             const type =
               typeof json === "object" && json !== null
-                ? ((json as { type?: unknown; event?: { type?: unknown } }).type ??
+                ? ((json as { type?: unknown; event?: { type?: unknown } })
+                    .type ??
                   (json as { event?: { type?: unknown } }).event?.type)
                 : undefined;
             if (typeof type === "string" && /^[\x21-\x7e]{1,120}$/.test(type))
@@ -173,12 +192,18 @@ export function createVercelTriggerEvents(): EventPort {
           authority: `vercel-connect:${owner_id}:${project_id}:${environment}`,
           providerEventType,
           receivedAt: delivery.receivedAt,
-          ...(claims.data.iat !== undefined ? { sourceTime: claims.data.iat * 1000 } : {}),
+          ...(claims.data.iat !== undefined
+            ? { sourceTime: claims.data.iat * 1000 }
+            : {}),
           verification: {
             method: "forwarder-signature",
-            ...(verified.protectedHeader.kid ? { keyId: verified.protectedHeader.kid } : {}),
+            ...(verified.protectedHeader.kid
+              ? { keyId: verified.protectedHeader.kid }
+              : {}),
           },
-          ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+          ...(ctx.connection
+            ? { connectionRef: ctx.connection.connectionRef }
+            : {}),
           payloadClassification: triggers.payloadClassification ?? "personal",
           payload,
           forwarderHops: [
@@ -187,7 +212,9 @@ export function createVercelTriggerEvents(): EventPort {
               method: "oidc-bearer",
               issuer: iss,
               subject: sub,
-              ...(verified.protectedHeader.kid ? { keyId: verified.protectedHeader.kid } : {}),
+              ...(verified.protectedHeader.kid
+                ? { keyId: verified.protectedHeader.kid }
+                : {}),
               verifiedAt: delivery.receivedAt,
               bodyBound: false,
             },

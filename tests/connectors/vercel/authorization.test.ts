@@ -190,8 +190,10 @@ test("the documented response schema, not a stale example, decides the field typ
     verifier: "v".repeat(43),
   };
   assert.equal(
-    connectAuthorizeResponseSchema.safeParse({ ...body, expiresAt: 1700000000000 })
-      .success,
+    connectAuthorizeResponseSchema.safeParse({
+      ...body,
+      expiresAt: 1700000000000,
+    }).success,
     true,
   );
   assert.equal(
@@ -344,15 +346,12 @@ test("missing configuration is reported before any provider call", async (t) => 
   });
   const connection = buildConnection({ binding });
   const adapter = createVercelConnectAdapter();
-  const start = await adapter.authorize!(
-    h.context({ binding, connection }),
-    {
-      ownerKind: "user",
-      requestedPermissions: [],
-      accountSwitch: false,
-      interruption: "allowed",
-    },
-  );
+  const start = await adapter.authorize!(h.context({ binding, connection }), {
+    ownerKind: "user",
+    requestedPermissions: [],
+    accountSwitch: false,
+    interruption: "allowed",
+  });
   assert.deepEqual(start, {
     kind: "configuration-required",
     missing: ["VERCEL_CONNECT_WORKLOAD_TOKEN"],
@@ -663,19 +662,23 @@ test("installation-aware and installation-free connectors both verify, each in i
 
   // Installation-free: sending an installation id at all would be rejected by
   // the provider, so the adapter must not send one.
-  const free = setup(double, {
-    project: { id: PROJECT, environment: "production" },
-    profiles: {
-      app: {
-        connector: USER_CONNECTOR,
-        subject: { type: "app" },
-        installation: { mode: "installation-free" },
-        scopes: ["read"],
+  const free = setup(
+    double,
+    {
+      project: { id: PROJECT, environment: "production" },
+      profiles: {
+        app: {
+          connector: USER_CONNECTOR,
+          subject: { type: "app" },
+          installation: { mode: "installation-free" },
+          scopes: ["read"],
+        },
       },
+      defaultProfile: "app",
+      returnPath: RETURN_PATH,
     },
-    defaultProfile: "app",
-    returnPath: RETURN_PATH,
-  }, { connection: { ownerKind: "workload" } });
+    { connection: { ownerKind: "workload" } },
+  );
   double.grantApp(USER_CONNECTOR, { scopes: ["read"] });
   const plain = await adapter.verify!(free.ctx);
   assert.equal(plain.state, "complete");
@@ -689,9 +692,7 @@ test("installation-aware and installation-free connectors both verify, each in i
     "vercel-connector",
     "with no installation, tenant or subject reported, identity stays unknown",
   );
-  assert.ok(
-    plain.claims[0]!.limitations.includes("account identity unknown"),
-  );
+  assert.ok(plain.claims[0]!.limitations.includes("account identity unknown"));
 });
 
 test("an unpermitted installation is refused before the provider is asked", async (t) => {
@@ -716,7 +717,10 @@ test("an unpermitted installation is refused before the provider is asked", asyn
       defaultProfile: "app",
       returnPath: RETURN_PATH,
     },
-    { installations: ["inst_workspace_a"], connection: { ownerKind: "workload" } },
+    {
+      installations: ["inst_workspace_a"],
+      connection: { ownerKind: "workload" },
+    },
   );
   const before = double.calls.length;
   await assert.rejects(adapter.verify!(ctx), (error: unknown) => {
@@ -753,9 +757,9 @@ test("scopes come from the approved profile; a wider request is refused locally"
   });
   assert.equal(narrowed.kind, "handoff");
   assert.deepEqual(
-    (double.routed("connect.authorize").at(-1)!.body as Record<string, unknown>)[
-      "scopes"
-    ],
+    (
+      double.routed("connect.authorize").at(-1)!.body as Record<string, unknown>
+    )["scopes"],
     ["read"],
     "a caller may narrow within the profile",
   );

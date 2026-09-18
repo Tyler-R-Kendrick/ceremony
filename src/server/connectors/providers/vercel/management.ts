@@ -123,8 +123,10 @@ function parseInput<K extends VercelManagementOperationId>(
   return parsed.data as Inputs[K];
 }
 
-const sameDestination = (a: TriggerDestinationInput, b: TriggerDestinationInput) =>
-  canonicalConnectorJson(a) === canonicalConnectorJson(b);
+const sameDestination = (
+  a: TriggerDestinationInput,
+  b: TriggerDestinationInput,
+) => canonicalConnectorJson(a) === canonicalConnectorJson(b);
 
 function requireApprovedDestination(
   ctx: AdapterCallContext,
@@ -244,7 +246,9 @@ export function projectConnector(connector: ConnectConnector) {
     ...(connector.defaultInstallationId !== undefined
       ? { defaultInstallationId: connector.defaultInstallationId }
       : {}),
-    ...(connector.triggers ? { triggers: { enabled: connector.triggers.enabled } } : {}),
+    ...(connector.triggers
+      ? { triggers: { enabled: connector.triggers.enabled } }
+      : {}),
     ...(connector.triggerDestinations
       ? {
           triggerDestinations: connector.triggerDestinations.map((item) => ({
@@ -329,7 +333,8 @@ export async function linkedProjects(
         return projects;
       throw error;
     }
-    for (const item of reply.body?.projects ?? []) projects.push(item.project.id);
+    for (const item of reply.body?.projects ?? [])
+      projects.push(item.project.id);
     const next = reply.body?.pagination.next;
     if (!next) break;
     cursor = next;
@@ -553,7 +558,9 @@ async function execute(
 }
 
 const sameSet = (a: readonly string[], b: readonly string[]) =>
-  a.length === b.length && new Set(a).size === a.length && b.every((item) => a.includes(item));
+  a.length === b.length &&
+  new Set(a).size === a.length &&
+  b.every((item) => a.includes(item));
 
 /**
  * Reconciles an interrupted write by reading current state. `applied` means
@@ -568,7 +575,11 @@ async function reconcile(
   switch (id) {
     case "connect.projects.link": {
       const args = input as Inputs["connect.projects.link"];
-      const link = await readProjectLink(session, args.connector, args.projectId);
+      const link = await readProjectLink(
+        session,
+        args.connector,
+        args.projectId,
+      );
       return link && sameSet(link.enabledEnvironments, args.environments)
         ? "applied"
         : "absent";
@@ -581,7 +592,9 @@ async function reconcile(
     }
     case "connect.connectors.delete": {
       const args = input as Inputs["connect.connectors.delete"];
-      return (await readConnector(session, args.connector)) ? "absent" : "applied";
+      return (await readConnector(session, args.connector))
+        ? "absent"
+        : "applied";
     }
     case "connect.triggers.destinations.replace": {
       const args = input as Inputs["connect.triggers.destinations.replace"];
@@ -597,7 +610,9 @@ async function reconcile(
             : {}),
         }),
       );
-      const wanted = args.destinations.map((item) => canonicalConnectorJson(item));
+      const wanted = args.destinations.map((item) =>
+        canonicalConnectorJson(item),
+      );
       return sameSet(current, wanted) ? "applied" : "absent";
     }
     default:
@@ -637,7 +652,9 @@ export async function invokeManagement(
   const live = await session(ctx, settings);
 
   if (operation.effect === "read")
-    return result(bound, "complete", { output: await execute(live, id, input) });
+    return result(bound, "complete", {
+      output: await execute(live, id, input),
+    });
 
   // Deleting a connector affects every project linked to it; the deletion
   // proceeds only when the administrator acknowledged exactly that set.
@@ -729,7 +746,9 @@ export async function discoverConnectors(
   const settings = vercelSettings(ctx.binding);
   for (const key of Object.keys(input.scope ?? {}))
     if (key !== "projectId")
-      throw new ConnectorError("denied", { detail: "vercel.scope.caller-supplied" });
+      throw new ConnectorError("denied", {
+        detail: "vercel.scope.caller-supplied",
+      });
   const projectId = input.scope?.["projectId"];
   if (projectId !== undefined)
     requireTarget(
@@ -757,8 +776,7 @@ export async function discoverConnectors(
     },
     schema: connectConnectorListSchema,
   });
-  const clean = (value: string) =>
-    value.replace(/\p{Cc}/gu, " ").slice(0, 200);
+  const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").slice(0, 200);
   const items: DiscoveredItem[] = (reply.body?.connectors ?? []).map(
     (connector) => ({
       identity: {
@@ -780,8 +798,16 @@ export async function discoverConnectors(
         supportsRevocation: String(connector.supportsRevocation),
         subjectTypes: connector.supportedSubjectTypes.join(","),
         permitted: String(
-          permitsTarget(ctx.binding, vercelTargetKinds.connector, connector.uid) ||
-            permitsTarget(ctx.binding, vercelTargetKinds.connector, connector.id),
+          permitsTarget(
+            ctx.binding,
+            vercelTargetKinds.connector,
+            connector.uid,
+          ) ||
+            permitsTarget(
+              ctx.binding,
+              vercelTargetKinds.connector,
+              connector.id,
+            ),
         ),
       },
       status: "active",
@@ -791,7 +817,11 @@ export async function discoverConnectors(
   return {
     items,
     ...(next ? { nextCursor: next } : {}),
-    freshness: { fetchedAt: ctx.environment.now(), stale: false, source: "live" },
+    freshness: {
+      fetchedAt: ctx.environment.now(),
+      stale: false,
+      source: "live",
+    },
     issues: [],
   };
 }
@@ -853,7 +883,10 @@ export async function deleteUnsharedConnector(
     connector,
     "vercel.connector.not-permitted",
   );
-  await options.policy(ctx, { id: "connect.connectors.delete", effect: "write" });
+  await options.policy(ctx, {
+    id: "connect.connectors.delete",
+    effect: "write",
+  });
   const live = await session(ctx, settings);
   const others = (await linkedProjects(live, connector)).filter(
     (projectId) => projectId !== settings.project.id,

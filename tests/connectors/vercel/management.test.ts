@@ -105,7 +105,10 @@ function setup(
 ) {
   const test = harness(input.actor ? { actor: input.actor } : {});
   test.ports.configuration.set("VERCEL_TEAM_ID", TEAM);
-  test.ports.configuration.set("VERCEL_MANAGEMENT_TOKEN", "vma_management_token");
+  test.ports.configuration.set(
+    "VERCEL_MANAGEMENT_TOKEN",
+    "vma_management_token",
+  );
   test.ports.configuration.set(
     "VERCEL_CONNECT_WORKLOAD_TOKEN",
     "oidc_workload_token",
@@ -119,7 +122,12 @@ function setup(
     environments: input.environments ?? ["production", "preview"],
   });
   const connection = buildConnection({ binding });
-  return { test, binding, connection, ctx: test.context({ binding, connection }) };
+  return {
+    test,
+    binding,
+    connection,
+    ctx: test.context({ binding, connection }),
+  };
 }
 
 const invoke = (

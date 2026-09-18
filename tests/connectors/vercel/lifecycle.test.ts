@@ -221,7 +221,8 @@ test("an upstream disconnect deletes an unshared connector, and needs administra
       "upstream",
     ),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "vercel.admin-required",
+      error instanceof ConnectorError &&
+      error.detail === "vercel.admin-required",
   );
   assert.ok(double.connector(CONNECTOR));
 
@@ -340,9 +341,9 @@ test("reconnect cancels the previous handoff and flags a scope increase", async 
     "asking for more than the connection holds is an escalation, not a refresh",
   );
   assert.deepEqual(
-    (double.routed("connect.authorize").at(-1)!.body as Record<string, unknown>)[
-      "scopes"
-    ],
+    (
+      double.routed("connect.authorize").at(-1)!.body as Record<string, unknown>
+    )["scopes"],
     ["chat:write", "channels:read"],
   );
   const cancelled = h.ports.inspect
@@ -388,7 +389,9 @@ test("a trigger destination can only be replaced with an approved destination", 
       operationRef: vercelOperationRef("connect.triggers.destinations.replace"),
       input: {
         connector: CONNECTOR,
-        destinations: [{ projectId: OTHER_PROJECT, path: "/api/connect/slack" }],
+        destinations: [
+          { projectId: OTHER_PROJECT, path: "/api/connect/slack" },
+        ],
       },
       commandId: "cmd-destination-project",
     }),

@@ -66,7 +66,9 @@ const resolved = new WeakMap<
   Map<VercelCredentialRole, RoleCredential<VercelCredentialRole>>
 >();
 
-export function credentialRole(credential: unknown): VercelCredentialRole | undefined {
+export function credentialRole(
+  credential: unknown,
+): VercelCredentialRole | undefined {
   if (typeof credential !== "object" || credential === null) return undefined;
   const role = (credential as { [roleBrand]?: unknown })[roleBrand];
   return role === "management" || role === "workload" ? role : undefined;

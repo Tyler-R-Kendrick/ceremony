@@ -1,0 +1,226 @@
+{
+  "swarm": "VERCEL",
+  "adapter": {
+    "factory": "createVercelConnectAdapter(options)",
+    "module": "src/server/connectors/providers/vercel/index.ts",
+    "id": "vercel-connect",
+    "ecosystem": "vercel-connect",
+    "service": "vercel",
+    "adapterVersion": "1.0.0",
+    "runtime": "hosted-server",
+    "support": "provider-backed",
+    "custody": ["host-owned", "external-credential-broker"],
+    "profiles": ["vercel-connect-rest-2026-09", "external-broker"]
+  },
+  "sourceProfiles": [
+    {
+      "id": "vercel-connect-rest-2026-09",
+      "retrievedAt": "2026-09-18T00:35:23Z",
+      "sources": [
+        "https://vercel.com/docs/connect (last_updated 2026-08-28)",
+        "https://vercel.com/docs/rest-api#connect (last_updated 2026-09-18)",
+        "https://vercel.com/docs/rest-api/connect/create-a-connect-authorization-request (last_updated 2026-09-18)",
+        "https://vercel.com/docs/rest-api/connect/get-a-connect-token (last_updated 2026-09-18)",
+        "https://vercel.com/docs/connect/ts-sdk-reference (last_updated 2026-08-26)",
+        "https://vercel.com/docs/connect/providers (last_updated 2026-08-28)",
+        "https://vercel.com/docs/connect/concepts/triggers (last_updated 2026-08-20)",
+        "https://vercel.com/docs/connect/concepts/tokens, /installations, /project-links, /connectors, /authentication",
+        "https://vercel.com/docs/oidc/reference (last_updated 2026-08-04)",
+        "https://vercel.com/docs/rest-api/errors",
+        "https://openapi.vercel.sh (OpenAPI 3.0.3, info.version 0.0.1, 10837734 bytes, retrieved 2026-09-18T00:35:23Z)"
+      ],
+      "sdkRead": [
+        "@vercel/connect 2.3.0 (npm tarball, read only): dist/token.js, dist/authorization.js, dist/installation.js, dist/connector.js, dist/chat/webhook-verifier.js, dist/internal/*",
+        "@vercel/oidc 3.8.8 (npm tarball, read only): dist/verify-vercel-oidc-token.js"
+      ],
+      "notInstalled": "@vercel/connect is NOT a dependency of this repository. The adapter implements the documented REST contract directly with fetch + zod. If the SDK is adopted later, getTokenResponse maps to POST /v1/connect/token/{connector} (acquireToken), startAuthorization to POST /v1/connect/authorize/{connector} (authorizeStart), getConnectorMetadata to GET /v1/connect/connectors/{connector}, revokeToken to DELETE /v1/connect/connectors/{connector}/tokens, and createConnectWebhookVerifier to the EVENT port's verify(). Its in-process LRU token cache would duplicate custody and must stay disabled in favour of the CredentialCustodyPort."
+    }
+  ],
+  "workItems": [
+    {
+      "id": "VC-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/vercel/contracts.ts",
+        "src/server/connectors/providers/vercel/client.ts",
+        "src/server/connectors/providers/vercel/management.ts",
+        "src/server/connectors/providers/vercel/index.ts"
+      ],
+      "tests": ["tests/connectors/vercel/management.test.ts"],
+      "acceptanceIds": ["AC-VC-01", "AC-VC-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "Live account evidence blocked: no authorized Vercel team credentials",
+        "Connector create/update bodies are carried as a bounded opaque `data` object per connector type; the adapter does not validate provider-specific credential shapes (16 type variants in the OpenAPI document)",
+        "GET /v1/connect/networks and the other /v1/connect/networks operations are out of scope: they are Secure Compute networks, not Connect connectors"
+      ],
+      "notes": "Each of the ten management operations is pinned to its own documented version and path in vercelConnectOperationTable, and a binding whose transport disagrees is refused (assertTransportMatches). Team scope comes from VERCEL_TEAM_ID and must also be a permitted target; a caller-supplied teamId is an unknown input. Pagination follows `pagination.next`. Administrative operations (create/update/delete/link/unlink/trigger-destinations) go through a policy hook that defaults to the host `admin` capability; deleting a connector other projects still link returns human-required with the impact list until the exact set is acknowledged."
+    },
+    {
+      "id": "VC-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/vercel/authorization.ts"],
+      "tests": ["tests/connectors/vercel/authorization.test.ts"],
+      "acceptanceIds": ["AC-VC-02", "AC-VC-05"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "Live account evidence blocked: no authorized Vercel credentials",
+        "The device-code presentation is implemented from the documented `deviceCode` request flag and the response's `deviceCode` field; no second-device flow was exercised end to end",
+        "POST /v1/connect/install/{connector} (the SDK's experimental_startInstallation) is deliberately not implemented: it is feature-gated, absent from the REST reference and the OpenAPI document"
+      ],
+      "notes": "Subject, installation semantics, scopes, resources, audience and authorizationDetails all come from the host-approved profile; the authenticated actor supplies only the identity behind a user or jwt-bearer subject. No additionalParams, webhook or caller-supplied callback is ever sent; returnUrl is built from the deployment origin plus the binding's returnPath. The response's request id, URL, verifier and expiry are HandoffIssue.private, and the request id is the correlationKey. expiresAt is typed as a number per the response schema, against the reference example's string \"123\"."
+    },
+    {
+      "id": "VC-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/vercel/credentials.ts",
+        "src/server/connectors/providers/vercel/client.ts"
+      ],
+      "tests": ["tests/connectors/vercel/tokens.test.ts"],
+      "acceptanceIds": ["AC-VC-03"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "Live account evidence blocked: no authorized Vercel credentials",
+        "Workload identity is supplied either as VERCEL_CONNECT_WORKLOAD_TOKEN or through the host's `workloadToken` hook; the adapter does not mint or refresh an OIDC token itself (on Vercel the platform injects it)"
+      ],
+      "notes": "Management and workload credentials are separate branded handles over separate custody scopes (organization/vercel-team vs workload/project+environment). Every operation declares the role it needs; withBearer re-checks the brand at runtime, so a handle of the wrong role never becomes an Authorization header. The provider token Connect vends is stored under external-credential-broker custody with the response's expiry and is never returned to a caller."
+    },
+    {
+      "id": "VC-04",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/vercel/authorization.ts"],
+      "tests": [
+        "tests/connectors/vercel/tokens.test.ts",
+        "tests/connectors/vercel/authorization.test.ts"
+      ],
+      "acceptanceIds": ["AC-VC-04", "AC-AUTH-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "Vercel Connect returns no provider-granted scope list, so every claim records requested scopes with reported and observed empty and states that limitation",
+        "Identity is reported by the broker, not observed at the provider: the account-identity claim carries that limitation explicitly"
+      ],
+      "notes": "A credential-accepted claim is recorded for every acquisition, with the target taken from externalSubject (provider-user for a user subject, federated-subject for jwt-bearer), installationId or tenantId (provider-installation / provider-tenant for an app subject). When the response carries none of them the target falls back to the connector and the claim carries limitation 'account identity unknown', no account-identity claim is emitted, and an exact-account intent yields human-required rather than success. A changed account yields denied unless the human asked to switch."
+    },
+    {
+      "id": "VC-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/vercel/authorization.ts",
+        "src/server/connectors/providers/vercel/management.ts"
+      ],
+      "tests": [
+        "tests/connectors/vercel/lifecycle.test.ts",
+        "tests/connectors/vercel/tokens.test.ts"
+      ],
+      "acceptanceIds": ["AC-VC-06", "AC-STATE-03", "AC-STATE-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "Grant revocation uses DELETE /v1/connect/connectors/{connector}/tokens, observed in @vercel/connect 2.3.0 but absent from the REST reference and the OpenAPI document; it is opt-in per binding (settings.revocation) and defaults to unsupported",
+        "Upstream revocation is reported indeterminate: Vercel calls the provider's revocation endpoint only when the provider declares one, and the response does not say which happened"
+      ],
+      "notes": "Four separate intents: local disconnect (custody + handoffs only, no provider call), broker disconnect (DELETE the project link, reporting the other projects that keep theirs), upstream disconnect (delete the connector, refused while another project links it), and token reacquisition (single-flight refresh through the custody port). Reconnect cancels the connection's open handoffs, advances against the caller's generation and labels a scope increase as an escalation. A trigger destination may only be replaced with a destination the binding already approved."
+    },
+    {
+      "id": "VC-06",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/vercel/events.ts",
+        "src/server/connectors/providers/vercel/provider-conformance.ts"
+      ],
+      "tests": [
+        "tests/connectors/vercel/triggers.test.ts",
+        "tests/connectors/vercel/provider-conformance.test.ts"
+      ],
+      "acceptanceIds": ["AC-VC-07", "AC-VC-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-rest-2026-09"],
+      "limitations": [
+        "The triggers concepts page says Connect 'signs the outbound request' and 'publishes the signing key per connector' but names no header, algorithm or key endpoint. The implemented mechanism is the one the shipped code uses instead: a Vercel OIDC bearer token in the Authorization header, verified RS256 against the oidc.vercel.com JWKS with issuer, owner_id, project_id and environment checks (per @vercel/connect 2.3.0 createConnectWebhookVerifier and @vercel/oidc 3.8.8 verifyVercelOidcToken, and the Connect Chat SDK page: 'Connect verifies the provider's signature, forwards the request, and adds a Vercel OpenID Connect (OIDC) bearer token'). A per-connector body signature, if one also exists, is UNVERIFIED from the documentation and is not implemented.",
+        "Because the credential authenticates the forwarder rather than the bytes, the recorded forwarderHops entry sets bodyBound:false; there is no nonce or delivery de-duplication, exactly as the Chat SDK page states",
+        "No live Vercel delivery was observed: every trigger is a locally minted token over loopback"
+      ],
+      "notes": "A header that merely claims the provider signature was verified is ignored. Events are accepted only for a project that has a registered trigger destination in the binding, and only for a permitted team, project and environment. The provider-facing conformance harness runs Ceremony as the provider side against tests/fixtures/oidc-idp.ts and examples/issuer.ts (createDevIssuer), reporting each documented required/recommended/optional item as met, not-met or unknown; a guarded fetch fails the test if anything leaves loopback."
+    }
+  ],
+  "acceptanceOracles": {
+    "AC-VC-01": "tests/connectors/vercel/management.test.ts - per-operation version/path/method observed by the independent double; team/project/environment policy enforced before any call",
+    "AC-VC-02": "tests/connectors/vercel/authorization.test.ts - installation-aware (explicit and default) and installation-free connectors each reach their own scoped verification",
+    "AC-VC-03": "tests/connectors/vercel/tokens.test.ts - separate custody scopes, branded role handles, and both misuse directions rejected",
+    "AC-VC-04": "tests/connectors/vercel/tokens.test.ts - unpermitted team/project/environment refused locally; an unlinked deployment refused upstream with no fallback; unknown identity blocks an exact-account intent",
+    "AC-VC-05": "tests/connectors/vercel/authorization.test.ts - expiry, denial, state mismatch, foreign origin, stale generation, correlation hijack, and the schema-vs-example type check",
+    "AC-VC-06": "tests/connectors/vercel/management.test.ts and lifecycle.test.ts - administrative authorization plus an acknowledged impact list for a shared connector; local unlink deletes nothing shared",
+    "AC-VC-07": "tests/connectors/vercel/triggers.test.ts - forged, unsigned, alien-issuer, expired, wrong-audience and wrong-claim deliveries all rejected; asserted-verification headers ignored",
+    "AC-VC-08": "tests/connectors/vercel/provider-conformance.test.ts - discovery, DCR, code+PKCE, refresh and resource-indicator behaviour against two issuers this repository already serves"
+  },
+  "verifiedFields": {
+    "verified": [
+      "Per-operation paths and versions for all 13 published Connect operations (REST reference table and OpenAPI document agree)",
+      "teamId/slug query scoping, their mutual exclusivity, and the documented 401 when no team can be selected",
+      "Authorization request body fields: subject (app | user | jwt-bearer | token), installationId, audience, scopes, resources, authorizationDetails, validityBufferMs, returnUrl, webhook, prompt, deviceCode, expiresInMs, additionalParams",
+      "Authorization response: connector{displayName,id,name,service,serviceName,type,uid}, deviceCode, expiresAt (number), request, url, verifier",
+      "Token response: token, tokenId, expiresAt (number), connector{id,type,uid}, name, installationId, tenantId, externalSubject, authorizationId, tokenGroupId, claims, metadata",
+      "Connector, project-connection, pagination (`pagination.next`), update-result (reconsentNeeded/reinstallNeeded/serviceSync) and error (`error.code`, `error.message`) schemas",
+      "Trigger destination inputs: projectId with an optional path, exclusive branch or customEnvironmentId, at most three destinations, replaced as a complete set",
+      "Connector uid travels as one percent-encoded path segment (slack%2Facme-slack), stated on the authentication concepts page",
+      "Vercel OIDC token claims, issuer forms and RS256/JWKS location (docs/oidc/reference, confirmed by @vercel/oidc 3.8.8)",
+      "Provider-side requirements: discovery locations including the RFC 8414 path-suffixed form, grant-to-subject mapping, the exact callback URL https://connect.vercel.com/callback, expires_in, DCR/CIMD conditions, PKCE S256, refresh, revocation, scopes, resource indicators and RAR"
+    ],
+    "unverified": [
+      "The trigger signing mechanism named on the triggers page ('signs the outbound request', 'publishes the signing key per connector'): no header, algorithm or key URL is published. Implemented as the OIDC bearer the shipped SDK verifies; any additional body signature is unverified and not implemented.",
+      "Wire-level error codes behind ClientNotLinkedToProjectError and ClientNotEnabledForEnvironmentError: the SDK only switches on no_token, user_authorization_required, client_installation_required and connector_installation_required. The double and the adapter use the snake_case spelling of the class names (client_not_linked_to_project, client_not_enabled_for_environment).",
+      "Which credential class each endpoint accepts is described in prose (RBAC plus project links) with no wire discriminator; the double models management-vs-workload rejection accordingly.",
+      "DELETE /v1/connect/connectors/{connector}/tokens is SDK-observed only; it is not in the REST reference or the OpenAPI document.",
+      "Rate-limit response headers for Connect endpoints (the limits page gives per-minute numbers but no header names).",
+      "Whether a forwarded trigger carries a stable delivery id; x-vercel-id is used opportunistically and the envelope falls back to a content digest."
+    ]
+  },
+  "contractChanges": [
+    {
+      "target": "src/server/connectors/binding.ts destinationUrl (foundation, integrator-owned)",
+      "change": "none applied",
+      "description": "destinationUrl rejects any path containing %2f, which is correct for a path template but blocks a legitimate Vercel connector uid segment (slack%2Facme-slack). The adapter works within the existing contract: operationUrl in providers/vercel/client.ts validates the template with inert placeholders through destinationUrl and then substitutes each once-encoded segment inside the already-validated pathname. If other providers need the same (they will: any broker with slashes in an id), consider an additive destinationUrl(destination, path, { encodedSegments }) overload rather than relaxing the guard."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory.ts registry (INT)",
+      "description": "registry.register(createVercelConnectAdapter({ administer, workloadToken })) from src/server/connectors/providers/vercel/index.ts. `administer` defaults to the host `admin` capability via requireCapability; `workloadToken` is optional and lets the host supply the deployment OIDC token instead of configuration."
+    },
+    {
+      "target": "configuration names (host environment schema)",
+      "description": "VERCEL_TEAM_ID (public, required), VERCEL_CONNECT_WORKLOAD_TOKEN (secret, required for token acquisition), VERCEL_MANAGEMENT_TOKEN (secret, required for administration - a host-configured team token or workload identity, never a user's personal token), VERCEL_TEAM_SLUG (public, optional, for forwarded-trigger audience checks). The catalog reports `unconfigured` until VERCEL_TEAM_ID and VERCEL_CONNECT_WORKLOAD_TOKEN are present."
+    },
+    {
+      "target": "runtime binding destinations",
+      "description": "Destination id `api` = https://api.vercel.com (public) is required. Destination id `oidc` = https://oidc.vercel.com (public) is required only for forwarded triggers; the events port fetches its JWKS from there. Provider API destinations for invoke() are separate ids and must not reuse `api` or `oidc`."
+    },
+    {
+      "target": "runtime binding settings.vercel",
+      "description": "vercelSettingsSchema: { project:{id,environment}, profiles:{<id>:{connector,subject,installation,scopes,resources?,audience?,authorizationDetails?,prompt?,expiresInMs?,validityBufferMs?,presentation?}}, defaultProfile, returnPath, triggers?:{destinations,audience?,payloadClassification?}, revocation? }. permittedTargets must name kinds vercel-team, vercel-connector, vercel-project, vercel-environment and (when pinned) vercel-installation."
+    },
+    {
+      "target": "bound operations",
+      "description": "vercelManagementBoundOperations() returns the ten management operations already pinned to their documented method, path, version and destination id `api`, with admin operations marked consent:'confirm'. The integrator may narrow the set but must not alter a transport."
+    },
+    {
+      "target": "return route (hosted HTTP)",
+      "description": "The host must serve settings.returnPath on the deployment origin and hand the full callback URL to complete({kind:'redirect'}). The adapter validates origin, path and the one-use state itself."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "Live-authorized evidence for every dimension (no authorized Vercel team, connector, project or workload identity is available in this environment)",
+    "Browser-integration evidence for the consent handoff (AC-UX-01 for the Vercel card belongs to the UX swarm; this swarm supplies the adapter and its protocol-fixture evidence)",
+    "POST /v1/connect/install/{connector}: feature-gated and undocumented in the REST reference, so installation requests are not implemented; an installation-aware connector with no installation reports human-required with code vercel.installation-required"
+  ],
+  "externalEffectsPerformed": [
+    "Read-only documentation fetches from vercel.com/docs and openapi.vercel.sh",
+    "npm pack of @vercel/connect@2.3.0 and @vercel/oidc@3.8.8 into a scratchpad directory for reading only; neither was installed and package.json was not modified"
+  ]
+}

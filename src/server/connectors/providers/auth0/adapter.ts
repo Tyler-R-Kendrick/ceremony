@@ -24,7 +24,6 @@ import {
   type DisconnectResult,
   type DisconnectScope,
   type DiscoverResult,
-  type HandoffProposal,
   type InvokeRequest,
   type InvokeResult,
   type VerificationClaim,
@@ -46,7 +45,6 @@ import {
   AUTH0_DEFAULT_RETURN_PATH,
   AUTH0_DESTINATION_ID,
   AUTH0_EXCHANGE_ACTION,
-  AUTH0_FEDERATED_TOKEN_TYPE,
   AUTH0_INVENTORY_ACTION,
   AUTH0_JWKS_PATH,
   AUTH0_TOKEN_PATH,
@@ -62,7 +60,6 @@ import {
   auth0Profiles,
   auth0ReconnectErrors,
   auth0SettingsSchema,
-  myAccountAudience,
   tenantIssuer,
   type Auth0Settings,
 } from "./wire.js";
@@ -1314,5 +1311,3 @@ export function createAuth0TokenVaultAdapter(
 
   return adapter;
 }
-
-export { AUTH0_FEDERATED_TOKEN_TYPE, myAccountAudience };

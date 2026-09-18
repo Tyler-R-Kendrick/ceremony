@@ -80,9 +80,7 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
     async click(label: string) {
       const button = api.button(label);
       if (!button) throw new Error(`No control labelled ${label}`);
-      await act(async () => {
-        button.dispatchEvent(new window.Event("click", { bubbles: true }));
-      });
+      await api.clickElement(button as never);
     },
     async clickElement(element: {
       dispatchEvent(event: unknown): unknown;

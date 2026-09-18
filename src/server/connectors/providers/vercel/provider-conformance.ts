@@ -33,7 +33,9 @@ const metadataSchema = z
     userinfo_endpoint: z.string().optional(),
     grant_types_supported: z.array(z.string()).optional(),
     token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
-    token_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
+    token_endpoint_auth_signing_alg_values_supported: z
+      .array(z.string())
+      .optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
     scopes_supported: z.array(z.string()).optional(),
     authorization_details_types_supported: z.array(z.string()).optional(),
@@ -98,10 +100,18 @@ const subjectTypeByGrant: Record<string, string> = {
   client_credentials: "app",
   "urn:ietf:params:oauth:grant-type:jwt-bearer": "jwt-bearer",
 };
-const usableAuthMethods = ["client_secret_basic", "client_secret_post", "none", "private_key_jwt"];
+const usableAuthMethods = [
+  "client_secret_basic",
+  "client_secret_post",
+  "none",
+  "private_key_jwt",
+];
 
 /** RFC 8414 §3.1 and OpenID Connect discovery locations for an issuer that may carry a path. */
-export function discoveryLocations(serverUrl: string): { oauth: string[]; oidc: string[] } {
+export function discoveryLocations(serverUrl: string): {
+  oauth: string[];
+  oidc: string[];
+} {
   const url = new URL(serverUrl);
   const path = url.pathname.replace(/\/+$/, "");
   const origin = url.origin;
@@ -131,7 +141,8 @@ async function fetchMetadata(
       ...(signal ? { signal } : {}),
     });
     if (!response.ok) return undefined;
-    if (!/json/i.test(response.headers.get("content-type") ?? "")) return undefined;
+    if (!/json/i.test(response.headers.get("content-type") ?? ""))
+      return undefined;
     const parsed = metadataSchema.safeParse(await response.json());
     return parsed.success ? parsed.data : undefined;
   } catch {
@@ -225,7 +236,9 @@ export async function assessConnectProviderConformance(input: {
   const dcr =
     merged.registration_endpoint !== undefined &&
     authMethods.some((method) => usableAuthMethods.includes(method));
-  const pkceS256 = (merged.code_challenge_methods_supported ?? []).includes("S256");
+  const pkceS256 = (merged.code_challenge_methods_supported ?? []).includes(
+    "S256",
+  );
   const cimd =
     merged.client_id_metadata_document_supported === true &&
     (authMethods.includes("private_key_jwt") ||
@@ -251,7 +264,8 @@ export async function assessConnectProviderConformance(input: {
     "optional.revocation",
     "optional",
     merged.revocation_endpoint ? "met" : "not-met",
-    merged.revocation_endpoint ?? "no revocation_endpoint; revocation only removes Vercel's stored copy",
+    merged.revocation_endpoint ??
+      "no revocation_endpoint; revocation only removes Vercel's stored copy",
   );
   finding(
     "optional.scopes-published",
@@ -270,7 +284,11 @@ export async function assessConnectProviderConformance(input: {
       const url = new URL(input.serverUrl);
       const response = await input.fetch(
         `${url.origin}/.well-known/oauth-protected-resource${url.pathname.replace(/\/+$/, "")}`,
-        { headers: { accept: "application/json" }, redirect: "error", ...(input.signal ? { signal: input.signal } : {}) },
+        {
+          headers: { accept: "application/json" },
+          redirect: "error",
+          ...(input.signal ? { signal: input.signal } : {}),
+        },
       );
       if (!response.ok) return false;
       const body = z
@@ -292,16 +310,33 @@ export async function assessConnectProviderConformance(input: {
   );
 
   if (!input.exercise || !merged.authorization_endpoint) {
-    finding("required.redirect-url-accepted", "required", "unknown", "not exercised");
+    finding(
+      "required.redirect-url-accepted",
+      "required",
+      "unknown",
+      "not exercised",
+    );
     finding("required.expires-in", "required", "unknown", "not exercised");
     finding(
       "recommended.refresh-tokens",
       "recommended",
       refreshDeclared ? "unknown" : "not-met",
-      refreshDeclared ? "declared; refresh not exercised" : "refresh_token is not in grant_types_supported",
+      refreshDeclared
+        ? "declared; refresh not exercised"
+        : "refresh_token is not in grant_types_supported",
     );
-    finding("recommended.rfc7592-client-update", "recommended", "unknown", "not exercised");
-    finding("optional.resource-indicators", "optional", "unknown", "not exercised");
+    finding(
+      "recommended.rfc7592-client-update",
+      "recommended",
+      "unknown",
+      "not exercised",
+    );
+    finding(
+      "optional.resource-indicators",
+      "optional",
+      "unknown",
+      "not exercised",
+    );
     return report;
   }
 
@@ -314,12 +349,18 @@ export async function assessConnectProviderConformance(input: {
     exercise.failure = message;
     return report;
   };
-  const post = async (url: string, body: URLSearchParams | string, json: boolean) =>
+  const post = async (
+    url: string,
+    body: URLSearchParams | string,
+    json: boolean,
+  ) =>
     input.fetch(url, {
       method: "POST",
       headers: {
         accept: "application/json",
-        "content-type": json ? "application/json" : "application/x-www-form-urlencoded",
+        "content-type": json
+          ? "application/json"
+          : "application/x-www-form-urlencoded",
       },
       body: typeof body === "string" ? body : body.toString(),
       redirect: "error",
@@ -340,15 +381,24 @@ export async function assessConnectProviderConformance(input: {
       JSON.stringify({
         client_name: "Vercel Connect conformance harness",
         redirect_uris: [redirectUri],
-        grant_types: refreshDeclared ? ["authorization_code", "refresh_token"] : ["authorization_code"],
+        grant_types: refreshDeclared
+          ? ["authorization_code", "refresh_token"]
+          : ["authorization_code"],
         response_types: ["code"],
         token_endpoint_auth_method: authMethod,
       }),
       true,
     );
-    const body = response.ok ? registrationSchema.safeParse(await response.json()) : undefined;
+    const body = response.ok
+      ? registrationSchema.safeParse(await response.json())
+      : undefined;
     if (!body?.success) {
-      finding("required.redirect-url-accepted", "required", "not-met", `registration with ${redirectUri} failed (${response.status})`);
+      finding(
+        "required.redirect-url-accepted",
+        "required",
+        "not-met",
+        `registration with ${redirectUri} failed (${response.status})`,
+      );
       return fail("client registration failed");
     }
     clientId = body.data.client_id;
@@ -370,14 +420,26 @@ export async function assessConnectProviderConformance(input: {
     finding(
       "recommended.rfc7592-client-update",
       "recommended",
-      body.data.registration_access_token && body.data.registration_client_uri ? "met" : "not-met",
+      body.data.registration_access_token && body.data.registration_client_uri
+        ? "met"
+        : "not-met",
       body.data.registration_client_uri
         ? `registration_client_uri=${body.data.registration_client_uri}`
         : "registration returned no registration_access_token/registration_client_uri",
     );
   } else {
-    finding("required.redirect-url-accepted", "required", "unknown", "no registration endpoint; a pre-registered client would be needed");
-    finding("recommended.rfc7592-client-update", "recommended", "not-met", "no registration endpoint");
+    finding(
+      "required.redirect-url-accepted",
+      "required",
+      "unknown",
+      "no registration endpoint; a pre-registered client would be needed",
+    );
+    finding(
+      "recommended.rfc7592-client-update",
+      "recommended",
+      "not-met",
+      "no registration endpoint",
+    );
     return fail("no client available for the authorization exercise");
   }
 
@@ -394,7 +456,8 @@ export async function assessConnectProviderConformance(input: {
     authorizationUrl.searchParams.set("code_challenge", challenge);
     authorizationUrl.searchParams.set("code_challenge_method", "S256");
   }
-  const scope = input.exercise.scope ?? merged.scopes_supported?.slice(0, 3).join(" ");
+  const scope =
+    input.exercise.scope ?? merged.scopes_supported?.slice(0, 3).join(" ");
   if (scope) authorizationUrl.searchParams.set("scope", scope);
   if (input.exercise.resource)
     authorizationUrl.searchParams.set("resource", input.exercise.resource);
@@ -403,17 +466,32 @@ export async function assessConnectProviderConformance(input: {
     callback = await input.exercise.authorize(authorizationUrl);
   } catch (error) {
     if (input.exercise.resource)
-      finding("optional.resource-indicators", "optional", "not-met", "the authorization request carrying a resource parameter was refused");
-    return fail(`authorization step failed: ${error instanceof Error ? error.message : "unknown"}`);
+      finding(
+        "optional.resource-indicators",
+        "optional",
+        "not-met",
+        "the authorization request carrying a resource parameter was refused",
+      );
+    return fail(
+      `authorization step failed: ${error instanceof Error ? error.message : "unknown"}`,
+    );
   }
   const expected = new URL(redirectUri);
-  if (callback.origin !== expected.origin || callback.pathname !== expected.pathname)
+  if (
+    callback.origin !== expected.origin ||
+    callback.pathname !== expected.pathname
+  )
     return fail("callback did not arrive at the registered redirect URL");
-  if (callback.searchParams.get("state") !== state) return fail("state mismatch on callback");
+  if (callback.searchParams.get("state") !== state)
+    return fail("state mismatch on callback");
   const code = callback.searchParams.get("code");
-  if (!code) return fail(`callback carried no code (${callback.searchParams.get("error") ?? "no error"})`);
+  if (!code)
+    return fail(
+      `callback carried no code (${callback.searchParams.get("error") ?? "no error"})`,
+    );
   const issParam = callback.searchParams.get("iss");
-  if (issParam !== null && issParam !== merged.issuer) return fail("callback iss does not match the issuer");
+  if (issParam !== null && issParam !== merged.issuer)
+    return fail("callback iss does not match the issuer");
 
   const tokenRequest = new URLSearchParams({
     grant_type: "authorization_code",
@@ -422,7 +500,8 @@ export async function assessConnectProviderConformance(input: {
     client_id: clientId,
   });
   if (pkceS256) tokenRequest.set("code_verifier", verifier);
-  if (input.exercise.resource) tokenRequest.set("resource", input.exercise.resource);
+  if (input.exercise.resource)
+    tokenRequest.set("resource", input.exercise.resource);
   if (clientSecret && authMethod === "client_secret_post")
     tokenRequest.set("client_secret", clientSecret);
   const tokenResponse = await input.fetch(merged.token_endpoint, {
@@ -431,17 +510,23 @@ export async function assessConnectProviderConformance(input: {
       accept: "application/json",
       "content-type": "application/x-www-form-urlencoded",
       ...(clientSecret && authMethod === "client_secret_basic"
-        ? { authorization: `Basic ${Buffer.from(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`).toString("base64")}` }
+        ? {
+            authorization: `Basic ${Buffer.from(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`).toString("base64")}`,
+          }
         : {}),
     },
     body: tokenRequest.toString(),
     redirect: "error",
     ...(input.signal ? { signal: input.signal } : {}),
   });
-  const tokens = tokenResponse.ok ? tokenSchema.safeParse(await tokenResponse.json()) : undefined;
-  if (!tokens?.success) return fail(`code exchange failed (${tokenResponse.status})`);
+  const tokens = tokenResponse.ok
+    ? tokenSchema.safeParse(await tokenResponse.json())
+    : undefined;
+  if (!tokens?.success)
+    return fail(`code exchange failed (${tokenResponse.status})`);
   exercise.codeExchanged = true;
-  if (tokens.data.expires_in !== undefined) exercise.expiresIn = tokens.data.expires_in;
+  if (tokens.data.expires_in !== undefined)
+    exercise.expiresIn = tokens.data.expires_in;
   finding(
     "required.expires-in",
     "required",
@@ -457,13 +542,17 @@ export async function assessConnectProviderConformance(input: {
       refresh_token: tokens.data.refresh_token,
       client_id: clientId,
     });
-    if (clientSecret && authMethod === "client_secret_post") refresh.set("client_secret", clientSecret);
+    if (clientSecret && authMethod === "client_secret_post")
+      refresh.set("client_secret", clientSecret);
     const refreshed = await post(merged.token_endpoint, refresh, false);
-    const body = refreshed.ok ? tokenSchema.safeParse(await refreshed.json()) : undefined;
+    const body = refreshed.ok
+      ? tokenSchema.safeParse(await refreshed.json())
+      : undefined;
     exercise.refreshGrantAccepted = body?.success === true;
     if (body?.success)
       exercise.refreshTokenRotated =
-        body.data.refresh_token !== undefined && body.data.refresh_token !== tokens.data.refresh_token;
+        body.data.refresh_token !== undefined &&
+        body.data.refresh_token !== tokens.data.refresh_token;
     finding(
       "recommended.refresh-tokens",
       "recommended",
@@ -485,7 +574,9 @@ export async function assessConnectProviderConformance(input: {
     let honored: boolean | undefined;
     try {
       const aud = decodeJwt(tokens.data.access_token).aud;
-      honored = (Array.isArray(aud) ? aud : aud ? [aud] : []).includes(input.exercise.resource);
+      honored = (Array.isArray(aud) ? aud : aud ? [aud] : []).includes(
+        input.exercise.resource,
+      );
     } catch {
       honored = undefined;
     }
@@ -500,6 +591,12 @@ export async function assessConnectProviderConformance(input: {
           ? "the access token audience equals the requested resource"
           : "the access token audience does not include the requested resource",
     );
-  } else finding("optional.resource-indicators", "optional", "unknown", "no resource requested");
+  } else
+    finding(
+      "optional.resource-indicators",
+      "optional",
+      "unknown",
+      "no resource requested",
+    );
   return report;
 }

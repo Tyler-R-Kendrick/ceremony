@@ -518,7 +518,9 @@ export const vercelInvokeInputSchemas = {
     service: z.string().max(200).optional(),
     sort: z.enum(["name", "createdAt", "updatedAt"]).optional(),
   }),
-  "connect.connectors.get": z.strictObject({ connector: nativeIdentifierSchema }),
+  "connect.connectors.get": z.strictObject({
+    connector: nativeIdentifierSchema,
+  }),
   "connect.connectors.create": z.strictObject({
     body: createConnectorBodySchema,
   }),
@@ -654,7 +656,9 @@ export const vercelSettingsSchema = z
         destinations: z.array(triggerDestinationInputSchema).max(3),
         /** Expected `aud` of forwarded OIDC tokens, e.g. https://vercel.com/<team-slug>. */
         audience: z.string().url().max(2048).optional(),
-        payloadClassification: z.enum(["public", "personal", "secret"]).optional(),
+        payloadClassification: z
+          .enum(["public", "personal", "secret"])
+          .optional(),
       })
       .optional(),
     revocation: z.enum(["unsupported", "sdk-observed-endpoint"]).optional(),
@@ -773,7 +777,9 @@ export function upstreamFailure(
         detail: "vercel.environment.not-enabled",
       });
     case "rate_limited":
-      return new ConnectorError("rate-limited", { detail: "vercel.rate-limited" });
+      return new ConnectorError("rate-limited", {
+        detail: "vercel.rate-limited",
+      });
     case "not_found":
       return new ConnectorError("not-found", { detail: "vercel.not-found" });
     case "forbidden":
@@ -798,7 +804,9 @@ export function upstreamFailure(
   if (status === 410)
     return new ConnectorError("expired", { detail: "vercel.gone" });
   if (status === 429)
-    return new ConnectorError("rate-limited", { detail: "vercel.rate-limited" });
+    return new ConnectorError("rate-limited", {
+      detail: "vercel.rate-limited",
+    });
   if (status >= 500)
     return new ConnectorError("upstream-unavailable", {
       detail: "vercel.unavailable",

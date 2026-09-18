@@ -172,7 +172,9 @@ export function requestedScopes(
   const approved = new Set(profile.scopes);
   for (const scope of requested)
     if (!approved.has(scope))
-      throw new ConnectorError("denied", { detail: "vercel.scopes.not-approved" });
+      throw new ConnectorError("denied", {
+        detail: "vercel.scopes.not-approved",
+      });
   return [...new Set(requested)];
 }
 
@@ -226,14 +228,18 @@ export function policyChecks(
     });
   if (intent.target) {
     if (!targetKinds.has(intent.target.kind))
-      throw new ConnectorError("denied", { detail: "vercel.target.unsupported" });
+      throw new ConnectorError("denied", {
+        detail: "vercel.target.unsupported",
+      });
     if (
       intent.target.kind === "provider-installation" &&
       profile.installation.mode === "installation-aware" &&
       profile.installation.installationId !== undefined &&
       profile.installation.installationId !== intent.target.id
     )
-      throw new ConnectorError("denied", { detail: "vercel.target.not-permitted" });
+      throw new ConnectorError("denied", {
+        detail: "vercel.target.not-permitted",
+      });
   }
 }
 
@@ -260,7 +266,11 @@ function tokenBody(
   };
 }
 
-type Plan = { profile: VercelProfile; subject: ConnectSubject; scopes: string[] };
+type Plan = {
+  profile: VercelProfile;
+  subject: ConnectSubject;
+  scopes: string[];
+};
 
 /**
  * POST /v1/connect/token/{connector} with the workload credential. The token
@@ -273,7 +283,12 @@ export async function acquireToken(
   plan: Plan,
   options: AuthorizationOptions,
 ): Promise<ConnectTokenResponse> {
-  const credential = await resolveCredential(ctx, "workload", settings, options);
+  const credential = await resolveCredential(
+    ctx,
+    "workload",
+    settings,
+    options,
+  );
   const teamId = await configuredTeamId(ctx);
   const body = tokenBody(plan.profile, plan.subject, plan.scopes);
   const begun = await ctx.environment.effects.begin({
@@ -443,8 +458,7 @@ export function verificationFor(
 }
 
 type Judgement =
-  | { state: "ok" }
-  | { state: "human-required" | "denied"; code: string };
+  { state: "ok" } | { state: "human-required" | "denied"; code: string };
 
 /**
  * An exact-account intent needs an identity that matches; a previously
@@ -495,7 +509,9 @@ function stateFor(
       ...(response.installationId !== undefined
         ? { installationId: response.installationId }
         : {}),
-      ...(response.tenantId !== undefined ? { tenantId: response.tenantId } : {}),
+      ...(response.tenantId !== undefined
+        ? { tenantId: response.tenantId }
+        : {}),
       ...(response.externalSubject !== undefined
         ? { externalSubject: response.externalSubject }
         : {}),
@@ -544,12 +560,14 @@ async function storeProviderToken(
 }
 
 /** Maps a token-endpoint failure onto a completion state; anything else propagates. */
-function completionFromFailure(
-  error: unknown,
-): CompletionResult | undefined {
+function completionFromFailure(error: unknown): CompletionResult | undefined {
   if (!(error instanceof ConnectorError)) return undefined;
   if (error.detail === "vercel.user-authorization-required")
-    return { state: "pending", claims: [], code: "vercel.authorization.pending" };
+    return {
+      state: "pending",
+      claims: [],
+      code: "vercel.authorization.pending",
+    };
   if (error.detail === "vercel.installation-required")
     return {
       state: "human-required",
@@ -576,10 +594,7 @@ function completionFromFailure(
 // authorize / reconnect
 // ---------------------------------------------------------------------------
 
-function trustedAuthorizationUrl(
-  ctx: AdapterCallContext,
-  value: string,
-): URL {
+function trustedAuthorizationUrl(ctx: AdapterCallContext, value: string): URL {
   if (!URL.canParse(value))
     throw new ConnectorError("upstream-rejected", {
       detail: "vercel.authorization.url-untrusted",
@@ -656,7 +671,12 @@ export async function authorizeStart(
       "vercel.connect.reconnect",
     );
 
-  const credential = await resolveCredential(ctx, "workload", settings, options);
+  const credential = await resolveCredential(
+    ctx,
+    "workload",
+    settings,
+    options,
+  );
   const teamId = await configuredTeamId(ctx);
   const state = Buffer.from(ctx.environment.random.bytes(32)).toString(
     "base64url",
@@ -790,7 +810,10 @@ function checkReturn(
   url: URL,
   expectedState: string | undefined,
 ): "ok" | "untrusted" | "state-mismatch" | "denied" {
-  if (url.origin !== ctx.environment.origin || url.pathname !== settings.returnPath)
+  if (
+    url.origin !== ctx.environment.origin ||
+    url.pathname !== settings.returnPath
+  )
     return "untrusted";
   const states = url.searchParams.getAll("state");
   if (
@@ -820,7 +843,9 @@ async function settle(
   }
 }
 
-function parseTarget(value: string | undefined): EvidenceTargetInput | undefined {
+function parseTarget(
+  value: string | undefined,
+): EvidenceTargetInput | undefined {
   if (!value) return undefined;
   try {
     const parsed = evidenceTargetSchema.safeParse(JSON.parse(value));
@@ -838,7 +863,11 @@ export async function completeAuthorization(
   const connection = requireConnection(ctx);
   const settings = vercelSettings(ctx.binding);
   if (input.kind === "input")
-    return { state: "human-required", claims: [], code: "vercel.input.unsupported" };
+    return {
+      state: "human-required",
+      claims: [],
+      code: "vercel.input.unsupported",
+    };
   const handoff = await locateHandoff(ctx, input);
   if (!handoff)
     return { state: "pending", claims: [], code: "vercel.handoff.unresolved" };
@@ -850,7 +879,11 @@ export async function completeAuthorization(
   )
     return { state: "denied", claims: [], code: "vercel.handoff.foreign" };
   if (handoff.generation !== ctx.generation)
-    return { state: "denied", claims: [], code: "vercel.handoff.stale-generation" };
+    return {
+      state: "denied",
+      claims: [],
+      code: "vercel.handoff.stale-generation",
+    };
   const now = ctx.environment.now();
   const issuedExpiry = Number(handoff.private["expiresAt"]);
   // Expiry is decided before anything else a stale record could look like:
@@ -861,7 +894,11 @@ export async function completeAuthorization(
     (Number.isFinite(issuedExpiry) && issuedExpiry <= now)
   ) {
     await settle(ctx, handoff, "expired");
-    return { state: "expired", claims: [], code: "vercel.authorization.expired" };
+    return {
+      state: "expired",
+      claims: [],
+      code: "vercel.authorization.expired",
+    };
   }
   if (handoff.state !== "issued" && handoff.state !== "waiting")
     return {
@@ -882,16 +919,32 @@ export async function completeAuthorization(
     ...(intentTarget ? { target: intentTarget } : {}),
   });
   if (input.kind === "redirect") {
-    const verdict = checkReturn(ctx, settings, input.url, handoff.private["state"]);
+    const verdict = checkReturn(
+      ctx,
+      settings,
+      input.url,
+      handoff.private["state"],
+    );
     if (verdict === "denied") {
       await settle(ctx, handoff, "denied");
-      return { state: "denied", claims: [], code: "vercel.authorization.denied" };
+      return {
+        state: "denied",
+        claims: [],
+        code: "vercel.authorization.denied",
+      };
     }
     if (verdict !== "ok")
       return { state: "denied", claims: [], code: `vercel.return.${verdict}` };
   }
-  if (input.kind === "event" && !input.event.authority.startsWith("vercel-connect"))
-    return { state: "denied", claims: [], code: "vercel.event.authority-mismatch" };
+  if (
+    input.kind === "event" &&
+    !input.event.authority.startsWith("vercel-connect")
+  )
+    return {
+      state: "denied",
+      claims: [],
+      code: "vercel.event.authority-mismatch",
+    };
 
   const scopes = (handoff.private["scopes"] ?? "").split(" ").filter(Boolean);
   let response: ConnectTokenResponse;
@@ -923,7 +976,11 @@ export async function completeAuthorization(
   });
   if (judgement.state !== "ok") {
     if (judgement.state === "denied") await settle(ctx, handoff, "denied");
-    return { state: judgement.state, claims: verification.claims, code: judgement.code };
+    return {
+      state: judgement.state,
+      claims: verification.claims,
+      code: judgement.code,
+    };
   }
   if (!(await settle(ctx, handoff, "completed")))
     return { state: "denied", claims: [], code: "vercel.handoff.consumed" };
@@ -969,7 +1026,9 @@ function verificationFromState(
       ...(previous.installationId !== undefined
         ? { installationId: previous.installationId }
         : {}),
-      ...(previous.tenantId !== undefined ? { tenantId: previous.tenantId } : {}),
+      ...(previous.tenantId !== undefined
+        ? { tenantId: previous.tenantId }
+        : {}),
       ...(previous.externalSubject !== undefined
         ? { externalSubject: previous.externalSubject }
         : {}),
@@ -986,15 +1045,26 @@ function revalidate(
   previous: VercelConnectionState,
   ownerKind: OwnerKind,
 ): { profile: VercelProfile; profileId: string } | CompletionResult {
-  const { id: profileId, profile } = vercelProfile(settings, previous.profileId);
+  const { id: profileId, profile } = vercelProfile(
+    settings,
+    previous.profileId,
+  );
   policyChecks(ctx, settings, profile, { ownerKind });
   if (
     previous.connectorUid !== profile.connector &&
     previous.connectorId !== profile.connector
   )
-    return { state: "human-required", claims: [], code: "vercel.connector.changed" };
+    return {
+      state: "human-required",
+      claims: [],
+      code: "vercel.connector.changed",
+    };
   if (!subset(profile.scopes, previous.scopes))
-    return { state: "human-required", claims: [], code: "vercel.scopes.escalation" };
+    return {
+      state: "human-required",
+      claims: [],
+      code: "vercel.scopes.escalation",
+    };
   return { profile, profileId };
 }
 
@@ -1013,7 +1083,10 @@ export async function verifyConnection(
   const previous = connectionState(ctx);
   const now = ctx.environment.now();
   if (!previous) {
-    const { id: profileId, profile } = vercelProfile(settings, ctx.binding.profileId);
+    const { id: profileId, profile } = vercelProfile(
+      settings,
+      ctx.binding.profileId,
+    );
     policyChecks(ctx, settings, profile, { ownerKind: connection.ownerKind });
     const scopes = [...profile.scopes];
     let response: ConnectTokenResponse;
@@ -1028,10 +1101,20 @@ export async function verifyConnection(
       const mapped = completionFromFailure(error);
       if (!mapped) throw error;
       return mapped.state === "pending"
-        ? { state: "human-required", claims: [], code: "vercel.consent-required" }
+        ? {
+            state: "human-required",
+            claims: [],
+            code: "vercel.consent-required",
+          }
         : mapped;
     }
-    const verification = verificationFor(ctx, profile, response, scopes, options.verifierVersion);
+    const verification = verificationFor(
+      ctx,
+      profile,
+      response,
+      scopes,
+      options.verifierVersion,
+    );
     const credentialRef = await storeProviderToken(
       ctx,
       connection.ownerKind,
@@ -1044,7 +1127,14 @@ export async function verifyConnection(
       credentialRef,
       externalIds: externalIds(response),
       target: verification.target,
-      adapterState: stateFor(profileId, profile, response, scopes, verification, undefined),
+      adapterState: stateFor(
+        profileId,
+        profile,
+        response,
+        scopes,
+        verification,
+        undefined,
+      ),
     };
   }
   const checked = revalidate(ctx, settings, previous, connection.ownerKind);
@@ -1057,7 +1147,12 @@ export async function verifyConnection(
     ? await ctx.environment.credentials.describe(scope, ref)
     : undefined;
   if (ref && described && (described.expiresAt ?? Infinity) > now + buffer) {
-    const verification = verificationFromState(ctx, profile, previous, options.verifierVersion);
+    const verification = verificationFromState(
+      ctx,
+      profile,
+      previous,
+      options.verifierVersion,
+    );
     return {
       state: "complete",
       claims: verification.claims,
@@ -1074,7 +1169,13 @@ export async function verifyConnection(
       { profile, subject: subjectFor(ctx, profile), scopes: previous.scopes },
       options,
     );
-    const verified = verificationFor(ctx, profile, acquired, previous.scopes, options.verifierVersion);
+    const verified = verificationFor(
+      ctx,
+      profile,
+      acquired,
+      previous.scopes,
+      options.verifierVersion,
+    );
     const judgement = judgeIdentity({
       intentTarget: previous.intentTarget,
       previous,
@@ -1108,14 +1209,31 @@ export async function verifyConnection(
         credentialRef,
         externalIds: externalIds(response!),
         target: verification!.target,
-        adapterState: stateFor(profileId, profile, response!, previous.scopes, verification!, previous.intentTarget),
+        adapterState: stateFor(
+          profileId,
+          profile,
+          response!,
+          previous.scopes,
+          verification!,
+          previous.intentTarget,
+        ),
       };
     }
     if (!response || !verification) {
       // Another worker refreshed first; the committed credential is current
       // and this connection's recorded verification still describes it.
-      const derived = verificationFromState(ctx, profile, previous, options.verifierVersion);
-      return { state: "complete", claims: derived.claims, credentialRef: stored.ref, target: derived.target };
+      const derived = verificationFromState(
+        ctx,
+        profile,
+        previous,
+        options.verifierVersion,
+      );
+      return {
+        state: "complete",
+        claims: derived.claims,
+        credentialRef: stored.ref,
+        target: derived.target,
+      };
     }
     return {
       state: "complete",
@@ -1123,13 +1241,31 @@ export async function verifyConnection(
       credentialRef: stored.ref,
       externalIds: externalIds(response),
       target: verification.target,
-      adapterState: stateFor(profileId, profile, response, previous.scopes, verification, previous.intentTarget),
+      adapterState: stateFor(
+        profileId,
+        profile,
+        response,
+        previous.scopes,
+        verification,
+        previous.intentTarget,
+      ),
     };
   } catch (error) {
     if (error instanceof JudgementError)
-      return { state: error.judgement.state, claims: verification?.claims ?? [], code: error.judgement.code };
+      return {
+        state: error.judgement.state,
+        claims: verification?.claims ?? [],
+        code: error.judgement.code,
+      };
     const mapped = completionFromFailure(error);
-    if (mapped) return mapped.state === "pending" ? { state: "human-required", claims: [], code: "vercel.consent-required" } : mapped;
+    if (mapped)
+      return mapped.state === "pending"
+        ? {
+            state: "human-required",
+            claims: [],
+            code: "vercel.consent-required",
+          }
+        : mapped;
     throw error;
   }
 }
@@ -1138,14 +1274,21 @@ export async function verifyConnection(
 // disconnect / revoke
 // ---------------------------------------------------------------------------
 
-function connectorFor(ctx: AdapterCallContext, settings: VercelSettings): string {
+function connectorFor(
+  ctx: AdapterCallContext,
+  settings: VercelSettings,
+): string {
   return (
     connectionState(ctx)?.connectorUid ??
     vercelProfile(settings, ctx.binding.profileId).profile.connector
   );
 }
 
-async function revokeLocal(ctx: AdapterCallContext, connection: ConnectionRecord, reason: string) {
+async function revokeLocal(
+  ctx: AdapterCallContext,
+  connection: ConnectionRecord,
+  reason: string,
+) {
   await ctx.environment.handoffs.cancelAll(connection.connectionRef, reason);
   if (connection.credentialRef)
     await ctx.environment.credentials.revoke(
@@ -1164,11 +1307,19 @@ export async function disconnectConnection(
   const connector = connectorFor(ctx, settings);
   if (scope === "local") {
     await revokeLocal(ctx, connection, "vercel.disconnect.local");
-    return { local: "applied", broker: "not-attempted", upstream: "not-attempted" };
+    return {
+      local: "applied",
+      broker: "not-attempted",
+      upstream: "not-attempted",
+    };
   }
   const shared = (projects: string[]) =>
     projects.length
-      ? { sharedWith: projects.map((projectId) => `vercel-project:${projectId}`) }
+      ? {
+          sharedWith: projects.map(
+            (projectId) => `vercel-project:${projectId}`,
+          ),
+        }
       : {};
   if (scope === "broker") {
     const outcome = await unlinkOwnProject(ctx, connector, options);
@@ -1203,9 +1354,17 @@ export async function revokeGrant(
     return { local: "applied", broker: "unsupported", upstream: "unsupported" };
   }
   const previous = connectionState(ctx);
-  const { profile } = vercelProfile(settings, previous?.profileId ?? ctx.binding.profileId);
+  const { profile } = vercelProfile(
+    settings,
+    previous?.profileId ?? ctx.binding.profileId,
+  );
   policyChecks(ctx, settings, profile, { ownerKind: connection.ownerKind });
-  const credential = await resolveCredential(ctx, "workload", settings, options);
+  const credential = await resolveCredential(
+    ctx,
+    "workload",
+    settings,
+    options,
+  );
   const teamId = await configuredTeamId(ctx);
   const body = {
     subject: subjectFor(ctx, profile),
@@ -1219,7 +1378,11 @@ export async function revokeGrant(
     connectionRef: connection.connectionRef,
     bindingRef: ctx.binding.bindingRef,
     operation: "vercel.connect.tokens.revoke",
-    digest: effectDigest({ connector: profile.connector, body, generation: ctx.generation }),
+    digest: effectDigest({
+      connector: profile.connector,
+      body,
+      generation: ctx.generation,
+    }),
   });
   if (begun.prior?.status === "applied") {
     await revokeLocal(ctx, connection, "vercel.revoke");
@@ -1234,14 +1397,24 @@ export async function revokeGrant(
       body,
       schema: z.unknown(),
     });
-    await ctx.environment.effects.complete(begun.effectRef, { status: "applied", at: ctx.environment.now() });
+    await ctx.environment.effects.complete(begun.effectRef, {
+      status: "applied",
+      at: ctx.environment.now(),
+    });
   } catch (error) {
-    await ctx.environment.effects.complete(begun.effectRef, { status: "indeterminate", at: ctx.environment.now() });
+    await ctx.environment.effects.complete(begun.effectRef, {
+      status: "indeterminate",
+      at: ctx.environment.now(),
+    });
     if (error instanceof ConnectorError && error.code === "not-found") {
       await revokeLocal(ctx, connection, "vercel.revoke");
       return { local: "applied", broker: "applied", upstream: "indeterminate" };
     }
-    return { local: "not-attempted", broker: "indeterminate", upstream: "indeterminate" };
+    return {
+      local: "not-attempted",
+      broker: "indeterminate",
+      upstream: "indeterminate",
+    };
   }
   await revokeLocal(ctx, connection, "vercel.revoke");
   // Vercel calls the provider's revocation endpoint only when the provider
@@ -1255,14 +1428,20 @@ export async function revokeGrant(
 
 const providerCallInputSchema = z.strictObject({
   path: z
-    .record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/), z.string().min(1).max(512))
+    .record(
+      z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),
+      z.string().min(1).max(512),
+    )
     .refine((value) => Object.keys(value).length <= 16)
     .optional(),
   query: z
     .record(z.string().min(1).max(64), z.string().max(1024))
     .refine((value) => Object.keys(value).length <= 32)
     .optional(),
-  body: z.unknown().refine((value) => value === undefined || measureJsonValue(value).ok).optional(),
+  body: z
+    .unknown()
+    .refine((value) => value === undefined || measureJsonValue(value).ok)
+    .optional(),
 });
 
 const OUTPUT_TEXT_LIMIT = 65_536;
@@ -1273,46 +1452,74 @@ export async function invokeProviderOperation(
   bound: BoundOperation,
   options: AuthorizationOptions,
 ): Promise<InvokeResult> {
-  const base = { outputClassification: bound.outputClassification, effect: bound.effect };
+  const base = {
+    outputClassification: bound.outputClassification,
+    effect: bound.effect,
+  };
   const connection = requireConnection(ctx);
   const settings = vercelSettings(ctx.binding);
   const previous = connectionState(ctx);
   if (!previous || !connection.credentialRef)
-    return { state: "human-required", code: "vercel.authorization.required", ...base };
+    return {
+      state: "human-required",
+      code: "vercel.authorization.required",
+      ...base,
+    };
   const checked = revalidate(ctx, settings, previous, connection.ownerKind);
   if ("state" in checked)
-    return { state: "human-required", code: checked.code ?? "vercel.policy.changed", ...base };
+    return {
+      state: "human-required",
+      code: checked.code ?? "vercel.policy.changed",
+      ...base,
+    };
   const { profile } = checked;
   if (bound.transport.kind !== "http")
-    throw new ConnectorError("unsupported", { detail: "vercel.operation.transport-unsupported" });
+    throw new ConnectorError("unsupported", {
+      detail: "vercel.operation.transport-unsupported",
+    });
   const destination = destinationFor(ctx.binding, bound);
   if (
     destination.id === vercelDestinationIds.api ||
     destination.id === vercelDestinationIds.oidc
   )
-    throw new ConnectorError("invalid-request", { detail: "vercel.operation.destination-reserved" });
+    throw new ConnectorError("invalid-request", {
+      detail: "vercel.operation.destination-reserved",
+    });
   const parsed = providerCallInputSchema.safeParse(request.input ?? {});
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "vercel.input.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "vercel.input.invalid",
+    });
   const input = parsed.data;
   for (const name of bound.targetParameters) {
     const value = input.path?.[name] ?? input.query?.[name];
     if (value === undefined)
       throw new ConnectorError("denied", { detail: "vercel.target.missing" });
-    if (!ctx.binding.permittedTargets.some((target) => target.kind === name && target.id === value))
-      throw new ConnectorError("denied", { detail: "vercel.target.not-permitted" });
-  }
-  const url = operationUrl(destination, bound.transport.pathTemplate, (name) => {
-    const value = input.path?.[name];
-    if (value === undefined)
-      throw new ConnectorError("invalid-request", {
-        detail: "vercel.path.parameter-missing",
+    if (
+      !ctx.binding.permittedTargets.some(
+        (target) => target.kind === name && target.id === value,
+      )
+    )
+      throw new ConnectorError("denied", {
+        detail: "vercel.target.not-permitted",
       });
-    return value;
-  });
+  }
+  const url = operationUrl(
+    destination,
+    bound.transport.pathTemplate,
+    (name) => {
+      const value = input.path?.[name];
+      if (value === undefined)
+        throw new ConnectorError("invalid-request", {
+          detail: "vercel.path.parameter-missing",
+        });
+      return value;
+    },
+  );
   for (const [name, value] of Object.entries(input.query ?? {}))
     url.searchParams.set(name, value);
-  const body = input.body === undefined ? undefined : JSON.stringify(input.body);
+  const body =
+    input.body === undefined ? undefined : JSON.stringify(input.body);
   const scope = providerTokenScope(ctx, connection.ownerKind);
   const ref = connection.credentialRef;
   const buffer = profile.validityBufferMs ?? DEFAULT_VALIDITY_BUFFER_MS;
@@ -1323,27 +1530,51 @@ export async function invokeProviderOperation(
       { profile, subject: subjectFor(ctx, profile), scopes: previous.scopes },
       options,
     );
-    const verified = verificationFor(ctx, profile, acquired, previous.scopes, options.verifierVersion);
-    const judgement = judgeIdentity({ intentTarget: previous.intentTarget, previous, verification: verified, accountSwitch: false });
+    const verified = verificationFor(
+      ctx,
+      profile,
+      acquired,
+      previous.scopes,
+      options.verifierVersion,
+    );
+    const judgement = judgeIdentity({
+      intentTarget: previous.intentTarget,
+      previous,
+      verification: verified,
+      accountSwitch: false,
+    });
     if (judgement.state !== "ok") throw new JudgementError(judgement);
-    return { material: { token: acquired.token, tokenId: acquired.tokenId }, expiresAt: acquired.expiresAt };
+    return {
+      material: { token: acquired.token, tokenId: acquired.tokenId },
+      expiresAt: acquired.expiresAt,
+    };
   };
   const ensureFresh = async () => {
     const described = await ctx.environment.credentials.describe(scope, ref);
-    if (!described) throw new ConnectorError("human-required", { detail: "vercel.authorization.required" });
+    if (!described)
+      throw new ConnectorError("human-required", {
+        detail: "vercel.authorization.required",
+      });
     if ((described.expiresAt ?? Infinity) <= ctx.environment.now() + buffer)
       await ctx.environment.credentials.refresh(scope, ref, reacquire);
   };
   const send = () =>
     ctx.environment.credentials.use(scope, ref, async (material) => {
-      const headers = new Headers({ accept: "application/json", authorization: `Bearer ${material["token"] ?? ""}` });
+      const headers = new Headers({
+        accept: "application/json",
+        authorization: `Bearer ${material["token"] ?? ""}`,
+      });
       if (body !== undefined) headers.set("content-type", "application/json");
       return ctx.environment.fetch(url, {
-        method: bound.transport.kind === "http" ? bound.transport.method : "GET",
+        method:
+          bound.transport.kind === "http" ? bound.transport.method : "GET",
         headers,
         ...(body === undefined ? {} : { body }),
         redirect: "error",
-        signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(VERCEL_REQUEST_TIMEOUT_MS)]),
+        signal: AbortSignal.any([
+          ctx.signal,
+          AbortSignal.timeout(VERCEL_REQUEST_TIMEOUT_MS),
+        ]),
       });
     });
 
@@ -1354,22 +1585,52 @@ export async function invokeProviderOperation(
       connectionRef: connection.connectionRef,
       bindingRef: ctx.binding.bindingRef,
       operation: request.operationRef,
-      digest: effectDigest({ operationRef: request.operationRef, url: url.href, body, commandId: request.commandId }),
+      digest: effectDigest({
+        operationRef: request.operationRef,
+        url: url.href,
+        body,
+        commandId: request.commandId,
+      }),
       commandId: request.commandId,
       ...(request.idempotencyKey && bound.replay === "upstream-idempotency-key"
-        ? { idempotency: { key: request.idempotencyKey, scope: destination.origin } }
+        ? {
+            idempotency: {
+              key: request.idempotencyKey,
+              scope: destination.origin,
+            },
+          }
         : {}),
     });
     effectRef = begun.effectRef;
     if (begun.prior) {
-      if (begun.prior.status === "applied" || begun.prior.status === "reconciled")
-        return { state: "complete", code: "vercel.effect.already-applied", effectRef, ...base };
-      return { state: "indeterminate", code: "vercel.effect.indeterminate", effectRef, ...base };
+      if (
+        begun.prior.status === "applied" ||
+        begun.prior.status === "reconciled"
+      )
+        return {
+          state: "complete",
+          code: "vercel.effect.already-applied",
+          effectRef,
+          ...base,
+        };
+      return {
+        state: "indeterminate",
+        code: "vercel.effect.indeterminate",
+        effectRef,
+        ...base,
+      };
     }
   }
-  const outcome = async (status: "applied" | "failed" | "indeterminate", code?: string) => {
+  const outcome = async (
+    status: "applied" | "failed" | "indeterminate",
+    code?: string,
+  ) => {
     if (effectRef)
-      await ctx.environment.effects.complete(effectRef, { status, at: ctx.environment.now(), ...(code ? { code } : {}) });
+      await ctx.environment.effects.complete(effectRef, {
+        status,
+        at: ctx.environment.now(),
+        ...(code ? { code } : {}),
+      });
   };
   try {
     await ensureFresh();
@@ -1384,7 +1645,10 @@ export async function invokeProviderOperation(
       await response.body?.cancel();
       await outcome("failed", `status-${response.status}`);
       return {
-        state: response.status === 401 || response.status === 403 ? "denied" : "failed",
+        state:
+          response.status === 401 || response.status === 403
+            ? "denied"
+            : "failed",
         code: `vercel.provider.status-${response.status}`,
         ...(effectRef ? { effectRef } : {}),
         ...base,
@@ -1397,7 +1661,9 @@ export async function invokeProviderOperation(
         try {
           const json: unknown = JSON.parse(text);
           if (!measureJsonValue(json).ok)
-            throw new ConnectorError("upstream-rejected", { detail: "vercel.provider.output-too-large" });
+            throw new ConnectorError("upstream-rejected", {
+              detail: "vercel.provider.output-too-large",
+            });
           output = json;
         } catch (error) {
           if (error instanceof ConnectorError) throw error;
@@ -1406,34 +1672,64 @@ export async function invokeProviderOperation(
       } else output = text.slice(0, OUTPUT_TEXT_LIMIT);
     }
     await outcome("applied");
-    return { state: "complete", ...(output !== undefined ? { output } : {}), ...(effectRef ? { effectRef } : {}), ...base };
+    return {
+      state: "complete",
+      ...(output !== undefined ? { output } : {}),
+      ...(effectRef ? { effectRef } : {}),
+      ...base,
+    };
   } catch (error) {
     if (error instanceof JudgementError) {
       await outcome("failed", error.judgement.code);
-      return { state: error.judgement.state, code: error.judgement.code, ...(effectRef ? { effectRef } : {}), ...base };
+      return {
+        state: error.judgement.state,
+        code: error.judgement.code,
+        ...(effectRef ? { effectRef } : {}),
+        ...base,
+      };
     }
     const mapped = completionFromFailure(error);
     if (mapped) {
       await outcome("failed", mapped.code);
-      return { state: "human-required", code: mapped.code ?? "vercel.authorization.required", ...(effectRef ? { effectRef } : {}), ...base };
+      return {
+        state: "human-required",
+        code: mapped.code ?? "vercel.authorization.required",
+        ...(effectRef ? { effectRef } : {}),
+        ...base,
+      };
     }
     await outcome(
-      !(error instanceof ConnectorError) || ["upstream-unavailable", "cancelled"].includes(error.code)
+      !(error instanceof ConnectorError) ||
+        ["upstream-unavailable", "cancelled"].includes(error.code)
         ? "indeterminate"
         : "failed",
     );
     if (
       effectRef &&
-      (!(error instanceof ConnectorError) || ["upstream-unavailable", "cancelled"].includes(error.code))
+      (!(error instanceof ConnectorError) ||
+        ["upstream-unavailable", "cancelled"].includes(error.code))
     )
-      return { state: "indeterminate", code: "vercel.effect.indeterminate", effectRef, ...base };
+      return {
+        state: "indeterminate",
+        code: "vercel.effect.indeterminate",
+        effectRef,
+        ...base,
+      };
     throw error;
   }
 }
 
 /** Canonical JSON of what a token request would carry; exposed for tests and audits. */
-export function tokenRequestDigest(ctx: AdapterCallContext, profile: VercelProfile, scopes: readonly string[]): string {
+export function tokenRequestDigest(
+  ctx: AdapterCallContext,
+  profile: VercelProfile,
+  scopes: readonly string[],
+): string {
   return createHash("sha256")
-    .update(canonicalConnectorJson(tokenBody(profile, subjectFor(ctx, profile), scopes)))
+    .update(
+      canonicalConnectorJson(
+        tokenBody(profile, subjectFor(ctx, profile), scopes),
+      ),
+    )
     .digest("hex");
 }

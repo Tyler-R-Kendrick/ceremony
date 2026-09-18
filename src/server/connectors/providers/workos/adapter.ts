@@ -36,7 +36,6 @@ import type { WorkOsPrincipal, WorkOsPrincipalPort } from "./ports.js";
 import {
   WORKOS_ADAPTER_ID,
   WORKOS_ADAPTER_VERSION,
-  WORKOS_API_ORIGIN,
   WORKOS_CREDENTIALS_ACTION,
   WORKOS_DEFAULT_RETURN_PATH,
   WORKOS_DESTINATION_ID,

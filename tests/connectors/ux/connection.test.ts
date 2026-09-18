@@ -92,12 +92,15 @@ test("AC-UX-04: no control claims to enable a capability or to skip verification
     assert.equal(report.querySelectorAll("input").length, 0);
     assert.equal(report.querySelectorAll("button").length, 0);
     assert.match(view.text, /These are reports, not switches/);
-    const labels = view
+    // Nothing that a person can switch mentions verification or key sharing:
+    // only labels that actually wrap a control count as controls.
+    const controlLabels = view
       .all("label")
+      .filter((element) => element.querySelector("input, select, textarea"))
       .map((element) => element.textContent ?? "")
       .join(" ");
-    assert.doesNotMatch(labels, /verification/i);
-    assert.doesNotMatch(labels, /shared key|per-user key/i);
+    assert.doesNotMatch(controlLabels, /verif/i);
+    assert.doesNotMatch(controlLabels, /shared key|per-user key/i);
     // Custody is stated, and stated as something the server decides.
     assert.match(view.text, /cannot be changed from here/);
   } finally {

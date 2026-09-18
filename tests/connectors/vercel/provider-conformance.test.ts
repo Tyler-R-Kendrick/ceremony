@@ -68,16 +68,17 @@ test("a service that publishes no discovery document fails the required tier", a
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(
-    () => new Promise<void>((resolve) => server.close(() => resolve())),
-  );
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const seen: string[] = [];
   const report = await assessConnectProviderConformance({
     serverUrl: origin,
     fetch: loopbackOnlyFetch(seen),
   });
-  assert.equal(status(report.findings, "required.discovery-documents"), "not-met");
+  assert.equal(
+    status(report.findings, "required.discovery-documents"),
+    "not-met",
+  );
   assert.equal(report.issuer, undefined);
   assert.deepEqual(report.subjectTypes, []);
   assert.equal(report.findings.length, 1, "nothing else can be assessed");
@@ -141,7 +142,11 @@ test("Ceremony's OIDC fixture serves discovery, PKCE and a code exchange Connect
   assert.deepEqual(report.subjectTypes, ["user"]);
   assert.equal(status(report.findings, "recommended.pkce-s256"), "met");
 
-  assert.equal(report.exercise?.codeExchanged, true, "code + PKCE exchange works");
+  assert.equal(
+    report.exercise?.codeExchanged,
+    true,
+    "code + PKCE exchange works",
+  );
   assert.equal(status(report.findings, "required.expires-in"), "met");
   assert.equal(report.exercise?.refreshTokenIssued, true);
   assert.equal(
@@ -149,7 +154,10 @@ test("Ceremony's OIDC fixture serves discovery, PKCE and a code exchange Connect
     "not-met",
     "a refresh token was issued but the refresh grant is rejected",
   );
-  assert.match(detail(report.findings, "recommended.refresh-tokens"), /rejected/);
+  assert.match(
+    detail(report.findings, "recommended.refresh-tokens"),
+    /rejected/,
+  );
   assert.equal(
     status(report.findings, "recommended.client-registration"),
     "not-met",
@@ -213,7 +221,9 @@ test("the reference development issuer honours resource indicators, and the harn
         const proxied = new Request(`${origin}${request.url ?? "/"}`, {
           method: request.method,
           headers: Object.entries(request.headers).flatMap(([name, value]) =>
-            typeof value === "string" ? [[name, value] as [string, string]] : [],
+            typeof value === "string"
+              ? [[name, value] as [string, string]]
+              : [],
           ),
           ...(body.length ? { body } : {}),
         });
@@ -232,9 +242,7 @@ test("the reference development issuer honours resource indicators, and the harn
   });
   server.listen(port, "127.0.0.1");
   await once(server, "listening");
-  t.after(
-    () => new Promise<void>((resolve) => server.close(() => resolve())),
-  );
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
   const seen: string[] = [];
   const guarded = loopbackOnlyFetch(seen);

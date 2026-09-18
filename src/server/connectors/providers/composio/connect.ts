@@ -328,6 +328,16 @@ function claim(
   };
 }
 
+const dottedCode = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$/;
+
+/** A sanitized outcome code for a native status; never the raw status text. */
+export function statusCode(status: string): string {
+  const candidate = `composio.account.${status.toLowerCase().replaceAll("_", "-")}`;
+  return dottedCode.test(candidate)
+    ? candidate
+    : "composio.account.unrecognized";
+}
+
 const brokerLimitation =
   "Composio reports this account; the provider account behind it is not observed by Ceremony.";
 
@@ -383,7 +393,7 @@ export function completionFor(
     state,
     claims: [claim(call, account, "account-identity", [brokerLimitation])],
     externalIds,
-    code: `composio.account.${account.status.toLowerCase()}`,
+    code: statusCode(account.status),
     adapterState,
   };
 }
