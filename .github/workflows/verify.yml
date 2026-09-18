@@ -126,6 +126,28 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
+  connector-mutation:
+    # The connector guards: identifier rules and approved-path containment.
+    # Separate from the `mutation` matrix because those entries mutate a whole
+    # file with the base configuration, and these are narrow line ranges pinned
+    # to particular guards with their own measured threshold. Roughly two
+    # minutes: a hundred mutants over nine fast test files, no database, no
+    # network and no browser.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:connectors:mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-connector-guards
+          path: artifacts/connector-mutation/
   coverage:
     # `verify`'s largest stage is `test:coverage`, and the wrapper reports it as
     # counts plus the file a failure lived in — by design, because the retained
