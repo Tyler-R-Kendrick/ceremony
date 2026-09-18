@@ -23,7 +23,25 @@ const totals = files.reduce(
 // the feature, not drift: the imports it adds were already bundled, and the
 // only fat found while checking (an explainer paragraph, ten state hooks) is
 // gone. The ceiling moves rather than the requirement.
-const budget = { raw: 495000, gzip: 154000 };
+//
+// Raised a second time, and measured before it was raised, for the Add
+// Connection wizard and the directory it opens from. Each new module was built
+// into a chunk of its own to find out what it actually costs:
+//
+//   connect-catalog   8.51 kB raw / 2.73 kB gzip   the directory grid
+//   connection-plan  10.48 kB raw / 3.81 kB gzip   draft -> server -> plan
+//   catalog          12.45 kB raw / 4.01 kB gzip   static directory copy
+//   add-connection   22.92 kB raw / 6.75 kB gzip   the wizard itself
+//   ------------------------------------------------------------------
+//   total            54.36 kB raw / 17.30 kB gzip
+//
+// The measured build grew by 53,450 raw and 15,623 gzip, so those four modules
+// are the whole of it: nothing else got bigger and no dependency came along for
+// the ride. `connection-plan` reaches into `src/server/login-plan.ts` for types
+// only, which erase at build time, so no server code is shipped to a browser.
+// The ceiling below is the measured total plus about 2% of headroom — enough to
+// absorb a rename, not enough to hide another feature.
+const budget = { raw: 560000, gzip: 173000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(
