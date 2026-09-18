@@ -114,7 +114,13 @@ export type ConnectionView = ConnectionSummary & {
  */
 export const connectorViewerSchema = z.object({
   capabilities: z
-    .array(z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/))
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z][a-z0-9-]*$/),
+    )
     .max(32)
     .default([]),
   ownerKinds: z.array(ownerKindSchema).max(3).default(["user"]),
@@ -209,7 +215,9 @@ export type InvokeOutcome = z.infer<typeof invokeOutcomeSchema>;
 export const dynamicOptionsSchema = z.object({
   options: z.array(optionSchema).max(500),
 });
-const collectResponseSchema = z.object({ secretRef: z.string().min(8).max(200) });
+const collectResponseSchema = z.object({
+  secretRef: z.string().min(8).max(200),
+});
 
 export type ImportInput =
   | { kind: "upload"; mediaType: string; text: string }
@@ -258,7 +266,11 @@ export function isUnauthenticated(error: unknown): boolean {
 }
 
 const errorBodySchema = z.object({
-  error: z.string().min(1).max(120).regex(/^[^\p{Cc}]+$/u),
+  error: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[^\p{Cc}]+$/u),
   message: z.string().max(500).regex(noControl).optional(),
   issues: z.array(compatibilityIssueSchema).max(256).optional(),
 });
@@ -291,7 +303,10 @@ export interface ConnectorClient {
     signal?: AbortSignal,
   ): Promise<{ definitions: NormalizedDefinition[] }>;
   definition(ref: string, signal?: AbortSignal): Promise<DefinitionReview>;
-  import(input: ImportInput, signal?: AbortSignal): Promise<ConnectorImportResult>;
+  import(
+    input: ImportInput,
+    signal?: AbortSignal,
+  ): Promise<ConnectorImportResult>;
   bindings(signal?: AbortSignal): Promise<{ bindings: BindingReference[] }>;
   createBinding(
     input: BindingRequest,
@@ -472,7 +487,8 @@ export function createConnectorClient(
           const parsed = catalogResponseSchema.parse(value);
           return {
             entries: parsed.entries,
-            viewer: parsed.viewer ?? viewerFromHeaders(headers) ?? defaultViewer,
+            viewer:
+              parsed.viewer ?? viewerFromHeaders(headers) ?? defaultViewer,
           };
         },
         signal,
@@ -526,10 +542,8 @@ export function createConnectorClient(
           connections: connectionsResponseSchema
             .parse(value)
             .connections.map((item) => {
-              const { presentation: _presentation, ...summary } = item as Record<
-                string,
-                unknown
-              >;
+              const { presentation: _presentation, ...summary } =
+                item as Record<string, unknown>;
               void _presentation;
               return connectionSummarySchema.parse(summary);
             }),
@@ -539,7 +553,13 @@ export function createConnectorClient(
     connect: (input, signal) =>
       call("POST", "/connections", input, view, signal),
     connection: (connectionRef, signal) =>
-      call("GET", `/connections/${ref(connectionRef)}`, undefined, view, signal),
+      call(
+        "GET",
+        `/connections/${ref(connectionRef)}`,
+        undefined,
+        view,
+        signal,
+      ),
     poll: (connectionRef, signal) =>
       call("POST", `/connections/${ref(connectionRef)}/poll`, {}, view, signal),
     verify: (connectionRef, signal) =>
@@ -681,7 +701,11 @@ export type RelayWindow = {
  */
 export function relayHandoffReturn(win: RelayWindow): boolean {
   const opener = win.opener as
-    | { closed?: boolean; location: { origin: string }; postMessage: Window["postMessage"] }
+    | {
+        closed?: boolean;
+        location: { origin: string };
+        postMessage: Window["postMessage"];
+      }
     | null
     | undefined;
   if (!opener || typeof opener !== "object" || opener.closed) return false;
@@ -722,16 +746,18 @@ export function sortIssues(
   );
 }
 
-export function groupIssues(
-  issues: readonly CompatibilityIssue[],
-): Array<{
+export function groupIssues(issues: readonly CompatibilityIssue[]): Array<{
   category: CompatibilityIssue["category"];
   blocking: number;
   issues: CompatibilityIssue[];
 }> {
   const groups = new Map<
     CompatibilityIssue["category"],
-    { category: CompatibilityIssue["category"]; blocking: number; issues: CompatibilityIssue[] }
+    {
+      category: CompatibilityIssue["category"];
+      blocking: number;
+      issues: CompatibilityIssue[];
+    }
   >();
   for (const issue of sortIssues(issues)) {
     const group = groups.get(issue.category) ?? {

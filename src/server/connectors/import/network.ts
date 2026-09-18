@@ -40,15 +40,17 @@ export type NetworkPolicy = {
   lookup?: ((hostname: string) => Promise<LookupAddress[]>) | undefined;
 };
 
-type ResolvedPolicy = Readonly<
-  Required<
-    Omit<NetworkPolicy, "lookup" | "approvedPrivateOrigins" | "allowedOrigins">
-  > & {
-    approvedPrivateOrigins: readonly string[];
-    allowedOrigins: readonly string[];
-    lookup: ((hostname: string) => Promise<LookupAddress[]>) | undefined;
-  }
->;
+type ResolvedPolicy = Readonly<{
+  mode: NetworkMode;
+  approvedPrivateOrigins: readonly string[];
+  allowedOrigins: readonly string[];
+  maxRedirects: number;
+  maxResponseBytes: number;
+  timeoutMs: number;
+  maxRequestBytes: number;
+  allowCompressedResponses: boolean;
+  lookup: ((hostname: string) => Promise<LookupAddress[]>) | undefined;
+}>;
 
 export const NETWORK_LIMITS = Object.freeze({
   // Canonical document locations rarely need more than one hop; three covers
@@ -646,7 +648,7 @@ export function createApprovedFetch(input: NetworkPolicy): ApprovedFetch {
         response = await undiciFetch(decision.url.href, {
           method,
           headers: [...headers],
-          body: body ?? undefined,
+          ...(body === null ? {} : { body }),
           signal,
           redirect: "manual",
           dispatcher: agentFor(decision.network),

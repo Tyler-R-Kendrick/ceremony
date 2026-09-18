@@ -1,0 +1,204 @@
+{
+  "asyncapi": "3.1.0",
+  "id": "urn:example:acme:billing-webhooks",
+  "info": {
+    "title": "Acme Billing Webhooks",
+    "version": "2026-09-01",
+    "description": "Events Acme Billing delivers to subscribers over HTTPS, plus its broker and streaming feeds.",
+    "x-acme-tier": "enterprise"
+  },
+  "defaultContentType": "application/json",
+  "servers": {
+    "webhooks": {
+      "host": "hooks.acme.example",
+      "protocol": "https",
+      "pathname": "/v1",
+      "description": "HTTPS webhook delivery",
+      "security": [{ "$ref": "#/components/securitySchemes/deliveryToken" }]
+    },
+    "broker": {
+      "host": "kafka.acme.example:9092",
+      "protocol": "kafka",
+      "protocolVersion": "3.7",
+      "security": [{ "$ref": "#/components/securitySchemes/saslScram" }],
+      "bindings": {
+        "kafka": {
+          "schemaRegistryUrl": "https://registry.acme.example",
+          "bindingVersion": "0.5.0"
+        }
+      }
+    },
+    "stream": { "host": "stream.acme.example", "protocol": "wss", "pathname": "/events" }
+  },
+  "channels": {
+    "invoiceEvents": {
+      "address": "/webhooks/invoices",
+      "title": "Invoice events",
+      "servers": [{ "$ref": "#/servers/webhooks" }],
+      "messages": {
+        "invoicePaid": { "$ref": "#/components/messages/InvoicePaid" },
+        "invoiceVoided": { "$ref": "#/components/messages/InvoiceVoided" }
+      },
+      "bindings": { "http": { "bindingVersion": "0.3.0" } }
+    },
+    "accountLifecycle": {
+      "address": "/webhooks/accounts",
+      "servers": [{ "$ref": "#/servers/webhooks" }],
+      "messages": {
+        "connectionRevoked": {
+          "name": "connection.revoked",
+          "title": "Connection revoked",
+          "contentType": "application/json",
+          "headers": { "$ref": "#/components/schemas/StandardWebhookHeaders" },
+          "payload": {
+            "type": "object",
+            "properties": { "connectionId": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "ledger.entries": {
+      "address": "acme.ledger.entries.v1",
+      "servers": [{ "$ref": "#/servers/broker" }],
+      "messages": {
+        "entryPosted": {
+          "name": "ledger.entry.posted",
+          "payload": { "$ref": "#/components/schemas/LedgerEntry" }
+        }
+      },
+      "bindings": {
+        "kafka": { "topic": "acme.ledger.entries.v1", "partitions": 12, "bindingVersion": "0.5.0" }
+      }
+    },
+    "liveTicker": {
+      "address": "/events",
+      "servers": [{ "$ref": "#/servers/stream" }],
+      "messages": { "tick": { "name": "ticker.tick", "payload": { "type": "object" } } },
+      "bindings": { "ws": { "method": "GET", "bindingVersion": "0.1.0" } }
+    },
+    "commands": {
+      "address": "/webhooks/commands",
+      "servers": [{ "$ref": "#/servers/webhooks" }],
+      "messages": { "ackDelivery": { "name": "delivery.ack", "payload": { "type": "object" } } }
+    }
+  },
+  "operations": {
+    "onInvoiceEvent": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/invoiceEvents" },
+      "title": "Receive invoice events",
+      "security": [{ "$ref": "#/components/securitySchemes/deliveryToken" }],
+      "bindings": { "http": { "method": "POST", "bindingVersion": "0.3.0" } },
+      "traits": [{ "$ref": "#/components/operationTraits/webhookDelivery" }]
+    },
+    "onConnectionRevoked": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/accountLifecycle" },
+      "security": []
+    },
+    "onLedgerEntry": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/ledger.entries" },
+      "security": [{ "$ref": "#/components/securitySchemes/saslScram" }]
+    },
+    "onTick": { "action": "receive", "channel": { "$ref": "#/channels/liveTicker" } },
+    "acknowledgeDelivery": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/commands" },
+      "security": [{ "$ref": "#/components/securitySchemes/partnerOAuth" }]
+    },
+    "onMissingChannel": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/doesNotExist" }
+    },
+    "onExternalChannel": {
+      "action": "receive",
+      "channel": { "$ref": "https://other.example/asyncapi.json?token=CANARY_EXTERNAL_TOKEN#/channels/x" }
+    }
+  },
+  "components": {
+    "messages": {
+      "InvoicePaid": {
+        "name": "invoice.paid",
+        "title": "Invoice paid",
+        "contentType": "application/json",
+        "headers": { "$ref": "#/components/schemas/StandardWebhookHeaders" },
+        "payload": { "$ref": "#/components/schemas/Invoice" },
+        "bindings": { "http": { "headers": { "type": "object" }, "bindingVersion": "0.3.0" } },
+        "x-acme-retention-days": 30
+      },
+      "InvoiceVoided": {
+        "name": "invoice.voided",
+        "title": "Invoice voided",
+        "headers": { "$ref": "#/components/schemas/StandardWebhookHeaders" },
+        "payload": { "$ref": "#/components/schemas/Invoice" }
+      }
+    },
+    "schemas": {
+      "StandardWebhookHeaders": {
+        "type": "object",
+        "properties": {
+          "webhook-id": { "type": "string" },
+          "webhook-timestamp": { "type": "string" },
+          "webhook-signature": { "type": "string" }
+        },
+        "required": ["webhook-id", "webhook-timestamp", "webhook-signature"]
+      },
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "amount": { "type": "integer" },
+          "customer": { "$ref": "#/components/schemas/Customer" }
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "invoices": { "type": "array", "items": { "$ref": "#/components/schemas/Invoice" } }
+        }
+      },
+      "LedgerEntry": { "type": "object" }
+    },
+    "operationTraits": {
+      "webhookDelivery": {
+        "summary": "Delivered over HTTPS with Standard Webhooks headers",
+        "bindings": { "http": { "bindingVersion": "0.3.0", "method": "POST" } }
+      }
+    },
+    "securitySchemes": {
+      "deliveryToken": {
+        "type": "httpApiKey",
+        "name": "X-Acme-Delivery-Token",
+        "in": "header",
+        "description": "Shared delivery token presented by Acme"
+      },
+      "saslScram": { "type": "scramSha256", "description": "Broker SASL/SCRAM" },
+      "partnerOAuth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.acme.example/authorize",
+            "tokenUrl": "https://auth.acme.example/token",
+            "refreshUrl": "https://auth.acme.example/token",
+            "availableScopes": {
+              "deliveries:write": "Acknowledge deliveries",
+              "invoices:read": "Read invoices"
+            }
+          }
+        },
+        "scopes": ["deliveries:write"]
+      },
+      "legacyBasic": { "type": "http", "scheme": "basic" },
+      "bearerJwt": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "partnerOidc": {
+        "type": "openIdConnect",
+        "openIdConnectUrl": "https://id.acme.example/.well-known/openid-configuration",
+        "scopes": ["openid"]
+      },
+      "brokerUser": { "type": "userPassword" }
+    }
+  },
+  "x-acme-generator": { "tool": "acme-spec-gen", "version": "4.2.0" }
+}

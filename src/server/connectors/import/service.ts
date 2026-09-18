@@ -521,12 +521,12 @@ export const IMPORT_FIXTURE_ROOT = fileURLToPath(
 const fixtureNamePattern = /^[a-z0-9][a-z0-9._-]{0,99}\.(json|ya?ml)$/;
 
 /** The system actor the air-gapped path runs as; it holds only the author capability. */
-export const fixtureImportActor: ActorContext = Object.freeze({
+export const fixtureImportActor: Readonly<ActorContext> = Object.freeze({
   tenantId: "fixture",
   subjectId: "fixture-import",
   sessionId: "fixture-import",
-  actorKind: "system",
-  capabilities: ["author"],
+  actorKind: "system" as const,
+  capabilities: ["author" as const],
 });
 
 /**

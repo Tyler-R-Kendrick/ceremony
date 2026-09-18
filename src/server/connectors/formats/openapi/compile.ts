@@ -205,9 +205,12 @@ function problemsToIssues(
 function primitiveShape(
   schema: CompiledSchema,
   definitions: Map<string, CompiledSchema | "compiling">,
+  hops = 0,
 ): "primitive" | "array" | "complex" | "unknown" {
+  if (hops > 8) return "unknown";
   const resolved = schema.kind === "ref" ? definitions.get(schema.name) : schema;
   if (!resolved || resolved === "compiling") return "unknown";
+  if (resolved.kind === "ref") return primitiveShape(resolved, definitions, hops + 1);
   if (resolved.kind === "any") return "unknown";
   if (resolved.kind === "never") return "complex";
   const types = resolved.types ?? [];
@@ -216,7 +219,7 @@ function primitiveShape(
   if (types.includes("array")) {
     const items = resolved.items;
     if (!items) return "array";
-    const inner = primitiveShape(items, definitions);
+    const inner = primitiveShape(items, definitions, hops + 1);
     return inner === "primitive" || inner === "unknown" ? "array" : "complex";
   }
   return "primitive";

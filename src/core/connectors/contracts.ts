@@ -639,45 +639,45 @@ export const adaptationStepSchema = z.strictObject({
  * of the normalized document are different facts and are stored separately.
  */
 export const sourceRecordShape = {
-    sourceRef: connectorReferenceSchema,
-    identity: connectorSourceIdentitySchema,
-    format: sourceFormatSchema,
-    origin: sourceOriginSchema,
-    digest: z.strictObject({
-      algorithm: z.literal("sha256"),
-      value: sha256HexSchema,
+  sourceRef: connectorReferenceSchema,
+  identity: connectorSourceIdentitySchema,
+  format: sourceFormatSchema,
+  origin: sourceOriginSchema,
+  digest: z.strictObject({
+    algorithm: z.literal("sha256"),
+    value: sha256HexSchema,
+  }),
+  byteLength: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(64 * 1024 * 1024),
+  mediaType: z
+    .string()
+    .max(120)
+    .regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i),
+  capturedAt: isoTime,
+  license: z
+    .strictObject({
+      spdx: z
+        .string()
+        .max(64)
+        .regex(/^[^\p{Cc}]*$/u)
+        .optional(),
+      note: safeTextSchema.optional(),
+      redistributable: z.union([z.boolean(), z.literal("unknown")]),
+    })
+    .optional(),
+  artifactRef: connectorReferenceSchema.optional(),
+  adaptation: boundedList(adaptationStepSchema, 16),
+  /** Overlays applied after capture, by exact digest; provenance, not approval. */
+  overlays: boundedList(
+    z.strictObject({
+      sourceRef: connectorReferenceSchema,
+      digest: sha256HexSchema,
     }),
-    byteLength: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(64 * 1024 * 1024),
-    mediaType: z
-      .string()
-      .max(120)
-      .regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i),
-    capturedAt: isoTime,
-    license: z
-      .strictObject({
-        spdx: z
-          .string()
-          .max(64)
-          .regex(/^[^\p{Cc}]*$/u)
-          .optional(),
-        note: safeTextSchema.optional(),
-        redistributable: z.union([z.boolean(), z.literal("unknown")]),
-      })
-      .optional(),
-    artifactRef: connectorReferenceSchema.optional(),
-    adaptation: boundedList(adaptationStepSchema, 16),
-    /** Overlays applied after capture, by exact digest; provenance, not approval. */
-    overlays: boundedList(
-      z.strictObject({
-        sourceRef: connectorReferenceSchema,
-        digest: sha256HexSchema,
-      }),
-      8,
-    ),
+    8,
+  ),
 };
 
 /** Cross-field rules shared by the stored and the portable source shapes. */
@@ -1017,7 +1017,10 @@ export const catalogEntrySchema = z
       z.enum(
         authenticationProfileSchema.options.map(
           (option) => option.shape.kind.value,
-        ) as [AuthenticationProfile["kind"], ...AuthenticationProfile["kind"][]],
+        ) as [
+          AuthenticationProfile["kind"],
+          ...AuthenticationProfile["kind"][],
+        ],
       ),
       16,
     ),

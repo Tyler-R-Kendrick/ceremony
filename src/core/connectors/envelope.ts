@@ -162,7 +162,9 @@ const v1Dimensions: Record<SupportDimension, MappingDisposition> = {
 // is display text and must not, so controls are blanked. The project itself
 // travels unchanged.
 const displayText = (value: string, max: number) =>
-  value.replace(/\p{Cc}|[\u{202A}-\u{202E}\u{2066}-\u{2069}]/gu, " ").slice(0, max);
+  value
+    .replace(/\p{Cc}|[\u{202A}-\u{202E}\u{2066}-\u{2069}]/gu, " ")
+    .slice(0, max);
 const serviceKey = /^[a-z0-9][a-z0-9._-]*$/;
 
 /**
@@ -185,7 +187,10 @@ export async function upgradeConnectorProject(
     let candidate = identifierSchema.safeParse(id).success
       ? id
       : `ceremony-${id}`;
-    while (used.has(candidate) || (candidate !== id && methodIds.has(candidate)))
+    while (
+      used.has(candidate) ||
+      (candidate !== id && methodIds.has(candidate))
+    )
       candidate = `${candidate}-alt`;
     used.add(candidate);
     return candidate;
@@ -373,7 +378,9 @@ export function downgradeConnectorEnvelope(input: unknown): {
       document.sourceDescriptions.map((source) => source.url),
     ),
   );
-  if (definition.declaredServers.some((server) => !projectServers.has(server.url)))
+  if (
+    definition.declaredServers.some((server) => !projectServers.has(server.url))
+  )
     issue(
       "envelope.v1.servers-dropped",
       "Declared servers beyond the project's source descriptions are not part of a version 1 project.",

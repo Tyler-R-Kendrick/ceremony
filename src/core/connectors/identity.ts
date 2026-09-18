@@ -231,7 +231,8 @@ function canonical(value: unknown, depth = 0): unknown {
   // clear error instead of a stack overflow inside a digest.
   if (depth > CANONICAL_DEPTH)
     throw new RangeError("Value is nested too deeply to canonicalize");
-  if (Array.isArray(value)) return value.map((item) => canonical(item, depth + 1));
+  if (Array.isArray(value))
+    return value.map((item) => canonical(item, depth + 1));
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)

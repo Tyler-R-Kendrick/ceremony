@@ -257,7 +257,10 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
         return problem(400, "Bad Request", "version already exists");
       const at = iso();
       for (const entry of entries)
-        if (entry.server.name === name) entry._meta[OFFICIAL_META].isLatest = false;
+        if (entry.server.name === name && entry._meta[OFFICIAL_META].isLatest) {
+          entry._meta[OFFICIAL_META].isLatest = false;
+          entry._meta[OFFICIAL_META].updatedAt = at;
+        }
       const created: DoubleEntry = {
         server: document as DoubleEntry["server"],
         _meta: {
@@ -292,7 +295,10 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
     publish(server: DoubleEntry["server"], official: Partial<DoubleOfficialMeta> = {}) {
       const at = official.publishedAt ?? iso();
       for (const entry of entries)
-        if (entry.server.name === server.name) entry._meta[OFFICIAL_META].isLatest = false;
+        if (entry.server.name === server.name && entry._meta[OFFICIAL_META].isLatest) {
+          entry._meta[OFFICIAL_META].isLatest = false;
+          entry._meta[OFFICIAL_META].updatedAt = at;
+        }
       const created = registryEntry(server, {
         publishedAt: at,
         updatedAt: at,

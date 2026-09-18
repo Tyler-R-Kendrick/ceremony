@@ -23,12 +23,7 @@ export type JsonValueLimits = {
 };
 export type JsonMeasure = { depth: number; nodes: number; bytes: number };
 export type JsonBoundsReason =
-  | "depth"
-  | "nodes"
-  | "bytes"
-  | "string-length"
-  | "reserved-key"
-  | "not-json";
+  "depth" | "nodes" | "bytes" | "string-length" | "reserved-key" | "not-json";
 export type JsonBoundsResult =
   | { ok: true; measure: JsonMeasure }
   | { ok: false; reason: JsonBoundsReason; measure: JsonMeasure };
@@ -60,9 +55,7 @@ export function measureJsonValue(
     reason,
     measure,
   });
-  const stack: Array<{ value: unknown; depth: number }> = [
-    { value, depth: 1 },
-  ];
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }];
   while (stack.length) {
     const { value: current, depth } = stack.pop()!;
     measure.nodes++;

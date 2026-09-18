@@ -91,11 +91,7 @@ test("CON-01-ID-03: reserved object keys and traversal segments are refused as i
     "..\\x",
     "a\\..\\b",
   ])
-    assert.equal(
-      nativeIdentifierSchema.safeParse(value).success,
-      false,
-      value,
-    );
+    assert.equal(nativeIdentifierSchema.safeParse(value).success, false, value);
   for (const value of ["a/../b", "..", "_x", "", "x".repeat(201)])
     assert.equal(connectorReferenceSchema.safeParse(value).success, false);
   for (const value of ["src:abc", "a/b", "evidence:1", "x".repeat(200)])

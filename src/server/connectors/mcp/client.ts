@@ -1141,7 +1141,11 @@ export function createMcpClient(options: McpClientOptions): McpClient {
         { detail: message.code.replace(/[^a-z0-9.-]/g, "").slice(0, 120) },
       );
     }
-    return new ConnectorError("indeterminate", { detail: message.code });
+    if (message.kind === "indeterminate")
+      return new ConnectorError("indeterminate", { detail: message.code });
+    if (message.kind === "authorization-required")
+      return new ConnectorError("unauthenticated", { detail: "mcp.authorization-required" });
+    return new ConnectorError("upstream-rejected", { detail: "mcp.discover.invalid" });
   }
 
   /* ---------------------------------------------------------------- lists */
@@ -1245,7 +1249,13 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
       ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
       headerParameters: headers.parameters,
-      definitionDigest: definitionDigest(tool),
+      definitionDigest: definitionDigest({
+        name: tool.name,
+        ...(tool.description !== undefined ? { description: tool.description } : {}),
+        inputSchema: tool.inputSchema,
+        ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
+        ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+      }),
     };
   }
 
@@ -1472,7 +1482,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
             warnings.add("mcp.output.block-invalid");
             continue;
           }
-          const [content] = boundBlocks([item.content], warnings);
+          const [content] = boundBlocks([item.data.content], warnings);
           if (content) messages.push({ role: item.data.role, content });
         }
         return {

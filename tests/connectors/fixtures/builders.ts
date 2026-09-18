@@ -79,43 +79,45 @@ export function buildProfile(
   overrides: Record<string, unknown> = {},
 ): AuthenticationProfile {
   const base = { id: kind, label: `${kind} profile` };
-  const byKind: Record<AuthenticationProfile["kind"], Record<string, unknown>> =
-    {
-      "oauth-authorization-code": {
-        pkce: "S256",
-        issuer: "https://auth.example",
-        authorizationEndpoint: "https://auth.example/authorize",
-        tokenEndpoint: "https://auth.example/token",
-        scopes: ["read:pets"],
-        scopeSemantics: "provider-scopes",
-        clientRegistration: "pre-registered",
-        clientAuthentication: "client_secret_basic",
-        refresh: "supported",
-      },
-      "oauth-client-credentials": {
-        tokenEndpoint: "https://auth.example/token",
-        scopes: [],
-        clientAuthentication: "client_secret_post",
-      },
-      "oauth-device": {
-        deviceAuthorizationEndpoint: "https://auth.example/device",
-        tokenEndpoint: "https://auth.example/token",
-        scopes: ["read:pets"],
-      },
-      "api-key": { placement: "header", parameterName: "X-Api-Key" },
-      "http-basic": {},
-      "http-bearer": { format: "JWT" },
-      "openid-connect": { issuer: "https://issuer.example", scopes: ["openid"] },
-      "mutual-tls": {},
-      signature: { scheme: "hmac-sha256" },
-      "external-broker": {
-        broker: "nango",
-        custody: "external-credential-broker",
-      },
-      none: { reason: "public" },
-      "ceremony-method": { flowKind: "oauth-code", methodId: "oauth" },
-      unsupported: { native: "x-custom-scheme" },
-    };
+  const byKind: Record<
+    AuthenticationProfile["kind"],
+    Record<string, unknown>
+  > = {
+    "oauth-authorization-code": {
+      pkce: "S256",
+      issuer: "https://auth.example",
+      authorizationEndpoint: "https://auth.example/authorize",
+      tokenEndpoint: "https://auth.example/token",
+      scopes: ["read:pets"],
+      scopeSemantics: "provider-scopes",
+      clientRegistration: "pre-registered",
+      clientAuthentication: "client_secret_basic",
+      refresh: "supported",
+    },
+    "oauth-client-credentials": {
+      tokenEndpoint: "https://auth.example/token",
+      scopes: [],
+      clientAuthentication: "client_secret_post",
+    },
+    "oauth-device": {
+      deviceAuthorizationEndpoint: "https://auth.example/device",
+      tokenEndpoint: "https://auth.example/token",
+      scopes: ["read:pets"],
+    },
+    "api-key": { placement: "header", parameterName: "X-Api-Key" },
+    "http-basic": {},
+    "http-bearer": { format: "JWT" },
+    "openid-connect": { issuer: "https://issuer.example", scopes: ["openid"] },
+    "mutual-tls": {},
+    signature: { scheme: "hmac-sha256" },
+    "external-broker": {
+      broker: "nango",
+      custody: "external-credential-broker",
+    },
+    none: { reason: "public" },
+    "ceremony-method": { flowKind: "oauth-code", methodId: "oauth" },
+    unsupported: { native: "x-custom-scheme" },
+  };
   return {
     ...base,
     kind,
@@ -231,7 +233,10 @@ export function portableDefinition(
 export async function withNormalizedDigest<
   T extends NormalizedDefinition | PortableDefinition,
 >(definition: T): Promise<T> {
-  return { ...definition, normalizedDigest: await normalizedDigestOf(definition) };
+  return {
+    ...definition,
+    normalizedDigest: await normalizedDigestOf(definition),
+  };
 }
 
 export function buildSourceRecord(
@@ -245,7 +250,10 @@ export function buildSourceRecord(
       version: "3.1.0",
       dialect: "https://spec.openapis.org/oas/3.1/dialect/base",
     },
-    origin: { kind: "url", location: "https://api.petstore.example/openapi.json" },
+    origin: {
+      kind: "url",
+      location: "https://api.petstore.example/openapi.json",
+    },
     digest: { algorithm: "sha256", value: HEX },
     byteLength: 4096,
     mediaType: "application/json",
@@ -259,8 +267,11 @@ export function buildSourceRecord(
 }
 
 export function portableSource(source: SourceRecord): PortableSource {
-  const { sourceRef: _sourceRef, artifactRef: _artifactRef, ...portable } =
-    source;
+  const {
+    sourceRef: _sourceRef,
+    artifactRef: _artifactRef,
+    ...portable
+  } = source;
   void _sourceRef;
   void _artifactRef;
   return portable;

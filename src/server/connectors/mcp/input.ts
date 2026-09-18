@@ -196,10 +196,13 @@ function coerce(property: FormProperty, raw: unknown): ValueCheck {
         return { ok: false, reason: "min-items" };
       if (property.maxItems !== undefined && list.length > property.maxItems)
         return { ok: false, reason: "max-items" };
-      const allowed: unknown[] =
-        "enum" in property.items
-          ? property.items.enum
-          : property.items.anyOf.map((item) => item.const);
+      const items = property.items as {
+        enum?: unknown[];
+        anyOf?: Array<{ const: unknown }>;
+      };
+      const allowed: unknown[] = Array.isArray(items.enum)
+        ? items.enum
+        : (items.anyOf ?? []).map((item) => item.const);
       for (const item of list)
         if (!allowed.includes(item)) return { ok: false, reason: "enum" };
       return { ok: true, value: list };

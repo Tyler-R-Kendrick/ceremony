@@ -564,9 +564,9 @@ function parseYaml(
   // counting the stream is deterministic.
   if ("empty" in documents || documents.length === 0) return fail("document.empty");
   if (documents.length > 1) return fail("yaml.multiple-documents");
-  const document = documents[0]!;
-  const directive = document.directives.yaml;
-  if (directive.explicit && directive.version !== "1.2")
+  const document = documents[0] as Document.Parsed;
+  const directive = document.directives?.yaml;
+  if (directive?.explicit && directive.version !== "1.2")
     return fail("yaml.version-unsupported");
   // Warnings are refusals too: an unresolved tag is kept as text by the
   // library, which is exactly the silent reinterpretation import must not do.
