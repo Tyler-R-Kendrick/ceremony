@@ -361,21 +361,22 @@ for (const engine of browserEngines) {
 
 describe("engine identity", () => {
   test("ENGINE-REAL: each backend reports the executable that actually ran", async () => {
-    const { launchManagedBrowser } =
-      await import("../src/server/browser-backends.js");
+    // Asked of the browsers that ran the cases above, not of three fresh ones.
+    // A throwaway launch could only report the version of a browser that
+    // proved nothing; these are the processes the conformance results came
+    // from, which is the version worth recording as evidence. It also keeps
+    // the file from holding six engines open at once.
     for (const engine of browserEngines) {
-      const browser = await launchManagedBrowser(engine);
-      try {
-        assert.equal(browser.descriptor.engine, engine);
-        assert.match(
-          browser.descriptor.engineVersion,
-          /\d+/,
-          `${engine} must report a real version, not a placeholder`,
-        );
-        assert.equal(browser.descriptor.ownership, "managed");
-      } finally {
-        await browser.dispose();
-      }
+      const browser = engines.get(engine);
+      assert.ok(browser, `${engine} must have been launched for its cases`);
+      assert.equal(browser.descriptor.engine, engine);
+      assert.match(
+        browser.descriptor.engineVersion,
+        /\d+/,
+        `${engine} must report a real version, not a placeholder`,
+      );
+      assert.equal(browser.descriptor.ownership, "managed");
+      assert.equal(browser.alive(), true);
     }
   });
 });
