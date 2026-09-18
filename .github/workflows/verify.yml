@@ -16,7 +16,18 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Measured, not guessed. On the last green run the stages came to roughly
+    # 21m40s -- test:security:mutation 8m55s and test:e2e 8m17s between them are
+    # four fifths of it -- and `npm ci` plus three browser downloads add two to
+    # three more. That left the 25-minute ceiling under a minute of headroom,
+    # and the first change to add end-to-end specs spent it: this job was
+    # cancelled at 25m19s with every stage still passing.
+    #
+    # A cancelled job is not a failing one, and raising this budget does not
+    # relax a single assertion: `verify` still runs every stage, and a stage
+    # that fails still fails the job. What it stops doing is reporting the
+    # machine's speed as if it were the code's correctness.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
