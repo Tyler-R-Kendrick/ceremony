@@ -113,13 +113,17 @@ const loopbackHosts = ["127.0.0.1", "localhost", "[::1]"];
 /** Origin plus optional path prefix; HTTPS, or loopback HTTP for fixtures; no userinfo, query, fragment or traversal. */
 export function normalizeRegistryBaseUrl(value: string): string {
   const fail = () =>
-    new ConnectorError("network-policy", { detail: "registry.base-url.invalid" });
+    new ConnectorError("network-policy", {
+      detail: "registry.base-url.invalid",
+    });
   if (typeof value !== "string" || value.length > 2048 || !URL.canParse(value))
     throw fail();
   const url = new URL(value);
   // `new URL` resolves `/a/../b` to `/b`; a base URL that had to be normalized
   // is refused rather than silently rewritten.
-  const rawPath = value.slice(value.indexOf(url.host) + url.host.length).split(/[?#]/)[0] ?? "";
+  const rawPath =
+    value.slice(value.indexOf(url.host) + url.host.length).split(/[?#]/)[0] ??
+    "";
   if (
     rawPath.split("/").some((segment) => segment === ".." || segment === ".") ||
     rawPath.includes("//") ||
@@ -414,8 +418,12 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
       });
     }
     const bytes = await readBounded(response, limits.maxPageBytes);
-    if (!response.ok) throw statusError(response.status, call.cursorPresent === true);
-    return { value: parseBoundedJsonBytes(bytes, limits.json), bytes: bytes.byteLength };
+    if (!response.ok)
+      throw statusError(response.status, call.cursorPresent === true);
+    return {
+      value: parseBoundedJsonBytes(bytes, limits.json),
+      bytes: bytes.byteLength,
+    };
   }
 
   async function parseListPage(
@@ -432,7 +440,11 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
     const issues: CompatibilityIssue[] = [];
     const rawEntries = envelope.data.servers ?? [];
     for (const [index, raw] of rawEntries.entries()) {
-      const result = await normalizeRegistryEntry(raw, `servers[${index}]`, limits);
+      const result = await normalizeRegistryEntry(
+        raw,
+        `servers[${index}]`,
+        limits,
+      );
       if ("entry" in result) entries.push(result.entry);
       else issues.push(result.issue);
     }
@@ -482,13 +494,17 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
           detail: "registry.limit.invalid",
         });
       const cursor =
-        query.cursor === undefined ? undefined : cursorSchema.safeParse(query.cursor);
+        query.cursor === undefined
+          ? undefined
+          : cursorSchema.safeParse(query.cursor);
       if (cursor && !cursor.success)
         throw new ConnectorError("invalid-request", {
           detail: "registry.cursor.invalid",
         });
       const search =
-        query.search === undefined ? undefined : searchSchema.safeParse(query.search);
+        query.search === undefined
+          ? undefined
+          : searchSchema.safeParse(query.search);
       if (search && !search.success)
         throw new ConnectorError("invalid-request", {
           detail: "registry.search.invalid",
@@ -522,7 +538,10 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
               ? undefined
               : String(query.includeDeleted),
         },
-        { ...(call.signal ? { signal: call.signal } : {}), cursorPresent: cursor !== undefined },
+        {
+          ...(call.signal ? { signal: call.signal } : {}),
+          cursorPresent: cursor !== undefined,
+        },
       );
       return parseListPage(value, bytes, cursor?.data);
     },
@@ -555,7 +574,13 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
         cursor = page.nextCursor;
         if (cursor === undefined) return { pages, complete: true, bytes };
         if (bytes >= maxBytes)
-          return { pages, complete: false, nextCursor: cursor, bytes, reason: "bytes" };
+          return {
+            pages,
+            complete: false,
+            nextCursor: cursor,
+            bytes,
+            reason: "bytes",
+          };
       }
       return {
         pages,

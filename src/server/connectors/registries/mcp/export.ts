@@ -57,7 +57,9 @@ export const servedEndpointSchema = z.strictObject({
 export const implementationEvidenceSchema = z.strictObject({
   servedEndpoints: z.array(servedEndpointSchema).max(32),
 });
-export type ImplementationEvidence = z.infer<typeof implementationEvidenceSchema>;
+export type ImplementationEvidence = z.infer<
+  typeof implementationEvidenceSchema
+>;
 
 const safeText = (max: number) =>
   z
@@ -153,12 +155,18 @@ export function exportServerJson(input: {
 }): ServerJsonExportResult {
   const publication = publicationRequestSchema.parse(input.publication);
   if (publication.authorized !== true)
-    throw new ConnectorError("denied", { detail: "export.publication-unauthorized" });
+    throw new ConnectorError("denied", {
+      detail: "export.publication-unauthorized",
+    });
   const definition = normalizedDefinitionSchema.parse(input.definition);
   const binding = runtimeBindingSchema.parse(input.binding);
-  const evidence = implementationEvidenceSchema.parse(input.implementationEvidence);
+  const evidence = implementationEvidenceSchema.parse(
+    input.implementationEvidence,
+  );
   if (binding.status !== "approved")
-    throw new ConnectorError("denied", { detail: "export.binding-not-approved" });
+    throw new ConnectorError("denied", {
+      detail: "export.binding-not-approved",
+    });
   if (binding.definitionRef !== definition.definitionRef)
     throw new ConnectorError("invalid-request", {
       detail: "export.binding-definition-mismatch",
@@ -169,11 +177,20 @@ export function exportServerJson(input: {
     operation.transport.kind.startsWith("mcp-"),
   );
   if (!mcpOperations.length)
-    throw new ConnectorError("unsupported", { detail: "export.binding-not-mcp" });
-  const destinationIds = [...new Set(mcpOperations.map((operation) => operation.destinationId))];
-  const endpoints: Array<{ url: string; transport: "streamable-http" | "sse" }> = [];
+    throw new ConnectorError("unsupported", {
+      detail: "export.binding-not-mcp",
+    });
+  const destinationIds = [
+    ...new Set(mcpOperations.map((operation) => operation.destinationId)),
+  ];
+  const endpoints: Array<{
+    url: string;
+    transport: "streamable-http" | "sse";
+  }> = [];
   for (const destinationId of destinationIds) {
-    const operation = mcpOperations.find((item) => item.destinationId === destinationId)!;
+    const operation = mcpOperations.find(
+      (item) => item.destinationId === destinationId,
+    )!;
     const destination = destinationFor(binding, operation);
     const served = evidence.servedEndpoints.filter((endpoint) => {
       const url = new URL(endpoint.url);
@@ -189,20 +206,33 @@ export function exportServerJson(input: {
       );
     });
     if (!served.length)
-      throw new ConnectorError("unsupported", { detail: "export.endpoint-not-served" });
+      throw new ConnectorError("unsupported", {
+        detail: "export.endpoint-not-served",
+      });
     for (const endpoint of served) {
       if (endpoint.runtime !== "hosted-server")
-        throw new ConnectorError("unsupported", { detail: "export.browser-only" });
+        throw new ConnectorError("unsupported", {
+          detail: "export.browser-only",
+        });
       if (evidenceRank(endpoint.evidence) < MIN_EVIDENCE)
-        throw new ConnectorError("unsupported", { detail: "export.endpoint-unverified" });
-      if (publication.target.network === "public" && !isPubliclyRoutableUrl(endpoint.url))
-        throw new ConnectorError("denied", { detail: "export.private-endpoint" });
+        throw new ConnectorError("unsupported", {
+          detail: "export.endpoint-unverified",
+        });
+      if (
+        publication.target.network === "public" &&
+        !isPubliclyRoutableUrl(endpoint.url)
+      )
+        throw new ConnectorError("denied", {
+          detail: "export.private-endpoint",
+        });
       if (!endpoints.some((item) => item.url === endpoint.url))
         endpoints.push({ url: endpoint.url, transport: endpoint.transport });
     }
   }
   if (endpoints.length > 8)
-    throw new ConnectorError("invalid-request", { detail: "export.too-many-endpoints" });
+    throw new ConnectorError("invalid-request", {
+      detail: "export.too-many-endpoints",
+    });
 
   const losses: CompatibilityIssue[] = [];
   const packages = definition.capabilities.filter(
@@ -224,7 +254,8 @@ export function exportServerJson(input: {
       ? definition.display.description.slice(0, 100)
       : definition.display.description;
   const description =
-    publication.description ?? (truncated || definition.display.name.slice(0, 100));
+    publication.description ??
+    (truncated || definition.display.name.slice(0, 100));
   if (!publication.description && definition.display.description.length > 100)
     losses.push(
       loss(
@@ -237,11 +268,15 @@ export function exportServerJson(input: {
   const title = publication.title ?? definition.display.name.slice(0, 100);
   const version = publication.version ?? definition.identity.nativeVersion;
   if (!registryVersionSchema.safeParse(version).success || version.length > 255)
-    throw new ConnectorError("invalid-request", { detail: "export.version.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "export.version.invalid",
+    });
   const headers = publication.headers?.map((header) => ({
     name: header.name,
     ...(header.description ? { description: header.description } : {}),
-    ...(header.isRequired === undefined ? {} : { isRequired: header.isRequired }),
+    ...(header.isRequired === undefined
+      ? {}
+      : { isRequired: header.isRequired }),
     ...(header.isSecret === undefined ? {} : { isSecret: header.isSecret }),
   }));
   const exportedAt = new Date((input.now ?? Date.now)()).toISOString();
@@ -296,12 +331,16 @@ export async function publishServerJson(input: {
   signal?: AbortSignal;
 }): Promise<{ entry: RegistryEntry; effectRef?: string }> {
   if (input.publication.authorized !== true)
-    throw new ConnectorError("denied", { detail: "export.publication-unauthorized" });
+    throw new ConnectorError("denied", {
+      detail: "export.publication-unauthorized",
+    });
   const document = serverJsonExportSchema.parse(input.document);
   let effectRef: string | undefined;
   if (input.effects) {
     if (!input.actor)
-      throw new ConnectorError("unauthenticated", { detail: "export.actor-required" });
+      throw new ConnectorError("unauthenticated", {
+        detail: "export.actor-required",
+      });
     const digest = createHash("sha256")
       .update(`${input.client.baseUrl}\n${JSON.stringify(document)}`)
       .digest("hex");
@@ -310,8 +349,14 @@ export async function publishServerJson(input: {
       operation: "mcp-registry.publish",
       digest,
     });
-    if (begun.prior && begun.prior.status !== "failed" && begun.prior.status !== "not-applied")
-      throw new ConnectorError("indeterminate", { detail: "export.publish.repeated" });
+    if (
+      begun.prior &&
+      begun.prior.status !== "failed" &&
+      begun.prior.status !== "not-applied"
+    )
+      throw new ConnectorError("indeterminate", {
+        detail: "export.publish.repeated",
+      });
     effectRef = begun.effectRef;
   }
   try {
@@ -320,14 +365,20 @@ export async function publishServerJson(input: {
       ...(input.signal ? { signal: input.signal } : {}),
     });
     if (effectRef && input.effects)
-      await input.effects.complete(effectRef, { status: "applied", at: Date.now() });
+      await input.effects.complete(effectRef, {
+        status: "applied",
+        at: Date.now(),
+      });
     return { entry, ...(effectRef ? { effectRef } : {}) };
   } catch (error) {
     if (effectRef && input.effects) {
-      const code = error instanceof ConnectorError ? error.code : "upstream-unavailable";
+      const code =
+        error instanceof ConnectorError ? error.code : "upstream-unavailable";
       await input.effects.complete(effectRef, {
         status:
-          code === "upstream-unavailable" || code === "indeterminate" || code === "cancelled"
+          code === "upstream-unavailable" ||
+          code === "indeterminate" ||
+          code === "cancelled"
             ? "indeterminate"
             : "failed",
         code,

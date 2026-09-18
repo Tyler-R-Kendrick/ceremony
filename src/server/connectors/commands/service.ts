@@ -188,9 +188,20 @@ const sha256Hex = (value: unknown) =>
 const iso = (ms: number) => new Date(ms).toISOString();
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
+/**
+ * The handoff this connection is actually waiting on. A handoff issued for an
+ * earlier generation was superseded when the generation advanced, so it is
+ * neither pending nor projected — it cannot be completed, presented or
+ * cancelled as if it still belonged here.
+ */
 const pending = (record: ConnectionRecord) =>
   record.handoff &&
+  record.handoff.generation === record.generation &&
   (record.handoff.state === "issued" || record.handoff.state === "waiting")
+    ? record.handoff
+    : undefined;
+const currentHandoff = (record: ConnectionRecord) =>
+  record.handoff && record.handoff.generation === record.generation
     ? record.handoff
     : undefined;
 const closed = (record: ConnectionRecord) =>
@@ -464,7 +475,7 @@ export class ConnectorCommandService {
       revision: entry.revision,
       ...(r.target ? { target: r.target } : {}),
       ...(r.verification ? { verification: r.verification } : {}),
-      ...(r.handoff ? { handoff: r.handoff } : {}),
+      ...(currentHandoff(r) ? { handoff: r.handoff } : {}),
       ...(r.lastOutcome ? { lastOutcome: r.lastOutcome } : {}),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
@@ -2132,7 +2143,6 @@ export class ConnectorCommandService {
       bindingRevision: binding.revision,
       policyRevision: binding.policyRevision,
       lastOutcome: "reconnect.started",
-      ...(record.handoff ? { handoff: { ...record.handoff, state: "cancelled" } } : {}),
       state: { ...record.state, intent, profileId: profileId ?? null },
     });
     const start = adapter.reconnect ?? adapter.authorize;
@@ -2263,7 +2273,6 @@ export class ConnectorCommandService {
       lifecycle:
         result.upstream === "applied" ? "upstream-revoked" : "locally-disconnected",
       lastOutcome: `disconnect.${input.scope}`,
-      ...(record.handoff ? { handoff: { ...record.handoff, state: "cancelled" } } : {}),
     });
     return { result, connection: this.project(actor, current) };
   }
@@ -2326,8 +2335,8 @@ export class ConnectorCommandService {
     await this.ports.evidence.invalidate(actor, connectionRef, "revoke").catch(() => {});
     current = await this.update(actor, current, {
       lifecycle: remote.upstream === "applied" ? "upstream-revoked" : "locally-disconnected",
-      lastOutcome: remote.upstream === "applied" ? "revoke.applied" : `revoke.${remote.upstream}`,
-      ...(record.handoff ? { handoff: { ...record.handoff, state: "cancelled" } } : {}),
+      lastOutcome:
+        remote.upstream === "applied" ? "revoke.applied" : `revoke.${remote.upstream}`,
     });
     return { result: { ...remote, local: "applied" }, connection: this.project(actor, current) };
   }

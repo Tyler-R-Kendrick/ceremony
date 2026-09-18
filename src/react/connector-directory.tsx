@@ -3,12 +3,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   CatalogEntry,
   CapabilityStatus,
-  ConnectorViewer,
   CredentialCustody,
   EvidenceLevel,
   RuntimeClass,
   SupportDimension,
 } from "../core/connectors/index.js";
+import type { ConnectorViewer } from "../core/connectors/client.js";
 
 /**
  * The directory, bound to the server's inventory.

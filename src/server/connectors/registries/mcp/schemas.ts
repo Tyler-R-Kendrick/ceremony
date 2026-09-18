@@ -297,7 +297,8 @@ export function declaredSchemaVersion(schemaUrl: string | undefined): {
   version: string | undefined;
   compatible: boolean;
 } {
-  if (!schemaUrl) return { declared: undefined, version: undefined, compatible: false };
+  if (!schemaUrl)
+    return { declared: undefined, version: undefined, compatible: false };
   const match =
     /^https:\/\/static\.modelcontextprotocol\.io\/schemas\/(\d{4}-\d{2}-\d{2})\/server\.schema\.json$/.exec(
       schemaUrl,

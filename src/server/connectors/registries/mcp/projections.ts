@@ -62,13 +62,17 @@ export type SubregistryPolicy = {
   maxLimit?: number;
 };
 export interface SubregistryReadSurface {
-  list(
-    query?: SubregistryQuery,
-  ): Promise<{ response: SubregistryListResponse; excluded: SubregistryExclusion[] }>;
+  list(query?: SubregistryQuery): Promise<{
+    response: SubregistryListResponse;
+    excluded: SubregistryExclusion[];
+  }>;
   versions(
     serverName: string,
     options?: { include_deleted?: boolean },
-  ): Promise<{ response: SubregistryListResponse; excluded: SubregistryExclusion[] }>;
+  ): Promise<{
+    response: SubregistryListResponse;
+    excluded: SubregistryExclusion[];
+  }>;
   version(
     serverName: string,
     version: string,
@@ -94,7 +98,10 @@ const privateHostSuffixes = [
 
 function privateIpv4(host: string): boolean {
   const parts = host.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  )
     return false;
   const [a, b] = parts as [number, number, number, number];
   return (
@@ -119,7 +126,9 @@ function privateIpv6(host: string): boolean {
     if (hex) {
       const high = Number.parseInt(hex[1]!, 16);
       const low = Number.parseInt(hex[2]!, 16);
-      return privateIpv4(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`);
+      return privateIpv4(
+        `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
+      );
     }
     return privateIpv4(mapped);
   }
@@ -148,7 +157,8 @@ export function isPubliclyRoutableUrl(value: string): boolean {
   if (!host || host === "localhost") return false;
   if (host.startsWith("[")) return !privateIpv6(host);
   if (/^\d+(\.\d+){3}$/.test(host)) return !privateIpv4(host);
-  if (/^[0-9a-f:]+$/.test(host) && host.includes(":")) return !privateIpv6(host);
+  if (/^[0-9a-f:]+$/.test(host) && host.includes(":"))
+    return !privateIpv6(host);
   if (!host.includes(".")) return false;
   if (privateHostSuffixes.some((suffix) => host.endsWith(suffix))) return false;
   return true;
@@ -171,7 +181,10 @@ function sanitizeInput(
   for (const key of allow) {
     const value = (input as Record<string, unknown>)[key];
     if (value === undefined || value === null) continue;
-    if (secret && (key === "value" || key === "default" || key === "placeholder")) {
+    if (
+      secret &&
+      (key === "value" || key === "default" || key === "placeholder")
+    ) {
       if (typeof value === "string" && value.length > 0) redactions++;
       continue;
     }
@@ -215,7 +228,10 @@ function sanitizeTransport(transport: RegistryTransport): Sanitized {
   if (transport.url !== undefined) out.url = transport.url;
   if (transport.headers) {
     out.headers = transport.headers.map((header) => {
-      const sanitized = sanitizeInput(header as RegistryKeyValueInput, keyValueFields);
+      const sanitized = sanitizeInput(
+        header as RegistryKeyValueInput,
+        keyValueFields,
+      );
       redactions += sanitized.redactions;
       return sanitized.value;
     });
@@ -232,7 +248,9 @@ function sanitizeTransport(transport: RegistryTransport): Sanitized {
   return { value: out, redactions };
 }
 
-function sanitizeArguments(args: RegistryArgument[] | null | undefined): Sanitized | undefined {
+function sanitizeArguments(
+  args: RegistryArgument[] | null | undefined,
+): Sanitized | undefined {
   if (!args) return undefined;
   let redactions = 0;
   const value = args.map((argument) => {
@@ -249,7 +267,12 @@ function sanitizePackage(pkg: RegistryPackage): Sanitized {
     registryType: pkg.registryType,
     identifier: pkg.identifier,
   };
-  for (const key of ["version", "registryBaseUrl", "runtimeHint", "fileSha256"] as const)
+  for (const key of [
+    "version",
+    "registryBaseUrl",
+    "runtimeHint",
+    "fileSha256",
+  ] as const)
     if (pkg[key] !== undefined) out[key] = pkg[key];
   const transport = sanitizeTransport(pkg.transport);
   out.transport = transport.value;
@@ -279,7 +302,11 @@ function sanitizePackage(pkg: RegistryPackage): Sanitized {
 export function publicServerJsonProjection(
   server: ServerJson,
   options: { includePublisherMeta?: boolean } = {},
-): { server: Record<string, unknown>; redactions: number; privateRemoteUrls: string[] } {
+): {
+  server: Record<string, unknown>;
+  redactions: number;
+  privateRemoteUrls: string[];
+} {
   let redactions = 0;
   const privateRemoteUrls: string[] = [];
   const out: Record<string, unknown> = {};
@@ -295,7 +322,8 @@ export function publicServerJsonProjection(
       source: server.repository.source,
     };
     if (server.repository.id) repository.id = server.repository.id;
-    if (server.repository.subfolder) repository.subfolder = server.repository.subfolder;
+    if (server.repository.subfolder)
+      repository.subfolder = server.repository.subfolder;
     out.repository = repository;
   }
   if (server.icons)
@@ -325,19 +353,26 @@ export function publicServerJsonProjection(
     Object.hasOwn(server._meta, MCP_REGISTRY_PUBLISHER_META_KEY)
   )
     out._meta = {
-      [MCP_REGISTRY_PUBLISHER_META_KEY]: server._meta[MCP_REGISTRY_PUBLISHER_META_KEY],
+      [MCP_REGISTRY_PUBLISHER_META_KEY]:
+        server._meta[MCP_REGISTRY_PUBLISHER_META_KEY],
     };
   return { server: out, redactions, privateRemoteUrls };
 }
 
-function officialMeta(official: RegistryOfficialMeta | undefined): Record<string, unknown> | undefined {
+function officialMeta(
+  official: RegistryOfficialMeta | undefined,
+): Record<string, unknown> | undefined {
   if (!official) return undefined;
   return {
     status: official.status,
     ...(official.publishedAt ? { publishedAt: official.publishedAt } : {}),
     ...(official.updatedAt ? { updatedAt: official.updatedAt } : {}),
-    ...(official.statusChangedAt ? { statusChangedAt: official.statusChangedAt } : {}),
-    ...(official.statusMessage ? { statusMessage: official.statusMessage } : {}),
+    ...(official.statusChangedAt
+      ? { statusChangedAt: official.statusChangedAt }
+      : {}),
+    ...(official.statusMessage
+      ? { statusMessage: official.statusMessage }
+      : {}),
     ...(official.isLatest === undefined ? {} : { isLatest: official.isLatest }),
   };
 }
@@ -361,11 +396,14 @@ const querySchema = z.strictObject({
   include_deleted: z.boolean().optional(),
 });
 
-const encodeCursor = (digest: string) => Buffer.from(digest, "hex").toString("base64url");
+const encodeCursor = (digest: string) =>
+  Buffer.from(digest, "hex").toString("base64url");
 const decodeCursor = (cursor: string) => {
   const digest = Buffer.from(cursor, "base64url").toString("hex");
   if (!/^[a-f0-9]{64}$/.test(digest) || encodeCursor(digest) !== cursor)
-    throw new ConnectorError("invalid-request", { detail: "subregistry.cursor.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "subregistry.cursor.invalid",
+    });
   return digest;
 };
 
@@ -384,10 +422,16 @@ function surface(
     defaultLimit: number;
   },
 ): SubregistryReadSurface {
-  const filter = (rows: RegistryIndexRow[], query: z.infer<typeof querySchema>) => {
+  const filter = (
+    rows: RegistryIndexRow[],
+    query: z.infer<typeof querySchema>,
+  ) => {
     const includeDeleted =
-      query.include_deleted ?? (query.updated_since !== undefined || options.deletedByDefault);
-    const since = query.updated_since ? Date.parse(query.updated_since) : undefined;
+      query.include_deleted ??
+      (query.updated_since !== undefined || options.deletedByDefault);
+    const since = query.updated_since
+      ? Date.parse(query.updated_since)
+      : undefined;
     const search = query.search?.toLowerCase();
     return rows.filter((row) => {
       if (options.hidden(row)) return false;
@@ -396,7 +440,8 @@ function surface(
       if (search && !row.name.toLowerCase().includes(search)) return false;
       if (query.version === "latest") {
         if (row.isLatest !== true) return false;
-      } else if (query.version !== undefined && row.version !== query.version) return false;
+      } else if (query.version !== undefined && row.version !== query.version)
+        return false;
       if (since !== undefined) {
         const updated = Date.parse(row.updatedAt ?? row.publishedAt ?? "");
         if (!Number.isFinite(updated) || updated < since) return false;
@@ -414,7 +459,9 @@ function surface(
       const digest = decodeCursor(cursor);
       const index = rows.findIndex((row) => row.identityDigest === digest);
       if (index < 0)
-        throw new ConnectorError("invalid-request", { detail: "subregistry.cursor.stale" });
+        throw new ConnectorError("invalid-request", {
+          detail: "subregistry.cursor.stale",
+        });
       start = index + 1;
     }
     const servers: SubregistryServerResponse[] = [];
@@ -426,12 +473,18 @@ function surface(
       last = row;
       const entry = await view.entry(row.identityDigest);
       if (!entry) {
-        excluded.push({ identityDigest: row.identityDigest, reason: "content-missing" });
+        excluded.push({
+          identityDigest: row.identityDigest,
+          reason: "content-missing",
+        });
         continue;
       }
       const rendered = options.render(row, entry);
       if ("excluded" in rendered)
-        excluded.push({ identityDigest: row.identityDigest, reason: rendered.excluded });
+        excluded.push({
+          identityDigest: row.identityDigest,
+          reason: rendered.excluded,
+        });
       else servers.push(rendered.response);
     }
     const more = index < rows.length;
@@ -440,7 +493,9 @@ function surface(
         servers,
         metadata: {
           count: servers.length,
-          ...(more && last ? { nextCursor: encodeCursor(last.identityDigest) } : {}),
+          ...(more && last
+            ? { nextCursor: encodeCursor(last.identityDigest) }
+            : {}),
         },
       },
       excluded,
@@ -449,13 +504,18 @@ function surface(
   return {
     async list(input = {}) {
       const query = querySchema.parse(input);
-      const limit = Math.min(query.limit ?? options.defaultLimit, options.maxLimit);
+      const limit = Math.min(
+        query.limit ?? options.defaultLimit,
+        options.maxLimit,
+      );
       return page(filter(view.rows, query), query.cursor, limit);
     },
     async versions(serverName, input = {}) {
       const name = registryServerNameSchema.parse(serverName);
       const query = querySchema.parse({
-        ...(input.include_deleted === undefined ? {} : { include_deleted: input.include_deleted }),
+        ...(input.include_deleted === undefined
+          ? {}
+          : { include_deleted: input.include_deleted }),
       });
       const rows = filter(
         view.rows.filter((row) => row.name === name),
@@ -467,7 +527,9 @@ function surface(
       const name = registryServerNameSchema.parse(serverName);
       const requested = registryRequestVersionSchema.parse(version);
       const query = querySchema.parse({
-        ...(input.include_deleted === undefined ? {} : { include_deleted: input.include_deleted }),
+        ...(input.include_deleted === undefined
+          ? {}
+          : { include_deleted: input.include_deleted }),
       });
       const candidates = filter(
         view.rows.filter((row) => row.name === name),
@@ -475,8 +537,8 @@ function surface(
       );
       const row =
         requested === "latest"
-          ? candidates.filter((item) => item.isLatest === true).at(-1) ??
-            candidates.filter((item) => !item.tombstone).at(-1)
+          ? (candidates.filter((item) => item.isLatest === true).at(-1) ??
+            candidates.filter((item) => !item.tombstone).at(-1))
           : candidates.find((item) => item.version === requested);
       if (!row) return undefined;
       const entry = await view.entry(row.identityDigest);
@@ -519,7 +581,8 @@ export function publicSubregistryProjection(
       const projected = publicServerJsonProjection(entry.server, {
         includePublisherMeta: policy.includePublisherMeta === true,
       });
-      if (projected.privateRemoteUrls.length) return { excluded: "private-remote-url" };
+      if (projected.privateRemoteUrls.length)
+        return { excluded: "private-remote-url" };
       const official = officialMeta(entry.official);
       return {
         response: {
@@ -551,7 +614,9 @@ export function privateCatalogProjection(
     typeof actor.subjectId !== "string" ||
     !actor.subjectId
   )
-    throw new ConnectorError("denied", { detail: "subregistry.tenant-mismatch" });
+    throw new ConnectorError("denied", {
+      detail: "subregistry.tenant-mismatch",
+    });
   return surface(view, {
     hidden: () => undefined,
     deletedByDefault: true,
@@ -581,7 +646,10 @@ export function privateCatalogProjection(
               freshness: {
                 stale: view.freshness.stale,
                 ...(view.freshness.lastSuccessfulRefreshAt
-                  ? { lastSuccessfulRefreshAt: view.freshness.lastSuccessfulRefreshAt }
+                  ? {
+                      lastSuccessfulRefreshAt:
+                        view.freshness.lastSuccessfulRefreshAt,
+                    }
                   : {}),
               },
             },

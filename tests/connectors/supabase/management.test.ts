@@ -13,13 +13,13 @@ import type {
   CompletionResult,
   HandoffProposal,
 } from "../../../src/server/connectors/adapter.js";
-import { fixtureActor } from "../../doubles/ports.js";
+import { fixtureActor } from "../doubles/ports.js";
 import {
   managementOrganization,
   managementProject,
   startSupabaseManagementDouble,
   type SupabaseManagementDouble,
-} from "../../doubles/supabase-management.js";
+} from "../doubles/supabase-management.js";
 import {
   CALLBACK_PATH,
   HOST_ORIGIN,
@@ -685,11 +685,18 @@ test("Revoke calls the documented endpoint; without a refresh token it reports u
     0,
     "local unlink must not contact the provider",
   );
+  assert.equal(
+    double.activeAccessTokens(),
+    1,
+    "the upstream grant survives a local disconnect; unlinking establishes no revocation",
+  );
 
+  // Reconnecting issues a second grant, so the provider now holds two.
   const reconnected = await connect(h, {
     kind: "supabase-project",
     id: PROJECT_REF,
   });
+  assert.equal(double.activeAccessTokens(), 2);
   const revoked = await adapter.revoke(reconnected.ctx);
   assert.equal(revoked.upstream, "applied");
   assert.equal(revoked.local, "applied");
@@ -700,7 +707,10 @@ test("Revoke calls the documented endpoint; without a refresh token it reports u
   const body = double.observed.revokeBodies.at(-1)!;
   assert.equal(body.client_id, CLIENT_ID);
   assert.ok(body.refresh_token);
-  assert.equal(double.activeAccessTokens(), 0);
+  // Exactly the grant this connection held was revoked: the one the earlier
+  // local disconnect abandoned is untouched by it.
+  assert.equal(double.activeAccessTokens(), 1);
+  assert.equal(double.received("POST", "/v1/oauth/revoke").length, 1);
 
   // A grant with no refresh token cannot be revoked through the API: the
   // native limitation is reported, never a fabricated success.

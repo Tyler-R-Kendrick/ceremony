@@ -28,7 +28,11 @@ function invalid(detail: string): ConnectorError {
   return new ConnectorError("upstream-rejected", { detail });
 }
 
-type Frame = { kind: "object" | "array"; keys?: Set<string>; expectKey: boolean };
+type Frame = {
+  kind: "object" | "array";
+  keys?: Set<string>;
+  expectKey: boolean;
+};
 
 /** Scans structure without building it; throws a sanitized ConnectorError on any violation. */
 function scan(text: string, bounds: JsonBounds): void {
@@ -76,7 +80,8 @@ function scan(text: string, bounds: JsonBounds): void {
     }
     if (char === "{" || char === "[") {
       node();
-      if (stack.length + 1 > bounds.maxDepth) throw invalid("json.depth.exceeded");
+      if (stack.length + 1 > bounds.maxDepth)
+        throw invalid("json.depth.exceeded");
       stack.push(
         char === "{"
           ? { kind: "object", keys: new Set(), expectKey: true }
@@ -96,14 +101,20 @@ function scan(text: string, bounds: JsonBounds): void {
       index++;
       continue;
     }
-    if (char === ":" || char === " " || char === "\n" || char === "\r" || char === "\t") {
+    if (
+      char === ":" ||
+      char === " " ||
+      char === "\n" ||
+      char === "\r" ||
+      char === "\t"
+    ) {
       index++;
       continue;
     }
     // A literal or number: count it once and skip to its end.
     node();
     let end = index + 1;
-    while (end < length && !',}] \n\r\t'.includes(text[end]!)) end++;
+    while (end < length && !",}] \n\r\t".includes(text[end]!)) end++;
     index = end;
   }
 }

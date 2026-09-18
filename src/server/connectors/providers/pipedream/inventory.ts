@@ -18,7 +18,7 @@ import { ConnectorError } from "../../errors.js";
 import { expectJson } from "./client.js";
 import { accountView, type AccountView } from "./connect.js";
 import type { PipedreamCall } from "./context.js";
-import { checkJsonBounds } from "./execute.js";
+import { checkJsonBounds } from "./guards.js";
 import { pipedreamAppSlugSchema, sha256Hex } from "./identity.js";
 import {
   accountListSchema,
@@ -305,11 +305,13 @@ function componentsOf(document: unknown): PipedreamComponent[] {
     throw new ConnectorError("invalid-request", {
       detail: "pipedream.import.unrecognized",
     });
-  const value = parsed.data as
-    | { data: PipedreamComponent[] | PipedreamComponent }
-    | PipedreamComponent;
-  if ("data" in value)
-    return Array.isArray(value.data) ? value.data : [value.data];
+  const value: unknown = parsed.data;
+  if (value && typeof value === "object" && "data" in value) {
+    const data = (value as { data: unknown }).data;
+    const many = z.array(componentSchema).safeParse(data);
+    if (many.success) return many.data;
+    return [componentSchema.parse(data)];
+  }
   return [componentSchema.parse(value)];
 }
 

@@ -4,7 +4,10 @@ import type { RuntimeBinding } from "../../../src/server/connectors/binding.js";
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
 import { registryEntry, type DoubleEntry } from "../doubles/mcp-registry.js";
 
-export const fixturesDir = new URL("../fixtures/mcp-registry/", import.meta.url);
+export const fixturesDir = new URL(
+  "../fixtures/mcp-registry/",
+  import.meta.url,
+);
 
 export function loadServer(name: string): DoubleEntry["server"] {
   return JSON.parse(
@@ -13,7 +16,9 @@ export function loadServer(name: string): DoubleEntry["server"] {
 }
 
 export function loadServerBytes(name: string): Uint8Array {
-  return new Uint8Array(readFileSync(new URL(`servers/${name}.json`, fixturesDir)));
+  return new Uint8Array(
+    readFileSync(new URL(`servers/${name}.json`, fixturesDir)),
+  );
 }
 
 export const pinnedSchema = JSON.parse(
@@ -21,18 +26,26 @@ export const pinnedSchema = JSON.parse(
 ) as {
   definitions: Record<
     string,
-    { required?: string[]; properties?: Record<string, { pattern?: string; maxLength?: number }> }
+    {
+      required?: string[];
+      properties?: Record<string, { pattern?: string; maxLength?: number }>;
+    }
   >;
 };
 
 /** Facts from the pinned JSON schema, applied without a schema library: required fields, name pattern, length limits. */
-export function assertMatchesPinnedServerDetail(server: Record<string, unknown>): void {
+export function assertMatchesPinnedServerDetail(
+  server: Record<string, unknown>,
+): void {
   const detail = pinnedSchema.definitions["ServerDetail"]!;
   for (const field of detail.required ?? [])
     if (!(field in server)) throw new Error(`pinned schema requires ${field}`);
   const props = detail.properties ?? {};
   const name = server["name"];
-  if (typeof name !== "string" || !new RegExp(props["name"]!.pattern!).test(name))
+  if (
+    typeof name !== "string" ||
+    !new RegExp(props["name"]!.pattern!).test(name)
+  )
     throw new Error("name violates the pinned pattern");
   for (const field of ["description", "title", "name", "version"] as const) {
     const value = server[field];
@@ -46,7 +59,10 @@ export function assertMatchesPinnedServerDetail(server: Record<string, unknown>)
     for (const remote of remotes as Array<Record<string, unknown>>) {
       if (!["streamable-http", "sse"].includes(remote["type"] as string))
         throw new Error("remote type outside RemoteTransport");
-      if (typeof remote["url"] !== "string" || !/^https?:\/\/[^\s]+$/.test(remote["url"]))
+      if (
+        typeof remote["url"] !== "string" ||
+        !/^https?:\/\/[^\s]+$/.test(remote["url"])
+      )
         throw new Error("remote url violates the pinned pattern");
     }
   }
@@ -65,11 +81,17 @@ export function sampleEntries(): DoubleEntry[] {
   const entries = names.map((name, index) =>
     registryEntry(
       {
-        $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        $schema:
+          "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
         name,
         description: `Sample server ${index + 1}`,
         version: index === 2 ? "1.0.0-rc.1" : "1.0.0",
-        remotes: [{ type: "streamable-http", url: `https://${name.replace("/", ".")}.example.com/mcp` }],
+        remotes: [
+          {
+            type: "streamable-http",
+            url: `https://${name.replace("/", ".")}.example.com/mcp`,
+          },
+        ],
       },
       { publishedAt: `2026-01-0${index + 1}T00:00:00Z` },
     ),
@@ -79,16 +101,23 @@ export function sampleEntries(): DoubleEntry[] {
     0,
     registryEntry(
       {
-        $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        $schema:
+          "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
         name: "io.github.a/b",
         description: "Sample server 3, second version",
         version: "1.0.0",
-        remotes: [{ type: "streamable-http", url: "https://io.github.a.b.example.com/mcp" }],
+        remotes: [
+          {
+            type: "streamable-http",
+            url: "https://io.github.a.b.example.com/mcp",
+          },
+        ],
       },
       { publishedAt: "2026-01-03T12:00:00Z" },
     ),
   );
-  entries[2]!._meta["io.modelcontextprotocol.registry/official"].isLatest = false;
+  entries[2]!._meta["io.modelcontextprotocol.registry/official"].isLatest =
+    false;
   return entries;
 }
 

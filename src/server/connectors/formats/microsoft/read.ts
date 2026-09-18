@@ -125,18 +125,18 @@ const ENTRY_LIMITS = Object.freeze({
  * extension bounds. Over-large values become markers that keep the pointer,
  * so a reviewer still learns the extension was there.
  */
-function packExtensions(
-  entries: readonly ExtensionEntry[],
+function packExtensions<T extends ExtensionEntry>(
+  entries: readonly T[],
   budget: { depth: number; nodes: number; bytes: number; stringLength: number },
   onTruncate?: (count: number) => void,
-): ExtensionEntry[] {
-  const packed: ExtensionEntry[] = [];
+): T[] {
+  const packed: T[] = [];
   let omitted = 0;
   for (const entry of entries) {
     const measured = measureJsonValue(entry.value, ENTRY_LIMITS);
-    const candidate: ExtensionEntry = measured.ok
+    const candidate: T = measured.ok
       ? entry
-      : { pointer: entry.pointer, name: entry.name, value: { $omitted: measured.reason } };
+      : { ...entry, value: { $omitted: measured.reason } };
     const next = [...packed, candidate];
     if (!measureJsonValue(next, budget).ok) {
       omitted = entries.length - packed.length;
@@ -146,6 +146,12 @@ function packExtensions(
   }
   if (omitted && onTruncate) onTruncate(omitted);
   return packed;
+}
+
+/** `#/paths/~1repos/post` describes an operation; its Path Item is one segment up. */
+function pathItemPointerOf(operation: WalkedOperation): string {
+  const cut = operation.pointer.lastIndexOf("/");
+  return cut > 0 ? operation.pointer.slice(0, cut) : operation.pointer;
 }
 
 function extensionEntries(
@@ -853,32 +859,109 @@ export async function readCustomConnector(
 
     const body = operation.parameters.find((parameter) => parameter.in === "body");
     const success = operation.responses.find((response) => /^2/.test(response.status));
+    // Extensions are grouped by where they were written, so an export can put
+    // each one back on its own node instead of guessing.
+    const groupBudget = Object.freeze({
+      depth: 14,
+      nodes: 900,
+      bytes: 28 * 1024,
+      stringLength: EXTENSION_LIMITS.stringLength,
+    });
     const operationExtensions = packExtensions(
-      [
-        ...extensionEntries(operation.extensions, operation.pointer),
-        ...extensionEntries(operation.pathItemExtensions, operation.pointer),
-        ...operation.parameters.flatMap((parameter) =>
-          extensionEntries(parameter.extensions, parameter.pointer),
-        ),
-      ],
-      EXTENSION_LIMITS,
+      extensionEntries(operation.extensions, operation.pointer),
+      groupBudget,
     );
-    const nativeExtensions: Record<string, unknown> = {
-      "microsoft-operation": {
-        method: operation.method,
-        path: operation.path,
-        deprecated: operation.deprecated,
-        ...(operationVisibility ? { visibility: operationVisibility } : {}),
-        ...(trigger ? { trigger } : {}),
-        ...(notificationField ? { notificationUrlField: notificationField } : {}),
-        parameters: operation.parameters.slice(0, 64).map(parameterRecord),
-        responses: operation.responses.map((response) => response.status),
-        ...(operation.consumes.length ? { consumes: operation.consumes } : {}),
-        ...(operation.produces.length ? { produces: operation.produces } : {}),
+    const pathExtensions = packExtensions(
+      extensionEntries(operation.pathItemExtensions, pathItemPointerOf(operation)),
+      groupBudget,
+    );
+    const parameterExtensions = packExtensions(
+      operation.parameters.flatMap((parameter) => [
+        ...extensionEntries(parameter.extensions, parameter.pointer).map(
+          (entry) => ({ ...entry, parameter: parameter.name, pathString: "" }),
+        ),
+        ...parameter.nested.flatMap((node) =>
+          extensionEntries(node.extensions, node.pointer).map((entry) => ({
+            ...entry,
+            parameter: parameter.name,
+            pathString: node.pathString,
+          })),
+        ),
+      ]),
+      groupBudget,
+    );
+    const responseExtensions = packExtensions(
+      operation.responses.flatMap((response) => [
+        ...extensionEntries(response.extensions, response.pointer).map(
+          (entry) => ({ ...entry, status: response.status, pathString: "" }),
+        ),
+        ...response.nested.flatMap((node) =>
+          extensionEntries(node.extensions, node.pointer).map((entry) => ({
+            ...entry,
+            status: response.status,
+            pathString: node.pathString,
+          })),
+        ),
+      ]),
+      groupBudget,
+    );
+    const nativeExtensions = fitBlock(
+      {
+        "microsoft-operation": {
+          method: operation.method,
+          path: operation.path,
+          deprecated: operation.deprecated,
+          ...(operationVisibility ? { visibility: operationVisibility } : {}),
+          ...(trigger ? { trigger } : {}),
+          ...(notificationField ? { notificationUrlField: notificationField } : {}),
+          parameters: operation.parameters.slice(0, 64).map(parameterRecord),
+          responses: operation.responses.map((response) => ({
+            status: response.status,
+            ...(response.description ? { description: response.description } : {}),
+            ...(response.headers.length ? { headers: response.headers } : {}),
+          })),
+          security: {
+            source: operation.security.source,
+            alternatives: operation.security.alternatives.map((alternative) =>
+              alternative.schemes.map((entry) => ({
+                scheme: entry.scheme,
+                scopes: entry.scopes,
+              })),
+            ),
+          },
+          ...(operation.consumes.length ? { consumes: operation.consumes } : {}),
+          ...(operation.produces.length ? { produces: operation.produces } : {}),
+        },
+        ...(operationExtensions.length
+          ? { "x-ms-operation-extensions": operationExtensions }
+          : {}),
+        ...(pathExtensions.length
+          ? { "x-ms-path-extensions": pathExtensions }
+          : {}),
+        ...(parameterExtensions.length
+          ? { "x-ms-parameter-extensions": parameterExtensions }
+          : {}),
+        ...(responseExtensions.length
+          ? { "x-ms-response-extensions": responseExtensions }
+          : {}),
       },
-    };
-    if (operationExtensions.length)
-      nativeExtensions["x-ms-extensions"] = operationExtensions;
+      [
+        "x-ms-response-extensions",
+        "x-ms-parameter-extensions",
+        "x-ms-path-extensions",
+        "x-ms-operation-extensions",
+      ],
+      (key) =>
+        issues.push({
+          code: "structure.extensions-truncated",
+          category: "structure",
+          pointer: operation.pointer,
+          dimension: "import",
+          severity: "warning",
+          disposition: "adapted",
+          message: `Preserved extensions of group ${token(key)} exceeded the budget for operation ${token(operation.nativeId)} and are not carried in the description; they remain in the protected source artifact.`,
+        }),
+    );
 
     const authentication = [
       ...new Set(
@@ -1011,7 +1094,8 @@ export async function readCustomConnector(
       }),
   );
 
-  const nativeExtensions: Record<string, unknown> = {
+  const nativeExtensions = fitBlock(
+    {
     "x-ms-extensions": documentExtensions,
     "microsoft-custom-connector": {
       ...(settings.connectorId ? { connectorId: settings.connectorId } : {}),
@@ -1068,10 +1152,54 @@ export async function readCustomConnector(
       gateway: { required: gatewayRequired, available: false },
       /** Presentation hints only. Visibility never decides authorization or classification. */
       presentation: { visibility, profileSets: auth.profileSets },
+      /** Security definitions exactly as written, so an export re-emits them rather than inventing them. */
+      securityDefinitions: Object.values(walk.securityDefinitions).map((scheme) => ({
+        name: scheme.name,
+        type: scheme.type,
+        profileIds: auth.schemeProfiles[scheme.name] ?? [],
+        ...(scheme.in ? { in: scheme.in } : {}),
+        ...(scheme.parameterName ? { parameterName: scheme.parameterName } : {}),
+        ...(scheme.flow ? { flow: scheme.flow } : {}),
+        ...(scheme.authorizationUrl
+          ? { authorizationUrl: scheme.authorizationUrl }
+          : {}),
+        ...(scheme.tokenUrl ? { tokenUrl: scheme.tokenUrl } : {}),
+        scopes: scheme.scopes,
+        ...(scheme.description ? { description: scheme.description } : {}),
+      })),
+      ...(walk.documentSecurity
+        ? {
+            security: walk.documentSecurity.map((alternative) =>
+              alternative.schemes.map((entry) => ({
+                scheme: entry.scheme,
+                scopes: entry.scopes,
+              })),
+            ),
+          }
+        : {}),
+      document: {
+        ...(walk.host ? { host: walk.host } : {}),
+        ...(walk.basePath ? { basePath: walk.basePath } : {}),
+        schemes: walk.schemes,
+        ...(walk.consumes.length ? { consumes: walk.consumes } : {}),
+        ...(walk.produces.length ? { produces: walk.produces } : {}),
+      },
     },
     "microsoft-dynamic-fields": dynamicFields,
     ...(verifierCandidate ? { "microsoft-test-connection": verifierCandidate } : {}),
-  };
+    },
+    ["x-ms-extensions", "microsoft-dynamic-fields"],
+    (key) =>
+      issues.push({
+        code: "structure.extensions-truncated",
+        category: "structure",
+        pointer: "#",
+        dimension: "import",
+        severity: "warning",
+        disposition: "adapted",
+        message: `Preserved block ${token(key)} exceeded the description's inert-extension budget and is not carried; it remains in the protected source artifact.`,
+      }),
+  );
 
   const identity: ConnectorSourceIdentity = {
     ecosystem: MICROSOFT_ECOSYSTEM,

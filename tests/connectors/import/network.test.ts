@@ -12,6 +12,7 @@ import {
   networkPolicy,
   NETWORK_LIMITS,
 } from "../../../src/server/connectors/import/index.js";
+import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { startHttpFixture } from "../doubles/http-fixture.js";
 import {
   CANARY,
@@ -139,12 +140,26 @@ test("an administrator-approved private origin is scoped to exactly that origin"
     "network.dns-forbidden-address",
   );
   // The approved origin's private answer is accepted by policy: the attempt
-  // reaches the transport and fails there, not at the policy gate.
-  await expectConnectorError(fetcher(`${approved}/spec.json`), "upstream-unavailable");
-  // The same origin list means nothing under the public policy.
-  assert.equal(
-    evaluateNetworkTarget(`${approved}/spec.json`, publicPolicy()).allowed,
-    false,
+  // goes to the transport, whatever that host does next, rather than being
+  // stopped at the gate the sibling hit.
+  let gate = "reached-transport";
+  try {
+    await fetcher(`${approved}/spec.json`);
+  } catch (error) {
+    gate = error instanceof ConnectorError ? error.code : "other";
+  }
+  assert.notEqual(gate, "network-policy");
+  // The same approval means nothing under a policy that did not declare it:
+  // the private origin is refused, and the named host is treated as a plain
+  // public target whose private DNS answer is refused at connection time.
+  const plain = publicPolicy();
+  assert.equal(evaluateNetworkTarget("https://10.0.0.7:8443/spec", plain).allowed, false);
+  const unapproved = createApprovedFetch({ ...plain, lookup: privateAnswer, timeoutMs: 500 });
+  t.after(() => unapproved.close());
+  await expectConnectorError(
+    unapproved(`${approved}/spec.json`),
+    "network-policy",
+    "network.dns-forbidden-address",
   );
   // Private origins may only be declared by the mode that can honour them.
   assert.throws(

@@ -56,7 +56,8 @@ export const CEREMONY_EXECUTION_EXTENSION = "io.ceremony.connectors/execution";
 export const CEREMONY_SCHEMA_EXTENSION = "io.ceremony.connectors/schema";
 export const CEREMONY_UNSUPPORTED_CONFIGURATION_EXTENSION =
   "io.ceremony.connectors/unsupported-configuration";
-export const CEREMONY_REDACTIONS_EXTENSION = "io.ceremony.connectors/redactions";
+export const CEREMONY_REDACTIONS_EXTENSION =
+  "io.ceremony.connectors/redactions";
 
 export const SERVER_JSON_IMPORT_LIMITS = Object.freeze({
   bytes: 256 * 1024,
@@ -84,16 +85,15 @@ export type ServerJsonImport = {
 };
 
 const shellMetacharacters = /[;&|`$<>\n\r]|\$\(|\{[^}]*\}\s*\|/;
-const remoteFetchPipe = /\b(curl|wget|iwr|invoke-webrequest)\b[^|]*\|\s*(sh|bash|zsh|python\d?|node|pwsh|powershell)\b/i;
+const remoteFetchPipe =
+  /\b(curl|wget|iwr|invoke-webrequest)\b[^|]*\|\s*(sh|bash|zsh|python\d?|node|pwsh|powershell)\b/i;
 const absolutePath = /^(\/|[A-Za-z]:\\|\\\\|~\/)/;
 const traversalSegment = /(^|[\\/])\.\.([\\/]|$)/;
 
 const clip = (value: string, max: number) =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
 const safe = (value: string | undefined, max = 500) =>
-  value === undefined
-    ? undefined
-    : clip(value.replace(/\p{Cc}/gu, " "), max);
+  value === undefined ? undefined : clip(value.replace(/\p{Cc}/gu, " "), max);
 
 class IssueList {
   readonly issues: CompatibilityIssue[] = [];
@@ -132,7 +132,10 @@ export function suspiciousArgument(value: string): string | undefined {
   return undefined;
 }
 
-type Redaction = { pointer: string; field: "value" | "default" | "placeholder" };
+type Redaction = {
+  pointer: string;
+  field: "value" | "default" | "placeholder";
+};
 
 /** A copy of an input with secret values removed; the field names stay so a reviewer sees what was there. */
 function inertInput<T extends RegistryInput>(
@@ -184,7 +187,11 @@ function scanArguments(
             "executable-code.suspicious-argument",
             `${pointer}[${index}].${field}`,
             `Package argument looks like ${reason.replace(/-/g, " ")}; it is recorded as inert text and is never executed`,
-            { category: "executable-code", dimension: "invoke", disposition: "unsupported" },
+            {
+              category: "executable-code",
+              dimension: "invoke",
+              disposition: "unsupported",
+            },
           ),
         );
     }
@@ -199,7 +206,11 @@ function scanArguments(
               "executable-code.suspicious-argument",
               `${pointer}[${index}].variables.${name}.${field}`,
               `Argument variable looks like ${reason.replace(/-/g, " ")}; it is recorded as inert text and is never executed`,
-              { category: "executable-code", dimension: "invoke", disposition: "unsupported" },
+              {
+                category: "executable-code",
+                dimension: "invoke",
+                disposition: "unsupported",
+              },
             ),
           );
       }
@@ -220,7 +231,11 @@ function collectConfiguration(
   kind: "environment variable" | "header" | "variable",
 ): void {
   if (!configurationNamePattern.test(name)) {
-    collector.unsupported.push({ pointer, name: clip(name, 120), reason: "name" });
+    collector.unsupported.push({
+      pointer,
+      name: clip(name, 120),
+      reason: "name",
+    });
     issues.add(
       issue(
         "structure.configuration-name-unsupported",
@@ -245,7 +260,11 @@ function collectConfiguration(
     classification:
       existing?.classification === "secret" ? "secret" : classification,
     required: (existing?.required ?? false) || input.isRequired === true,
-    ...(description ? { description } : existing?.description ? { description: existing.description } : {}),
+    ...(description
+      ? { description }
+      : existing?.description
+        ? { description: existing.description }
+        : {}),
   };
   collector.requirements.set(name, next);
 }
@@ -362,7 +381,8 @@ function remoteCapability(
       },
       [CEREMONY_EXECUTION_EXTENSION]: {
         approved: false,
-        reason: "A declared remote is a candidate for an MCP binding, never an approved destination",
+        reason:
+          "A declared remote is a candidate for an MCP binding, never an approved destination",
       },
     },
   };
@@ -395,13 +415,24 @@ function packageCapability(
     const value = pkg[field];
     if (value === undefined) continue;
     const reason = suspiciousArgument(value);
-    if (reason && !(field === "identifier" && pkg.registryType === "mcpb" && /^https:\/\//.test(value)))
+    if (
+      reason &&
+      !(
+        field === "identifier" &&
+        pkg.registryType === "mcpb" &&
+        /^https:\/\//.test(value)
+      )
+    )
       issues.add(
         issue(
           "executable-code.suspicious-argument",
           `${pointer}.${field}`,
           `Package ${field} looks like ${reason.replace(/-/g, " ")}; it is recorded as inert text and is never executed`,
-          { category: "executable-code", dimension: "invoke", disposition: "unsupported" },
+          {
+            category: "executable-code",
+            dimension: "invoke",
+            disposition: "unsupported",
+          },
         ),
       );
   }
@@ -419,7 +450,10 @@ function packageCapability(
       return inertInput(variable, variablePointer, redactions);
     },
   );
-  const inertArguments = (args: RegistryArgument[] | null | undefined, argPointer: string) =>
+  const inertArguments = (
+    args: RegistryArgument[] | null | undefined,
+    argPointer: string,
+  ) =>
     (args ?? []).map((argument, argumentIndex) =>
       inertInput(argument, `${argPointer}[${argumentIndex}]`, redactions),
     );
@@ -441,13 +475,23 @@ function packageCapability(
     nativeExtensions: {
       [MCP_PACKAGE_EXTENSION]: {
         ...pkg,
-        runtimeArguments: inertArguments(pkg.runtimeArguments, `${pointer}.runtimeArguments`),
-        packageArguments: inertArguments(pkg.packageArguments, `${pointer}.packageArguments`),
+        runtimeArguments: inertArguments(
+          pkg.runtimeArguments,
+          `${pointer}.runtimeArguments`,
+        ),
+        packageArguments: inertArguments(
+          pkg.packageArguments,
+          `${pointer}.packageArguments`,
+        ),
         environmentVariables,
         transport: {
           ...pkg.transport,
           headers: (pkg.transport.headers ?? []).map((header, headerIndex) =>
-            inertInput(header, `${pointer}.transport.headers[${headerIndex}]`, redactions),
+            inertInput(
+              header,
+              `${pointer}.transport.headers[${headerIndex}]`,
+              redactions,
+            ),
           ),
         },
       },
@@ -496,7 +540,9 @@ export async function importServerJson(
     Array.isArray(document) ||
     canonicalConnectorJson(document).length > SERVER_JSON_IMPORT_LIMITS.bytes
   )
-    throw new ConnectorError("invalid-request", { detail: "server-json.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "server-json.invalid",
+    });
   const server = parseServerJson(document);
   const issues = new IssueList();
   const redactions: Redaction[] = [];
@@ -544,7 +590,9 @@ export async function importServerJson(
 
   let official: RegistryOfficialMeta | undefined;
   if (provenance.official !== undefined) {
-    const parsedMeta = registryOfficialMetaSchema.safeParse(provenance.official);
+    const parsedMeta = registryOfficialMetaSchema.safeParse(
+      provenance.official,
+    );
     if (parsedMeta.success) official = parsedMeta.data;
     else
       issues.add(
@@ -580,7 +628,14 @@ export async function importServerJson(
   const remotes = server.remotes ?? [];
   const packages = server.packages ?? [];
   for (const [index, remote] of remotes.entries()) {
-    const capability = remoteCapability(remote, index, issues, redactions, collector, profiles);
+    const capability = remoteCapability(
+      remote,
+      index,
+      issues,
+      redactions,
+      collector,
+      profiles,
+    );
     if (!capability) continue;
     capabilities.push(capability);
     if (remote.url && remote.url.length <= 2048)
@@ -591,7 +646,9 @@ export async function importServerJson(
       });
   }
   for (const [index, pkg] of packages.entries())
-    capabilities.push(packageCapability(pkg, index, issues, redactions, collector));
+    capabilities.push(
+      packageCapability(pkg, index, issues, redactions, collector),
+    );
   if (packages.length)
     issues.add(
       issue(
@@ -649,7 +706,11 @@ export async function importServerJson(
       ),
     );
     for (const item of configuration.slice(DEFINITION_LIMITS.configuration))
-      collector.unsupported.push({ pointer: "", name: item.name, reason: "limit" });
+      collector.unsupported.push({
+        pointer: "",
+        name: item.name,
+        reason: "limit",
+      });
     configuration.length = DEFINITION_LIMITS.configuration;
   }
   const knownKeys = new Set([
@@ -672,7 +733,10 @@ export async function importServerJson(
   void _packages;
   void _remotes;
   const nativeExtensions: NormalizedDefinition["nativeExtensions"] = {
-    [MCP_SERVER_EXTENSION]: { ...descriptive, ...(Object.keys(extra).length ? { unknownFields: extra } : {}) },
+    [MCP_SERVER_EXTENSION]: {
+      ...descriptive,
+      ...(Object.keys(extra).length ? { unknownFields: extra } : {}),
+    },
     [CEREMONY_SCHEMA_EXTENSION]: {
       pinned: SERVER_JSON_SCHEMA_VERSION,
       declared: schema.declared ?? null,
@@ -681,10 +745,17 @@ export async function importServerJson(
     },
     ...(official ? { [MCP_REGISTRY_OFFICIAL_META_KEY]: official } : {}),
     ...(collector.unsupported.length
-      ? { [CEREMONY_UNSUPPORTED_CONFIGURATION_EXTENSION]: collector.unsupported.slice(0, 256) }
+      ? {
+          [CEREMONY_UNSUPPORTED_CONFIGURATION_EXTENSION]:
+            collector.unsupported.slice(0, 256),
+        }
       : {}),
-    ...(redactions.length ? { [CEREMONY_REDACTIONS_EXTENSION]: redactions.slice(0, 256) } : {}),
-    ...(provenance.sourceId ? { "io.ceremony.connectors/source": { sourceId: provenance.sourceId } } : {}),
+    ...(redactions.length
+      ? { [CEREMONY_REDACTIONS_EXTENSION]: redactions.slice(0, 256) }
+      : {}),
+    ...(provenance.sourceId
+      ? { "io.ceremony.connectors/source": { sourceId: provenance.sourceId } }
+      : {}),
   };
   const dimensions: NormalizedDefinition["compatibility"]["dimensions"] = {
     discover: "exact",
@@ -705,7 +776,10 @@ export async function importServerJson(
     definitionRef: `def:mcp-registry:${identityDigest}`,
     identity,
     sourceRef: provenance.sourceRef,
-    importer: { id: MCP_REGISTRY_IMPORTER_ID, version: MCP_REGISTRY_IMPORTER_VERSION },
+    importer: {
+      id: MCP_REGISTRY_IMPORTER_ID,
+      version: MCP_REGISTRY_IMPORTER_VERSION,
+    },
     display: {
       name: clip(safe(server.title, 200) || server.name, 200),
       description: safe(server.description, 500) ?? "",

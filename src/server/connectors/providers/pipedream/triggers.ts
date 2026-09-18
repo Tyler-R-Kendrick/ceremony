@@ -14,11 +14,7 @@ import type { ConnectionRecord } from "../../ports.js";
 import { expectJson, upstreamFailure } from "./client.js";
 import { connectionScope, type PipedreamCall } from "./context.js";
 import { pipedreamTriggerIdSchema, sha256Hex } from "./identity.js";
-import {
-  checkJsonBounds,
-  journaled,
-  validateProps,
-} from "./execute.js";
+import { checkJsonBounds, journaled, validateProps } from "./guards.js";
 import {
   operationSettings,
   type PipedreamOperationSettings,

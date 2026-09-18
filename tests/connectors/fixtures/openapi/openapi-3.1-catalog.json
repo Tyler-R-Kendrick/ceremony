@@ -1,0 +1,113 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://spec.openapis.org/oas/3.1/dialect/base",
+  "info": {
+    "title": "Catalog 3.1",
+    "version": "3.1.0",
+    "description": "An OpenAPI 3.1 description exercising webhooks, type arrays, const, combined security and an anonymous alternative."
+  },
+  "servers": [{ "url": "https://catalog.example.test/v3" }],
+  "security": [{ "apiKey": [], "tenantHeader": [] }, { "oauth": ["catalog:read"] }],
+  "paths": {
+    "/products": {
+      "get": {
+        "operationId": "listProducts",
+        "parameters": [
+          { "name": "q", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "kinds", "in": "query", "style": "form", "explode": true, "schema": { "type": "array", "items": { "type": "string" } } }
+        ],
+        "responses": {
+          "200": { "description": "Products", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } }
+        }
+      },
+      "post": {
+        "operationId": "createProduct",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } } }
+      }
+    },
+    "/products/{productId}": {
+      "get": {
+        "operationId": "getProduct",
+        "parameters": [
+          { "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "X-Trace-Id", "in": "header", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Product", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+          "404": { "description": "Absent", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      },
+      "delete": {
+        "operationId": "deleteProduct",
+        "parameters": [{ "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/public/health": {
+      "get": {
+        "operationId": "health",
+        "security": [],
+        "responses": { "200": { "description": "Healthy", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "const": "ok" } } } } } } }
+      }
+    },
+    "/products/bulk": {
+      "post": {
+        "operationId": "bulkUpload",
+        "requestBody": { "required": true, "content": { "text/csv": { "schema": { "type": "string" } } } },
+        "responses": { "202": { "description": "Accepted", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/products/merged": {
+      "post": {
+        "operationId": "mergeProducts",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Product" }, { "type": "object" }] } } }
+        },
+        "responses": { "200": { "description": "Merged", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    }
+  },
+  "webhooks": {
+    "productChanged": {
+      "post": {
+        "operationId": "productChangedWebhook",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+        "responses": { "204": { "description": "Acknowledged" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": { "type": "apiKey", "name": "X-Api-Key", "in": "header" },
+      "tenantHeader": { "type": "apiKey", "name": "X-Tenant", "in": "header" },
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.example.test/authorize",
+            "tokenUrl": "https://auth.example.test/token",
+            "scopes": { "catalog:read": "Read the catalog", "catalog:write": "Change the catalog" }
+          }
+        }
+      },
+      "bearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "oidc": { "type": "openIdConnect", "openIdConnectUrl": "https://id.example.test/.well-known/openid-configuration" },
+      "digest": { "type": "http", "scheme": "digest" }
+    },
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1 },
+          "price": { "type": ["number", "null"] },
+          "sku": { "type": "string", "format": "uuid" }
+        }
+      }
+    }
+  }
+}

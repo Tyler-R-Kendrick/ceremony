@@ -253,7 +253,11 @@ async function runProxy(
       connectionScope(call.ctx, "external-credential-broker"),
       credentialRef,
       async (material) => {
-        if (material.accountId !== connection.externalIds.accountId)
+        const accountId = material.accountId;
+        if (
+          accountId === undefined ||
+          accountId !== connection.externalIds.accountId
+        )
           throw new ConnectorError("denied", {
             detail: "pipedream.credential.mismatch",
           });
@@ -262,7 +266,7 @@ async function runProxy(
           path: call.client.projectPath(`/proxy/${url64}`),
           query: {
             external_user_id: call.externalUserId,
-            account_id: material.accountId,
+            account_id: accountId,
           },
           headers,
           ...(input.body !== undefined ? { body: input.body } : {}),

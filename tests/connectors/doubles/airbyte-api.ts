@@ -75,7 +75,7 @@ export type AirbyteDoubleOptions = {
   connections?: AirbyteDoubleConnection[];
   jobs?: AirbyteDoubleJob[];
   /** Bearer token the double accepts directly (a deployment API key). */
-  apiKey?: string;
+  apiKey?: string | undefined;
   /** Application credentials; when set, /applications/token mints `mintedToken`. */
   application?: { clientId: string; clientSecret: string; mintedToken: string };
   /** Status of a freshly created job; defaults to "running". */

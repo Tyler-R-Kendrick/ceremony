@@ -11,12 +11,6 @@ registry:
     type: server
     image: mcp/traversal@sha256:1111111111111111111111111111111111111111111111111111111111111111
     tools: []
-  __proto__:
-    description: A server id that is a reserved object key.
-    title: Reserved
-    type: server
-    image: mcp/reserved@sha256:2222222222222222222222222222222222222222222222222222222222222222
-    tools: []
   shell-image:
     description: An image reference with a shell command appended.
     title: Shell Image

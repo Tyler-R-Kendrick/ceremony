@@ -130,3 +130,56 @@ export function automationCapabilityRows(input: {
     delegate: "requires-configuration",
   };
 }
+
+export type AutomationExportResult = {
+  mediaType: string;
+  bytes: Uint8Array;
+  /** The exported document, before serialization; tests read this rather than re-parsing. */
+  document: unknown;
+  losses: CompatibilityIssue[];
+};
+
+/**
+ * The part of a description that an export claims to round-trip. It is the
+ * descriptive metadata: identity, display, authentication profiles,
+ * configuration, capabilities and the named native extensions each ecosystem
+ * documents as carried. Diagnostics, digests and persistence references are
+ * deliberately outside it — an export legitimately produces its own
+ * diagnostics, and a round trip that compared them would be comparing the
+ * reader to itself.
+ */
+export function automationSupportedSubset(
+  definition: NormalizedDefinition,
+  extensionKeys: readonly string[],
+): unknown {
+  const keys = new Set(extensionKeys);
+  return {
+    identity: definition.identity,
+    display: definition.display,
+    authentication: definition.authentication,
+    configuration: definition.configuration,
+    events: definition.events,
+    declaredServers: [...definition.declaredServers].sort((a, b) =>
+      a.url < b.url ? -1 : a.url > b.url ? 1 : 0,
+    ),
+    capabilities: [...definition.capabilities]
+      .sort((a, b) => (a.nativeId < b.nativeId ? -1 : a.nativeId > b.nativeId ? 1 : 0))
+      .map((capability) => ({
+        kind: capability.kind,
+        nativeId: capability.nativeId,
+        label: capability.label,
+        summary: capability.summary,
+        effect: capability.effect,
+        dataClassification: capability.dataClassification,
+        cost: capability.cost,
+        authentication: capability.authentication,
+        inputSchemaRef: capability.inputSchemaRef,
+        outputSchemaRef: capability.outputSchemaRef,
+        nativeExtensions: Object.fromEntries(
+          Object.entries(capability.nativeExtensions ?? {})
+            .filter(([key]) => keys.has(key))
+            .sort(([a], [b]) => (a < b ? -1 : 1)),
+        ),
+      })),
+  };
+}

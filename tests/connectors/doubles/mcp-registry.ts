@@ -45,6 +45,8 @@ export type RegistryDoubleFaults = {
     | undefined;
   /** Cursor values rejected with 400 as the registry does for unknown cursors. */
   staleCursors?: Set<string> | undefined;
+  /** Like `staleCursors`, but each value is rejected only once (a cursor invalidated by a data reset). */
+  staleCursorsOnce?: Set<string> | undefined;
   /** Answer the next list request with `nextCursor` equal to the request cursor. */
   loopOnce?: boolean | undefined;
   /** Serve a body larger than any sane page. */
@@ -98,14 +100,17 @@ export function registryEntry(
   };
 }
 
-export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions = {}) {
+export async function startMcpRegistryDouble(
+  options: McpRegistryDoubleOptions = {},
+) {
   const entries: DoubleEntry[] = structuredClone(options.entries ?? []);
   const poisoned = [...(options.poisoned ?? [])];
   const faults: RegistryDoubleFaults = { ...options.faults };
   const now = options.now ?? Date.now;
   const iso = () => new Date(now()).toISOString();
   let listRequests = 0;
-  const key = (entry: DoubleEntry) => `${entry.server.name}:${entry.server.version}`;
+  const key = (entry: DoubleEntry) =>
+    `${entry.server.name}:${entry.server.version}`;
 
   const authorized = (header: string | undefined, tokens: string[]) => {
     const match = /^Bearer\s+(.+)$/i.exec(header ?? "");
@@ -113,13 +118,16 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
   };
 
   const fixture = await startHttpFixture(async (request, raw) => {
-    const segments = request.url.pathname.split("/").slice(1).map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    });
+    const segments = request.url.pathname
+      .split("/")
+      .slice(1)
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      });
     const [api, resource] = segments;
     if (api !== "v0.1") return problem(404, "Not Found", "unknown API version");
     const authHeader = request.headers.authorization;
@@ -130,18 +138,33 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
     )
       return problem(401, "Unauthorized", "registry token required");
 
-    if (request.method === "GET" && resource === "servers" && segments.length === 2) {
+    if (
+      request.method === "GET" &&
+      resource === "servers" &&
+      segments.length === 2
+    ) {
       listRequests++;
       const fault = faults.failListRequest;
-      if (fault && (fault.repeat ? listRequests >= fault.at : listRequests === fault.at)) {
+      if (
+        fault &&
+        (fault.repeat ? listRequests >= fault.at : listRequests === fault.at)
+      ) {
         if (fault.disconnect) {
           raw.res.socket?.destroy();
           return undefined;
         }
-        return problem(fault.status ?? 503, "Service Unavailable", "injected outage");
+        return problem(
+          fault.status ?? 503,
+          "Service Unavailable",
+          "injected outage",
+        );
       }
       if (faults.malformedList)
-        return { status: 200, headers: { "content-type": "application/json" }, body: "{\"servers\": [" };
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: '{"servers": [',
+        };
       if (faults.oversizedList)
         return {
           status: 200,
@@ -155,7 +178,10 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
         return problem(400, "Bad Request", "limit must be between 1 and 100");
       const cursor = params.get("cursor") ?? undefined;
       if (cursor !== undefined) {
-        if (faults.staleCursors?.has(cursor)) return problem(400, "Bad Request", "invalid cursor");
+        if (faults.staleCursors?.has(cursor))
+          return problem(400, "Bad Request", "invalid cursor");
+        if (faults.staleCursorsOnce?.delete(cursor))
+          return problem(400, "Bad Request", "invalid cursor");
         if (!entries.some((entry) => key(entry) === cursor))
           return problem(400, "Bad Request", "invalid cursor");
       }
@@ -177,13 +203,19 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
       const filtered = ordered.filter((entry) => {
         const official = entry._meta[OFFICIAL_META];
         if (!includeDeleted && official.status === "deleted") return false;
-        if (search && !entry.server.name.toLowerCase().includes(search)) return false;
+        if (search && !entry.server.name.toLowerCase().includes(search))
+          return false;
         if (version === "latest" && !official.isLatest) return false;
-        if (version && version !== "latest" && entry.server.version !== version) return false;
-        if (sinceMs !== undefined && Date.parse(official.updatedAt) < sinceMs) return false;
+        if (version && version !== "latest" && entry.server.version !== version)
+          return false;
+        if (sinceMs !== undefined && Date.parse(official.updatedAt) < sinceMs)
+          return false;
         return true;
       });
-      const startIndex = cursor === undefined ? 0 : filtered.findIndex((entry) => key(entry) === cursor) + 1;
+      const startIndex =
+        cursor === undefined
+          ? 0
+          : filtered.findIndex((entry) => key(entry) === cursor) + 1;
       void start;
       const page = filtered.slice(startIndex, startIndex + limit);
       const servers: unknown[] = [];
@@ -195,20 +227,33 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
       }
       const last = page.at(-1);
       const more = startIndex + page.length < filtered.length;
-      const nextCursor = faults.loopOnce && cursor !== undefined ? cursor : last && more ? key(last) : undefined;
+      const nextCursor =
+        faults.loopOnce && cursor !== undefined
+          ? cursor
+          : last && more
+            ? key(last)
+            : undefined;
       if (faults.loopOnce) faults.loopOnce = false;
       return {
         status: 200,
         body: {
           servers,
-          metadata: { count: servers.length, ...(nextCursor ? { nextCursor } : {}) },
+          metadata: {
+            count: servers.length,
+            ...(nextCursor ? { nextCursor } : {}),
+          },
         },
       };
     }
 
-    if (request.method === "GET" && resource === "servers" && segments[3] === "versions") {
+    if (
+      request.method === "GET" &&
+      resource === "servers" &&
+      segments[3] === "versions"
+    ) {
       const name = segments[2]!;
-      const includeDeleted = request.url.searchParams.get("include_deleted") === "true";
+      const includeDeleted =
+        request.url.searchParams.get("include_deleted") === "true";
       const versions = entries.filter(
         (entry) =>
           entry.server.name === name &&
@@ -219,7 +264,10 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
           return problem(404, "Not Found", "server not found");
         return {
           status: 200,
-          body: { servers: structuredClone(versions), metadata: { count: versions.length } },
+          body: {
+            servers: structuredClone(versions),
+            metadata: { count: versions.length },
+          },
         };
       }
       if (segments.length === 5) {
@@ -228,17 +276,25 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
           requested === "latest"
             ? versions.find((item) => item._meta[OFFICIAL_META].isLatest)
             : versions.find((item) => item.server.version === requested);
-        if (!entry) return problem(404, "Not Found", "server version not found");
+        if (!entry)
+          return problem(404, "Not Found", "server version not found");
         return { status: 200, body: structuredClone(entry) };
       }
     }
 
-    if (request.method === "POST" && resource === "publish" && segments.length === 2) {
+    if (
+      request.method === "POST" &&
+      resource === "publish" &&
+      segments.length === 2
+    ) {
       if (!authorized(authHeader, options.publishTokens ?? []))
         return problem(401, "Unauthorized", "registry token required");
       let document: Record<string, unknown>;
       try {
-        document = JSON.parse(request.body.toString("utf8")) as Record<string, unknown>;
+        document = JSON.parse(request.body.toString("utf8")) as Record<
+          string,
+          unknown
+        >;
       } catch {
         return problem(400, "Bad Request", "invalid JSON");
       }
@@ -247,15 +303,44 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
       const description = document.description;
       if (typeof document.$schema !== "string")
         return problem(400, "Bad Request", "$schema is required");
-      if (typeof name !== "string" || !namePattern.test(name) || name.length > 200)
+      if (
+        typeof name !== "string" ||
+        !namePattern.test(name) ||
+        name.length > 200
+      )
         return problem(400, "Bad Request", "invalid server name");
-      if (typeof version !== "string" || !version || version.length > 255 || version === "latest")
+      if (
+        typeof version !== "string" ||
+        !version ||
+        version.length > 255 ||
+        version === "latest"
+      )
         return problem(400, "Bad Request", "invalid version");
-      if (typeof description !== "string" || !description || description.length > 100)
-        return problem(400, "Bad Request", "description must be 1-100 characters");
-      if (!Array.isArray(document.remotes ?? []) || !Array.isArray(document.packages ?? []))
-        return problem(400, "Bad Request", "remotes and packages must be arrays");
-      if (entries.some((entry) => entry.server.name === name && entry.server.version === version))
+      if (
+        typeof description !== "string" ||
+        !description ||
+        description.length > 100
+      )
+        return problem(
+          400,
+          "Bad Request",
+          "description must be 1-100 characters",
+        );
+      if (
+        !Array.isArray(document.remotes ?? []) ||
+        !Array.isArray(document.packages ?? [])
+      )
+        return problem(
+          400,
+          "Bad Request",
+          "remotes and packages must be arrays",
+        );
+      if (
+        entries.some(
+          (entry) =>
+            entry.server.name === name && entry.server.version === version,
+        )
+      )
         return problem(400, "Bad Request", "version already exists");
       const at = iso();
       for (const entry of entries)
@@ -294,10 +379,16 @@ export async function startMcpRegistryDouble(options: McpRegistryDoubleOptions =
       listRequests = 0;
     },
     /** Adds a version as a publisher would; older versions stop being `latest`. */
-    publish(server: DoubleEntry["server"], official: Partial<DoubleOfficialMeta> = {}) {
+    publish(
+      server: DoubleEntry["server"],
+      official: Partial<DoubleOfficialMeta> = {},
+    ) {
       const at = official.publishedAt ?? iso();
       for (const entry of entries)
-        if (entry.server.name === server.name && entry._meta[OFFICIAL_META].isLatest) {
+        if (
+          entry.server.name === server.name &&
+          entry._meta[OFFICIAL_META].isLatest
+        ) {
           entry._meta[OFFICIAL_META].isLatest = false;
           entry._meta[OFFICIAL_META].updatedAt = at;
         }

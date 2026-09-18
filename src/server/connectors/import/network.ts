@@ -137,10 +137,17 @@ export function classifyAddress(address: string): AddressClass {
 const policyInvalid = () =>
   new ConnectorError("invalid-request", { detail: "network.policy-invalid" });
 
+// A configured origin names one host. Anything that reads as a pattern is
+// refused rather than taken literally: an administrator who writes a wildcard
+// means a set, and this policy cannot express one.
+const plainHost = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.?$/;
+
 function exactOrigin(value: unknown): URL {
   if (typeof value !== "string" || !URL.canParse(value)) throw policyInvalid();
   const url = new URL(value);
   if (url.origin !== value || url.origin === "null") throw policyInvalid();
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (!(isIP(host) !== 0 || plainHost.test(host))) throw policyInvalid();
   return url;
 }
 
@@ -253,6 +260,10 @@ export function evaluateNetworkTarget(
     return deny("network.url-invalid");
   const url = new URL(text);
   if (url.username || url.password) return deny("network.userinfo-forbidden");
+  // The scheme is judged before the host shape, because `file:`, `data:` and
+  // `blob:` have no host to object to and the scheme is the real objection.
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return deny("network.scheme-forbidden");
   const origin = url.origin;
   const host = url.hostname.replace(/^\[|\]$/g, "");
   if (!host || origin === "null") return deny("network.url-invalid");
@@ -262,8 +273,6 @@ export function evaluateNetworkTarget(
   // The reasons are ordered most specific first, so a diagnostic names the
   // real objection: a redirect to the metadata service reports the address,
   // not merely that the hop crossed an origin.
-  if (url.protocol !== "http:" && url.protocol !== "https:")
-    return deny("network.scheme-forbidden");
   let network: NetworkMode;
   if (policy.mode === "loopback-fixture") {
     if (!(host === "localhost" || literal === "loopback"))

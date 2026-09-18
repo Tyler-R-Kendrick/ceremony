@@ -96,20 +96,26 @@ export type ResolvedRegistrySource = {
 };
 
 /** The registry source a binding approves; absence is a policy failure, not a lookup miss. */
-export function registrySourceFromBinding(binding: RuntimeBinding): ResolvedRegistrySource {
+export function registrySourceFromBinding(
+  binding: RuntimeBinding,
+): ResolvedRegistrySource {
   const raw = binding.settings["registrySource"];
   let destinationId: string | undefined;
   let configurationName: string | undefined;
   if (raw !== undefined) {
     const parsed = registrySourceSettingsSchema.safeParse(raw);
     if (!parsed.success)
-      throw new ConnectorError("invalid-request", { detail: "registry.settings.invalid" });
+      throw new ConnectorError("invalid-request", {
+        detail: "registry.settings.invalid",
+      });
     destinationId = parsed.data.destinationId;
     configurationName = parsed.data.authorization?.configurationName;
   } else if (binding.destinations.length === 1) {
     destinationId = binding.destinations[0]!.id;
   }
-  const destination = binding.destinations.find((item) => item.id === destinationId);
+  const destination = binding.destinations.find(
+    (item) => item.id === destinationId,
+  );
   if (!destination)
     throw new ConnectorError("network-policy", {
       detail: "registry.destination-unapproved",
@@ -138,10 +144,14 @@ function provenanceOf(
     /** The registry authenticated the publisher's namespace; that says nothing about the code. */
     namespaceAuthentication: official ? "registry-attested" : "unknown",
     schema: server.$schema ?? "unspecified",
-    ...(official?.isLatest === undefined ? {} : { isLatest: String(official.isLatest) }),
+    ...(official?.isLatest === undefined
+      ? {}
+      : { isLatest: String(official.isLatest) }),
     ...(official?.publishedAt ? { publishedAt: official.publishedAt } : {}),
     ...(official?.updatedAt ? { updatedAt: official.updatedAt } : {}),
-    ...(official?.statusChangedAt ? { statusChangedAt: official.statusChangedAt } : {}),
+    ...(official?.statusChangedAt
+      ? { statusChangedAt: official.statusChangedAt }
+      : {}),
   };
 }
 
@@ -150,16 +160,24 @@ function itemFromEntry(entry: RegistryEntry, sourceId: string): DiscoveredItem {
     identity: entry.identity,
     displayName: clip(entry.server.title ?? entry.server.name, 200),
     description: clip(entry.server.description, 500),
-    provenance: provenanceOf(sourceId, entry.server, entry.status, entry.official),
+    provenance: provenanceOf(
+      sourceId,
+      entry.server,
+      entry.status,
+      entry.official,
+    ),
     status: entry.status,
   };
 }
 
-const encodeCursor = (digest: string) => Buffer.from(digest, "hex").toString("base64url");
+const encodeCursor = (digest: string) =>
+  Buffer.from(digest, "hex").toString("base64url");
 const decodeCursor = (cursor: string) => {
   const digest = Buffer.from(cursor, "base64url").toString("hex");
   if (!/^[a-f0-9]{64}$/.test(digest) || encodeCursor(digest) !== cursor)
-    throw new ConnectorError("invalid-request", { detail: "registry.cursor.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "registry.cursor.invalid",
+    });
   return digest;
 };
 
@@ -169,14 +187,17 @@ async function itemsFromSnapshot(
 ): Promise<Pick<DiscoverResult, "items" | "nextCursor">> {
   const search = input.query?.toLowerCase();
   const rows = view.rows.filter(
-    (row: RegistryIndexRow) => !search || row.name.toLowerCase().includes(search),
+    (row: RegistryIndexRow) =>
+      !search || row.name.toLowerCase().includes(search),
   );
   let start = 0;
   if (input.cursor !== undefined) {
     const digest = decodeCursor(input.cursor);
     const index = rows.findIndex((row) => row.identityDigest === digest);
     if (index < 0)
-      throw new ConnectorError("invalid-request", { detail: "registry.cursor.stale" });
+      throw new ConnectorError("invalid-request", {
+        detail: "registry.cursor.stale",
+      });
     start = index + 1;
   }
   const slice = rows.slice(start, start + input.limit);
@@ -189,9 +210,16 @@ async function itemsFromSnapshot(
       displayName: clip(entry.server.title ?? entry.server.name, 200),
       description: clip(entry.server.description, 500),
       provenance: {
-        ...provenanceOf(view.sourceId, entry.server, row.status, entry.official),
+        ...provenanceOf(
+          view.sourceId,
+          entry.server,
+          row.status,
+          entry.official,
+        ),
         ...(row.tombstone ? { tombstone: row.tombstone.reason } : {}),
-        ...(Object.hasOwn(view.pins, row.identityDigest) ? { pinned: "true" } : {}),
+        ...(Object.hasOwn(view.pins, row.identityDigest)
+          ? { pinned: "true" }
+          : {}),
       },
       status: row.tombstone ? "deleted" : row.status,
     });
@@ -231,7 +259,12 @@ export function unwrapRegistryResponse(document: unknown): {
 /** Imports an entry already read from a registry, with the registry as its origin. */
 export async function importRegistryEntry(
   entry: Pick<RegistryEntry, "server"> & { official?: RegistryOfficialMeta },
-  provenance: { sourceRef: string; baseUrl: string; sourceId?: string; capturedAt?: string },
+  provenance: {
+    sourceRef: string;
+    baseUrl: string;
+    sourceId?: string;
+    capturedAt?: string;
+  },
 ): Promise<ServerJsonImport> {
   return importServerJson(entry.server, {
     sourceRef: provenance.sourceRef,
@@ -294,7 +327,8 @@ export function createMcpRegistryAdapter(
       ...(options.limits ? { limits: options.limits } : {}),
       ...(source.configurationName
         ? {
-            bearer: () => ctx.environment.configuration.read(source.configurationName!),
+            bearer: () =>
+              ctx.environment.configuration.read(source.configurationName!),
           }
         : {}),
       now: ctx.environment.now,
@@ -342,11 +376,17 @@ export function createMcpRegistryAdapter(
             "Packages, arguments and environment values are imported as inert metadata",
           ],
         }),
-        unsupported("configure", "configuration is bound by the MCP runtime adapter"),
+        unsupported(
+          "configure",
+          "configuration is bound by the MCP runtime adapter",
+        ),
         unsupported("authorize", executionLimitation),
         unsupported("verify", executionLimitation),
         unsupported("invoke", executionLimitation),
-        unsupported("events", "registries publish no events; poll with updated_since"),
+        unsupported(
+          "events",
+          "registries publish no events; poll with updated_since",
+        ),
         unsupported("reconnect", executionLimitation),
         unsupported("disconnect", executionLimitation),
         unsupported("revoke", executionLimitation),
@@ -361,15 +401,25 @@ export function createMcpRegistryAdapter(
         unsupported("delegate", executionLimitation),
       ];
     },
-    async discover(ctx: AdapterCallContext, input: DiscoverInput): Promise<DiscoverResult> {
+    async discover(
+      ctx: AdapterCallContext,
+      input: DiscoverInput,
+    ): Promise<DiscoverResult> {
       const source = registrySourceFromBinding(ctx.binding);
       const client = clientFor(ctx, source);
       const limit = input.limit ?? 30;
       const snapshotLimit = 100;
       if (!Number.isInteger(limit) || limit < 1 || limit > snapshotLimit)
-        throw new ConnectorError("invalid-request", { detail: "registry.limit.invalid" });
-      if (input.query !== undefined && (input.query.length > 200 || /\p{Cc}/u.test(input.query)))
-        throw new ConnectorError("invalid-request", { detail: "registry.search.invalid" });
+        throw new ConnectorError("invalid-request", {
+          detail: "registry.limit.invalid",
+        });
+      if (
+        input.query !== undefined &&
+        (input.query.length > 200 || /\p{Cc}/u.test(input.query))
+      )
+        throw new ConnectorError("invalid-request", {
+          detail: "registry.search.invalid",
+        });
       if (options.snapshots) {
         const snapshotSource = {
           id: source.destination.id,
@@ -380,7 +430,10 @@ export function createMcpRegistryAdapter(
           await options.snapshots.refresh(ctx.actor.tenantId, snapshotSource, {
             signal: ctx.signal,
           });
-        const view = await options.snapshots.read(ctx.actor.tenantId, source.destination.id);
+        const view = await options.snapshots.read(
+          ctx.actor.tenantId,
+          source.destination.id,
+        );
         if (view) {
           const paged = await itemsFromSnapshot(view, {
             ...(input.query ? { query: input.query } : {}),
@@ -399,7 +452,9 @@ export function createMcpRegistryAdapter(
         }
       }
       if (limit > client.limits.pageLimit)
-        throw new ConnectorError("invalid-request", { detail: "registry.limit.invalid" });
+        throw new ConnectorError("invalid-request", {
+          detail: "registry.limit.invalid",
+        });
       const page = await client.list(
         {
           ...(input.cursor ? { cursor: input.cursor } : {}),
@@ -409,16 +464,26 @@ export function createMcpRegistryAdapter(
         { signal: ctx.signal },
       );
       return {
-        items: page.entries.map((entry) => itemFromEntry(entry, source.destination.id)),
+        items: page.entries.map((entry) =>
+          itemFromEntry(entry, source.destination.id),
+        ),
         ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
         freshness: { fetchedAt: page.fetchedAt, stale: false, source: "live" },
         issues: page.issues,
       };
     },
-    async import(ctx: AdapterCallContext, input: ImportInput): Promise<ImportOutcome> {
+    async import(
+      ctx: AdapterCallContext,
+      input: ImportInput,
+    ): Promise<ImportOutcome> {
       if (input.bytes.byteLength > SERVER_JSON_IMPORT_LIMITS.bytes)
-        throw new ConnectorError("invalid-request", { detail: "server-json.oversized" });
-      const parsed = parseBoundedJsonBytes(input.bytes, SERVER_JSON_IMPORT_LIMITS.json);
+        throw new ConnectorError("invalid-request", {
+          detail: "server-json.oversized",
+        });
+      const parsed = parseBoundedJsonBytes(
+        input.bytes,
+        SERVER_JSON_IMPORT_LIMITS.json,
+      );
       const unwrapped = unwrapRegistryResponse(parsed);
       const official =
         unwrapped.official ??
@@ -440,7 +505,8 @@ export function createMcpRegistryAdapter(
         ...(sourceId ? { sourceId } : {}),
         capturedAt,
       });
-      const mediaType = input.mediaType.split(";")[0]!.trim() || "application/json";
+      const mediaType =
+        input.mediaType.split(";")[0]!.trim() || "application/json";
       const source = await serverJsonSourceRecord({
         sourceRef,
         identity: imported.identity,
@@ -458,17 +524,26 @@ export function createMcpRegistryAdapter(
         executableCandidates: imported.executableCandidates,
       };
     },
-    async export(ctx: AdapterCallContext, request: ExportRequest): Promise<ExportOutcome> {
+    async export(
+      ctx: AdapterCallContext,
+      request: ExportRequest,
+    ): Promise<ExportOutcome> {
       if (!exportFormats.has(request.format))
         throw new ConnectorError("unsupported", { detail: "export.format" });
       const raw = ctx.binding.settings["export"];
       if (raw === undefined)
-        throw new ConnectorError("unsupported", { detail: "export.requires-mcp-binding" });
+        throw new ConnectorError("unsupported", {
+          detail: "export.requires-mcp-binding",
+        });
       const settings = registryExportSettingsSchema.safeParse(raw);
       if (!settings.success)
-        throw new ConnectorError("invalid-request", { detail: "export.settings.invalid" });
+        throw new ConnectorError("invalid-request", {
+          detail: "export.settings.invalid",
+        });
       if (settings.data.mcpBinding.tenantId !== ctx.actor.tenantId)
-        throw new ConnectorError("denied", { detail: "export.tenant-mismatch" });
+        throw new ConnectorError("denied", {
+          detail: "export.tenant-mismatch",
+        });
       const result = exportServerJson({
         definition: request.definition,
         binding: settings.data.mcpBinding,
@@ -486,7 +561,8 @@ export function createMcpRegistryAdapter(
           disposition: "unsupported",
           severity: "info",
           executionImpact: "none",
-          message: "server.json carries no native extensions; none were exported",
+          message:
+            "server.json carries no native extensions; none were exported",
         });
       return { mediaType: result.mediaType, bytes: result.bytes, losses };
     },

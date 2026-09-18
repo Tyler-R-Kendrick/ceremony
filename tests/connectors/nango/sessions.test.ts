@@ -300,6 +300,7 @@ test("AC-AUTH-08: an exact-account intent is denied when no account evidence exi
         [TAG_KEYS.handoff]: nonce,
         [TAG_KEYS.connection]: connection.connectionRef,
         [TAG_KEYS.generation]: "0",
+        [TAG_KEYS.tenant]: h.double.sessions[0]!.tags![TAG_KEYS.tenant]!,
       },
     }),
   );
@@ -309,6 +310,7 @@ test("AC-AUTH-08: an exact-account intent is denied when no account evidence exi
   );
   assert.equal(result.state, "denied");
   assert.equal(result.code, "nango.verify.account-evidence-insufficient");
+  assert.equal(h.ports.inspect.credentialRefs().length, 0);
 });
 
 test("AC-NG-05: a replayed completion cannot complete the handoff twice", async (t) => {

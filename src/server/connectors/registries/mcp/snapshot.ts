@@ -10,7 +10,11 @@ import {
   type RecordKind,
 } from "../../../persistence/index.js";
 import { ConnectorError } from "../../errors.js";
-import type { McpRegistryClient, RegistryEntry, RegistryPage } from "./client.js";
+import type {
+  McpRegistryClient,
+  RegistryEntry,
+  RegistryPage,
+} from "./client.js";
 import {
   registryServerNameSchema,
   registryVersionSchema,
@@ -37,7 +41,11 @@ export const REGISTRY_SNAPSHOT_RECORD_KIND =
 
 export interface RegistrySnapshotTransaction {
   get<T>(id: string): Promise<{ value: T; revision: number } | undefined>;
-  put(id: string, value: unknown, expectedRevision: number | null): Promise<number>;
+  put(
+    id: string,
+    value: unknown,
+    expectedRevision: number | null,
+  ): Promise<number>;
   delete(id: string, expectedRevision: number): Promise<void>;
 }
 export interface RegistrySnapshotStorage {
@@ -56,7 +64,11 @@ export function ceremonyStoreRegistrySnapshotStorage(
       return store.transaction((tx) =>
         work({
           get: (id) =>
-            tx.get({ tenant: tenantId, kind: REGISTRY_SNAPSHOT_RECORD_KIND, id }),
+            tx.get({
+              tenant: tenantId,
+              kind: REGISTRY_SNAPSHOT_RECORD_KIND,
+              id,
+            }),
           put: (id, value, expected) =>
             tx.put(
               { tenant: tenantId, kind: REGISTRY_SNAPSHOT_RECORD_KIND, id },
@@ -85,7 +97,8 @@ export function memoryRegistrySnapshotStorage(): RegistrySnapshotStorage & {
   return {
     transaction(tenantId, work) {
       const run = tail.then(async () => {
-        const records = tenants.get(tenantId) ?? new Map<string, MemoryRecord>();
+        const records =
+          tenants.get(tenantId) ?? new Map<string, MemoryRecord>();
         tenants.set(tenantId, records);
         const staged = new Map<string, MemoryRecord | null>();
         const current = (id: string): MemoryRecord | undefined => {
@@ -96,7 +109,10 @@ export function memoryRegistrySnapshotStorage(): RegistrySnapshotStorage & {
           async get<T>(id: string) {
             const record = current(id);
             return record
-              ? { value: structuredClone(record.value) as T, revision: record.revision }
+              ? {
+                  value: structuredClone(record.value) as T,
+                  revision: record.revision,
+                }
               : undefined;
           },
           async put(id, value, expected) {
@@ -108,7 +124,10 @@ export function memoryRegistrySnapshotStorage(): RegistrySnapshotStorage & {
             }
             if (!record || record.revision !== expected)
               throw new PersistenceConflict();
-            staged.set(id, { value: structuredClone(value), revision: expected + 1 });
+            staged.set(id, {
+              value: structuredClone(value),
+              revision: expected + 1,
+            });
             return expected + 1;
           },
           async delete(id, expected) {
@@ -311,7 +330,10 @@ function snapshotIssue(
   };
 }
 
-function initialHeader(sourceId: string, baseUrl: string): RegistrySnapshotHeader {
+function initialHeader(
+  sourceId: string,
+  baseUrl: string,
+): RegistrySnapshotHeader {
   return {
     schemaVersion: 1,
     sourceId,
@@ -350,7 +372,10 @@ function compareRows(a: RegistryIndexRow, b: RegistryIndexRow): number {
   return 0;
 }
 
-function laterTime(a: string | undefined, b: string | undefined): string | undefined {
+function laterTime(
+  a: string | undefined,
+  b: string | undefined,
+): string | undefined {
   if (!a) return b;
   if (!b) return a;
   return Date.parse(b) > Date.parse(a) ? b : a;
@@ -389,8 +414,12 @@ export class RegistrySnapshotStore {
         fetchedAt: 0,
         stale: true,
         source: "snapshot",
-        ...(header.lastAttemptAt ? { lastAttemptAt: header.lastAttemptAt } : {}),
-        ...(header.lastFailureCode ? { lastFailureCode: header.lastFailureCode } : {}),
+        ...(header.lastAttemptAt
+          ? { lastAttemptAt: header.lastAttemptAt }
+          : {}),
+        ...(header.lastFailureCode
+          ? { lastFailureCode: header.lastFailureCode }
+          : {}),
         reason: "never-refreshed",
         refreshInProgress,
       };
@@ -405,7 +434,9 @@ export class RegistrySnapshotStore {
       source: "snapshot",
       lastSuccessfulRefreshAt: header.lastSuccessfulRefreshAt!,
       ...(header.lastAttemptAt ? { lastAttemptAt: header.lastAttemptAt } : {}),
-      ...(header.lastFailureCode ? { lastFailureCode: header.lastFailureCode } : {}),
+      ...(header.lastFailureCode
+        ? { lastFailureCode: header.lastFailureCode }
+        : {}),
       ...(failedSince
         ? { reason: "refresh-failed" as const }
         : expired
@@ -415,7 +446,10 @@ export class RegistrySnapshotStore {
     };
   }
 
-  private addIssue(progress: RegistryRefreshProgress, issue: CompatibilityIssue): void {
+  private addIssue(
+    progress: RegistryRefreshProgress,
+    issue: CompatibilityIssue,
+  ): void {
     if (progress.issues.length >= this.maxIssues) progress.droppedIssues++;
     else progress.issues.push(issue);
   }
@@ -427,12 +461,18 @@ export class RegistrySnapshotStore {
     to: number,
   ): Promise<void> {
     for (const shard of shards) {
-      const previous = await tx.get<ShardRecord>(shardId(sourceId, from, shard));
+      const previous = await tx.get<ShardRecord>(
+        shardId(sourceId, from, shard),
+      );
       if (!previous) continue;
       const rows: Record<string, ShardRow> = {};
       for (const [digest, row] of Object.entries(previous.value.rows))
         rows[digest] = { ...row, carried: true };
-      await tx.put(shardId(sourceId, to, shard), { schemaVersion: 1, rows }, null);
+      await tx.put(
+        shardId(sourceId, to, shard),
+        { schemaVersion: 1, rows },
+        null,
+      );
     }
   }
 
@@ -481,11 +521,19 @@ export class RegistrySnapshotStore {
       version: entry.identity.nativeVersion,
       namespace: entry.identity.authorityNamespace,
       status: entry.status,
-      ...(official?.isLatest === undefined ? {} : { isLatest: official.isLatest }),
+      ...(official?.isLatest === undefined
+        ? {}
+        : { isLatest: official.isLatest }),
       ...(official?.publishedAt ? { publishedAt: official.publishedAt } : {}),
       ...(official?.updatedAt ? { updatedAt: official.updatedAt } : {}),
       ...(entry.status === "deleted"
-        ? { tombstone: { reason: "deleted" as const, at, ...(message ? { message } : {}) } }
+        ? {
+            tombstone: {
+              reason: "deleted" as const,
+              at,
+              ...(message ? { message } : {}),
+            },
+          }
         : {}),
       ...(entry.status === "deprecated"
         ? { deprecation: { at, ...(message ? { message } : {}) } }
@@ -513,7 +561,9 @@ export class RegistrySnapshotStore {
   ): Promise<RegistryRefreshReport> {
     const sourceId = identifierSchema.safeParse(source.id);
     if (!sourceId.success)
-      throw new ConnectorError("invalid-request", { detail: "registry.source.invalid" });
+      throw new ConnectorError("invalid-request", {
+        detail: "registry.source.invalid",
+      });
     const id = sourceId.data;
     const limits = source.client.limits;
     const maxPages = options.maxPages ?? limits.maxPagesPerRefresh;
@@ -554,11 +604,14 @@ export class RegistrySnapshotStore {
         const existing = await tx.get<RegistrySnapshotHeader>(id);
         const current = existing?.value ?? initialHeader(id, source.baseUrl);
         if (current.baseUrl !== source.baseUrl)
-          throw new ConnectorError("conflict", { detail: "registry.source.changed" });
+          throw new ConnectorError("conflict", {
+            detail: "registry.source.changed",
+          });
         if (
           current.pending &&
           ((options.mode === "full" && current.pending.mode !== "full") ||
-            this.now() - Date.parse(current.pending.startedAt) > this.maxPendingAgeMs)
+            this.now() - Date.parse(current.pending.startedAt) >
+              this.maxPendingAgeMs)
         ) {
           current.abandonedGenerations.push(current.pending.generation);
           delete current.pending;
@@ -566,9 +619,18 @@ export class RegistrySnapshotStore {
         if (!current.pending) {
           current.pending = this.startPending(current, options.mode);
           if (current.pending.mode === "incremental")
-            await this.copyGeneration(tx, id, current.generation, current.pending.generation);
+            await this.copyGeneration(
+              tx,
+              id,
+              current.generation,
+              current.pending.generation,
+            );
         }
-        const nextRevision = await tx.put(id, current, existing?.revision ?? null);
+        const nextRevision = await tx.put(
+          id,
+          current,
+          existing?.revision ?? null,
+        );
         return { header: current, revision: nextRevision };
       });
       header = loaded.header;
@@ -586,7 +648,13 @@ export class RegistrySnapshotStore {
         header.lastAttemptAt = this.iso();
         header.lastFailureCode = "cancelled";
         await persist();
-        return report("cancelled", { code: "cancelled" }, pagesFetched, entriesSeen, bytes);
+        return report(
+          "cancelled",
+          { code: "cancelled" },
+          pagesFetched,
+          entriesSeen,
+          bytes,
+        );
       }
       let page: RegistryPage;
       try {
@@ -594,7 +662,9 @@ export class RegistrySnapshotStore {
           {
             ...(pending.cursor === undefined ? {} : { cursor: pending.cursor }),
             limit: limits.pageLimit,
-            ...(pending.updatedSince ? { updatedSince: pending.updatedSince } : {}),
+            ...(pending.updatedSince
+              ? { updatedSince: pending.updatedSince }
+              : {}),
             includeDeleted: true,
           },
           options.signal ? { signal: options.signal } : {},
@@ -602,7 +672,8 @@ export class RegistrySnapshotStore {
       } catch (error) {
         const code =
           error instanceof ConnectorError ? error.code : "upstream-unavailable";
-        const detail = error instanceof ConnectorError ? error.detail : undefined;
+        const detail =
+          error instanceof ConnectorError ? error.detail : undefined;
         pagesFetched++;
         if (
           detail === "registry.cursor.stale" &&
@@ -631,7 +702,12 @@ export class RegistrySnapshotStore {
           header.pending = restarted;
           await persist(async (tx) => {
             if (restarted.mode === "incremental")
-              await this.copyGeneration(tx, id, header.generation, restarted.generation);
+              await this.copyGeneration(
+                tx,
+                id,
+                header.generation,
+                restarted.generation,
+              );
           });
           continue;
         }
@@ -640,7 +716,12 @@ export class RegistrySnapshotStore {
         await persist();
         return report(
           "interrupted",
-          { code, ...(pending.cursor === undefined ? {} : { nextCursor: pending.cursor }) },
+          {
+            code,
+            ...(pending.cursor === undefined
+              ? {}
+              : { nextCursor: pending.cursor }),
+          },
           pagesFetched,
           entriesSeen,
           bytes,
@@ -652,11 +733,16 @@ export class RegistrySnapshotStore {
       const now = this.iso();
       let tooMany = false;
       await persist(async (tx) => {
-        const touched = new Map<string, { record: ShardRecord; revision: number | null }>();
+        const touched = new Map<
+          string,
+          { record: ShardRecord; revision: number | null }
+        >();
         const load = async (shard: string) => {
           const cached = touched.get(shard);
           if (cached) return cached;
-          const stored = await tx.get<ShardRecord>(shardId(id, pending.generation, shard));
+          const stored = await tx.get<ShardRecord>(
+            shardId(id, pending.generation, shard),
+          );
           const loadedShard = stored
             ? { record: stored.value, revision: stored.revision }
             : { record: emptyShard(), revision: null };
@@ -713,7 +799,11 @@ export class RegistrySnapshotStore {
             };
             await tx.put(contentId(id, entry.entryDigest), record, null);
           }
-          shard.record.rows[entry.identityDigest] = this.rowFor(entry, existing, now);
+          shard.record.rows[entry.identityDigest] = this.rowFor(
+            entry,
+            existing,
+            now,
+          );
           if (!existing || existing.carried) pending.staged++;
           const watermark = laterTime(
             pending.watermark,
@@ -724,7 +814,10 @@ export class RegistrySnapshotStore {
         for (const issue of page.issues)
           this.addIssue(pending, {
             ...issue,
-            sourcePointer: clip(`page[${pending.pagesDone}].${issue.sourcePointer}`, 1024),
+            sourcePointer: clip(
+              `page[${pending.pagesDone}].${issue.sourcePointer}`,
+              1024,
+            ),
           });
         pending.pagesDone++;
         pending.bytes += page.bytes;
@@ -732,7 +825,11 @@ export class RegistrySnapshotStore {
         else pending.cursor = page.nextCursor;
         tooMany = pending.staged > this.maxEntries;
         for (const [shard, { record, revision: shardRevision }] of touched)
-          await tx.put(shardId(id, pending.generation, shard), record, shardRevision);
+          await tx.put(
+            shardId(id, pending.generation, shard),
+            record,
+            shardRevision,
+          );
       });
       if (tooMany) {
         header.lastAttemptAt = this.iso();
@@ -747,9 +844,15 @@ export class RegistrySnapshotStore {
         );
       }
       if (page.nextCursor === undefined) {
-        await this.commit(tenantId, id, header, () => revision, (next) => {
-          revision = next;
-        });
+        await this.commit(
+          tenantId,
+          id,
+          header,
+          () => revision,
+          (next) => {
+            revision = next;
+          },
+        );
         await this.collect(tenantId, id);
         return report("complete", {}, pagesFetched, entriesSeen, bytes);
       }
@@ -765,7 +868,10 @@ export class RegistrySnapshotStore {
     const cursor = header.pending?.cursor;
     return report(
       "partial",
-      { reason: "pages", ...(cursor === undefined ? {} : { nextCursor: cursor }) },
+      {
+        reason: "pages",
+        ...(cursor === undefined ? {} : { nextCursor: cursor }),
+      },
       pagesFetched,
       entriesSeen,
       bytes,
@@ -795,7 +901,9 @@ export class RegistrySnapshotStore {
             const previous = await tx.get<ShardRecord>(
               shardId(id, header.generation, shard),
             );
-            for (const [digest, row] of Object.entries(previous?.value.rows ?? {}))
+            for (const [digest, row] of Object.entries(
+              previous?.value.rows ?? {},
+            ))
               if (!record.rows[digest]) {
                 const { carried: _carried, ...rest } = row;
                 void _carried;
@@ -855,7 +963,9 @@ export class RegistrySnapshotStore {
         const referenced = new Set<string>();
         for (const generation of live)
           for (const shard of shards) {
-            const record = await tx.get<ShardRecord>(shardId(sourceId, generation, shard));
+            const record = await tx.get<ShardRecord>(
+              shardId(sourceId, generation, shard),
+            );
             for (const row of Object.values(record?.value.rows ?? {}))
               referenced.add(row.content);
           }
@@ -870,7 +980,10 @@ export class RegistrySnapshotStore {
               if (!referenced.has(row.content)) {
                 const content = await tx.get(contentId(sourceId, row.content));
                 if (content) {
-                  await tx.delete(contentId(sourceId, row.content), content.revision);
+                  await tx.delete(
+                    contentId(sourceId, row.content),
+                    content.revision,
+                  );
                   removed++;
                 }
                 referenced.add(row.content);
@@ -889,22 +1002,31 @@ export class RegistrySnapshotStore {
   }
 
   /** The served snapshot, or undefined before the first complete refresh. */
-  async read(tenantId: string, sourceId: string): Promise<RegistrySnapshotView | undefined> {
+  async read(
+    tenantId: string,
+    sourceId: string,
+  ): Promise<RegistrySnapshotView | undefined> {
     const id = identifierSchema.parse(sourceId);
     const loaded = await this.storage.transaction(tenantId, async (tx) => {
       const stored = await tx.get<RegistrySnapshotHeader>(id);
       if (!stored || stored.value.generation === 0) return undefined;
       const rows: RegistryIndexRow[] = [];
       for (const shard of shards) {
-        const record = await tx.get<ShardRecord>(shardId(id, stored.value.generation, shard));
-        for (const [identityDigest, row] of Object.entries(record?.value.rows ?? {}))
+        const record = await tx.get<ShardRecord>(
+          shardId(id, stored.value.generation, shard),
+        );
+        for (const [identityDigest, row] of Object.entries(
+          record?.value.rows ?? {},
+        ))
           rows.push({ identityDigest, ...row });
       }
       return { header: stored.value, rows };
     });
     if (!loaded) return undefined;
     loaded.rows.sort(compareRows);
-    const byDigest = new Map(loaded.rows.map((row) => [row.identityDigest, row]));
+    const byDigest = new Map(
+      loaded.rows.map((row) => [row.identityDigest, row]),
+    );
     const { header } = loaded;
     return {
       tenantId,
@@ -928,7 +1050,10 @@ export class RegistrySnapshotStore {
   }
 
   /** The header as stored (freshness, progress, counts); for operators and tests. */
-  async header(tenantId: string, sourceId: string): Promise<RegistrySnapshotHeader | undefined> {
+  async header(
+    tenantId: string,
+    sourceId: string,
+  ): Promise<RegistrySnapshotHeader | undefined> {
     const id = identifierSchema.parse(sourceId);
     const stored = await this.storage.transaction(tenantId, (tx) =>
       tx.get<RegistrySnapshotHeader>(id),
@@ -955,12 +1080,17 @@ export class RegistrySnapshotStore {
       return await this.storage.transaction(tenantId, async (tx) => {
         const stored = await tx.get<RegistrySnapshotHeader>(id);
         if (!stored || stored.value.generation === 0)
-          throw new ConnectorError("not-found", { detail: "registry.snapshot.missing" });
+          throw new ConnectorError("not-found", {
+            detail: "registry.snapshot.missing",
+          });
         const shard = await tx.get<ShardRecord>(
           shardId(id, stored.value.generation, shardOf(digest)),
         );
         const row = shard?.value.rows[digest];
-        if (!row) throw new ConnectorError("not-found", { detail: "registry.pin.unknown" });
+        if (!row)
+          throw new ConnectorError("not-found", {
+            detail: "registry.pin.unknown",
+          });
         stored.value.pins[digest] = { name, version, pinnedAt: this.iso() };
         await tx.put(id, stored.value, stored.revision);
         return { identityDigest: digest, ...row };
@@ -970,7 +1100,11 @@ export class RegistrySnapshotStore {
     }
   }
 
-  async unpin(tenantId: string, sourceId: string, target: { name: string; version: string }): Promise<boolean> {
+  async unpin(
+    tenantId: string,
+    sourceId: string,
+    target: { name: string; version: string },
+  ): Promise<boolean> {
     const id = identifierSchema.parse(sourceId);
     const digest = await sourceIdentityDigest({
       ecosystem: "mcp-registry",
@@ -996,7 +1130,9 @@ export class RegistrySnapshotStore {
     tenantId: string,
     sourceId: string,
     target: { name: string; version: string },
-  ): Promise<{ row: RegistryIndexRow; entry: RegistrySnapshotEntry } | undefined> {
+  ): Promise<
+    { row: RegistryIndexRow; entry: RegistrySnapshotEntry } | undefined
+  > {
     const view = await this.read(tenantId, sourceId);
     if (!view) return undefined;
     const digest = await sourceIdentityDigest({

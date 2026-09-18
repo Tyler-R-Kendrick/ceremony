@@ -20,8 +20,8 @@ import { capabilityStatus } from "../../adapter.js";
 import type {
   CapabilityStatus,
   ConfigurationRequirement,
-  SupportDimension,
 } from "../../adapter-types.js";
+import type { SupportDimension } from "../../../../core/connectors/index.js";
 import { ConnectorError } from "../../errors.js";
 import type { AdapterCallContext } from "../../adapter.js";
 import {
@@ -286,7 +286,7 @@ export function createPipedreamConnectAdapter(
             { adapterVersion: PIPEDREAM_ADAPTER_VERSION, runtime: "hosted-server" },
             {
               dimension,
-              profile: dimensionProfiles[dimension],
+              profile: dimensionProfiles[dimension] ?? "pipedream-connect",
               implementation: unsupported ? "unsupported" : "implemented",
               configuration: unsupported
                 ? "not-applicable"
@@ -399,9 +399,13 @@ export function createPipedreamConnectAdapter(
           pipedreamTriggerIdSchema.safeParse(value).success,
       );
       let broker: DisconnectResult["broker"] = "applied";
+      const brokerFailure = (error: unknown): DisconnectResult["broker"] =>
+        error instanceof ConnectorError && error.code === "indeterminate"
+          ? "indeterminate"
+          : "failed";
       for (const triggerId of triggers.slice(0, 32)) {
-        const response = await call.client
-          .send({
+        try {
+          await call.client.send({
             method: "DELETE",
             path: call.client.projectPath(
               `/deployed-triggers/${encodePathSegment(triggerId)}`,
@@ -409,44 +413,36 @@ export function createPipedreamConnectAdapter(
             query: { external_user_id: call.externalUserId },
             timeoutMs: resolved.timeouts.write,
             consequential: true,
-          })
-          .catch((error: unknown) => error);
-        if (response instanceof ConnectorError)
-          broker = response.code === "indeterminate" ? "indeterminate" : "failed";
-        else if (response instanceof Error) broker = "failed";
+          });
+        } catch (error) {
+          broker = brokerFailure(error);
+        }
       }
-      const response = await call.client
-        .send({
+      try {
+        const response = await call.client.send({
           method: "DELETE",
           path: call.client.projectPath(
             `/accounts/${encodePathSegment(accountId)}`,
           ),
           timeoutMs: resolved.timeouts.write,
           consequential: true,
-        })
-        .catch((error: unknown) => error);
-      if (response instanceof ConnectorError)
+        });
+        if (
+          response.status !== 204 &&
+          response.status !== 200 &&
+          response.status !== 404
+        )
+          throw upstreamFailure(response.status);
+      } catch (error) {
         return {
           local: "not-attempted",
-          broker:
-            response.code === "indeterminate" ? "indeterminate" : "failed",
+          broker: brokerFailure(error),
           upstream: "not-attempted",
         };
-      if (response instanceof Error)
-        return {
-          local: "not-attempted",
-          broker: "failed",
-          upstream: "not-attempted",
-        };
-      if (
-        response.status !== 204 &&
-        response.status !== 200 &&
-        response.status !== 404
-      )
-        throw upstreamFailure(response.status);
+      }
       return {
         local: "not-attempted",
-        broker: broker === "applied" ? "applied" : broker,
+        broker,
         // Deleting the broker's copy is not the provider revoking the grant.
         upstream: "not-attempted",
       };

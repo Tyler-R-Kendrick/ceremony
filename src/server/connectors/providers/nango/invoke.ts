@@ -423,6 +423,13 @@ export async function invokeNango(
       await finish("not-applied", error.detail ?? "nango.denied");
       throw error;
     }
+    // A local rate limit or authority cool-down refuses before anything is
+    // sent, so the effect definitely did not occur and the caller sees the
+    // refusal rather than an ambiguous failure.
+    if (error instanceof ConnectorError && error.code === "rate-limited") {
+      await finish("not-applied", error.detail ?? "nango.rate-limited");
+      throw error;
+    }
     const lost =
       error instanceof ConnectorError &&
       (error.code === "upstream-unavailable" || error.code === "cancelled");
@@ -446,6 +453,15 @@ export async function invokeNango(
   if (outcome.status === 202) {
     await finish("indeterminate", outcome.code);
     return { ...base, state: "indeterminate", code: outcome.code };
+  }
+  // A gateway-level failure means the request reached Nango but its fate is
+  // unknown: Nango may already have forwarded it upstream. For anything that
+  // is not a read and cannot prove safe replay, that is indeterminate, not a
+  // failure a caller may simply retry. A 429 is different: it is an explicit
+  // refusal, so the operation definitely did not run.
+  if (outcome.status >= 500 && operation.effect !== "read" && operation.replay === "none") {
+    await finish("indeterminate", "nango.upstream.uncertain");
+    return { ...base, state: "indeterminate", code: "nango.upstream.uncertain" };
   }
   await finish("failed", outcome.code);
   if (outcome.status === 429) {

@@ -79,11 +79,7 @@
                 "name": "--mode",
                 "description": "Operation mode",
                 "default": "local",
-                "choices": [
-                  "local",
-                  "cached",
-                  "proxy"
-                ]
+                "choices": ["local", "cached", "proxy"]
               }
             ]
           }
@@ -103,11 +99,7 @@
                 "name": "X-Region",
                 "description": "Service region",
                 "default": "us-east-1",
-                "choices": [
-                  "us-east-1",
-                  "eu-west-1",
-                  "ap-southeast-1"
-                ]
+                "choices": ["us-east-1", "eu-west-1", "ap-southeast-1"]
               }
             ]
           },

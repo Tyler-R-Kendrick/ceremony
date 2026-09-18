@@ -20,9 +20,16 @@ import { keyring, sampleEntries } from "./support.js";
  */
 
 const tenant = "tenant-a";
-const schema = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
+const schema =
+  "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 
-async function harness(options: { storage?: RegistrySnapshotStorage; readToken?: string; bearer?: () => Promise<string | undefined> } = {}) {
+async function harness(
+  options: {
+    storage?: RegistrySnapshotStorage;
+    readToken?: string;
+    bearer?: () => Promise<string | undefined>;
+  } = {},
+) {
   const double = await startMcpRegistryDouble({
     entries: sampleEntries(),
     ...(options.readToken ? { readToken: options.readToken } : {}),
@@ -52,9 +59,19 @@ test("reconciles several pages into one complete generation with include_deleted
     assert.equal(requests.length, 3);
     assert.equal(requests[0]!.url.searchParams.get("cursor"), null);
     assert.equal(requests[0]!.url.searchParams.get("limit"), "3");
-    assert.equal(requests[1]!.url.searchParams.get("cursor"), "io.github.a/b:1.0.0-rc.1");
-    assert.equal(requests[2]!.url.searchParams.get("cursor"), "io.github.e/f:1.0.0");
-    assert.ok(requests.every((request) => request.url.searchParams.get("include_deleted") === "true"));
+    assert.equal(
+      requests[1]!.url.searchParams.get("cursor"),
+      "io.github.a/b:1.0.0-rc.1",
+    );
+    assert.equal(
+      requests[2]!.url.searchParams.get("cursor"),
+      "io.github.e/f:1.0.0",
+    );
+    assert.ok(
+      requests.every(
+        (request) => request.url.searchParams.get("include_deleted") === "true",
+      ),
+    );
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 7);
     assert.deepEqual(
@@ -73,7 +90,11 @@ test("reconciles several pages into one complete generation with include_deleted
     assert.equal(entry?.server.version, "1.0.0-rc.1");
     assert.equal(entry?.identity.nativeVersion, "1.0.0-rc.1");
     assert.equal(await store.read(tenant, "never-refreshed"), undefined);
-    assert.equal(await store.read("tenant-b", "registry-fixture"), undefined, "snapshots are tenant-scoped");
+    assert.equal(
+      await store.read("tenant-b", "registry-fixture"),
+      undefined,
+      "snapshots are tenant-scoped",
+    );
   } finally {
     await double.close();
   }
@@ -87,22 +108,40 @@ test("incremental refresh uses updated_since and records deletions and deprecati
     assert.equal(header.watermark, "2026-01-06T00:00:00Z");
     double.setStatus("com.example/alpha", "1.0.0", "deleted", "spam");
     double.setStatus("com.example/beta", "1.0.0", "deprecated", "use gamma");
-    double.publish({ $schema: schema, name: "com.example/gamma", description: "new", version: "0.1.0" });
+    double.publish({
+      $schema: schema,
+      name: "com.example/gamma",
+      description: "new",
+      version: "0.1.0",
+    });
     double.resetListRequests();
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
     assert.equal(report.generation, 2);
-    const requests = double.received("GET", "/v0.1/servers").slice(-report.pagesFetched);
+    const requests = double
+      .received("GET", "/v0.1/servers")
+      .slice(-report.pagesFetched);
     const since = requests[0]!.url.searchParams.get("updated_since")!;
-    assert.equal(since, "2026-01-05T23:59:00.000Z", "the watermark minus the configured one-minute overlap");
-    assert.ok(requests.every((request) => request.url.searchParams.get("updated_since") === since));
+    assert.equal(
+      since,
+      "2026-01-05T23:59:00.000Z",
+      "the watermark minus the configured one-minute overlap",
+    );
+    assert.ok(
+      requests.every(
+        (request) => request.url.searchParams.get("updated_since") === since,
+      ),
+    );
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 8);
     const alpha = view.rows.find((row) => row.name === "com.example/alpha")!;
     assert.equal(alpha.status, "deleted");
     assert.equal(alpha.tombstone?.reason, "deleted");
     assert.equal(alpha.tombstone?.message, "spam");
-    assert.ok(await view.entry(alpha.identityDigest), "tombstoned content stays readable");
+    assert.ok(
+      await view.entry(alpha.identityDigest),
+      "tombstoned content stays readable",
+    );
     const beta = view.rows.find((row) => row.name === "com.example/beta")!;
     assert.equal(beta.status, "deprecated");
     assert.equal(beta.deprecation?.message, "use gamma");
@@ -122,14 +161,23 @@ test("an outage on page 3 keeps the previous complete snapshot, marks it stale, 
   try {
     const first = await store.refresh(tenant, source);
     const firstAt = first.freshness.lastSuccessfulRefreshAt!;
-    double.publish({ $schema: schema, name: "io.github.z/late", description: "arrives later", version: "1.0.0" });
+    double.publish({
+      $schema: schema,
+      name: "io.github.z/late",
+      description: "arrives later",
+      version: "1.0.0",
+    });
     double.resetListRequests();
     double.faults.failListRequest = { at: 3, status: 503 };
     const interrupted = await store.refresh(tenant, source, { mode: "full" });
     assert.equal(interrupted.state, "interrupted");
     assert.equal(interrupted.code, "upstream-unavailable");
     assert.equal(interrupted.pagesFetched, 3);
-    assert.equal(interrupted.generation, 1, "the served generation did not change");
+    assert.equal(
+      interrupted.generation,
+      1,
+      "the served generation did not change",
+    );
     assert.equal(interrupted.nextCursor, "io.github.e/f:1.0.0");
     assert.equal(interrupted.freshness.stale, true);
     assert.equal(interrupted.freshness.reason, "refresh-failed");
@@ -142,20 +190,34 @@ test("an outage on page 3 keeps the previous complete snapshot, marks it stale, 
     assert.equal(header.pending?.cursor, "io.github.e/f:1.0.0");
     assert.equal(header.pending?.pagesDone, 2);
     assert.equal(header.lastFailureCode, "upstream-unavailable");
-    const staged = [...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>).inspect(tenant).keys()].filter((id) => id.startsWith("registry-fixture:g2:"));
+    const staged = [
+      ...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>)
+        .inspect(tenant)
+        .keys(),
+    ].filter((id) => id.startsWith("registry-fixture:g2:"));
     assert.ok(staged.length > 0, "progress is persisted per page");
     double.faults.failListRequest = undefined;
     double.resetListRequests();
     const resumed = await store.refresh(tenant, source);
     assert.equal(resumed.state, "complete");
     assert.equal(resumed.pagesFetched, 1, "only the missing page is fetched");
-    assert.equal(double.received("GET", "/v0.1/servers").at(-1)!.url.searchParams.get("cursor"), "io.github.e/f:1.0.0");
+    assert.equal(
+      double
+        .received("GET", "/v0.1/servers")
+        .at(-1)!
+        .url.searchParams.get("cursor"),
+      "io.github.e/f:1.0.0",
+    );
     assert.equal(resumed.generation, 2);
     assert.equal(resumed.freshness.stale, false);
     const fresh = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(fresh.rows.length, 8);
     assert.ok(fresh.rows.some((row) => row.name === "io.github.z/late"));
-    const collected = [...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>).inspect(tenant).keys()].filter((id) => id.startsWith("registry-fixture:g1:"));
+    const collected = [
+      ...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>)
+        .inspect(tenant)
+        .keys(),
+    ].filter((id) => id.startsWith("registry-fixture:g1:"));
     assert.equal(collected.length, 0, "the superseded generation is collected");
   } finally {
     await double.close();
@@ -170,37 +232,32 @@ test("a stale persisted cursor restarts the refresh from its first page without 
     double.faults.failListRequest = { at: 3, status: 503 };
     await store.refresh(tenant, source, { mode: "full" });
     double.faults.failListRequest = undefined;
-    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!.cursor!;
+    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!
+      .cursor!;
     // The registry rejects the persisted cursor once, as it does after a data
     // reset, and then serves the listing again from its first page.
-    double.faults.staleCursors = new Set([stuck]);
-    double.publish({ $schema: schema, name: "io.github.z/late", description: "arrives later", version: "1.0.0" });
+    double.faults.staleCursorsOnce = new Set([stuck]);
+    double.publish({
+      $schema: schema,
+      name: "io.github.z/late",
+      description: "arrives later",
+      version: "1.0.0",
+    });
     double.resetListRequests();
-    const observed: string[] = [];
-    const client = { ...source.client, list: source.client.list };
-    void client;
-    const report = await (async () => {
-      const original = double.faults.staleCursors!;
-      const wrapped = new Set(original);
-      double.faults.staleCursors = wrapped;
-      const result = await store.refresh(tenant, {
-        ...source,
-        client: {
-          limits: source.client.limits,
-          list: async (query, call) => {
-            observed.push(query.cursor ?? "");
-            const page = await source.client.list(query, call ?? {});
-            wrapped.clear();
-            return page;
-          },
-        },
-      });
-      return result;
-    })();
+    const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
-    assert.ok(report.issues.some((issue) => issue.code === "registry.cursor.stale"));
-    assert.equal(observed[0], stuck);
-    assert.equal(observed[1], "", "restart from the first page");
+    assert.ok(
+      report.issues.some((issue) => issue.code === "registry.cursor.stale"),
+    );
+    const requests = double
+      .received("GET", "/v0.1/servers")
+      .slice(-report.pagesFetched);
+    assert.equal(requests[0]!.url.searchParams.get("cursor"), stuck);
+    assert.equal(
+      requests[1]!.url.searchParams.get("cursor"),
+      null,
+      "restart from the first page",
+    );
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 8);
     assert.equal(view.generation, report.generation);
@@ -216,19 +273,27 @@ test("a cursor the registry keeps rejecting stops the refresh instead of restart
   const { double, store, source } = await harness();
   try {
     await store.refresh(tenant, source);
+    double.resetListRequests();
     double.faults.failListRequest = { at: 3, status: 503 };
     await store.refresh(tenant, source, { mode: "full" });
     double.faults.failListRequest = undefined;
-    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!.cursor!;
+    const stuck = (await store.header(tenant, "registry-fixture"))!.pending!
+      .cursor!;
     double.faults.staleCursors = new Set([stuck]);
     double.resetListRequests();
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "interrupted");
     assert.equal(report.code, "upstream-rejected");
     assert.ok(report.pagesFetched <= 6, "one restart, not a loop");
-    assert.ok(report.issues.some((issue) => issue.code === "registry.cursor.stale"));
+    assert.ok(
+      report.issues.some((issue) => issue.code === "registry.cursor.stale"),
+    );
     const view = (await store.read(tenant, "registry-fixture"))!;
-    assert.equal(view.rows.length, 7, "the last complete snapshot still serves");
+    assert.equal(
+      view.rows.length,
+      7,
+      "the last complete snapshot still serves",
+    );
     assert.equal(view.freshness.stale, true);
     assert.equal(view.freshness.reason, "refresh-failed");
   } finally {
@@ -241,26 +306,45 @@ test("an unlisted version becomes a tombstone on a full refresh and a duplicate 
   try {
     await store.refresh(tenant, source);
     double.remove("io.github.e/f", "1.0.0");
-    const duplicate = structuredClone(double.entries.find((entry) => entry.server.name === "com.example/beta")!);
+    const duplicate = structuredClone(
+      double.entries.find((entry) => entry.server.name === "com.example/beta")!,
+    );
     duplicate.server.description = "an impostor listing of the same version";
     double.entries.push(duplicate);
     const report = await store.refresh(tenant, source, { mode: "full" });
     assert.equal(report.state, "complete");
-    assert.ok(report.issues.some((issue) => issue.code === "version.conflict" && /com\.example\/beta@1\.0\.0/.test(issue.message)));
+    assert.ok(
+      report.issues.some(
+        (issue) =>
+          issue.code === "version.conflict" &&
+          /com\.example\/beta@1\.0\.0/.test(issue.message),
+      ),
+    );
     const view = (await store.read(tenant, "registry-fixture"))!;
     const unlisted = view.rows.find((row) => row.name === "io.github.e/f")!;
     assert.equal(unlisted.tombstone?.reason, "unlisted");
-    assert.equal(unlisted.status, "active", "the registry never said deleted; we say unlisted");
+    assert.equal(
+      unlisted.status,
+      "active",
+      "the registry never said deleted; we say unlisted",
+    );
     assert.ok(await view.entry(unlisted.identityDigest));
     const beta = view.rows.filter((row) => row.name === "com.example/beta");
     assert.equal(beta.length, 1);
-    assert.equal((await view.entry(beta[0]!.identityDigest))!.server.description, "Sample server 2");
+    assert.equal(
+      (await view.entry(beta[0]!.identityDigest))!.server.description,
+      "Sample server 2",
+    );
     const header = (await store.header(tenant, "registry-fixture"))!;
     assert.equal(header.tombstoneCount, 1);
     double.entries.pop();
-    double.rewrite("com.example/beta", "1.0.0", { description: "silently changed content" });
+    double.rewrite("com.example/beta", "1.0.0", {
+      description: "silently changed content",
+    });
     const changed = await store.refresh(tenant, source);
-    assert.ok(changed.issues.some((issue) => issue.code === "version.content-changed"));
+    assert.ok(
+      changed.issues.some((issue) => issue.code === "version.content-changed"),
+    );
   } finally {
     await double.close();
   }
@@ -270,25 +354,69 @@ test("version pinning survives a later publication that changes latest", async (
   const { double, store, source } = await harness();
   try {
     await store.refresh(tenant, source);
-    const pinned = await store.pin(tenant, "registry-fixture", { name: "io.github.a/b", version: "1.0.0" });
+    const pinned = await store.pin(tenant, "registry-fixture", {
+      name: "io.github.a/b",
+      version: "1.0.0",
+    });
     assert.equal(pinned.isLatest, true);
-    await assert.rejects(store.pin(tenant, "registry-fixture", { name: "io.github.a/b", version: "3.0.0" }), (error: unknown) => error instanceof ConnectorError && error.detail === "registry.pin.unknown");
-    await assert.rejects(store.pin(tenant, "registry-fixture", { name: "io.github.a/b", version: "latest" }));
-    double.publish({ $schema: schema, name: "io.github.a/b", description: "newer", version: "1.1.0" });
+    await assert.rejects(
+      store.pin(tenant, "registry-fixture", {
+        name: "io.github.a/b",
+        version: "3.0.0",
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "registry.pin.unknown",
+    );
+    await assert.rejects(
+      store.pin(tenant, "registry-fixture", {
+        name: "io.github.a/b",
+        version: "latest",
+      }),
+    );
+    double.publish({
+      $schema: schema,
+      name: "io.github.a/b",
+      description: "newer",
+      version: "1.1.0",
+    });
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
-    const resolved = (await store.resolve(tenant, "registry-fixture", { name: "io.github.a/b", version: "1.0.0" }))!;
+    const resolved = (await store.resolve(tenant, "registry-fixture", {
+      name: "io.github.a/b",
+      version: "1.0.0",
+    }))!;
     assert.equal(resolved.entry.server.version, "1.0.0");
-    assert.equal(resolved.entry.server.description, "Sample server 3, second version");
+    assert.equal(
+      resolved.entry.server.description,
+      "Sample server 3, second version",
+    );
     assert.equal(resolved.row.isLatest, false);
     assert.equal(resolved.row.tombstone, undefined);
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(Object.values(view.pins).length, 1);
     assert.deepEqual(Object.values(view.pins)[0]!.name, "io.github.a/b");
-    const latest = view.rows.filter((row) => row.name === "io.github.a/b" && row.isLatest);
-    assert.deepEqual(latest.map((row) => row.version), ["1.1.0"]);
-    assert.equal(await store.unpin(tenant, "registry-fixture", { name: "io.github.a/b", version: "1.0.0" }), true);
-    assert.equal(await store.unpin(tenant, "registry-fixture", { name: "io.github.a/b", version: "1.0.0" }), false);
+    const latest = view.rows.filter(
+      (row) => row.name === "io.github.a/b" && row.isLatest,
+    );
+    assert.deepEqual(
+      latest.map((row) => row.version),
+      ["1.1.0"],
+    );
+    assert.equal(
+      await store.unpin(tenant, "registry-fixture", {
+        name: "io.github.a/b",
+        version: "1.0.0",
+      }),
+      true,
+    );
+    assert.equal(
+      await store.unpin(tenant, "registry-fixture", {
+        name: "io.github.a/b",
+        version: "1.0.0",
+      }),
+      false,
+    );
   } finally {
     await double.close();
   }
@@ -296,7 +424,9 @@ test("version pinning survives a later publication that changes latest", async (
 
 test("the shared encrypted SQLite store persists generations under the additive record kind", async () => {
   const sqlite = new SQLiteCeremonyStore(":memory:", keyring);
-  const { double, store, source } = await harness({ storage: ceremonyStoreRegistrySnapshotStorage(sqlite) });
+  const { double, store, source } = await harness({
+    storage: ceremonyStoreRegistrySnapshotStorage(sqlite),
+  });
   try {
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
@@ -304,18 +434,32 @@ test("the shared encrypted SQLite store persists generations under the additive 
     await store.refresh(tenant, source);
     const view = (await store.read(tenant, "registry-fixture"))!;
     assert.equal(view.rows.length, 7);
-    assert.equal(view.rows.find((row) => row.name === "com.example/alpha")!.tombstone?.reason, "deleted");
-    const records = await sqlite.transaction((tx) => tx.list(tenant, "connector-registry-snapshot", 1000));
+    assert.equal(
+      view.rows.find((row) => row.name === "com.example/alpha")!.tombstone
+        ?.reason,
+      "deleted",
+    );
+    const records = await sqlite.transaction((tx) =>
+      tx.list(tenant, "connector-registry-snapshot", 1000),
+    );
     const ids = records.map((record) => record.id);
     assert.ok(ids.includes("registry-fixture"));
     assert.ok(ids.some((id) => id.startsWith("registry-fixture:g2:")));
-    assert.ok(!ids.some((id) => id.startsWith("registry-fixture:g1:")), "collected");
+    assert.ok(
+      !ids.some((id) => id.startsWith("registry-fixture:g1:")),
+      "collected",
+    );
     assert.equal(
       ids.filter((id) => id.startsWith("registry-fixture:c:")).length,
       7,
       "content is addressed by entry digest; the superseded record of the now-deleted entry is collected with its generation",
     );
-    assert.deepEqual(await sqlite.transaction((tx) => tx.list("tenant-b", "connector-registry-snapshot")), []);
+    assert.deepEqual(
+      await sqlite.transaction((tx) =>
+        tx.list("tenant-b", "connector-registry-snapshot"),
+      ),
+      [],
+    );
   } finally {
     await double.close();
     await sqlite.close();
@@ -333,7 +477,11 @@ test("a private source's bearer token is read through the configuration port and
   try {
     const report = await store.refresh(tenant, source);
     assert.equal(report.state, "complete");
-    const persisted = JSON.stringify([...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>).inspect(tenant).values()]);
+    const persisted = JSON.stringify([
+      ...(storage as ReturnType<typeof memoryRegistrySnapshotStorage>)
+        .inspect(tenant)
+        .values(),
+    ]);
     assert.doesNotMatch(persisted, new RegExp(token));
     assert.doesNotMatch(JSON.stringify(report), new RegExp(token));
     ports.configuration.set("MCP_REGISTRY_TOKEN_PRIVATE", undefined);
@@ -341,7 +489,10 @@ test("a private source's bearer token is read through the configuration port and
     assert.equal(denied.state, "interrupted");
     assert.equal(denied.code, "denied");
     assert.doesNotMatch(JSON.stringify(denied), new RegExp(token));
-    assert.equal((await store.read(tenant, "registry-fixture"))!.rows.length, 7);
+    assert.equal(
+      (await store.read(tenant, "registry-fixture"))!.rows.length,
+      7,
+    );
   } finally {
     await double.close();
   }
@@ -350,10 +501,16 @@ test("a private source's bearer token is read through the configuration port and
 test("concurrent refreshes of one source conflict instead of interleaving generations", async () => {
   const { double, store, source } = await harness();
   try {
-    const outcomes = await Promise.allSettled([store.refresh(tenant, source), store.refresh(tenant, source)]);
-    const rejected = outcomes.filter((outcome) => outcome.status === "rejected");
+    const outcomes = await Promise.allSettled([
+      store.refresh(tenant, source),
+      store.refresh(tenant, source),
+    ]);
+    const rejected = outcomes.filter(
+      (outcome) => outcome.status === "rejected",
+    );
     assert.equal(rejected.length, 1);
-    const reason = (rejected[0] as PromiseRejectedResult).reason as ConnectorError;
+    const reason = (rejected[0] as PromiseRejectedResult)
+      .reason as ConnectorError;
     assert.ok(reason instanceof ConnectorError);
     assert.equal(reason.code, "conflict");
     assert.equal(reason.detail, "registry.refresh.concurrent");
@@ -368,8 +525,21 @@ test("a changed base URL for the same source id is refused rather than merged", 
   const { double, store, source } = await harness();
   try {
     await store.refresh(tenant, source);
-    await assert.rejects(store.refresh(tenant, { ...source, baseUrl: "https://other.example.com" }), (error: unknown) => error instanceof ConnectorError && error.detail === "registry.source.changed");
-    await assert.rejects(store.refresh(tenant, { ...source, id: "not valid!" }), (error: unknown) => error instanceof ConnectorError && error.detail === "registry.source.invalid");
+    await assert.rejects(
+      store.refresh(tenant, {
+        ...source,
+        baseUrl: "https://other.example.com",
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "registry.source.changed",
+    );
+    await assert.rejects(
+      store.refresh(tenant, { ...source, id: "not valid!" }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "registry.source.invalid",
+    );
   } finally {
     await double.close();
   }
