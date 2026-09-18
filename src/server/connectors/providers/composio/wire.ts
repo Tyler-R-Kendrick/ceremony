@@ -141,7 +141,13 @@ export const paginationSchema = z.looseObject({
 
 /** Every list endpoint documented here answers with `items` plus pagination. */
 const listOf = <T extends z.ZodType>(item: T) =>
-  z.looseObject({ items: z.array(item) }).and(paginationSchema.partial());
+  z.looseObject({
+    items: z.array(item),
+    next_cursor: text,
+    total_pages: z.number().int().nonnegative().nullish(),
+    current_page: z.number().int().nonnegative().nullish(),
+    total_items: z.number().int().nonnegative().nullish(),
+  });
 
 export const toolkitRefSchema = z.looseObject({
   slug: z.string().min(1),
