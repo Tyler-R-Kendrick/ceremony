@@ -17,7 +17,7 @@ test("GitHub connect collects the account before starting", async ({
   });
   try {
     await fixture.login(page.context(), "browser-account-owner");
-    await page.goto(`${fixture.origin}/?connector=github`);
+    await page.goto(fixture.origin);
     const account = page.getByLabel("GitHub account or organization");
     const connect = page.getByRole("button", {
       name: "Connect GitHub",
@@ -85,7 +85,7 @@ test("the service collection starts real ceremonies with inline prerequisites", 
     )
       starts.push(request.url());
   });
-  await page.goto("/?connector=github");
+  await page.goto("/");
   await expect(
     page.getByRole("link", { name: "Connect a real GitHub App" }),
   ).toHaveCount(0);

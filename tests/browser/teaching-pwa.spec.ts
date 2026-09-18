@@ -17,7 +17,7 @@ test("AC-43: real static worker update and account switch preserve pending autho
   try {
     await fixture.login(context, "pwa-owner");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?connector=github`);
+    await page.goto(fixture.origin);
     await expect(
       page.getByRole("button", { name: "Connect GitHub", exact: true }),
     ).toBeVisible();

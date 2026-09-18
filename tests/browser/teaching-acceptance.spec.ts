@@ -45,7 +45,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
   }) => {
     await fixture.login(context, "whole-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?connector=github`);
+    await page.goto(`${fixture.origin}/`);
     await expect(
       page.getByRole("button", { name: "Teach this connection", exact: true }),
     ).toBeDisabled();
@@ -166,7 +166,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
         await fixture.login(context, subject!);
         await fixture.providerPages(context);
         const page = await context.newPage();
-        await page.goto(`${fixture.origin}/?connector=github`);
+        await page.goto(`${fixture.origin}/`);
         await page
           .getByLabel("GitHub account or organization")
           .fill("fixture-owner");
@@ -209,7 +209,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
       await fixture.login(automaticContext, "automatic-executor");
       await fixture.providerPages(automaticContext);
       const automaticPage = await automaticContext.newPage();
-      await automaticPage.goto(`${fixture.origin}/?connector=github`);
+      await automaticPage.goto(fixture.origin);
       await automaticPage
         .getByLabel("GitHub account or organization")
         .fill("fixture-owner");
@@ -247,7 +247,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
       await fixture.login(context, "fresh-executor");
       await fixture.providerPages(context);
       const page = await context.newPage();
-      await page.goto(`${fixture.origin}/?connector=github`);
+      await page.goto(fixture.origin);
       await page
         .getByLabel("GitHub account or organization")
         .fill("fixture-owner");
@@ -308,7 +308,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
   }) => {
     await fixture.login(context, "consent-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?connector=github`);
+    await page.goto(`${fixture.origin}/`);
     await page
       .getByLabel("GitHub account or organization")
       .fill("fixture-owner");
@@ -399,7 +399,7 @@ test.describe("browser-native teaching with PostgreSQL and signed provider HTTP"
   }) => {
     await fixture.login(context, "offline-author");
     await fixture.providerPages(context);
-    await page.goto(`${fixture.origin}/?connector=github`);
+    await page.goto(fixture.origin);
     await page
       .getByLabel("GitHub account or organization")
       .fill("fixture-owner");
