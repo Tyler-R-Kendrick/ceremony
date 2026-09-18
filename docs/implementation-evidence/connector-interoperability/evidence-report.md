@@ -15,9 +15,9 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 ## Requirement coverage
 
 - Required work items in the charter: 154.
-- Delivered with a ledger entry: 109.
-- Implemented: 104. Partial or unmet: 5. No ledger entry at all: 45.
-- Ledgers read: 21 (CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW).
+- Delivered with a ledger entry: 115.
+- Implemented: 110. Partial or unmet: 5. No ledger entry at all: 39.
+- Ledgers read: 22 (CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW).
 
 ## Recorded test run
 
@@ -25,9 +25,9 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 - Tested commit: `19ad92dfa37a9dfa8f3fee16631c2e6b50ba7b0b+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 0; passed 0, failed 0, skipped 0
-- Ledger-named test files covered by that run: 0 of 174.
+- Ledger-named test files covered by that run: 0 of 177.
 
-**This run is older than the ledgers.** 174 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
+**This run is older than the ledgers.** 177 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
 
 ## Requirements with no ledger entry
 
@@ -74,12 +74,6 @@ Named directly. These are required work items nobody delivered. They are listed 
 | QA-04 | QA |
 | QA-05 | QA |
 | QA-06 | QA |
-| DOC-01 | DOCS |
-| DOC-02 | DOCS |
-| DOC-03 | DOCS |
-| DOC-04 | DOCS |
-| DOC-05 | DOCS |
-| DOC-06 | DOCS |
 
 ## Partial and unmet requirements
 
@@ -138,6 +132,9 @@ Each of these stays `blocked` and fails closed. None is relabelled as a fixture 
 | CLOUD-01 | CLOUD | Live account evidence blocked: no authorized AWS credentials and no gateway in this environment |
 | CLOUD-03 | CLOUD | Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment |
 | CMD-06 | COMMAND | The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour. |
+| DOC-01 | DOCS | Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere |
+| DOC-04 | DOCS | It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment |
+| DOC-05 | DOCS | No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record |
 
 ## Requirements, files, tests, results and pinned sources
 
@@ -293,12 +290,12 @@ One row per required work item. `Result` is `pass`, `fail` or `not in the record
 | QA-04 | QA | not-delivered | not-tested | 0 | — | — | none |
 | QA-05 | QA | not-delivered | not-tested | 0 | — | — | none |
 | QA-06 | QA | not-delivered | not-tested | 0 | — | — | none |
-| DOC-01 | DOCS | not-delivered | not-tested | 0 | — | — | none |
-| DOC-02 | DOCS | not-delivered | not-tested | 0 | — | — | none |
-| DOC-03 | DOCS | not-delivered | not-tested | 0 | — | — | none |
-| DOC-04 | DOCS | not-delivered | not-tested | 0 | — | — | none |
-| DOC-05 | DOCS | not-delivered | not-tested | 0 | — | — | none |
-| DOC-06 | DOCS | not-delivered | not-tested | 0 | — | — | none |
+| DOC-01 | DOCS | implemented | unit | 6 | AC-IMP-02, AC-IMP-05, AC-IMP-14, AC-UX-06 | `ceremony-connector/1`, `ceremony-connector/2`, `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`, `overlay-1.1.0`, `overlay-1.0.0`, `arazzo-1.1.0`, `arazzo-1.0.1`, `asyncapi-3.1.0`, `asyncapi-3.0.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `mcp-registry-api-v0.1`, `server-json-2025-12-11`, `yaml-1.2-core`, `json-rfc8259`, `json-pointer-rfc6901` | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
+| DOC-02 | DOCS | implemented | unit | 2 | AC-IMP-16 | `openapi-3.2.1`, `overlay-1.1.0`, `arazzo-1.1.0`, `asyncapi-3.1.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28` | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
+| DOC-03 | DOCS | implemented | unit | 2 | AC-UX-06, AC-PKG-03 | — | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
+| DOC-04 | DOCS | implemented | not-tested | 1 | AC-STATE-03, AC-AUTH-16, AC-VC-07, AC-NG-02 | `nango-http-api-2026-09`, `pipedream-connect-rest-2026-09`, `supabase-oauth-2026-09`, `supabase-management-api-v1`, `vercel-connect-triggers-2026-08-20`, `standard-webhooks-1.0.0`, `composio-platform-v3-2026-09`, `merge-unified-2026-09` | none |
+| DOC-05 | DOCS | implemented | not-tested | 3 | AC-MCP-06, AC-AUTH-18 | `mcp-2026-07-28-authorization`, `rfc9728`, `rfc8693` | none |
+| DOC-06 | DOCS | implemented | not-tested | 2 | AC-PKG-03 | — | none |
 
 The command that produces every result above is one recorded run over every discovered connector test file:
 
@@ -721,6 +718,29 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - The events mount point delegates to an injected receiveEvent hook (EVENT swarm); with no hook the path answers 404 rather than accepting an unauthenticated delivery.
 - **CMD-06** (COMMAND)
   - The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour.
+- **DOC-01** (DOCS)
+  - The profile describes the code as it stands on this branch; it is not a conformance claim against any specification, and the Overlay JSONPath subset in particular is explicitly not RFC 9535 conformance
+  - Examples are validated against the runtime Zod contracts only; a published example proves the contract accepts it, not that any adapter produces it
+  - Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere
+- **DOC-02** (DOCS)
+  - Licences were established for seven specification families by reading the published document or its LICENSE file on 2026-09-18; for every other record the licence field says `not-read-here` and claims no reuse beyond citation
+  - Only one record carries a captured document digest (server-json-2025-12-11); no other swarm captured one, and the lock says so per record rather than inventing digests
+  - The lock is pinned as of the ledgers named in `coversLedgers`. A ledger delivered afterwards may cite an unpinned identifier; the generator reports that as a coverage gap and the test asserts the gap is visible rather than silently accepted
+- **DOC-03** (DOCS)
+  - An adapter factory that cannot be constructed with no host configuration has no machine-readable row; the generator names the module and the reason instead of guessing at its dimensions
+  - Rows are measured with `capabilities(new Set())`, which is what a deployment holding no configuration sees; a configured deployment's directory can legitimately differ
+  - Evidence per adapter is the strongest level any ledger recorded for that adapter's module directory, which is coarser than per-work-item evidence
+- **DOC-04** (DOCS)
+  - Operational guidance, not an executable artifact: it has no test of its own. Every factual claim in it traces to a ledger or to the generated support matrix
+  - It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment
+- **DOC-05** (DOCS)
+  - Only claims that were verified false against the code were changed. Statements that are still accurate were left alone, including that generation and discovery are not exposed over MCP and that the reference application does not mount the in-chat collector
+  - No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record
+  - docs/architecture.md was read and left unchanged: nothing in it was found to be factually stale
+- **DOC-06** (DOCS)
+  - Test results come only from the JUnit run that scripts/connector-evidence.ts last recorded in report.json. At generation time that run recorded zero suites, so every test row reads 'not in the recorded run' and the report says so in bold rather than implying a pass
+  - Requirement status is read from the ledgers at generation time, so it is current; it is a swarm's own claim about its work, joined to test results that are measured independently
+  - The report does not run tests itself, by design: other swarms were running concurrently and a shared full-suite run would have collided with them
 
 ## Security findings recorded by the swarms
 
@@ -732,6 +752,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - CLOUD: No account was created, no resource was provisioned, no credential was created or used, no package was installed, no image was pulled and no container was launched. All tests run against loopback fixtures on ephemeral ports.
 - COMPOSIO: None. No Composio account, project, auth config or connected account was created, modified or deleted. All traffic in tests goes to a loopback fixture on an ephemeral port; documentation pages were read over HTTPS only.
 - DATA: Read-only documentation fetches over the agent proxy: docs.airbyte.com, reference.airbyte.com, hasura.github.io/ndc-spec, docs.merge.dev, developers.google.com (Cloud Search). No vendor account was used, created or modified; no API key was exercised against any live service.
+- DOCS: Read-only HTTPS GETs to establish licence and version facts for the source lock: spec.openapis.org (OAS 3.2.1, Arazzo 1.1.0, Overlay 1.1.0), asyncapi.com (3.1.0), modelcontextprotocol.io (2026-07-28 basic index), and the LICENSE files of standard-webhooks/standard-webhooks, modelcontextprotocol/modelcontextprotocol and cloudevents/spec. No credential was sent, nothing was created, modified, published or deleted, and no account was used.
 - PIPEDREAM: None. No Pipedream account, project, OAuth client, connect token, connected account or deployed trigger was created. All traffic in tests goes to a loopback fixture on 127.0.0.1. Documentation pages were read over HTTPS.
 - REGISTRY: Read-only GET of https://registry.modelcontextprotocol.io/v0.1/servers?limit=2, https://registry.modelcontextprotocol.io/openapi.yaml, the published server.schema.json and public documentation pages, to pin the API and schema versions. No writes, no publication, no credentials used.
 - SUPABASE: None. No Supabase account, OAuth app, project or token was used or created. The only network access was reading public vendor documentation and the public OpenAPI document at https://api.supabase.com/api/v1-json; all tests run against loopback doubles.
@@ -750,4 +771,5 @@ The [source lock](source-lock.md) pins 67 records as of 2026-09-18, each with it
 ## Ledger problems
 
 - ledger/AUTOMATION.json: does not match the ledger shape
+- ledger/IDENTITY-BROKERS.json: no `workItems` array, so its requirements cannot be joined and are reported as having no ledger entry
 

@@ -1,0 +1,200 @@
+{
+  "swarm": "DOCS",
+  "workItems": [
+    {
+      "id": "DOC-01",
+      "status": "implemented",
+      "files": [
+        "docs/specifications/connector-dialects.md",
+        "docs/specifications/examples/connectors/definition-public-api.json",
+        "docs/specifications/examples/connectors/envelope-v2-description.json",
+        "docs/specifications/examples/connectors/import-loss-issues.json",
+        "docs/specifications/examples/connectors/capability-status-rows.json",
+        "docs/specifications/examples/connectors/verification-claim.json"
+      ],
+      "tests": ["tests/connectors/docs/examples.test.ts"],
+      "acceptanceIds": ["AC-IMP-02", "AC-IMP-05", "AC-IMP-14", "AC-UX-06"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "ceremony-connector/1",
+        "ceremony-connector/2",
+        "openapi-3.2.1",
+        "openapi-3.1.2",
+        "openapi-3.0.3",
+        "swagger-2.0",
+        "overlay-1.1.0",
+        "overlay-1.0.0",
+        "arazzo-1.1.0",
+        "arazzo-1.0.1",
+        "asyncapi-3.1.0",
+        "asyncapi-3.0.0",
+        "cloudevents-1.0",
+        "standard-webhooks-1.0.0",
+        "mcp-2026-07-28",
+        "mcp-2025-11-25",
+        "mcp-2025-06-18",
+        "mcp-registry-api-v0.1",
+        "server-json-2025-12-11",
+        "yaml-1.2-core",
+        "json-rfc8259",
+        "json-pointer-rfc6901"
+      ],
+      "limitations": [
+        "The profile describes the code as it stands on this branch; it is not a conformance claim against any specification, and the Overlay JSONPath subset in particular is explicitly not RFC 9535 conformance",
+        "Examples are validated against the runtime Zod contracts only; a published example proves the contract accepts it, not that any adapter produces it",
+        "Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere"
+      ],
+      "notes": "docs/specifications/connector-dialects.md is the versioned dialect and subset profile (ceremony-dialects/1): seven independently pinned version fields; the dialect tables for description formats, protocol revisions and ingestion; the HTTP, Overlay, Arazzo, AsyncAPI and MCP executable subsets with their exact in/out lists; the five custody models mapped to real adapters; the eleven-state lifecycle with six separately authorized endings; four binding rules for import loss; a backward-compatibility table naming the two deliberate narrowings; and six migration paths (v1 to v2 envelope, Arazzo version strings, legacy MCP, nango.yaml, pre-2025-09-16 server.json, a moved source under an approved binding). It complements and never restates docs/specifications/connector-interoperability.md (CONTRACT) or docs/specifications/arazzo-profiles.md (WORKFLOW). Five example documents are parsed by the authoritative runtime schemas in tests/connectors/docs/examples.test.ts, which standard discovery under tests/connectors/** runs, so a published example that stops validating is a failing test."
+    },
+    {
+      "id": "DOC-02",
+      "status": "implemented",
+      "files": [
+        "docs/implementation-evidence/connector-interoperability/source-lock.json",
+        "docs/implementation-evidence/connector-interoperability/source-lock.md"
+      ],
+      "tests": ["tests/connectors/docs/examples.test.ts"],
+      "acceptanceIds": ["AC-IMP-16"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "openapi-3.2.1",
+        "overlay-1.1.0",
+        "arazzo-1.1.0",
+        "asyncapi-3.1.0",
+        "cloudevents-1.0",
+        "standard-webhooks-1.0.0",
+        "mcp-2026-07-28"
+      ],
+      "limitations": [
+        "Licences were established for seven specification families by reading the published document or its LICENSE file on 2026-09-18; for every other record the licence field says `not-read-here` and claims no reuse beyond citation",
+        "Only one record carries a captured document digest (server-json-2025-12-11); no other swarm captured one, and the lock says so per record rather than inventing digests",
+        "The lock is pinned as of the ledgers named in `coversLedgers`. A ledger delivered afterwards may cite an unpinned identifier; the generator reports that as a coverage gap and the test asserts the gap is visible rather than silently accepted"
+      ],
+      "notes": "source-lock.json is the curated machine-readable record that scripts/connector-evidence.ts already referenced but that did not exist; 47 records, one per external specification, standards draft, vendor document, dependency and platform behaviour a delivered adapter depends on, plus the Ceremony-internal profile identifiers so every ledger sourceProfileId resolves. Each record carries URL, retrieved-at, upstream version, revision, digest or an explanation of its absence, a licence statement with how it was established, a reuse note, and the dependent adapters, profile identifiers and modules. Licences read directly: OpenAPI 3.2.1 and Arazzo 1.1.0 and Overlay 1.1.0 (Apache-2.0, Copyright the Linux Foundation), AsyncAPI 3.1.0 (Apache-2.0), Standard Webhooks and CloudEvents (Apache-2.0 repository LICENSE), MCP (Apache-2.0 for specification, MIT for older contributions, CC-BY-4.0 for documentation). Vendor documentation is recorded as proprietary with no open licence assumed, and each such record states explicitly that reading an SDK does not license the vendor's catalog assets, logos, marks or curated app lists. No external manual is copied into the repository."
+    },
+    {
+      "id": "DOC-03",
+      "status": "implemented",
+      "files": [
+        "scripts/connector-support-matrix.ts",
+        "docs/specifications/connector-support-matrix.md"
+      ],
+      "tests": ["tests/connectors/docs/examples.test.ts"],
+      "acceptanceIds": ["AC-UX-06", "AC-PKG-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [],
+      "limitations": [
+        "An adapter factory that cannot be constructed with no host configuration has no machine-readable row; the generator names the module and the reason instead of guessing at its dimensions",
+        "Rows are measured with `capabilities(new Set())`, which is what a deployment holding no configuration sees; a configured deployment's directory can legitimately differ",
+        "Evidence per adapter is the strongest level any ledger recorded for that adapter's module directory, which is coarser than per-work-item evidence"
+      ],
+      "notes": "scripts/connector-support-matrix.ts generates three documents and never hand-writes a support cell. It imports every adapter barrel under src/server/connectors/{providers,registries,formats}/*/ and src/server/connectors/mcp/, constructs each exported create*Adapter or create*Profile factory with no configuration, and reads the adapter's own capability rows. 27 adapters are currently introspected. Import, configure, authorize, verify, invoke, events and export are separate columns; discover and delegate have their own table; lifecycle is reported as reconnect, disconnect and revoke separately because they are separate effects; runtime, support level and custody are columns of their own. Required configuration comes from each adapter's own configuration list, and native limitations are reproduced verbatim from the capability rows. Format modules with no runtime adapter are listed separately so their absence does not read as a defect. `--check` regenerates in memory and exits non-zero on drift; it runs no tests and makes no network request."
+    },
+    {
+      "id": "DOC-04",
+      "status": "implemented",
+      "files": ["docs/connector-provider-setup.md"],
+      "tests": [],
+      "acceptanceIds": ["AC-STATE-03", "AC-AUTH-16", "AC-VC-07", "AC-NG-02"],
+      "evidenceLevel": "not-tested",
+      "sourceProfileIds": [
+        "nango-http-api-2026-09",
+        "pipedream-connect-rest-2026-09",
+        "supabase-oauth-2026-09",
+        "supabase-management-api-v1",
+        "vercel-connect-triggers-2026-08-20",
+        "standard-webhooks-1.0.0",
+        "composio-platform-v3-2026-09",
+        "merge-unified-2026-09"
+      ],
+      "limitations": [
+        "Operational guidance, not an executable artifact: it has no test of its own. Every factual claim in it traces to a ledger or to the generated support matrix",
+        "It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment"
+      ],
+      "notes": "docs/connector-provider-setup.md covers the exact callback path and why it is built from the deployment origin and never from input; one exact HTTPS redirect per environment and why a wildcard is wrong; requested/reported/observed permissions as three distinct sets where empty means unknown and never unlimited; webhook verification on the original bytes before any parse, with the per-provider secret and header for Standard Webhooks, Nango (separate webhook signing key, legacy header ignored even when correct), Pipedream (signed triggers, unsigned connection webhooks) and the forwarding case whose outbound scheme is unpublished; the five custody modes with the five rules the code actually enforces; environment separation including per-environment apps, broker environments and signing keys, and administrator-approved private origins; an incident table keyed by symptom covering degraded, reconnect-required, indeterminate, account switch, stale callbacks and human-required; and a section stating plainly that a local disconnect is not an upstream revocation, with the four providers that document no revocation operation and the documented alternative for each. It contains no secret value of any kind, only configuration names and vendor-documented key prefixes, and it explicitly refuses to suggest working around a provider's approval, review or plan requirement."
+    },
+    {
+      "id": "DOC-05",
+      "status": "implemented",
+      "files": [
+        "docs/mcp-endpoint.md",
+        "docs/mcp-local.md",
+        "docs/auth-catalog.md"
+      ],
+      "tests": [],
+      "acceptanceIds": ["AC-MCP-06", "AC-AUTH-18"],
+      "evidenceLevel": "not-tested",
+      "sourceProfileIds": ["mcp-2026-07-28-authorization", "rfc9728", "rfc8693"],
+      "limitations": [
+        "Only claims that were verified false against the code were changed. Statements that are still accurate were left alone, including that generation and discovery are not exposed over MCP and that the reference application does not mount the in-chat collector",
+        "No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record",
+        "docs/architecture.md was read and left unchanged: nothing in it was found to be factually stale"
+      ],
+      "notes": "Three corrections, each verified against the code first. (1) docs/mcp-endpoint.md said the endpoint gives a chat client 'the same four operations' and listed nothing further: it now records the five always-registered tools (ceremony_connect, ceremony_snapshot, ceremony_advance, ceremony_cancel, ceremony_connectors) and the four connector_* tools that src/server/mcp.ts registers only when the host passes the optional `connectors` option, with their projection and output-classification limits. It also gains an 'Inbound is not outbound' table separating Ceremony serving MCP (src/server/mcp.ts, publishes RFC 9728 metadata, validates tokens minted for itself) from Ceremony connecting outward to an external MCP server (src/server/connectors/mcp/, reads a 401 challenge, holds a credential in custody, pins a protocol profile per binding), with the rule that a Ceremony token is never passed downstream and a remote credential never authenticates this endpoint. (2) docs/mcp-local.md said mounting the in-chat collector 'needs the MCP App resource bundled as HTML, which has no build step yet'; scripts/build-mcp-app.mjs, npm run build:mcp-app and npm run check:mcp-app now exist and npm run build invokes the first, so the text now says the bundle exists at artifacts/mcp-app/collector.html and what is still missing is the reference server passing it as collectorOrigins.appHtml. The tool table gains the optional connector_* row. (3) docs/auth-catalog.md listed 'MCP HTTP authorization' and 'Certificate / workload federation / token exchange' as Catalog only; MCP HTTP authorization is now implemented as an outbound client profile and RFC 8693 token exchange is implemented for host-authorized issuers, both at protocol-fixture evidence, while mTLS remains catalog only because this runtime holds no client certificates. A new paragraph states the exact boundary of each and links the inbound/outbound distinction."
+    },
+    {
+      "id": "DOC-06",
+      "status": "implemented",
+      "files": [
+        "scripts/connector-support-matrix.ts",
+        "docs/implementation-evidence/connector-interoperability/evidence-report.md"
+      ],
+      "tests": [],
+      "acceptanceIds": ["AC-PKG-03"],
+      "evidenceLevel": "not-tested",
+      "sourceProfileIds": [],
+      "limitations": [
+        "Test results come only from the JUnit run that scripts/connector-evidence.ts last recorded in report.json. At generation time that run recorded zero suites, so every test row reads 'not in the recorded run' and the report says so in bold rather than implying a pass",
+        "Requirement status is read from the ledgers at generation time, so it is current; it is a swarm's own claim about its work, joined to test results that are measured independently",
+        "The report does not run tests itself, by design: other swarms were running concurrently and a shared full-suite run would have collided with them"
+      ],
+      "notes": "The evidence report complements scripts/connector-evidence.ts rather than replacing it: that script still owns the recorded JUnit run, report.json and README.md, and this generator imports its `requiredWorkItems` map rather than duplicating the charter. evidence-report.md joins all 154 required work items to the ledger that delivered each (or to nothing), to that item's files, acceptance ids, pinned source identifiers and named test commands, to the recorded result per test file, to the blocked live prerequisites extracted from the limitations, to the security findings the swarms recorded, and to the external effects performed. It opens with the four honest limitations that must survive: no live or vendor-certified evidence anywhere, the unpublished outbound trigger signing scheme and its stand-in verifier, the undocumented pagination on named list endpoints, and the registry adapter that reports provider-backed because it genuinely implements discovery, import and export. It names every requirement with no ledger entry in its own table instead of claiming that all swarms completed, and it reports ledgers that carry no workItems array as unjoinable rather than as empty deliveries."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "package.json (INT)",
+      "description": "Add two scripts: \"docs:connectors\": \"node --import tsx scripts/connector-support-matrix.ts\" and \"docs:connectors:check\": \"node --import tsx scripts/connector-support-matrix.ts --check\". Wire the check into canonical verification beside specs:check, for example by extending the existing \"check\" stage or by adding docs:connectors:check to scripts/verify-deterministic.mjs. The check performs no network access and runs no tests; it regenerates the three documents in memory and exits non-zero when the published copies disagree with the adapters, the ledgers or the source lock."
+    },
+    {
+      "target": "docs/specifications/README.md (INT)",
+      "description": "Add two rows to the contract stack table and one line to the schema paragraph.\n\nIn the table, after the Connector interoperability row:\n\n| [Connector dialects](connector-dialects.md) | Supported document dialects and protocol revisions, executable subsets, custody and lifecycle models, import loss, backward compatibility and migration | Version-dispatched readers and host-approved bindings |\n| [Connector support matrix](connector-support-matrix.md) | Per-adapter, per-dimension support, required configuration and native limitations | The registered adapters themselves; generated, never hand-written |\n\nAnd after the paragraph about the Draft 2020-12 schemas:\n\nWorked examples of these contracts live in [examples/connectors/](examples/connectors/). Each is parsed by the authoritative runtime schema in [tests/connectors/docs/examples.test.ts](../../tests/connectors/docs/examples.test.ts), so a published example cannot drift from the contract it illustrates."
+    },
+    {
+      "target": "docs/README.md (INT)",
+      "description": "Under \"Use and embed\", after the Connector interoperability profile line:\n\n- [Connector dialects and versions](specifications/connector-dialects.md): which document dialects and protocol revisions are read, which subset of each can execute, and how to migrate when one moves.\n- [Connector support matrix](specifications/connector-support-matrix.md): per-adapter, per-dimension support generated from the adapters and the ledgers.\n\nUnder \"Develop and operate\", after the Local MCP line:\n\n- [Connector provider setup](connector-provider-setup.md): redirect origins, permissions, webhook verification, credential custody, environment separation, incidents and reconnects, and why a local disconnect is not an upstream revocation.\n\nUnder \"Evidence and history\", after the first paragraph:\n\n[Connector interoperability evidence](implementation-evidence/connector-interoperability/evidence-report.md) joins every required work item to its files, tests, recorded results, pinned sources and blocked live prerequisites, and names the requirements nobody delivered. The [source lock](implementation-evidence/connector-interoperability/source-lock.md) records every external document an adapter depends on."
+    },
+    {
+      "target": "docs/specifications/conformance.md (INT)",
+      "description": "Add to the executable mapping table:\n\n| DOC-01  | Every published connector example parses under the authoritative runtime schema, and the loss example satisfies the severity, impact and locality rules |\n| DOC-02  | Every source profile identifier a covered ledger cites resolves in the source lock, and every lock record carries URL, retrieval time, version, licence position, reuse note and dependents |\n\nAnd one line after the CON paragraph:\n\nThe DOC cases live in [tests/connectors/docs](../../tests/connectors/docs). They validate published documentation against the runtime contracts; they are not evidence about any provider, and no case in this repository carries live or deployed evidence."
+    },
+    {
+      "target": "examples/server.ts and src/server/hosted/* (INT)",
+      "description": "Not required by the DOCS swarm, but recorded because docs/mcp-local.md now says so precisely: the MCP App collector bundle exists at artifacts/mcp-app/collector.html and npm run build produces it, but no caller passes it to createCeremonyMcpHandler as collectorOrigins.appHtml, so privateCollection still reports web-application-only. If the integrator wires it, that paragraph in docs/mcp-local.md needs updating again."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "DOC-06 recorded run",
+      "description": "The JUnit run in report.json recorded zero suites, so every test result in evidence-report.md reads 'not in the recorded run'. The DOCS swarm deliberately did not re-run `npm run evidence:connectors`, because it executes every file under tests/connectors/ and other swarms were working concurrently on fixed-port fixtures. The integrator must run it once, alone, and then regenerate with `node --import tsx scripts/connector-support-matrix.ts`."
+    },
+    {
+      "id": "DOC-02 coverage",
+      "description": "The source lock covers the ledgers named in its `coversLedgers` field. Ledgers delivered after it was pinned (currently CATALOGS, CLOUD, IDENTITY-BROKERS, MICROSOFT) may cite source profile identifiers with no record. The generator reports each gap in source-lock.md and the test asserts the gap is visible, but the records themselves still have to be written by whoever pins them."
+    },
+    {
+      "id": "DOC-02 licences",
+      "description": "Seven specification families have a licence read directly from the published document or its LICENSE file. Every other record, including all vendor documentation and several dependencies, records `not-read-here` and claims no reuse beyond citation. Establishing the remaining licences is real outstanding work, not a formality."
+    },
+    {
+      "id": "DOC-03 introspection gaps",
+      "description": "One adapter factory (createExternalRuntimeAdapter in formats/automation) cannot be constructed with no host configuration, so the support matrix reports no dimensions for it and names the reason. Making it constructible with empty options, or exporting a description of its dimensions, would close the gap."
+    }
+  ],
+  "externalEffectsPerformed": [
+    "Read-only HTTPS GETs to establish licence and version facts for the source lock: spec.openapis.org (OAS 3.2.1, Arazzo 1.1.0, Overlay 1.1.0), asyncapi.com (3.1.0), modelcontextprotocol.io (2026-07-28 basic index), and the LICENSE files of standard-webhooks/standard-webhooks, modelcontextprotocol/modelcontextprotocol and cloudevents/spec. No credential was sent, nothing was created, modified, published or deleted, and no account was used."
+  ],
+  "securityFindings": []
+}

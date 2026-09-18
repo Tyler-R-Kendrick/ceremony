@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 27 constructible adapters and 21 ledgers.
+Generated from 27 constructible adapters and 22 ledgers.
 
 ## Support by dimension
 
@@ -21,7 +21,7 @@ Generated from 27 constructible adapters and 21 ledgers.
 | `camel-kamelet` | camel-kamelet | hosted-server | provider-backed | no-credential, external-execution-broker | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / protocol-fixture |
 | `composio` | composio | hosted-server | provider-backed | external-credential-broker, external-execution-broker | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `dapr` | dapr | hosted-server | provider-backed | host-owned, no-credential | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported |
-| `docker-mcp-catalog` | docker-mcp | hosted-server | catalog-only | no-credential | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / unit |
+| `docker-mcp-catalog` | docker-mcp | hosted-server | provider-backed | no-credential | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / unit |
 | `google-integration-connectors` | google-integration-connectors | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | unsupported | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `hasura-ndc` | hasura-ndc | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / unit | unsupported | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | unsupported |
 | `mcp-registry` | mcp-registry | hosted-server | provider-backed | no-credential, host-owned | implemented / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | implemented / protocol-fixture |
@@ -32,9 +32,9 @@ Generated from 27 constructible adapters and 21 ledgers.
 | `open-service-broker` | open-service-broker | hosted-server | provider-backed | host-owned | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `openapi-http` | openapi | hosted-server | fixture | host-owned, no-credential | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | implemented / protocol-fixture |
 | `pipedream-connect` | pipedream | hosted-server | provider-backed | external-credential-broker, external-execution-broker | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported |
-| `pulsemcp` | pulsemcp | hosted-server | catalog-only | no-credential | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported |
+| `pulsemcp` | pulsemcp | hosted-server | provider-backed | no-credential | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported |
 | `smithery` | smithery | hosted-server | provider-backed | external-execution-broker | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported | unsupported |
-| `smithery-registry` | smithery | hosted-server | catalog-only | no-credential | implemented / missing / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported |
+| `smithery-registry` | smithery | hosted-server | provider-backed | no-credential | implemented / missing / protocol-fixture | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported |
 | `supabase-data-api` | supabase | hosted-server | provider-backed | host-owned | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `supabase-management` | supabase | hosted-server | provider-backed | host-owned | unsupported | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported | unsupported |
 | `supabase-mcp` | supabase | hosted-server | provider-backed | host-owned | unsupported | implemented / protocol-fixture | unsupported | implemented / protocol-fixture | implemented / protocol-fixture | unsupported | unsupported |

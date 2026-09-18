@@ -88,6 +88,41 @@ function harness(options: {
   return { ports, binding, ctx };
 }
 
+test("AC-EXT-18: a Kamelet that requests a local runtime installs nothing", async () => {
+  // The clause of AC-EXT-18 this swarm owns for Camel: asking for execution
+  // where no runner exists produces a reported unavailability, not an
+  // installation, a download, a process or an invented success.
+  const { ctx } = harness({});
+  const adapter = createCamelKameletAdapter();
+  const availability = await adapter.runnerAvailability();
+  assert.equal(availability.available, false);
+  await assert.rejects(
+    () =>
+      adapter.invoke!(ctx, {
+        operationRef: KAMELET_RUN_OPERATION,
+        input: { trigger: "manual" },
+        commandId: "command-ac-ext-18",
+      }),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "unsupported",
+  );
+  // Import still works: a description is available even where execution is not.
+  const imported = await importKamelet(
+    new Uint8Array(
+      await readFile(
+        fileURLToPath(
+          new URL(
+            "../fixtures/camel-kamelet/aws-s3-source.kamelet.yaml",
+            import.meta.url,
+          ),
+        ),
+      ),
+    ),
+    { sourceRef: "source:s3", origin: { kind: "upload" } },
+  );
+  assert.equal(imported.definition.capabilities.length, 1);
+});
+
 test("with no runner configured, availability names the exact reason and invoke refuses", async () => {
   const { ctx } = harness({});
   const adapter = createCamelKameletAdapter();
