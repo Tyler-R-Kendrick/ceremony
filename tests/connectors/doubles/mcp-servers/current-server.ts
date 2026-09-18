@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 
@@ -47,7 +51,12 @@ const state = {
 
 let origin = "";
 
-function jsonError(code: number, message: string, data?: unknown, id: unknown = null) {
+function jsonError(
+  code: number,
+  message: string,
+  data?: unknown,
+  id: unknown = null,
+) {
   return {
     jsonrpc: "2.0",
     ...(id === null ? { id: null } : { id }),
@@ -92,7 +101,8 @@ function toolsFor(token: string) {
     },
     {
       name: "needs_url",
-      description: "Sends the person somewhere out of band before it can finish.",
+      description:
+        "Sends the person somewhere out of band before it can finish.",
       inputSchema: { type: "object", additionalProperties: false },
     },
     {
@@ -120,7 +130,9 @@ function toolsFor(token: string) {
       inputSchema: {
         type: "object",
         properties: {
-          choice: { oneOf: [{ type: "string", "x-mcp-header": "Authorization" }] },
+          choice: {
+            oneOf: [{ type: "string", "x-mcp-header": "Authorization" }],
+          },
         },
       },
     },
@@ -148,11 +160,20 @@ function resourcesFor(token: string) {
   const who = token === SECOND_TOKEN ? "beatrix" : "ada";
   return [
     { uri: "note:///shared", name: "shared", mimeType: "text/plain" },
-    { uri: `note:///${who}/private`, name: `${who}-private`, mimeType: "text/plain" },
+    {
+      uri: `note:///${who}/private`,
+      name: `${who}-private`,
+      mimeType: "text/plain",
+    },
   ];
 }
 
-function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json",
@@ -201,7 +222,9 @@ function complete(id: unknown, result: Record<string, unknown>) {
     result: {
       resultType: "complete",
       ...result,
-      _meta: { [META_SERVER_INFO]: { name: "fixture-current", version: "1.0.0" } },
+      _meta: {
+        [META_SERVER_INFO]: { name: "fixture-current", version: "1.0.0" },
+      },
     },
   };
 }
@@ -224,7 +247,13 @@ const server = createServer(async (req, res) => {
     if (typeof value === "string") headers[name] = value;
 
   if (url.pathname === "/__wire" && req.method === "GET") {
-    send(res, 200, { wire: state.wire, effects: state.effects, inputsSeen: state.inputsSeen, toolCalls: state.toolCalls, mode: state.mode });
+    send(res, 200, {
+      wire: state.wire,
+      effects: state.effects,
+      inputsSeen: state.inputsSeen,
+      toolCalls: state.toolCalls,
+      mode: state.mode,
+    });
     return;
   }
   if (url.pathname === "/__control" && req.method === "POST") {
@@ -258,7 +287,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
     send(res, 200, {
       resource:
-        state.mode === "bad-metadata" ? "https://elsewhere.example/mcp" : `${origin}/mcp`,
+        state.mode === "bad-metadata"
+          ? "https://elsewhere.example/mcp"
+          : `${origin}/mcp`,
       authorization_servers: [`${origin}/authorization`],
       scopes_supported: ["mcp:tools", "mcp:resources"],
       bearer_methods_supported: ["header"],
@@ -295,7 +326,12 @@ const server = createServer(async (req, res) => {
     send(res, 400, jsonError(-32700, "Parse error"));
     return;
   }
-  const message = body as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: Record<string, unknown> };
+  const message = body as {
+    jsonrpc?: unknown;
+    id?: unknown;
+    method?: unknown;
+    params?: Record<string, unknown>;
+  };
   if (message.jsonrpc !== "2.0" || typeof message.method !== "string") {
     send(res, 400, jsonError(-32600, "Invalid request"));
     return;
@@ -310,34 +346,78 @@ const server = createServer(async (req, res) => {
     send(
       res,
       400,
-      jsonError(-32022, "Unsupported protocol version", { supported: [REVISION], requested: params.protocolVersion }, id),
+      jsonError(
+        -32022,
+        "Unsupported protocol version",
+        { supported: [REVISION], requested: params.protocolVersion },
+        id,
+      ),
     );
     return;
   }
 
   const headerVersion = headers["mcp-protocol-version"];
   if (!headerVersion) {
-    send(res, 400, jsonError(-32020, "Missing MCP-Protocol-Version header", undefined, id));
+    send(
+      res,
+      400,
+      jsonError(-32020, "Missing MCP-Protocol-Version header", undefined, id),
+    );
     return;
   }
   if (headerVersion !== meta[META_VERSION]) {
-    send(res, 400, jsonError(-32020, "Header mismatch: MCP-Protocol-Version does not match the body", undefined, id));
+    send(
+      res,
+      400,
+      jsonError(
+        -32020,
+        "Header mismatch: MCP-Protocol-Version does not match the body",
+        undefined,
+        id,
+      ),
+    );
     return;
   }
   if (headerVersion !== REVISION) {
-    send(res, 400, jsonError(-32022, "Unsupported protocol version", { supported: [REVISION], requested: headerVersion }, id));
+    send(
+      res,
+      400,
+      jsonError(
+        -32022,
+        "Unsupported protocol version",
+        { supported: [REVISION], requested: headerVersion },
+        id,
+      ),
+    );
     return;
   }
   if (meta[META_CLIENT_CAPABILITIES] === undefined) {
-    send(res, 400, jsonError(-32602, "Missing client capabilities", undefined, id));
+    send(
+      res,
+      400,
+      jsonError(-32602, "Missing client capabilities", undefined, id),
+    );
     return;
   }
   if (headers["mcp-method"] !== message.method) {
-    send(res, 400, jsonError(-32020, "Header mismatch: Mcp-Method", undefined, id));
+    send(
+      res,
+      400,
+      jsonError(-32020, "Header mismatch: Mcp-Method", undefined, id),
+    );
     return;
   }
   if (headers["mcp-session-id"] !== undefined) {
-    send(res, 400, jsonError(-32020, "Sessions do not exist on this revision", undefined, id));
+    send(
+      res,
+      400,
+      jsonError(
+        -32020,
+        "Sessions do not exist on this revision",
+        undefined,
+        id,
+      ),
+    );
     return;
   }
   const named: Record<string, string | undefined> = {
@@ -348,8 +428,16 @@ const server = createServer(async (req, res) => {
   if (message.method in named) {
     const expected = named[message.method];
     const supplied = headers["mcp-name"];
-    if (expected === undefined || supplied === undefined || decodeHeaderValue(supplied) !== expected) {
-      send(res, 400, jsonError(-32020, "Header mismatch: Mcp-Name", undefined, id));
+    if (
+      expected === undefined ||
+      supplied === undefined ||
+      decodeHeaderValue(supplied) !== expected
+    ) {
+      send(
+        res,
+        400,
+        jsonError(-32020, "Header mismatch: Mcp-Name", undefined, id),
+      );
       return;
     }
   }
@@ -377,7 +465,8 @@ const server = createServer(async (req, res) => {
 
     case "tools/list": {
       const all = toolsFor(token);
-      const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
+      const cursor =
+        typeof params.cursor === "string" ? params.cursor : undefined;
       const page = cursor === "page-2" ? all.slice(4) : all.slice(0, 4);
       send(
         res,
@@ -395,7 +484,11 @@ const server = createServer(async (req, res) => {
     }
 
     case "resources/list":
-      send(res, 200, complete(id, { resources: resourcesFor(token), ...CACHE_PRIVATE }));
+      send(
+        res,
+        200,
+        complete(id, { resources: resourcesFor(token), ...CACHE_PRIVATE }),
+      );
       return;
 
     case "resources/templates/list":
@@ -411,7 +504,9 @@ const server = createServer(async (req, res) => {
 
     case "resources/read": {
       const uri = String(params.uri ?? "");
-      const known = resourcesFor(token).some((resource) => resource.uri === uri);
+      const known = resourcesFor(token).some(
+        (resource) => resource.uri === uri,
+      );
       if (!known) {
         send(res, 200, jsonError(-32602, "Resource not found", { uri }, id));
         return;
@@ -420,7 +515,9 @@ const server = createServer(async (req, res) => {
         res,
         200,
         complete(id, {
-          contents: [{ uri, mimeType: "text/plain", text: `contents of ${uri}` }],
+          contents: [
+            { uri, mimeType: "text/plain", text: `contents of ${uri}` },
+          ],
           ...CACHE_PRIVATE,
         }),
       );
@@ -456,7 +553,13 @@ const server = createServer(async (req, res) => {
         complete(id, {
           description: "Summarize a note",
           messages: [
-            { role: "user", content: { type: "text", text: `Summarize ${String(args.note ?? "")}` } },
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Summarize ${String(args.note ?? "")}`,
+              },
+            },
           ],
         }),
       );
@@ -480,7 +583,14 @@ const server = createServer(async (req, res) => {
         });
       }, 10);
       setTimeout(() => {
-        stream.write({ jsonrpc: "2.0", id, result: { resultType: "complete", _meta: { [META_SUBSCRIPTION]: id } } });
+        stream.write({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            resultType: "complete",
+            _meta: { [META_SUBSCRIPTION]: id },
+          },
+        });
         stream.end();
       }, 40);
       return;
@@ -490,41 +600,61 @@ const server = createServer(async (req, res) => {
       state.toolCalls++;
       const name = String(params.name ?? "");
       const args = (params.arguments ?? {}) as Record<string, unknown>;
-      const inputResponses = params.inputResponses as Record<string, unknown> | undefined;
+      const inputResponses = params.inputResponses as
+        Record<string, unknown> | undefined;
       const requestState = params.requestState;
 
       if (name === "regional_query") {
         const supplied = headers["mcp-param-region"];
-        if (supplied === undefined || decodeHeaderValue(supplied) !== String(args.region ?? "")) {
-          send(res, 400, jsonError(-32020, "Header mismatch: Mcp-Param-Region", undefined, id));
+        if (
+          supplied === undefined ||
+          decodeHeaderValue(supplied) !== String(args.region ?? "")
+        ) {
+          send(
+            res,
+            400,
+            jsonError(
+              -32020,
+              "Header mismatch: Mcp-Param-Region",
+              undefined,
+              id,
+            ),
+          );
           return;
         }
-        send(res, 200, complete(id, { content: [{ type: "text", text: `queried ${String(args.region)}` }] }));
+        send(
+          res,
+          200,
+          complete(id, {
+            content: [{ type: "text", text: `queried ${String(args.region)}` }],
+          }),
+        );
         return;
       }
 
       if (name === "needs_sampling") {
-        send(
-          res,
-          200,
-          {
-            jsonrpc: "2.0",
-            id,
-            result: {
-              resultType: "input_required",
-              inputRequests: {
-                writer: {
-                  method: "sampling/createMessage",
-                  params: {
-                    messages: [{ role: "user", content: { type: "text", text: "Write a note" } }],
-                    maxTokens: 100,
-                  },
+        send(res, 200, {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            resultType: "input_required",
+            inputRequests: {
+              writer: {
+                method: "sampling/createMessage",
+                params: {
+                  messages: [
+                    {
+                      role: "user",
+                      content: { type: "text", text: "Write a note" },
+                    },
+                  ],
+                  maxTokens: 100,
                 },
               },
-              requestState: "sampling-state",
             },
+            requestState: "sampling-state",
           },
-        );
+        });
         return;
       }
 
@@ -552,38 +682,49 @@ const server = createServer(async (req, res) => {
 
       if (name === "needs_input") {
         if (!inputResponses) {
-          send(
-            res,
-            200,
-            {
-              jsonrpc: "2.0",
-              id,
-              result: {
-                resultType: "input_required",
-                inputRequests: {
-                  github_login: {
-                    method: "elicitation/create",
-                    params: {
-                      mode: "form",
-                      message: "Please provide your GitHub username",
-                      requestedSchema: {
-                        type: "object",
-                        properties: { name: { type: "string" }, remember: { type: "boolean" } },
-                        required: ["name"],
+          send(res, 200, {
+            jsonrpc: "2.0",
+            id,
+            result: {
+              resultType: "input_required",
+              inputRequests: {
+                github_login: {
+                  method: "elicitation/create",
+                  params: {
+                    mode: "form",
+                    message: "Please provide your GitHub username",
+                    requestedSchema: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        remember: { type: "boolean" },
                       },
+                      required: ["name"],
                     },
                   },
                 },
-                requestState: Buffer.from(JSON.stringify({ repo: args.repo ?? null })).toString("base64"),
               },
+              requestState: Buffer.from(
+                JSON.stringify({ repo: args.repo ?? null }),
+              ).toString("base64"),
             },
-          );
+          });
           return;
         }
         state.inputsSeen.push({ inputResponses, requestState });
-        const answer = (inputResponses.github_login ?? {}) as { action?: string; content?: Record<string, unknown> };
+        const answer = (inputResponses.github_login ?? {}) as {
+          action?: string;
+          content?: Record<string, unknown>;
+        };
         if (answer.action !== "accept") {
-          send(res, 200, complete(id, { content: [{ type: "text", text: "declined" }], isError: true }));
+          send(
+            res,
+            200,
+            complete(id, {
+              content: [{ type: "text", text: "declined" }],
+              isError: true,
+            }),
+          );
           return;
         }
         // The result deliberately does not echo what the person typed.
@@ -592,7 +733,10 @@ const server = createServer(async (req, res) => {
           200,
           complete(id, {
             content: [{ type: "text", text: "linked" }],
-            structuredContent: { linked: true, nameLength: String(answer.content?.name ?? "").length },
+            structuredContent: {
+              linked: true,
+              nameLength: String(answer.content?.name ?? "").length,
+            },
           }),
         );
         return;
@@ -613,16 +757,32 @@ const server = createServer(async (req, res) => {
           if (name !== "slow") setTimeout(() => res.destroy(), 10);
           return;
         }
-        send(res, 200, complete(id, { content: [{ type: "text", text: "created" }] }));
+        send(
+          res,
+          200,
+          complete(id, { content: [{ type: "text", text: "created" }] }),
+        );
         return;
       }
 
       if (name === "echo" || name === "suggests_headers") {
-        send(res, 200, complete(id, { content: [{ type: "text", text: String(args.text ?? "") }] }));
+        send(
+          res,
+          200,
+          complete(id, {
+            content: [{ type: "text", text: String(args.text ?? "") }],
+          }),
+        );
         return;
       }
       if (name.startsWith("greet_")) {
-        send(res, 200, complete(id, { content: [{ type: "text", text: `hello ${name.slice(6)}` }] }));
+        send(
+          res,
+          200,
+          complete(id, {
+            content: [{ type: "text", text: `hello ${name.slice(6)}` }],
+          }),
+        );
         return;
       }
       send(res, 200, jsonError(-32602, `Unknown tool: ${name}`, undefined, id));
@@ -630,7 +790,11 @@ const server = createServer(async (req, res) => {
     }
 
     default:
-      send(res, 404, jsonError(-32601, `Method not found: ${message.method}`, undefined, id));
+      send(
+        res,
+        404,
+        jsonError(-32601, `Method not found: ${message.method}`, undefined, id),
+      );
       return;
   }
 });

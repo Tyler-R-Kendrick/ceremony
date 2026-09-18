@@ -56,7 +56,9 @@ export async function startMcpFixture(
         ...process.env,
         NODE_OPTIONS: "--max-old-space-size=8192",
         ...(options.token ? { FIXTURE_TOKEN: options.token } : {}),
-        ...(options.secondToken ? { FIXTURE_TOKEN_B: options.secondToken } : {}),
+        ...(options.secondToken
+          ? { FIXTURE_TOKEN_B: options.secondToken }
+          : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -71,11 +73,15 @@ export async function startMcpFixture(
   const origin = await new Promise<string>((resolve, reject) => {
     let buffer = "";
     const timer = setTimeout(() => {
-      reject(new Error(`fixture ${kind} did not start: ${stderr.slice(0, 2000)}`));
+      reject(
+        new Error(`fixture ${kind} did not start: ${stderr.slice(0, 2000)}`),
+      );
     }, 30_000);
     child.stdout.on("data", (chunk: string) => {
       buffer += chunk;
-      const line = buffer.split("\n").find((candidate) => candidate.includes('"ready"'));
+      const line = buffer
+        .split("\n")
+        .find((candidate) => candidate.includes('"ready"'));
       if (!line) return;
       clearTimeout(timer);
       try {
@@ -86,7 +92,11 @@ export async function startMcpFixture(
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`fixture ${kind} exited with ${code}: ${stderr.slice(0, 2000)}`));
+      reject(
+        new Error(
+          `fixture ${kind} exited with ${code}: ${stderr.slice(0, 2000)}`,
+        ),
+      );
     });
   });
 
@@ -107,7 +117,10 @@ export async function startMcpFixture(
     async stop() {
       if (child.exitCode === null) {
         child.kill("SIGTERM");
-        await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 2000))]);
+        await Promise.race([
+          once(child, "exit"),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
         if (child.exitCode === null) child.kill("SIGKILL");
       }
     },

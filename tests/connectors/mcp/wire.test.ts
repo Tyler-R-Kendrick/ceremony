@@ -29,10 +29,12 @@ test("the SSE parser joins data lines, ignores comments and dispatches on blank 
   const parser = new SseParser();
   const chunk = (text: string) => parser.push(new TextEncoder().encode(text));
   assert.deepEqual(chunk(":\n"), []);
-  assert.deepEqual(chunk("data: {\"a\":1}\n\n"), [{ data: '{"a":1}' }]);
+  assert.deepEqual(chunk('data: {"a":1}\n\n'), [{ data: '{"a":1}' }]);
   // A frame split across chunks and across a CRLF boundary.
   assert.deepEqual(chunk("event: message\r\ndata: one\r\ndata:"), []);
-  assert.deepEqual(chunk(" two\r\n\r\n"), [{ data: "one\ntwo", event: "message" }]);
+  assert.deepEqual(chunk(" two\r\n\r\n"), [
+    { data: "one\ntwo", event: "message" },
+  ]);
   assert.deepEqual(chunk("id: 7\nretry: 500\ndata: x\n\n"), [
     { data: "x", id: "7", retry: 500 },
   ]);
@@ -43,13 +45,27 @@ test("the SSE parser joins data lines, ignores comments and dispatches on blank 
 
 test("header values are encoded only when they cannot travel as plain ASCII", () => {
   assert.equal(encodeMcpHeaderValue("us-west1"), "us-west1");
-  assert.equal(encodeMcpHeaderValue("Hello, 世界"), "=?base64?SGVsbG8sIOS4lueVjA==?=");
+  assert.equal(
+    encodeMcpHeaderValue("Hello, 世界"),
+    "=?base64?SGVsbG8sIOS4lueVjA==?=",
+  );
   assert.equal(encodeMcpHeaderValue(" padded "), "=?base64?IHBhZGRlZCA=?=");
-  assert.equal(encodeMcpHeaderValue("line1\nline2"), "=?base64?bGluZTEKbGluZTI=?=");
+  assert.equal(
+    encodeMcpHeaderValue("line1\nline2"),
+    "=?base64?bGluZTEKbGluZTI=?=",
+  );
   // A plain value that looks like the sentinel is encoded so it cannot be
   // mistaken for one.
-  assert.equal(encodeMcpHeaderValue("=?base64?literal?="), "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=");
-  for (const value of ["us-west1", "Hello, 世界", " padded ", "=?base64?literal?="])
+  assert.equal(
+    encodeMcpHeaderValue("=?base64?literal?="),
+    "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=",
+  );
+  for (const value of [
+    "us-west1",
+    "Hello, 世界",
+    " padded ",
+    "=?base64?literal?=",
+  ])
     assert.equal(decodeMcpHeaderValue(encodeMcpHeaderValue(value)), value);
 });
 
@@ -58,7 +74,10 @@ test("x-mcp-header annotations are accepted only where they are statically reach
     type: "object",
     properties: {
       region: { type: "string", "x-mcp-header": "Region" },
-      nested: { type: "object", properties: { tenant: { type: "integer", "x-mcp-header": "Tenant" } } },
+      nested: {
+        type: "object",
+        properties: { tenant: { type: "integer", "x-mcp-header": "Tenant" } },
+      },
     },
   });
   assert.deepEqual(ok, {
@@ -69,9 +88,27 @@ test("x-mcp-header annotations are accepted only where they are statically reach
     ],
   });
   for (const [reason, schema] of [
-    ["non-primitive-type", { type: "object", properties: { a: { type: "number", "x-mcp-header": "A" } } }],
-    ["invalid-token", { type: "object", properties: { a: { type: "string", "x-mcp-header": "bad header" } } }],
-    ["empty-or-non-string", { type: "object", properties: { a: { type: "string", "x-mcp-header": "" } } }],
+    [
+      "non-primitive-type",
+      {
+        type: "object",
+        properties: { a: { type: "number", "x-mcp-header": "A" } },
+      },
+    ],
+    [
+      "invalid-token",
+      {
+        type: "object",
+        properties: { a: { type: "string", "x-mcp-header": "bad header" } },
+      },
+    ],
+    [
+      "empty-or-non-string",
+      {
+        type: "object",
+        properties: { a: { type: "string", "x-mcp-header": "" } },
+      },
+    ],
     [
       "duplicate-name",
       {
@@ -84,11 +121,17 @@ test("x-mcp-header annotations are accepted only where they are statically reach
     ],
     [
       "annotation-not-statically-reachable",
-      { type: "object", properties: { a: { items: { type: "string", "x-mcp-header": "A" } } } },
+      {
+        type: "object",
+        properties: { a: { items: { type: "string", "x-mcp-header": "A" } } },
+      },
     ],
     [
       "annotation-not-statically-reachable",
-      { type: "object", properties: { a: { oneOf: [{ type: "string", "x-mcp-header": "A" }] } } },
+      {
+        type: "object",
+        properties: { a: { oneOf: [{ type: "string", "x-mcp-header": "A" }] } },
+      },
     ],
   ] as const) {
     const outcome = collectHeaderParameters(schema as Record<string, unknown>);
@@ -101,7 +144,10 @@ test("a Bearer challenge is parsed, and a malformed one yields nothing rather th
   const parsed = parseBearerChallenge(
     'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource", scope="files:read files:write", error="insufficient_scope"',
   );
-  assert.equal(parsed?.resource_metadata, "https://mcp.example/.well-known/oauth-protected-resource");
+  assert.equal(
+    parsed?.resource_metadata,
+    "https://mcp.example/.well-known/oauth-protected-resource",
+  );
   assert.equal(parsed?.scope, "files:read files:write");
   assert.equal(parsed?.error, "insufficient_scope");
   // Case-insensitive scheme, token parameters, and an escaped quote.
@@ -124,7 +170,12 @@ test("protected resource metadata is validated before it is used", () => {
     }).success,
     true,
   );
-  assert.equal(protectedResourceMetadataSchema.safeParse({ resource: "https://mcp.example" }).success, false);
+  assert.equal(
+    protectedResourceMetadataSchema.safeParse({
+      resource: "https://mcp.example",
+    }).success,
+    false,
+  );
   assert.equal(
     protectedResourceMetadataSchema.safeParse({
       resource: "https://mcp.example",
@@ -135,20 +186,28 @@ test("protected resource metadata is validated before it is used", () => {
 });
 
 test("JSON from a server is bounded in depth, size and object keys", () => {
-  assert.deepEqual(parseBoundedJson('{"a":[1,2]}', { maxDepth: 8 }), { a: [1, 2] });
-  assert.throws(() => parseBoundedJson("{", { maxDepth: 8 }), (error: unknown) => error instanceof WireError);
+  assert.deepEqual(parseBoundedJson('{"a":[1,2]}', { maxDepth: 8 }), {
+    a: [1, 2],
+  });
+  assert.throws(
+    () => parseBoundedJson("{", { maxDepth: 8 }),
+    (error: unknown) => error instanceof WireError,
+  );
   const deep = "[".repeat(40) + "]".repeat(40);
   assert.throws(
     () => parseBoundedJson(deep, { maxDepth: 8 }),
-    (error: unknown) => error instanceof WireError && error.code === "json-too-deep",
+    (error: unknown) =>
+      error instanceof WireError && error.code === "json-too-deep",
   );
   assert.throws(
     () => parseBoundedJson('{"__proto__":{"polluted":true}}', { maxDepth: 8 }),
-    (error: unknown) => error instanceof WireError && error.code === "json-reserved-key",
+    (error: unknown) =>
+      error instanceof WireError && error.code === "json-reserved-key",
   );
   assert.throws(
-    () => parseBoundedJson('[1,2,3,4,5]', { maxDepth: 8, maxNodes: 3 }),
-    (error: unknown) => error instanceof WireError && error.code === "json-too-many-nodes",
+    () => parseBoundedJson("[1,2,3,4,5]", { maxDepth: 8, maxNodes: 3 }),
+    (error: unknown) =>
+      error instanceof WireError && error.code === "json-too-many-nodes",
   );
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
@@ -158,13 +217,19 @@ test("only the errors this revision defines identify a modern server", () => {
   assert.equal(isRecognizedModernError({ code: -32021, message: "" }), true);
   assert.equal(isRecognizedModernError({ code: -32020, message: "" }), true);
   assert.equal(isRecognizedModernError({ code: -32601, message: "" }), true);
-  assert.equal(isRecognizedModernError({ code: -32000, message: "Bad Request" }), false);
+  assert.equal(
+    isRecognizedModernError({ code: -32000, message: "Bad Request" }),
+    false,
+  );
   assert.equal(isRecognizedModernError({ code: -32602, message: "" }), false);
 });
 
 test("the cache separates principals and honours the server's freshness hint", () => {
   let now = 1000;
-  const cache = new McpResultCache(() => now, { cacheMaxTtlMs: 5000, cacheMaxEntries: 4 });
+  const cache = new McpResultCache(() => now, {
+    cacheMaxTtlMs: 5000,
+    cacheMaxEntries: 4,
+  });
   const ada = {
     tenantId: "t",
     ownerId: "ada",
@@ -173,7 +238,13 @@ test("the cache separates principals and honours the server's freshness hint", (
     profile: "2026-07-28",
     credentialRef: "cred-1",
   };
-  cache.set(ada, "tools/list", {}, { tools: ["a"] }, { ttlMs: 1000, cacheScope: "public" });
+  cache.set(
+    ada,
+    "tools/list",
+    {},
+    { tools: ["a"] },
+    { ttlMs: 1000, cacheScope: "public" },
+  );
   assert.deepEqual(cache.get(ada, "tools/list", {}), { tools: ["a"] });
   // Another owner, another connection, another generation and another
   // credential are each a different principal.
@@ -190,24 +261,63 @@ test("the cache separates principals and honours the server's freshness hint", (
   now += 1001;
   assert.equal(cache.get(ada, "tools/list", {}), undefined, "the hint expires");
   // A ttl above the host bound is clamped, and no ttl means no caching.
-  cache.set(ada, "tools/list", {}, { tools: ["b"] }, { ttlMs: 1_000_000, cacheScope: "public" });
+  cache.set(
+    ada,
+    "tools/list",
+    {},
+    { tools: ["b"] },
+    { ttlMs: 1_000_000, cacheScope: "public" },
+  );
   now += 5001;
   assert.equal(cache.get(ada, "tools/list", {}), undefined);
-  cache.set(ada, "tools/list", {}, { tools: ["c"] }, { ttlMs: undefined, cacheScope: "public" });
+  cache.set(
+    ada,
+    "tools/list",
+    {},
+    { tools: ["c"] },
+    { ttlMs: undefined, cacheScope: "public" },
+  );
   assert.equal(cache.get(ada, "tools/list", {}), undefined);
   // Invalidation is per principal and may be narrowed to one method.
-  cache.set(ada, "tools/list", {}, { tools: ["d"] }, { ttlMs: 1000, cacheScope: "private" });
-  cache.set(ada, "prompts/list", {}, { prompts: [] }, { ttlMs: 1000, cacheScope: "private" });
+  cache.set(
+    ada,
+    "tools/list",
+    {},
+    { tools: ["d"] },
+    { ttlMs: 1000, cacheScope: "private" },
+  );
+  cache.set(
+    ada,
+    "prompts/list",
+    {},
+    { prompts: [] },
+    { ttlMs: 1000, cacheScope: "private" },
+  );
   assert.equal(cache.invalidate(ada, "tools/list"), 1);
   assert.equal(cache.get(ada, "tools/list", {}), undefined);
   assert.deepEqual(cache.get(ada, "prompts/list", {}), { prompts: [] });
 });
 
 test("the cache evicts within its bound rather than growing", () => {
-  const cache = new McpResultCache(() => 0, { cacheMaxTtlMs: 10_000, cacheMaxEntries: 2 });
-  const who = { tenantId: "t", ownerId: "o", connectionRef: "c", generation: 1, profile: "p" };
+  const cache = new McpResultCache(() => 0, {
+    cacheMaxTtlMs: 10_000,
+    cacheMaxEntries: 2,
+  });
+  const who = {
+    tenantId: "t",
+    ownerId: "o",
+    connectionRef: "c",
+    generation: 1,
+    profile: "p",
+  };
   for (const method of ["a", "b", "c"])
-    cache.set(who, method, {}, { method }, { ttlMs: 1000, cacheScope: "private" });
+    cache.set(
+      who,
+      method,
+      {},
+      { method },
+      { ttlMs: 1000, cacheScope: "private" },
+    );
   assert.equal(cache.size, 2);
   assert.equal(cache.get(who, "a", {}), undefined);
   assert.deepEqual(cache.get(who, "c", {}), { method: "c" });
@@ -219,7 +329,10 @@ test("the profile table keeps the two eras apart", () => {
   assert.equal(mcpProfiles["2026-07-28"].handshake, "none");
   assert.equal(mcpProfiles["2026-07-28"].serverInteraction, "input_required");
   assert.equal(mcpProfiles["2026-07-28"].resumableStreams, false);
-  assert.equal(mcpProfiles["2026-07-28"].dynamicClientRegistration, "deprecated");
+  assert.equal(
+    mcpProfiles["2026-07-28"].dynamicClientRegistration,
+    "deprecated",
+  );
   for (const id of ["2025-11-25", "2025-06-18"] as const) {
     assert.equal(mcpProfiles[id].era, "legacy");
     assert.equal(mcpProfiles[id].handshake, "initialize");
@@ -239,10 +352,20 @@ test("binding settings are inert, bounded and pin one profile", () => {
   assert.equal(settings.endpointPath, "/mcp");
   assert.equal(settings.auth, "bearer");
   assert.throws(() => parseMcpBindingSettings({ profile: "2024-11-05" }));
-  assert.throws(() => parseMcpBindingSettings({ profile: "2026-07-28", endpointPath: "//evil" }));
-  assert.throws(() => parseMcpBindingSettings({ profile: "2026-07-28", endpointPath: "/mcp?x=1" }));
   assert.throws(() =>
-    parseMcpBindingSettings({ profile: "2026-07-28", resource: "https://mcp.example/mcp#frag" }),
+    parseMcpBindingSettings({ profile: "2026-07-28", endpointPath: "//evil" }),
+  );
+  assert.throws(() =>
+    parseMcpBindingSettings({
+      profile: "2026-07-28",
+      endpointPath: "/mcp?x=1",
+    }),
+  );
+  assert.throws(() =>
+    parseMcpBindingSettings({
+      profile: "2026-07-28",
+      resource: "https://mcp.example/mcp#frag",
+    }),
   );
   const limits = resolveLimits({ maxListPages: 2 });
   assert.equal(limits.maxListPages, 2);
@@ -262,11 +385,25 @@ test("answers are validated against the schema the server asked for", () => {
     required: ["name"],
   });
   assert.deepEqual(
-    validateFormValues(schema, { name: "octocat", age: "30", remember: "true", colour: "red" }),
-    { ok: true, content: { name: "octocat", age: 30, remember: true, colour: "red" } },
+    validateFormValues(schema, {
+      name: "octocat",
+      age: "30",
+      remember: "true",
+      colour: "red",
+    }),
+    {
+      ok: true,
+      content: { name: "octocat", age: 30, remember: true, colour: "red" },
+    },
   );
-  assert.deepEqual(validateFormValues(schema, {}), { ok: false, code: "required:name" });
-  assert.deepEqual(validateFormValues(schema, { name: "o" }), { ok: false, code: "min-length:name" });
+  assert.deepEqual(validateFormValues(schema, {}), {
+    ok: false,
+    code: "required:name",
+  });
+  assert.deepEqual(validateFormValues(schema, { name: "o" }), {
+    ok: false,
+    code: "min-length:name",
+  });
   assert.deepEqual(validateFormValues(schema, { name: "ok", age: "17" }), {
     ok: false,
     code: "minimum:age",

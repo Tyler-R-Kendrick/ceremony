@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
@@ -42,7 +46,10 @@ const state = {
 
 let origin = "";
 
-type Entry = { transport: WebStandardStreamableHTTPServerTransport; server: McpServer };
+type Entry = {
+  transport: WebStandardStreamableHTTPServerTransport;
+  server: McpServer;
+};
 const sessions = new Map<string, Entry>();
 
 function buildServer(token: string): McpServer {
@@ -51,7 +58,10 @@ function buildServer(token: string): McpServer {
 
   server.registerTool(
     "echo",
-    { description: "Returns what it was given.", inputSchema: { text: z.string() } },
+    {
+      description: "Returns what it was given.",
+      inputSchema: { text: z.string() },
+    },
     async (args) => ({ content: [{ type: "text", text: args.text }] }),
   );
 
@@ -63,9 +73,16 @@ function buildServer(token: string): McpServer {
 
   server.registerTool(
     "create_note",
-    { description: "Creates a note. Consequential.", inputSchema: { title: z.string() } },
+    {
+      description: "Creates a note. Consequential.",
+      inputSchema: { title: z.string() },
+    },
     async (args) => {
-      state.effects.push({ tool: "create_note", at: Date.now(), arguments: args });
+      state.effects.push({
+        tool: "create_note",
+        at: Date.now(),
+        arguments: args,
+      });
       return { content: [{ type: "text", text: "created" }] };
     },
   );
@@ -82,7 +99,10 @@ function buildServer(token: string): McpServer {
 
   server.registerTool(
     "ask_login",
-    { description: "Asks the person for a username first.", inputSchema: { repo: z.string().optional() } },
+    {
+      description: "Asks the person for a username first.",
+      inputSchema: { repo: z.string().optional() },
+    },
     async (_args, ctx) => {
       // The generic server-to-client request channel of this revision; the
       // SDK's `elicitInput` sugar is era-gated, this is the wire itself.
@@ -93,7 +113,10 @@ function buildServer(token: string): McpServer {
           message: "Please provide your GitHub username",
           requestedSchema: {
             type: "object",
-            properties: { name: { type: "string" }, remember: { type: "boolean" } },
+            properties: {
+              name: { type: "string" },
+              remember: { type: "boolean" },
+            },
             required: ["name"],
           },
         },
@@ -101,7 +124,9 @@ function buildServer(token: string): McpServer {
       state.elicitations.push(answer);
       if (answer.action !== "accept")
         return { content: [{ type: "text", text: "declined" }], isError: true };
-      const name = String((answer.content as Record<string, unknown> | undefined)?.name ?? "");
+      const name = String(
+        (answer.content as Record<string, unknown> | undefined)?.name ?? "",
+      );
       return {
         content: [{ type: "text", text: "linked" }],
         structuredContent: { linked: true, nameLength: name.length },
@@ -113,10 +138,20 @@ function buildServer(token: string): McpServer {
     "probe_roots",
     { description: "Asks the client for filesystem roots.", inputSchema: {} },
     async (_args, ctx) => {
-      const roots = (await ctx.mcpReq.send({ method: "roots/list" })) as { roots?: unknown[] };
+      const roots = (await ctx.mcpReq.send({ method: "roots/list" })) as {
+        roots?: unknown[];
+      };
       return {
-        content: [{ type: "text", text: JSON.stringify({ rootCount: roots.roots?.length ?? -1 }) }],
-        structuredContent: { rootCount: roots.roots?.length ?? -1, roots: roots.roots ?? [] },
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ rootCount: roots.roots?.length ?? -1 }),
+          },
+        ],
+        structuredContent: {
+          rootCount: roots.roots?.length ?? -1,
+          roots: roots.roots ?? [],
+        },
       };
     },
   );
@@ -135,7 +170,10 @@ function buildServer(token: string): McpServer {
         });
         return { content: [{ type: "text", text: "sampled" }] };
       } catch {
-        return { content: [{ type: "text", text: "client refused sampling" }], isError: true };
+        return {
+          content: [{ type: "text", text: "client refused sampling" }],
+          isError: true,
+        };
       }
     },
   );
@@ -144,13 +182,29 @@ function buildServer(token: string): McpServer {
     "shared",
     "note:///shared",
     { mimeType: "text/plain" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/plain", text: "contents of note:///shared" }] }),
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/plain",
+          text: "contents of note:///shared",
+        },
+      ],
+    }),
   );
   server.registerResource(
     `${who}-private`,
     `note:///${who}/private`,
     { mimeType: "text/plain" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/plain", text: `contents of ${uri.href}` }] }),
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/plain",
+          text: `contents of ${uri.href}`,
+        },
+      ],
+    }),
   );
 
   server.registerPrompt(
@@ -158,7 +212,12 @@ function buildServer(token: string): McpServer {
     { description: "Summarize a note", argsSchema: { note: z.string() } },
     async (args) => ({
       description: "Summarize a note",
-      messages: [{ role: "user", content: { type: "text", text: `Summarize ${args.note}` } }],
+      messages: [
+        {
+          role: "user",
+          content: { type: "text", text: `Summarize ${args.note}` },
+        },
+      ],
     }),
   );
 
@@ -176,12 +235,24 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+) {
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+    ...headers,
+  });
   res.end(JSON.stringify(body));
 }
 
-async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
+async function writeWebResponse(
+  res: ServerResponse,
+  response: Response,
+): Promise<void> {
   const headers: Record<string, string> = {};
   response.headers.forEach((value, name) => {
     headers[name] = value;
@@ -260,7 +331,10 @@ const server = createServer(async (req, res) => {
       return;
     }
     sendJson(res, 200, {
-      resource: state.mode === "bad-metadata" ? "https://elsewhere.example/mcp" : `${origin}/mcp`,
+      resource:
+        state.mode === "bad-metadata"
+          ? "https://elsewhere.example/mcp"
+          : `${origin}/mcp`,
       authorization_servers: [`${origin}/authorization`],
       scopes_supported: ["mcp:tools"],
       bearer_methods_supported: ["header"],
@@ -275,20 +349,39 @@ const server = createServer(async (req, res) => {
 
   const token = /^Bearer (\S+)$/.exec(headers.authorization ?? "")?.[1];
   if (!token || (token !== TOKEN && token !== SECOND_TOKEN)) {
-    sendJson(res, 401, { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized" } }, {
-      "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="mcp:tools"`,
-    });
+    sendJson(
+      res,
+      401,
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32001, message: "Unauthorized" },
+      },
+      {
+        "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="mcp:tools"`,
+      },
+    );
     return;
   }
 
-  const call = parsed as { method?: unknown; params?: { name?: unknown } } | undefined;
+  const call = parsed as
+    { method?: unknown; params?: { name?: unknown } } | undefined;
   if (call?.method === "tools/call") state.toolCalls++;
   // A consequential call whose response never arrives: the work happens and
   // the socket dies before the result is written.
   if (call?.method === "tools/call" && call.params?.name === "drop_note") {
-    state.effects.push({ tool: "drop_note", at: Date.now(), arguments: call.params });
-    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
-    res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: "p", progress: 1 } })}\n\n`);
+    state.effects.push({
+      tool: "drop_note",
+      at: Date.now(),
+      arguments: call.params,
+    });
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-store",
+    });
+    res.write(
+      `data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: "p", progress: 1 } })}\n\n`,
+    );
     setTimeout(() => res.destroy(), 10);
     return;
   }
@@ -296,18 +389,27 @@ const server = createServer(async (req, res) => {
   const request = new Request(`${origin}${req.url ?? "/mcp"}`, {
     method: req.method ?? "GET",
     headers,
-    ...(raw.length && req.method !== "GET" && req.method !== "HEAD" ? { body: raw } : {}),
+    ...(raw.length && req.method !== "GET" && req.method !== "HEAD"
+      ? { body: raw }
+      : {}),
   });
 
   const sessionId = headers["mcp-session-id"];
   const existing = sessionId ? sessions.get(sessionId) : undefined;
   if (existing) {
-    await writeWebResponse(res, await existing.transport.handleRequest(request));
+    await writeWebResponse(
+      res,
+      await existing.transport.handleRequest(request),
+    );
     return;
   }
   if (sessionId) {
     // The session is gone: the revision says a 404 tells the client to start a new one.
-    sendJson(res, 404, { jsonrpc: "2.0", id: null, error: { code: -32001, message: "Session not found" } });
+    sendJson(res, 404, {
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Session not found" },
+    });
     return;
   }
 

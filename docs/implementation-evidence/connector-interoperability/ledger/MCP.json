@@ -106,7 +106,11 @@
       ],
       "acceptanceIds": ["AC-MCP-01"],
       "evidenceLevel": "protocol-fixture",
-      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25", "mcp-2025-06-18"],
+      "sourceProfileIds": [
+        "mcp-2026-07-28",
+        "mcp-2025-11-25",
+        "mcp-2025-06-18"
+      ],
       "limitations": [
         "The profile is selected by the binding's settings, never by the installed SDK version; the SDK is used only to build the legacy fixture server.",
         "Auto-detection is off unless a binding sets compatibility to auto-detect; a pinned client refuses a server of the other era rather than accommodating it.",
@@ -186,8 +190,14 @@
     {
       "id": "MCP-05",
       "status": "implemented",
-      "files": ["src/server/connectors/mcp/server-tools.ts", "src/server/mcp.ts"],
-      "tests": ["tests/connectors/mcp/server-tools.test.ts", "tests/mcp-server.test.ts"],
+      "files": [
+        "src/server/connectors/mcp/server-tools.ts",
+        "src/server/mcp.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/server-tools.test.ts",
+        "tests/mcp-server.test.ts"
+      ],
       "acceptanceIds": ["AC-MCP-06"],
       "evidenceLevel": "protocol-fixture",
       "sourceProfileIds": ["mcp-2025-11-25"],
@@ -200,11 +210,18 @@
     {
       "id": "MCP-06",
       "status": "implemented",
-      "files": ["src/server/connectors/mcp/adapter.ts", "src/server/connectors/mcp/authorization.ts"],
+      "files": [
+        "src/server/connectors/mcp/adapter.ts",
+        "src/server/connectors/mcp/authorization.ts"
+      ],
       "tests": ["tests/connectors/mcp/adapter.test.ts"],
       "acceptanceIds": ["AC-AUTH-18"],
       "evidenceLevel": "protocol-fixture",
-      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25", "mcp-2025-06-18"],
+      "sourceProfileIds": [
+        "mcp-2026-07-28",
+        "mcp-2025-11-25",
+        "mcp-2025-06-18"
+      ],
       "limitations": [
         "Live authorized evidence is blocked: no credentials for a deployed MCP server are available in this environment.",
         "verify establishes that the credential was accepted by the origin and says explicitly that server identity is not attested beyond TLS.",
