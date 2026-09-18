@@ -43,7 +43,9 @@
     "name": "datasources/drive/items/design-folder",
     "itemType": "CONTAINER_ITEM",
     "acl": {
-      "readers": [{ "gsuitePrincipal": { "gsuiteGroupEmail": "engineering@acme.test" } }],
+      "readers": [
+        { "gsuitePrincipal": { "gsuiteGroupEmail": "engineering@acme.test" } }
+      ],
       "deniedReaders": []
     }
   },
@@ -73,7 +75,9 @@
     "$comment": "Inherits from a parent without saying how conflicts resolve; ambiguity is refused.",
     "name": "datasources/wiki/items/ambiguous",
     "acl": {
-      "readers": [{ "gsuitePrincipal": { "gsuiteUserEmail": "ada@acme.test" } }],
+      "readers": [
+        { "gsuitePrincipal": { "gsuiteUserEmail": "ada@acme.test" } }
+      ],
       "deniedReaders": [],
       "inheritAclFrom": "datasources/wiki/items/parent"
     }

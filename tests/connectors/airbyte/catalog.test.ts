@@ -54,11 +54,17 @@ test("a discovered catalog becomes one sync capability per stream with exact dec
   >;
   assert.equal(stream.name, "users");
   assert.equal(stream.namespace, "public");
-  assert.deepEqual(stream.supported_sync_modes, ["full_refresh", "incremental"]);
+  assert.deepEqual(stream.supported_sync_modes, [
+    "full_refresh",
+    "incremental",
+  ]);
   assert.equal(stream.source_defined_cursor, true);
   assert.deepEqual(stream.default_cursor_field, ["updated_at"]);
   assert.deepEqual(stream.source_defined_primary_key, [["id"]]);
-  assert.deepEqual(stream.json_schema, discoveredCatalog.streams[0]?.json_schema);
+  assert.deepEqual(
+    stream.json_schema,
+    discoveredCatalog.streams[0]?.json_schema,
+  );
 
   // A stream without a namespace keeps its bare name, not an invented one.
   assert.equal(result.definition.capabilities[2]?.nativeId, "audit_log");
@@ -67,7 +73,10 @@ test("a discovered catalog becomes one sync capability per stream with exact dec
     [["full_refresh", "incremental"], ["incremental"], ["full_refresh"]],
   );
   // Import alone never claims invoke or delegate.
-  assert.equal(result.definition.compatibility.dimensions.invoke, "unsupported");
+  assert.equal(
+    result.definition.compatibility.dimensions.invoke,
+    "unsupported",
+  );
   assert.equal(
     result.definition.compatibility.dimensions.delegate,
     "requires-configuration",
@@ -124,10 +133,7 @@ test("a configured catalog preserves sync modes, cursor and key exactly", async 
   assert.equal(configured.generation_id, 7);
   assert.equal(configured.minimum_generation_id, 7);
   assert.equal(configured.sync_id, 41);
-  assert.deepEqual(result.executableCandidates, [
-    "public::users",
-    "audit_log",
-  ]);
+  assert.deepEqual(result.executableCandidates, ["public::users", "audit_log"]);
 });
 
 test("AC-EXT-13: a configured mode the stream does not support blocks that stream only", async () => {
@@ -196,7 +202,10 @@ test("incremental without a cursor and dedup without a key are blocked", async (
     .filter((issue) => issue.severity === "blocking")
     .map((issue) => issue.code)
     .sort();
-  assert.deepEqual(codes, ["airbyte.cursor.missing", "airbyte.primary-key.missing"]);
+  assert.deepEqual(codes, [
+    "airbyte.cursor.missing",
+    "airbyte.primary-key.missing",
+  ]);
 });
 
 test("streams differing only by namespace do not collide after import", async () => {
@@ -233,8 +242,9 @@ test("an exact duplicate stream identity is preserved but not executable", async
     ["shop::orders", "shop::orders#2"],
   );
   assert.equal(
-    result.issues.find((issue) => issue.code === "airbyte.stream.identity-collision")
-      ?.severity,
+    result.issues.find(
+      (issue) => issue.code === "airbyte.stream.identity-collision",
+    )?.severity,
     "blocking",
   );
 });
@@ -244,7 +254,11 @@ test("a mixed or malformed catalog is refused within bounds", async () => {
     () =>
       readAirbyteCatalog(undefined, {
         streams: [
-          { name: "a", json_schema: {}, supported_sync_modes: ["full_refresh"] },
+          {
+            name: "a",
+            json_schema: {},
+            supported_sync_modes: ["full_refresh"],
+          },
           {
             stream: {
               name: "b",
@@ -323,7 +337,10 @@ test("non-protocol lines in a transcript are counted, not parsed as messages", (
 test("trace errors are reduced to failure type and stream, never text", () => {
   const report = readAirbyteMessages(partialSyncMessages);
   assert.deepEqual(report.traces.errors, [
-    { failureType: "transient_error", stream: { name: "users", namespace: "public" } },
+    {
+      failureType: "transient_error",
+      stream: { name: "users", namespace: "public" },
+    },
   ]);
   assert.equal(JSON.stringify(report).includes("SHOULD-NOT-LEAK"), false);
 });
@@ -336,7 +353,10 @@ test("stream checkpoints keep their descriptor identity and stay frozen", () => 
   assert.deepEqual(users?.descriptor, { name: "users", namespace: "public" });
   assert.equal(users?.stateType, "STREAM");
   assert.deepEqual(users?.state, { updated_at: "2026-09-02T00:00:00Z" });
-  assert.deepEqual(users?.sourceStats, { recordCount: 2, rejectedRecordCount: 0 });
+  assert.deepEqual(users?.sourceStats, {
+    recordCount: 2,
+    rejectedRecordCount: 0,
+  });
   assert.ok(Object.isFrozen(users?.state));
   assert.throws(() => {
     (users?.state as Record<string, unknown>).updated_at = "tampered";
@@ -386,7 +406,10 @@ test("AC-EXT-13: a restart resumes from the checkpoint and reports the replay wi
   const events = plan.streams.find((item) => item.descriptor.name === "events");
   assert.equal(events?.resumeFrom, "beginning");
   assert.equal(events?.replayAtLeast, 1);
-  assert.deepEqual(events?.descriptor, { name: "events", namespace: "analytics" });
+  assert.deepEqual(events?.descriptor, {
+    name: "events",
+    namespace: "analytics",
+  });
 
   // The checkpoint itself is untouched by planning a restart.
   const before = structuredClone(
@@ -409,11 +432,13 @@ test("message reading is bounded", () => {
         { maxMessages: 2 },
       ),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "airbyte.messages.too-many",
+      error instanceof ConnectorError &&
+      error.detail === "airbyte.messages.too-many",
   );
   assert.throws(
     () => readAirbyteMessages("x".repeat(64), { maxBytes: 8 }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "airbyte.messages.too-large",
+      error instanceof ConnectorError &&
+      error.detail === "airbyte.messages.too-large",
   );
 });

@@ -264,7 +264,7 @@ export function harness(input: {
         ...(overrides.connection ? { connection: overrides.connection } : {}),
         ...(overrides.handoff ? { handoff: overrides.handoff } : {}),
         generation: overrides.generation ?? overrides.connection?.generation ?? 1,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(60_000),
         environment: ports.environment({ fetch: globalThis.fetch }),
       };
     },

@@ -160,6 +160,11 @@ test("Ceremony's OIDC fixture serves discovery, PKCE and a code exchange Connect
     /token_endpoint_auth_method/,
   );
   assert.equal(
+    status(report.findings, "required.redirect-url-accepted"),
+    "unknown",
+    "registration echoed no redirect_uris, so acceptance cannot be claimed",
+  );
+  assert.equal(
     status(report.findings, "recommended.rfc7592-client-update"),
     "not-met",
   );

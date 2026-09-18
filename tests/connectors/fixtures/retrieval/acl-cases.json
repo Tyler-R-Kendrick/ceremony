@@ -7,7 +7,9 @@
       "description": "A user named directly as a reader may read.",
       "documentId": "datasources/wiki/items/doc-1",
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
@@ -25,13 +27,17 @@
       "description": "A user reads through current group membership, not a captured roster.",
       "documentId": "datasources/wiki/items/doc-2",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999900000,
         "complete": true
@@ -43,7 +49,9 @@
       "description": "AC-EXT-16: the same document and the same captured ACL, after the user left the group. Current membership decides, so access is refused.",
       "documentId": "datasources/wiki/items/doc-2",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
@@ -61,13 +69,21 @@
       "description": "A role change that adds a group grants access without reindexing the document.",
       "documentId": "datasources/wiki/items/doc-3",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-finance" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-finance" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
-      "principal": { "kind": "user", "identitySource": "corp", "id": "u-grace" },
+      "principal": {
+        "kind": "user",
+        "identitySource": "corp",
+        "id": "u-grace"
+      },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-finance" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-finance" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999990000,
         "complete": true
@@ -79,13 +95,19 @@
       "description": "A direct denied reader beats a group grant at the same level.",
       "documentId": "datasources/wiki/items/doc-4",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
-        "deniedReaders": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
+        "deniedReaders": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "inheritanceType": "NOT_APPLICABLE"
       },
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999900000,
         "complete": true
@@ -97,13 +119,19 @@
       "description": "A denied group beats a direct reader grant; denial is not outranked by specificity.",
       "documentId": "datasources/wiki/items/doc-5",
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
-        "deniedReaders": [{ "kind": "group", "identitySource": "corp", "id": "g-contractors" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
+        "deniedReaders": [
+          { "kind": "group", "identitySource": "corp", "id": "g-contractors" }
+        ],
         "inheritanceType": "NOT_APPLICABLE"
       },
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-contractors" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-contractors" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999900000,
         "complete": true
@@ -151,7 +179,9 @@
       "description": "A membership port that cannot answer denies; unknown is never empty-and-allowed nor assumed-allowed.",
       "documentId": "datasources/wiki/items/doc-7",
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
@@ -164,13 +194,17 @@
       "description": "A partial membership answer denies, even when it already contains a matching group.",
       "documentId": "datasources/wiki/items/doc-8",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999900000,
         "complete": false
@@ -182,13 +216,17 @@
       "description": "A membership snapshot older than the descriptor's policy denies rather than being reused.",
       "documentId": "datasources/wiki/items/doc-9",
       "acl": {
-        "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "readers": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1760000000000,
         "complete": true
@@ -201,7 +239,9 @@
       "documentId": "datasources/wiki/items/doc-10",
       "indexedAt": 1700000000000,
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
@@ -224,7 +264,11 @@
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
-      "principal": { "kind": "user", "identitySource": "corp", "id": "svc-indexer" },
+      "principal": {
+        "kind": "user",
+        "identitySource": "corp",
+        "id": "svc-indexer"
+      },
       "membership": {
         "groups": [],
         "domains": ["acme.test"],
@@ -239,7 +283,9 @@
       "documentId": "datasources/wiki/items/doc-12",
       "endUserResolution": "unresolved",
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
@@ -257,11 +303,17 @@
       "description": "A principal from another identity source cannot be matched against this descriptor's ACL.",
       "documentId": "datasources/wiki/items/doc-13",
       "acl": {
-        "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+        "readers": [
+          { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+        ],
         "deniedReaders": [],
         "inheritanceType": "NOT_APPLICABLE"
       },
-      "principal": { "kind": "user", "identitySource": "partner", "id": "u-ada" },
+      "principal": {
+        "kind": "user",
+        "identitySource": "partner",
+        "id": "u-ada"
+      },
       "membership": {
         "groups": [],
         "domains": ["acme.test"],
@@ -278,7 +330,9 @@
       "chain": [
         {
           "id": "doc-child",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-restricted",
           "inheritanceType": "PARENT_OVERRIDE"
@@ -286,7 +340,9 @@
         {
           "id": "folder-restricted",
           "readers": [],
-          "deniedReaders": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "deniedReaders": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "inheritanceType": "NOT_APPLICABLE"
         }
       ],
@@ -305,7 +361,9 @@
       "chain": [
         {
           "id": "doc-child",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-restricted",
           "inheritanceType": "CHILD_OVERRIDE"
@@ -313,7 +371,9 @@
         {
           "id": "folder-restricted",
           "readers": [],
-          "deniedReaders": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "deniedReaders": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "inheritanceType": "NOT_APPLICABLE"
         }
       ],
@@ -332,14 +392,18 @@
       "chain": [
         {
           "id": "doc-child",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-open",
           "inheritanceType": "BOTH_PERMIT"
         },
         {
           "id": "folder-open",
-          "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-other" }],
+          "readers": [
+            { "kind": "group", "identitySource": "corp", "id": "g-other" }
+          ],
           "deniedReaders": [],
           "inheritanceType": "NOT_APPLICABLE"
         }
@@ -359,21 +423,27 @@
       "chain": [
         {
           "id": "doc-child",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-open",
           "inheritanceType": "BOTH_PERMIT"
         },
         {
           "id": "folder-open",
-          "readers": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+          "readers": [
+            { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+          ],
           "deniedReaders": [],
           "inheritanceType": "NOT_APPLICABLE"
         }
       ],
       "principal": { "kind": "user", "identitySource": "corp", "id": "u-ada" },
       "membership": {
-        "groups": [{ "kind": "group", "identitySource": "corp", "id": "g-engineering" }],
+        "groups": [
+          { "kind": "group", "identitySource": "corp", "id": "g-engineering" }
+        ],
         "domains": ["acme.test"],
         "resolvedAt": 1769999900000,
         "complete": true
@@ -386,14 +456,18 @@
       "chain": [
         {
           "id": "doc-leaf",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-mid",
           "inheritanceType": "PARENT_OVERRIDE"
         },
         {
           "id": "folder-mid",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-root",
           "inheritanceType": "PARENT_OVERRIDE"
@@ -401,7 +475,9 @@
         {
           "id": "folder-root",
           "readers": [],
-          "deniedReaders": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "deniedReaders": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "inheritanceType": "NOT_APPLICABLE"
         }
       ],
@@ -420,7 +496,9 @@
       "chain": [
         {
           "id": "doc-orphan",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "folder-deleted",
           "inheritanceType": "CHILD_OVERRIDE"
@@ -441,7 +519,9 @@
       "chain": [
         {
           "id": "doc-a",
-          "readers": [{ "kind": "user", "identitySource": "corp", "id": "u-ada" }],
+          "readers": [
+            { "kind": "user", "identitySource": "corp", "id": "u-ada" }
+          ],
           "deniedReaders": [],
           "inheritFrom": "doc-b",
           "inheritanceType": "CHILD_OVERRIDE"

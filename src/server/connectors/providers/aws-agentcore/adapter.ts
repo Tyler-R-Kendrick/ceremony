@@ -820,7 +820,10 @@ export function createAgentCoreGatewayAdapter(): ConnectorAdapter {
           displayName: gateway.name,
           description: (gateway.description ?? "").slice(0, 500),
           provenance: gatewayProvenance(gateway, management.region),
-          status: (gateway.status === "READY" ? "active" : "unknown") as const,
+          status:
+            gateway.status === "READY"
+              ? ("active" as const)
+              : ("unknown" as const),
         }));
       return {
         items,

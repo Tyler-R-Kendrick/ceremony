@@ -176,7 +176,10 @@ export const relinkAccount: MergeDoubleAccount = {
   meta: {
     employees: {
       request_schema: { type: "object", properties: {} },
-      status: { linked_account_status: "RELINK_NEEDED", can_make_request: false },
+      status: {
+        linked_account_status: "RELINK_NEEDED",
+        can_make_request: false,
+      },
     },
   },
 };

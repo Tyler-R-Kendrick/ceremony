@@ -77,7 +77,11 @@ function assertPlainJson(value: unknown, detail: string, depth = 0): void {
     for (const key of Object.keys(value)) {
       if (reservedKeys.has(key))
         throw new ConnectorError("invalid-request", { detail });
-      assertPlainJson((value as Record<string, unknown>)[key], detail, depth + 1);
+      assertPlainJson(
+        (value as Record<string, unknown>)[key],
+        detail,
+        depth + 1,
+      );
     }
   }
 }
@@ -108,7 +112,15 @@ export const mergePassthroughRouteSchema = z
       .min(1)
       .max(1024)
       .regex(/^\/[^\p{Cc}?#]*$/u),
-    method: z.enum(["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]),
+    method: z.enum([
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+    ]),
     requestFormat: z.enum(["JSON", "XML", "MULTIPART"]).optional(),
   })
   .readonly();
@@ -145,13 +157,26 @@ function statusFor(status: number): {
   code: ConnectorError["code"];
   detail: string;
 } {
-  if (status === 400) return { code: "invalid-request", detail: "merge.upstream.bad-request" };
-  if (status === 401) return { code: "unauthenticated", detail: "merge.upstream.unauthenticated" };
-  if (status === 403) return { code: "denied", detail: "merge.upstream.denied" };
-  if (status === 404) return { code: "not-found", detail: "merge.upstream.not-found" };
-  if (status === 409) return { code: "conflict", detail: "merge.upstream.conflict" };
-  if (status === 429) return { code: "rate-limited", detail: "merge.upstream.rate-limited" };
-  if (status >= 500) return { code: "upstream-unavailable", detail: "merge.upstream.unavailable" };
+  if (status === 400)
+    return { code: "invalid-request", detail: "merge.upstream.bad-request" };
+  if (status === 401)
+    return {
+      code: "unauthenticated",
+      detail: "merge.upstream.unauthenticated",
+    };
+  if (status === 403)
+    return { code: "denied", detail: "merge.upstream.denied" };
+  if (status === 404)
+    return { code: "not-found", detail: "merge.upstream.not-found" };
+  if (status === 409)
+    return { code: "conflict", detail: "merge.upstream.conflict" };
+  if (status === 429)
+    return { code: "rate-limited", detail: "merge.upstream.rate-limited" };
+  if (status >= 500)
+    return {
+      code: "upstream-unavailable",
+      detail: "merge.upstream.unavailable",
+    };
   return { code: "upstream-rejected", detail: "merge.upstream.rejected" };
 }
 
@@ -167,7 +192,9 @@ export function createMergeAdapter(
       (item) => item.id === mergeDestinationIds.api,
     );
     if (!approved)
-      throw new ConnectorError("denied", { detail: "merge.destination.unapproved" });
+      throw new ConnectorError("denied", {
+        detail: "merge.destination.unapproved",
+      });
     return approved;
   };
 
@@ -224,11 +251,15 @@ export function createMergeAdapter(
             ? {}
             : { "content-type": "application/json" }),
         },
-        ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+        ...(input.body === undefined
+          ? {}
+          : { body: JSON.stringify(input.body) }),
       });
     } catch (error) {
       if (ctx.signal.aborted)
-        throw new ConnectorError("cancelled", { detail: "merge.request.cancelled" });
+        throw new ConnectorError("cancelled", {
+          detail: "merge.request.cancelled",
+        });
       throw new ConnectorError("upstream-unavailable", {
         detail: "merge.request.failed",
         cause: error,
@@ -348,7 +379,9 @@ export function createMergeAdapter(
   ): { bound: BoundOperation; route: T } => {
     const bound = boundOperation(ctx.binding, operationRef);
     if (!bound)
-      throw new ConnectorError("denied", { detail: "merge.operation.unapproved" });
+      throw new ConnectorError("denied", {
+        detail: "merge.operation.unapproved",
+      });
     destinationFor(ctx.binding, bound);
     const routes = ctx.binding.settings[key];
     if (!routes || typeof routes !== "object")
@@ -577,7 +610,8 @@ export function createMergeAdapter(
       });
       if (journal.prior && journal.prior.status !== "not-applied")
         return {
-          state: journal.prior.status === "applied" ? "complete" : "indeterminate",
+          state:
+            journal.prior.status === "applied" ? "complete" : "indeterminate",
           claims: [],
           code: "merge.account-token.replayed",
         };
@@ -620,13 +654,9 @@ export function createMergeAdapter(
         state: "complete",
         claims: accountId
           ? [
-              claimFor(
-                ctx,
-                { id: accountId },
-                [
-                  "Merge holds the upstream credential; Ceremony observes only the linked account Merge reports.",
-                ],
-              ),
+              claimFor(ctx, { id: accountId }, [
+                "Merge holds the upstream credential; Ceremony observes only the linked account Merge reports.",
+              ]),
             ]
           : [],
         credentialRef,
@@ -708,7 +738,9 @@ export function createMergeAdapter(
           ...(account.integration_slug
             ? { integrationSlug: account.integration_slug }
             : {}),
-          ...(account.account_type ? { accountType: account.account_type } : {}),
+          ...(account.account_type
+            ? { accountType: account.account_type }
+            : {}),
         },
       };
     },
@@ -727,7 +759,9 @@ export function createMergeAdapter(
       const category = mergeCategorySchema.safeParse(input.scope?.category);
       const chosen = category.success ? category.data : categories[0]!;
       if (!categories.includes(chosen))
-        throw new ConnectorError("denied", { detail: "merge.category.unapproved" });
+        throw new ConnectorError("denied", {
+          detail: "merge.category.unapproved",
+        });
       const endUser = endUserFor(ctx);
       const page = mergeLinkedAccountsPageSchema.safeParse(
         requireOk(
@@ -790,9 +824,13 @@ export function createMergeAdapter(
         mergeReadRouteSchema,
       );
       if (bound.effect !== "read")
-        throw new ConnectorError("denied", { detail: "merge.operation.not-read" });
+        throw new ConnectorError("denied", {
+          detail: "merge.operation.not-read",
+        });
       if (!categoriesFor(ctx).includes(route.category))
-        throw new ConnectorError("denied", { detail: "merge.category.unapproved" });
+        throw new ConnectorError("denied", {
+          detail: "merge.category.unapproved",
+        });
       const input = readInputSchema.parse(request.input);
 
       // The account's own field availability decides what may be claimed.
@@ -893,7 +931,9 @@ export function createMergeAdapter(
           detail: "merge.passthrough.route-mismatch",
         });
       if (!categoriesFor(ctx).includes(route.category))
-        throw new ConnectorError("denied", { detail: "merge.category.unapproved" });
+        throw new ConnectorError("denied", {
+          detail: "merge.category.unapproved",
+        });
 
       const parsedInput = passthroughInputSchema.safeParse(request.input);
       if (!parsedInput.success)
@@ -913,7 +953,9 @@ export function createMergeAdapter(
           detail: "merge.passthrough.caller-route",
         });
 
-      const query = new URLSearchParams(parsedInput.data.query ?? {}).toString();
+      const query = new URLSearchParams(
+        parsedInput.data.query ?? {},
+      ).toString();
       const path = query ? `${route.path}?${query}` : route.path;
       const body = {
         method: route.method,
@@ -926,7 +968,9 @@ export function createMergeAdapter(
 
       const journal = await ctx.environment.effects.begin({
         actor: ctx.actor,
-        ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+        ...(ctx.connection
+          ? { connectionRef: ctx.connection.connectionRef }
+          : {}),
         bindingRef: ctx.binding.bindingRef,
         operation: `merge.passthrough.${route.method}`,
         digest: JSON.stringify([request.skill, body, request.commandId]),
@@ -1019,7 +1063,11 @@ export function createMergeAdapter(
             },
             ctx.connection.credentialRef,
           );
-        return { local: "applied", broker: "not-attempted", upstream: "not-attempted" };
+        return {
+          local: "applied",
+          broker: "not-attempted",
+          upstream: "not-attempted",
+        };
       }
       if (scope === "broker") {
         const categories = categoriesFor(ctx);
@@ -1032,10 +1080,18 @@ export function createMergeAdapter(
             }),
           ),
         );
-        return { local: "not-attempted", broker: "applied", upstream: "not-attempted" };
+        return {
+          local: "not-attempted",
+          broker: "applied",
+          upstream: "not-attempted",
+        };
       }
       // Merge documents no operation that revokes the end user's upstream grant.
-      return { local: "not-attempted", broker: "not-attempted", upstream: "unsupported" };
+      return {
+        local: "not-attempted",
+        broker: "not-attempted",
+        upstream: "unsupported",
+      };
     },
   };
 }

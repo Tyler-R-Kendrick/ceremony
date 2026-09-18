@@ -136,12 +136,24 @@ function detailFor(status: number): {
   code: ConnectorError["code"];
   detail: string;
 } {
-  if (status === 401) return { code: "unauthenticated", detail: "airbyte.upstream.unauthenticated" };
-  if (status === 403) return { code: "denied", detail: "airbyte.upstream.denied" };
-  if (status === 404) return { code: "not-found", detail: "airbyte.upstream.not-found" };
-  if (status === 409) return { code: "conflict", detail: "airbyte.upstream.conflict" };
-  if (status === 429) return { code: "rate-limited", detail: "airbyte.upstream.rate-limited" };
-  if (status >= 500) return { code: "upstream-unavailable", detail: "airbyte.upstream.unavailable" };
+  if (status === 401)
+    return {
+      code: "unauthenticated",
+      detail: "airbyte.upstream.unauthenticated",
+    };
+  if (status === 403)
+    return { code: "denied", detail: "airbyte.upstream.denied" };
+  if (status === 404)
+    return { code: "not-found", detail: "airbyte.upstream.not-found" };
+  if (status === 409)
+    return { code: "conflict", detail: "airbyte.upstream.conflict" };
+  if (status === 429)
+    return { code: "rate-limited", detail: "airbyte.upstream.rate-limited" };
+  if (status >= 500)
+    return {
+      code: "upstream-unavailable",
+      detail: "airbyte.upstream.unavailable",
+    };
   return { code: "upstream-rejected", detail: "airbyte.upstream.rejected" };
 }
 
@@ -265,7 +277,10 @@ export function createAirbyteAdapter(
         method: "POST",
         redirect: "error",
         signal: controller.signal,
-        headers: { "content-type": "application/json", accept: "application/json" },
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
         body: JSON.stringify({
           client_id: clientId,
           client_secret: clientSecret,
@@ -601,7 +616,9 @@ export function createAirbyteAdapter(
           displayName: stream.streamName,
           description: `Airbyte stream; sync modes: ${(stream.syncModes ?? []).join(", ")}`,
           provenance: {
-            sourceDefinedCursor: String(stream.sourceDefinedCursorField ?? false),
+            sourceDefinedCursor: String(
+              stream.sourceDefinedCursorField ?? false,
+            ),
           },
           status: "active",
         })),
@@ -921,7 +938,9 @@ export function createAirbyteAdapter(
       ]);
       const journal = await ctx.environment.effects.begin({
         actor: ctx.actor,
-        ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+        ...(ctx.connection
+          ? { connectionRef: ctx.connection.connectionRef }
+          : {}),
         bindingRef: ctx.binding.bindingRef,
         operation: `airbyte.job.${spec.jobType}`,
         digest,

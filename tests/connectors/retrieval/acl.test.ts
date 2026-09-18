@@ -27,7 +27,8 @@ type AclCase = {
   description: string;
   documentId: string;
   indexedAt?: number;
-  endUserResolution?: "host-authenticated-subject" | "identity-source-mapping" | "unresolved";
+  endUserResolution?:
+    "host-authenticated-subject" | "identity-source-mapping" | "unresolved";
   ingestionPrincipal?: { identitySource: string; id: string };
   acl: {
     readers: RetrievalPrincipal[];
@@ -272,7 +273,9 @@ test("AC-EXT-16: the ingestion service account never grants end-user visibility"
           itemType: "CONTENT_ITEM",
         },
         acl: {
-          readers: [{ kind: "user", identitySource: "corp", id: "svc-indexer" }],
+          readers: [
+            { kind: "user", identitySource: "corp", id: "svc-indexer" },
+          ],
           deniedReaders: [],
           owners: [],
           inheritanceType: "NOT_APPLICABLE",
@@ -302,10 +305,20 @@ test("AC-EXT-16: a cache key binds a decision to one principal and one membershi
       inheritanceType: "NOT_APPLICABLE",
     },
   });
-  const ada: RetrievalPrincipal = { kind: "user", identitySource: "corp", id: "u-ada" };
-  const grace: RetrievalPrincipal = { kind: "user", identitySource: "corp", id: "u-grace" };
+  const ada: RetrievalPrincipal = {
+    kind: "user",
+    identitySource: "corp",
+    id: "u-ada",
+  };
+  const grace: RetrievalPrincipal = {
+    kind: "user",
+    identitySource: "corp",
+    id: "u-grace",
+  };
   const membership = {
-    groups: [{ kind: "group" as const, identitySource: "corp", id: "g-engineering" }],
+    groups: [
+      { kind: "group" as const, identitySource: "corp", id: "g-engineering" },
+    ],
     domains: [],
     resolvedAt: NOW - 1000,
     complete: true,
@@ -316,7 +329,12 @@ test("AC-EXT-16: a cache key binds a decision to one principal and one membershi
   const forGrace = await evaluateAccess(
     descriptor,
     grace,
-    portFor({ groups: [], domains: [], resolvedAt: NOW - 1000, complete: true }),
+    portFor({
+      groups: [],
+      domains: [],
+      resolvedAt: NOW - 1000,
+      complete: true,
+    }),
     { now: NOW },
   );
   assert.equal(forAda.allowed, true);
@@ -363,7 +381,12 @@ test("a deleted document's ACL cannot be resolved, so inheritance from it denies
     { kind: "user", identitySource: "corp", id: "u-ada" },
     {
       async membershipOf() {
-        return { groups: [], domains: [], resolvedAt: NOW - 1000, complete: true };
+        return {
+          groups: [],
+          domains: [],
+          resolvedAt: NOW - 1000,
+          complete: true,
+        };
       },
       // No aclOf at all: a port that cannot resolve parents denies chains.
     },
@@ -519,8 +542,14 @@ test("a Cloud Search item ACL normalizes into a descriptor with its principals i
     ...readerOptions,
     item: items.gsuiteItem,
   });
-  assert.equal(descriptor.sourceDocumentId, "datasources/drive/items/design-doc");
-  assert.equal(descriptor.source.containerId, "datasources/drive/items/design-folder");
+  assert.equal(
+    descriptor.sourceDocumentId,
+    "datasources/drive/items/design-doc",
+  );
+  assert.equal(
+    descriptor.source.containerId,
+    "datasources/drive/items/design-folder",
+  );
   assert.equal(descriptor.freshness.sourceVersion, "AQIDBAU=");
   assert.deepEqual(descriptor.acl.readers, [
     { kind: "user", identitySource: "", id: "ada@acme.test" },
@@ -529,9 +558,15 @@ test("a Cloud Search item ACL normalizes into a descriptor with its principals i
   assert.deepEqual(descriptor.acl.deniedReaders, [
     { kind: "user", identitySource: "", id: "contractor@acme.test" },
   ]);
-  assert.equal(descriptor.acl.inheritFrom, "datasources/drive/items/design-folder");
+  assert.equal(
+    descriptor.acl.inheritFrom,
+    "datasources/drive/items/design-folder",
+  );
   assert.equal(descriptor.acl.inheritanceType, "PARENT_OVERRIDE");
-  assert.equal(descriptor.nativeExtensions["cloud-search.itemType"], "CONTENT_ITEM");
+  assert.equal(
+    descriptor.nativeExtensions["cloud-search.itemType"],
+    "CONTENT_ITEM",
+  );
 });
 
 test("external identity-source resource names keep their source and id", () => {
@@ -556,7 +591,8 @@ test("external identity-source resource names keep their source and id", () => {
 
 test("a whole-domain grant must name its domain", () => {
   assert.throws(
-    () => readCloudSearchStyleAcl({ ...readerOptions, item: items.domainFlagItem }),
+    () =>
+      readCloudSearchStyleAcl({ ...readerOptions, item: items.domainFlagItem }),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.detail === "retrieval.principal.domain-unnamed",
@@ -578,7 +614,8 @@ test("an ambiguous or unrecognized principal is rejected, never silently dropped
         item: items.invalidPrincipalItem,
       }),
     (error: unknown) =>
-      error instanceof ConnectorError && error.detail === "retrieval.acl.invalid",
+      error instanceof ConnectorError &&
+      error.detail === "retrieval.acl.invalid",
   );
   assert.throws(
     () =>
@@ -621,7 +658,13 @@ test("a normalized Cloud Search descriptor evaluates end to end with its parent 
       return {
         groups:
           principal.kind !== "domain" && principal.id === "ada@acme.test"
-            ? [{ kind: "group", identitySource: "", id: "engineering@acme.test" }]
+            ? [
+                {
+                  kind: "group",
+                  identitySource: "",
+                  id: "engineering@acme.test",
+                },
+              ]
             : [],
         domains: ["acme.test"],
         resolvedAt: NOW - 1000,
@@ -674,7 +717,12 @@ test("PARENT_OVERRIDE lets a container grant override a document denial, as docu
     },
   });
   const port = portFor(
-    { groups: [], domains: ["acme.test"], resolvedAt: NOW - 1000, complete: true },
+    {
+      groups: [],
+      domains: ["acme.test"],
+      resolvedAt: NOW - 1000,
+      complete: true,
+    },
     {
       "folder-open": {
         readers: [{ kind: "user", identitySource: "corp", id: "u-ada" }],

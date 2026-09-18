@@ -271,8 +271,9 @@ test("an approved query is built as a native QueryRequest with no SQL", async ()
     // The double validated it against the specification and found nothing wrong.
     assert.deepEqual(h.double.violations, []);
     // The unapproved column never appears in the result rows.
-    const rows = (result.output as Array<{ rows: Array<Record<string, unknown>> }>)[0]!
-      .rows;
+    const rows = (
+      result.output as Array<{ rows: Array<Record<string, unknown>> }>
+    )[0]!.rows;
     assert.deepEqual(Object.keys(rows[0]!), ["id", "title"]);
     assert.equal(JSON.stringify(result.output).includes("SECRET-NOTE"), false);
   } finally {
@@ -307,7 +308,11 @@ test("AC-EXT-14: an unapproved predicate column or operator is rejected before s
         h.adapter.invoke!(h.ctx, {
           operationRef: "op:articles.read",
           commandId: "cmd-pred-col",
-          input: { filters: [{ column: "internal_notes", operator: "like", value: "x" }] },
+          input: {
+            filters: [
+              { column: "internal_notes", operator: "like", value: "x" },
+            ],
+          },
         }),
       rejects("ndc.predicate.unapproved"),
     );
@@ -396,7 +401,9 @@ test("AC-EXT-14: a relationship the binding did not approve is rejected even whe
           operationRef: "op:articles.read",
           commandId: "cmd-rel-3",
           input: {
-            relationships: [{ name: "article_author", fields: ["id", "salary"] }],
+            relationships: [
+              { name: "article_author", fields: ["id", "salary"] },
+            ],
           },
         }),
       rejects("ndc.relationship.field-unapproved"),
@@ -444,7 +451,9 @@ test("an approved relationship builds the native shape from the schema's foreign
 });
 
 test("AC-EXT-14: aggregates require both the capability and an allowlist entry", async () => {
-  const withoutAggregates = await harness({ capabilities: minimalCapabilities });
+  const withoutAggregates = await harness({
+    capabilities: minimalCapabilities,
+  });
   try {
     await assert.rejects(
       () =>
@@ -479,7 +488,10 @@ test("AC-EXT-14: aggregates require both the capability and an allowlist entry",
     await h.adapter.invoke!(h.ctx, {
       operationRef: "op:articles.read",
       commandId: "cmd-agg-3",
-      input: { fields: ["id"], aggregates: [{ name: "biggest", column: "id", function: "max" }] },
+      input: {
+        fields: ["id"],
+        aggregates: [{ name: "biggest", column: "id", function: "max" }],
+      },
     });
     const query = h.double.queries()[0]?.query as Record<string, unknown>;
     assert.deepEqual(query.aggregates, {
@@ -524,10 +536,16 @@ test("a row filter the host imposes is combined with the caller's predicate", as
     await h.adapter.invoke!(h.ctx, {
       operationRef: "op:articles.read",
       commandId: "cmd-filter",
-      input: { fields: ["id"], filters: [{ column: "id", operator: "lt", value: 3 }] },
+      input: {
+        fields: ["id"],
+        filters: [{ column: "id", operator: "lt", value: 3 }],
+      },
     });
     const query = h.double.queries()[0]?.query as Record<string, unknown>;
-    const predicate = query.predicate as { type: string; expressions: unknown[] };
+    const predicate = query.predicate as {
+      type: string;
+      expressions: unknown[];
+    };
     assert.equal(predicate.type, "and");
     assert.equal(predicate.expressions.length, 2);
     assert.deepEqual(h.double.violations, []);
@@ -623,7 +641,10 @@ test("an approved mutation builds a single-operation MutationRequest and is jour
         type: "procedure",
         name: "upsert_article",
         arguments: {
-          article: { type: "literal", value: { id: 4, title: "New", author_id: 1 } },
+          article: {
+            type: "literal",
+            value: { id: 4, title: "New", author_id: 1 },
+          },
         },
         fields: {
           type: "object",
@@ -672,7 +693,9 @@ test("a repeated mutation returns the journaled outcome instead of running twice
 });
 
 test("an interrupted mutation is indeterminate and stays journaled as such", async () => {
-  const h = await harness({ doubleOptions: { failMutation: { times: 1, status: 503 } } });
+  const h = await harness({
+    doubleOptions: { failMutation: { times: 1, status: 503 } },
+  });
   try {
     const result = await h.adapter.invoke!(h.ctx, {
       operationRef: "op:article.upsert",
@@ -681,7 +704,10 @@ test("an interrupted mutation is indeterminate and stays journaled as such", asy
     });
     assert.equal(result.state, "indeterminate");
     assert.equal(result.code, "ndc.mutation.uncertain");
-    assert.equal(h.ports.inspect.effects()[0]?.outcome?.status, "indeterminate");
+    assert.equal(
+      h.ports.inspect.effects()[0]?.outcome?.status,
+      "indeterminate",
+    );
   } finally {
     await h.close();
   }
@@ -828,7 +854,10 @@ test("verify records declared capabilities as declarations, not observations", a
 
 test("verify denies an incompatible connector rather than downgrading the request", async () => {
   const h = await harness({
-    doubleOptions: { version: NDC_VERSION_LEGACY, capabilities: minimalCapabilities },
+    doubleOptions: {
+      version: NDC_VERSION_LEGACY,
+      capabilities: minimalCapabilities,
+    },
   });
   try {
     const result = await h.adapter.verify!(h.ctx);

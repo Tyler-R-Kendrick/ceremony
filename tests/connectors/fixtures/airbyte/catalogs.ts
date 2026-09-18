@@ -189,7 +189,12 @@ export const completeSyncMessages = [
     { event_id: "e1", occurred_at: "2026-09-02T01:00:00Z" },
     3,
   ),
-  streamState("events", "analytics", { occurred_at: "2026-09-02T01:00:00Z" }, 1),
+  streamState(
+    "events",
+    "analytics",
+    { occurred_at: "2026-09-02T01:00:00Z" },
+    1,
+  ),
 ];
 
 /**

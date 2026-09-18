@@ -639,7 +639,7 @@ export function analyzeTarget(
         );
         return;
       }
-      const name = gatewayToolName(target.name, definition.name);
+      const name = gatewayToolName(target.name, definition.name ?? "");
       toolNames.push(name);
       capabilities.push(capabilityFor(name, definition.description));
     });

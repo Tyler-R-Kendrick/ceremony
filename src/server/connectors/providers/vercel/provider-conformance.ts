@@ -358,8 +358,14 @@ export async function assessConnectProviderConformance(input: {
     finding(
       "required.redirect-url-accepted",
       "required",
-      (body.data.redirect_uris ?? [redirectUri]).includes(redirectUri) ? "met" : "not-met",
-      `registered redirect_uris=${(body.data.redirect_uris ?? []).join(",") || "not echoed"}`,
+      body.data.redirect_uris === undefined
+        ? "unknown"
+        : body.data.redirect_uris.includes(redirectUri)
+          ? "met"
+          : "not-met",
+      body.data.redirect_uris === undefined
+        ? `registration accepted ${redirectUri} but echoed no redirect_uris, so acceptance is unconfirmed`
+        : `registered redirect_uris=${body.data.redirect_uris.join(",")}`,
     );
     finding(
       "recommended.rfc7592-client-update",

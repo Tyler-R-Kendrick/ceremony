@@ -63,7 +63,8 @@ export type AirbyteDoubleJob = {
   jobId: number;
   connectionId: string;
   jobType: "sync" | "reset";
-  status: "pending" | "running" | "incomplete" | "failed" | "succeeded" | "cancelled";
+  status:
+    "pending" | "running" | "incomplete" | "failed" | "succeeded" | "cancelled";
   startTime: string;
   lastUpdatedAt?: string;
   bytesSynced?: number;
@@ -170,7 +171,9 @@ export async function startAirbyteApiDouble(
             streams: connection.streams.map((stream) => ({
               name: stream.name,
               syncMode: stream.syncMode,
-              ...(stream.cursorField ? { cursorField: stream.cursorField } : {}),
+              ...(stream.cursorField
+                ? { cursorField: stream.cursorField }
+                : {}),
               ...(stream.primaryKey ? { primaryKey: stream.primaryKey } : {}),
             })),
           },
@@ -182,7 +185,8 @@ export async function startAirbyteApiDouble(
 
     if (method === "GET" && rest === "/streams") {
       const sourceId = request.url.searchParams.get("sourceId");
-      if (!sourceId) return { status: 400, body: { message: "sourceId required" } };
+      if (!sourceId)
+        return { status: 400, body: { message: "sourceId required" } };
       const source = sources.get(sourceId);
       if (!source) return { status: 404, body: { message: "not_found" } };
       if (source.reachable === false)

@@ -99,7 +99,9 @@ export const mergeIntegrationSchema = z.looseObject({
   color: text(32).optional(),
   slug: text(200).optional(),
   passthrough_available: z.boolean().optional(),
-  api_endpoints_to_documentation_urls: z.record(z.string(), z.unknown()).optional(),
+  api_endpoints_to_documentation_urls: z
+    .record(z.string(), z.unknown())
+    .optional(),
   webhook_setup_guide_url: text(2048).nullable().optional(),
 });
 export type MergeIntegration = z.infer<typeof mergeIntegrationSchema>;

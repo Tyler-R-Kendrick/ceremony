@@ -59,7 +59,8 @@ export function ndcVersionCompatible(
   const have = parseNdcVersion(reported);
   const want = parseNdcVersion(requested);
   if (have.major !== want.major) return false;
-  if (want.major === 0) return have.minor === want.minor && have.patch >= want.patch;
+  if (want.major === 0)
+    return have.minor === want.minor && have.patch >= want.patch;
   return (
     have.minor > want.minor ||
     (have.minor === want.minor && have.patch >= want.patch)
@@ -147,7 +148,10 @@ const typeName = z.string().min(1).max(512);
 export const ndcTypeSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
     z.looseObject({ type: z.literal("named"), name: typeName }),
-    z.looseObject({ type: z.literal("nullable"), underlying_type: ndcTypeSchema }),
+    z.looseObject({
+      type: z.literal("nullable"),
+      underlying_type: ndcTypeSchema,
+    }),
     z.looseObject({ type: z.literal("array"), element_type: ndcTypeSchema }),
     z.looseObject({
       type: z.literal("predicate"),
@@ -197,7 +201,10 @@ export const ndcCollectionInfoSchema = z.looseObject({
   arguments: z.record(typeName, argumentInfoSchema).optional(),
   type: typeName,
   uniqueness_constraints: z
-    .record(typeName, z.looseObject({ unique_columns: z.array(typeName).max(64) }))
+    .record(
+      typeName,
+      z.looseObject({ unique_columns: z.array(typeName).max(64) }),
+    )
     .optional(),
   relational_mutations: z.unknown().optional(),
 });
@@ -255,9 +262,7 @@ export const ndcQueryResponseSchema = z.array(
 
 export const ndcMutationResponseSchema = z.looseObject({
   operation_results: z
-    .array(
-      z.looseObject({ type: z.literal("procedure"), result: z.unknown() }),
-    )
+    .array(z.looseObject({ type: z.literal("procedure"), result: z.unknown() }))
     .max(256),
 });
 

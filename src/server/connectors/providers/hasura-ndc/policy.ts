@@ -236,8 +236,7 @@ export function buildNdcQueryRequest(
   input: NdcQueryInput,
 ): Record<string, unknown> {
   const { policy, capabilities, schema } = ctx;
-  if (policy.kind === "procedure")
-    denied("ndc.operation.kind-mismatch");
+  if (policy.kind === "procedure") denied("ndc.operation.kind-mismatch");
   if (
     policy.kind === "collection" &&
     !schema.collections.some((item) => item.name === policy.target)
@@ -272,7 +271,11 @@ export function buildNdcQueryRequest(
   const relationshipFields: Record<string, unknown> = {};
   const collectionRelationships: Record<string, unknown> = {};
   for (const requested of input.relationships ?? []) {
-    requireCapability(capabilities, "relationships", "ndc.relationships.undeclared");
+    requireCapability(
+      capabilities,
+      "relationships",
+      "ndc.relationships.undeclared",
+    );
     const approved = policy.relationships.find(
       (item) => item.name === requested.name,
     );
@@ -297,7 +300,8 @@ export function buildNdcQueryRequest(
       "ndc.relationship.field-undeclared",
     );
     const foreignKey = Object.values(
-      (objectTypeName && schema.object_types[objectTypeName]?.foreign_keys) ?? {},
+      (objectTypeName && schema.object_types[objectTypeName]?.foreign_keys) ??
+        {},
     ).find((key) => key.foreign_collection === approved!.targetCollection);
     if (!foreignKey) denied("ndc.relationship.no-foreign-key");
     collectionRelationships[requested.name] = {
@@ -371,7 +375,11 @@ export function buildNdcQueryRequest(
 
   const aggregates: Record<string, unknown> = {};
   for (const requested of input.aggregates ?? []) {
-    requireCapability(capabilities, "query.aggregates", "ndc.aggregates.undeclared");
+    requireCapability(
+      capabilities,
+      "query.aggregates",
+      "ndc.aggregates.undeclared",
+    );
     if ("starCount" in requested) {
       if (!policy.aggregates.some((item) => item.starCount))
         denied("ndc.aggregate.unapproved");

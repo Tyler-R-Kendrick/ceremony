@@ -69,7 +69,9 @@ const issue = (input: CompatibilityIssue): CompatibilityIssue =>
   compatibilityIssueSchema.parse(input);
 
 const trim = (value: string | undefined, max = 500) =>
-  value === undefined ? undefined : value.replace(/[\p{Cc}]/gu, " ").slice(0, max);
+  value === undefined
+    ? undefined
+    : value.replace(/[\p{Cc}]/gu, " ").slice(0, max);
 
 /**
  * Reads /capabilities and /schema, validates the declared spec version, and
@@ -222,7 +224,8 @@ export async function discoverNdc(
         disposition: "unsupported",
         severity: "info",
         executionImpact: "none",
-        message: "The connector declares no procedures; mutations are unavailable.",
+        message:
+          "The connector declares no procedures; mutations are unavailable.",
       }),
     );
 
@@ -287,7 +290,9 @@ export async function discoverNdc(
     normalizedDigest,
   });
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "ndc.schema.limits" });
+    throw new ConnectorError("invalid-request", {
+      detail: "ndc.schema.limits",
+    });
 
   const health = client.health ? await client.health() : undefined;
   return {

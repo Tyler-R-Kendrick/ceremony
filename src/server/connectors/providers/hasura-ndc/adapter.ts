@@ -92,7 +92,11 @@ function assertPlainJson(value: unknown, detail: string, depth = 0): void {
     for (const key of Object.keys(value)) {
       if (reservedKeys.has(key))
         throw new ConnectorError("invalid-request", { detail });
-      assertPlainJson((value as Record<string, unknown>)[key], detail, depth + 1);
+      assertPlainJson(
+        (value as Record<string, unknown>)[key],
+        detail,
+        depth + 1,
+      );
     }
   }
 }
@@ -109,7 +113,9 @@ export function createHasuraNdcAdapter(
       (item) => item.id === "connector",
     );
     if (!approved)
-      throw new ConnectorError("denied", { detail: "ndc.destination.unapproved" });
+      throw new ConnectorError("denied", {
+        detail: "ndc.destination.unapproved",
+      });
     return approved;
   };
 
@@ -145,7 +151,9 @@ export function createHasuraNdcAdapter(
       });
     } catch (error) {
       if (ctx.signal.aborted)
-        throw new ConnectorError("cancelled", { detail: "ndc.request.cancelled" });
+        throw new ConnectorError("cancelled", {
+          detail: "ndc.request.cancelled",
+        });
       throw new ConnectorError("upstream-unavailable", {
         detail: "ndc.request.failed",
         cause: error,
@@ -178,31 +186,52 @@ export function createHasuraNdcAdapter(
     if (result.status >= 200 && result.status < 300) return result.body;
     switch (result.status) {
       case 400:
-        throw new ConnectorError("invalid-request", { detail: "ndc.upstream.bad-request" });
+        throw new ConnectorError("invalid-request", {
+          detail: "ndc.upstream.bad-request",
+        });
       case 403:
-        throw new ConnectorError("denied", { detail: "ndc.upstream.forbidden" });
+        throw new ConnectorError("denied", {
+          detail: "ndc.upstream.forbidden",
+        });
       case 409:
-        throw new ConnectorError("conflict", { detail: "ndc.upstream.conflict" });
+        throw new ConnectorError("conflict", {
+          detail: "ndc.upstream.conflict",
+        });
       case 422:
-        throw new ConnectorError("invalid-request", { detail: "ndc.upstream.unprocessable" });
+        throw new ConnectorError("invalid-request", {
+          detail: "ndc.upstream.unprocessable",
+        });
       case 501:
-        throw new ConnectorError("unsupported", { detail: "ndc.upstream.capability" });
+        throw new ConnectorError("unsupported", {
+          detail: "ndc.upstream.capability",
+        });
       case 502:
-        throw new ConnectorError("upstream-unavailable", { detail: "ndc.upstream.gateway" });
+        throw new ConnectorError("upstream-unavailable", {
+          detail: "ndc.upstream.gateway",
+        });
       default:
         if (result.status >= 500)
-          throw new ConnectorError("upstream-unavailable", { detail: "ndc.upstream.error" });
-        throw new ConnectorError("upstream-rejected", { detail: "ndc.upstream.rejected" });
+          throw new ConnectorError("upstream-unavailable", {
+            detail: "ndc.upstream.error",
+          });
+        throw new ConnectorError("upstream-rejected", {
+          detail: "ndc.upstream.rejected",
+        });
     }
   };
 
   const clientFor = (ctx: AdapterCallContext): NdcClient => ({
     capabilities: async () =>
-      requireOk(await call(ctx, { method: "GET", path: ndcEndpoints.capabilities })),
+      requireOk(
+        await call(ctx, { method: "GET", path: ndcEndpoints.capabilities }),
+      ),
     schema: async () =>
       requireOk(await call(ctx, { method: "GET", path: ndcEndpoints.schema })),
     health: async () => {
-      const result = await call(ctx, { method: "GET", path: ndcEndpoints.health });
+      const result = await call(ctx, {
+        method: "GET",
+        path: ndcEndpoints.health,
+      });
       return { ok: result.status === 200 };
     },
   });
@@ -214,7 +243,11 @@ export function createHasuraNdcAdapter(
    */
   const declarations = (
     ctx: AdapterCallContext,
-  ): { capabilities: NdcCapabilities; schema: NdcSchemaResponse; version: string } => {
+  ): {
+    capabilities: NdcCapabilities;
+    schema: NdcSchemaResponse;
+    version: string;
+  } => {
     const reviewed = ctx.binding.settings["ndc.reviewed"];
     if (!reviewed || typeof reviewed !== "object")
       throw new ConnectorError("denied", { detail: "ndc.reviewed.absent" });
@@ -227,9 +260,10 @@ export function createHasuraNdcAdapter(
       .safeParse(reviewed);
     if (!parsed.success)
       throw new ConnectorError("denied", { detail: "ndc.reviewed.invalid" });
-    const capabilities = ndcCapabilitiesResponseSchema.shape.capabilities.safeParse(
-      parsed.data.capabilities,
-    );
+    const capabilities =
+      ndcCapabilitiesResponseSchema.shape.capabilities.safeParse(
+        parsed.data.capabilities,
+      );
     const schema = ndcSchemaResponseSchema.safeParse(parsed.data.schema);
     if (!capabilities.success || !schema.success)
       throw new ConnectorError("denied", { detail: "ndc.reviewed.invalid" });
@@ -251,7 +285,9 @@ export function createHasuraNdcAdapter(
   ): BoundOperation => {
     const bound = boundOperation(ctx.binding, operationRef);
     if (!bound)
-      throw new ConnectorError("denied", { detail: "ndc.operation.unapproved" });
+      throw new ConnectorError("denied", {
+        detail: "ndc.operation.unapproved",
+      });
     if (bound.transport.kind !== "http")
       throw new ConnectorError("invalid-request", {
         detail: "ndc.operation.transport",
@@ -473,7 +509,9 @@ export function createHasuraNdcAdapter(
       );
       const journal = await ctx.environment.effects.begin({
         actor: ctx.actor,
-        ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
+        ...(ctx.connection
+          ? { connectionRef: ctx.connection.connectionRef }
+          : {}),
         bindingRef: ctx.binding.bindingRef,
         operation: `ndc.mutation.${policy.target}`,
         digest: JSON.stringify([request.operationRef, body, request.commandId]),

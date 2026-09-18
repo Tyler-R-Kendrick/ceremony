@@ -92,7 +92,11 @@ export const membershipAssumptionsSchema = z.strictObject({
   /** Identity sources whose group rosters this descriptor's ACL depends on. */
   identitySources: z.array(boundedText(256)).max(32),
   groupsResolvedAt: z.number().int().nonnegative().optional(),
-  maxStalenessMs: z.number().int().positive().max(90 * 24 * 3600_000),
+  maxStalenessMs: z
+    .number()
+    .int()
+    .positive()
+    .max(90 * 24 * 3600_000),
   /** True when external ids were mapped to host identities at ingestion. */
   externalIdentitiesMapped: z.boolean(),
 });
@@ -120,7 +124,11 @@ export const retrievalFreshnessSchema = z.strictObject({
   /** The repository's own version/etag for the item at capture time. */
   sourceVersion: boundedText(200).optional(),
   /** How long an ACL capture may be trusted before it must be re-read. */
-  aclMaxAgeMs: z.number().int().positive().max(90 * 24 * 3600_000),
+  aclMaxAgeMs: z
+    .number()
+    .int()
+    .positive()
+    .max(90 * 24 * 3600_000),
 });
 
 export const retrievalDescriptorSchema = z

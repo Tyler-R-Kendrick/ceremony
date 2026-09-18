@@ -11,7 +11,10 @@ export const NDC_VERSION_LEGACY = "0.1.6";
 /** A connector declaring relationships, aggregates and variables. */
 export const fullCapabilities = {
   query: {
-    aggregates: { filter_by: {}, group_by: { filter: {}, order: {}, paginate: {} } },
+    aggregates: {
+      filter_by: {},
+      group_by: { filter: {}, order: {}, paginate: {} },
+    },
     variables: {},
     explain: {},
     nested_fields: { filter_by: {}, order_by: {}, aggregates: {} },
@@ -49,7 +52,10 @@ export const schema = {
       aggregate_functions: {},
       comparison_operators: {
         eq: { type: "equal" },
-        like: { type: "custom", argument_type: { type: "named", name: "String" } },
+        like: {
+          type: "custom",
+          argument_type: { type: "named", name: "String" },
+        },
       },
     },
   },
@@ -57,9 +63,18 @@ export const schema = {
     article: {
       description: "An article",
       fields: {
-        id: { description: "The article's primary key", type: { type: "named", name: "Int" } },
-        title: { description: "The article's title", type: { type: "named", name: "String" } },
-        author_id: { description: "The article's author id", type: { type: "named", name: "Int" } },
+        id: {
+          description: "The article's primary key",
+          type: { type: "named", name: "Int" },
+        },
+        title: {
+          description: "The article's title",
+          type: { type: "named", name: "String" },
+        },
+        author_id: {
+          description: "The article's author id",
+          type: { type: "named", name: "Int" },
+        },
         /** A field the binding never approves; used to prove field policy. */
         internal_notes: { type: { type: "named", name: "String" } },
       },
@@ -109,7 +124,10 @@ export const schema = {
       name: "latest_article_id",
       description: "Get the ID of the most recent article",
       arguments: {},
-      result_type: { type: "nullable", underlying_type: { type: "named", name: "Int" } },
+      result_type: {
+        type: "nullable",
+        underlying_type: { type: "named", name: "Int" },
+      },
     },
   ],
   procedures: [
@@ -122,7 +140,10 @@ export const schema = {
           type: { type: "named", name: "article" },
         },
       },
-      result_type: { type: "nullable", underlying_type: { type: "named", name: "article" } },
+      result_type: {
+        type: "nullable",
+        underlying_type: { type: "named", name: "article" },
+      },
     },
     {
       name: "delete_articles",
@@ -130,7 +151,10 @@ export const schema = {
       arguments: {
         where: { type: { type: "predicate", object_type_name: "article" } },
       },
-      result_type: { type: "array", element_type: { type: "named", name: "article" } },
+      result_type: {
+        type: "array",
+        element_type: { type: "named", name: "article" },
+      },
     },
   ],
 };
@@ -142,9 +166,24 @@ export const readOnlySchema = {
 };
 
 export const articleRows = [
-  { id: 1, title: "The Next 700 Programming Languages", author_id: 1, internal_notes: "SECRET-NOTE" },
-  { id: 2, title: "Fundamental Concepts in Programming Languages", author_id: 1, internal_notes: "SECRET-NOTE" },
-  { id: 3, title: "A Theory of Type Polymorphism", author_id: 2, internal_notes: "SECRET-NOTE" },
+  {
+    id: 1,
+    title: "The Next 700 Programming Languages",
+    author_id: 1,
+    internal_notes: "SECRET-NOTE",
+  },
+  {
+    id: 2,
+    title: "Fundamental Concepts in Programming Languages",
+    author_id: 1,
+    internal_notes: "SECRET-NOTE",
+  },
+  {
+    id: 3,
+    title: "A Theory of Type Polymorphism",
+    author_id: 2,
+    internal_notes: "SECRET-NOTE",
+  },
 ];
 
 export const authorRows = [

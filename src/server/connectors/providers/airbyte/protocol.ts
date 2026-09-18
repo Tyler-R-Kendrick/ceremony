@@ -236,9 +236,11 @@ export type ReadAirbyteCatalogOptions = {
   display?: { name?: string; description?: string };
 };
 
-const issue = (input: Omit<CompatibilityIssue, "normalizedPointer"> & {
-  normalizedPointer?: string;
-}): CompatibilityIssue => compatibilityIssueSchema.parse(input);
+const issue = (
+  input: Omit<CompatibilityIssue, "normalizedPointer"> & {
+    normalizedPointer?: string;
+  },
+): CompatibilityIssue => compatibilityIssueSchema.parse(input);
 
 const blocking = (
   code: string,
@@ -750,7 +752,10 @@ export function readAirbyteMessages(
     },
     ignoredLines,
   };
-  const perStream = new Map<string, { name: string; namespace?: string; count: number }>();
+  const perStream = new Map<
+    string,
+    { name: string; namespace?: string; count: number }
+  >();
   for (const candidate of candidates) {
     const parsed = airbyteMessageSchema.safeParse(candidate);
     if (!parsed.success) {
@@ -801,7 +806,10 @@ export function readAirbyteMessages(
               ? { stream: descriptorOf(message.trace.error.stream_descriptor) }
               : {}),
           });
-        else if (message.trace?.type === "STREAM_STATUS" && message.trace.stream_status)
+        else if (
+          message.trace?.type === "STREAM_STATUS" &&
+          message.trace.stream_status
+        )
           report.traces.streamStatus.push({
             ...descriptorOf(message.trace.stream_status.stream_descriptor),
             status: message.trace.stream_status.status,
@@ -899,11 +907,16 @@ export function airbyteCheckpoints(
       );
     } else if (message.type === "STATE" && message.state) {
       const state = message.state;
-      const type = state.type ?? (state.stream ? "STREAM" : state.global ? "GLOBAL" : "LEGACY");
-      if (type === "STREAM" && state.stream) checkpoint("STREAM", state.stream, state);
+      const type =
+        state.type ??
+        (state.stream ? "STREAM" : state.global ? "GLOBAL" : "LEGACY");
+      if (type === "STREAM" && state.stream)
+        checkpoint("STREAM", state.stream, state);
       else if (type === "GLOBAL" && state.global) {
         set.global = {
-          sharedState: deepFreeze(structuredClone(state.global.shared_state ?? null)),
+          sharedState: deepFreeze(
+            structuredClone(state.global.shared_state ?? null),
+          ),
           sequence,
         };
         for (const entry of state.global.stream_states)

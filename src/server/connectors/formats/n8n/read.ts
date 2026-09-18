@@ -16,6 +16,7 @@ import {
   token,
 } from "../automation/common.js";
 import {
+  authenticationDisposition,
   buildAutomationDefinition,
   type AutomationDimensions,
   type AutomationReadResult,
@@ -1005,6 +1006,7 @@ export async function readN8nNode(
   const dimensions: AutomationDimensions = {
     import: issues.blocksDefinition() ? "unsupported" : importDisposition,
     configure: "adapted",
+    authorize: authenticationDisposition(credential.profiles),
     invoke: isProgrammatic ? "unsupported" : "requires-configuration",
     export: "adapted",
     delegate: "requires-configuration",

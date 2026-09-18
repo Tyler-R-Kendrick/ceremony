@@ -27,7 +27,8 @@ const boundedText = (max: number) =>
     .max(max)
     .regex(/^[^\p{Cc}]*$/u);
 
-const resourceName = /^identitysources\/([^/]{1,256})\/(users|groups)\/(.{1,400})$/;
+const resourceName =
+  /^identitysources\/([^/]{1,256})\/(users|groups)\/(.{1,400})$/;
 
 export const cloudSearchPrincipalSchema = z
   .looseObject({
@@ -87,7 +88,11 @@ export const readCloudSearchAclInputSchema = z.strictObject({
   /** The identity source the asking end user's principal comes from. */
   endUserIdentitySource: boundedText(256),
   endUserResolution: z
-    .enum(["host-authenticated-subject", "identity-source-mapping", "unresolved"])
+    .enum([
+      "host-authenticated-subject",
+      "identity-source-mapping",
+      "unresolved",
+    ])
     .default("host-authenticated-subject"),
   membership: z.strictObject({
     identitySources: z.array(boundedText(256)).max(32),
@@ -117,7 +122,9 @@ function toPrincipal(
     // The documented flag form means "the whole customer domain"; a host must
     // say which domain that is, because an unnamed domain grant is unbounded.
     const domain =
-      typeof gsuite.gsuiteDomain === "string" ? gsuite.gsuiteDomain : defaultDomain;
+      typeof gsuite.gsuiteDomain === "string"
+        ? gsuite.gsuiteDomain
+        : defaultDomain;
     if (!domain)
       throw new ConnectorError("invalid-request", {
         detail: "retrieval.principal.domain-unnamed",
@@ -154,8 +161,12 @@ export function readCloudSearchStyleAcl(
     });
   const { item } = parsed.data;
   const acl = item.acl;
-  const convert = (list: z.infer<typeof cloudSearchPrincipalSchema>[] | undefined) =>
-    (list ?? []).map((principal) => toPrincipal(principal, options.defaultDomain));
+  const convert = (
+    list: z.infer<typeof cloudSearchPrincipalSchema>[] | undefined,
+  ) =>
+    (list ?? []).map((principal) =>
+      toPrincipal(principal, options.defaultDomain),
+    );
 
   const inheritanceType = acl.aclInheritanceType ?? "NOT_APPLICABLE";
   if (acl.inheritAclFrom && inheritanceType === "NOT_APPLICABLE")

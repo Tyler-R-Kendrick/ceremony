@@ -61,7 +61,9 @@ type Json = Record<string, unknown>;
 export async function startMergeApiDouble(options: MergeDoubleOptions = {}) {
   const apiKey = options.apiKey ?? "merge-api-key";
   const accounts = options.accounts ?? [];
-  const byToken = new Map(accounts.map((account) => [account.accountToken, account]));
+  const byToken = new Map(
+    accounts.map((account) => [account.accountToken, account]),
+  );
   const byPublicToken = new Map(
     accounts
       .filter((account) => account.publicToken)
@@ -114,7 +116,10 @@ export async function startMergeApiDouble(options: MergeDoubleOptions = {}) {
           link_token: options.linkToken ?? "link-token-1",
           integration_name: "HR System",
           ...(body.should_create_magic_link_url
-            ? { magic_link_url: options.magicLinkUrl ?? "https://link.merge.dev/magic/abc" }
+            ? {
+                magic_link_url:
+                  options.magicLinkUrl ?? "https://link.merge.dev/magic/abc",
+              }
             : {}),
         },
       };
@@ -149,12 +154,17 @@ export async function startMergeApiDouble(options: MergeDoubleOptions = {}) {
           !deletedAccounts.includes(account.id),
       );
       return {
-        body: { next: null, previous: null, results: results.map(linkedAccountBody) },
+        body: {
+          next: null,
+          previous: null,
+          results: results.map(linkedAccountBody),
+        },
       };
     }
 
     const account = accountOf(request);
-    if (!account) return { status: 400, body: { error: "account token required" } };
+    if (!account)
+      return { status: 400, body: { error: "account token required" } };
     if (account.category !== category)
       return { status: 404, body: { error: "not_found" } };
     if (deletedAccounts.includes(account.id))
@@ -169,7 +179,8 @@ export async function startMergeApiDouble(options: MergeDoubleOptions = {}) {
           category: account.category,
           end_user_origin_id: account.endUserOriginId,
           end_user_organization_name: account.endUserOrganizationName ?? "Acme",
-          end_user_email_address: account.endUserEmailAddress ?? "user@example.test",
+          end_user_email_address:
+            account.endUserEmailAddress ?? "user@example.test",
           status: account.status,
           webhook_listener_url: `https://api.merge.dev/api/integrations/webhook-listener/${account.id}`,
           is_duplicate: false,
@@ -217,20 +228,31 @@ export async function startMergeApiDouble(options: MergeDoubleOptions = {}) {
       const model = meta[1]!;
       const declared = account.meta?.[model];
       if (!declared)
-        return { status: 404, body: { error: "model not supported for this account" } };
+        return {
+          status: 404,
+          body: { error: "model not supported for this account" },
+        };
       return { body: declared };
     }
 
     if (method === "GET" && /^[a-z-]+$/.test(rest)) {
       const rows = account.models?.[rest];
       if (!rows)
-        return { status: 404, body: { error: "model not supported for this account" } };
-      const pageSize = Number(request.url.searchParams.get("page_size") ?? rows.length);
+        return {
+          status: 404,
+          body: { error: "model not supported for this account" },
+        };
+      const pageSize = Number(
+        request.url.searchParams.get("page_size") ?? rows.length,
+      );
       return {
         body: {
           next: null,
           previous: null,
-          results: rows.slice(0, Number.isFinite(pageSize) ? pageSize : rows.length),
+          results: rows.slice(
+            0,
+            Number.isFinite(pageSize) ? pageSize : rows.length,
+          ),
         },
       };
     }

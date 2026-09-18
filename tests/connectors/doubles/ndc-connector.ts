@@ -78,19 +78,31 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
     if (!isObject(body.arguments))
       return error(400, "arguments is required", "arguments");
     if (!isObject(body.collection_relationships))
-      return error(400, "collection_relationships is required", "relationships");
+      return error(
+        400,
+        "collection_relationships is required",
+        "relationships",
+      );
 
     const collections = (schema.collections as Json[]) ?? [];
     const functions = (schema.functions as Json[]) ?? [];
-    const collection = collections.find((item) => item.name === body.collection);
+    const collection = collections.find(
+      (item) => item.name === body.collection,
+    );
     const fn = functions.find((item) => item.name === body.collection);
     if (!collection && !fn)
       return error(400, "unknown collection", "unknown-collection");
 
     const query = body.query;
-    if (query.aggregates !== undefined && !declared(capabilities, "query.aggregates"))
+    if (
+      query.aggregates !== undefined &&
+      !declared(capabilities, "query.aggregates")
+    )
       return error(501, "aggregates are not supported", "aggregates");
-    if (body.variables !== undefined && !declared(capabilities, "query.variables"))
+    if (
+      body.variables !== undefined &&
+      !declared(capabilities, "query.variables")
+    )
       return error(501, "variables are not supported", "variables");
     if (
       Object.keys(body.collection_relationships as Json).length &&
@@ -106,7 +118,10 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
           return error(501, "relationships are not supported", "relationships");
         if (
           typeof field.relationship !== "string" ||
-          !Object.hasOwn(body.collection_relationships as Json, field.relationship)
+          !Object.hasOwn(
+            body.collection_relationships as Json,
+            field.relationship,
+          )
         )
           return error(400, "undefined relationship", "undefined-relationship");
         continue;
@@ -127,8 +142,11 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
       }
     }
 
-    const checkExpression = (expression: unknown): ReturnType<typeof error> | undefined => {
-      if (!isObject(expression)) return error(400, "malformed predicate", "predicate");
+    const checkExpression = (
+      expression: unknown,
+    ): ReturnType<typeof error> | undefined => {
+      if (!isObject(expression))
+        return error(400, "malformed predicate", "predicate");
       switch (expression.type) {
         case "and":
         case "or": {
@@ -150,7 +168,11 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
         case "binary_comparison_operator": {
           const target = expression.column;
           if (!isObject(target) || target.type !== "column")
-            return error(400, "malformed comparison target", "comparison-target");
+            return error(
+              400,
+              "malformed comparison target",
+              "comparison-target",
+            );
           const objectTypes = (schema.object_types as Json) ?? {};
           const objectType = collection
             ? objectTypes[collection.type as string]
@@ -168,9 +190,10 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
             isObject(objectType) && isObject(objectType.fields)
               ? objectType.fields[target.name as string]
               : undefined;
-          const typeName = isObject(fieldInfo) && isObject(fieldInfo.type)
-            ? (fieldInfo.type as Json).name
-            : undefined;
+          const typeName =
+            isObject(fieldInfo) && isObject(fieldInfo.type)
+              ? (fieldInfo.type as Json).name
+              : undefined;
           const scalar =
             typeof typeName === "string" ? scalarTypes[typeName] : undefined;
           if (
@@ -190,12 +213,20 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
             inCollection.type === "unrelated" &&
             !declared(capabilities, "query.exists.unrelated")
           )
-            return error(501, "unrelated exists is not supported", "exists-unrelated");
+            return error(
+              501,
+              "unrelated exists is not supported",
+              "exists-unrelated",
+            );
           if (
             inCollection.type === "related" &&
             !declared(capabilities, "relationships")
           )
-            return error(501, "relationships are not supported", "relationships");
+            return error(
+              501,
+              "relationships are not supported",
+              "relationships",
+            );
           return undefined;
         }
         case "array_comparison":
@@ -220,7 +251,11 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
           element.target.type === "aggregate" &&
           !declared(capabilities, "relationships.order_by_aggregate")
         )
-          return error(501, "order by aggregate is not supported", "order-by-aggregate");
+          return error(
+            501,
+            "order by aggregate is not supported",
+            "order-by-aggregate",
+          );
       }
     }
 
@@ -231,7 +266,10 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
         if (!Object.hasOwn(body.arguments as Json, name))
           return error(400, "missing argument", "missing-argument");
     for (const [name, argument] of Object.entries(body.arguments as Json)) {
-      if (!isObject(argument) || (argument.type !== "literal" && argument.type !== "variable"))
+      if (
+        !isObject(argument) ||
+        (argument.type !== "literal" && argument.type !== "variable")
+      )
         return error(400, "malformed argument", "argument");
       if (isObject(declaredArgs) && !Object.hasOwn(declaredArgs, name))
         return error(400, "undeclared argument", "undeclared-argument");
@@ -244,7 +282,10 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
     const operations = body.operations;
     if (!Array.isArray(operations) || !operations.length)
       return error(400, "operations are required", "operations");
-    if (operations.length > 1 && !declared(capabilities, "mutation.transactional"))
+    if (
+      operations.length > 1 &&
+      !declared(capabilities, "mutation.transactional")
+    )
       return error(
         400,
         "exactly one operation is required without the transactional capability",
@@ -255,7 +296,8 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
       if (!isObject(operation) || operation.type !== "procedure")
         return error(400, "unknown operation type", "operation-type");
       const procedure = procedures.find((item) => item.name === operation.name);
-      if (!procedure) return error(400, "unknown procedure", "unknown-procedure");
+      if (!procedure)
+        return error(400, "unknown procedure", "unknown-procedure");
       if (!isObject(operation.arguments))
         return error(400, "arguments are required", "arguments");
       const declaredArgs = procedure.arguments;
@@ -293,12 +335,15 @@ export async function startNdcConnectorDouble(options: NdcDoubleOptions = {}) {
       const query = (body as Json).query as Json;
       const requested = isObject(query.fields) ? Object.keys(query.fields) : [];
       const source = options.rows?.[collection] ?? [];
-      const limit = typeof query.limit === "number" ? query.limit : source.length;
-      const rows = source.slice(0, limit).map((row) =>
-        Object.fromEntries(
-          requested.map((field) => [field, row[field] ?? null]),
-        ),
-      );
+      const limit =
+        typeof query.limit === "number" ? query.limit : source.length;
+      const rows = source
+        .slice(0, limit)
+        .map((row) =>
+          Object.fromEntries(
+            requested.map((field) => [field, row[field] ?? null]),
+          ),
+        );
       const rowSet: Json = { rows };
       if (isObject(query.aggregates))
         rowSet.aggregates = Object.fromEntries(

@@ -25,7 +25,9 @@ import {
  * stated rule rather than against the adapter's own opinion.
  */
 
-const clientFor = (double: Awaited<ReturnType<typeof startNdcConnectorDouble>>) => ({
+const clientFor = (
+  double: Awaited<ReturnType<typeof startNdcConnectorDouble>>,
+) => ({
   capabilities: async () => {
     const response = await fetch(`${double.origin}/capabilities`);
     return response.json();
@@ -68,7 +70,10 @@ test("a capability is declared by the presence of its key, not by a boolean", ()
     true,
   );
   assert.equal(hasNdcCapability(minimalCapabilities, "relationships"), false);
-  assert.equal(hasNdcCapability(minimalCapabilities, "query.aggregates"), false);
+  assert.equal(
+    hasNdcCapability(minimalCapabilities, "query.aggregates"),
+    false,
+  );
   assert.equal(hasNdcCapability(minimalCapabilities, "query.variables"), false);
 });
 
@@ -105,23 +110,37 @@ test("discovery preserves collections, functions, procedures and version-specifi
     assert.deepEqual(collection.uniqueness_constraints, {
       ArticleByID: { unique_columns: ["id"] },
     });
-    const procedure = discovery.definition.capabilities
-      .find((item) => item.nativeId === "upsert_article")
-      ?.nativeExtensions?.["ndc.procedure"] as Record<string, unknown>;
+    const procedure = discovery.definition.capabilities.find(
+      (item) => item.nativeId === "upsert_article",
+    )?.nativeExtensions?.["ndc.procedure"] as Record<string, unknown>;
     assert.deepEqual(procedure.result_type, {
       type: "nullable",
       underlying_type: { type: "named", name: "article" },
     });
 
     // Scalar types keep representations, operators and aggregate functions.
-    const scalars = discovery.definition.nativeExtensions["ndc.scalar_types"] as
-      Record<string, { comparison_operators: Record<string, unknown>; aggregate_functions: Record<string, unknown> }>;
-    assert.deepEqual(Object.keys(scalars.Int!.comparison_operators), ["eq", "lt"]);
-    assert.deepEqual(Object.keys(scalars.Int!.aggregate_functions), ["sum", "max"]);
+    const scalars = discovery.definition.nativeExtensions[
+      "ndc.scalar_types"
+    ] as Record<
+      string,
+      {
+        comparison_operators: Record<string, unknown>;
+        aggregate_functions: Record<string, unknown>;
+      }
+    >;
+    assert.deepEqual(Object.keys(scalars.Int!.comparison_operators), [
+      "eq",
+      "lt",
+    ]);
+    assert.deepEqual(Object.keys(scalars.Int!.aggregate_functions), [
+      "sum",
+      "max",
+    ]);
 
     // Object types keep their foreign keys, which is how relationships stay honest.
-    const objects = discovery.definition.nativeExtensions["ndc.object_types"] as
-      Record<string, { foreign_keys: Record<string, unknown> }>;
+    const objects = discovery.definition.nativeExtensions[
+      "ndc.object_types"
+    ] as Record<string, { foreign_keys: Record<string, unknown> }>;
     assert.deepEqual(objects.article!.foreign_keys, {
       article_author: {
         column_mapping: { author_id: ["id"] },
@@ -133,7 +152,9 @@ test("discovery preserves collections, functions, procedures and version-specifi
     assert.ok(discovery.declaredCapabilities.includes("relationships"));
     assert.ok(discovery.declaredCapabilities.includes("query.aggregates"));
     assert.ok(
-      discovery.declaredCapabilities.includes("relationships.order_by_aggregate"),
+      discovery.declaredCapabilities.includes(
+        "relationships.order_by_aggregate",
+      ),
     );
     assert.equal(
       discovery.definition.nativeExtensions["ndc.version"],
@@ -188,7 +209,10 @@ test("an undeclared relationship capability is reported at discovery", async () 
     );
     assert.equal(issue?.disposition, "unsupported");
     assert.equal(issue?.executionImpact, "blocks-operation");
-    assert.equal(discovery.declaredCapabilities.includes("relationships"), false);
+    assert.equal(
+      discovery.declaredCapabilities.includes("relationships"),
+      false,
+    );
   } finally {
     await double.close();
   }

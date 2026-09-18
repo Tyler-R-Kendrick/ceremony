@@ -121,7 +121,11 @@ function bindingFor(
           model: "employees",
           fields: ["id", "first_name", "last_name", "work_email"],
         },
-        "op:groups.list": { category: "hris", model: "groups", fields: ["id", "name"] },
+        "op:groups.list": {
+          category: "hris",
+          model: "groups",
+          fields: ["id", "name"],
+        },
       },
       "merge.passthrough": {
         "op:passthrough.timeoff": {
@@ -227,7 +231,9 @@ test("the adapter declares external-credential-broker custody and the documented
   assert.equal(adapter.ecosystem, "merge");
   assert.deepEqual([...adapter.custody], ["external-credential-broker"]);
   assert.deepEqual(
-    adapter.configuration.filter((item) => item.required).map((item) => item.name),
+    adapter.configuration
+      .filter((item) => item.required)
+      .map((item) => item.name),
     ["MERGE_API_KEY"],
   );
   assert.equal(
@@ -282,7 +288,9 @@ test("link token creation derives the end user from the host mapping and keeps t
 
 test("an unmapped subject cannot start a Link session for someone else", async () => {
   const h = await harness({
-    bindingOverrides: { settings: { "merge.categories": ["hris"], "merge.endUsers": {} } },
+    bindingOverrides: {
+      settings: { "merge.categories": ["hris"], "merge.endUsers": {} },
+    },
   });
   try {
     await assert.rejects(
@@ -348,8 +356,10 @@ test("the public token is exchanged once and the account token is stored in cust
     });
     assert.equal(replay.code, "merge.account-token.replayed");
     assert.equal(
-      h.double.received("GET", `/api/integrations/account-token/${ACCOUNT_A_PUBLIC}`)
-        .length,
+      h.double.received(
+        "GET",
+        `/api/integrations/account-token/${ACCOUNT_A_PUBLIC}`,
+      ).length,
       1,
     );
   } finally {
@@ -374,9 +384,15 @@ test("verify reports the linked account status Merge gives, without reinterpreti
     assert.deepEqual(result.claims[0]?.permissions?.observed, []);
     assert.equal(result.claims[0]?.permissions?.semantics, "unknown");
     // The account token went in the documented header.
-    const call = complete.double.received("GET", "/api/hris/v1/account-details")[0];
+    const call = complete.double.received(
+      "GET",
+      "/api/hris/v1/account-details",
+    )[0];
     assert.equal(call?.headers["x-account-token"], ACCOUNT_A_TOKEN);
-    assert.equal(call?.headers.authorization, `Bearer ${complete.double.apiKey}`);
+    assert.equal(
+      call?.headers.authorization,
+      `Bearer ${complete.double.apiKey}`,
+    );
   } finally {
     await complete.close();
   }
@@ -424,7 +440,10 @@ test("a token that resolves to another linked account is refused, not accepted",
 });
 
 test("AC-EXT-15: two accounts expose different fields and nothing is fabricated", async () => {
-  const a = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const a = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   let accountAResult: unknown;
   try {
     const result = await a.adapter.invoke!(a.ctx, {
@@ -434,7 +453,10 @@ test("AC-EXT-15: two accounts expose different fields and nothing is fabricated"
     });
     accountAResult = result.output;
     const output = result.output as {
-      results: Array<{ fields: Record<string, unknown>; unsupportedFields?: string[] }>;
+      results: Array<{
+        fields: Record<string, unknown>;
+        unsupportedFields?: string[];
+      }>;
     };
     assert.equal(output.results.length, 2);
     assert.deepEqual(Object.keys(output.results[0]!.fields).sort(), [
@@ -449,7 +471,10 @@ test("AC-EXT-15: two accounts expose different fields and nothing is fabricated"
     await a.close();
   }
 
-  const b = await harness({ accountToken: ACCOUNT_B_TOKEN, linkedAccountId: accountB.id });
+  const b = await harness({
+    accountToken: ACCOUNT_B_TOKEN,
+    linkedAccountId: accountB.id,
+  });
   try {
     const result = await b.adapter.invoke!(b.ctx, {
       operationRef: "op:employees.list",
@@ -457,7 +482,10 @@ test("AC-EXT-15: two accounts expose different fields and nothing is fabricated"
       input: {},
     });
     const output = result.output as {
-      results: Array<{ fields: Record<string, unknown>; unsupportedFields?: string[] }>;
+      results: Array<{
+        fields: Record<string, unknown>;
+        unsupportedFields?: string[];
+      }>;
     };
     assert.equal(output.results.length, 1);
     // work_email is absent for this account and is reported as unsupported,
@@ -476,7 +504,10 @@ test("AC-EXT-15: two accounts expose different fields and nothing is fabricated"
 });
 
 test("AC-EXT-15: a model one account does not support is an error there and works elsewhere", async () => {
-  const a = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const a = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     const result = await a.adapter.invoke!(a.ctx, {
       operationRef: "op:groups.list",
@@ -488,7 +519,10 @@ test("AC-EXT-15: a model one account does not support is an error there and work
     await a.close();
   }
 
-  const b = await harness({ accountToken: ACCOUNT_B_TOKEN, linkedAccountId: accountB.id });
+  const b = await harness({
+    accountToken: ACCOUNT_B_TOKEN,
+    linkedAccountId: accountB.id,
+  });
   try {
     await assert.rejects(
       () =>
@@ -527,14 +561,20 @@ test("AC-EXT-15: an account that cannot make requests is denied before reading r
 });
 
 test("account-specific availability is read per account from the documented meta endpoint", async () => {
-  const a = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const a = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     await a.adapter.invoke!(a.ctx, {
       operationRef: "op:employees.list",
       commandId: "cmd-meta-a",
       input: {},
     });
-    const meta = a.double.received("GET", "/api/hris/v1/employees/meta/post")[0];
+    const meta = a.double.received(
+      "GET",
+      "/api/hris/v1/employees/meta/post",
+    )[0];
     assert.equal(meta?.headers["x-account-token"], ACCOUNT_A_TOKEN);
   } finally {
     await a.close();
@@ -570,14 +610,20 @@ test("a category the binding did not approve is refused", async () => {
       () => h.adapter.discover!(h.ctx, { scope: { category: "ats" } }),
       rejects("merge.category.unapproved"),
     );
-    assert.equal(h.double.received("GET", "/api/ats/v1/linked-accounts").length, 0);
+    assert.equal(
+      h.double.received("GET", "/api/ats/v1/linked-accounts").length,
+      0,
+    );
   } finally {
     await h.close();
   }
 });
 
 test("passthrough uses the route fixed in the binding and sends the account token", async () => {
-  const h = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     const result = await h.adapter.delegate!(h.ctx, {
       skill: "op:passthrough.timeoff",
@@ -600,7 +646,10 @@ test("passthrough uses the route fixed in the binding and sends the account toke
 });
 
 test("AC-EXT-15: an arbitrary passthrough path or URL from input is rejected", async () => {
-  const h = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     for (const hostile of [
       { path: "/v1/admin/keys" },
@@ -672,7 +721,10 @@ test("a passthrough operation whose binding route disagrees with the transport i
 });
 
 test("a repeated passthrough returns the journaled outcome rather than calling twice", async () => {
-  const h = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     const first = await h.adapter.delegate!(h.ctx, {
       skill: "op:passthrough.timeoff",
@@ -711,7 +763,10 @@ test("an interrupted passthrough is indeterminate", async () => {
     });
     assert.equal(result.state, "indeterminate");
     assert.equal(result.code, "merge.passthrough.uncertain");
-    assert.equal(h.ports.inspect.effects()[0]?.outcome?.status, "indeterminate");
+    assert.equal(
+      h.ports.inspect.effects()[0]?.outcome?.status,
+      "indeterminate",
+    );
   } finally {
     await h.close();
   }
@@ -736,7 +791,10 @@ test("a read without a stored account token fails rather than using the API key 
 });
 
 test("local disconnect drops the token and leaves the linked account at Merge", async () => {
-  const h = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     const result = await h.adapter.disconnect!(h.ctx, "local");
     assert.equal(result.local, "applied");
@@ -753,7 +811,10 @@ test("local disconnect drops the token and leaves the linked account at Merge", 
 });
 
 test("broker deletion is a separate intent, and upstream revocation is reported unsupported", async () => {
-  const h = await harness({ accountToken: ACCOUNT_A_TOKEN, linkedAccountId: accountA.id });
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
   try {
     const broker = await h.adapter.disconnect!(h.ctx, "broker");
     assert.equal(broker.broker, "applied");

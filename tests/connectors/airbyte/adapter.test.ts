@@ -50,15 +50,17 @@ const bindingFor = (
     policyRevision: "policy-1",
     tenantId: fixtureActor.tenantId,
     profileId: "airbyte-api",
-    destinations: [
-      { id: "api", origin, network: "loopback-fixture" },
-    ],
+    destinations: [{ id: "api", origin, network: "loopback-fixture" }],
     operations: [
       {
         operationRef: "op:source.get",
         nativeId: "airbyte.source.get",
         destinationId: "api",
-        transport: { kind: "http", method: "GET", pathTemplate: "/sources/{sourceId}" },
+        transport: {
+          kind: "http",
+          method: "GET",
+          pathTemplate: "/sources/{sourceId}",
+        },
         effect: "read",
         outputClassification: "personal",
         cost: "free",
@@ -122,7 +124,11 @@ const bindingFor = (
         operationRef: "op:job.get",
         nativeId: "airbyte.job.get",
         destinationId: "api",
-        transport: { kind: "http", method: "GET", pathTemplate: "/jobs/{jobId}" },
+        transport: {
+          kind: "http",
+          method: "GET",
+          pathTemplate: "/jobs/{jobId}",
+        },
         effect: "read",
         outputClassification: "personal",
         cost: "free",
@@ -278,9 +284,13 @@ test("verify reaches the source through live discovery and states its limitation
     const claim = result.claims[0];
     assert.equal(claim?.kind, "resource-access");
     assert.equal(claim?.issuer, "provider");
-    assert.ok(claim?.limitations.some((text) => text.includes("check_connection")));
     assert.ok(
-      claim?.limitations.some((text) => text.includes("not the permissions of any end user")),
+      claim?.limitations.some((text) => text.includes("check_connection")),
+    );
+    assert.ok(
+      claim?.limitations.some((text) =>
+        text.includes("not the permissions of any end user"),
+      ),
     );
     assert.deepEqual(claim?.permissions?.requested, []);
 
@@ -311,7 +321,8 @@ test("an unreachable source fails verification instead of reporting success", as
     await assert.rejects(
       () => h.adapter.verify!(ctx),
       (error: unknown) =>
-        error instanceof ConnectorError && error.code === "upstream-unavailable",
+        error instanceof ConnectorError &&
+        error.code === "upstream-unavailable",
     );
   } finally {
     await h.close();
@@ -415,7 +426,9 @@ test("AC-EXT-13: a sync mode outside the API vocabulary is rejected, never mappe
           commandId: "cmd-unknown-stream",
           input: {
             connectionId,
-            streams: [{ name: "not_configured", syncMode: "incremental_append" }],
+            streams: [
+              { name: "not_configured", syncMode: "incremental_append" },
+            ],
           },
         }),
       (error: unknown) =>
@@ -453,7 +466,7 @@ test("AC-EXT-13: a restart submits the same connection's job and never sends sta
       commandId: "cmd-2",
       input: { connectionId },
     });
-    const restarted = (restart.output as { jobId: number; connectionId: string });
+    const restarted = restart.output as { jobId: number; connectionId: string };
     assert.notEqual(restarted.jobId, jobId);
     assert.equal(restarted.connectionId, connectionId);
 
@@ -486,7 +499,9 @@ test("the job type comes from the approved operation, never from input", async (
       input: { connectionId },
     });
     const body = JSON.parse(
-      h.double.received("POST", "/api/public/v1/jobs")[0]!.body.toString("utf8"),
+      h.double
+        .received("POST", "/api/public/v1/jobs")[0]!
+        .body.toString("utf8"),
     ) as { jobType: string };
     assert.equal(body.jobType, "reset");
 
@@ -610,23 +625,30 @@ test("job status and cancel stay bound to a permitted connection", async () => {
 });
 
 test("a binding whose transport disagrees with the documented operation is refused", async () => {
-  const h = await harness({}, {
-    operations: [
-      {
-        operationRef: "op:job.sync",
-        nativeId: "airbyte.job.sync",
-        destinationId: "api",
-        // The documented path is /jobs; a binding cannot redirect it.
-        transport: { kind: "http", method: "POST", pathTemplate: "/v1/jobs/create" },
-        effect: "write",
-        outputClassification: "personal",
-        cost: "metered",
-        consent: "confirm",
-        replay: "none",
-        targetParameters: ["connectionId"],
-      },
-    ],
-  });
+  const h = await harness(
+    {},
+    {
+      operations: [
+        {
+          operationRef: "op:job.sync",
+          nativeId: "airbyte.job.sync",
+          destinationId: "api",
+          // The documented path is /jobs; a binding cannot redirect it.
+          transport: {
+            kind: "http",
+            method: "POST",
+            pathTemplate: "/v1/jobs/create",
+          },
+          effect: "write",
+          outputClassification: "personal",
+          cost: "metered",
+          consent: "confirm",
+          replay: "none",
+          targetParameters: ["connectionId"],
+        },
+      ],
+    },
+  );
   try {
     await assert.rejects(
       () =>

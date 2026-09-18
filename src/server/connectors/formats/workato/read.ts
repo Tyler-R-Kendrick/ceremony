@@ -16,6 +16,7 @@ import {
   token,
 } from "../automation/common.js";
 import {
+  authenticationDisposition,
   buildAutomationDefinition,
   type AutomationDimensions,
   type AutomationReadResult,
@@ -829,12 +830,24 @@ export async function readWorkatoConnector(
     limitations: [...limitations].slice(0, 32),
   };
 
+  const authenticationProfiles: AuthenticationProfile[] = auth.profiles.length
+    ? auth.profiles
+    : [
+        {
+          id: "workato-none",
+          label: "No credential declared",
+          kind: "none",
+          reason: "public",
+        },
+      ];
   const dimensions: AutomationDimensions = {
     import: issues.blocksDefinition() ? "unsupported" : importDisposition,
     configure: "adapted",
+    authorize: authenticationDisposition(authenticationProfiles),
     invoke: "requires-configuration",
     export: "adapted",
     delegate: "requires-configuration",
+    events: events.length ? "requires-configuration" : "unsupported",
   };
 
   const definition = await buildAutomationDefinition({
@@ -855,16 +868,7 @@ export async function readWorkatoConnector(
       ecosystem: WORKATO_ECOSYSTEM,
       service: hint.service ? serviceKey(hint.service) : serviceKey(nativeId),
     },
-    authentication: auth.profiles.length
-      ? auth.profiles
-      : [
-          {
-            id: "workato-none",
-            label: "No credential declared",
-            kind: "none",
-            reason: "public",
-          },
-        ],
+    authentication: authenticationProfiles,
     configuration,
     capabilities,
     events,

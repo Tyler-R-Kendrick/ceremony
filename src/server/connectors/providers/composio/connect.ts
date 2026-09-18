@@ -8,7 +8,11 @@ import type {
 import type { VerificationClaim } from "../../adapter-types.js";
 import { ConnectorError } from "../../errors.js";
 import { expectJson } from "./client.js";
-import { fetchConnectedAccounts, getConnectedAccount } from "./catalog.js";
+import {
+  fetchAuthConfigs,
+  fetchConnectedAccounts,
+  getConnectedAccount,
+} from "./catalog.js";
 import { deploymentOrigin, guardConnection, type ComposioCall } from "./context.js";
 import {
   composioAuthConfigIdSchema,
@@ -209,10 +213,22 @@ export async function composioAuthorize(
     // that forbids interruption blocks it; it does not unlock another route.
     return { kind: "human-required", code: "composio.human.required" };
 
-  const state = correlation(call);
-  const scheme = call.ctx.connection?.externalIds.authScheme;
-  if (scheme && !composioHostedAuthSchemes.has(scheme))
+  // The blueprint decides how the grant is created, so its scheme is read
+  // from Composio rather than assumed: an API-key auth config would require
+  // submitting the user's credential, which this adapter never does.
+  const configs = await fetchAuthConfigs(call);
+  const selected = configs.find((config) => config.id === authConfig);
+  if (!selected)
+    throw new ConnectorError("not-found", {
+      detail: "composio.auth-config.absent",
+    });
+  if (selected.is_disabled === true)
+    throw denied("composio.auth-config.disabled");
+  const scheme = selected.auth_scheme ?? "";
+  if (!composioHostedAuthSchemes.has(scheme))
     return { kind: "unsupported", code: "composio.auth-scheme.not-hosted" };
+
+  const state = correlation(call);
 
   const intentCode =
     mode === "reconnect" ? "composio.reconnect" : "composio.authorize";
@@ -237,7 +253,7 @@ export async function composioAuthorize(
           callback_url: callbackUrl(call, state),
           // `val` carries per-scheme dynamic fields. This adapter collects no
           // provider credential, so it sends none.
-          state: { authScheme: "OAUTH2", val: {} },
+          state: { authScheme: scheme, val: {} },
         },
       },
       timeoutMs: call.options.timeouts.write,
@@ -279,6 +295,7 @@ export async function composioAuthorize(
       url: checkAuthorizationUrl(call, raw),
       connectedAccountId: created.id,
       authConfigId: authConfig,
+      authScheme: scheme,
       toolkitSlug: call.settings.toolkit.slug,
       userId: call.userId,
     },

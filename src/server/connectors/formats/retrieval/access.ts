@@ -231,14 +231,34 @@ export async function evaluateAccess(
   let current = descriptor.acl;
   while (current.inheritFrom) {
     if (levels.length >= maxDepth)
-      return deny("inheritance-unresolved", evaluated, cacheKey, membership.resolvedAt);
+      return deny(
+        "inheritance-unresolved",
+        evaluated,
+        cacheKey,
+        membership.resolvedAt,
+      );
     if (seen.has(current.inheritFrom))
-      return deny("inheritance-cycle", evaluated, cacheKey, membership.resolvedAt);
+      return deny(
+        "inheritance-cycle",
+        evaluated,
+        cacheKey,
+        membership.resolvedAt,
+      );
     if (!membershipPort.aclOf)
-      return deny("inheritance-unresolved", evaluated, cacheKey, membership.resolvedAt);
+      return deny(
+        "inheritance-unresolved",
+        evaluated,
+        cacheKey,
+        membership.resolvedAt,
+      );
     const parent = await membershipPort.aclOf(current.inheritFrom);
     if (!parent)
-      return deny("inheritance-unresolved", evaluated, cacheKey, membership.resolvedAt);
+      return deny(
+        "inheritance-unresolved",
+        evaluated,
+        cacheKey,
+        membership.resolvedAt,
+      );
     seen.add(current.inheritFrom);
     evaluated.push(current.inheritFrom);
     levels.push({ acl: parent, id: current.inheritFrom });

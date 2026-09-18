@@ -15,6 +15,7 @@ import {
   token,
 } from "../automation/common.js";
 import {
+  authenticationDisposition,
   automationCapabilityRows,
   buildAutomationDefinition,
   type AutomationReadResult,
@@ -283,6 +284,15 @@ function readAuthentication(
       const list = (result.native["fields"] ??= []) as unknown[];
       list.push(inertCopy(literalField));
     }
+    if (computed) {
+      // The platform fills a computed field after authorization. It is not
+      // something a deployment can be asked to configure, so it is recorded
+      // as a limitation rather than as a requirement someone must satisfy.
+      result.limitations.push(
+        `Authentication field "${token(key)}" is populated by the platform after authorization and cannot be supplied as configuration.`,
+      );
+      continue;
+    }
     result.configuration.push({
       name: configurationName(appKey, key, used),
       source: "session-environment",
@@ -297,10 +307,6 @@ function readAuthentication(
           }
         : {}),
     });
-    if (computed)
-      result.limitations.push(
-        `Authentication field "${token(key)}" is populated by the platform after authorization and cannot be supplied as configuration.`,
-      );
   }
 
   const noteCode = (key: string, dimension: "authorize" | "verify") => {
@@ -617,7 +623,10 @@ function collectOperations(
     kind: NativeCapability["kind"];
     effect: NativeCapability["effect"];
   }> = [
-    { name: "triggers", kind: "event", effect: "read" },
+    // A polling trigger reads a list endpoint; a hook trigger is an event.
+    // `isHook` upgrades the kind below, and the native spelling is preserved
+    // in the capability's extensions either way.
+    { name: "triggers", kind: "query", effect: "read" },
     { name: "searches", kind: "query", effect: "read" },
     { name: "creates", kind: "action", effect: "write" },
     { name: "bulkReads", kind: "query", effect: "read" },
@@ -1128,10 +1137,14 @@ export async function readZapierApp(
       .slice(0, ZAPIER_LIMITS.servers)
       .map(([url, description]) => ({ url, description })),
     issues: issues.issues,
-    dimensions: automationCapabilityRows({
-      importDisposition,
-      hasBlockingIssue: issues.blocksDefinition(),
-    }),
+    dimensions: {
+      ...automationCapabilityRows({
+        importDisposition,
+        hasBlockingIssue: issues.blocksDefinition(),
+      }),
+      authorize: authenticationDisposition(authenticationProfiles),
+      events: events.length ? "requires-configuration" : "unsupported",
+    },
     nativeExtensions,
     sourceMaterial,
   });
