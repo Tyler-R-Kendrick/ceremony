@@ -4,6 +4,10 @@ import {
   managedBackends,
   UnsupportedBackend,
 } from "../src/server/browser-backends.js";
+import {
+  createEffectLedger,
+  effectIsIndeterminate,
+} from "../src/server/browser-effects.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import {
@@ -14,6 +18,7 @@ import { compileLoginPlan } from "../src/server/login-plan.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { PageSnapshot } from "../src/core/browser-contracts.js";
+import type { CeremonyPage } from "../src/server/browser-driver.js";
 
 /**
  * The login service's decisions, with the browser replaced by a stub.
@@ -53,8 +58,38 @@ const emptyPage: PageSnapshot = {
   elements: [],
 };
 
+/**
+ * A login page with something to submit, for the cases about what happens when
+ * a submission goes out and its outcome never comes back.
+ */
+const loginPage: PageSnapshot = {
+  path: `${origin}/signin`,
+  title: "Sign in",
+  headings: [],
+  alerts: [],
+  challenge: false,
+  passkey: false,
+  elements: [
+    // Already filled, so the deterministic interpreter's next move is the
+    // submit button rather than the field. The fill itself is not what these
+    // cases are about — what happens after the click is.
+    {
+      index: 0,
+      kind: "input",
+      type: "password",
+      name: "password",
+      label: "Password",
+      filled: true,
+    },
+    { index: 1, kind: "button", text: "Sign in" },
+  ],
+};
+
 /** A managed browser that opens nothing and records whether it was disposed. */
-function stubBackend(answer: { status: number; body: string }) {
+function stubBackend(
+  answer: { status: number; body: string },
+  page: Partial<CeremonyPage> = {},
+) {
   const state = { disposed: 0, contextsClosed: 0 };
   const launch = (async () => ({
     descriptor: managedBackends()[0]!,
@@ -83,6 +118,7 @@ function stubBackend(answer: { status: number; body: string }) {
               click: async () => {},
               check: async () => {},
               settle: async () => {},
+              ...page,
             },
           };
         },
@@ -128,11 +164,13 @@ function planFor(overrides: Record<string, unknown> = {}) {
 
 function serviceWith(
   backend: ReturnType<typeof stubBackend>,
-  options: { verifiers?: boolean } = {},
+  options: { verifiers?: boolean; effects?: boolean } = {},
 ) {
   const sessions = createBrowserSessionRegistry({ store });
+  const effects = createEffectLedger({ store });
   const service = createBrowserLoginService({
     sessions,
+    ...(options.effects === false ? {} : { effects }),
     verifiers:
       options.verifiers === false
         ? createVerifierRegistry([])
@@ -140,7 +178,7 @@ function serviceWith(
     credentials: { resolve: async () => "correct-horse" },
     launch: backend.launch,
   });
-  return { sessions, service };
+  return { sessions, service, effects };
 }
 
 describe("login service outcomes", () => {
@@ -290,5 +328,118 @@ describe("attestation", () => {
       }),
     );
     await sessions.disposeAll();
+  });
+});
+
+describe("a submission whose outcome never came back", () => {
+  /** A page that submits and then loses the browser out from under itself. */
+  const vanishingPage = (): Partial<CeremonyPage> => ({
+    snapshot: async () => loginPage,
+    submissionTarget: async () => origin,
+    click: async () => {
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+
+  test("EFFECT-LOST: a dispatch with no answer is undetermined, not blocked", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service, effects } = serviceWith(backend);
+    const result = await service.login(actor, {
+      plan: planFor(),
+      idempotencyKey: "lost-1",
+    });
+    try {
+      // The old answer here was `blocked` / `provider-error`, which a caller
+      // reads as "nothing happened, try again". The credential had already gone
+      // to the provider.
+      assert.equal(
+        result.status,
+        "indeterminate",
+        `expected an undetermined outcome, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "indeterminate") return;
+      assert.match(result.effectRef, /^beff_[0-9a-f]{32}$/);
+      assert.equal(
+        effectIsIndeterminate(await effects.read(actor, result.effectRef)),
+        true,
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("a retry of an undetermined request is refused, not re-run", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend);
+    try {
+      const first = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "lost-2",
+      });
+      assert.equal(first.status, "indeterminate");
+      const second = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "lost-2",
+      });
+      // The whole point: the second call does not open a browser and does not
+      // submit anything. It reports the uncertainty the first one left behind.
+      assert.equal(second.status, "indeterminate");
+      assert.equal(backend.state.disposed, 1);
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("a failure before anything was sent stays a plain refusal", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      {
+        snapshot: async () => {
+          throw new Error("Target page, context or browser has been closed");
+        },
+      },
+    );
+    const { sessions, service } = serviceWith(backend);
+    try {
+      const result = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "never-sent",
+      });
+      // Nothing left the browser, so a caller may safely try again. Reporting
+      // this as undetermined would be the mirror-image defect: it would make
+      // every transient fault look like a possible double-submission.
+      assert.equal(result.status, "blocked");
+      if (result.status !== "blocked") return;
+      assert.equal(result.reason, "provider-error");
+      const replay = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "never-sent",
+      });
+      assert.equal(replay.status, "blocked");
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("without a ledger the uncertainty is still reported, just not persisted", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend, { effects: false });
+    try {
+      const result = await service.login(actor, { plan: planFor() });
+      // A deployment with nowhere to write a ledger still must not tell a
+      // caller that a dispatched submission did not happen.
+      assert.equal(result.status, "indeterminate");
+    } finally {
+      await sessions.disposeAll();
+    }
   });
 });

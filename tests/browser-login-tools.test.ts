@@ -9,6 +9,7 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { managedBackends } from "../src/server/browser-backends.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
+import { createEffectLedger } from "../src/server/browser-effects.js";
 import { createBrowserLoginTools } from "../src/server/browser-login-tools.js";
 import {
   createFixtureVerifier,
@@ -128,6 +129,7 @@ async function harness(options: { allowUnverified?: boolean } = {}) {
   };
   const service = createBrowserLoginService({
     sessions,
+    effects: createEffectLedger({ store }),
     verifiers: createVerifierRegistry([
       createFixtureVerifier({ origin: fixture.origin }),
     ]),
@@ -733,6 +735,50 @@ describe("browser login tools", () => {
       });
       assert.equal(release.status, 403);
       assert.deepEqual(release.body, { error: "denied" });
+    } finally {
+      await h.close();
+    }
+  });
+
+  test("EFFECT-DUP: a client's retry with the same key does not log in twice", async () => {
+    const h = await harness();
+    try {
+      fixture.reset();
+      const first = await h.tool("browser_login", {
+        ...loginArguments(),
+        idempotencyKey: "client-retry-1",
+      });
+      assert.equal(first.isError, false, first.text);
+      assert.equal(first.value.status, "verified");
+
+      // A client whose connection dropped asks again with the same key. Without
+      // this, the deduplication built into the service would exist only for
+      // in-process callers and every real client would still double-submit.
+      const again = await h.tool("browser_login", {
+        ...loginArguments(),
+        idempotencyKey: "client-retry-1",
+      });
+      assert.equal(again.isError, false, again.text);
+      assert.notEqual(again.value.status, "verified");
+
+      // The provider's own records, not the tool's report of itself.
+      assert.equal(fixture.submissions().length, 1);
+      assert.equal(fixture.sessionsFor(owner.account).length, 1);
+
+      // Over HTTP too: the two transports share one implementation and must not
+      // drift on something a caller relies on for safety.
+      fixture.reset();
+      const overHttp = await h.http("/tools/browser-login", {
+        ...loginArguments(),
+        idempotencyKey: "client-retry-2",
+      });
+      assert.equal(overHttp.status, 200, JSON.stringify(overHttp.body));
+      const repeated = await h.http("/tools/browser-login", {
+        ...loginArguments(),
+        idempotencyKey: "client-retry-2",
+      });
+      assert.equal(repeated.status, 200);
+      assert.equal(fixture.submissions().length, 1);
     } finally {
       await h.close();
     }
