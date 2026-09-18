@@ -1,18 +1,8 @@
 import { readFileSync } from "node:fs";
+import { guard } from "./scripts/stryker-guard.mjs";
 const base = JSON.parse(
   readFileSync(new URL("./stryker.config.json", import.meta.url), "utf8"),
 );
-function guard(file, marker, lines = 1, offset = 0, expectedMatches = 1) {
-  const source = readFileSync(file, "utf8").split("\n");
-  const matches = source.flatMap((line, index) =>
-    line.includes(marker) ? [index + 1] : [],
-  );
-  if (matches.length !== expectedMatches)
-    throw new Error("Security mutation guard count changed");
-  return matches.map(
-    (line) => `${file}:${line + offset}-${line + offset + lines}`,
-  );
-}
 export default {
   ...base,
   // Isolate mutation workers to avoid timeout-only results under CPU contention.
