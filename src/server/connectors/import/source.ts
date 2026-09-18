@@ -75,8 +75,6 @@ export function normalizedDigestFor(value: unknown): Promise<string> {
   return canonicalDigest(value);
 }
 
-const provenanceSchema = sourceRecordSchema.omit({ artifactRef: true });
-
 /**
  * Stores the bytes as a protected artifact and returns a schema-valid record.
  * The record is validated before the artifact is written, so an invalid
@@ -104,7 +102,9 @@ export async function captureSource(
     kind: meta.origin.kind,
     ...(location === undefined ? {} : { location }),
   };
-  const provenance = provenanceSchema.safeParse({
+  // `artifactRef` is optional, so the provenance validates as a whole record
+  // before an artifact exists; the handle is added and revalidated after.
+  const provenance = sourceRecordSchema.safeParse({
     sourceRef: sourceRefFor({
       identity: meta.identity,
       digest,

@@ -584,7 +584,7 @@ export function createConnectionStore(
           "connection:",
           storedConnectionSchema,
           ({ value, revision }) => {
-            const record = value.record;
+            const record = asConnectionRecord(value.record);
             if (
               owns(actor, record) &&
               (!filter.ecosystem || record.ecosystem === filter.ecosystem) &&

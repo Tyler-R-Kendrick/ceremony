@@ -258,11 +258,18 @@ class Reader {
     return versionIncludes(this.version, since);
   }
 
+  /**
+   * Splits an object into the fields this version defines, its `x-`
+   * extensions and everything else. A field belonging to a later Arazzo
+   * version is blocking for `impact`'s scope: ignoring it would silently
+   * change what the author wrote, and interpreting it would apply semantics
+   * the declared version does not have.
+   */
   partition(
     object: Record<string, unknown>,
     pointer: string,
     fields: FieldTable,
-    future: "blocking" | "warning",
+    impact: Impact,
   ): { extensions: Extensions; unknown: Extensions } {
     const extensions: Extensions = {};
     const unknown: Extensions = {};
@@ -276,9 +283,7 @@ class Reader {
       unknown[key] = value;
       const at = `${pointer}${jsonPointer(key)}`;
       if (!entry) this.issue("arazzo.structure.unknown-field", at);
-      else if (future === "blocking")
-        this.issue("arazzo.version.field-unavailable", at);
-      else this.issue("arazzo.version.field-ignored", at);
+      else this.issue("arazzo.version.field-unavailable", at, { impact });
     }
     if (Object.keys(extensions).length > ARAZZO_LIMITS.extensions)
       this.issue("arazzo.structure.extension-limit", pointer);
@@ -505,7 +510,7 @@ class Reader {
       source,
       pointer,
       ROOT_FIELDS,
-      "warning",
+      "blocks-definition",
     );
     const impact: Impact = "blocks-definition";
     const self = this.includes(v11)
@@ -583,7 +588,7 @@ class Reader {
       object,
       pointer,
       INFO_FIELDS,
-      "warning",
+      "blocks-definition",
     );
     const text = (key: string, required: boolean) =>
       this.string(object, key, pointer, {
@@ -615,7 +620,7 @@ class Reader {
       object,
       pointer,
       SOURCE_FIELDS,
-      "warning",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const name = this.identifier(object, "name", pointer, {
@@ -656,7 +661,7 @@ class Reader {
       object,
       pointer,
       PARAMETER_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const name = this.string(object, "name", pointer, {
@@ -761,7 +766,7 @@ class Reader {
       object,
       pointer,
       EXPRESSION_TYPE_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const type = this.string(object, "type", pointer, {
@@ -798,7 +803,7 @@ class Reader {
       object,
       pointer,
       CRITERION_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const context = this.string(object, "context", pointer, {
@@ -898,7 +903,7 @@ class Reader {
       object,
       pointer,
       kind === "success" ? SUCCESS_FIELDS : FAILURE_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const name = this.string(object, "name", pointer, {
@@ -1000,7 +1005,7 @@ class Reader {
       object,
       pointer,
       REQUEST_BODY_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const contentType = this.string(object, "contentType", pointer, {
@@ -1021,7 +1026,7 @@ class Reader {
           `${pointer}/replacements`,
           impact,
           (item, at): PreservedPayloadReplacement | undefined => {
-            const parts = this.partition(item, at, REPLACEMENT_FIELDS, "blocking");
+            const parts = this.partition(item, at, REPLACEMENT_FIELDS, impact);
             const target = this.string(item, "target", at, {
               required: true,
               max: ARAZZO_LIMITS.expression,
@@ -1105,7 +1110,7 @@ class Reader {
       object,
       pointer,
       STEP_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const stepId = this.identifier(object, "stepId", pointer, {
@@ -1222,7 +1227,7 @@ class Reader {
       object,
       pointer,
       WORKFLOW_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const workflowId = this.identifier(object, "workflowId", pointer, {
@@ -1316,7 +1321,7 @@ class Reader {
       object,
       pointer,
       COMPONENTS_FIELDS,
-      "blocking",
+      "blocks-operation",
     );
     const impact: Impact = "blocks-operation";
     const map = (key: string) =>

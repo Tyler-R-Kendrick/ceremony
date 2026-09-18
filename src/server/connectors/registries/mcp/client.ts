@@ -117,7 +117,12 @@ export function normalizeRegistryBaseUrl(value: string): string {
   if (typeof value !== "string" || value.length > 2048 || !URL.canParse(value))
     throw fail();
   const url = new URL(value);
+  // `new URL` resolves `/a/../b` to `/b`; a base URL that had to be normalized
+  // is refused rather than silently rewritten.
+  const rawPath = value.slice(value.indexOf(url.host) + url.host.length).split(/[?#]/)[0] ?? "";
   if (
+    rawPath.split("/").some((segment) => segment === ".." || segment === ".") ||
+    rawPath.includes("//") ||
     url.username ||
     url.password ||
     url.search ||

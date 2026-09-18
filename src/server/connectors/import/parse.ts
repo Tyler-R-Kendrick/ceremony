@@ -663,6 +663,10 @@ export function parseBoundedDocument(
   if (!(bytes instanceof Uint8Array)) return fail("document.invalid-input");
   if (bytes.byteLength === 0) return fail("document.empty");
   if (bytes.byteLength > limits.maxBytes) return fail("document.too-large");
+  const fileName =
+    options.fileName === undefined
+      ? undefined
+      : assertSafeFileName(options.fileName);
   const mediaType = normalizeMediaType(options.mediaType);
   const encoding = detectEncoding(bytes, options.contentEncoding, mediaType);
   const decoded =
@@ -670,11 +674,7 @@ export function parseBoundedDocument(
   if (decoded.byteLength === 0) return fail("document.empty");
   const text = decodeText(decoded);
   if (forbiddenControl.test(text)) return fail("document.control-characters");
-  const format = detectDocumentFormat({
-    mediaType,
-    fileName: options.fileName,
-    text,
-  });
+  const format = detectDocumentFormat({ mediaType, fileName, text });
   let raw: unknown;
   let aliases = 0;
   let anchors = 0;

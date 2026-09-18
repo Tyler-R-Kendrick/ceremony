@@ -48,7 +48,7 @@ CIP-12: Severity and impact agree generally: a `blocking` issue MUST name what i
 
 CIP-13: `authenticationProfileSchema` is a discriminated union over thirteen kinds, including an explicit `none` (`reason: "public" | "anonymous"`) and an explicit `unsupported` that preserves the native scheme name verbatim. An importer MUST represent a public or no-credential API with `none`, and MUST NOT fabricate an API key, identity, grant or login method to satisfy a schema minimum.
 
-CIP-14: Endpoints in a profile are *declared* by the source, never approved. They MUST be HTTPS (or loopback HTTP for fixtures) and MUST NOT carry userinfo, a query string or a fragment, so a signed or keyed URL cannot enter a description. A declared server URL may contain `{variables}` and is therefore not parsed, but userinfo, query and fragment are refused there too. A profile is not permission to contact anything; only a server-side `RuntimeBinding` approves a destination.
+CIP-14: Endpoints in a profile are _declared_ by the source, never approved. They MUST be HTTPS (or loopback HTTP for fixtures) and MUST NOT carry userinfo, a query string or a fragment, so a signed or keyed URL cannot enter a description. A declared server URL may contain `{variables}` and is therefore not parsed, but userinfo, query and fragment are refused there too. A profile is not permission to contact anything; only a server-side `RuntimeBinding` approves a destination.
 
 CIP-15: Custody is reported as one of `host-owned`, `external-credential-broker`, `external-execution-broker`, `attended-browser` or `no-credential`. Remote credential access and remote execution are different interfaces; an implementation MUST NOT convert a non-exportable authority into an exported credential.
 
@@ -70,19 +70,19 @@ CIP-20: Local disconnect, upstream revocation and expiry are distinct states. `l
 
 CIP-21: Every projection in `projections.ts` is a positive allowlist that constructs a new object from named fields. A projection MUST NOT spread its input. A field added to a record later is therefore nonpublic until a projection is deliberately taught about it, and an unknown field in the input is refused rather than forwarded.
 
-| Projection | Audience | Carries |
-| ---------- | -------- | ------- |
-| `publicCatalogProjection` | Public directory | Identity, support level, custody, runtimes, authentication kinds, configuration names/classification/presence, capability status rows, evidence, group |
-| `humanConnectionProjection` | The authenticated initiating human | Connection summary plus, optionally, one validated destination URL, device code and instructions |
-| `agentConnectorProjection` | Models and tools | Correlation references, lifecycle, generation, revision, custody, a `verified` boolean, target *kind* |
-| `agentDefinitionProjection` | Models and tools | Identity, display name, authentication ids/kinds, capability ids and declared classifications, dimensions, blocking issue codes |
-| `authorReviewProjection` | Authorized author or operator | Full definition and source provenance without `artifactRef` |
-| `exportDefinitionProjection` | Documents leaving the deployment | Portable definition without persistence references; native extensions only when the operator opts in |
-| `auditConnectorProjection` | Audit log | Time, actor kind, action code, references, outcome, sanitized code, generation |
+| Projection                   | Audience                           | Carries                                                                                                                                                |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `publicCatalogProjection`    | Public directory                   | Identity, support level, custody, runtimes, authentication kinds, configuration names/classification/presence, capability status rows, evidence, group |
+| `humanConnectionProjection`  | The authenticated initiating human | Connection summary plus, optionally, one validated destination URL, device code and instructions                                                       |
+| `agentConnectorProjection`   | Models and tools                   | Correlation references, lifecycle, generation, revision, custody, a `verified` boolean, target _kind_                                                  |
+| `agentDefinitionProjection`  | Models and tools                   | Identity, display name, authentication ids/kinds, capability ids and declared classifications, dimensions, blocking issue codes                        |
+| `authorReviewProjection`     | Authorized author or operator      | Full definition and source provenance without `artifactRef`                                                                                            |
+| `exportDefinitionProjection` | Documents leaving the deployment   | Portable definition without persistence references; native extensions only when the operator opts in                                                   |
+| `auditConnectorProjection`   | Audit log                          | Time, actor kind, action code, references, outcome, sanitized code, generation                                                                         |
 
 CIP-22: `humanConnectionProjection` is the only projection that may carry a destination URL or a device code, and only for the authenticated initiating human. A shown URL MUST be HTTPS (or loopback HTTP) with no userinfo and no fragment. Authorization URLs, Connect links, widget tokens, device codes, PKCE verifiers and private collector references MUST NOT enter public catalog, agent, export, audit or error output.
 
-CIP-23: Configuration is reported by name, source, classification and presence only. A configuration *value* MUST NOT appear in any projection. Provider messages MUST NOT be projected; a connection reports a sanitized `lastOutcome` code instead.
+CIP-23: Configuration is reported by name, source, classification and presence only. A configuration _value_ MUST NOT appear in any projection. Provider messages MUST NOT be projected; a connection reports a sanitized `lastOutcome` code instead.
 
 CIP-24: `exportDefinitionProjection` drops `definitionRef` and `sourceRef` always, and drops native extensions from the definition and from every capability unless the exporting operator passes `includeNativeExtensions`, because a source's extensions can carry examples and vendor fields that were never reviewed for publication.
 
@@ -96,7 +96,7 @@ CIP-27: A capability is identified by `kind` plus `nativeId`, and both capabilit
 
 ## The versioned envelope
 
-CIP-28: Version 1 of `ceremony-connector` is the studio authoring project (`connectorProjectSchema`) and is unchanged by this profile. Version 2 wraps a *description*: `profile` (`ceremony-connector/2` plus a producer id and version), a portable `definition`, up to sixteen portable `sources`, and optionally an unchanged v1 `project`. `parseConnectorEnvelope` reads both versions and enforces a 4 MiB ceiling before parsing.
+CIP-28: Version 1 of `ceremony-connector` is the studio authoring project (`connectorProjectSchema`) and is unchanged by this profile. Version 2 wraps a _description_: `profile` (`ceremony-connector/2` plus a producer id and version), a portable `definition`, up to sixteen portable `sources`, and optionally an unchanged v1 `project`. `parseConnectorEnvelope` reads both versions and enforces a 4 MiB ceiling before parsing.
 
 CIP-29: A portable definition omits `definitionRef` and `sourceRef`; a portable source omits `sourceRef` and `artifactRef`. `normalizedDigestOf` digests the portable content excluding the digest field itself, so a stored definition and its export agree; `verifyNormalizedDigest` checks it.
 

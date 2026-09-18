@@ -112,7 +112,17 @@ function privateIpv4(host: string): boolean {
 function privateIpv6(host: string): boolean {
   const bare = host.replace(/^\[|\]$/g, "").toLowerCase();
   if (bare === "::" || bare === "::1") return true;
-  if (bare.startsWith("::ffff:")) return privateIpv4(bare.slice(7));
+  if (bare.startsWith("::ffff:")) {
+    const mapped = bare.slice(7);
+    // Node re-spells an IPv4-mapped address in hex (::ffff:a00:1); expand both forms.
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(mapped);
+    if (hex) {
+      const high = Number.parseInt(hex[1]!, 16);
+      const low = Number.parseInt(hex[2]!, 16);
+      return privateIpv4(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`);
+    }
+    return privateIpv4(mapped);
+  }
   const first = bare.split(":")[0] ?? "";
   return (
     /^f[cd][0-9a-f]{0,2}$/.test(first) ||

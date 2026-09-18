@@ -989,8 +989,12 @@ export async function readAsyncApi(
       `${pointer}/bindings`,
       issues,
     );
-    const channelServers =
-      channel?.servers === undefined
+    // A channel that names no servers is available on every server of the
+    // document (AsyncAPI 3.x); an operation whose channel never resolved has
+    // no servers at all, and therefore no protocol to claim on its behalf.
+    const channelServers = !channel
+      ? []
+      : channel.servers === undefined
         ? [...servers.values()]
         : channel.servers
             .map((name) => servers.get(name))
@@ -1077,7 +1081,8 @@ export async function readAsyncApi(
         (protocol) => !httpLike(protocol),
       ) ?? protocols[0];
       if (channelProblem) {
-        issues.unresolved(`${pointer}/channel`, channelProblem);
+        // The channel resolution already reported precisely why; the operation
+        // simply has no transport to claim and stays descriptive.
       } else if (!inbound) {
         issues.add({
           code: "structure.unsupported-direction",
@@ -1085,7 +1090,7 @@ export async function readAsyncApi(
           sourcePointer: pointer,
           dimension: "events",
           disposition: "unsupported",
-          severity: "info",
+          severity: "warning",
           executionImpact: "blocks-operation",
           message: `Operation "${operationKey.slice(0, 64)}" is outbound from Ceremony's ${opts.perspective} perspective; Ceremony has no publisher runtime for it.`,
         });
@@ -1099,7 +1104,7 @@ export async function readAsyncApi(
           sourcePointer: pointer,
           dimension: "events",
           disposition: "unsupported",
-          severity: "info",
+          severity: "warning",
           executionImpact: "blocks-operation",
           message: `Operation "${operationKey.slice(0, 64)}" declares no server or binding protocol, so no webhook profile can be claimed for it.`,
         });
@@ -1110,7 +1115,7 @@ export async function readAsyncApi(
           sourcePointer: pointer,
           dimension: "events",
           disposition: "unsupported",
-          severity: "info",
+          severity: "warning",
           executionImpact: "blocks-operation",
           message: `Operation "${operationKey.slice(0, 64)}" uses ${protocols
             .map((protocol) => `"${protocol}"`)

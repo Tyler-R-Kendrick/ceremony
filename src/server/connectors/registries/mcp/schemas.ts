@@ -65,7 +65,7 @@ export const registryServerNameSchema = nativeIdentifierSchema
     "Server name must be namespace/name in reverse-DNS form",
   );
 /** A version as a document field: opaque, bounded, never the `latest` alias and never a range. */
-const versionRange = /^[\^~<>=]|[\s]|[*]|(^|\.)x($|\.)/;
+const versionRange = /^[\^~<>=]|[*]|(^|\.)x($|\.)/;
 export const registryVersionSchema = nativeVersionSchema
   .refine((value) => value !== "latest", "latest is a request alias")
   .refine((value) => !versionRange.test(value), "Version ranges are rejected");

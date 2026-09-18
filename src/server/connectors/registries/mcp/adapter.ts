@@ -309,7 +309,15 @@ export function createMcpRegistryAdapter(
     description:
       "Discovers and imports server.json metadata from the official MCP registry or a configured subregistry. Catalog only: never a package runner or a trust oracle.",
     service: "mcp-registry",
-    support: "catalog-only",
+    /*
+     * The directory's `catalog-only` support level is reserved for entries that
+     * implement nothing (`catalogEntrySchema` refuses an implemented capability
+     * under it). This adapter really does talk to a registry, so it reports
+     * `provider-backed` and says what it cannot do through its capability rows:
+     * every execution dimension is `unsupported` with the limitation "execution
+     * requires an MCP binding". Catalog-only is the *behaviour*, not the label.
+     */
+    support: "provider-backed",
     custody: ["no-credential", "host-owned"],
     configuration,
     profiles: [MCP_REGISTRY_API_PROFILE, SERVER_JSON_PROFILE],
@@ -357,7 +365,8 @@ export function createMcpRegistryAdapter(
       const source = registrySourceFromBinding(ctx.binding);
       const client = clientFor(ctx, source);
       const limit = input.limit ?? 30;
-      if (!Number.isInteger(limit) || limit < 1 || limit > client.limits.pageLimit)
+      const snapshotLimit = 100;
+      if (!Number.isInteger(limit) || limit < 1 || limit > snapshotLimit)
         throw new ConnectorError("invalid-request", { detail: "registry.limit.invalid" });
       if (input.query !== undefined && (input.query.length > 200 || /\p{Cc}/u.test(input.query)))
         throw new ConnectorError("invalid-request", { detail: "registry.search.invalid" });
@@ -389,6 +398,8 @@ export function createMcpRegistryAdapter(
           };
         }
       }
+      if (limit > client.limits.pageLimit)
+        throw new ConnectorError("invalid-request", { detail: "registry.limit.invalid" });
       const page = await client.list(
         {
           ...(input.cursor ? { cursor: input.cursor } : {}),

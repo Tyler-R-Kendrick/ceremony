@@ -334,7 +334,8 @@ function remoteCapability(
           category: "security",
           dimension: "authorize",
           disposition: "requires-configuration",
-          severity: "info",
+          severity: "warning",
+          executionImpact: "blocks-authorization",
         },
       ),
     );

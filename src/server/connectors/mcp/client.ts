@@ -333,6 +333,8 @@ export interface McpClient {
     maxEvents?: number;
     maxMs?: number;
   }): Promise<ListenResult>;
+  /** One read-only request, purely to read a 401/403 challenge; invokes nothing. */
+  probeAuthorization(options?: { signal?: AbortSignal }): Promise<AuthorizationChallenge | undefined>;
   state(): { era: McpEra; protocolVersion: string; usedProfile: McpProfileId; session: boolean };
   close(): void;
 }
@@ -1629,6 +1631,15 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     readResource,
     getPrompt,
     listen,
+    async probeAuthorization(probeOptions = {}) {
+      const warnings = new Warnings(options.onWarning);
+      const message = await rpc("tools/list", {}, {
+        effect: "read",
+        warnings,
+        ...(probeOptions.signal ? { signal: probeOptions.signal } : {}),
+      }).catch(() => undefined);
+      return message?.kind === "authorization-required" ? message.challenge : undefined;
+    },
     state: () => ({
       era: state.era,
       protocolVersion: state.protocolVersion,

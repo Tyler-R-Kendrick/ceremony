@@ -269,12 +269,16 @@ async function privateKeyFromConfiguration(
       cause: error,
     });
   }
-  const key = await importJWK(parsed, parsed.alg);
+  const { kid, ...jwk } = parsed;
+  const key = await importJWK(
+    { ...jwk, ...(kid !== undefined ? { kid } : {}) },
+    parsed.alg,
+  );
   if (key instanceof Uint8Array)
     throw new ConnectorError("configuration-required", {
       detail: "oauth.client.private-key-invalid",
     });
-  return parsed.kid ? { key, kid: parsed.kid } : { key };
+  return kid !== undefined ? { key, kid } : { key };
 }
 
 /** Client id and storage location for a CIMD document, on the route the host already serves. */
