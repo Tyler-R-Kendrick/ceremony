@@ -305,6 +305,14 @@ function HandoffInputForm({
     <form
       className="connector-handoff-form"
       onSubmit={onSubmit}
+      onInput={(event) => {
+        const target = event.target as unknown as
+          | HTMLInputElement
+          | HTMLSelectElement;
+        const field = fields.find((item) => item.name === target.name);
+        if (!field || field.classification === "secret") return;
+        setValues((current) => ({ ...current, [target.name]: target.value }));
+      }}
       onChange={(event) => {
         const target = event.target as unknown as
           | HTMLInputElement
@@ -1018,6 +1026,7 @@ export function ConnectorConnection({
               autoComplete="off"
               spellCheck={false}
               maxLength={200}
+              onInput={(event) => setTargetId(event.currentTarget.value.trim())}
               onChange={(event) => setTargetId(event.target.value.trim())}
             />
             <span className="connector-muted">

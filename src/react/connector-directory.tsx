@@ -534,6 +534,7 @@ export function ConnectorDirectory({
             value={filters.query}
             autoComplete="off"
             placeholder="Service, ecosystem, custody or capability"
+            onInput={(event) => set({ query: event.currentTarget.value })}
             onChange={(event) => set({ query: event.target.value })}
           />
         </div>

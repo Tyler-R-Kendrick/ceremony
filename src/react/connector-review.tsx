@@ -517,6 +517,7 @@ export function ConnectorImport({
               type="url"
               value={url}
               required
+              onInput={(event) => setUrl(event.currentTarget.value)}
               onChange={(event) => setUrl(event.target.value)}
             />
             <span className="connector-muted">
@@ -552,6 +553,7 @@ export function ConnectorImport({
                 required
                 rows={8}
                 spellCheck={false}
+                onInput={(event) => setText(event.currentTarget.value)}
                 onChange={(event) => setText(event.target.value)}
               />
             </label>

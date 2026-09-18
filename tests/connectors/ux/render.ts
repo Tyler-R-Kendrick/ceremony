@@ -100,9 +100,6 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         | null;
       if (!field) throw new Error(`No field matching ${selector}`);
       await act(async () => {
-        // The key-event path React falls back to only watches a field it has
-        // seen focused, so the sequence starts where a person's would.
-        field.dispatchEvent(new window.Event("focusin", { bubbles: true }));
         if (field.tagName === "SELECT") {
           // linkedom's select value is read-only; selecting the option is how
           // a person changes one anyway.
@@ -117,12 +114,10 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
           | { setValue(value: string): void }
           | undefined;
         tracker?.setValue("ceremony-test-unset-sentinel");
+        // A real keystroke fires both, and outside a browser React only
+        // delivers the first of them for a text field.
         field.dispatchEvent(new window.Event("input", { bubbles: true }));
         field.dispatchEvent(new window.Event("change", { bubbles: true }));
-        // React decides at load time whether the browser has a usable `input`
-        // event. Under linkedom it decides no and watches key events instead,
-        // so a text field only reports a change when one arrives.
-        field.dispatchEvent(new window.Event("keyup", { bubbles: true }));
       });
     },
     async submit(selector = "form") {
