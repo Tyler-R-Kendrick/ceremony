@@ -230,6 +230,18 @@ export function createMergeAdapter(
     const url = destinationUrl(approved, `${MERGE_API_BASE_PATH}${input.path}`);
     for (const [key, value] of Object.entries(input.query ?? {}))
       if (value !== undefined) url.searchParams.set(key, String(value));
+    /*
+     * A signal that is already aborted never fires `abort` again, so
+     * registering the listener alone let a cancelled command reach the
+     * provider on a fresh, un-aborted controller. For a passthrough that
+     * means a caller who cancelled before execution could still cause an
+     * upstream effect, which is precisely the guarantee this layer exists to
+     * make. Check the state before the listener, not only after it.
+     */
+    if (ctx.signal.aborted)
+      throw new ConnectorError("cancelled", {
+        detail: "merge.request.aborted",
+      });
     const controller = new AbortController();
     const abort = () => controller.abort();
     ctx.signal.addEventListener("abort", abort, { once: true });

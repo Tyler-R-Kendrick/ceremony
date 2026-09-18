@@ -1776,3 +1776,58 @@ test("passthrough without a connection does not fall back to the host's API key"
     await h.close();
   }
 });
+
+test("an approved destination that cannot be reached is an outage, not a rejection", async () => {
+  // Invariant: a call that never got an answer is reported as
+  // upstream-unavailable, distinct from a call Merge answered with a refusal.
+  // The two lead opposite ways: an outage is worth retrying, while a rejection
+  // retried on a loop is how a host gets rate-limited or locked out. The
+  // upstream here is shut down before the call, so nothing answered at all.
+  const upstream = await rogueMerge(() => ({ body: {} }));
+  await upstream.close();
+  const h = await harness({ upstream });
+  try {
+    const error = await h.adapter.discover!(h.ctx, {})
+      .then(() => undefined)
+      .catch((cause: unknown) => cause);
+    assert.ok(error instanceof ConnectorError);
+    assert.equal(error.code, "upstream-unavailable");
+    assert.equal(error.detail, "merge.request.failed");
+    // The transport failure itself stays inside the server.
+    assert.equal(error.message.includes("127.0.0.1"), false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a command cancelled before it starts causes no upstream effect", async () => {
+  /*
+   * The defect this pins: `call` registered an abort listener but never
+   * checked whether the signal was already aborted. A signal that has already
+   * fired never fires again, so the listener was never called, the adapter
+   * built a fresh un-aborted controller, and the request went out. For a
+   * passthrough that means a caller who cancelled before execution could
+   * still cause an effect at the provider, which is the one thing this layer
+   * exists to prevent.
+   *
+   * The assertion that matters is the upstream request count, not the error:
+   * an adapter could report `cancelled` and still have sent the request.
+   */
+  const upstream = await rogueMerge(() => ({ body: linkedAccount({}) }));
+  const h = await harness({ upstream });
+  try {
+    h.controller.abort();
+    const error = await h.adapter.discover!(h.ctx, {})
+      .then(() => undefined)
+      .catch((cause: unknown) => cause);
+    assert.ok(error instanceof ConnectorError, "a cancelled call must refuse");
+    assert.equal(error.code, "cancelled");
+    assert.equal(
+      h.upstream.requests.length,
+      0,
+      "a cancelled command reached the provider",
+    );
+  } finally {
+    await h.close();
+  }
+});
