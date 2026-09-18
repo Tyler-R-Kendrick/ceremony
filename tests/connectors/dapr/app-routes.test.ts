@@ -101,7 +101,7 @@ test("INT-DAPR-04: only one segment is served, so no path reaches past the table
     const response = await handle(post(path));
     assert.notEqual(response?.status, 200, path);
   }
-  assert.deepEqual(received, []);
+  assert.equal(received.length, 0, "no delivery reached a receiver");
 
   // A dot segment is not a bypass and is not treated as one. The URL parser
   // resolves it before any matching happens, so this path *is* the approved
@@ -132,7 +132,7 @@ test("INT-DAPR-05: a method the sidecar does not use is refused, not guessed at"
     assert.equal(response?.status, 405, method);
     assert.equal(response?.headers.get("allow"), "OPTIONS, POST");
   }
-  assert.deepEqual(received, []);
+  assert.equal(received.length, 0, "no delivery reached a receiver");
 });
 
 test("INT-DAPR-06: the table is fixed at construction and refuses an ambiguous one", () => {

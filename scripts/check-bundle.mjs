@@ -23,7 +23,23 @@ const totals = files.reduce(
 // the feature, not drift: the imports it adds were already bundled, and the
 // only fat found while checking (an explainer paragraph, ten state hooks) is
 // gone. The ceiling moves rather than the requirement.
-const budget = { raw: 495000, gzip: 154000 };
+//
+// Raised again for the connector directory, drawer, connection surface and
+// import review. Worth being precise about what grew, because the headline
+// number overstates it. The reference page itself grew by 0.77 kB raw and
+// 0.30 kB gzip: the workspace is lazy, so a visitor who never opens it
+// downloads only the nav button. What crossed the ceiling is the two
+// on-demand chunks, 66.5 kB and 12.1 kB raw, which this script counts because
+// it measures total download across every chunk rather than first paint.
+//
+// That accounting is deliberate and stays. A ceiling that ignored lazy chunks
+// would let any amount of code in behind an import(), which is the drift this
+// check exists to catch. So the ceiling moves to admit a surface the product
+// needs — the only in-application way to find, review, connect and manage a
+// connector, with no CLI and no extension — and keeps counting honestly.
+// Splitting the connection surface into a third chunk was tried and reverted:
+// Rollup keeps it with the directory, and the split changed nothing.
+const budget = { raw: 580000, gzip: 182000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(

@@ -9,6 +9,9 @@
 - [Workflow studio](workflow-studio.md): author new connectors and ceremonies, save drafts, validate and export Arazzo/manifest definitions.
 - [Formal specifications](specifications/README.md): versioned connector manifests, AI decision contracts, Arazzo/A2H profiles and executable conformance.
 - [Connector interoperability profile](specifications/connector-interoperability.md): source provenance, normalized definitions, the version 2 envelope, support dimensions, evidence levels and projections.
+- [Connector dialects and versions](specifications/connector-dialects.md): which document dialects and protocol revisions are read, which subset of each can execute, and how to migrate when one moves.
+- [Connector support matrix](specifications/connector-support-matrix.md): per-adapter, per-dimension support, generated from the adapters and the ledgers.
+- [Connector directory](connector-directory.md): the in-application surface for finding, reviewing, connecting and managing a connector.
 
 ## Develop and operate
 
@@ -20,11 +23,14 @@
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [MCP endpoint](mcp-endpoint.md): driving ceremonies from a chat client, and why no credential crosses MCP.
 - [Local MCP](mcp-local.md): pointing a chat client at the reference application through a tunnel.
+- [Connector provider setup](connector-provider-setup.md): redirect origins, permissions, webhook verification, credential custody, environment separation, incidents and reconnects, and why a local disconnect is not an upstream revocation.
 - [Host identity](host-identity.md), [production deployment](production-deployment.md), and [persistence migration](persistence-migration.md).
 - [Threat model](ceremony-teaching-threat-model.md): protected sources, prohibited sinks and residual risks.
 
 ## Evidence and history
 
 [Implementation evidence](implementation-evidence/ceremony-teaching/README.md) contains dated, commit-bound results, including retained failed attempts. [The final implementation checkpoint](implementation-evidence/ceremony-teaching/final-local/README.md) is not a rolling certificate for future commits. The [orchestration design](ceremony-orchestration-design.md) and [Impeccable audit](impeccable-audit.md) retain earlier decisions and observations; current architecture and support documentation govern new work.
+
+[Connector interoperability evidence](implementation-evidence/connector-interoperability/evidence-report.md) joins every required work item to its files, tests, recorded results, pinned sources and blocked live prerequisites, and names the requirements nobody delivered. The [source lock](implementation-evidence/connector-interoperability/source-lock.md) records every external document an adapter depends on.
 
 Local protocol tests, browser tests, installed-PWA device checks and real-provider/deployed-platform certification are different evidence classes. Missing production configuration or external certification never means PASS.

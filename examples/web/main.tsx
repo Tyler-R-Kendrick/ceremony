@@ -15,6 +15,7 @@ import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
+const ConnectorWorkspace = lazy(() => import("./connectors.js"));
 
 // Simulated providers are an explicit test harness, never the default product.
 const liveMode = new URLSearchParams(location.search).get("mode") !== "test";
@@ -116,6 +117,12 @@ function App() {
           >
             Environment
           </button>
+          <button
+            aria-current={tab === "connectors" ? "page" : undefined}
+            onClick={() => setTab("connectors")}
+          >
+            Connectors
+          </button>
         </nav>
         <details className="install-controls">
           <summary>Install app</summary>
@@ -140,6 +147,11 @@ function App() {
           <p role="status">Loading your workspace…</p>
         )}
         {config && tab === "environment" && <Environment />}
+        {config && tab === "connectors" && (
+          <Suspense fallback={<p role="status">Loading connectors…</p>}>
+            <ConnectorWorkspace />
+          </Suspense>
+        )}
         {studioOpened && (
           <div hidden={tab !== "studio"}>
             <Suspense fallback={<p role="status">Loading authoring tools…</p>}>

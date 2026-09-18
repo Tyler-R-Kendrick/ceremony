@@ -46,12 +46,18 @@
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"
-    }
+    },
+    "./server/connectors": {
+      "types": "./dist/server/connectors/index.d.ts",
+      "import": "./dist/server/connectors/index.js"
+    },
+    "./connectors.css": "./src/react/connectors.css"
   },
   "files": [
     "dist",
     "src/react/styles.css",
     "src/react/teaching.css",
+    "src/react/connectors.css",
     "README.md",
     "docs",
     "!docs/implementation-evidence"
@@ -61,7 +67,7 @@
     "setup:browsers": "playwright install --with-deps chromium firefox webkit",
     "clean": "node scripts/clean.mjs",
     "clean:apply": "node scripts/clean.mjs --apply",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && npm run docs:connectors:check",
     "build": "npm run build:extension && tsc -p tsconfig.build.json && vite build && node scripts/build-mcp-app.mjs && node scripts/check-bundle.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "build:mcp-app": "node scripts/build-mcp-app.mjs",
@@ -70,6 +76,8 @@
     "test:specs": "node --import tsx --test tests/specifications.test.ts",
     "specs:check": "node --import tsx scripts/specifications.ts",
     "specs:generate": "node --import tsx scripts/specifications.ts --write",
+    "docs:connectors": "node --import tsx scripts/connector-support-matrix.ts",
+    "docs:connectors:check": "node --import tsx scripts/connector-support-matrix.ts --check",
     "test:integration": "node scripts/test.mjs integration",
     "test:security": "node scripts/test.mjs security",
     "test:agent": "node scripts/test.mjs agent",
@@ -99,7 +107,7 @@
     "test:security:mutation": "stryker run stryker.security.config.mjs",
     "test:e2e": "playwright test",
     "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
-    "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
+    "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github && node scripts/check-control-characters.mjs",
     "verify": "node --import tsx scripts/verify-deterministic.mjs"
   },
   "dependencies": {

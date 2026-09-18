@@ -157,7 +157,10 @@ export function createConnectorRegistry(
  */
 export function connectorInventoryShape(): {
   always: number;
-  hostPortRequired: readonly { adapterId: string; port: keyof ConnectorHostPorts }[];
+  hostPortRequired: readonly {
+    adapterId: string;
+    port: keyof ConnectorHostPorts;
+  }[];
 } {
   return {
     always: standardAdapters.length,
