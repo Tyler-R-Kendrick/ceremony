@@ -33,11 +33,16 @@ const catalogDocument = async () =>
   JSON.parse(
     await readFile(
       fileURLToPath(
-        new URL("../fixtures/open-service-broker/catalog.json", import.meta.url),
+        new URL(
+          "../fixtures/open-service-broker/catalog.json",
+          import.meta.url,
+        ),
       ),
       "utf8",
     ),
-  ) as { services: Parameters<typeof startServiceBrokerFixture>[0]["services"] };
+  ) as {
+    services: Parameters<typeof startServiceBrokerFixture>[0]["services"];
+  };
 
 export async function brokerHarness(options: {
   origin: string;
@@ -67,8 +72,7 @@ export async function brokerHarness(options: {
     },
     effect: "read" as const,
     outputClassification: (key === "binding" ? "personal" : "public") as
-      | "public"
-      | "personal",
+      "public" | "personal",
     cost: "free" as const,
     consent: "none" as const,
     replay: "read-only" as const,
@@ -193,7 +197,10 @@ test("plan bindability and free/paid follow the specification's precedence rules
       issue.sourcePointer.includes(dedicated.planId),
   );
   assert.ok(paidIssue, "a paid plan is named as out of scope");
-  assert.match(paidIssue.message, /Provisioning and plan changes are unavailable/);
+  assert.match(
+    paidIssue.message,
+    /Provisioning and plan changes are unavailable/,
+  );
 });
 
 test("every catalog import records that the profile is inspection only", async () => {
@@ -245,9 +252,10 @@ test("discovery sends the required version header and the documented route", asy
     const identities = broker.originatingIdentities();
     assert.equal(identities.length, 1);
     assert.match(identities[0]!, /^ceremony /);
-    const decoded = Buffer.from(identities[0]!.split(" ")[1]!, "base64").toString(
-      "utf8",
-    );
+    const decoded = Buffer.from(
+      identities[0]!.split(" ")[1]!,
+      "base64",
+    ).toString("utf8");
     assert.equal(decoded.includes(fixtureActor.tenantId), false);
     assert.equal(decoded.includes(fixtureActor.subjectId), false);
     assert.match(decoded, /"user_id":"[0-9a-f]{32}"/);

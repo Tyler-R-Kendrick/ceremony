@@ -85,7 +85,9 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
     async clickElement(element: {
       dispatchEvent(event: unknown): unknown;
       getAttribute?(name: string): string | null;
-      closest?(selector: string): { dispatchEvent(event: unknown): unknown } | null;
+      closest?(
+        selector: string,
+      ): { dispatchEvent(event: unknown): unknown } | null;
     }) {
       await act(async () => {
         element.dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -106,7 +108,9 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
             tagName: string;
             value?: string;
             dispatchEvent(event: unknown): unknown;
-            querySelectorAll(selector: string): Iterable<Record<string, unknown>>;
+            querySelectorAll(
+              selector: string,
+            ): Iterable<Record<string, unknown>>;
           })
         | null;
       if (!field) throw new Error(`No field matching ${selector}`);
@@ -128,8 +132,7 @@ export async function mount(node: ReactNode, options: MountOptions = {}) {
         // memory, so it is reset afterwards — which is what a keystroke
         // effectively does.
         const tracker = field._valueTracker as
-          | { setValue(value: string): void }
-          | undefined;
+          { setValue(value: string): void } | undefined;
         tracker?.setValue("ceremony-test-unset-sentinel");
         // A real keystroke fires both, and outside a browser React only
         // delivers the first of them for a text field.

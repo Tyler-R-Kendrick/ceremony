@@ -52,22 +52,26 @@ test("AC-UX-06: the directory separates implementation, configuration and eviden
     ).toContainText("Local fixture");
     // The rows that say what this deployment cannot do are a facet away.
     await page.getByLabel("Support level").selectOption("unconfigured");
-    const unconfigured = page.locator('[data-connector-entry="vercel-connect"]');
+    const unconfigured = page.locator(
+      '[data-connector-entry="vercel-connect"]',
+    );
     await expect(unconfigured).toContainText("Needs configuration");
     await expect(unconfigured).toContainText("VERCEL_TEAM_ID");
     await page.getByLabel("Support level").selectOption("catalog-only");
+    await page.getByLabel("Search connectors").fill("Smithery");
     await expect(
       page.locator('[data-connector-entry="smithery-registry"]'),
     ).toContainText("Described only");
+    await page.getByLabel("Search connectors").fill("");
     await page.getByLabel("Support level").selectOption("");
 
     // Search reaches rows the current page has not rendered.
     await page.getByLabel("Search connectors").fill("Sample 26");
     await expect(page.locator("[data-connector-entry]")).toHaveCount(1);
     await page.getByLabel("Search connectors").fill("");
-    await page.getByLabel("Credential custody").selectOption(
-      "external-credential-broker",
-    );
+    await page
+      .getByLabel("Credential custody")
+      .selectOption("external-credential-broker");
     await expect(page.locator("[data-connector-entry]")).toHaveCount(1);
     await page.getByLabel("Credential custody").selectOption("");
 
@@ -123,7 +127,9 @@ test("AC-UX-01: connect, hand off, poll, verify, read, reconnect and unlink from
     await expect(drawer).toContainText("Read access was demonstrated");
     expect(page.url()).toContain("connection=connection%3A1");
 
-    await drawer.getByRole("button", { name: "Read something with it" }).click();
+    await drawer
+      .getByRole("button", { name: "Read something with it" })
+      .click();
     await expect(drawer).toContainText("Read succeeded");
     await expect(drawer).toContainText("octocat/hello-world");
 
@@ -133,7 +139,9 @@ test("AC-UX-01: connect, hand off, poll, verify, read, reconnect and unlink from
     });
 
     await drawer.getByRole("button", { name: "Reconnect" }).click();
-    await expect(drawer).toContainText("I intend to connect a different account");
+    await expect(drawer).toContainText(
+      "I intend to connect a different account",
+    );
     const second = page.waitForEvent("popup");
     await drawer.getByRole("button", { name: "Start reconnect" }).click();
     const again = await second;
@@ -224,7 +232,9 @@ test("AC-AUTH-15: closing the provider window without approving leaves the flow 
     await expect(drawer).toContainText("That window closed");
     await expect(drawer).toContainText("Closing it does not complete anything");
     await drawer
-      .getByRole("button", { name: "I finished in the provider — check status" })
+      .getByRole("button", {
+        name: "I finished in the provider — check status",
+      })
       .click();
     await expect(drawer).toContainText("Your participation is needed");
     await expect(drawer).not.toContainText("Verified target");
@@ -248,9 +258,7 @@ test("AC-UX-04: offline disables connecting, and no connection status is cached"
     ).toBeDisabled();
     // Nothing about a connection is kept in the browser's own storage.
     expect(
-      await page.evaluate(
-        () => localStorage.length + sessionStorage.length,
-      ),
+      await page.evaluate(() => localStorage.length + sessionStorage.length),
     ).toBe(0);
     expect(
       await page.evaluate(async () =>

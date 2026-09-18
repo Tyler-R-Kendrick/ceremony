@@ -61,7 +61,8 @@ export const daprBindingSettingsSchema = z
     if (settings.apiTokenConfiguration && settings.unauthenticatedSidecar)
       ctx.addIssue({
         code: "custom",
-        message: "A sidecar is either token-authenticated or explicitly unauthenticated",
+        message:
+          "A sidecar is either token-authenticated or explicitly unauthenticated",
       });
   });
 export type DaprBindingSettings = z.infer<typeof daprBindingSettingsSchema>;
@@ -98,7 +99,10 @@ export function daprSidecarFromBinding(
    * approved-private sidecar without an API token would be exactly the
    * unauthenticated proxy this adapter exists to refuse.
    */
-  if (settings.unauthenticatedSidecar && destination.network !== "loopback-fixture")
+  if (
+    settings.unauthenticatedSidecar &&
+    destination.network !== "loopback-fixture"
+  )
     throw new ConnectorError("configuration-required", {
       detail: "dapr.sidecar.token-required",
     });

@@ -40,7 +40,13 @@ export const DAPR_API_TOKEN_HEADER = "dapr-api-token";
 export const DAPR_APP_API_TOKEN_HEADER = "dapr-api-token";
 
 /** Output-binding operation verbs the documentation names. */
-export const daprOperations = ["create", "get", "list", "delete", "exec"] as const;
+export const daprOperations = [
+  "create",
+  "get",
+  "list",
+  "delete",
+  "exec",
+] as const;
 export const daprOperationSchema = z.enum(daprOperations);
 export type DaprOperation = z.infer<typeof daprOperationSchema>;
 
@@ -62,7 +68,9 @@ export const daprComponentTypeSchema = z
 
 export const daprMetadataEntrySchema = z.looseObject({
   name: z.string().min(1).max(200).regex(noControl),
-  value: z.union([z.string().max(8192), z.number().finite(), z.boolean()]).optional(),
+  value: z
+    .union([z.string().max(8192), z.number().finite(), z.boolean()])
+    .optional(),
   secretKeyRef: z
     .looseObject({
       name: z.string().min(1).max(253).regex(noControl),
@@ -91,7 +99,9 @@ export const daprComponentSchema = z.looseObject({
   }),
   scopes: z.array(z.string().max(253).regex(noControl)).max(128).optional(),
   auth: z
-    .looseObject({ secretStore: z.string().max(253).regex(noControl).optional() })
+    .looseObject({
+      secretStore: z.string().max(253).regex(noControl).optional(),
+    })
     .optional(),
 });
 export type DaprComponent = z.infer<typeof daprComponentSchema>;
@@ -145,13 +155,16 @@ const secretMetadataPattern =
 
 export type DaprMetadataClassification = "public" | "secret";
 
-export function classifyDaprMetadata(
-  entry: DaprMetadataEntry,
-): { classification: DaprMetadataClassification; fromSecretStore: boolean } {
+export function classifyDaprMetadata(entry: DaprMetadataEntry): {
+  classification: DaprMetadataClassification;
+  fromSecretStore: boolean;
+} {
   const fromSecretStore = entry.secretKeyRef !== undefined;
   if (fromSecretStore) return { classification: "secret", fromSecretStore };
   return {
-    classification: secretMetadataPattern.test(entry.name) ? "secret" : "public",
+    classification: secretMetadataPattern.test(entry.name)
+      ? "secret"
+      : "public",
     fromSecretStore,
   };
 }
@@ -168,7 +181,9 @@ export function daprBindingPath(name: string): string {
  */
 export const daprInvokeInputSchema = z.strictObject({
   data: z.unknown().optional(),
-  metadata: z.record(z.string().max(200).regex(noControl), z.string().max(8192)).optional(),
+  metadata: z
+    .record(z.string().max(200).regex(noControl), z.string().max(8192))
+    .optional(),
   operation: daprOperationSchema.optional(),
 });
 export type DaprInvokeInput = z.infer<typeof daprInvokeInputSchema>;

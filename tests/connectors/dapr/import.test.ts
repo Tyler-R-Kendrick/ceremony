@@ -87,7 +87,9 @@ test("a binding type the pinned reference does not cover is unverified, not gues
 
 test("credential metadata is imported as a name and a source, never as a value", async () => {
   const kafka = await importFixture("kafka-binding.yaml");
-  const password = kafka.metadata.find((entry) => entry.name === "saslPassword");
+  const password = kafka.metadata.find(
+    (entry) => entry.name === "saslPassword",
+  );
   assert.ok(password);
   assert.equal(password.classification, "secret");
   assert.equal(password.fromSecretStore, true);
@@ -102,9 +104,15 @@ test("credential metadata is imported as a name and a source, never as a value",
   assert.ok(token);
   assert.equal(token.classification, "secret");
   assert.equal(token.fromSecretStore, false);
-  assert.equal(token.value, undefined, "an inlined credential value is dropped");
+  assert.equal(
+    token.value,
+    undefined,
+    "an inlined credential value is dropped",
+  );
   assert.ok(
-    http.issues.some((issue) => issue.code === "dapr.metadata.inline-credential"),
+    http.issues.some(
+      (issue) => issue.code === "dapr.metadata.inline-credential",
+    ),
   );
   assert.equal(
     JSON.stringify(http.definition).includes("CANARY_INLINE_TOKEN_4b7"),

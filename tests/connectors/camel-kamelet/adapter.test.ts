@@ -63,7 +63,9 @@ test("importing through the adapter yields a definition and a source record", as
   assert.equal(outcome.definitions.length, 1);
   assert.equal(outcome.source.format.version, KAMELET_CATALOG_VERSION);
   assert.equal(outcome.source.origin.kind, "url");
-  assert.deepEqual(outcome.executableCandidates, ["fixture-object-store-source"]);
+  assert.deepEqual(outcome.executableCandidates, [
+    "fixture-object-store-source",
+  ]);
   assert.ok(outcome.issues.length > 0);
 });
 
@@ -132,12 +134,17 @@ test("the Dapr and broker adapters are provider-backed and unconfigured until th
     );
     assert.equal(
       entry.capabilities.some(
-        (row) => row.implementation === "unsupported" && row.limitations.length > 0,
+        (row) =>
+          row.implementation === "unsupported" && row.limitations.length > 0,
       ),
       true,
     );
     for (const row of entry.capabilities)
       if (row.implementation === "unsupported")
-        assert.equal(row.evidence, "not-tested", `${adapter.id}:${row.dimension}`);
+        assert.equal(
+          row.evidence,
+          "not-tested",
+          `${adapter.id}:${row.dimension}`,
+        );
   }
 });

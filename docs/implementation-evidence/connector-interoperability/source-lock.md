@@ -16,8 +16,8 @@ One record per external specification, standards draft or vendor document that a
 
 - Records: 67, pinned 2026-09-18.
 - Ledgers this lock claims to cover completely: COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 77.
-- Cited identifiers with no lock record: 10 (`aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `docker-mcp-catalog-v2`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`).
+- Source profile identifiers cited by the ledgers on disk: 80.
+- Cited identifiers with no lock record: 13 (`a2a-0.3`, `a2a-1.0`, `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `docker-mcp-catalog-v2`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907`, `microsoft-custom-connector-2026-06`, `pulsemcp-subregistry-v0.1`, `pulsemcp-v0beta`, `smithery-connect-2026-09`, `smithery-registry-2026-09`, `webmcp-cg-draft-2026-09-17`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
@@ -25,18 +25,21 @@ A cited identifier with no record is a real gap: it means an adapter depends on 
 
 Ledgers landed while this lock was being written. `coversLedgers` names the ledgers whose every cited source profile identifier has a record here. A ledger delivered after this lock was pinned may cite identifiers this lock does not yet hold; the generator reports those as a coverage gap in source-lock.md rather than hiding them, and the integrator should extend this file when the remaining ledgers land.
 
-| Ledger | Cited identifier | Inside the covered set |
-| --- | --- | --- |
-| CATALOGS | `docker-mcp-catalog-v2` | no — pinned after this lock |
-| CATALOGS | `pulsemcp-subregistry-v0.1` | no — pinned after this lock |
-| CATALOGS | `pulsemcp-v0beta` | no — pinned after this lock |
-| CATALOGS | `smithery-connect-2026-09` | no — pinned after this lock |
-| CATALOGS | `smithery-registry-2026-09` | no — pinned after this lock |
-| CLOUD | `aws-agentcore-control-2023-06-05` | no — pinned after this lock |
-| CLOUD | `aws-agentcore-gateway-mcp-2026-07-28` | no — pinned after this lock |
-| CLOUD | `google-connectors-v1-20260907` | no — pinned after this lock |
-| CLOUD | `google-connectors-v2-20260907` | no — pinned after this lock |
-| MICROSOFT | `microsoft-custom-connector-2026-06` | no — pinned after this lock |
+| Ledger         | Cited identifier                       | Inside the covered set      |
+| -------------- | -------------------------------------- | --------------------------- |
+| AGENT-SURFACES | `a2a-0.3`                              | no — pinned after this lock |
+| AGENT-SURFACES | `a2a-1.0`                              | no — pinned after this lock |
+| AGENT-SURFACES | `webmcp-cg-draft-2026-09-17`           | no — pinned after this lock |
+| CATALOGS       | `docker-mcp-catalog-v2`                | no — pinned after this lock |
+| CATALOGS       | `pulsemcp-subregistry-v0.1`            | no — pinned after this lock |
+| CATALOGS       | `pulsemcp-v0beta`                      | no — pinned after this lock |
+| CATALOGS       | `smithery-connect-2026-09`             | no — pinned after this lock |
+| CATALOGS       | `smithery-registry-2026-09`            | no — pinned after this lock |
+| CLOUD          | `aws-agentcore-control-2023-06-05`     | no — pinned after this lock |
+| CLOUD          | `aws-agentcore-gateway-mcp-2026-07-28` | no — pinned after this lock |
+| CLOUD          | `google-connectors-v1-20260907`        | no — pinned after this lock |
+| CLOUD          | `google-connectors-v2-20260907`        | no — pinned after this lock |
+| MICROSOFT      | `microsoft-custom-connector-2026-06`   | no — pinned after this lock |
 
 ## Records
 
@@ -1108,4 +1111,3 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 - Modules: `tests/connectors/doubles/fixture-adapter.ts`
 - Recorded by: COMMAND
 - Notes: Internal profile identifier.
-

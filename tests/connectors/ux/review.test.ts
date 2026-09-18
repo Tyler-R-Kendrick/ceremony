@@ -41,7 +41,10 @@ test("AC-UX-03: blocking security losses come first and say what they block", as
   );
   try {
     const groups = view.all("[data-connector-issue-group]");
-    assert.equal(groups[0]?.getAttribute("data-connector-issue-group"), "security");
+    assert.equal(
+      groups[0]?.getAttribute("data-connector-issue-group"),
+      "security",
+    );
     assert.match(groups[0]?.textContent ?? "", /1 blocking/);
     assert.match(view.text, /security-relevant loss/);
     assert.match(view.text, /blocks authorization/);

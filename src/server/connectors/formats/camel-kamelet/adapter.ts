@@ -206,7 +206,8 @@ export function createCamelKameletAdapter(
   runner: KameletHostRunnerPort;
   runnerAvailability(): Promise<HostRunnerAvailability>;
 } {
-  const deploymentRuntime: RuntimeClass = options.deploymentRuntime ?? "hosted-server";
+  const deploymentRuntime: RuntimeClass =
+    options.deploymentRuntime ?? "hosted-server";
   /*
    * A browser deployment cannot host or reach a trusted local runner. Refusing
    * the runner here — rather than quietly ignoring it — means no code path
@@ -292,7 +293,9 @@ export function createCamelKameletAdapter(
           configuration: runnerConfigured ? "ready" : "missing",
           ...(runnerConfigured ? { evidence } : {}),
           limitations: runnerConfigured
-            ? ["Delegation carries a run descriptor only; no route source is sent."]
+            ? [
+                "Delegation carries a run descriptor only; no route source is sent.",
+              ]
             : [runnerReason],
         }),
       ];

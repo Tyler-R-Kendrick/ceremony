@@ -9,4 +9,5 @@ export * from "./binding-settings.js";
 export * from "./import.js";
 export * from "./invoke.js";
 export * from "./events.js";
+export * from "./verifier.js";
 export * from "./adapter.js";

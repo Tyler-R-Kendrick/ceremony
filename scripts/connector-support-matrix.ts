@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { format } from "prettier";
 import { z } from "zod";
 import { requiredWorkItems } from "./connector-evidence.js";
 
@@ -183,7 +184,11 @@ export type AdapterFacts = {
   rows: Record<string, CapabilityRow>;
 };
 
-export type AdapterProblem = { module: string; factory: string; reason: string };
+export type AdapterProblem = {
+  module: string;
+  factory: string;
+  reason: string;
+};
 
 /**
  * Where an adapter factory module may live. `children` scans one level of
@@ -300,13 +305,13 @@ export async function readAdapters(): Promise<{
         continue;
       }
       const configuration = Array.isArray(shaped["configuration"])
-        ? (
-            shaped["configuration"] as Array<Record<string, unknown>>
-          ).map((item) => ({
-            name: String(item["name"] ?? ""),
-            required: Boolean(item["required"]),
-            classification: String(item["classification"] ?? "unknown"),
-          }))
+        ? (shaped["configuration"] as Array<Record<string, unknown>>).map(
+            (item) => ({
+              name: String(item["name"] ?? ""),
+              required: Boolean(item["required"]),
+              classification: String(item["classification"] ?? "unknown"),
+            }),
+          )
         : [];
       adapters.push({
         id: String(shaped["id"]),
@@ -384,7 +389,10 @@ function limitationsFor(adapter: AdapterFacts): string[] {
 
 export type EvidenceIndex = {
   /** adapter id or module prefix -> ledger work items whose files touch it */
-  byModule: Map<string, Array<{ swarm: string; item: z.infer<typeof ledgerItemSchema> }>>;
+  byModule: Map<
+    string,
+    Array<{ swarm: string; item: z.infer<typeof ledgerItemSchema> }>
+  >;
 };
 
 function indexLedgers(ledgers: Ledger[]): EvidenceIndex {
@@ -574,9 +582,15 @@ export function citationGaps(
         const key = `${ledger.swarm}:${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        gaps.push({ swarm: ledger.swarm, id, covered: covered.has(ledger.swarm) });
+        gaps.push({
+          swarm: ledger.swarm,
+          id,
+          covered: covered.has(ledger.swarm),
+        });
       }
-  return gaps.sort((a, b) => `${a.swarm}:${a.id}`.localeCompare(`${b.swarm}:${b.id}`));
+  return gaps.sort((a, b) =>
+    `${a.swarm}:${a.id}`.localeCompare(`${b.swarm}:${b.id}`),
+  );
 }
 
 export function renderSourceLock(lock: SourceLock, ledgers: Ledger[]): string {
@@ -784,7 +798,11 @@ export function renderEvidenceReport(input: {
     ),
   );
   const recordedTests = joined.flatMap((item) =>
-    item.tests.map((file) => ({ item: item.id, file, suite: suites.get(file) })),
+    item.tests.map((file) => ({
+      item: item.id,
+      file,
+      suite: suites.get(file),
+    })),
   );
   const withResults = recordedTests.filter((entry) => entry.suite);
   const lines: string[] = [
@@ -800,7 +818,7 @@ export function renderEvidenceReport(input: {
     "- **Forwarded-delivery verification for Vercel Connect triggers is deliberately incomplete.** Vercel's documentation states that Connect signs the request it forwards and publishes a per-connector signing key, but does not publish the outbound header name or algorithm. `verifyForwardedDelivery` therefore takes the forwarder's verifier as an injected dependency, and the verifier used in tests is a stand-in — not a claim about Vercel's wire format.",
     "- **One provider's webhook verification uses a separate signing key.** Nango's `X-Nango-Hmac-Sha256` is an HMAC-SHA256 over the raw body keyed with the environment **webhook signing key**, which is a different secret from the Environment API key; the legacy plain-digest `X-Nango-Signature` is documented as not to be used and is ignored even when it is correct.",
     "- **Several providers document no pagination for particular list endpoints.** Nango's `GET /integrations` and Supabase's `GET /v1/organizations` and `GET /v1/projects` are the recorded cases. Those adapters window one bounded response and report the absence as a discover issue rather than inventing page parameters.",
-    "- **The MCP registry adapter reports `provider-backed`, not `catalog-only`.** It genuinely implements discovery, import and export against a registry. The catalog-only boundary is reported per dimension instead: every execution dimension is `unsupported` with the limitation \"execution requires an MCP binding\".",
+    '- **The MCP registry adapter reports `provider-backed`, not `catalog-only`.** It genuinely implements discovery, import and export against a registry. The catalog-only boundary is reported per dimension instead: every execution dimension is `unsupported` with the limitation "execution requires an MCP binding".',
     "",
     "## Requirement coverage",
     "",
@@ -864,39 +882,49 @@ export function renderEvidenceReport(input: {
   );
   if (blocked.length === 0) lines.push("- None recorded.", "");
   else {
-    lines.push(
-      "| Item | Swarm | Exact prerequisite |",
-      "| --- | --- | --- |",
-    );
     for (const item of blocked)
-      lines.push(
-        `| ${item.id} | ${item.swarm} | ${item.limitation.replace(/\|/g, "/").slice(0, 320)} |`,
-      );
+      lines.push(`- **${item.id}** (${item.swarm}): ${item.limitation}`);
     lines.push("");
   }
   lines.push(
     "## Requirements, files, tests, results and pinned sources",
     "",
-    "One row per required work item. `Result` is `pass`, `fail` or `not in the recorded run`, taken from the recorded JUnit counts and never from a ledger's own claim.",
+    "One entry per required work item, joined to the ledger that delivered it. A result is `pass`, `fail` or `not in the recorded run`, taken from the recorded JUnit counts and never from a ledger's own claim.",
     "",
-    "| Item | Swarm | Status | Evidence | Files | Acceptance | Pinned sources | Tests (result) |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
   );
   for (const item of joined) {
-    const tests = item.tests.map((file) => {
-      const suite = suites.get(file);
-      const outcome = !suite
-        ? "not in the recorded run"
-        : suite.failed > 0
-          ? `fail ${suite.failed}`
-          : suite.passed > 0
-            ? `pass ${suite.passed}`
-            : "no cases";
-      return `\`${file}\` (${outcome})`;
-    });
+    if (item.status === "not-delivered") {
+      lines.push(
+        `### ${item.id} (${item.swarm}) — no ledger entry`,
+        "",
+        "Nobody delivered this required work item.",
+        "",
+      );
+      continue;
+    }
     lines.push(
-      `| ${item.id} | ${item.swarm} | ${item.status} | ${item.evidenceLevel} | ${item.files.length} | ${item.acceptanceIds.join(", ") || "—"} | ${item.sourceProfileIds.map((id) => `\`${id}\``).join(", ") || "—"} | ${tests.join("<br>") || "none"} |`,
+      `### ${item.id} (${item.swarm}) — ${item.status}, ${item.evidenceLevel}`,
+      "",
+      `- Files: ${item.files.length ? item.files.map((file) => `\`${file}\``).join(", ") : "none recorded"}`,
+      `- Acceptance: ${item.acceptanceIds.join(", ") || "none named"}`,
+      `- Pinned sources: ${item.sourceProfileIds.map((id) => `\`${id}\``).join(", ") || "none named"}`,
     );
+    if (item.tests.length === 0) lines.push("- Tests: none named");
+    else {
+      lines.push("- Tests:");
+      for (const file of item.tests) {
+        const suite = suites.get(file);
+        const outcome = !suite
+          ? "not in the recorded run"
+          : suite.failed > 0
+            ? `fail ${suite.failed}, pass ${suite.passed}`
+            : suite.passed > 0
+              ? `pass ${suite.passed}`
+              : "no cases";
+        lines.push(`  - \`node --import tsx --test ${file}\` — ${outcome}`);
+      }
+    }
+    lines.push("");
   }
   lines.push(
     "",
@@ -961,34 +989,52 @@ export function renderEvidenceReport(input: {
 
 export type Generated = { path: string; content: string };
 
+/*
+ * Written through Prettier with the repository's own configuration, for the
+ * same reason scripts/specifications.ts does it: `npm run format:check`
+ * covers docs/, so an unformatted generated document would fail formatting
+ * and then be reformatted in place, which would make `--check` report drift
+ * against a file nobody edited.
+ */
+async function markdown(content: string, filepath: string): Promise<string> {
+  return await format(content, { parser: "markdown", filepath });
+}
+
 export async function generate(): Promise<Generated[]> {
   const lock = loadSourceLock();
   const { ledgers, problems: ledgerProblems } = loadLedgers();
   const { adapters, problems: adapterProblems } = await readAdapters();
+  const matrixPath = join(
+    root,
+    "docs/specifications/connector-support-matrix.md",
+  );
+  const lockPath = join(evidenceDirectory, "source-lock.md");
+  const reportDocumentPath = join(evidenceDirectory, "evidence-report.md");
   return [
     {
-      path: join(root, "docs/specifications/connector-support-matrix.md"),
-      content: renderSupportMatrix({
-        adapters,
-        adapterProblems,
-        ledgers,
-        lock,
-      }),
+      path: matrixPath,
+      content: await markdown(
+        renderSupportMatrix({ adapters, adapterProblems, ledgers, lock }),
+        matrixPath,
+      ),
     },
     {
-      path: join(evidenceDirectory, "source-lock.md"),
-      content: renderSourceLock(lock, ledgers),
+      path: lockPath,
+      content: await markdown(renderSourceLock(lock, ledgers), lockPath),
     },
     {
-      path: join(evidenceDirectory, "evidence-report.md"),
-      content: renderEvidenceReport({
-        lock,
-        ledgers,
-        ledgerProblems,
-        adapters,
-        adapterProblems,
-        report: loadReport(),
-      }),
+      path: reportDocumentPath,
+      content: await markdown(
+        renderEvidenceReport({
+          lock,
+          ledgers,
+          ledgerProblems,
+          adapters,
+          adapterProblems,
+          report: loadReport(),
+        }),
+        reportDocumentPath,
+      ),
     },
   ];
 }

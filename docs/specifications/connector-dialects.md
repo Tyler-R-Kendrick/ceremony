@@ -6,11 +6,11 @@ It is not an industry protocol, not a conformance claim against any of the speci
 
 Three companions carry the parts this page deliberately does not repeat:
 
-| Document                                                        | Owns                                                                                        |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [Connector interoperability](connector-interoperability.md)     | The core contracts in `src/core/connectors/`: identity, dispositions, evidence, projections |
-| [Arazzo interoperability profiles](arazzo-profiles.md)          | Everything `src/server/connectors/formats/arazzo/` does with an Arazzo description          |
-| [Connector support matrix](connector-support-matrix.md)         | Per-adapter, per-dimension support, generated from the adapters and the ledgers             |
+| Document                                                                            | Owns                                                                                        |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [Connector interoperability](connector-interoperability.md)                         | The core contracts in `src/core/connectors/`: identity, dispositions, evidence, projections |
+| [Arazzo interoperability profiles](arazzo-profiles.md)                              | Everything `src/server/connectors/formats/arazzo/` does with an Arazzo description          |
+| [Connector support matrix](connector-support-matrix.md)                             | Per-adapter, per-dimension support, generated from the adapters and the ledgers             |
 | [Source lock](../implementation-evidence/connector-interoperability/source-lock.md) | Which document, at which revision, under which licence, each dialect claim rests on         |
 
 Examples in this document are files under [`examples/connectors/`](examples/connectors/). Each one is parsed by the authoritative runtime schema in [`tests/connectors/docs/examples.test.ts`](../../tests/connectors/docs/examples.test.ts), which the standard test discovery runs. A published example that stops validating is a failing test.
@@ -19,15 +19,15 @@ Examples in this document are files under [`examples/connectors/`](examples/conn
 
 Seven version fields are kept apart, because they move independently and a single "connector version" would hide which one changed:
 
-| Field                    | Example                    | Changes when                                            |
-| ------------------------ | -------------------------- | ------------------------------------------------------- |
-| Envelope version         | `ceremony-connector/2`     | The portable document shape changes                     |
-| Native document version  | `3.1.0`, `2026-07-28`      | The upstream author publishes a different document      |
-| Importer version         | `openapi-importer 1.0.0`   | The reader's interpretation changes                     |
-| Normalized definition    | `schemaVersion: 1`         | The normalized shape changes                            |
-| Adapter version          | per adapter                | The wire implementation changes                         |
-| API operation version    | per operation              | A vendor versions one endpoint and not its neighbours   |
-| Evidence format          | `reportVersion: 1`         | The evidence report's own shape changes                 |
+| Field                   | Example                  | Changes when                                          |
+| ----------------------- | ------------------------ | ----------------------------------------------------- |
+| Envelope version        | `ceremony-connector/2`   | The portable document shape changes                   |
+| Native document version | `3.1.0`, `2026-07-28`    | The upstream author publishes a different document    |
+| Importer version        | `openapi-importer 1.0.0` | The reader's interpretation changes                   |
+| Normalized definition   | `schemaVersion: 1`       | The normalized shape changes                          |
+| Adapter version         | per adapter              | The wire implementation changes                       |
+| API operation version   | per operation            | A vendor versions one endpoint and not its neighbours |
+| Evidence format         | `reportVersion: 1`       | The evidence report's own shape changes               |
 
 A `RuntimeBinding.reviewedDigest` binds an approval to the exact transitive artifact set, so none of these can move underneath an approved binding without invalidating it. Vercel Connect is the concrete reason the sixth field exists: its endpoint versions differ by operation, and `v1` and `v2` paths coexist in one API.
 
@@ -37,27 +37,27 @@ A `RuntimeBinding.reviewedDigest` binds an approval to the exact transitive arti
 
 ### Description formats
 
-| Dialect                          | Versions read                     | Module                                        | Notes                                                                                                              |
-| -------------------------------- | --------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| OpenAPI / Swagger                | 2.0, 3.0.x, 3.1.x, 3.2.x          | `formats/openapi/read.ts`                     | Explicit per-version readers. A reader refuses a document of another version; a missing, doubled or unknown version is blocking. |
-| OpenAPI Overlay                  | 1.0.x, 1.1.x                      | `formats/overlay/apply.ts`                    | Dispatch on the `overlay` field; the patch component is ignored per the specification.                             |
-| Arazzo                           | 1.0.1, 1.1.0                      | `formats/arazzo/read.ts`                      | See [Arazzo profiles](arazzo-profiles.md). `1.0.0` and `1.2.0` are refused.                                        |
-| AsyncAPI                         | 3.0.x, 3.1.x                      | `events/asyncapi.ts`                          | Descriptions only: an AsyncAPI operation never becomes an HTTP capability.                                         |
-| MCP `server.json`                | 2025-09-16 … 2025-12-11           | `registries/mcp/import.ts`                    | Pre-2025-09-16 snake_case documents are refused, not translated. An unlisted declared version imports with a `version.schema-unpinned` issue. |
-| Microsoft custom connector       | Swagger 2.0 plus `x-ms-*`         | `formats/microsoft/`                          | Static metadata only; policies and custom code are inert and execution-blocked.                                    |
-| Zapier / n8n / Workato           | native metadata, per family       | `formats/zapier/`, `formats/n8n/`, `formats/workato/` | Separate profiles. No source is evaluated to discover a field.                                                     |
-| Camel Kamelets                   | pinned catalog release            | `formats/camel-kamelet/`                      | Catalog and configuration import plus a host-runner binding description. No JVM is embedded.                       |
-| Retrieval / ACL descriptors      | Cloud Search-informed model       | `formats/retrieval/`                          | Descriptor and evaluator. No indexer, no crawler.                                                                  |
+| Dialect                     | Versions read               | Module                                                | Notes                                                                                                                                         |
+| --------------------------- | --------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAPI / Swagger           | 2.0, 3.0.x, 3.1.x, 3.2.x    | `formats/openapi/read.ts`                             | Explicit per-version readers. A reader refuses a document of another version; a missing, doubled or unknown version is blocking.              |
+| OpenAPI Overlay             | 1.0.x, 1.1.x                | `formats/overlay/apply.ts`                            | Dispatch on the `overlay` field; the patch component is ignored per the specification.                                                        |
+| Arazzo                      | 1.0.1, 1.1.0                | `formats/arazzo/read.ts`                              | See [Arazzo profiles](arazzo-profiles.md). `1.0.0` and `1.2.0` are refused.                                                                   |
+| AsyncAPI                    | 3.0.x, 3.1.x                | `events/asyncapi.ts`                                  | Descriptions only: an AsyncAPI operation never becomes an HTTP capability.                                                                    |
+| MCP `server.json`           | 2025-09-16 … 2025-12-11     | `registries/mcp/import.ts`                            | Pre-2025-09-16 snake_case documents are refused, not translated. An unlisted declared version imports with a `version.schema-unpinned` issue. |
+| Microsoft custom connector  | Swagger 2.0 plus `x-ms-*`   | `formats/microsoft/`                                  | Static metadata only; policies and custom code are inert and execution-blocked.                                                               |
+| Zapier / n8n / Workato      | native metadata, per family | `formats/zapier/`, `formats/n8n/`, `formats/workato/` | Separate profiles. No source is evaluated to discover a field.                                                                                |
+| Camel Kamelets              | pinned catalog release      | `formats/camel-kamelet/`                              | Catalog and configuration import plus a host-runner binding description. No JVM is embedded.                                                  |
+| Retrieval / ACL descriptors | Cloud Search-informed model | `formats/retrieval/`                                  | Descriptor and evaluator. No indexer, no crawler.                                                                                             |
 
 ### Protocol revisions
 
-| Protocol                     | Revisions                                   | Module                        | Notes                                                                                                   |
-| ---------------------------- | ------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| MCP (outbound client)        | 2026-07-28, 2025-11-25, 2025-06-18          | `mcp/profiles.ts`             | Two eras, never mixed in one message. The profile comes from the binding, never from the installed SDK. |
-| MCP registry REST            | `/v0.1` (preview)                           | `registries/mcp/client.ts`    | Pinned independently of the `server.json` schema version.                                               |
-| CloudEvents                  | 1.0, JSON event format                      | `events/envelope.ts`          | Binary mode (`data_base64`) is refused, not partially handled.                                          |
-| Standard Webhooks            | 1.0.0, symmetric `v1` scheme                | `events/standard-webhooks.ts` | Asymmetric `v1a` (ed25519) is recognized and reported `unsupported-scheme`.                             |
-| OAuth 2.0 family             | RFC 9700 baseline; 7636, 8414, 8628, 9126, 9207, 9728, 7591, 8707, 9396, 8693, 7662 | `auth/`                       | OAuth 2.1 (`-16`) and CIMD (`-03`) are **drafts**; the exact revision is recorded and no finalized-standard or certification status is claimed. |
+| Protocol              | Revisions                                                                           | Module                        | Notes                                                                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP (outbound client) | 2026-07-28, 2025-11-25, 2025-06-18                                                  | `mcp/profiles.ts`             | Two eras, never mixed in one message. The profile comes from the binding, never from the installed SDK.                                         |
+| MCP registry REST     | `/v0.1` (preview)                                                                   | `registries/mcp/client.ts`    | Pinned independently of the `server.json` schema version.                                                                                       |
+| CloudEvents           | 1.0, JSON event format                                                              | `events/envelope.ts`          | Binary mode (`data_base64`) is refused, not partially handled.                                                                                  |
+| Standard Webhooks     | 1.0.0, symmetric `v1` scheme                                                        | `events/standard-webhooks.ts` | Asymmetric `v1a` (ed25519) is recognized and reported `unsupported-scheme`.                                                                     |
+| OAuth 2.0 family      | RFC 9700 baseline; 7636, 8414, 8628, 9126, 9207, 9728, 7591, 8707, 9396, 8693, 7662 | `auth/`                       | OAuth 2.1 (`-16`) and CIMD (`-03`) are **drafts**; the exact revision is recorded and no finalized-standard or certification status is claimed. |
 
 ### Ingestion dialects
 
@@ -99,15 +99,15 @@ Sampling is refused rather than suspended, in either era. Roots answer an empty 
 
 Custody is a property of the connection, not of the protocol, and this profile keeps five kinds apart. Remote credential access and remote execution are **different interfaces**: an implementation must not convert a non-exportable authority into an exported credential.
 
-| Custody                       | The host holds                         | Concrete adapters                                                      | What the host cannot do                                                     |
-| ----------------------------- | -------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `host-owned`                  | The credential, encrypted              | `supabase-management`, `supabase-data-api`, `openapi-http`, `mcp-remote` | Nothing extra; it also owns rotation, single-flight refresh and revocation  |
-| `external-credential-broker`  | An opaque broker reference             | `nango`, `auth0-token-vault`, `merge`, `workos-pipes`                    | Read the credential. Refresh stays the broker's unless its contract delegates it |
-| `external-execution-broker`   | A reference the broker executes against | `composio`, `smithery`, `supabase-wrappers`, `nango` (proxy/action)      | Obtain a credential at all                                                  |
-| `attended-browser`            | A reference to a human's live session  | (ceremony flows)                                                          | Replay the session without the human                                        |
-| `no-credential`               | Nothing                                | `mcp-registry`, `docker-mcp-catalog`, `pulsemcp`, public APIs            | Claim an authenticated identity                                             |
+| Custody                      | The host holds                          | Concrete adapters                                                        | What the host cannot do                                                          |
+| ---------------------------- | --------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `host-owned`                 | The credential, encrypted               | `supabase-management`, `supabase-data-api`, `openapi-http`, `mcp-remote` | Nothing extra; it also owns rotation, single-flight refresh and revocation       |
+| `external-credential-broker` | An opaque broker reference              | `nango`, `auth0-token-vault`, `merge`, `workos-pipes`                    | Read the credential. Refresh stays the broker's unless its contract delegates it |
+| `external-execution-broker`  | A reference the broker executes against | `composio`, `smithery`, `supabase-wrappers`, `nango` (proxy/action)      | Obtain a credential at all                                                       |
+| `attended-browser`           | A reference to a human's live session   | (ceremony flows)                                                         | Replay the session without the human                                             |
+| `no-credential`              | Nothing                                 | `mcp-registry`, `docker-mcp-catalog`, `pulsemcp`, public APIs            | Claim an authenticated identity                                                  |
 
-Two custody rules have teeth in the code. First, every credential use happens inside `credentials.use`; an adapter never receives a credential value as an argument. Second, credential *kinds* are distinct and checked: a Supabase service-role secret or management token presented to the project Data API adapter is refused before a request is built, by kind metadata and by documented key format — never by parsing a secret into a log.
+Two custody rules have teeth in the code. First, every credential use happens inside `credentials.use`; an adapter never receives a credential value as an argument. Second, credential _kinds_ are distinct and checked: a Supabase service-role secret or management token presented to the project Data API adapter is refused before a request is built, by kind metadata and by documented key format — never by parsing a secret into a log.
 
 Protected transient material — OAuth state, PKCE verifiers, device codes, authorization URLs, Connect links, widget tokens, private collector references — lives only in `HandoffIssue.private` and reaches only the authenticated initiating human, through `humanConnectionProjection`. A vendor's claim that a link is chat-safe does not override this.
 
@@ -117,14 +117,14 @@ A connection has eleven states and a fixed transition table (`lifecycleTransitio
 
 Six endings are modelled separately because they are different authorized intents with different policy, and because collapsing them is how a product ends up telling someone their access was revoked when it was not:
 
-| Intent                | What happens locally                | What happens upstream                    | Default |
-| --------------------- | ----------------------------------- | ------------------------------------------ | ------- |
-| Cancel                | A pending handoff is cancelled       | Nothing                                    | —       |
-| Local disconnect      | The connection is unlinked           | **Nothing.** It does not establish revocation | yes     |
-| Broker deletion       | The connection is unlinked           | The broker's record is deleted             | no      |
-| Upstream revocation   | The connection becomes `upstream-revoked` | The provider's grant ends                  | no      |
-| Shared connector deletion | Every local connection referencing it is affected | Shared configuration is removed      | no, administrator only |
-| Resource deprovision  | —                                   | Out of scope everywhere in this repository | never   |
+| Intent                    | What happens locally                              | What happens upstream                         | Default                |
+| ------------------------- | ------------------------------------------------- | --------------------------------------------- | ---------------------- |
+| Cancel                    | A pending handoff is cancelled                    | Nothing                                       | —                      |
+| Local disconnect          | The connection is unlinked                        | **Nothing.** It does not establish revocation | yes                    |
+| Broker deletion           | The connection is unlinked                        | The broker's record is deleted                | no                     |
+| Upstream revocation       | The connection becomes `upstream-revoked`         | The provider's grant ends                     | no                     |
+| Shared connector deletion | Every local connection referencing it is affected | Shared configuration is removed               | no, administrator only |
+| Resource deprovision      | —                                                 | Out of scope everywhere in this repository    | never                  |
 
 Four adapters report `revoke: unsupported` for a documented reason rather than approximating one: Nango and Merge document no upstream grant-revocation endpoint; MCP defines no such operation; an OpenAPI description declares none. Supabase's `POST /v1/oauth/revoke` needs the stored refresh token, so a grant issued without one reports upstream `unsupported` with the dashboard as the recorded alternative. "Cancel" on a Nango sync maps to `POST /sync/pause` and the result says so explicitly through `nango.sync.cancel-maps-to-pause`.
 
@@ -153,15 +153,15 @@ Three loss behaviours are worth stating in prose because they are easy to get ba
 
 Nothing in this work changes what an existing deployment already has.
 
-| Surface                          | Guarantee                                                                                                                 |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `ceremony-connector` version 1   | Saved studio projects still validate through `connectorProjectSchema`, still export through `exportConnectorFiles`, and their exported documents still run through the existing bounded Arazzo executor. `src/core/connector-authoring.ts` is untouched. |
-| Connector manifest version 1     | Unchanged and still non-executable. Imported URLs never enter it.                                                          |
-| `@ceremony/auth` exports         | `.`, `./react`, `./server`, `./server/teaching`, `./mcp-app` and styles keep their shapes. New contracts are additive.     |
-| Existing MCP server tools        | `ceremony_connect`, `ceremony_snapshot`, `ceremony_advance`, `ceremony_cancel` and `ceremony_connectors` are unchanged. The four `connector_*` tools are registered only when the host passes the optional `connectors` option. |
-| Persisted records                | `recordKinds` only grew. The encrypted record table is generic, so no SQL migration is required, and a deployment that never stores a new kind never writes it. |
-| Adapter interface                | One additive, optional field (`handoff?: HandoffRecord` on `AdapterCallContext`). Existing adapters compile and run unchanged. |
-| Identifier contracts             | Narrowed only against inputs that were never valid upstream data: bidirectional controls, blank-only values, reserved object keys and traversal segments. No realistic identifier changed shape. |
+| Surface                        | Guarantee                                                                                                                                                                                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ceremony-connector` version 1 | Saved studio projects still validate through `connectorProjectSchema`, still export through `exportConnectorFiles`, and their exported documents still run through the existing bounded Arazzo executor. `src/core/connector-authoring.ts` is untouched. |
+| Connector manifest version 1   | Unchanged and still non-executable. Imported URLs never enter it.                                                                                                                                                                                        |
+| `@ceremony/auth` exports       | `.`, `./react`, `./server`, `./server/teaching`, `./mcp-app` and styles keep their shapes. New contracts are additive.                                                                                                                                   |
+| Existing MCP server tools      | `ceremony_connect`, `ceremony_snapshot`, `ceremony_advance`, `ceremony_cancel` and `ceremony_connectors` are unchanged. The four `connector_*` tools are registered only when the host passes the optional `connectors` option.                          |
+| Persisted records              | `recordKinds` only grew. The encrypted record table is generic, so no SQL migration is required, and a deployment that never stores a new kind never writes it.                                                                                          |
+| Adapter interface              | One additive, optional field (`handoff?: HandoffRecord` on `AdapterCallContext`). Existing adapters compile and run unchanged.                                                                                                                           |
+| Identifier contracts           | Narrowed only against inputs that were never valid upstream data: bidirectional controls, blank-only values, reserved object keys and traversal segments. No realistic identifier changed shape.                                                         |
 
 Two narrowings are worth calling out for anyone upgrading, because a caller could depend on the old leniency:
 

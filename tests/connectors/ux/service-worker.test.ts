@@ -43,7 +43,9 @@ test("the static shell never answers for a connector route", async () => {
  */
 test("every connector request is made without a cache", async () => {
   const client = await readFile(
-    fileURLToPath(new URL("../../../src/core/connectors/client.ts", import.meta.url)),
+    fileURLToPath(
+      new URL("../../../src/core/connectors/client.ts", import.meta.url),
+    ),
     "utf8",
   );
   assert.match(client, /cache: "no-store"/);

@@ -47,7 +47,10 @@ export type BrokerInstance = {
   dashboardUrl?: string;
   parameters?: Record<string, unknown>;
   /** `in progress` makes the fetch endpoint answer 404 the way the spec requires. */
-  lastOperation?: { state: "in progress" | "succeeded" | "failed"; description?: string };
+  lastOperation?: {
+    state: "in progress" | "succeeded" | "failed";
+    description?: string;
+  };
 };
 
 export type BrokerBinding = {
@@ -91,7 +94,10 @@ export async function startServiceBrokerFixture(
 ) {
   const supportedMinor = options.supportedMinor ?? 17;
   const instances = new Map(
-    (options.instances ?? []).map((instance) => [instance.instanceId, instance]),
+    (options.instances ?? []).map((instance) => [
+      instance.instanceId,
+      instance,
+    ]),
   );
   const bindings = new Map(
     (options.bindings ?? []).map((binding) => [
@@ -143,7 +149,9 @@ export async function startServiceBrokerFixture(
     const instanceOperationMatch =
       /^\/v2\/service_instances\/([^/]+)\/last_operation$/.exec(path);
     const bindingMatch =
-      /^\/v2\/service_instances\/([^/]+)\/service_bindings\/([^/]+)$/.exec(path);
+      /^\/v2\/service_instances\/([^/]+)\/service_bindings\/([^/]+)$/.exec(
+        path,
+      );
     const bindingOperationMatch =
       /^\/v2\/service_instances\/([^/]+)\/service_bindings\/([^/]+)\/last_operation$/.exec(
         path,
@@ -165,13 +173,16 @@ export async function startServiceBrokerFixture(
       if (!instance) return json(404, { error: "NotFound" });
       const service = serviceForInstance(instance);
       // The spec only requires the endpoint when the offering declares it.
-      if (!service?.instances_retrievable) return json(404, { error: "NotFound" });
+      if (!service?.instances_retrievable)
+        return json(404, { error: "NotFound" });
       if (instance.lastOperation?.state === "in progress")
         return json(404, { error: "NotFound" });
       return json(200, {
         service_id: instance.serviceId,
         plan_id: instance.planId,
-        ...(instance.dashboardUrl ? { dashboard_url: instance.dashboardUrl } : {}),
+        ...(instance.dashboardUrl
+          ? { dashboard_url: instance.dashboardUrl }
+          : {}),
         ...(instance.parameters ? { parameters: instance.parameters } : {}),
       });
     }
@@ -187,11 +198,14 @@ export async function startServiceBrokerFixture(
     if (bindingMatch) {
       const instanceId = decodeURIComponent(bindingMatch[1]!);
       const bindingId = decodeURIComponent(bindingMatch[2]!);
-      const binding = bindings.get(`${instanceId.length}:${instanceId}|${bindingId}`);
+      const binding = bindings.get(
+        `${instanceId.length}:${instanceId}|${bindingId}`,
+      );
       if (!binding) return json(404, { error: "NotFound" });
       const instance = instances.get(instanceId);
       const service = instance ? serviceForInstance(instance) : undefined;
-      if (!service?.bindings_retrievable) return json(404, { error: "NotFound" });
+      if (!service?.bindings_retrievable)
+        return json(404, { error: "NotFound" });
       if (binding.lastOperation?.state === "in progress")
         return json(404, { error: "NotFound" });
       return json(200, {
@@ -206,7 +220,9 @@ export async function startServiceBrokerFixture(
     if (bindingOperationMatch) {
       const instanceId = decodeURIComponent(bindingOperationMatch[1]!);
       const bindingId = decodeURIComponent(bindingOperationMatch[2]!);
-      const binding = bindings.get(`${instanceId.length}:${instanceId}|${bindingId}`);
+      const binding = bindings.get(
+        `${instanceId.length}:${instanceId}|${bindingId}`,
+      );
       if (!binding) return json(404, { error: "NotFound" });
       return json(200, binding.lastOperation ?? { state: "succeeded" });
     }

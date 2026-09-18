@@ -2,7 +2,7 @@
 
 This page is for the person who has to make a connector work in a real deployment: what to register with the provider, where the redirect goes, which permissions to ask for, how a webhook is verified, where each secret lives, how to keep environments apart, and what to do when something breaks or someone disconnects.
 
-Two things it will never tell you. It will never show you a real secret, not even a fake one shaped like one — the only values here are the *names* of configuration entries and the key *prefixes* providers document. And it will never suggest working around a provider's approval, review, plan or verification requirement. If a provider requires a reviewed app, a paid plan or a manual approval before an endpoint works, the answer is to complete that process, and the adapter will report the refusal honestly until you do.
+Two things it will never tell you. It will never show you a real secret, not even a fake one shaped like one — the only values here are the _names_ of configuration entries and the key _prefixes_ providers document. And it will never suggest working around a provider's approval, review, plan or verification requirement. If a provider requires a reviewed app, a paid plan or a manual approval before an endpoint works, the answer is to complete that process, and the adapter will report the refusal honestly until you do.
 
 Which configuration each adapter requires is generated from the adapters themselves in the [connector support matrix](specifications/connector-support-matrix.md). Read that first: it is the only list that cannot disagree with the code.
 
@@ -36,11 +36,11 @@ Ask for the smallest set that the operations you bound actually need, and record
 
 Three permission sets are kept apart and none of them substitutes for another:
 
-| Set          | Where it comes from                                    | What it means                                          |
-| ------------ | ------------------------------------------------------ | -------------------------------------------------------- |
-| `requested`  | What the authorization request asked for               | Intent. Nothing more                                    |
-| `reported`   | What the provider said it granted (token `scope`, introspection, `authorization_details`) | The provider's statement, unverified by observation    |
-| `observed`   | What a verifier saw by actually calling an operation   | The only set that is evidence of access                 |
+| Set         | Where it comes from                                                                       | What it means                                       |
+| ----------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `requested` | What the authorization request asked for                                                  | Intent. Nothing more                                |
+| `reported`  | What the provider said it granted (token `scope`, introspection, `authorization_details`) | The provider's statement, unverified by observation |
+| `observed`  | What a verifier saw by actually calling an operation                                      | The only set that is evidence of access             |
 
 An **empty** set means unknown or unscoped. It never means unlimited. A provider that returns no `scope` yields semantics `unknown`, never an echo of what was requested.
 
@@ -51,7 +51,7 @@ Provider-specific notes that change what you configure:
 - **Composio**: pin the toolkit version rather than tracking `latest` when the output is consumed programmatically, and never expose a broad connection-management meta-tool to a model.
 - **Supabase hosted MCP**: the restrictions (`project_ref`, `read_only`, `features`) are binding settings, validated before the URL is built. A caller cannot supply an arbitrary URL carrying `read_only=true`, and a read-only binding cannot bind or invoke a mutating tool.
 
-If a review raises the requested permissions, or a dynamic operation changes, policy and review are re-evaluated *before* credentials or effects are used. A provider grant wider than the review never silently becomes the new baseline.
+If a review raises the requested permissions, or a dynamic operation changes, policy and review are re-evaluated _before_ credentials or effects are used. A provider grant wider than the review never silently becomes the new baseline.
 
 ## Webhook verification
 
@@ -60,30 +60,30 @@ If a review raises the requested permissions, or a dynamic operation changes, po
 Configure the right secret, and know that it is usually not the API key:
 
 - **Standard Webhooks (`v1`, symmetric)**: the signed content is `${msg_id}.${timestamp}.${payload}` and the signature is base64 HMAC-SHA256. Secrets are base64 with a `whsec_` prefix. Several signatures may be space-delimited so a key can be rotated without downtime; any configured key verifies and the accepted key id is reported. Timestamp tolerance defaults to 300 seconds and is bounded to 1–86400 in both directions: a host cannot configure the window away. The asymmetric `v1a` (ed25519) scheme is recognized and reported `unsupported-scheme` rather than ignored.
-- **Nango**: the header is `X-Nango-Hmac-Sha256`, an HMAC-SHA256 over the raw body keyed with the **environment webhook signing key**, which is a *different secret* from the Environment API key. Configure `NANGO_WEBHOOK_SIGNING_KEY`; the API key is never used as a fallback. The legacy plain-digest `X-Nango-Signature` header is documented by the vendor as not to be used, and the receiver **ignores it even when it is correct**.
-- **Pipedream trigger deliveries**: `x-pd-signature: t=<unix seconds>,v1=<hex digest>` over `${timestamp}.${raw body}`, compared in constant time with a maximum age. Note that Pipedream's *connection* webhooks (the `webhook_uri` on a connect token) are documented as **not signed**; treat them as a hint to go and read authoritative state, never as an authenticated status change.
+- **Nango**: the header is `X-Nango-Hmac-Sha256`, an HMAC-SHA256 over the raw body keyed with the **environment webhook signing key**, which is a _different secret_ from the Environment API key. Configure `NANGO_WEBHOOK_SIGNING_KEY`; the API key is never used as a fallback. The legacy plain-digest `X-Nango-Signature` header is documented by the vendor as not to be used, and the receiver **ignores it even when it is correct**.
+- **Pipedream trigger deliveries**: `x-pd-signature: t=<unix seconds>,v1=<hex digest>` over `${timestamp}.${raw body}`, compared in constant time with a maximum age. Note that Pipedream's _connection_ webhooks (the `webhook_uri` on a connect token) are documented as **not signed**; treat them as a hint to go and read authoritative state, never as an authenticated status change.
 - **A forwarding provider (Vercel Connect triggers)**: Vercel Connect verifies the provider's webhook against the connector's signing key, then forwards the verified event and signs the outbound request itself, publishing a per-connector signing key for that purpose. **The outbound header name and algorithm are not published in the documentation**, so `verifyForwardedDelivery` takes the forwarder's verifier as an injected dependency, and the verifier used in tests is explicitly a stand-in rather than a claim about Vercel's wire format. Supply the concrete verifier from the provider's own current documentation before you enable this in production.
 - **Anything else**: implement `VendorVerifierPort`. There is no fallback scheme, and nothing guesses a header name or algorithm. An unregistered verifier fails closed with `401` and the audit reason `verifier-unavailable`.
 
-Three properties hold regardless of provider. A forwarded delivery records the forwarder's hop as the thing that authenticates it; the original provider's hop is verified only when this deployment actually holds that provider's secret, and a forwarder's *assertion* that it verified the provider is recorded with `verified: false`. A forged or missing forwarder signature is rejected even when the request asserts upstream verification. And every refusal is a fixed short JSON body that never echoes the request body or headers — reasons go to the audit hook only.
+Three properties hold regardless of provider. A forwarded delivery records the forwarder's hop as the thing that authenticates it; the original provider's hop is verified only when this deployment actually holds that provider's secret, and a forwarder's _assertion_ that it verified the provider is recorded with `verified: false`. A forged or missing forwarder signature is rejected even when the request asserts upstream verification. And every refusal is a fixed short JSON body that never echoes the request body or headers — reasons go to the audit hook only.
 
 ## Credential custody
 
 Decide, per provider, which of these you are doing, because they are different interfaces with different failure modes:
 
-| Custody                      | You configure                          | The deployment can                                |
-| ---------------------------- | ---------------------------------------- | --------------------------------------------------- |
-| `host-owned`                 | A client id and secret, or an API key    | Read and refresh the credential; it owns rotation  |
-| `external-credential-broker` | A broker API key                         | Ask the broker for a credential when its contract allows |
-| `external-execution-broker`  | A broker API key                         | Ask the broker to execute; it never sees a credential |
-| `no-credential`              | Nothing                                  | Read public data without claiming an identity      |
+| Custody                      | You configure                         | The deployment can                                       |
+| ---------------------------- | ------------------------------------- | -------------------------------------------------------- |
+| `host-owned`                 | A client id and secret, or an API key | Read and refresh the credential; it owns rotation        |
+| `external-credential-broker` | A broker API key                      | Ask the broker for a credential when its contract allows |
+| `external-execution-broker`  | A broker API key                      | Ask the broker to execute; it never sees a credential    |
+| `no-credential`              | Nothing                               | Read public data without claiming an identity            |
 
 Rules that are enforced in code, not just recommended:
 
-1. **Secrets are supplied through the private collection path, never inline.** The configure command refuses an inline secret and answers with names only. A configuration *value* appears in no projection — not the public catalog, not agent output, not export, not audit, not an error.
+1. **Secrets are supplied through the private collection path, never inline.** The configure command refuses an inline secret and answers with names only. A configuration _value_ appears in no projection — not the public catalog, not agent output, not export, not audit, not an error.
 2. **Credential kinds are checked.** A Supabase secret key (`sb_secret_…`) or legacy `service_role` JWT bypasses Row Level Security entirely and must never reach a browser. Presenting one to the project Data API adapter is refused before a request is built, by kind metadata and by documented key format. Publishable keys (`sb_publishable_…`) and legacy `anon` JWTs are the browser-safe pair.
 3. **Management credentials and workload credentials are separate legs.** A Vercel management token is not a workload authorization and vice versa; misuse is rejected rather than accommodated.
-4. **A broker reference is not a credential.** For an external-credential-broker connection the database holds a protected reference, not a token. Reading a Nango connection can *refresh* the upstream token as a documented side effect, so that read is treated as privileged and serialized through the custody port's single-flight refresh — it is not a pure read and is not exposed on a generic agent route.
+4. **A broker reference is not a credential.** For an external-credential-broker connection the database holds a protected reference, not a token. Reading a Nango connection can _refresh_ the upstream token as a documented side effect, so that read is treated as privileged and serialized through the custody port's single-flight refresh — it is not a pure read and is not exposed on a generic agent route.
 5. **Refresh is single-flight and journaled.** Two workers refreshing the same rotating credential cannot commit a stale result over a newer one, and a lost refresh outcome becomes reconnect rather than a replayed refresh token.
 
 ## Environment separation
@@ -104,17 +104,17 @@ When a provider is rate-limited, unavailable or returning errors, retry and circ
 
 What to do, by symptom:
 
-| Symptom                                                    | What it means                                                       | What to do                                                                 |
-| ---------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Connection is `degraded`                                   | Transient upstream failure; the grant is probably intact            | Wait for the circuit to close. Do not reconnect first                       |
-| Connection is `reconnect-required`                         | Refresh was rejected, the token expired, or configuration changed   | Run reconnect. It is a fenced, authorized intent, not a retry               |
-| Connection is `indeterminate`                              | A consequential call's outcome was lost                             | Reconcile. Do **not** replay: the effect journal will answer a repeated digest from the journal rather than re-applying it |
-| Reconnect returns a different account                      | The human signed in as someone else                                 | It is refused without explicit account-switch intent. Confirm deliberately  |
-| A delayed callback arrives after a cancel or reconnect     | Stale generation                                                    | Nothing. It is fenced and cannot reactivate or overwrite the newer connection |
-| Consent, MFA or a provider approval is required            | The provider wants a human                                          | The flow reports `human-required`. There is no bypass, no scraping and no fallback to a more privileged route |
-| A verification expired, or source, policy or configuration changed | The old evidence no longer covers current use                       | Affected use is revalidated or blocked. A stale "connected" badge is not authorization |
+| Symptom                                                            | What it means                                                     | What to do                                                                                                                 |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Connection is `degraded`                                           | Transient upstream failure; the grant is probably intact          | Wait for the circuit to close. Do not reconnect first                                                                      |
+| Connection is `reconnect-required`                                 | Refresh was rejected, the token expired, or configuration changed | Run reconnect. It is a fenced, authorized intent, not a retry                                                              |
+| Connection is `indeterminate`                                      | A consequential call's outcome was lost                           | Reconcile. Do **not** replay: the effect journal will answer a repeated digest from the journal rather than re-applying it |
+| Reconnect returns a different account                              | The human signed in as someone else                               | It is refused without explicit account-switch intent. Confirm deliberately                                                 |
+| A delayed callback arrives after a cancel or reconnect             | Stale generation                                                  | Nothing. It is fenced and cannot reactivate or overwrite the newer connection                                              |
+| Consent, MFA or a provider approval is required                    | The provider wants a human                                        | The flow reports `human-required`. There is no bypass, no scraping and no fallback to a more privileged route              |
+| A verification expired, or source, policy or configuration changed | The old evidence no longer covers current use                     | Affected use is revalidated or blocked. A stale "connected" badge is not authorization                                     |
 
-Two things that are *not* incidents: a `202` from an MCP endpoint in answer to a request is treated as "no response will arrive" by host policy, and a lost SSE stream in the current MCP revision loses the in-flight request, which must be re-issued as a new request. Neither is a provider fault.
+Two things that are _not_ incidents: a `202` from an MCP endpoint in answer to a request is treated as "no response will arrive" by host policy, and a lost SSE stream in the current MCP revision loses the in-flight request, which must be re-issued as a new request. Neither is a provider fault.
 
 ## Disconnect is not revocation
 

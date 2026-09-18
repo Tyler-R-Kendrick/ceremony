@@ -161,7 +161,10 @@
   resize: vertical;
 }
 
-:where([data-connector] input[type="radio"], [data-connector] input[type="checkbox"]) {
+:where(
+  [data-connector] input[type="radio"],
+  [data-connector] input[type="checkbox"]
+) {
   inline-size: auto;
   min-block-size: auto;
   margin-inline-end: 0.5rem;
@@ -354,7 +357,10 @@
   color: var(--_ceremony-stop);
 }
 
-:where([data-connector] .connector-intent, [data-connector] .connector-handoff) {
+:where(
+  [data-connector] .connector-intent,
+  [data-connector] .connector-handoff
+) {
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
@@ -382,7 +388,10 @@
   font-weight: 500;
 }
 
-:where([data-connector] fieldset.connector-field label, [data-connector] .connector-confirm label) {
+:where(
+  [data-connector] fieldset.connector-field label,
+  [data-connector] .connector-confirm label
+) {
   display: flex;
   align-items: flex-start;
   gap: 0.25rem;
@@ -429,7 +438,10 @@
   color: var(--_ceremony-muted);
 }
 
-:where([data-connector] button:disabled, [data-connector] [aria-disabled="true"]) {
+:where(
+  [data-connector] button:disabled,
+  [data-connector] [aria-disabled="true"]
+) {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -507,7 +519,10 @@
   overflow-wrap: anywhere;
 }
 
-:where([data-connector] .connector-facts ul, [data-connector] .connector-issue-list) {
+:where(
+  [data-connector] .connector-facts ul,
+  [data-connector] .connector-issue-list
+) {
   margin: 0;
   padding-inline-start: 1.125rem;
 }
@@ -517,7 +532,10 @@
   font-weight: 600;
 }
 
-:where([data-connector] .connector-scopes, [data-connector] .connector-configuration) {
+:where(
+  [data-connector] .connector-scopes,
+  [data-connector] .connector-configuration
+) {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
@@ -527,7 +545,10 @@
   font-size: 0.75rem;
 }
 
-:where([data-connector] .connector-scopes li, [data-connector] .connector-configuration li) {
+:where(
+  [data-connector] .connector-scopes li,
+  [data-connector] .connector-configuration li
+) {
   font-family: var(--_ceremony-mono);
   padding: 0.1875rem 0.4375rem;
   border: 1px solid var(--_ceremony-border);
@@ -549,7 +570,10 @@
   text-align: start;
 }
 
-:where([data-connector] .connector-capabilities th, [data-connector] .connector-capabilities td) {
+:where(
+  [data-connector] .connector-capabilities th,
+  [data-connector] .connector-capabilities td
+) {
   padding: 0.375rem 0.5rem;
   border-block-end: 1px solid var(--_ceremony-border);
   text-align: start;
@@ -562,7 +586,9 @@
   white-space: nowrap;
 }
 
-:where([data-connector] .connector-capabilities tr[data-implementation="unsupported"]) {
+:where(
+  [data-connector] .connector-capabilities tr[data-implementation="unsupported"]
+) {
   color: var(--_ceremony-muted);
 }
 
@@ -653,7 +679,10 @@
 }
 
 @media (forced-colors: active) {
-  :where([data-connector] .connector-drawer, [data-connector] .connector-panel) {
+  :where(
+    [data-connector] .connector-drawer,
+    [data-connector] .connector-panel
+  ) {
     border-color: CanvasText;
   }
   :where([data-connector] :focus-visible) {

@@ -34,8 +34,14 @@ test("search and facets run over the whole inventory, not the rendered page", ()
   );
   assert.equal(filterCatalog(entries, { support: "unconfigured" }).length, 1);
   assert.equal(filterCatalog(entries, { ecosystem: "nango" }).length, 1);
-  assert.equal(filterCatalog(entries, { evidence: "browser-integration" }).length, 1);
-  assert.equal(filterCatalog(entries, { query: "nothing here at all" }).length, 0);
+  assert.equal(
+    filterCatalog(entries, { evidence: "browser-integration" }).length,
+    1,
+  );
+  assert.equal(
+    filterCatalog(entries, { query: "nothing here at all" }).length,
+    0,
+  );
 });
 
 test("alternatives for one service are grouped and never merged", () => {
@@ -43,10 +49,10 @@ test("alternatives for one service are grouped and never merged", () => {
   const github = groups.find((group) => group.group === "github");
   assert.ok(github);
   assert.equal(github.entries.length, 2);
-  assert.deepEqual(
-    github.entries.map((entry) => entry.id).sort(),
-    ["github-app", "github-via-broker"],
-  );
+  assert.deepEqual(github.entries.map((entry) => entry.id).sort(), [
+    "github-app",
+    "github-via-broker",
+  ]);
   assert.notDeepEqual(github.entries[0]!.custody, github.entries[1]!.custody);
 });
 
@@ -135,7 +141,10 @@ test("a facet narrows the inventory and says how much of it is showing", async (
     }),
   );
   try {
-    await view.fill("#connector-directory-custody", "external-credential-broker");
+    await view.fill(
+      "#connector-directory-custody",
+      "external-credential-broker",
+    );
     assert.equal(view.all("[data-connector-entry]").length, 1);
     assert.match(view.text, /1 of \d+ connectors match/);
     await view.fill("#connector-directory-custody", "");

@@ -114,7 +114,9 @@ export async function startConnectorHarness(options: FixtureOptions = {}) {
           ? await new Promise<string>((resolve) => {
               const chunks: Buffer[] = [];
               request.on("data", (chunk: Buffer) => chunks.push(chunk));
-              request.on("end", () => resolve(Buffer.concat(chunks).toString()));
+              request.on("end", () =>
+                resolve(Buffer.concat(chunks).toString()),
+              );
             })
           : undefined;
       const result = await fixture.handle(
@@ -179,9 +181,7 @@ export async function startConnectorHarness(options: FixtureOptions = {}) {
     async close() {
       for (const instance of [server, strangerServer]) {
         instance.closeAllConnections();
-        await new Promise<void>((resolve) =>
-          instance.close(() => resolve()),
-        );
+        await new Promise<void>((resolve) => instance.close(() => resolve()));
       }
     },
   };

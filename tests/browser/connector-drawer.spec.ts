@@ -31,8 +31,8 @@ test("focus enters the drawer, stays inside it, and returns to the card", async 
         const dialog = document.querySelector('[role="dialog"]');
         return Boolean(
           dialog &&
-            document.activeElement &&
-            dialog.contains(document.activeElement),
+          document.activeElement &&
+          dialog.contains(document.activeElement),
         );
       });
     expect(await inside()).toBe(true);
@@ -133,14 +133,14 @@ test("AC-UX-04: a blocked popup completes in the same window and comes back", as
 }) => {
   const harness = await startConnectorHarness();
   try {
-    await page.goto(
-      harness.url({ connector: "github-app", popup: "blocked" }),
-    );
+    await page.goto(harness.url({ connector: "github-app", popup: "blocked" }));
     const drawer = page.getByRole("dialog");
     await drawer
       .getByRole("button", { name: "Connect GitHub (native app)" })
       .click();
-    await expect(drawer.locator("[data-connector-popup-blocked]")).toBeVisible();
+    await expect(
+      drawer.locator("[data-connector-popup-blocked]"),
+    ).toBeVisible();
     const link = drawer.getByRole("link", { name: "Continue in this window" });
     await expect(link).toBeVisible();
     await link.click();
@@ -149,7 +149,9 @@ test("AC-UX-04: a blocked popup completes in the same window and comes back", as
     await page.getByRole("link", { name: "Approve fixture app" }).click();
     await page.waitForURL(/connection=/);
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("dialog").getByText("Connected", { exact: true })).toBeVisible({
+    await expect(
+      page.getByRole("dialog").getByText("Connected", { exact: true }),
+    ).toBeVisible({
       timeout: 15000,
     });
     // Returning is not what made it connected: the reopened connection was

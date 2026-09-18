@@ -240,8 +240,8 @@ test("an existing instance is inspected and reported without inventing anything"
   }
 });
 
-test("missing optional retrieval support is reported, and the endpoint is never called", async () => {
-  // Independent acceptance: an offering that does not declare
+test("AC-EXT-18: missing optional broker retrieval support is reported, never fabricated", async () => {
+  // The OSB clause of AC-EXT-18, and the independent acceptance criterion: an offering that does not declare
   // bindings_retrievable gets a reported native limitation, not an attempt and
   // not a fabricated response. Same for instances_retrievable.
   const broker = await startServiceBrokerFixture(brokerOptions);
@@ -384,7 +384,9 @@ test("retrieved binding credentials go into custody and never into a result", as
 test("the binding projection separates the credential from the connection information", () => {
   const split = projectOsbBinding({
     credentials: { password: CREDENTIAL_CANARY, port: 5432 },
-    endpoints: [{ host: "db.fixture.invalid", ports: ["5432"], protocol: "tcp" }],
+    endpoints: [
+      { host: "db.fixture.invalid", ports: ["5432"], protocol: "tcp" },
+    ],
     metadata: { expires_at: "2026-12-31T23:59:59.000Z" },
     syslog_drain_url: "https://logs.fixture.invalid/drain",
     volume_mounts: [{}],
@@ -451,7 +453,10 @@ test("verification records what the broker asserted and names what it does not p
     assert.ok(claim.limitations.length >= 2);
     assert.match(claim.limitations[0]!, /broker's assertion/);
     assert.equal(claim.permissions, undefined, "no permission is inferred");
-    assert.deepEqual(result.target, { kind: "service-instance", id: "instance-1" });
+    assert.deepEqual(result.target, {
+      kind: "service-instance",
+      id: "instance-1",
+    });
   } finally {
     await broker.close();
   }

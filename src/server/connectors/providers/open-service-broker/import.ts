@@ -294,7 +294,8 @@ export async function importOpenServiceBrokerCatalog(
           ? "requires-configuration"
           : "unsupported",
         invoke: services.some(
-          (service) => service.instancesRetrievable || service.bindingsRetrievable,
+          (service) =>
+            service.instancesRetrievable || service.bindingsRetrievable,
         )
           ? "requires-configuration"
           : "unsupported",
@@ -342,7 +343,11 @@ export function osbSourceRecord(input: {
   return sourceRecordSchema.parse({
     sourceRef: input.sourceRef,
     identity: input.identity,
-    format: { name: "open-service-broker", version: OSB_API_VERSION, dialect: OSB_PROFILE },
+    format: {
+      name: "open-service-broker",
+      version: OSB_API_VERSION,
+      dialect: OSB_PROFILE,
+    },
     origin: input.origin,
     digest: { algorithm: "sha256", value: sha256Hex(input.bytes) },
     byteLength: input.bytes.byteLength,

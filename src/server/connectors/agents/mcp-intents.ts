@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import { explainConnectorError } from "../errors.js";
@@ -85,7 +84,7 @@ function registerOne(
     intent.name,
     {
       description: intent.description,
-      inputSchema: agentIntentInputs[intent.intent] as z.ZodType,
+      inputSchema: agentIntentInputs[intent.intent],
     },
     async (input: unknown) => {
       const actor = context.actor();

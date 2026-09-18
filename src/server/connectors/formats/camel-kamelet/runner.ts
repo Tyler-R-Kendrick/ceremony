@@ -17,7 +17,11 @@ import {
   destinationUrl,
 } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
-import { kameletNameSchema, kameletPropertyNameSchema, kameletTypeSchema } from "./schemas.js";
+import {
+  kameletNameSchema,
+  kameletPropertyNameSchema,
+  kameletTypeSchema,
+} from "./schemas.js";
 
 /*
  * The seam for running a Kamelet.

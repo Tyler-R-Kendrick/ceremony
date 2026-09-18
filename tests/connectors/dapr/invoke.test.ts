@@ -49,7 +49,10 @@ function connectionRecord(): ConnectionRecord {
 
 function harness(options: {
   origin: string;
-  operations?: Record<string, { operations: string[]; metadataKeys?: string[] }>;
+  operations?: Record<
+    string,
+    { operations: string[]; metadataKeys?: string[] }
+  >;
   inputBindings?: string[];
   unauthenticated?: boolean;
   network?: "loopback-fixture" | "public";
@@ -128,7 +131,11 @@ test("an approved output binding is invoked at the documented route with the API
   const sidecar = await startDaprSidecarFixture({
     apiToken: API_TOKEN,
     components: [
-      { name: "orders-topic", operations: ["create"], reply: { accepted: true } },
+      {
+        name: "orders-topic",
+        operations: ["create"],
+        reply: { accepted: true },
+      },
     ],
   });
   try {
@@ -249,8 +256,9 @@ test("a component the binding did not name does not exist for this adapter", asy
   }
 });
 
-test("a path template naming a different component than the operation is a policy failure", async () => {
-  // AC-EXT-18: a Dapr binding naming another sidecar or component gets nowhere.
+test("AC-EXT-18: a Dapr binding naming another component reaches no sidecar", async () => {
+  // The Dapr clause of AC-EXT-18: arbitrary sidecar or component access is
+  // refused by the binding before any request exists.
   const sidecar = await startDaprSidecarFixture({
     apiToken: API_TOKEN,
     components: [{ name: "payouts-topic", operations: ["create"] }],
@@ -292,7 +300,11 @@ test("an operation pinned to another destination cannot reach the sidecar", asyn
       ...binding,
       destinations: [
         ...binding.destinations,
-        { id: "other", origin: other.origin, network: "loopback-fixture" as const },
+        {
+          id: "other",
+          origin: other.origin,
+          network: "loopback-fixture" as const,
+        },
       ],
       operations: [{ ...binding.operations[0]!, destinationId: "other" }],
     };
@@ -375,7 +387,10 @@ test("an unapproved metadata key is refused, and an approved one is forwarded", 
     const { ctx } = harness({
       origin: sidecar.origin,
       operations: {
-        "orders-topic": { operations: ["create"], metadataKeys: ["partitionKey"] },
+        "orders-topic": {
+          operations: ["create"],
+          metadataKeys: ["partitionKey"],
+        },
       },
     });
     const adapter = createDaprAdapter();
@@ -383,7 +398,10 @@ test("an unapproved metadata key is refused, and an approved one is forwarded", 
       () =>
         adapter.invoke!(ctx, {
           operationRef: "operation:orders",
-          input: { operation: "create", metadata: { url: "https://elsewhere.invalid" } },
+          input: {
+            operation: "create",
+            metadata: { url: "https://elsewhere.invalid" },
+          },
           commandId: "command-8",
         }),
       (error: unknown) =>
@@ -420,7 +438,8 @@ test("an upstream failure on a write is recorded indeterminate, not retried", as
           commandId: "command-10",
         }),
       (error: unknown) =>
-        error instanceof ConnectorError && error.code === "upstream-unavailable",
+        error instanceof ConnectorError &&
+        error.code === "upstream-unavailable",
     );
     const effects = ports.inspect.effects();
     assert.equal(effects[0]!.outcome?.status, "indeterminate");

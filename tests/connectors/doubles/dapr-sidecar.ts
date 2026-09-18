@@ -55,14 +55,18 @@ export async function startDaprSidecarFixture(
       return { status: 405, body: { error: "method not allowed" } };
     const name = decodeURIComponent(match[1]!);
     const component = components.get(name);
-    if (!component) return { status: 404, body: { error: "component not found" } };
+    if (!component)
+      return { status: 404, body: { error: "component not found" } };
     let body: { data?: unknown; metadata?: unknown; operation?: unknown };
     try {
       body = JSON.parse(request.body.toString("utf8")) as typeof body;
     } catch {
       return { status: 400, body: { error: "malformed request" } };
     }
-    if (typeof body.operation !== "string" || !component.operations.includes(body.operation))
+    if (
+      typeof body.operation !== "string" ||
+      !component.operations.includes(body.operation)
+    )
       return { status: 400, body: { error: "unsupported operation" } };
     invocations.push({
       name,
@@ -85,7 +89,9 @@ export async function startDaprSidecarFixture(
     requests: fixture.requests,
     invocations,
     tokensSeen(): Array<string | undefined> {
-      return fixture.requests.map((request) => request.headers["dapr-api-token"]);
+      return fixture.requests.map(
+        (request) => request.headers["dapr-api-token"],
+      );
     },
     close: fixture.close,
   };

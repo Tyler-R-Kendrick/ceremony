@@ -42,7 +42,8 @@ function status(
     runtime: "hosted-server",
     implementation,
     configuration: "not-applicable",
-    evidence: implementation === "unsupported" ? "not-tested" : "protocol-fixture",
+    evidence:
+      implementation === "unsupported" ? "not-tested" : "protocol-fixture",
     limitations: [],
     ...overrides,
   };
@@ -434,7 +435,8 @@ export function blockedDefinition(): NormalizedDefinition {
           disposition: "unsupported",
           severity: "warning",
           executionImpact: "blocks-operation",
-          message: "One parameter serialization is unsupported; that operation is blocked.",
+          message:
+            "One parameter serialization is unsupported; that operation is blocked.",
         },
         {
           code: "openapi.structure.unused-schema",
@@ -546,11 +548,15 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       ...overrides,
     });
 
-  const handoffFor = (state: ConnectionState, kind: "provider-browser" | "private-collector") => ({
+  const handoffFor = (
+    state: ConnectionState,
+    kind: "provider-browser" | "private-collector",
+  ) => ({
     handoffRef: `handoff:${state.summary.connectionRef}:${state.summary.generation}`,
     kind,
     state: "issued" as const,
-    presentation: kind === "provider-browser" ? ("popup" as const) : ("in-app" as const),
+    presentation:
+      kind === "provider-browser" ? ("popup" as const) : ("in-app" as const),
     expiresAt: iso(600_000),
     generation: state.summary.generation,
   });
@@ -682,7 +688,11 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
     if (path === "/import" && request.method === "POST") {
       const input = body as { kind?: string; text?: string; url?: string };
       if (input.kind === "upload" && (input.text ?? "").trim() === "{}")
-        return fail(400, "invalid-document", "That document could not be read.");
+        return fail(
+          400,
+          "invalid-document",
+          "That document could not be read.",
+        );
       const blocked = blockedDefinition();
       return json({
         sourceRef: "source:legacy-signed",
@@ -710,7 +720,10 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       );
       if (!binding)
         return fail(403, "forbidden", "That binding is not approved for you.");
-      if (input.ownerKind === "organization" && !viewer.ownerKinds.includes("organization"))
+      if (
+        input.ownerKind === "organization" &&
+        !viewer.ownerKinds.includes("organization")
+      )
         return fail(
           403,
           "owner-policy",
@@ -839,7 +852,8 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
         });
       }
       if (action === "collect") {
-        const values = (body as { values?: Record<string, string> }).values ?? {};
+        const values =
+          (body as { values?: Record<string, string> }).values ?? {};
         if (!Object.keys(values).length)
           return fail(400, "invalid-request", "No private values were sent.");
         const ref = `secret:${++sequence}`;
@@ -848,7 +862,8 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       }
       const input = /^handoffs\/([^/]+)\/input$/.exec(action ?? "");
       if (input) {
-        const values = (body as { values?: Record<string, string> }).values ?? {};
+        const values =
+          (body as { values?: Record<string, string> }).values ?? {};
         if (!values.secretRef)
           return fail(
             400,
@@ -872,7 +887,9 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
     handle,
     /** A `fetch` for the client; no network, no server. */
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-      handle(new Request(new URL(String(input), origin), init))) as typeof fetch,
+      handle(
+        new Request(new URL(String(input), origin), init),
+      )) as typeof fetch,
     /** The provider finished; the next poll may observe it. */
     approve(connectionRef?: string) {
       const state = connectionRef
@@ -888,7 +905,9 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       viewer = next;
     },
     bodies() {
-      return requests.map((item) => JSON.stringify(item.body ?? null)).join("\n");
+      return requests
+        .map((item) => JSON.stringify(item.body ?? null))
+        .join("\n");
     },
   };
 }

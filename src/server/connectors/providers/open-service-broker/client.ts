@@ -95,23 +95,37 @@ export function basicAuthorization(username: string, password: string): string {
 }
 
 function statusError(status: number, route: string): ConnectorError {
-  if (status === 401) return new ConnectorError("unauthenticated", { detail: "osb.unauthorized" });
-  if (status === 403) return new ConnectorError("denied", { detail: "osb.forbidden" });
-  if (status === 404) return new ConnectorError("not-found", { detail: "osb.not-found" });
-  if (status === 410) return new ConnectorError("expired", { detail: "osb.gone" });
+  if (status === 401)
+    return new ConnectorError("unauthenticated", {
+      detail: "osb.unauthorized",
+    });
+  if (status === 403)
+    return new ConnectorError("denied", { detail: "osb.forbidden" });
+  if (status === 404)
+    return new ConnectorError("not-found", { detail: "osb.not-found" });
+  if (status === 410)
+    return new ConnectorError("expired", { detail: "osb.gone" });
   if (status === 412)
     /*
      * The broker rejected this platform's declared API version. That is a
      * version-matrix fact, not a transient failure, and it is reported as
      * unsupported rather than retried against a different version.
      */
-    return new ConnectorError("unsupported", { detail: "osb.api-version-rejected" });
-  if (status === 422) return new ConnectorError("conflict", { detail: "osb.concurrency" });
+    return new ConnectorError("unsupported", {
+      detail: "osb.api-version-rejected",
+    });
+  if (status === 422)
+    return new ConnectorError("conflict", { detail: "osb.concurrency" });
   if (status === 429) return new ConnectorError("rate-limited");
   if (status >= 500)
-    return new ConnectorError("upstream-unavailable", { detail: "osb.upstream" });
+    return new ConnectorError("upstream-unavailable", {
+      detail: "osb.upstream",
+    });
   return new ConnectorError("upstream-rejected", {
-    detail: route === OSB_ROUTES.catalog ? "osb.catalog.rejected" : "osb.request.rejected",
+    detail:
+      route === OSB_ROUTES.catalog
+        ? "osb.catalog.rejected"
+        : "osb.request.rejected",
   });
 }
 
@@ -219,7 +233,9 @@ export function createOpenServiceBrokerClient(options: OsbClientOptions) {
     limits,
     destination: options.destination,
     /** `GET /v2/catalog`. */
-    async catalog(request: OsbRequestOptions): Promise<OsbResponse<OsbCatalog>> {
+    async catalog(
+      request: OsbRequestOptions,
+    ): Promise<OsbResponse<OsbCatalog>> {
       return get(OSB_ROUTES.catalog, osbCatalogSchema, request, {
         maxBytes: limits.maxCatalogBytes,
       });
@@ -229,12 +245,17 @@ export function createOpenServiceBrokerClient(options: OsbClientOptions) {
       input: { instanceId: string; serviceId?: string; planId?: string },
       request: OsbRequestOptions,
     ): Promise<OsbResponse<OsbInstance>> {
-      return get(OSB_ROUTES.instance(input.instanceId), osbInstanceSchema, request, {
-        query: {
-          ...(input.serviceId ? { service_id: input.serviceId } : {}),
-          ...(input.planId ? { plan_id: input.planId } : {}),
+      return get(
+        OSB_ROUTES.instance(input.instanceId),
+        osbInstanceSchema,
+        request,
+        {
+          query: {
+            ...(input.serviceId ? { service_id: input.serviceId } : {}),
+            ...(input.planId ? { plan_id: input.planId } : {}),
+          },
         },
-      });
+      );
     },
     /** `GET /v2/service_instances/:instance_id/last_operation`. */
     async instanceLastOperation(

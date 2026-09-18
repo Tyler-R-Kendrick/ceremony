@@ -62,7 +62,10 @@ export function resolveDaprOperation(
     throw new ConnectorError("invalid-request", {
       detail: "dapr.operation.transport",
     });
-  if (operation.transport.method !== "POST" && operation.transport.method !== "PUT")
+  if (
+    operation.transport.method !== "POST" &&
+    operation.transport.method !== "PUT"
+  )
     throw new ConnectorError("invalid-request", {
       detail: "dapr.operation.method",
     });
@@ -128,14 +131,25 @@ async function withApiToken<T>(
  */
 export function validateDaprInput(
   input: unknown,
-  approved: { operations: readonly DaprOperation[]; metadataKeys: readonly string[] },
-): { data?: unknown; metadata?: Record<string, string>; operation: DaprOperation } {
+  approved: {
+    operations: readonly DaprOperation[];
+    metadataKeys: readonly string[];
+  },
+): {
+  data?: unknown;
+  metadata?: Record<string, string>;
+  operation: DaprOperation;
+} {
   const parsed = daprInvokeInputSchema.safeParse(input ?? {});
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "dapr.input.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "dapr.input.invalid",
+    });
   const operation = parsed.data.operation ?? approved.operations[0]!;
   if (!approved.operations.includes(operation))
-    throw new ConnectorError("denied", { detail: "dapr.operation.verb-unapproved" });
+    throw new ConnectorError("denied", {
+      detail: "dapr.operation.verb-unapproved",
+    });
   const metadata = parsed.data.metadata;
   if (metadata)
     for (const key of Object.keys(metadata))

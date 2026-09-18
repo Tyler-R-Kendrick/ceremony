@@ -73,7 +73,10 @@ const forbiddenControl = /[^\P{Cc}\t\n\r]/u;
 const boundedText = z
   .string()
   .max(20_000)
-  .refine((value) => !forbiddenControl.test(value), "Text contains control characters");
+  .refine(
+    (value) => !forbiddenControl.test(value),
+    "Text contains control characters",
+  );
 /** Kubernetes object names: DNS-1123 subdomains, which is what the catalog uses. */
 export const kameletNameSchema = z
   .string()
@@ -103,7 +106,10 @@ export const kameletPropertySchema = z.looseObject({
   default: z.unknown().optional(),
   example: z.unknown().optional(),
   enum: z.array(z.unknown()).max(512).optional(),
-  "x-descriptors": z.array(z.string().max(200).regex(noControl)).max(16).optional(),
+  "x-descriptors": z
+    .array(z.string().max(200).regex(noControl))
+    .max(16)
+    .optional(),
 });
 export type KameletPropertyDocument = z.infer<typeof kameletPropertySchema>;
 
@@ -112,7 +118,9 @@ export const kameletDefinitionSchema = z.looseObject({
   description: boundedText.optional(),
   type: z.literal("object").optional(),
   required: z.array(kameletPropertyNameSchema).max(256).optional(),
-  properties: z.record(kameletPropertyNameSchema, kameletPropertySchema).optional(),
+  properties: z
+    .record(kameletPropertyNameSchema, kameletPropertySchema)
+    .optional(),
 });
 
 /**
@@ -141,7 +149,10 @@ export const kameletDocumentSchema = z.looseObject({
   }),
   spec: z.looseObject({
     definition: kameletDefinitionSchema.optional(),
-    dependencies: z.array(z.string().max(256).regex(noControl)).max(256).optional(),
+    dependencies: z
+      .array(z.string().max(256).regex(noControl))
+      .max(256)
+      .optional(),
     template: kameletTemplateSchema.optional(),
     dataTypes: z.unknown().optional(),
   }),
@@ -184,7 +195,10 @@ const credentialNamePattern =
 export function classifyKameletProperty(
   name: string,
   property: KameletPropertyDocument,
-): { classification: KameletProperty["classification"]; source: KameletSecrecySource } {
+): {
+  classification: KameletProperty["classification"];
+  source: KameletSecrecySource;
+} {
   const descriptors = property["x-descriptors"] ?? [];
   if (descriptors.includes(KAMELET_CREDENTIAL_DESCRIPTOR))
     return { classification: "secret", source: "credentials-descriptor" };
@@ -198,7 +212,9 @@ export function classifyKameletProperty(
 }
 
 /** `camel.apache.org/kamelet.type` is the only place the role is stated. */
-export function kameletTypeOf(document: KameletDocument): KameletType | undefined {
+export function kameletTypeOf(
+  document: KameletDocument,
+): KameletType | undefined {
   const raw = document.metadata.labels?.[KAMELET_TYPE_LABEL];
   const parsed = kameletTypeSchema.safeParse(raw);
   return parsed.success ? parsed.data : undefined;

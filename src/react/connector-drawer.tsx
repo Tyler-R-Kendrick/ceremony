@@ -130,7 +130,11 @@ export function ConnectorDrawer({
   useFocusTrap(panel, open, close);
   if (!open) return null;
   return (
-    <div data-connector="" data-connector-drawer-root="" className="connector-drawer-root">
+    <div
+      data-connector=""
+      data-connector-drawer-root=""
+      className="connector-drawer-root"
+    >
       {/*
         A person who clicks beside the drawer means to leave it. It is a button
         so the intent is reachable from a screen reader too, and it is hidden

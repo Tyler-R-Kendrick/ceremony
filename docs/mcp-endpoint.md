@@ -60,15 +60,15 @@ It does not certify any provider. Driving a real provider from chat still runs t
 
 Two unrelated things in this repository both say "MCP", and confusing them is how a deployment ends up forwarding the wrong token to the wrong party.
 
-|                            | **Inbound: Ceremony as an MCP server**                                   | **Outbound: Ceremony as an MCP client**                                        |
-| -------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Code                       | `src/server/mcp.ts`, `src/server/agent-tools.ts`                          | `src/server/connectors/mcp/`                                                     |
-| Who authenticates whom     | A chat client presents a bearer token **to** this deployment              | This deployment presents a credential **to** somebody else's server               |
-| The token                  | Issued by this deployment's configured issuer, audience-bound to this endpoint | Issued by the remote server's authorization server, held in this deployment's custody |
-| Discovery                  | This endpoint **publishes** RFC 9728 protected-resource metadata          | The client **reads** the remote server's 401 challenge and metadata               |
-| Client registration        | Not our concern; the configured issuer owns it                            | Pre-registered, or CIMD, or Dynamic Client Registration, in host policy order     |
-| Protocol revision          | Whatever `@modelcontextprotocol/server` v2 serves                         | Pinned per binding: `2026-07-28`, or the `2025-11-25`/`2025-06-18` legacy era     |
-| What a failure means       | A client cannot drive a run here                                          | A connection to an external service is unavailable                                |
+|                        | **Inbound: Ceremony as an MCP server**                                         | **Outbound: Ceremony as an MCP client**                                               |
+| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Code                   | `src/server/mcp.ts`, `src/server/agent-tools.ts`                               | `src/server/connectors/mcp/`                                                          |
+| Who authenticates whom | A chat client presents a bearer token **to** this deployment                   | This deployment presents a credential **to** somebody else's server                   |
+| The token              | Issued by this deployment's configured issuer, audience-bound to this endpoint | Issued by the remote server's authorization server, held in this deployment's custody |
+| Discovery              | This endpoint **publishes** RFC 9728 protected-resource metadata               | The client **reads** the remote server's 401 challenge and metadata                   |
+| Client registration    | Not our concern; the configured issuer owns it                                 | Pre-registered, or CIMD, or Dynamic Client Registration, in host policy order         |
+| Protocol revision      | Whatever `@modelcontextprotocol/server` v2 serves                              | Pinned per binding: `2026-07-28`, or the `2025-11-25`/`2025-06-18` legacy era         |
+| What a failure means   | A client cannot drive a run here                                               | A connection to an external service is unavailable                                    |
 
 The rule that matters: **a Ceremony token is never passed to an unrelated downstream service, and a remote server's credential never authenticates a request to this endpoint.** The outbound client validates the resource and audience of what it obtains, and an access token valid for another resource is not accepted or forwarded as authority. The two sides share no credential, no session and no client registration.
 

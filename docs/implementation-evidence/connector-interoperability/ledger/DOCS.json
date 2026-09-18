@@ -124,7 +124,11 @@
       "tests": [],
       "acceptanceIds": ["AC-MCP-06", "AC-AUTH-18"],
       "evidenceLevel": "not-tested",
-      "sourceProfileIds": ["mcp-2026-07-28-authorization", "rfc9728", "rfc8693"],
+      "sourceProfileIds": [
+        "mcp-2026-07-28-authorization",
+        "rfc9728",
+        "rfc8693"
+      ],
       "limitations": [
         "Only claims that were verified false against the code were changed. Statements that are still accurate were left alone, including that generation and discovery are not exposed over MCP and that the reference application does not mount the in-chat collector",
         "No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record",

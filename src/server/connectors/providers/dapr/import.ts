@@ -110,7 +110,9 @@ export async function importDaprComponent(
     });
   const component = document.data;
   if (component.kind !== DAPR_COMPONENT_KIND)
-    throw new ConnectorError("invalid-request", { detail: "dapr.component.kind" });
+    throw new ConnectorError("invalid-request", {
+      detail: "dapr.component.kind",
+    });
   if (component.apiVersion !== DAPR_COMPONENT_API_VERSION)
     throw new ConnectorError("unsupported", {
       detail: "dapr.component.api-version",
@@ -156,7 +158,11 @@ export async function importDaprComponent(
   const metadata: DaprMetadataDescription[] = [];
   for (const entry of entries) {
     const { classification, fromSecretStore } = classifyDaprMetadata(entry);
-    if (classification === "secret" && !fromSecretStore && entry.value !== undefined)
+    if (
+      classification === "secret" &&
+      !fromSecretStore &&
+      entry.value !== undefined
+    )
       issues.push({
         code: "dapr.metadata.inline-credential",
         category: "security",
@@ -181,7 +187,9 @@ export async function importDaprComponent(
         ? {
             secretStoreRef: {
               name: entry.secretKeyRef.name,
-              ...(entry.secretKeyRef.key ? { key: entry.secretKeyRef.key } : {}),
+              ...(entry.secretKeyRef.key
+                ? { key: entry.secretKeyRef.key }
+                : {}),
             },
           }
         : {}),

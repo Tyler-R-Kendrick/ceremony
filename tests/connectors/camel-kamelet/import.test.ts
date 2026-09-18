@@ -21,7 +21,9 @@ import { canaries } from "../fixtures/builders.js";
 
 const fixture = (name: string) =>
   readFile(
-    fileURLToPath(new URL(`../fixtures/camel-kamelet/${name}`, import.meta.url)),
+    fileURLToPath(
+      new URL(`../fixtures/camel-kamelet/${name}`, import.meta.url),
+    ),
   );
 
 const importFixture = async (name: string) =>
@@ -72,7 +74,10 @@ test("credential properties are classified secret from the catalog's own markers
   assert.equal(byName.get("region")?.required, true);
   assert.equal(byName.get("deleteAfterRead")?.required, false);
   assert.equal(byName.get("deleteAfterRead")?.default, true);
-  assert.deepEqual(byName.get("region")?.enumValues, ["eu-west-1", "us-east-1"]);
+  assert.deepEqual(byName.get("region")?.enumValues, [
+    "eu-west-1",
+    "us-east-1",
+  ]);
   // No heuristic was needed, so none is reported.
   assert.equal(
     imported.issues.some(
@@ -185,7 +190,10 @@ test("hostile YAML is refused within bounds and with a sanitized code", async ()
     await assert.rejects(
       () => importFixture(name),
       (error: unknown) => {
-        assert.ok(error instanceof ConnectorError, `${name} threw a ConnectorError`);
+        assert.ok(
+          error instanceof ConnectorError,
+          `${name} threw a ConnectorError`,
+        );
         assert.equal(error.code, code);
         // The message says nothing about the document's contents.
         assert.equal(/target|python|os\.system/i.test(error.message), false);

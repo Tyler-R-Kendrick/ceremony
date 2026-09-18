@@ -69,7 +69,10 @@ export function IssueList({
   return (
     <div data-connector-issues="" aria-label={label} role="group">
       {groups.map((group) => (
-        <section key={group.category} data-connector-issue-group={group.category}>
+        <section
+          key={group.category}
+          data-connector-issue-group={group.category}
+        >
           <h5>
             {group.category}
             {group.blocking > 0 && (
@@ -156,8 +159,7 @@ function ProfileSummary({ definition }: { definition: NormalizedDefinition }) {
         return (
           <li key={profile.id} data-profile-kind={profile.kind}>
             <p>
-              <strong>{profile.label}</strong>{" "}
-              <Chip>{profile.kind}</Chip>
+              <strong>{profile.label}</strong> <Chip>{profile.kind}</Chip>
               {profile.kind === "unsupported" && (
                 <>
                   {" "}
@@ -289,7 +291,11 @@ export function DefinitionReviewPanel({
       </dl>
 
       {blocking.length > 0 && (
-        <div className="connector-notice" role="alert" data-connector-blocking="">
+        <div
+          className="connector-notice"
+          role="alert"
+          data-connector-blocking=""
+        >
           <h5>
             {blocking.length} security-relevant{" "}
             {blocking.length === 1 ? "loss" : "losses"} block execution
@@ -578,8 +584,8 @@ export function ConnectorImport({
       {result && (
         <p role="status">
           {result.definitions.length}{" "}
-          {result.definitions.length === 1 ? "description" : "descriptions"} read
-          from <code>{result.sourceRef}</code>;{" "}
+          {result.definitions.length === 1 ? "description" : "descriptions"}{" "}
+          read from <code>{result.sourceRef}</code>;{" "}
           {result.executableCandidates.length} capability
           {result.executableCandidates.length === 1 ? "" : "s"} a reviewer may
           bind. Nothing executable was registered by this import.

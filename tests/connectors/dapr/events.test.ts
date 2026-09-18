@@ -23,14 +23,23 @@ import {
 const APP_TOKEN = "fixture-app-api-token";
 const APP_TOKEN_CONFIGURATION = "DAPR_APP_API_TOKEN";
 
-function harness(options: { inputBindings?: string[]; appToken?: string | null } = {}) {
+function harness(
+  options: { inputBindings?: string[]; appToken?: string | null } = {},
+) {
   const ports = memoryPorts();
   if (options.appToken !== null)
-    ports.configuration.set(APP_TOKEN_CONFIGURATION, options.appToken ?? APP_TOKEN);
+    ports.configuration.set(
+      APP_TOKEN_CONFIGURATION,
+      options.appToken ?? APP_TOKEN,
+    );
   const binding = buildBinding({
     adapterId: "dapr",
     destinations: [
-      { id: "sidecar", origin: "http://127.0.0.1:3500", network: "loopback-fixture" },
+      {
+        id: "sidecar",
+        origin: "http://127.0.0.1:3500",
+        network: "loopback-fixture",
+      },
     ],
     operations: [],
     configuration: [],
@@ -71,7 +80,10 @@ test("a delivery carrying the app API token becomes a verified envelope", async 
   });
   assert.equal(outcome.ok, true);
   if (!outcome.ok) return;
-  assert.equal(outcome.envelope.providerEventType, "dapr.binding.input.orders-topic");
+  assert.equal(
+    outcome.envelope.providerEventType,
+    "dapr.binding.input.orders-topic",
+  );
   assert.equal(outcome.envelope.authority, "dapr:ceremony-fixture-app");
   assert.equal(outcome.envelope.verification.method, "vendor-signature");
   assert.equal(outcome.envelope.verification.keyId, "app-api-token");
@@ -125,7 +137,10 @@ test("a delivery for a component the binding did not approve is rejected before 
     delivery,
   });
   assert.equal(outcome.ok, false);
-  assert.equal(outcome.ok === false ? outcome.reason : "", "binding-unapproved");
+  assert.equal(
+    outcome.ok === false ? outcome.reason : "",
+    "binding-unapproved",
+  );
 });
 
 test("with no app token configured nothing is authenticated, rather than everything", async () => {

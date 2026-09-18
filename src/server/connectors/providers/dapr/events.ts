@@ -12,7 +12,10 @@ import {
   daprSidecarFromBinding,
   type DaprBindingSettings,
 } from "./binding-settings.js";
-import { DAPR_APP_API_TOKEN_HEADER, daprComponentNameSchema } from "./schemas.js";
+import {
+  DAPR_APP_API_TOKEN_HEADER,
+  daprComponentNameSchema,
+} from "./schemas.js";
 
 /*
  * Receiving a Dapr input binding delivery.
@@ -100,7 +103,10 @@ export async function verifyDaprInputDelivery(
     resolved.appApiTokenConfiguration,
   );
   if (!expected) return { ok: false, reason: "no-app-token-configured" };
-  const provided = headerValue(input.delivery.headers, DAPR_APP_API_TOKEN_HEADER);
+  const provided = headerValue(
+    input.delivery.headers,
+    DAPR_APP_API_TOKEN_HEADER,
+  );
   if (!provided) return { ok: false, reason: "missing-token" };
   if (!tokenMatches(expected, provided))
     return { ok: false, reason: "token-mismatch" };
@@ -111,7 +117,9 @@ export async function verifyDaprInputDelivery(
   if (input.delivery.body.byteLength > 0) {
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(input.delivery.body);
+      text = new TextDecoder("utf-8", { fatal: true }).decode(
+        input.delivery.body,
+      );
     } catch {
       return { ok: false, reason: "body-invalid" };
     }

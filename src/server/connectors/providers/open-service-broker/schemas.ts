@@ -33,7 +33,8 @@ export const OSB_SOURCE = Object.freeze({
 });
 
 export const OSB_API_VERSION_HEADER = "x-broker-api-version";
-export const OSB_ORIGINATING_IDENTITY_HEADER = "x-broker-api-originating-identity";
+export const OSB_ORIGINATING_IDENTITY_HEADER =
+  "x-broker-api-originating-identity";
 export const OSB_REQUEST_IDENTITY_HEADER = "x-broker-api-request-identity";
 
 /** Routes this adapter is allowed to build. Every one of them is a GET. */
@@ -153,7 +154,11 @@ export const osbBindingSchema = z.looseObject({
 });
 export type OsbBinding = z.infer<typeof osbBindingSchema>;
 
-export const osbOperationStates = ["in progress", "succeeded", "failed"] as const;
+export const osbOperationStates = [
+  "in progress",
+  "succeeded",
+  "failed",
+] as const;
 export const osbLastOperationSchema = z.looseObject({
   state: z.enum(osbOperationStates),
   description: boundedText.optional(),

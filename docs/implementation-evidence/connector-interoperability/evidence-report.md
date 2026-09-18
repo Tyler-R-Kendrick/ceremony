@@ -15,9 +15,9 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 ## Requirement coverage
 
 - Required work items in the charter: 154.
-- Delivered with a ledger entry: 115.
-- Implemented: 110. Partial or unmet: 5. No ledger entry at all: 39.
-- Ledgers read: 22 (CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW).
+- Delivered with a ledger entry: 120.
+- Implemented: 115. Partial or unmet: 5. No ledger entry at all: 34.
+- Ledgers read: 23 (AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW).
 
 ## Recorded test run
 
@@ -25,277 +25,1277 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 - Tested commit: `19ad92dfa37a9dfa8f3fee16631c2e6b50ba7b0b+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 0; passed 0, failed 0, skipped 0
-- Ledger-named test files covered by that run: 0 of 177.
+- Ledger-named test files covered by that run: 0 of 186.
 
-**This run is older than the ledgers.** 177 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
+**This run is older than the ledgers.** 186 test files named by a ledger have no result in it, so their rows below read `not in the recorded run`. Re-run `npm run evidence:connectors` to refresh, then regenerate this document. A missing result is not a failure and is not reported as one.
 
 ## Requirements with no ledger entry
 
 Named directly. These are required work items nobody delivered. They are listed here rather than folded into a claim that every swarm completed.
 
-| Item | Swarm |
-| --- | --- |
-| IB-01 | IDENTITY-BROKERS |
-| IB-02 | IDENTITY-BROKERS |
-| IB-03 | IDENTITY-BROKERS |
-| IB-04 | IDENTITY-BROKERS |
-| IB-05 | IDENTITY-BROKERS |
-| AUTO-01 | AUTOMATION |
-| AUTO-02 | AUTOMATION |
-| AUTO-03 | AUTOMATION |
-| AUTO-04 | AUTOMATION |
-| AUTO-05 | AUTOMATION |
-| BIND-01 | BINDINGS |
-| BIND-02 | BINDINGS |
-| BIND-03 | BINDINGS |
-| BIND-04 | BINDINGS |
-| BIND-05 | BINDINGS |
-| AG-01 | AGENT-SURFACES |
-| AG-02 | AGENT-SURFACES |
-| AG-03 | AGENT-SURFACES |
-| AG-04 | AGENT-SURFACES |
-| AG-05 | AGENT-SURFACES |
-| UX-01 | UX |
-| UX-02 | UX |
-| UX-03 | UX |
-| UX-04 | UX |
-| UX-05 | UX |
-| UX-06 | UX |
-| UX-07 | UX |
-| SEC-01 | SECURITY |
-| SEC-02 | SECURITY |
-| SEC-03 | SECURITY |
-| SEC-04 | SECURITY |
-| SEC-05 | SECURITY |
-| SEC-06 | SECURITY |
-| QA-01 | QA |
-| QA-02 | QA |
-| QA-03 | QA |
-| QA-04 | QA |
-| QA-05 | QA |
-| QA-06 | QA |
+| Item    | Swarm            |
+| ------- | ---------------- |
+| IB-01   | IDENTITY-BROKERS |
+| IB-02   | IDENTITY-BROKERS |
+| IB-03   | IDENTITY-BROKERS |
+| IB-04   | IDENTITY-BROKERS |
+| IB-05   | IDENTITY-BROKERS |
+| AUTO-01 | AUTOMATION       |
+| AUTO-02 | AUTOMATION       |
+| AUTO-03 | AUTOMATION       |
+| AUTO-04 | AUTOMATION       |
+| AUTO-05 | AUTOMATION       |
+| BIND-01 | BINDINGS         |
+| BIND-02 | BINDINGS         |
+| BIND-03 | BINDINGS         |
+| BIND-04 | BINDINGS         |
+| BIND-05 | BINDINGS         |
+| UX-01   | UX               |
+| UX-02   | UX               |
+| UX-03   | UX               |
+| UX-04   | UX               |
+| UX-05   | UX               |
+| UX-06   | UX               |
+| UX-07   | UX               |
+| SEC-01  | SECURITY         |
+| SEC-02  | SECURITY         |
+| SEC-03  | SECURITY         |
+| SEC-04  | SECURITY         |
+| SEC-05  | SECURITY         |
+| SEC-06  | SECURITY         |
+| QA-01   | QA               |
+| QA-02   | QA               |
+| QA-03   | QA               |
+| QA-04   | QA               |
+| QA-05   | QA               |
+| QA-06   | QA               |
 
 ## Partial and unmet requirements
 
-| Item | Swarm | Status | Why |
-| --- | --- | --- | --- |
-| INT-02 | INT | partial | Adapter mounting through one inventory and the reference UI happens after the provider swarms deliver. |
-| INT-03 | INT | partial | see the ledger |
-| INT-04 | INT | unmet | Optional server export and packed-consumer tests pending integration. |
-| INT-05 | INT | unmet | PR #39 reconciliation pending the UX swarm's control audit. |
-| INT-06 | INT | partial | Integrated gates not yet run. |
+| Item   | Swarm | Status  | Why                                                                                                    |
+| ------ | ----- | ------- | ------------------------------------------------------------------------------------------------------ |
+| INT-02 | INT   | partial | Adapter mounting through one inventory and the reference UI happens after the provider swarms deliver. |
+| INT-03 | INT   | partial | see the ledger                                                                                         |
+| INT-04 | INT   | unmet   | Optional server export and packed-consumer tests pending integration.                                  |
+| INT-05 | INT   | unmet   | PR #39 reconciliation pending the UX swarm's control audit.                                            |
+| INT-06 | INT   | partial | Integrated gates not yet run.                                                                          |
 
 ## Blocked live prerequisites
 
 Each of these stays `blocked` and fails closed. None is relabelled as a fixture pass, and `verify:live` and `verify:release` will keep reporting them until the exact prerequisite exists.
 
-| Item | Swarm | Exact prerequisite |
-| --- | --- | --- |
-| IMP-05 | IMPORT | The security classification is pointer-pattern based and covers OpenAPI 2/3, AsyncAPI, Arazzo sourceDescriptions and MCP server.json packages/remotes. A format whose security semantics live elsewhere needs its rule added; unmatched changes are reported as structural, never dropped. |
-| HTTP-01 | HTTP | External $ref resolution happens only through the caller's resolveExternal hook; without one, constructs behind an external reference are reported unresolved and blocked, never guessed. |
-| HTTP-01 | HTTP | Examples, defaults and credential-named vendor keys are dropped from preserved extensions at the import boundary; a vendor extension with a neutral key that embeds a secret in an unnamed field would still be preserved for reviewers. |
-| HTTP-02 | HTTP | The OAuth implicit and password flows are preserved as unsupported profiles with blocking issues (RFC 9700); no usable credential path is invented for them. |
-| HTTP-03 | HTTP | Blocked with serialization.* issues: multipart, form-urlencoded, XML, streaming and any other media type; cookie parameters; 3.2 querystring parameters; parameters described by content; deepObject, spaceDelimited, pipeDelimited, matrix and label styles. |
-| HTTP-04 | HTTP | Credentials come from ctx.environment.credentials.use only. The adapter reads apiKey/username/password/accessToken (optionally suffixed ':<profileId>' when several profiles are presented together); the integrator's credential layer must write those names. |
-| HTTP-04 | HTTP | Verification is available only when the host names an approved read operation as verifier, and it claims credential-accepted against the destination origin — never account identity. |
-| WF-02 | WORKFLOW | Executable profile only: parallel semantics, goto branching, conditional end, failure goto, channel/async steps, payload replacements, querystring parameters, non-JSON request bodies, selector objects, embedded {$...} templates and pointer extraction inside bindings are preserved and blocked, never approximated. |
-| WF-03 | WORKFLOW | Only `simple` criteria are evaluated. regex, jsonpath and xpath criteria are parsed for their embedded expressions, preserved and blocked; this runtime implements none of those languages. |
-| WF-05 | WORKFLOW | The provider is a loopback HTTP fixture on an ephemeral port; no live provider evidence is claimed. |
-| REG-01 | REGISTRY | Live evidence blocked: tests never reach the network; the loopback double is authored from the published API documents. |
-| REG-05 | REGISTRY | No live publication: the official registry source ships with publication disabled and no deployment token exists here. |
-| MCP-06 | MCP | Live authorized evidence is blocked: no credentials for a deployed MCP server are available in this environment. |
-| MCP-06 | MCP | verify establishes that the credential was accepted by the origin and says explicitly that server identity is not attested beyond TLS. |
-| VC-01 | VERCEL | Live account evidence blocked: no authorized Vercel team credentials |
-| VC-01 | VERCEL | Connector create/update bodies are carried as a bounded opaque `data` object per connector type; the adapter does not validate provider-specific credential shapes (16 type variants in the OpenAPI document) |
-| VC-02 | VERCEL | Live account evidence blocked: no authorized Vercel credentials |
-| VC-03 | VERCEL | Live account evidence blocked: no authorized Vercel credentials |
-| VC-06 | VERCEL | Because the credential authenticates the forwarder rather than the bytes, the recorded forwarderHops entry sets bodyBound:false; there is no nonce or delivery de-duplication, exactly as the Chat SDK page states |
-| VC-06 | VERCEL | No live Vercel delivery was observed: every trigger is a locally minted token over loopback |
-| SB-01 | SUPABASE | Live account evidence blocked: no authorized Supabase OAuth app or dashboard account in this environment |
-| SB-03 | SUPABASE | Live project evidence blocked: no authorized Supabase project in this environment |
-| NG-01 | NANGO | Integration client credentials are never requested (include=credentials is never sent), so discovery cannot report OAuth client ids or scopes configured in Nango. |
-| PD-01 | PIPEDREAM | Live account evidence blocked: no authorized Pipedream project credentials in this environment. |
-| PD-03 | PIPEDREAM | Component descriptions are imported as inert NativeCapability descriptors; no component source is fetched or evaluated. File Stash components are execution-blocked with a precise diagnostic. |
-| PD-04 | PIPEDREAM | The signing key returned by a deploy is stored in credential custody, and the reference is returned in the invoke output as output.delivery.signingKeyRef. EventPort.verify reads references from connection.state.pipedreamTriggerKeys, so the command layer must copy that reference onto the connection (see integrationPatch |
-| CO-01 | COMPOSIO | Live account evidence blocked: no authorized Composio project credentials in this execution. |
-| CO-02 | COMPOSIO | Only hosted OAuth auth configs are driven. An API_KEY auth config returns {kind: "unsupported", code: "composio.auth-scheme.not-hosted"} because completing it would require submitting the end user's credential to Composio. |
-| CO-02 | COMPOSIO | connection.state.val is sent as an empty object: it carries per-scheme dynamic fields and this adapter collects no provider credential. |
-| CO-03 | COMPOSIO | POST /api/v3/tool_router/session/{id}/proxy_execute is deliberately not bound: a credentialed generic proxy is a confused deputy. |
-| CAT-01 | CATALOGS | Live evidence blocked: no authorized Smithery account or API key in this environment. |
-| CAT-02 | CATALOGS | Live evidence blocked: no authorized Smithery namespace or service token in this environment. |
-| CAT-04 | CATALOGS | Live evidence blocked: no PulseMCP tenant API key in this environment. |
-| DATA-01 | DATA | The public Airbyte API documents no source check_connection operation; verify() infers reachability from a live (ignoreCache=true) stream-properties discovery and records that limitation on the claim. The deprecated Configuration API (/api/v1/sources/check_connection, discover_schema) is deliberately not called: Airbyt |
-| DATA-01 | DATA | Live account evidence blocked: no authorized Airbyte deployment credentials in this environment. |
-| DATA-02 | DATA | Pinned to ndc-spec ^0.2.0, implemented against 0.2.5 (latest in the published changelog on 2026-09-18). A connector declaring 0.1.x is blocked with a version diagnostic rather than downgraded. |
-| DATA-02 | DATA | Live evidence blocked: no authorized NDC connector deployment. |
-| DATA-03 | DATA | Live account evidence blocked: no authorized Merge account, no real Link session. |
-| CLOUD-01 | CLOUD | Live account evidence blocked: no authorized AWS credentials and no gateway in this environment |
-| CLOUD-03 | CLOUD | Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment |
-| CMD-06 | COMMAND | The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour. |
-| DOC-01 | DOCS | Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere |
-| DOC-04 | DOCS | It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment |
-| DOC-05 | DOCS | No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record |
+- **IMP-05** (IMPORT): The security classification is pointer-pattern based and covers OpenAPI 2/3, AsyncAPI, Arazzo sourceDescriptions and MCP server.json packages/remotes. A format whose security semantics live elsewhere needs its rule added; unmatched changes are reported as structural, never dropped.
+- **HTTP-01** (HTTP): External $ref resolution happens only through the caller's resolveExternal hook; without one, constructs behind an external reference are reported unresolved and blocked, never guessed.
+- **HTTP-01** (HTTP): Examples, defaults and credential-named vendor keys are dropped from preserved extensions at the import boundary; a vendor extension with a neutral key that embeds a secret in an unnamed field would still be preserved for reviewers.
+- **HTTP-02** (HTTP): The OAuth implicit and password flows are preserved as unsupported profiles with blocking issues (RFC 9700); no usable credential path is invented for them.
+- **HTTP-03** (HTTP): Blocked with serialization.* issues: multipart, form-urlencoded, XML, streaming and any other media type; cookie parameters; 3.2 querystring parameters; parameters described by content; deepObject, spaceDelimited, pipeDelimited, matrix and label styles.
+- **HTTP-04** (HTTP): Credentials come from ctx.environment.credentials.use only. The adapter reads apiKey/username/password/accessToken (optionally suffixed ':<profileId>' when several profiles are presented together); the integrator's credential layer must write those names.
+- **HTTP-04** (HTTP): Verification is available only when the host names an approved read operation as verifier, and it claims credential-accepted against the destination origin — never account identity.
+- **WF-02** (WORKFLOW): Executable profile only: parallel semantics, goto branching, conditional end, failure goto, channel/async steps, payload replacements, querystring parameters, non-JSON request bodies, selector objects, embedded {$...} templates and pointer extraction inside bindings are preserved and blocked, never approximated.
+- **WF-03** (WORKFLOW): Only `simple` criteria are evaluated. regex, jsonpath and xpath criteria are parsed for their embedded expressions, preserved and blocked; this runtime implements none of those languages.
+- **WF-05** (WORKFLOW): The provider is a loopback HTTP fixture on an ephemeral port; no live provider evidence is claimed.
+- **REG-01** (REGISTRY): Live evidence blocked: tests never reach the network; the loopback double is authored from the published API documents.
+- **REG-05** (REGISTRY): No live publication: the official registry source ships with publication disabled and no deployment token exists here.
+- **MCP-06** (MCP): Live authorized evidence is blocked: no credentials for a deployed MCP server are available in this environment.
+- **MCP-06** (MCP): verify establishes that the credential was accepted by the origin and says explicitly that server identity is not attested beyond TLS.
+- **VC-01** (VERCEL): Live account evidence blocked: no authorized Vercel team credentials
+- **VC-01** (VERCEL): Connector create/update bodies are carried as a bounded opaque `data` object per connector type; the adapter does not validate provider-specific credential shapes (16 type variants in the OpenAPI document)
+- **VC-02** (VERCEL): Live account evidence blocked: no authorized Vercel credentials
+- **VC-03** (VERCEL): Live account evidence blocked: no authorized Vercel credentials
+- **VC-06** (VERCEL): Because the credential authenticates the forwarder rather than the bytes, the recorded forwarderHops entry sets bodyBound:false; there is no nonce or delivery de-duplication, exactly as the Chat SDK page states
+- **VC-06** (VERCEL): No live Vercel delivery was observed: every trigger is a locally minted token over loopback
+- **SB-01** (SUPABASE): Live account evidence blocked: no authorized Supabase OAuth app or dashboard account in this environment
+- **SB-03** (SUPABASE): Live project evidence blocked: no authorized Supabase project in this environment
+- **NG-01** (NANGO): Integration client credentials are never requested (include=credentials is never sent), so discovery cannot report OAuth client ids or scopes configured in Nango.
+- **PD-01** (PIPEDREAM): Live account evidence blocked: no authorized Pipedream project credentials in this environment.
+- **PD-03** (PIPEDREAM): Component descriptions are imported as inert NativeCapability descriptors; no component source is fetched or evaluated. File Stash components are execution-blocked with a precise diagnostic.
+- **PD-04** (PIPEDREAM): The signing key returned by a deploy is stored in credential custody, and the reference is returned in the invoke output as output.delivery.signingKeyRef. EventPort.verify reads references from connection.state.pipedreamTriggerKeys, so the command layer must copy that reference onto the connection (see integrationPatches).
+- **CO-01** (COMPOSIO): Live account evidence blocked: no authorized Composio project credentials in this execution.
+- **CO-02** (COMPOSIO): Only hosted OAuth auth configs are driven. An API_KEY auth config returns {kind: "unsupported", code: "composio.auth-scheme.not-hosted"} because completing it would require submitting the end user's credential to Composio.
+- **CO-02** (COMPOSIO): connection.state.val is sent as an empty object: it carries per-scheme dynamic fields and this adapter collects no provider credential.
+- **CO-03** (COMPOSIO): POST /api/v3/tool_router/session/{id}/proxy_execute is deliberately not bound: a credentialed generic proxy is a confused deputy.
+- **CAT-01** (CATALOGS): Live evidence blocked: no authorized Smithery account or API key in this environment.
+- **CAT-02** (CATALOGS): Live evidence blocked: no authorized Smithery namespace or service token in this environment.
+- **CAT-04** (CATALOGS): Live evidence blocked: no PulseMCP tenant API key in this environment.
+- **DATA-01** (DATA): The public Airbyte API documents no source check_connection operation; verify() infers reachability from a live (ignoreCache=true) stream-properties discovery and records that limitation on the claim. The deprecated Configuration API (/api/v1/sources/check_connection, discover_schema) is deliberately not called: Airbyte documents it as internal and unsupported.
+- **DATA-01** (DATA): Live account evidence blocked: no authorized Airbyte deployment credentials in this environment.
+- **DATA-02** (DATA): Pinned to ndc-spec ^0.2.0, implemented against 0.2.5 (latest in the published changelog on 2026-09-18). A connector declaring 0.1.x is blocked with a version diagnostic rather than downgraded.
+- **DATA-02** (DATA): Live evidence blocked: no authorized NDC connector deployment.
+- **DATA-03** (DATA): Live account evidence blocked: no authorized Merge account, no real Link session.
+- **CLOUD-01** (CLOUD): Live account evidence blocked: no authorized AWS credentials and no gateway in this environment
+- **CLOUD-03** (CLOUD): Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment
+- **AG-02** (AGENT-SURFACES): Verification compares the served card with the reviewed one (name, profile, interface URL, protocol version) and records `credential-accepted` plus `resource-access`. It deliberately asserts no account identity: an Agent Card is the agent's own statement.
+- **AG-04** (AGENT-SURFACES): Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.
+- **CMD-06** (COMMAND): The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour.
+- **DOC-01** (DOCS): Every dialect claim is protocol-fixture or unit evidence: no live or vendor-certified behaviour is described anywhere
+- **DOC-04** (DOCS): It cannot be verified against a live deployment, because no authorized vendor credentials exist in this environment
+- **DOC-05** (DOCS): No provider-certification statement was strengthened: the MCP HTTP authorization and token-exchange rows now say 'implemented outbound (protocol fixture, not live)', which is exactly the evidence the OAUTH and MCP ledgers record
 
 ## Requirements, files, tests, results and pinned sources
 
-One row per required work item. `Result` is `pass`, `fail` or `not in the recorded run`, taken from the recorded JUnit counts and never from a ledger's own claim.
+One entry per required work item, joined to the ledger that delivered it. A result is `pass`, `fail` or `not in the recorded run`, taken from the recorded JUnit counts and never from a ledger's own claim.
 
-| Item | Swarm | Status | Evidence | Files | Acceptance | Pinned sources | Tests (result) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| INT-01 | INT | implemented | not-tested | 3 | — | — | none |
-| INT-02 | INT | partial | not-tested | 1 | AC-UX-01 | — | none |
-| INT-03 | INT | partial | not-tested | 2 | AC-PKG-02 | — | none |
-| INT-04 | INT | unmet | not-tested | 0 | AC-PKG-01, AC-PKG-02 | — | none |
-| INT-05 | INT | unmet | not-tested | 0 | AC-UX-02 | — | none |
-| INT-06 | INT | partial | not-tested | 1 | AC-PKG-03 | — | none |
-| CON-01 | CONTRACT | implemented | unit | 3 | AC-IMP-03 | `ceremony-connector/2` | `tests/connectors/contracts/identity.test.ts` (not in the recorded run)<br>`tests/connectors/contracts/contracts.test.ts` (not in the recorded run)<br>`tests/connectors/contracts/properties.test.ts` (not in the recorded run) |
-| CON-02 | CONTRACT | implemented | unit | 1 | AC-IMP-01, AC-IMP-02, AC-IMP-14 | `ceremony-connector/1`, `ceremony-connector/2` | `tests/connectors/contracts/envelope.test.ts` (not in the recorded run)<br>`tests/connectors/contracts/properties.test.ts` (not in the recorded run) |
-| CON-03 | CONTRACT | implemented | unit | 1 | — | `ceremony-connector/2` | `tests/connectors/contracts/contracts.test.ts` (not in the recorded run)<br>`tests/connectors/contracts/properties.test.ts` (not in the recorded run) |
-| CON-04 | CONTRACT | implemented | unit | 1 | AC-IMP-13 | `ceremony-connector/2` | `tests/connectors/contracts/projections.test.ts` (not in the recorded run)<br>`tests/connectors/contracts/properties.test.ts` (not in the recorded run) |
-| CON-05 | CONTRACT | implemented | unit | 1 | — | `ceremony-connector/2` | `tests/connectors/contracts/contracts.test.ts` (not in the recorded run) |
-| CON-06 | CONTRACT | implemented | unit | 11 | — | `json-schema-draft-2020-12` | `tests/connectors/contracts/schemas.test.ts` (not in the recorded run) |
-| IMP-01 | IMPORT | implemented | unit | 2 | AC-IMP-09, AC-IMP-13 | `json-rfc8259`, `yaml-1.2-core`, `yaml@2.9.0` | `tests/connectors/import/parse.test.ts` (not in the recorded run) |
-| IMP-02 | IMPORT | implemented | protocol-fixture | 1 | AC-IMP-11, AC-IMP-12 | `undici-7`, `node-22-dns` | `tests/connectors/import/network.test.ts` (not in the recorded run) |
-| IMP-03 | IMPORT | implemented | unit | 1 | AC-IMP-13 | `sourceRecordSchema-v1` | `tests/connectors/import/source.test.ts` (not in the recorded run)<br>`tests/connectors/fixtures/import/canary-secrets.yaml` (not in the recorded run)<br>`tests/connectors/fixtures/import/canary-invalid.json` (not in the recorded run) |
-| IMP-04 | IMPORT | implemented | protocol-fixture | 1 | AC-IMP-10, AC-IMP-11 | `json-pointer-rfc6901` | `tests/connectors/import/references.test.ts` (not in the recorded run) |
-| IMP-05 | IMPORT | implemented | unit | 1 | AC-IMP-16, AC-IMP-06 | `openapi-3.1`, `openapi-2.0`, `asyncapi-3.0` | `tests/connectors/import/refresh.test.ts` (not in the recorded run) |
-| IMP-06 | IMPORT | implemented | protocol-fixture | 3 | AC-IMP-13, AC-IMP-16 | `ceremony-connector/2` | `tests/connectors/import/service.test.ts` (not in the recorded run) |
-| HTTP-01 | HTTP | implemented | unit | 5 | AC-IMP-05, AC-IMP-10, AC-IMP-13 | `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0` | `tests/connectors/openapi/read.test.ts` (not in the recorded run)<br>`tests/connectors/openapi/refs.test.ts` (not in the recorded run) |
-| HTTP-02 | HTTP | implemented | unit | 1 | AC-IMP-04, AC-UX-03 | `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0` | `tests/connectors/openapi/security.test.ts` (not in the recorded run) |
-| HTTP-03 | HTTP | implemented | unit | 3 | AC-IMP-05, AC-IMP-10 | `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0` | `tests/connectors/openapi/compile.test.ts` (not in the recorded run)<br>`tests/connectors/openapi/refs.test.ts` (not in the recorded run) |
-| HTTP-04 | HTTP | implemented | protocol-fixture | 2 | AC-IMP-13 | `openapi-3.1.2` | `tests/connectors/openapi/invoke.test.ts` (not in the recorded run) |
-| HTTP-05 | HTTP | implemented | unit | 4 | AC-IMP-06, AC-IMP-16 | `overlay-1.1.0`, `overlay-1.0.0` | `tests/connectors/overlay/apply.test.ts` (not in the recorded run)<br>`tests/connectors/overlay/diff.test.ts` (not in the recorded run) |
-| HTTP-06 | HTTP | implemented | unit | 1 | AC-IMP-14, AC-IMP-13 | `openapi-3.1.2` | `tests/connectors/openapi/export.test.ts` (not in the recorded run) |
-| WF-01 | WORKFLOW | implemented | unit | 7 | AC-IMP-08, AC-IMP-09, AC-IMP-10, AC-IMP-13 | `arazzo-1.0.1`, `arazzo-1.1.0` | `tests/connectors/arazzo/read.test.ts` (not in the recorded run) |
-| WF-02 | WORKFLOW | implemented | unit | 2 | AC-IMP-07, AC-IMP-08 | `arazzo-1.0.1`, `arazzo-1.1.0` | `tests/connectors/arazzo/compile.test.ts` (not in the recorded run) |
-| WF-03 | WORKFLOW | implemented | unit | 2 | AC-IMP-08 | `arazzo-1.0.1`, `arazzo-1.1.0` | `tests/connectors/arazzo/evaluator.test.ts` (not in the recorded run) |
-| WF-04 | WORKFLOW | implemented | unit | 2 | AC-IMP-01, AC-IMP-14 | `arazzo-1.0.1`, `arazzo-1.1.0` | `tests/connectors/arazzo/preservation.test.ts` (not in the recorded run) |
-| WF-05 | WORKFLOW | implemented | protocol-fixture | 2 | AC-IMP-07, AC-IMP-08 | `arazzo-1.0.1`, `arazzo-1.1.0` | `tests/connectors/arazzo/runtime.test.ts` (not in the recorded run) |
-| EVT-01 | EVENT | implemented | protocol-fixture | 1 | AC-NG-07 | `asyncapi-3.1.0`, `asyncapi-3.0.0` | `tests/connectors/events/asyncapi.test.ts` (not in the recorded run) |
-| EVT-02 | EVENT | implemented | unit | 1 | AC-STATE-07 | `cloudevents-1.0` | `tests/connectors/events/envelope.test.ts` (not in the recorded run) |
-| EVT-03 | EVENT | implemented | protocol-fixture | 2 | AC-VC-07 | `standard-webhooks-1.0.0` | `tests/connectors/events/standard-webhooks.test.ts` (not in the recorded run) |
-| EVT-04 | EVENT | implemented | local-integration | 2 | AC-STATE-07, AC-NG-07 | — | `tests/connectors/events/inbox.test.ts` (not in the recorded run) |
-| EVT-05 | EVENT | implemented | local-integration | 2 | AC-STATE-07 | `standard-webhooks-1.0.0` | `tests/connectors/events/receiver.test.ts` (not in the recorded run)<br>`tests/connectors/events/inbox.test.ts` (not in the recorded run) |
-| EVT-06 | EVENT | implemented | protocol-fixture | 1 | AC-VC-07 | `vercel-connect-triggers-2026-08-20` | `tests/connectors/events/forwarded.test.ts` (not in the recorded run) |
-| OA-01 | OAUTH | implemented | protocol-fixture | 2 | AC-AUTH-04, AC-AUTH-17 | `rfc8414`, `rfc9728`, `openid-connect-discovery-1.0`, `mcp-2026-07-28-authorization` | `tests/connectors/auth/discovery.test.ts` (not in the recorded run) |
-| OA-02 | OAUTH | implemented | protocol-fixture | 3 | AC-AUTH-03, AC-AUTH-04, AC-AUTH-06, AC-AUTH-07, AC-STATE-01 | `rfc7636`, `rfc9207`, `rfc9700`, `rfc8628`, `rfc9126`, `oauth-2.1-draft-16` | `tests/connectors/auth/authorization-code.test.ts` (not in the recorded run)<br>`tests/connectors/auth/device.test.ts` (not in the recorded run) |
-| OA-03 | OAUTH | implemented | protocol-fixture | 1 | AC-AUTH-17, AC-AUTH-18 | `rfc7591`, `draft-ietf-oauth-client-id-metadata-document-03` | `tests/connectors/auth/registration.test.ts` (not in the recorded run) |
-| OA-04 | OAUTH | implemented | protocol-fixture | 1 | AC-AUTH-14, AC-AUTH-15 | `ceremony-connector-v2` | `tests/connectors/auth/handoff.test.ts` (not in the recorded run) |
-| OA-05 | OAUTH | implemented | protocol-fixture | 1 | AC-AUTH-10, AC-AUTH-11 | `rfc8707`, `rfc9396` | `tests/connectors/auth/authorization-code.test.ts` (not in the recorded run)<br>`tests/connectors/auth/token-exchange.test.ts` (not in the recorded run) |
-| OA-06 | OAUTH | implemented | protocol-fixture | 1 | AC-AUTH-05, AC-EXT-06 | `rfc8693`, `rfc7662`, `mcp-enterprise-managed-authorization` | `tests/connectors/auth/token-exchange.test.ts` (not in the recorded run) |
-| REG-01 | REGISTRY | implemented | protocol-fixture | 3 | AC-MCP-07, AC-IMP-03, AC-IMP-09 | `mcp-registry-api-v0.1`, `server-json-2025-12-11` | `tests/connectors/registry-mcp/client.test.ts` (not in the recorded run) |
-| REG-02 | REGISTRY | implemented | protocol-fixture | 1 | AC-MCP-08, AC-IMP-03, AC-IMP-09, AC-IMP-13 | `server-json-2025-12-11` | `tests/connectors/registry-mcp/import.test.ts` (not in the recorded run) |
-| REG-03 | REGISTRY | implemented | protocol-fixture | 1 | AC-MCP-07, AC-IMP-16, AC-STATE-02, AC-STATE-06 | `mcp-registry-api-v0.1` | `tests/connectors/registry-mcp/snapshot.test.ts` (not in the recorded run) |
-| REG-04 | REGISTRY | implemented | protocol-fixture | 1 | AC-MCP-10, AC-IMP-13 | `mcp-registry-api-v0.1`, `server-json-2025-12-11` | `tests/connectors/registry-mcp/projections.test.ts` (not in the recorded run) |
-| REG-05 | REGISTRY | implemented | protocol-fixture | 1 | AC-MCP-09, AC-IMP-14 | `server-json-2025-12-11`, `mcp-registry-api-v0.1` | `tests/connectors/registry-mcp/export.test.ts` (not in the recorded run) |
-| MCP-01 | MCP | implemented | protocol-fixture | 4 | AC-MCP-01 | `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18` | `tests/connectors/mcp/current-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/legacy-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/wire.test.ts` (not in the recorded run) |
-| MCP-02 | MCP | implemented | protocol-fixture | 3 | AC-MCP-05 | `mcp-2026-07-28`, `mcp-2025-11-25` | `tests/connectors/mcp/current-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/legacy-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/wire.test.ts` (not in the recorded run) |
-| MCP-03 | MCP | implemented | protocol-fixture | 3 | AC-MCP-02 | `mcp-2026-07-28`, `mcp-2025-11-25` | `tests/connectors/mcp/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/current-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/legacy-profile.test.ts` (not in the recorded run) |
-| MCP-04 | MCP | implemented | protocol-fixture | 3 | AC-MCP-03, AC-MCP-04 | `mcp-2026-07-28`, `mcp-2025-11-25` | `tests/connectors/mcp/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/current-profile.test.ts` (not in the recorded run)<br>`tests/connectors/mcp/legacy-profile.test.ts` (not in the recorded run) |
-| MCP-05 | MCP | implemented | protocol-fixture | 2 | AC-MCP-06 | `mcp-2025-11-25` | `tests/connectors/mcp/server-tools.test.ts` (not in the recorded run)<br>`tests/mcp-server.test.ts` (not in the recorded run) |
-| MCP-06 | MCP | implemented | protocol-fixture | 2 | AC-AUTH-18 | `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18` | `tests/connectors/mcp/adapter.test.ts` (not in the recorded run) |
-| VC-01 | VERCEL | implemented | protocol-fixture | 4 | AC-VC-01, AC-VC-06 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/management.test.ts` (not in the recorded run) |
-| VC-02 | VERCEL | implemented | protocol-fixture | 1 | AC-VC-02, AC-VC-05 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/authorization.test.ts` (not in the recorded run) |
-| VC-03 | VERCEL | implemented | protocol-fixture | 2 | AC-VC-03 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/tokens.test.ts` (not in the recorded run) |
-| VC-04 | VERCEL | implemented | protocol-fixture | 1 | AC-VC-04, AC-AUTH-08 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/tokens.test.ts` (not in the recorded run)<br>`tests/connectors/vercel/authorization.test.ts` (not in the recorded run) |
-| VC-05 | VERCEL | implemented | protocol-fixture | 2 | AC-VC-06, AC-STATE-03, AC-STATE-04 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/vercel/tokens.test.ts` (not in the recorded run) |
-| VC-06 | VERCEL | implemented | protocol-fixture | 2 | AC-VC-07, AC-VC-08 | `vercel-connect-rest-2026-09` | `tests/connectors/vercel/triggers.test.ts` (not in the recorded run)<br>`tests/connectors/vercel/provider-conformance.test.ts` (not in the recorded run) |
-| SB-01 | SUPABASE | implemented | protocol-fixture | 4 | AC-SB-02, AC-SB-03 | `supabase-management-api-v1`, `supabase-oauth-2026-09` | `tests/connectors/supabase/management.test.ts` (not in the recorded run)<br>`tests/connectors/doubles/supabase-management.ts` (not in the recorded run)<br>`tests/connectors/fixtures/supabase/harness.ts` (not in the recorded run) |
-| SB-02 | SUPABASE | implemented | protocol-fixture | 1 | AC-SB-04 | `mcp-2026-07-28`, `mcp-2025-11-25` | `tests/connectors/supabase/hosted-mcp.test.ts` (not in the recorded run) |
-| SB-03 | SUPABASE | implemented | protocol-fixture | 1 | AC-SB-05, AC-SB-01 | `postgrest-select-v1` | `tests/connectors/supabase/data-api.test.ts` (not in the recorded run)<br>`tests/connectors/doubles/supabase-project.ts` (not in the recorded run) |
-| SB-04 | SUPABASE | implemented | protocol-fixture | 1 | AC-SB-06 | `supabase-wrappers-catalog-v1` | `tests/connectors/supabase/wrappers.test.ts` (not in the recorded run) |
-| SB-05 | SUPABASE | implemented | protocol-fixture | 3 | AC-SB-01, AC-SB-03 | `supabase-management-api-v1` | `tests/connectors/supabase/management.test.ts` (not in the recorded run)<br>`tests/connectors/supabase/data-api.test.ts` (not in the recorded run) |
-| SB-06 | SUPABASE | implemented | protocol-fixture | 0 | AC-SB-01, AC-SB-02, AC-SB-03, AC-SB-04, AC-SB-05, AC-SB-06 | `supabase-management-api-v1`, `postgrest-select-v1`, `supabase-wrappers-catalog-v1` | `tests/connectors/doubles/supabase-management.ts` (not in the recorded run)<br>`tests/connectors/doubles/supabase-project.ts` (not in the recorded run)<br>`tests/connectors/fixtures/supabase/harness.ts` (not in the recorded run)<br>`tests/connectors/supabase/management.test.ts` (not in the recorded run)<br>`tests/connectors/supabase/hosted-mcp.test.ts` (not in the recorded run)<br>`tests/connectors/supabase/data-api.test.ts` (not in the recorded run)<br>`tests/connectors/supabase/wrappers.test.ts` (not in the recorded run) |
-| NG-01 | NANGO | implemented | protocol-fixture | 4 | AC-NG-08 | `nango-http-api-2026-09` | `tests/connectors/nango/discover.test.ts` (not in the recorded run) |
-| NG-02 | NANGO | implemented | protocol-fixture | 2 | AC-NG-01, AC-NG-02, AC-NG-05, AC-AUTH-01, AC-AUTH-08, AC-AUTH-09 | `nango-http-api-2026-09` | `tests/connectors/nango/sessions.test.ts` (not in the recorded run) |
-| NG-03 | NANGO | implemented | protocol-fixture | 1 | AC-NG-03, AC-STATE-01 | `nango-http-api-2026-09` | `tests/connectors/nango/inspect.test.ts` (not in the recorded run) |
-| NG-04 | NANGO | implemented | protocol-fixture | 2 | AC-NG-04, AC-NG-06, AC-STATE-06 | `nango-http-api-2026-09` | `tests/connectors/nango/invoke.test.ts` (not in the recorded run) |
-| NG-05 | NANGO | implemented | protocol-fixture | 1 | AC-NG-07, AC-NG-08 | `nango-http-api-2026-09` | `tests/connectors/nango/syncs.test.ts` (not in the recorded run)<br>`tests/connectors/nango/invoke.test.ts` (not in the recorded run) |
-| NG-06 | NANGO | implemented | protocol-fixture | 2 | AC-NG-07, AC-AUTH-01, AC-STATE-03, AC-STATE-04, AC-STATE-07 | `nango-http-api-2026-09` | `tests/connectors/nango/webhooks.test.ts` (not in the recorded run)<br>`tests/connectors/nango/syncs.test.ts` (not in the recorded run) |
-| PD-01 | PIPEDREAM | implemented | protocol-fixture | 5 | AC-EXT-01, AC-AUTH-01, AC-AUTH-02 | `pipedream-connect-rest-2026-09` | `tests/connectors/pipedream/inventory.test.ts` (not in the recorded run) |
-| PD-02 | PIPEDREAM | implemented | protocol-fixture | 2 | AC-EXT-01, AC-AUTH-09, AC-AUTH-07, AC-AUTH-08, AC-AUTH-14, AC-AUTH-15, AC-AUTH-16 | `pipedream-connect-rest-2026-09` | `tests/connectors/pipedream/authorize.test.ts` (not in the recorded run) |
-| PD-03 | PIPEDREAM | implemented | protocol-fixture | 3 | AC-EXT-02, AC-EXT-01, AC-STATE-06 | `pipedream-connect-rest-2026-09` | `tests/connectors/pipedream/invoke.test.ts` (not in the recorded run) |
-| PD-04 | PIPEDREAM | implemented | protocol-fixture | 3 | AC-EXT-02, AC-STATE-03, AC-STATE-07 | `pipedream-connect-rest-2026-09` | `tests/connectors/pipedream/triggers.test.ts` (not in the recorded run) |
-| CO-01 | COMPOSIO | implemented | protocol-fixture | 7 | AC-IMP-03, AC-AUTH-01, AC-AUTH-02 | `composio-platform-v3-2026-09` | `tests/connectors/composio/discovery.test.ts` (not in the recorded run) |
-| CO-02 | COMPOSIO | implemented | protocol-fixture | 3 | AC-EXT-03, AC-AUTH-03, AC-AUTH-07, AC-AUTH-08, AC-AUTH-09, AC-AUTH-13, AC-AUTH-16 | `composio-platform-v3-2026-09` | `tests/connectors/composio/authorize.test.ts` (not in the recorded run) |
-| CO-03 | COMPOSIO | implemented | protocol-fixture | 2 | AC-EXT-03, AC-EXT-04, AC-AUTH-01, AC-AUTH-13 | `composio-platform-v3-2026-09` | `tests/connectors/composio/execute.test.ts` (not in the recorded run) |
-| CO-04 | COMPOSIO | implemented | protocol-fixture | 4 | AC-EXT-04, AC-STATE-03, AC-STATE-05 | `composio-platform-v3-2026-09` | `tests/connectors/composio/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/composio/execute.test.ts` (not in the recorded run) |
-| IB-01 | IDENTITY-BROKERS | not-delivered | not-tested | 0 | — | — | none |
-| IB-02 | IDENTITY-BROKERS | not-delivered | not-tested | 0 | — | — | none |
-| IB-03 | IDENTITY-BROKERS | not-delivered | not-tested | 0 | — | — | none |
-| IB-04 | IDENTITY-BROKERS | not-delivered | not-tested | 0 | — | — | none |
-| IB-05 | IDENTITY-BROKERS | not-delivered | not-tested | 0 | — | — | none |
-| CAT-01 | CATALOGS | implemented | protocol-fixture | 4 | AC-IMP-02, AC-IMP-03, AC-MCP-08 | `smithery-registry-2026-09` | `tests/connectors/smithery/registry.test.ts` (not in the recorded run) |
-| CAT-02 | CATALOGS | implemented | protocol-fixture | 4 | AC-EXT-07, AC-AUTH-08, AC-STATE-03 | `smithery-connect-2026-09` | `tests/connectors/smithery/connections.test.ts` (not in the recorded run) |
-| CAT-03 | CATALOGS | implemented | protocol-fixture | 6 | AC-EXT-08, AC-IMP-09, AC-IMP-13, AC-IMP-14 | `docker-mcp-catalog-v2` | `tests/connectors/docker-mcp/catalog.test.ts` (not in the recorded run)<br>`tests/connectors/docker-mcp/adapter.test.ts` (not in the recorded run) |
-| CAT-04 | CATALOGS | implemented | protocol-fixture | 4 | AC-EXT-09, AC-MCP-07, AC-STATE-06 | `pulsemcp-v0beta`, `pulsemcp-subregistry-v0.1` | `tests/connectors/pulsemcp/discovery.test.ts` (not in the recorded run) |
-| CAT-05 | CATALOGS | implemented | unit | 1 | AC-IMP-03 | — | `tests/connectors/pulsemcp/equivalence.test.ts` (not in the recorded run) |
-| MS-01 | MICROSOFT | implemented | protocol-fixture | 5 | AC-EXT-12, AC-IMP-13, AC-IMP-14 | `microsoft-custom-connector-2026-06` | `tests/connectors/microsoft/import.test.ts` (not in the recorded run)<br>`tests/connectors/microsoft/policy.test.ts` (not in the recorded run) |
-| MS-02 | MICROSOFT | implemented | protocol-fixture | 3 | AC-EXT-10 | `microsoft-custom-connector-2026-06` | `tests/connectors/microsoft/dynamic.test.ts` (not in the recorded run) |
-| MS-03 | MICROSOFT | implemented | protocol-fixture | 2 | AC-EXT-11 | `microsoft-custom-connector-2026-06` | `tests/connectors/microsoft/verify.test.ts` (not in the recorded run) |
-| MS-04 | MICROSOFT | implemented | protocol-fixture | 2 | AC-EXT-12 | `microsoft-custom-connector-2026-06` | `tests/connectors/microsoft/import.test.ts` (not in the recorded run)<br>`tests/connectors/microsoft/policy.test.ts` (not in the recorded run) |
-| MS-05 | MICROSOFT | implemented | protocol-fixture | 2 | AC-IMP-14, AC-IMP-13 | `microsoft-custom-connector-2026-06` | `tests/connectors/microsoft/export.test.ts` (not in the recorded run)<br>`tests/connectors/microsoft/adapter.test.ts` (not in the recorded run) |
-| AUTO-01 | AUTOMATION | not-delivered | not-tested | 0 | — | — | none |
-| AUTO-02 | AUTOMATION | not-delivered | not-tested | 0 | — | — | none |
-| AUTO-03 | AUTOMATION | not-delivered | not-tested | 0 | — | — | none |
-| AUTO-04 | AUTOMATION | not-delivered | not-tested | 0 | — | — | none |
-| AUTO-05 | AUTOMATION | not-delivered | not-tested | 0 | — | — | none |
-| DATA-01 | DATA | implemented | protocol-fixture | 5 | AC-EXT-13 | `airbyte-protocol-v0`, `airbyte-api-v1-2026-09` | `tests/connectors/airbyte/catalog.test.ts` (not in the recorded run)<br>`tests/connectors/airbyte/adapter.test.ts` (not in the recorded run) |
-| DATA-02 | DATA | implemented | protocol-fixture | 5 | AC-EXT-14 | `hasura-ndc-0.2` | `tests/connectors/hasura-ndc/discover.test.ts` (not in the recorded run)<br>`tests/connectors/hasura-ndc/policy.test.ts` (not in the recorded run) |
-| DATA-03 | DATA | implemented | protocol-fixture | 3 | AC-EXT-15 | `merge-unified-2026-09` | `tests/connectors/merge/adapter.test.ts` (not in the recorded run) |
-| DATA-04 | DATA | implemented | protocol-fixture | 4 | AC-EXT-16 | `cloud-search-acl-2026-09` | `tests/connectors/retrieval/acl.test.ts` (not in the recorded run) |
-| DATA-05 | DATA | implemented | protocol-fixture | 9 | AC-EXT-13, AC-EXT-14, AC-EXT-15, AC-EXT-16 | `airbyte-protocol-v0`, `airbyte-api-v1-2026-09`, `hasura-ndc-0.2`, `merge-unified-2026-09`, `cloud-search-acl-2026-09` | `tests/connectors/airbyte/catalog.test.ts` (not in the recorded run)<br>`tests/connectors/airbyte/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/hasura-ndc/discover.test.ts` (not in the recorded run)<br>`tests/connectors/hasura-ndc/policy.test.ts` (not in the recorded run)<br>`tests/connectors/merge/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/retrieval/acl.test.ts` (not in the recorded run) |
-| CLOUD-01 | CLOUD | implemented | protocol-fixture | 7 | AC-EXT-17 | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28` | `tests/connectors/aws-agentcore/sigv4.test.ts` (not in the recorded run)<br>`tests/connectors/aws-agentcore/control.test.ts` (not in the recorded run)<br>`tests/connectors/aws-agentcore/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/aws-agentcore/ac-ext-17.test.ts` (not in the recorded run) |
-| CLOUD-02 | CLOUD | implemented | protocol-fixture | 2 | AC-EXT-17, AC-IMP-05 | `aws-agentcore-control-2023-06-05` | `tests/connectors/aws-agentcore/adapter.test.ts` (not in the recorded run) |
-| CLOUD-03 | CLOUD | implemented | protocol-fixture | 7 | AC-EXT-17 | `google-connectors-v1-20260907`, `google-connectors-v2-20260907` | `tests/connectors/google-integration-connectors/client.test.ts` (not in the recorded run)<br>`tests/connectors/google-integration-connectors/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/google-integration-connectors/ac-ext-17.test.ts` (not in the recorded run) |
-| CLOUD-04 | CLOUD | implemented | protocol-fixture | 4 | AC-EXT-17, AC-STATE-06 | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907` | `tests/connectors/aws-agentcore/control.test.ts` (not in the recorded run)<br>`tests/connectors/aws-agentcore/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/aws-agentcore/ac-ext-17.test.ts` (not in the recorded run)<br>`tests/connectors/google-integration-connectors/client.test.ts` (not in the recorded run)<br>`tests/connectors/google-integration-connectors/adapter.test.ts` (not in the recorded run)<br>`tests/connectors/google-integration-connectors/ac-ext-17.test.ts` (not in the recorded run) |
-| BIND-01 | BINDINGS | not-delivered | not-tested | 0 | — | — | none |
-| BIND-02 | BINDINGS | not-delivered | not-tested | 0 | — | — | none |
-| BIND-03 | BINDINGS | not-delivered | not-tested | 0 | — | — | none |
-| BIND-04 | BINDINGS | not-delivered | not-tested | 0 | — | — | none |
-| BIND-05 | BINDINGS | not-delivered | not-tested | 0 | — | — | none |
-| AG-01 | AGENT-SURFACES | not-delivered | not-tested | 0 | — | — | none |
-| AG-02 | AGENT-SURFACES | not-delivered | not-tested | 0 | — | — | none |
-| AG-03 | AGENT-SURFACES | not-delivered | not-tested | 0 | — | — | none |
-| AG-04 | AGENT-SURFACES | not-delivered | not-tested | 0 | — | — | none |
-| AG-05 | AGENT-SURFACES | not-delivered | not-tested | 0 | — | — | none |
-| STATE-01 | STATE | implemented | local-integration | 9 | AC-AUTH-02, AC-STATE-08 | `ceremony-connector-state/1` | `tests/connectors/state/storage.test.ts` (not in the recorded run)<br>`tests/connectors/state/conformance.test.ts` (not in the recorded run) |
-| STATE-02 | STATE | implemented | local-integration | 1 | AC-STATE-01 | `ceremony-connector-state/1` | `tests/connectors/state/custody.test.ts` (not in the recorded run)<br>`tests/connectors/state/concurrency.test.ts` (not in the recorded run) |
-| STATE-03 | STATE | implemented | local-integration | 6 | AC-AUTH-06, AC-AUTH-07, AC-STATE-02 | `ceremony-connector-state/1` | `tests/connectors/state/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/state/conformance.test.ts` (not in the recorded run) |
-| STATE-04 | STATE | implemented | local-integration | 3 | AC-STATE-01, AC-STATE-06, AC-STATE-08 | `ceremony-connector-state/1` | `tests/connectors/state/concurrency.test.ts` (not in the recorded run) |
-| STATE-05 | STATE | implemented | unit | 3 | AC-STATE-03, AC-STATE-04, AC-STATE-05 | `ceremony-connector-state/1` | `tests/connectors/state/drift.test.ts` (not in the recorded run) |
-| STATE-06 | STATE | implemented | local-integration | 3 | AC-STATE-02, AC-STATE-06, AC-STATE-08 | `ceremony-connector-state/1` | `tests/connectors/state/durability.test.ts` (not in the recorded run)<br>`tests/connectors/state/concurrency.test.ts` (not in the recorded run) |
-| CMD-01 | COMMAND | implemented | protocol-fixture | 3 | AC-AUTH-01, AC-AUTH-09, AC-AUTH-12, AC-AUTH-13, AC-AUTH-16, AC-STATE-03, AC-UX-02 | `ceremony-connector-commands-2026-09` | `tests/connectors/commands/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/commands/authorization.test.ts` (not in the recorded run)<br>`tests/connectors/commands/bridge.test.ts` (not in the recorded run) |
-| CMD-02 | COMMAND | implemented | protocol-fixture | 1 | AC-UX-01, AC-MCP-06 | `ceremony-manifest-v1` | `tests/connectors/commands/bridge.test.ts` (not in the recorded run) |
-| CMD-03 | COMMAND | implemented | protocol-fixture | 1 | AC-AUTH-01, AC-AUTH-07, AC-UX-02 | `ceremony-connector-http-v1` | `tests/connectors/commands/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/commands/authorization.test.ts` (not in the recorded run) |
-| CMD-04 | COMMAND | implemented | protocol-fixture | 2 | AC-AUTH-09, AC-AUTH-10, AC-STATE-05 | — | `tests/connectors/commands/bridge.test.ts` (not in the recorded run)<br>`tests/connectors/commands/authorization.test.ts` (not in the recorded run) |
-| CMD-05 | COMMAND | implemented | protocol-fixture | 2 | AC-AUTH-07, AC-AUTH-15, AC-UX-04 | — | `tests/connectors/commands/bridge.test.ts` (not in the recorded run)<br>`tests/connectors/commands/authorization.test.ts` (not in the recorded run) |
-| CMD-06 | COMMAND | implemented | protocol-fixture | 2 | AC-AUTH-01, AC-AUTH-07, AC-AUTH-09, AC-AUTH-12, AC-AUTH-13, AC-AUTH-16, AC-STATE-03, AC-UX-02, AC-UX-06, AC-AG-04 | `fixture-http-1` | `tests/connectors/commands/lifecycle.test.ts` (not in the recorded run)<br>`tests/connectors/commands/authorization.test.ts` (not in the recorded run)<br>`tests/connectors/commands/bridge.test.ts` (not in the recorded run) |
-| UX-01 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-02 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-03 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-04 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-05 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-06 | UX | not-delivered | not-tested | 0 | — | — | none |
-| UX-07 | UX | not-delivered | not-tested | 0 | — | — | none |
-| SEC-01 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| SEC-02 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| SEC-03 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| SEC-04 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| SEC-05 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| SEC-06 | SECURITY | not-delivered | not-tested | 0 | — | — | none |
-| QA-01 | QA | not-delivered | not-tested | 0 | — | — | none |
-| QA-02 | QA | not-delivered | not-tested | 0 | — | — | none |
-| QA-03 | QA | not-delivered | not-tested | 0 | — | — | none |
-| QA-04 | QA | not-delivered | not-tested | 0 | — | — | none |
-| QA-05 | QA | not-delivered | not-tested | 0 | — | — | none |
-| QA-06 | QA | not-delivered | not-tested | 0 | — | — | none |
-| DOC-01 | DOCS | implemented | unit | 6 | AC-IMP-02, AC-IMP-05, AC-IMP-14, AC-UX-06 | `ceremony-connector/1`, `ceremony-connector/2`, `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`, `overlay-1.1.0`, `overlay-1.0.0`, `arazzo-1.1.0`, `arazzo-1.0.1`, `asyncapi-3.1.0`, `asyncapi-3.0.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `mcp-registry-api-v0.1`, `server-json-2025-12-11`, `yaml-1.2-core`, `json-rfc8259`, `json-pointer-rfc6901` | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
-| DOC-02 | DOCS | implemented | unit | 2 | AC-IMP-16 | `openapi-3.2.1`, `overlay-1.1.0`, `arazzo-1.1.0`, `asyncapi-3.1.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28` | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
-| DOC-03 | DOCS | implemented | unit | 2 | AC-UX-06, AC-PKG-03 | — | `tests/connectors/docs/examples.test.ts` (not in the recorded run) |
-| DOC-04 | DOCS | implemented | not-tested | 1 | AC-STATE-03, AC-AUTH-16, AC-VC-07, AC-NG-02 | `nango-http-api-2026-09`, `pipedream-connect-rest-2026-09`, `supabase-oauth-2026-09`, `supabase-management-api-v1`, `vercel-connect-triggers-2026-08-20`, `standard-webhooks-1.0.0`, `composio-platform-v3-2026-09`, `merge-unified-2026-09` | none |
-| DOC-05 | DOCS | implemented | not-tested | 3 | AC-MCP-06, AC-AUTH-18 | `mcp-2026-07-28-authorization`, `rfc9728`, `rfc8693` | none |
-| DOC-06 | DOCS | implemented | not-tested | 2 | AC-PKG-03 | — | none |
+### INT-01 (INT) — implemented, not-tested
+
+- Files: `docs/implementation-evidence/connector-interoperability/charter.md`, `scripts/connector-evidence.ts`, `tests/fixtures/postgres.ts`
+- Acceptance: none named
+- Pinned sources: none named
+- Tests: none named
+
+### INT-02 (INT) — partial, not-tested
+
+- Files: `src/server/connectors/inventory.ts`
+- Acceptance: AC-UX-01
+- Pinned sources: none named
+- Tests: none named
+
+### INT-03 (INT) — partial, not-tested
+
+- Files: `package.json`, `package-lock.json`
+- Acceptance: AC-PKG-02
+- Pinned sources: none named
+- Tests: none named
+
+### INT-04 (INT) — unmet, not-tested
+
+- Files: none recorded
+- Acceptance: AC-PKG-01, AC-PKG-02
+- Pinned sources: none named
+- Tests: none named
+
+### INT-05 (INT) — unmet, not-tested
+
+- Files: none recorded
+- Acceptance: AC-UX-02
+- Pinned sources: none named
+- Tests: none named
+
+### INT-06 (INT) — partial, not-tested
+
+- Files: `scripts/connector-evidence.ts`
+- Acceptance: AC-PKG-03
+- Pinned sources: none named
+- Tests: none named
+
+### CON-01 (CONTRACT) — implemented, unit
+
+- Files: `src/core/connectors/identity.ts`, `src/core/connectors/contracts.ts`, `src/core/connectors/json-bounds.ts`
+- Acceptance: AC-IMP-03
+- Pinned sources: `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/identity.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/contracts/contracts.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/contracts/properties.test.ts` — not in the recorded run
+
+### CON-02 (CONTRACT) — implemented, unit
+
+- Files: `src/core/connectors/envelope.ts`
+- Acceptance: AC-IMP-01, AC-IMP-02, AC-IMP-14
+- Pinned sources: `ceremony-connector/1`, `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/envelope.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/contracts/properties.test.ts` — not in the recorded run
+
+### CON-03 (CONTRACT) — implemented, unit
+
+- Files: `src/core/connectors/contracts.ts`
+- Acceptance: none named
+- Pinned sources: `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/contracts.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/contracts/properties.test.ts` — not in the recorded run
+
+### CON-04 (CONTRACT) — implemented, unit
+
+- Files: `src/core/connectors/projections.ts`
+- Acceptance: AC-IMP-13
+- Pinned sources: `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/projections.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/contracts/properties.test.ts` — not in the recorded run
+
+### CON-05 (CONTRACT) — implemented, unit
+
+- Files: `src/core/connectors/contracts.ts`
+- Acceptance: none named
+- Pinned sources: `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/contracts.test.ts` — not in the recorded run
+
+### CON-06 (CONTRACT) — implemented, unit
+
+- Files: `scripts/specifications.ts`, `docs/specifications/schemas/connector-source-v1.schema.json`, `docs/specifications/schemas/connector-definition-v1.schema.json`, `docs/specifications/schemas/connector-envelope-v2.schema.json`, `docs/specifications/schemas/capability-status-v1.schema.json`, `docs/specifications/schemas/verification-claim-v1.schema.json`, `docs/specifications/schemas/compatibility-issue-v1.schema.json`, `docs/specifications/schemas/catalog-entry-v1.schema.json`, `docs/specifications/schemas/connection-summary-v1.schema.json`, `docs/specifications/schemas/binding-reference-v1.schema.json`, `tests/connectors/fixtures/builders.ts`
+- Acceptance: none named
+- Pinned sources: `json-schema-draft-2020-12`
+- Tests:
+  - `node --import tsx --test tests/connectors/contracts/schemas.test.ts` — not in the recorded run
+
+### IMP-01 (IMPORT) — implemented, unit
+
+- Files: `src/server/connectors/import/parse.ts`, `src/server/connectors/import/limits.ts`
+- Acceptance: AC-IMP-09, AC-IMP-13
+- Pinned sources: `json-rfc8259`, `yaml-1.2-core`, `yaml@2.9.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/parse.test.ts` — not in the recorded run
+
+### IMP-02 (IMPORT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/import/network.ts`
+- Acceptance: AC-IMP-11, AC-IMP-12
+- Pinned sources: `undici-7`, `node-22-dns`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/network.test.ts` — not in the recorded run
+
+### IMP-03 (IMPORT) — implemented, unit
+
+- Files: `src/server/connectors/import/source.ts`
+- Acceptance: AC-IMP-13
+- Pinned sources: `sourceRecordSchema-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/source.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/fixtures/import/canary-secrets.yaml` — not in the recorded run
+  - `node --import tsx --test tests/connectors/fixtures/import/canary-invalid.json` — not in the recorded run
+
+### IMP-04 (IMPORT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/import/references.ts`
+- Acceptance: AC-IMP-10, AC-IMP-11
+- Pinned sources: `json-pointer-rfc6901`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/references.test.ts` — not in the recorded run
+
+### IMP-05 (IMPORT) — implemented, unit
+
+- Files: `src/server/connectors/import/diff.ts`
+- Acceptance: AC-IMP-16, AC-IMP-06
+- Pinned sources: `openapi-3.1`, `openapi-2.0`, `asyncapi-3.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/refresh.test.ts` — not in the recorded run
+
+### IMP-06 (IMPORT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/import/service.ts`, `src/server/connectors/import/common.ts`, `src/server/connectors/import/index.ts`
+- Acceptance: AC-IMP-13, AC-IMP-16
+- Pinned sources: `ceremony-connector/2`
+- Tests:
+  - `node --import tsx --test tests/connectors/import/service.test.ts` — not in the recorded run
+
+### HTTP-01 (HTTP) — implemented, unit
+
+- Files: `src/server/connectors/formats/openapi/read.ts`, `src/server/connectors/formats/openapi/model.ts`, `src/server/connectors/formats/openapi/refs.ts`, `src/server/connectors/formats/openapi/issues.ts`, `src/server/connectors/formats/openapi/index.ts`
+- Acceptance: AC-IMP-05, AC-IMP-10, AC-IMP-13
+- Pinned sources: `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/openapi/read.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/openapi/refs.test.ts` — not in the recorded run
+
+### HTTP-02 (HTTP) — implemented, unit
+
+- Files: `src/server/connectors/formats/openapi/security.ts`
+- Acceptance: AC-IMP-04, AC-UX-03
+- Pinned sources: `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/openapi/security.test.ts` — not in the recorded run
+
+### HTTP-03 (HTTP) — implemented, unit
+
+- Files: `src/server/connectors/formats/openapi/compile.ts`, `src/server/connectors/formats/openapi/schema.ts`, `src/server/connectors/formats/openapi/plan.ts`
+- Acceptance: AC-IMP-05, AC-IMP-10
+- Pinned sources: `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/openapi/compile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/openapi/refs.test.ts` — not in the recorded run
+
+### HTTP-04 (HTTP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/openapi/adapter.ts`, `src/server/connectors/formats/openapi/serialize.ts`
+- Acceptance: AC-IMP-13
+- Pinned sources: `openapi-3.1.2`
+- Tests:
+  - `node --import tsx --test tests/connectors/openapi/invoke.test.ts` — not in the recorded run
+
+### HTTP-05 (HTTP) — implemented, unit
+
+- Files: `src/server/connectors/formats/overlay/apply.ts`, `src/server/connectors/formats/overlay/jsonpath.ts`, `src/server/connectors/formats/overlay/diff.ts`, `src/server/connectors/formats/overlay/index.ts`
+- Acceptance: AC-IMP-06, AC-IMP-16
+- Pinned sources: `overlay-1.1.0`, `overlay-1.0.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/overlay/apply.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/overlay/diff.test.ts` — not in the recorded run
+
+### HTTP-06 (HTTP) — implemented, unit
+
+- Files: `src/server/connectors/formats/openapi/export.ts`
+- Acceptance: AC-IMP-14, AC-IMP-13
+- Pinned sources: `openapi-3.1.2`
+- Tests:
+  - `node --import tsx --test tests/connectors/openapi/export.test.ts` — not in the recorded run
+
+### WF-01 (WORKFLOW) — implemented, unit
+
+- Files: `src/server/connectors/formats/arazzo/read.ts`, `src/server/connectors/formats/arazzo/model.ts`, `src/server/connectors/formats/arazzo/graph.ts`, `src/server/connectors/formats/arazzo/expressions.ts`, `src/server/connectors/formats/arazzo/limits.ts`, `src/server/connectors/formats/arazzo/issues.ts`, `src/server/connectors/formats/arazzo/index.ts`
+- Acceptance: AC-IMP-08, AC-IMP-09, AC-IMP-10, AC-IMP-13
+- Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/arazzo/read.test.ts` — not in the recorded run
+
+### WF-02 (WORKFLOW) — implemented, unit
+
+- Files: `src/server/connectors/formats/arazzo/catalog.ts`, `src/server/connectors/formats/arazzo/compile.ts`
+- Acceptance: AC-IMP-07, AC-IMP-08
+- Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/arazzo/compile.test.ts` — not in the recorded run
+
+### WF-03 (WORKFLOW) — implemented, unit
+
+- Files: `src/server/connectors/formats/arazzo/evaluator.ts`, `src/server/connectors/formats/arazzo/expressions.ts`
+- Acceptance: AC-IMP-08
+- Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/arazzo/evaluator.test.ts` — not in the recorded run
+
+### WF-04 (WORKFLOW) — implemented, unit
+
+- Files: `src/server/connectors/formats/arazzo/review.ts`, `src/server/connectors/formats/arazzo/export.ts`
+- Acceptance: AC-IMP-01, AC-IMP-14
+- Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/arazzo/preservation.test.ts` — not in the recorded run
+
+### WF-05 (WORKFLOW) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/arazzo/compile.ts`, `tests/connectors/fixtures/arazzo/host.ts`
+- Acceptance: AC-IMP-07, AC-IMP-08
+- Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/arazzo/runtime.test.ts` — not in the recorded run
+
+### EVT-01 (EVENT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/events/asyncapi.ts`
+- Acceptance: AC-NG-07
+- Pinned sources: `asyncapi-3.1.0`, `asyncapi-3.0.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/events/asyncapi.test.ts` — not in the recorded run
+
+### EVT-02 (EVENT) — implemented, unit
+
+- Files: `src/server/connectors/events/envelope.ts`
+- Acceptance: AC-STATE-07
+- Pinned sources: `cloudevents-1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/events/envelope.test.ts` — not in the recorded run
+
+### EVT-03 (EVENT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/events/standard-webhooks.ts`, `src/server/connectors/events/verification.ts`
+- Acceptance: AC-VC-07
+- Pinned sources: `standard-webhooks-1.0.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/events/standard-webhooks.test.ts` — not in the recorded run
+
+### EVT-04 (EVENT) — implemented, local-integration
+
+- Files: `src/server/connectors/events/inbox.ts`, `src/server/connectors/events/lifecycle.ts`
+- Acceptance: AC-STATE-07, AC-NG-07
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/events/inbox.test.ts` — not in the recorded run
+
+### EVT-05 (EVENT) — implemented, local-integration
+
+- Files: `src/server/connectors/events/subscriptions.ts`, `src/server/connectors/events/receiver.ts`
+- Acceptance: AC-STATE-07
+- Pinned sources: `standard-webhooks-1.0.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/events/receiver.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/events/inbox.test.ts` — not in the recorded run
+
+### EVT-06 (EVENT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/events/forwarded.ts`
+- Acceptance: AC-VC-07
+- Pinned sources: `vercel-connect-triggers-2026-08-20`
+- Tests:
+  - `node --import tsx --test tests/connectors/events/forwarded.test.ts` — not in the recorded run
+
+### OA-01 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/discovery.ts`, `src/server/connectors/auth/policy.ts`
+- Acceptance: AC-AUTH-04, AC-AUTH-17
+- Pinned sources: `rfc8414`, `rfc9728`, `openid-connect-discovery-1.0`, `mcp-2026-07-28-authorization`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/discovery.test.ts` — not in the recorded run
+
+### OA-02 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/authorization-code.ts`, `src/server/connectors/auth/device.ts`, `src/server/connectors/auth/wire.ts`
+- Acceptance: AC-AUTH-03, AC-AUTH-04, AC-AUTH-06, AC-AUTH-07, AC-STATE-01
+- Pinned sources: `rfc7636`, `rfc9207`, `rfc9700`, `rfc8628`, `rfc9126`, `oauth-2.1-draft-16`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/auth/device.test.ts` — not in the recorded run
+
+### OA-03 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/client.ts`
+- Acceptance: AC-AUTH-17, AC-AUTH-18
+- Pinned sources: `rfc7591`, `draft-ietf-oauth-client-id-metadata-document-03`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/registration.test.ts` — not in the recorded run
+
+### OA-04 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/handoff.ts`
+- Acceptance: AC-AUTH-14, AC-AUTH-15
+- Pinned sources: `ceremony-connector-v2`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/handoff.test.ts` — not in the recorded run
+
+### OA-05 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/permissions.ts`
+- Acceptance: AC-AUTH-10, AC-AUTH-11
+- Pinned sources: `rfc8707`, `rfc9396`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — not in the recorded run
+
+### OA-06 (OAUTH) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/auth/token-exchange.ts`
+- Acceptance: AC-AUTH-05, AC-EXT-06
+- Pinned sources: `rfc8693`, `rfc7662`, `mcp-enterprise-managed-authorization`
+- Tests:
+  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — not in the recorded run
+
+### REG-01 (REGISTRY) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/mcp/client.ts`, `src/server/connectors/registries/mcp/schemas.ts`, `src/server/connectors/registries/mcp/json.ts`
+- Acceptance: AC-MCP-07, AC-IMP-03, AC-IMP-09
+- Pinned sources: `mcp-registry-api-v0.1`, `server-json-2025-12-11`
+- Tests:
+  - `node --import tsx --test tests/connectors/registry-mcp/client.test.ts` — not in the recorded run
+
+### REG-02 (REGISTRY) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/mcp/import.ts`
+- Acceptance: AC-MCP-08, AC-IMP-03, AC-IMP-09, AC-IMP-13
+- Pinned sources: `server-json-2025-12-11`
+- Tests:
+  - `node --import tsx --test tests/connectors/registry-mcp/import.test.ts` — not in the recorded run
+
+### REG-03 (REGISTRY) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/mcp/snapshot.ts`
+- Acceptance: AC-MCP-07, AC-IMP-16, AC-STATE-02, AC-STATE-06
+- Pinned sources: `mcp-registry-api-v0.1`
+- Tests:
+  - `node --import tsx --test tests/connectors/registry-mcp/snapshot.test.ts` — not in the recorded run
+
+### REG-04 (REGISTRY) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/mcp/projections.ts`
+- Acceptance: AC-MCP-10, AC-IMP-13
+- Pinned sources: `mcp-registry-api-v0.1`, `server-json-2025-12-11`
+- Tests:
+  - `node --import tsx --test tests/connectors/registry-mcp/projections.test.ts` — not in the recorded run
+
+### REG-05 (REGISTRY) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/mcp/export.ts`
+- Acceptance: AC-MCP-09, AC-IMP-14
+- Pinned sources: `server-json-2025-12-11`, `mcp-registry-api-v0.1`
+- Tests:
+  - `node --import tsx --test tests/connectors/registry-mcp/export.test.ts` — not in the recorded run
+
+### MCP-01 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/profiles.ts`, `src/server/connectors/mcp/client.ts`, `src/server/connectors/mcp/http.ts`, `src/server/connectors/mcp/wire.ts`
+- Acceptance: AC-MCP-01
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — not in the recorded run
+
+### MCP-02 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/client.ts`, `src/server/connectors/mcp/cache.ts`, `src/server/connectors/mcp/adapter.ts`
+- Acceptance: AC-MCP-05
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — not in the recorded run
+
+### MCP-03 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/input.ts`, `src/server/connectors/mcp/adapter.ts`, `src/server/connectors/mcp/client.ts`
+- Acceptance: AC-MCP-02
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — not in the recorded run
+
+### MCP-04 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/http.ts`, `src/server/connectors/mcp/client.ts`, `src/server/connectors/mcp/adapter.ts`
+- Acceptance: AC-MCP-03, AC-MCP-04
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — not in the recorded run
+
+### MCP-05 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/server-tools.ts`, `src/server/mcp.ts`
+- Acceptance: AC-MCP-06
+- Pinned sources: `mcp-2025-11-25`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/server-tools.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/mcp-server.test.ts` — not in the recorded run
+
+### MCP-06 (MCP) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/mcp/adapter.ts`, `src/server/connectors/mcp/authorization.ts`
+- Acceptance: AC-AUTH-18
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`
+- Tests:
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — not in the recorded run
+
+### VC-01 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/contracts.ts`, `src/server/connectors/providers/vercel/client.ts`, `src/server/connectors/providers/vercel/management.ts`, `src/server/connectors/providers/vercel/index.ts`
+- Acceptance: AC-VC-01, AC-VC-06
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/management.test.ts` — not in the recorded run
+
+### VC-02 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/authorization.ts`
+- Acceptance: AC-VC-02, AC-VC-05
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — not in the recorded run
+
+### VC-03 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/credentials.ts`, `src/server/connectors/providers/vercel/client.ts`
+- Acceptance: AC-VC-03
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/tokens.test.ts` — not in the recorded run
+
+### VC-04 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/authorization.ts`
+- Acceptance: AC-VC-04, AC-AUTH-08
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/tokens.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — not in the recorded run
+
+### VC-05 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/authorization.ts`, `src/server/connectors/providers/vercel/management.ts`
+- Acceptance: AC-VC-06, AC-STATE-03, AC-STATE-04
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/vercel/tokens.test.ts` — not in the recorded run
+
+### VC-06 (VERCEL) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/vercel/events.ts`, `src/server/connectors/providers/vercel/provider-conformance.ts`
+- Acceptance: AC-VC-07, AC-VC-08
+- Pinned sources: `vercel-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/vercel/triggers.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/vercel/provider-conformance.test.ts` — not in the recorded run
+
+### SB-01 (SUPABASE) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/supabase/management.ts`, `src/server/connectors/providers/supabase/common.ts`, `src/server/connectors/providers/supabase/lifecycle.ts`, `src/server/connectors/providers/supabase/index.ts`
+- Acceptance: AC-SB-02, AC-SB-03
+- Pinned sources: `supabase-management-api-v1`, `supabase-oauth-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/supabase/management.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/doubles/supabase-management.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/fixtures/supabase/harness.ts` — not in the recorded run
+
+### SB-02 (SUPABASE) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/supabase/hosted-mcp.ts`
+- Acceptance: AC-SB-04
+- Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
+- Tests:
+  - `node --import tsx --test tests/connectors/supabase/hosted-mcp.test.ts` — not in the recorded run
+
+### SB-03 (SUPABASE) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/supabase/data-api.ts`
+- Acceptance: AC-SB-05, AC-SB-01
+- Pinned sources: `postgrest-select-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/supabase/data-api.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/doubles/supabase-project.ts` — not in the recorded run
+
+### SB-04 (SUPABASE) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/supabase/wrappers.ts`
+- Acceptance: AC-SB-06
+- Pinned sources: `supabase-wrappers-catalog-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/supabase/wrappers.test.ts` — not in the recorded run
+
+### SB-05 (SUPABASE) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/supabase/lifecycle.ts`, `src/server/connectors/providers/supabase/management.ts`, `src/server/connectors/providers/supabase/data-api.ts`
+- Acceptance: AC-SB-01, AC-SB-03
+- Pinned sources: `supabase-management-api-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/supabase/management.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/supabase/data-api.test.ts` — not in the recorded run
+
+### SB-06 (SUPABASE) — implemented, protocol-fixture
+
+- Files: none recorded
+- Acceptance: AC-SB-01, AC-SB-02, AC-SB-03, AC-SB-04, AC-SB-05, AC-SB-06
+- Pinned sources: `supabase-management-api-v1`, `postgrest-select-v1`, `supabase-wrappers-catalog-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/doubles/supabase-management.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/doubles/supabase-project.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/fixtures/supabase/harness.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/supabase/management.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/supabase/hosted-mcp.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/supabase/data-api.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/supabase/wrappers.test.ts` — not in the recorded run
+
+### NG-01 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/discover.ts`, `src/server/connectors/providers/nango/schemas.ts`, `src/server/connectors/providers/nango/api.ts`, `src/server/connectors/providers/nango/context.ts`
+- Acceptance: AC-NG-08
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/discover.test.ts` — not in the recorded run
+
+### NG-02 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/sessions.ts`, `src/server/connectors/providers/nango/context.ts`
+- Acceptance: AC-NG-01, AC-NG-02, AC-NG-05, AC-AUTH-01, AC-AUTH-08, AC-AUTH-09
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/sessions.test.ts` — not in the recorded run
+
+### NG-03 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/inspect.ts`
+- Acceptance: AC-NG-03, AC-STATE-01
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/inspect.test.ts` — not in the recorded run
+
+### NG-04 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/invoke.ts`, `src/server/connectors/providers/nango/schemas.ts`
+- Acceptance: AC-NG-04, AC-NG-06, AC-STATE-06
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/invoke.test.ts` — not in the recorded run
+
+### NG-05 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/syncs.ts`
+- Acceptance: AC-NG-07, AC-NG-08
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/nango/invoke.test.ts` — not in the recorded run
+
+### NG-06 (NANGO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/nango/webhooks.ts`, `src/server/connectors/providers/nango/disconnect.ts`
+- Acceptance: AC-NG-07, AC-AUTH-01, AC-STATE-03, AC-STATE-04, AC-STATE-07
+- Pinned sources: `nango-http-api-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/nango/webhooks.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — not in the recorded run
+
+### PD-01 (PIPEDREAM) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/pipedream/identity.ts`, `src/server/connectors/providers/pipedream/client.ts`, `src/server/connectors/providers/pipedream/context.ts`, `src/server/connectors/providers/pipedream/inventory.ts`, `src/server/connectors/providers/pipedream/wire.ts`
+- Acceptance: AC-EXT-01, AC-AUTH-01, AC-AUTH-02
+- Pinned sources: `pipedream-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/pipedream/inventory.test.ts` — not in the recorded run
+
+### PD-02 (PIPEDREAM) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/pipedream/connect.ts`, `src/server/connectors/providers/pipedream/context.ts`
+- Acceptance: AC-EXT-01, AC-AUTH-09, AC-AUTH-07, AC-AUTH-08, AC-AUTH-14, AC-AUTH-15, AC-AUTH-16
+- Pinned sources: `pipedream-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/pipedream/authorize.test.ts` — not in the recorded run
+
+### PD-03 (PIPEDREAM) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/pipedream/execute.ts`, `src/server/connectors/providers/pipedream/guards.ts`, `src/server/connectors/providers/pipedream/settings.ts`
+- Acceptance: AC-EXT-02, AC-EXT-01, AC-STATE-06
+- Pinned sources: `pipedream-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/pipedream/invoke.test.ts` — not in the recorded run
+
+### PD-04 (PIPEDREAM) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/pipedream/triggers.ts`, `src/server/connectors/providers/pipedream/events.ts`, `src/server/connectors/providers/pipedream/index.ts`
+- Acceptance: AC-EXT-02, AC-STATE-03, AC-STATE-07
+- Pinned sources: `pipedream-connect-rest-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/pipedream/triggers.test.ts` — not in the recorded run
+
+### CO-01 (COMPOSIO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/composio/wire.ts`, `src/server/connectors/providers/composio/identity.ts`, `src/server/connectors/providers/composio/client.ts`, `src/server/connectors/providers/composio/context.ts`, `src/server/connectors/providers/composio/catalog.ts`, `src/server/connectors/providers/composio/lifecycle.ts`, `src/server/connectors/providers/composio/index.ts`
+- Acceptance: AC-IMP-03, AC-AUTH-01, AC-AUTH-02
+- Pinned sources: `composio-platform-v3-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/composio/discovery.test.ts` — not in the recorded run
+
+### CO-02 (COMPOSIO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/composio/connect.ts`, `src/server/connectors/providers/composio/context.ts`, `src/server/connectors/providers/composio/catalog.ts`
+- Acceptance: AC-EXT-03, AC-AUTH-03, AC-AUTH-07, AC-AUTH-08, AC-AUTH-09, AC-AUTH-13, AC-AUTH-16
+- Pinned sources: `composio-platform-v3-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/composio/authorize.test.ts` — not in the recorded run
+
+### CO-03 (COMPOSIO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/composio/execute.ts`, `src/server/connectors/providers/composio/settings.ts`
+- Acceptance: AC-EXT-03, AC-EXT-04, AC-AUTH-01, AC-AUTH-13
+- Pinned sources: `composio-platform-v3-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/composio/execute.test.ts` — not in the recorded run
+
+### CO-04 (COMPOSIO) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/composio/identity.ts`, `src/server/connectors/providers/composio/lifecycle.ts`, `src/server/connectors/providers/composio/catalog.ts`, `src/server/connectors/providers/composio/execute.ts`
+- Acceptance: AC-EXT-04, AC-STATE-03, AC-STATE-05
+- Pinned sources: `composio-platform-v3-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/composio/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/composio/execute.test.ts` — not in the recorded run
+
+### IB-01 (IDENTITY-BROKERS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### IB-02 (IDENTITY-BROKERS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### IB-03 (IDENTITY-BROKERS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### IB-04 (IDENTITY-BROKERS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### IB-05 (IDENTITY-BROKERS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### CAT-01 (CATALOGS) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/smithery/api.ts`, `src/server/connectors/registries/smithery/normalize.ts`, `src/server/connectors/registries/smithery/adapter.ts`, `src/server/connectors/registries/smithery/index.ts`
+- Acceptance: AC-IMP-02, AC-IMP-03, AC-MCP-08
+- Pinned sources: `smithery-registry-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/smithery/registry.test.ts` — not in the recorded run
+
+### CAT-02 (CATALOGS) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/smithery/ports.ts`, `src/server/connectors/providers/smithery/connections.ts`, `src/server/connectors/providers/smithery/index.ts`, `src/server/connectors/registries/smithery/api.ts`
+- Acceptance: AC-EXT-07, AC-AUTH-08, AC-STATE-03
+- Pinned sources: `smithery-connect-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/smithery/connections.test.ts` — not in the recorded run
+
+### CAT-03 (CATALOGS) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/docker/catalog.ts`, `src/server/connectors/registries/docker/normalize.ts`, `src/server/connectors/registries/docker/export.ts`, `src/server/connectors/registries/docker/runner.ts`, `src/server/connectors/registries/docker/adapter.ts`, `src/server/connectors/registries/docker/index.ts`
+- Acceptance: AC-EXT-08, AC-IMP-09, AC-IMP-13, AC-IMP-14
+- Pinned sources: `docker-mcp-catalog-v2`
+- Tests:
+  - `node --import tsx --test tests/connectors/docker-mcp/catalog.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/docker-mcp/adapter.test.ts` — not in the recorded run
+
+### CAT-04 (CATALOGS) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/registries/pulsemcp/api.ts`, `src/server/connectors/registries/pulsemcp/normalize.ts`, `src/server/connectors/registries/pulsemcp/adapter.ts`, `src/server/connectors/registries/pulsemcp/index.ts`
+- Acceptance: AC-EXT-09, AC-MCP-07, AC-STATE-06
+- Pinned sources: `pulsemcp-v0beta`, `pulsemcp-subregistry-v0.1`
+- Tests:
+  - `node --import tsx --test tests/connectors/pulsemcp/discovery.test.ts` — not in the recorded run
+
+### CAT-05 (CATALOGS) — implemented, unit
+
+- Files: `src/server/connectors/registries/cross-source.ts`
+- Acceptance: AC-IMP-03
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/pulsemcp/equivalence.test.ts` — not in the recorded run
+
+### MS-01 (MICROSOFT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/microsoft/read.ts`, `src/server/connectors/formats/microsoft/swagger-walk.ts`, `src/server/connectors/formats/microsoft/api-properties.ts`, `src/server/connectors/formats/microsoft/issues.ts`, `src/server/connectors/formats/microsoft/index.ts`
+- Acceptance: AC-EXT-12, AC-IMP-13, AC-IMP-14
+- Pinned sources: `microsoft-custom-connector-2026-06`
+- Tests:
+  - `node --import tsx --test tests/connectors/microsoft/import.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/microsoft/policy.test.ts` — not in the recorded run
+
+### MS-02 (MICROSOFT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/microsoft/dynamic.ts`, `src/server/connectors/formats/microsoft/adapter.ts`, `src/server/connectors/formats/microsoft/read.ts`
+- Acceptance: AC-EXT-10
+- Pinned sources: `microsoft-custom-connector-2026-06`
+- Tests:
+  - `node --import tsx --test tests/connectors/microsoft/dynamic.test.ts` — not in the recorded run
+
+### MS-03 (MICROSOFT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/microsoft/read.ts`, `src/server/connectors/formats/microsoft/adapter.ts`
+- Acceptance: AC-EXT-11
+- Pinned sources: `microsoft-custom-connector-2026-06`
+- Tests:
+  - `node --import tsx --test tests/connectors/microsoft/verify.test.ts` — not in the recorded run
+
+### MS-04 (MICROSOFT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/microsoft/read.ts`, `src/server/connectors/formats/microsoft/api-properties.ts`
+- Acceptance: AC-EXT-12
+- Pinned sources: `microsoft-custom-connector-2026-06`
+- Tests:
+  - `node --import tsx --test tests/connectors/microsoft/import.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/microsoft/policy.test.ts` — not in the recorded run
+
+### MS-05 (MICROSOFT) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/microsoft/export.ts`, `src/server/connectors/formats/microsoft/adapter.ts`
+- Acceptance: AC-IMP-14, AC-IMP-13
+- Pinned sources: `microsoft-custom-connector-2026-06`
+- Tests:
+  - `node --import tsx --test tests/connectors/microsoft/export.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/microsoft/adapter.test.ts` — not in the recorded run
+
+### AUTO-01 (AUTOMATION) — no ledger entry
+
+Nobody delivered this required work item.
+
+### AUTO-02 (AUTOMATION) — no ledger entry
+
+Nobody delivered this required work item.
+
+### AUTO-03 (AUTOMATION) — no ledger entry
+
+Nobody delivered this required work item.
+
+### AUTO-04 (AUTOMATION) — no ledger entry
+
+Nobody delivered this required work item.
+
+### AUTO-05 (AUTOMATION) — no ledger entry
+
+Nobody delivered this required work item.
+
+### DATA-01 (DATA) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/airbyte/contracts.ts`, `src/server/connectors/providers/airbyte/protocol.ts`, `src/server/connectors/providers/airbyte/api.ts`, `src/server/connectors/providers/airbyte/adapter.ts`, `src/server/connectors/providers/airbyte/index.ts`
+- Acceptance: AC-EXT-13
+- Pinned sources: `airbyte-protocol-v0`, `airbyte-api-v1-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/airbyte/catalog.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — not in the recorded run
+
+### DATA-02 (DATA) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/hasura-ndc/spec.ts`, `src/server/connectors/providers/hasura-ndc/discover.ts`, `src/server/connectors/providers/hasura-ndc/policy.ts`, `src/server/connectors/providers/hasura-ndc/adapter.ts`, `src/server/connectors/providers/hasura-ndc/index.ts`
+- Acceptance: AC-EXT-14
+- Pinned sources: `hasura-ndc-0.2`
+- Tests:
+  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/hasura-ndc/policy.test.ts` — not in the recorded run
+
+### DATA-03 (DATA) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/merge/contracts.ts`, `src/server/connectors/providers/merge/adapter.ts`, `src/server/connectors/providers/merge/index.ts`
+- Acceptance: AC-EXT-15
+- Pinned sources: `merge-unified-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/merge/adapter.test.ts` — not in the recorded run
+
+### DATA-04 (DATA) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/formats/retrieval/descriptor.ts`, `src/server/connectors/formats/retrieval/access.ts`, `src/server/connectors/formats/retrieval/cloud-search.ts`, `src/server/connectors/formats/retrieval/index.ts`
+- Acceptance: AC-EXT-16
+- Pinned sources: `cloud-search-acl-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/retrieval/acl.test.ts` — not in the recorded run
+
+### DATA-05 (DATA) — implemented, protocol-fixture
+
+- Files: `tests/connectors/doubles/airbyte-api.ts`, `tests/connectors/doubles/ndc-connector.ts`, `tests/connectors/doubles/merge-api.ts`, `tests/connectors/fixtures/airbyte/catalogs.ts`, `tests/connectors/fixtures/airbyte/deployment.ts`, `tests/connectors/fixtures/hasura-ndc/connector.ts`, `tests/connectors/fixtures/merge/accounts.ts`, `tests/connectors/fixtures/retrieval/acl-cases.json`, `tests/connectors/fixtures/retrieval/cloud-search-items.json`
+- Acceptance: AC-EXT-13, AC-EXT-14, AC-EXT-15, AC-EXT-16
+- Pinned sources: `airbyte-protocol-v0`, `airbyte-api-v1-2026-09`, `hasura-ndc-0.2`, `merge-unified-2026-09`, `cloud-search-acl-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/airbyte/catalog.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/hasura-ndc/policy.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/merge/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/retrieval/acl.test.ts` — not in the recorded run
+
+### CLOUD-01 (CLOUD) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/aws-agentcore/sigv4.ts`, `src/server/connectors/providers/aws-agentcore/control.ts`, `src/server/connectors/providers/aws-agentcore/gateway.ts`, `src/server/connectors/providers/aws-agentcore/adapter.ts`, `src/server/connectors/providers/aws-agentcore/schemas.ts`, `src/server/connectors/providers/aws-agentcore/json.ts`, `src/server/connectors/providers/aws-agentcore/index.ts`
+- Acceptance: AC-EXT-17
+- Pinned sources: `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`
+- Tests:
+  - `node --import tsx --test tests/connectors/aws-agentcore/sigv4.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/aws-agentcore/control.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/aws-agentcore/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/aws-agentcore/ac-ext-17.test.ts` — not in the recorded run
+
+### CLOUD-02 (CLOUD) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/aws-agentcore/compatibility.ts`, `src/server/connectors/providers/aws-agentcore/adapter.ts`
+- Acceptance: AC-EXT-17, AC-IMP-05
+- Pinned sources: `aws-agentcore-control-2023-06-05`
+- Tests:
+  - `node --import tsx --test tests/connectors/aws-agentcore/adapter.test.ts` — not in the recorded run
+
+### CLOUD-03 (CLOUD) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/google-integration-connectors/resources.ts`, `src/server/connectors/providers/google-integration-connectors/client.ts`, `src/server/connectors/providers/google-integration-connectors/schemas.ts`, `src/server/connectors/providers/google-integration-connectors/compatibility.ts`, `src/server/connectors/providers/google-integration-connectors/adapter.ts`, `src/server/connectors/providers/google-integration-connectors/json.ts`, `src/server/connectors/providers/google-integration-connectors/index.ts`
+- Acceptance: AC-EXT-17
+- Pinned sources: `google-connectors-v1-20260907`, `google-connectors-v2-20260907`
+- Tests:
+  - `node --import tsx --test tests/connectors/google-integration-connectors/client.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/google-integration-connectors/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/google-integration-connectors/ac-ext-17.test.ts` — not in the recorded run
+
+### CLOUD-04 (CLOUD) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/aws-agentcore/adapter.ts`, `src/server/connectors/providers/aws-agentcore/control.ts`, `src/server/connectors/providers/google-integration-connectors/adapter.ts`, `src/server/connectors/providers/google-integration-connectors/resources.ts`
+- Acceptance: AC-EXT-17, AC-STATE-06
+- Pinned sources: `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`, `google-connectors-v1-20260907`, `google-connectors-v2-20260907`
+- Tests:
+  - `node --import tsx --test tests/connectors/aws-agentcore/control.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/aws-agentcore/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/aws-agentcore/ac-ext-17.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/google-integration-connectors/client.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/google-integration-connectors/adapter.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/google-integration-connectors/ac-ext-17.test.ts` — not in the recorded run
+
+### BIND-01 (BINDINGS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### BIND-02 (BINDINGS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### BIND-03 (BINDINGS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### BIND-04 (BINDINGS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### BIND-05 (BINDINGS) — no ledger entry
+
+Nobody delivered this required work item.
+
+### AG-01 (AGENT-SURFACES) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/a2a/schemas.ts`, `src/server/connectors/providers/a2a/card.ts`, `src/server/connectors/providers/a2a/index.ts`
+- Acceptance: AC-AG-01
+- Pinned sources: `a2a-1.0`, `a2a-0.3`
+- Tests:
+  - `node --import tsx --test tests/connectors/a2a/card.test.ts` — not in the recorded run
+
+### AG-02 (AGENT-SURFACES) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/providers/a2a/client.ts`, `src/server/connectors/providers/a2a/context.ts`, `src/server/connectors/providers/a2a/delegate.ts`, `src/server/connectors/providers/a2a/sessions.ts`, `src/server/connectors/providers/a2a/index.ts`
+- Acceptance: AC-AG-01, AC-AG-02
+- Pinned sources: `a2a-1.0`, `a2a-0.3`
+- Tests:
+  - `node --import tsx --test tests/connectors/a2a/delegate.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/a2a/security.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/doubles/a2a-agent.ts` — not in the recorded run
+
+### AG-03 (AGENT-SURFACES) — implemented, unit
+
+- Files: `src/server/connectors/agents/intents.ts`, `src/server/connectors/agents/mcp-intents.ts`, `src/server/connectors/agents/index.ts`
+- Acceptance: AC-MCP-06
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/agent-tools/intents.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — not in the recorded run
+
+### AG-04 (AGENT-SURFACES) — implemented, unit
+
+- Files: `src/server/connectors/agents/webmcp.ts`
+- Acceptance: AC-AG-03
+- Pinned sources: `webmcp-cg-draft-2026-09-17`
+- Tests:
+  - `node --import tsx --test tests/connectors/agent-tools/webmcp.test.ts` — not in the recorded run
+
+### AG-05 (AGENT-SURFACES) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/agents/continuations.ts`
+- Acceptance: AC-AG-04
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/agent-tools/continuations.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — not in the recorded run
+
+### STATE-01 (STATE) — implemented, local-integration
+
+- Files: `src/server/connectors/state/index.ts`, `src/server/connectors/state/common.ts`, `src/server/connectors/state/keys.ts`, `src/server/connectors/state/schemas.ts`, `src/server/connectors/state/connections.ts`, `src/server/connectors/state/definitions.ts`, `src/server/connectors/state/evidence.ts`, `src/server/connectors/state/support.ts`, `src/server/connectors/state/configuration.ts`
+- Acceptance: AC-AUTH-02, AC-STATE-08
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/storage.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/state/conformance.test.ts` — not in the recorded run
+
+### STATE-02 (STATE) — implemented, local-integration
+
+- Files: `src/server/connectors/state/credentials.ts`
+- Acceptance: AC-STATE-01
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/custody.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/state/concurrency.test.ts` — not in the recorded run
+
+### STATE-03 (STATE) — implemented, local-integration
+
+- Files: `src/server/connectors/state/connections.ts`, `src/server/connectors/state/handoffs.ts`, `src/server/connectors/state/effects.ts`, `src/server/connectors/state/evidence.ts`, `src/server/connectors/state/artifacts.ts`, `src/server/connectors/state/definitions.ts`
+- Acceptance: AC-AUTH-06, AC-AUTH-07, AC-STATE-02
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/state/conformance.test.ts` — not in the recorded run
+
+### STATE-04 (STATE) — implemented, local-integration
+
+- Files: `src/server/connectors/state/credentials.ts`, `src/server/connectors/state/throttle.ts`, `src/server/connectors/state/effects.ts`
+- Acceptance: AC-STATE-01, AC-STATE-06, AC-STATE-08
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/concurrency.test.ts` — not in the recorded run
+
+### STATE-05 (STATE) — implemented, unit
+
+- Files: `src/server/connectors/state/drift.ts`, `src/server/connectors/state/connections.ts`, `src/server/connectors/state/common.ts`
+- Acceptance: AC-STATE-03, AC-STATE-04, AC-STATE-05
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/drift.test.ts` — not in the recorded run
+
+### STATE-06 (STATE) — implemented, local-integration
+
+- Files: `tests/connectors/state/durability.test.ts`, `tests/connectors/fixtures/state/effect-crash-worker.ts`, `tests/connectors/fixtures/state/records.ts`
+- Acceptance: AC-STATE-02, AC-STATE-06, AC-STATE-08
+- Pinned sources: `ceremony-connector-state/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/state/durability.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/state/concurrency.test.ts` — not in the recorded run
+
+### CMD-01 (COMMAND) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/commands/service.ts`, `src/server/connectors/commands/inputs.ts`, `src/server/connectors/commands/policy.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-09, AC-AUTH-12, AC-AUTH-13, AC-AUTH-16, AC-STATE-03, AC-UX-02
+- Pinned sources: `ceremony-connector-commands-2026-09`
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
+
+### CMD-02 (COMMAND) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/commands/registration.ts`
+- Acceptance: AC-UX-01, AC-MCP-06
+- Pinned sources: `ceremony-manifest-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
+
+### CMD-03 (COMMAND) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/commands/http.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-07, AC-UX-02
+- Pinned sources: `ceremony-connector-http-v1`
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
+
+### CMD-04 (COMMAND) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/commands/service.ts`, `src/server/connectors/commands/policy.ts`
+- Acceptance: AC-AUTH-09, AC-AUTH-10, AC-STATE-05
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
+
+### CMD-05 (COMMAND) — implemented, protocol-fixture
+
+- Files: `src/server/connectors/commands/service.ts`, `src/server/connectors/commands/http.ts`
+- Acceptance: AC-AUTH-07, AC-AUTH-15, AC-UX-04
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
+
+### CMD-06 (COMMAND) — implemented, protocol-fixture
+
+- Files: `tests/connectors/doubles/fixture-adapter.ts`, `tests/connectors/commands/harness.ts`
+- Acceptance: AC-AUTH-01, AC-AUTH-07, AC-AUTH-09, AC-AUTH-12, AC-AUTH-13, AC-AUTH-16, AC-STATE-03, AC-UX-02, AC-UX-06, AC-AG-04
+- Pinned sources: `fixture-http-1`
+- Tests:
+  - `node --import tsx --test tests/connectors/commands/lifecycle.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/authorization.test.ts` — not in the recorded run
+  - `node --import tsx --test tests/connectors/commands/bridge.test.ts` — not in the recorded run
+
+### UX-01 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-02 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-03 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-04 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-05 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-06 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### UX-07 (UX) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-01 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-02 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-03 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-04 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-05 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### SEC-06 (SECURITY) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-01 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-02 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-03 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-04 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-05 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### QA-06 (QA) — no ledger entry
+
+Nobody delivered this required work item.
+
+### DOC-01 (DOCS) — implemented, unit
+
+- Files: `docs/specifications/connector-dialects.md`, `docs/specifications/examples/connectors/definition-public-api.json`, `docs/specifications/examples/connectors/envelope-v2-description.json`, `docs/specifications/examples/connectors/import-loss-issues.json`, `docs/specifications/examples/connectors/capability-status-rows.json`, `docs/specifications/examples/connectors/verification-claim.json`
+- Acceptance: AC-IMP-02, AC-IMP-05, AC-IMP-14, AC-UX-06
+- Pinned sources: `ceremony-connector/1`, `ceremony-connector/2`, `openapi-3.2.1`, `openapi-3.1.2`, `openapi-3.0.3`, `swagger-2.0`, `overlay-1.1.0`, `overlay-1.0.0`, `arazzo-1.1.0`, `arazzo-1.0.1`, `asyncapi-3.1.0`, `asyncapi-3.0.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`, `mcp-registry-api-v0.1`, `server-json-2025-12-11`, `yaml-1.2-core`, `json-rfc8259`, `json-pointer-rfc6901`
+- Tests:
+  - `node --import tsx --test tests/connectors/docs/examples.test.ts` — not in the recorded run
+
+### DOC-02 (DOCS) — implemented, unit
+
+- Files: `docs/implementation-evidence/connector-interoperability/source-lock.json`, `docs/implementation-evidence/connector-interoperability/source-lock.md`
+- Acceptance: AC-IMP-16
+- Pinned sources: `openapi-3.2.1`, `overlay-1.1.0`, `arazzo-1.1.0`, `asyncapi-3.1.0`, `cloudevents-1.0`, `standard-webhooks-1.0.0`, `mcp-2026-07-28`
+- Tests:
+  - `node --import tsx --test tests/connectors/docs/examples.test.ts` — not in the recorded run
+
+### DOC-03 (DOCS) — implemented, unit
+
+- Files: `scripts/connector-support-matrix.ts`, `docs/specifications/connector-support-matrix.md`
+- Acceptance: AC-UX-06, AC-PKG-03
+- Pinned sources: none named
+- Tests:
+  - `node --import tsx --test tests/connectors/docs/examples.test.ts` — not in the recorded run
+
+### DOC-04 (DOCS) — implemented, not-tested
+
+- Files: `docs/connector-provider-setup.md`
+- Acceptance: AC-STATE-03, AC-AUTH-16, AC-VC-07, AC-NG-02
+- Pinned sources: `nango-http-api-2026-09`, `pipedream-connect-rest-2026-09`, `supabase-oauth-2026-09`, `supabase-management-api-v1`, `vercel-connect-triggers-2026-08-20`, `standard-webhooks-1.0.0`, `composio-platform-v3-2026-09`, `merge-unified-2026-09`
+- Tests: none named
+
+### DOC-05 (DOCS) — implemented, not-tested
+
+- Files: `docs/mcp-endpoint.md`, `docs/mcp-local.md`, `docs/auth-catalog.md`
+- Acceptance: AC-MCP-06, AC-AUTH-18
+- Pinned sources: `mcp-2026-07-28-authorization`, `rfc9728`, `rfc8693`
+- Tests: none named
+
+### DOC-06 (DOCS) — implemented, not-tested
+
+- Files: `scripts/connector-support-matrix.ts`, `docs/implementation-evidence/connector-interoperability/evidence-report.md`
+- Acceptance: AC-PKG-03
+- Pinned sources: none named
+- Tests: none named
 
 The command that produces every result above is one recorded run over every discovered connector test file:
 
@@ -374,7 +1374,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - No upstream disconnect or revoke exists in an OpenAPI description; both report local scope only and 'unsupported' upstream.
   - Events are unsupported in this adapter: webhooks and callbacks are imported as descriptions, and verified delivery belongs to the events profile.
 - **HTTP-05** (HTTP)
-  - The JSONPath subset is: root ($), child by name (.name and ['name'] / ["name"]), wildcard (.* and [*]), recursive descent (..name and ..*) and non-negative array index ([0]). RFC 9535 filters, scripts, unions, slices, negative indexes and function extensions are refused with a blocking structure.unsupported-selector issue rather than approximated. The Overlay specification requires full RFC 9535 for interoperability, so this is an explicit, documented subset, not a conformance claim.
+  - The JSONPath subset is: root ($), child by name (.name and ['name'] / ["name"]), wildcard (.* and [_]), recursive descent (..name and .._) and non-negative array index ([0]). RFC 9535 filters, scripts, unions, slices, negative indexes and function extensions are refused with a blocking structure.unsupported-selector issue rather than approximated. The Overlay specification requires full RFC 9535 for interoperability, so this is an explicit, documented subset, not a conformance claim.
   - Selection, merge depth, action count and update size are bounded; exceeding a bound refuses the whole overlay rather than applying part of it.
   - A document that cannot be serialized within bounds (for example one whose shared references expand exponentially) is refused with structure.document-too-large instead of throwing.
 - **HTTP-06** (HTTP)
@@ -451,7 +1451,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - **OA-05** (OAUTH)
   - VerificationClaim.permissions.observed is always [] here: observation belongs to a verifier that calls a real operation, not to the grant.
   - Introspection-sourced `reported` scopes are produced only on the token-exchange path; the code path uses the token response `scope`.
-  - reviewPermissionEscalation compares against the previously *requested* set, so a provider grant wider than the review never silently becomes the new baseline.
+  - reviewPermissionEscalation compares against the previously _requested_ set, so a provider grant wider than the review never silently becomes the new baseline.
 - **OA-06** (OAUTH)
   - ID-JAG (urn:ietf:params:oauth:token-type:id-jag) is unsupported by default and requires tokenExchange.idJag in host policy; the code is oauth.exchange.id-jag-not-negotiated.
   - An opaque issued token is verified only when the issuer publishes an introspection endpoint; otherwise the exchange is refused as unverifiable rather than trusted.
@@ -692,6 +1692,41 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - **CLOUD-04** (CLOUD)
   - Region and location confusion is enforced against the documented public host patterns (bedrock-agentcore-control.<region>.amazonaws.com, connectors.<region>.rep.googleapis.com); a private or loopback host takes its region from the binding, which the fixtures exercise
   - Private-endpoint policy is enforced at the binding boundary (approved-private destination required); Ceremony never creates the VPC, Lattice or Service Directory resources involved
+- **AG-01** (AGENT-SURFACES)
+  - Bounded Agent Card import for both published card shapes: 1.0 `supportedInterfaces` and 0.3 `url`/`preferredTransport`/`additionalInterfaces`. Version, agent identity, every declared interface, declared security schemes, skills and task capabilities are preserved.
+  - Import never performs network access of any kind: it receives bytes. A card naming a private, loopback, link-local or metadata URL is stored verbatim in declaredServers and nativeExtensions with a network diagnostic, and is never fetched.
+  - JWS `signatures` are preserved and counted, never verified: no signer trust policy exists here. Reported as a warning rather than silently.
+  - Connector identity is taken from the first interface that is a reachable HTTPS endpoint. When no interface is, the native id becomes `a2a-card:<digest>` and the card's URLs stay out of agentDefinitionProjection, which carries native ids to models.
+  - A skill's effect, data classification and cost are recorded as `unknown`: A2A declares none of them, and guessing from a name or a tag would be an invented claim.
+  - Only the JSONRPC protocol binding is executable; GRPC and HTTP+JSON interfaces import with an explicit unsupported diagnostic.
+- **AG-02** (AGENT-SURFACES)
+  - Task identity is owner-bound: the caller holds `a2atask:<sha256>`, a digest correlation key; the upstream task id lives only in protected handoff material. Resolution checks tenant, subject, connection, binding and connection generation, so a leaked reference cannot cancel or continue another principal's task.
+  - Only skills listed in the binding's approvedSkills may be delegated, and each must map to a bound operation whose transport is `delegated` with route `a2a-skill:<id>` on the agent's destination. Card claims never widen this.
+  - start, input and cancel are journaled through the effect journal before the call; a repeated command id returns the journaled outcome instead of a second task, and a lost response on a non-read delegation is `indeterminate`, not a retryable failure.
+  - Artifacts are described, never fetched. A URL part is reported as `retrieval: not-fetched` with the URL withheld from the caller entirely. `retrieveArtifact` is privileged-internal, off unless a host enables it, requires an explicit approval object, and refuses any origin that is not an approved destination of the binding.
+  - Streaming (message/stream, SSE) and push-notification configuration are not implemented; progress is polled through an approved status operation. Reported unsupported with the reason.
+  - Verification compares the served card with the reviewed one (name, profile, interface URL, protocol version) and records `credential-accepted` plus `resource-access`. It deliberately asserts no account identity: an Agent Card is the agent's own statement.
+  - A2A publishes no connection resource and no revocation operation, so disconnect is local-only and revoke is unsupported; both report the exact native limitation.
+  - Owner kinds `user` and `organization` are accepted; `workload` is refused rather than silently mapped to the signed-in subject.
+- **AG-03** (AGENT-SURFACES)
+  - Seven transport-neutral intents (list, inspect, status, connect, operations, reconnect, disconnect) over a narrow dependency interface; the command service supplies it and rechecks capability, ownership, generation and policy itself.
+  - Connections leave through agentConnectorProjection and definitions through agentDefinitionProjection. Approved operations have no core projection, so they leave through a local positive allowlist (agentOperationProjection) that omits transport, method, path template, tool name, destination id and authentication profile.
+  - Additive on the MCP server: registerAgentConnectorTools skips any name already registered, so the MCP swarm's connector_catalog/status/connect/invoke are untouched and only five names are added.
+  - The service wiring (an AgentConnectorDependencies built over ConnectorCommandService) is the integrator's mount; these tests exercise the intents against an in-memory dependency and a fake MCP server, so the evidence level is unit rather than local-integration.
+- **AG-04** (AGENT-SURFACES)
+  - Feature detection reuses the existing browserModelContext() unchanged, so the connector tools and the ceremony tools cannot drift apart; the mount also reports which spelling was found (document or navigator).
+  - No native model context means no registration and no installation of anything: the absent API stays absent, there is no polyfill, and the application's ordinary controls are the whole experience.
+  - Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.
+  - `exposedTo` is never passed, so nothing here claims to drive an iframe or another origin; the mount reports crossOriginExposure: "not-requested".
+  - Annotations are hints. The dispatcher is never told about them and the server never sees them; a rewritten readOnlyHint changes nothing.
+  - Supported-native-browser evidence here is a spec-shaped model-context double in Node, NOT a real browser. Real-browser (Playwright) evidence is not claimed; browser suites cannot be run while other swarms hold the fixed ports.
+- **AG-05** (AGENT-SURFACES)
+  - One decision function for HTTP, MCP, WebMCP and A2A. Every test asks the same question on all four surfaces and asserts one answer, so a surface with its own opinion fails rather than becoming the deployment's real policy.
+  - A WebMCP call is delegated work by construction: it runs inside the person's own browser session, so the session alone cannot distinguish it from that person clicking a button, and the surface is used instead.
+  - A stop halts connect, operate, delegate and administer; read and disconnect stay possible so a stop does not strand the person. It is evaluated before any lookup, so it cannot be used to probe for a connection's existence.
+  - Covered denials: assistant-stopped, role-revoked, connection-not-owned, connection-missing, connection-inactive, generation-fenced, binding-revised, policy-revised, configuration-revised. Each maps to one connector error code on every transport.
+  - DelegationStopRegistry is an in-process default with length-prefixed composite keys; a deployment backs the same `readStop` shape with the shared encrypted store. That durable implementation is the state swarm's / integrator's.
+  - The A2A leg of AC-AG-04 is exercised against the real adapter and the loopback agent double; the HTTP and MCP legs are exercised through the guard, not through a mounted route table.
 - **STATE-01** (STATE)
   - Ownership beyond the subject/session rule is a host policy injected as `owns`; the state layer never derives organization or workload ownership from a record field.
   - Definition and binding records are tenant-scoped, not owner-scoped: they are descriptions, and the command layer applies review capability checks.
@@ -772,4 +1807,3 @@ The [source lock](source-lock.md) pins 67 records as of 2026-09-18, each with it
 
 - ledger/AUTOMATION.json: does not match the ledger shape
 - ledger/IDENTITY-BROKERS.json: no `workItems` array, so its requirements cannot be joined and are reported as having no ledger entry
-

@@ -38,10 +38,10 @@ test("the catalogue is parsed with the core schema and grouped alternatives surv
   assert.ok(entries.length > 5);
   const github = entries.filter((entry) => entry.group === "github");
   assert.equal(github.length, 2);
-  assert.deepEqual(
-    github.map((entry) => entry.custody[0]).sort(),
-    ["external-credential-broker", "host-owned"],
-  );
+  assert.deepEqual(github.map((entry) => entry.custody[0]).sort(), [
+    "external-credential-broker",
+    "host-owned",
+  ]);
   // Grouping is a label. Support, custody and evidence stay per row.
   assert.notEqual(github[0]!.support, github[1]!.support);
   assert.equal(viewer.capabilities.includes("executor"), true);
@@ -60,7 +60,8 @@ test("a response the contract does not allow is an error, not a half-rendered sc
   await assert.rejects(
     () => api.catalog(),
     (error: unknown) =>
-      error instanceof ConnectorClientError && error.code === "invalid-response",
+      error instanceof ConnectorClientError &&
+      error.code === "invalid-response",
   );
 });
 
@@ -368,7 +369,10 @@ test("a callback return names what to reopen and refuses anything malformed", ()
       outcome: "handoff.completed",
     },
   );
-  assert.deepEqual(readConnectorReturn("?connector=%20%20&connection=../x"), {});
+  assert.deepEqual(
+    readConnectorReturn("?connector=%20%20&connection=../x"),
+    {},
+  );
 });
 
 test("the relay tells only a same-origin opener, and only about this return", () => {
@@ -406,7 +410,10 @@ test("the relay tells only a same-origin opener, and only about this return", ()
   assert.equal(
     relayHandoffReturn({
       opener: { ...opener, location: { origin: "https://evil.test" } },
-      location: { origin: "https://app.test", search: "?connection=connection%3A1" },
+      location: {
+        origin: "https://app.test",
+        search: "?connection=connection%3A1",
+      },
       close() {},
     }),
     false,
@@ -414,7 +421,10 @@ test("the relay tells only a same-origin opener, and only about this return", ()
   assert.equal(
     relayHandoffReturn({
       opener: null,
-      location: { origin: "https://app.test", search: "?connection=connection%3A1" },
+      location: {
+        origin: "https://app.test",
+        search: "?connection=connection%3A1",
+      },
       close() {},
     }),
     false,

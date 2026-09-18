@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type {
   BindingReference,
   CatalogEntry,
@@ -32,7 +39,8 @@ import "../../src/react/connectors.css";
  * pay for them on every visit would be the wrong trade.
  */
 const ConnectorImport = lazy(async () => ({
-  default: (await import("../../src/react/connector-review.js")).ConnectorImport,
+  default: (await import("../../src/react/connector-review.js"))
+    .ConnectorImport,
 }));
 
 export interface ConnectorWorkspaceProps {
@@ -187,9 +195,7 @@ export function ConnectorWorkspace({
         }
       />
       {importing && (
-        <Suspense
-          fallback={<p role="status">Loading the import review…</p>}
-        >
+        <Suspense fallback={<p role="status">Loading the import review…</p>}>
           <ConnectorImport
             client={client}
             {...(viewer ? { viewer } : {})}
@@ -200,11 +206,7 @@ export function ConnectorWorkspace({
       <ConnectorDrawer
         open={Boolean(entry)}
         title={entry ? `Connect ${entry.displayName}` : "Connect"}
-        subtitle={
-          entry
-            ? `${entry.ecosystem} · ${entry.service}`
-            : undefined
-        }
+        subtitle={entry ? `${entry.ecosystem} · ${entry.service}` : undefined}
         onClose={close}
         footer={
           <p>

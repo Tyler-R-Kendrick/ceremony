@@ -63,7 +63,10 @@ export const evidencePresentation: Record<
   EvidenceLevel,
   { label: string; detail: string }
 > = {
-  "not-tested": { label: "Not tested", detail: "No evidence has been recorded." },
+  "not-tested": {
+    label: "Not tested",
+    detail: "No evidence has been recorded.",
+  },
   unit: { label: "Unit", detail: "Exercised by unit tests only." },
   "protocol-fixture": {
     label: "Protocol fixture",
@@ -181,7 +184,8 @@ export function filterCatalog(
   const needle = (filters.query ?? "").trim().toLowerCase();
   return entries.filter((entry) => {
     if (filters.service && entry.group !== filters.service) return false;
-    if (filters.ecosystem && entry.ecosystem !== filters.ecosystem) return false;
+    if (filters.ecosystem && entry.ecosystem !== filters.ecosystem)
+      return false;
     if (filters.support && entry.support !== filters.support) return false;
     if (
       filters.custody &&
@@ -374,7 +378,9 @@ export function ConnectorEntryCard({
       data-ceremony-card=""
       data-connector-entry={entry.id}
       data-support={entry.support}
-      data-status={entry.support === "catalog-only" ? "unavailable" : "available"}
+      data-status={
+        entry.support === "catalog-only" ? "unavailable" : "available"
+      }
     >
       <span className="connector-mark" aria-hidden="true">
         {entry.displayName.slice(0, 2).toUpperCase()}
@@ -385,10 +391,16 @@ export function ConnectorEntryCard({
       </div>
       <p className="connector-summary">{entry.description}</p>
       <div className="connector-foot">
-        <ul className="connector-methods" aria-label={`How ${entry.displayName} is reached`}>
+        <ul
+          className="connector-methods"
+          aria-label={`How ${entry.displayName} is reached`}
+        >
           {alternative && (
             <li>
-              <Chip tone="accent" title="One of several ways to reach this service; each keeps its own custody and evidence.">
+              <Chip
+                tone="accent"
+                title="One of several ways to reach this service; each keeps its own custody and evidence."
+              >
                 via {entry.ecosystem}
               </Chip>
             </li>
@@ -408,7 +420,11 @@ export function ConnectorEntryCard({
           </li>
           {dimensions.length > 0 && (
             <li>
-              <Chip title={dimensions.map((value) => dimensionLabels[value]).join(", ")}>
+              <Chip
+                title={dimensions
+                  .map((value) => dimensionLabels[value])
+                  .join(", ")}
+              >
                 {dimensions.length} of 12 dimensions
               </Chip>
             </li>
@@ -416,8 +432,8 @@ export function ConnectorEntryCard({
         </ul>
         {missing.length > 0 && (
           <p className="connector-blocked">
-            Missing configuration: {missing.map((item) => item.name).join(", ")}.
-            An operator sets these on the server; they are never entered here.
+            Missing configuration: {missing.map((item) => item.name).join(", ")}
+            . An operator sets these on the server; they are never entered here.
           </p>
         )}
         <div className="connector-foot-end">
@@ -427,7 +443,9 @@ export function ConnectorEntryCard({
             disabled={busy}
             onClick={() => onOpen(entry)}
           >
-            {connectable ? `Connect ${entry.displayName}` : `Review ${entry.displayName}`}
+            {connectable
+              ? `Connect ${entry.displayName}`
+              : `Review ${entry.displayName}`}
           </button>
         </div>
       </div>
@@ -540,7 +558,11 @@ export function ConnectorDirectory({
         </div>
         {toolbar}
       </div>
-      <div className="connector-facets" role="group" aria-label="Filter connectors">
+      <div
+        className="connector-facets"
+        role="group"
+        aria-label="Filter connectors"
+      >
         <Facet
           id={`${id}-service`}
           label="Service"
@@ -601,7 +623,8 @@ export function ConnectorDirectory({
           options={facetValues(entries, (entry) => [entry.evidence]).map(
             (value) => ({
               value,
-              label: evidencePresentation[value as EvidenceLevel]?.label ?? value,
+              label:
+                evidencePresentation[value as EvidenceLevel]?.label ?? value,
             }),
           )}
         />

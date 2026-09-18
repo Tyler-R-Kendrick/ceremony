@@ -58,7 +58,11 @@ import { HandoffMeter, StatusChip } from "./connectors.js";
 
 export const lifecyclePresentation: Record<
   ConnectionLifecycle,
-  { label: string; tone: "connected" | "attention" | "available"; detail: string }
+  {
+    label: string;
+    tone: "connected" | "attention" | "available";
+    detail: string;
+  }
 > = {
   "configuration-required": {
     label: "Needs configuration",
@@ -90,12 +94,14 @@ export const lifecyclePresentation: Record<
   degraded: {
     label: "Degraded",
     tone: "attention",
-    detail: "Some capabilities are unavailable. Existing evidence still stands.",
+    detail:
+      "Some capabilities are unavailable. Existing evidence still stands.",
   },
   expired: {
     label: "Expired",
     tone: "attention",
-    detail: "The grant or its evidence is no longer valid. Reconnect to renew it.",
+    detail:
+      "The grant or its evidence is no longer valid. Reconnect to renew it.",
   },
   "reconnect-required": {
     label: "Reconnect required",
@@ -319,16 +325,14 @@ function HandoffInputForm({
       onSubmit={onSubmit}
       onInput={(event) => {
         const target = event.target as unknown as
-          | HTMLInputElement
-          | HTMLSelectElement;
+          HTMLInputElement | HTMLSelectElement;
         const field = fields.find((item) => item.name === target.name);
         if (!field || field.classification === "secret") return;
         setValues((current) => ({ ...current, [target.name]: target.value }));
       }}
       onChange={(event) => {
         const target = event.target as unknown as
-          | HTMLInputElement
-          | HTMLSelectElement;
+          HTMLInputElement | HTMLSelectElement;
         const field = fields.find((item) => item.name === target.name);
         if (!field || field.classification === "secret") return;
         setValues((current) => ({ ...current, [target.name]: target.value }));
@@ -476,7 +480,9 @@ function DisconnectReport({ result }: { result: DisconnectResult }) {
         <div data-connector-shared-with="">
           <p>
             {result.sharedWith.length} other{" "}
-            {result.sharedWith.length === 1 ? "connection uses" : "connections use"}{" "}
+            {result.sharedWith.length === 1
+              ? "connection uses"
+              : "connections use"}{" "}
             the same upstream grant:
           </p>
           <ul>
@@ -556,7 +562,8 @@ export function ConnectorConnection({
       bindings.filter(
         (binding) =>
           binding.status === "approved" &&
-          (!entry.definitionRef || binding.definitionRef === entry.definitionRef),
+          (!entry.definitionRef ||
+            binding.definitionRef === entry.definitionRef),
       ),
     [bindings, entry.definitionRef],
   );
@@ -588,46 +595,44 @@ export function ConnectorConnection({
   const heading = useRef<HTMLHeadingElement>(null);
   const current = useRef<ConnectionView | undefined>(undefined);
   current.current = connection;
-  const handoffCount = useRef(0);
+  const seenHandoffs = useRef(new Set<string>());
 
   const remember = useCallback(
     (next: ConnectionView) => {
       if (!mounted.current) return;
       setConnection(next);
       current.current = next;
-      if (next.handoff) handoffCount.current += 1;
+      // One handoff, however many times a poll reports it still open.
+      if (next.handoff) seenHandoffs.current.add(next.handoff.handoffRef);
       onConnectionChange?.(next);
     },
     [onConnectionChange],
   );
 
-  const act = useCallback(
-    async (work: () => Promise<void>) => {
-      setBusy(true);
-      setError("");
-      setNotice("");
-      try {
-        await work();
-      } catch (failure) {
-        if (!mounted.current) return;
-        if (isUnauthenticated(failure)) {
-          // Nothing stale survives an expired session: what was on screen was
-          // read with a session that no longer exists.
-          setSignInNeeded(true);
-          setConnection(undefined);
-          current.current = undefined;
-        }
-        setError(
-          failure instanceof Error
-            ? failure.message
-            : "That action could not finish. Refresh the status and try again.",
-        );
-      } finally {
-        if (mounted.current) setBusy(false);
+  const act = useCallback(async (work: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await work();
+    } catch (failure) {
+      if (!mounted.current) return;
+      if (isUnauthenticated(failure)) {
+        // Nothing stale survives an expired session: what was on screen was
+        // read with a session that no longer exists.
+        setSignInNeeded(true);
+        setConnection(undefined);
+        current.current = undefined;
       }
-    },
-    [],
-  );
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "That action could not finish. Refresh the status and try again.",
+      );
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -671,14 +676,16 @@ export function ConnectorConnection({
   );
 
   // Polling is the only thing that changes status while a handoff is open.
+  const connectionRefValue = connection?.connectionRef;
+  const waiting = isWaiting(connection);
   useEffect(() => {
-    if (!connection || !isWaiting(connection) || offline) return;
+    if (!connectionRefValue || !waiting || offline) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const abort = new AbortController();
     const tick = () => {
       timer = setTimeout(() => {
         client
-          .poll(connection.connectionRef, abort.signal)
+          .poll(connectionRefValue, abort.signal)
           .then((next) => {
             if (abort.signal.aborted) return;
             remember(next);
@@ -702,16 +709,7 @@ export function ConnectorConnection({
       abort.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [
-    connection?.connectionRef,
-    connection?.lifecycle,
-    connection?.revision,
-    offline,
-    client,
-    pollIntervalMs,
-    remember,
-    connection,
-  ]);
+  }, [connectionRefValue, waiting, offline, client, pollIntervalMs, remember]);
 
   /*
    * A popup may tell its opener it is finished. That message is a nudge to ask
@@ -719,8 +717,9 @@ export function ConnectorConnection({
    * this component opened, carrying this connection's reference. Anything else
    * is counted and dropped: an unexpected origin is not evidence of anything.
    */
+  const handoffRefValue = connection?.handoff?.handoffRef;
   useEffect(() => {
-    if (typeof window === "undefined" || !connection) return;
+    if (typeof window === "undefined" || !connectionRefValue) return;
     const onMessage = (event: MessageEvent) => {
       const expectedSource = popup.current;
       if (
@@ -729,10 +728,8 @@ export function ConnectorConnection({
           {
             origin: location.origin,
             source: expectedSource,
-            connectionRef: connection.connectionRef,
-            ...(connection.handoff
-              ? { handoffRef: connection.handoff.handoffRef }
-              : {}),
+            connectionRef: connectionRefValue,
+            ...(handoffRefValue ? { handoffRef: handoffRefValue } : {}),
           },
         )
       ) {
@@ -743,20 +740,20 @@ export function ConnectorConnection({
     };
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
-  }, [connection, act, refresh]);
+  }, [connectionRefValue, handoffRefValue, act, refresh]);
 
   // A closed window is not a result. It only means it is worth asking again.
   useEffect(() => {
-    if (!popup.current || !connection || !isWaiting(connection)) return;
+    if (!connectionRefValue || !waiting) return;
     const timer = setInterval(() => {
       if (popup.current && popup.current.closed) {
         popup.current = null;
         setPopupClosed(true);
         void act(() => refresh());
       }
-    }, 500);
+    }, 250);
     return () => clearInterval(timer);
-  }, [connection, act, refresh]);
+  }, [connectionRefValue, waiting, act, refresh]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -847,9 +844,9 @@ export function ConnectorConnection({
     // identifier, so the lookup needs no escaping, and this works the same
     // whether or not the host's DOM implements FormData.
     const read = (name: string) => {
-      const control = form.querySelector(`[name="${name}"]`) as
-        | { value?: string }
-        | null;
+      const control = form.querySelector(`[name="${name}"]`) as {
+        value?: string;
+      } | null;
       return control?.value ?? "";
     };
     const secrets: Record<string, string> = {};
@@ -920,7 +917,11 @@ export function ConnectorConnection({
 
   if (signInNeeded)
     return (
-      <div data-connector="" data-connector-connection="" className="connector-panel">
+      <div
+        data-connector=""
+        data-connector-connection=""
+        className="connector-panel"
+      >
         <h3>Your session expired</h3>
         <p role="alert">
           Sign in again to see this connection. Nothing from the previous
@@ -956,7 +957,10 @@ export function ConnectorConnection({
           {lifecycle?.label ?? "Not connected"}
         </StatusChip>
       </div>
-      <ul className="connector-methods" aria-label="How this connector is reached">
+      <ul
+        className="connector-methods"
+        aria-label="How this connector is reached"
+      >
         <li>
           <Chip tone={support.tone} title={support.detail}>
             {support.label}
@@ -978,7 +982,7 @@ export function ConnectorConnection({
           <EvidenceChip level={entry.evidence} />
         </li>
         <li>
-          <HandoffMeter count={handoffCount.current} />
+          <HandoffMeter count={seenHandoffs.current.size} />
         </li>
       </ul>
       {lifecycle && <p className="connector-muted">{lifecycle.detail}</p>}
@@ -986,8 +990,8 @@ export function ConnectorConnection({
       {offline && (
         <p className="connector-notice" role="status" data-connector-offline="">
           You are offline. Connecting and running operations are unavailable and
-          nothing is queued; no connection status is served from a cache, so what
-          you last saw may already be out of date.
+          nothing is queued; no connection status is served from a cache, so
+          what you last saw may already be out of date.
         </p>
       )}
       {error && (
@@ -998,7 +1002,11 @@ export function ConnectorConnection({
       {notice && <p role="status">{notice}</p>}
 
       {blockers.length > 0 && (
-        <div className="connector-notice" role="alert" data-connector-blockers="">
+        <div
+          className="connector-notice"
+          role="alert"
+          data-connector-blockers=""
+        >
           <h4>This connector cannot be authorized as imported</h4>
           <ul>
             {blockers.map((issue) => (
@@ -1129,8 +1137,10 @@ export function ConnectorConnection({
           <div className="connector-field" data-connector-custody="">
             <span>Credential custody</span>
             <p className="connector-muted">
-              {entry.custody.map((custody) => custodyPresentation[custody]).join(", ")}.
-              Whether a credential is shared for the workspace or held per
+              {entry.custody
+                .map((custody) => custodyPresentation[custody])
+                .join(", ")}
+              . Whether a credential is shared for the workspace or held per
               person is set by server policy for this binding; it cannot be
               changed from here.
             </p>
@@ -1160,7 +1170,10 @@ export function ConnectorConnection({
       )}
 
       {connection?.handoff && isWaiting(connection) && (
-        <div className="connector-handoff" data-connector-handoff={connection.handoff.kind}>
+        <div
+          className="connector-handoff"
+          data-connector-handoff={connection.handoff.kind}
+        >
           <h4>Continue with the provider</h4>
           {connection.presentation?.instructions && (
             <p>{connection.presentation.instructions}</p>
@@ -1176,7 +1189,8 @@ export function ConnectorConnection({
               <a
                 className="button primary"
                 href={connection.presentation.url}
-                {...(connection.handoff.presentation === "popup" && !popupBlocked
+                {...(connection.handoff.presentation === "popup" &&
+                !popupBlocked
                   ? { target: "_blank", rel: "noreferrer" }
                   : {})}
                 data-connector-continue=""
@@ -1255,7 +1269,9 @@ export function ConnectorConnection({
                   <button
                     key={operation.operationRef}
                     type="button"
-                    disabled={busy || offline || connection.lifecycle !== "active"}
+                    disabled={
+                      busy || offline || connection.lifecycle !== "active"
+                    }
                     onClick={() =>
                       void act(async () => {
                         const outcome = await client.invoke(

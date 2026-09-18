@@ -163,7 +163,10 @@
       },
       "reuse": "Wire semantics only. `host`, `basePath` and `schemes` become declared servers; `body`/`formData` parameters become a request body; `collectionFormat` is translated to style/explode. No text is copied.",
       "dependents": {
-        "adapters": ["openapi-http", "microsoft-custom-connector (source family)"],
+        "adapters": [
+          "openapi-http",
+          "microsoft-custom-connector (source family)"
+        ],
         "profiles": ["swagger-2.0"],
         "modules": ["src/server/connectors/formats/openapi/read.ts"]
       },
@@ -255,8 +258,14 @@
       },
       "reuse": "Same as arazzo-1.1.0.",
       "dependents": {
-        "adapters": ["arazzo (format importer and compiler)", "ceremony studio (existing v1 envelope)"],
-        "profiles": ["arazzo-1.0.1", "arazzo-profile-1.0.1 (Ceremony constrained schema)"],
+        "adapters": [
+          "arazzo (format importer and compiler)",
+          "ceremony studio (existing v1 envelope)"
+        ],
+        "profiles": [
+          "arazzo-1.0.1",
+          "arazzo-profile-1.0.1 (Ceremony constrained schema)"
+        ],
         "modules": [
           "src/server/connectors/formats/arazzo/",
           "src/server/arazzo.ts",
@@ -934,7 +943,11 @@
       },
       "reuse": "Implemented on both sides: the existing inbound Ceremony MCP endpoint publishes protected-resource metadata, and the outbound connector client reads it, with the well-known insertion preserving a terminating slash.",
       "dependents": {
-        "adapters": ["connector OAuth module", "mcp-client", "ceremony MCP server (existing)"],
+        "adapters": [
+          "connector OAuth module",
+          "mcp-client",
+          "ceremony MCP server (existing)"
+        ],
         "profiles": ["rfc9728"],
         "modules": [
           "src/server/connectors/auth/discovery.ts",
@@ -1012,7 +1025,11 @@
       },
       "reuse": "S256 only. An issuer advertising only `plain` is reported unsupported rather than downgraded.",
       "dependents": {
-        "adapters": ["connector OAuth module", "supabase-management", "vercel-connect"],
+        "adapters": [
+          "connector OAuth module",
+          "supabase-management",
+          "vercel-connect"
+        ],
         "profiles": ["rfc7636"],
         "modules": ["src/server/connectors/auth/authorization-code.ts"]
       },
@@ -1371,7 +1388,10 @@
       },
       "reuse": "The approved fetcher builds on the existing DNS-pinned agent so the address check runs inside socket creation on the exact answers the socket uses.",
       "dependents": {
-        "adapters": ["import pipeline", "every HTTP adapter through ctx.environment.fetch"],
+        "adapters": [
+          "import pipeline",
+          "every HTTP adapter through ctx.environment.fetch"
+        ],
         "profiles": ["undici-7"],
         "modules": [
           "src/server/connectors/import/network.ts",
@@ -1424,10 +1444,7 @@
       "dependents": {
         "adapters": ["contract schema generation"],
         "profiles": ["json-schema-draft-2020-12"],
-        "modules": [
-          "scripts/specifications.ts",
-          "docs/specifications/schemas/"
-        ]
+        "modules": ["scripts/specifications.ts", "docs/specifications/schemas/"]
       },
       "recordedBy": ["CONTRACT"],
       "notes": "ajv@8.20.0 is used through its own draft-2020-12 entry point with two inline format definitions; ajv-formats is not installed and no dependency was proposed."

@@ -136,9 +136,9 @@ test("with no runner configured, availability names the exact reason and invoke 
     availability.available === false ? availability.reason : "",
     /no JVM|starts no JVM/i,
   );
-  const invoke = adapter.capabilities(new Set()).find(
-    (row) => row.dimension === "invoke",
-  );
+  const invoke = adapter
+    .capabilities(new Set())
+    .find((row) => row.dimension === "invoke");
   assert.ok(invoke);
   assert.equal(invoke.implementation, "unsupported");
   assert.equal(invoke.configuration, "missing");
@@ -162,7 +162,9 @@ test("a browser-only deployment cannot be handed a local runner", async () => {
   // Acceptance: local runner capabilities cannot be claimed by a browser-only
   // deployment. Construction fails outright, so no code path exists in which
   // such a deployment reports local execution.
-  const runner = unavailableKameletRunner("a runner that should never be taken");
+  const runner = unavailableKameletRunner(
+    "a runner that should never be taken",
+  );
   assert.throws(
     () =>
       createCamelKameletAdapter({
@@ -187,13 +189,17 @@ test("a browser-only deployment cannot be handed a local runner", async () => {
     assert.ok(row);
     assert.equal(row.implementation, "unsupported");
     assert.ok(
-      row.limitations.some((limitation) => /browser runtime class/.test(limitation)),
+      row.limitations.some((limitation) =>
+        /browser runtime class/.test(limitation),
+      ),
     );
   }
 });
 
 test("a configured remote runner is unavailable until its signing secret is present", async () => {
-  const runnerFixture = await startCamelRunnerFixture({ secret: SIGNING_SECRET });
+  const runnerFixture = await startCamelRunnerFixture({
+    secret: SIGNING_SECRET,
+  });
   try {
     const { ctx, ports } = harness({ runnerOrigin: runnerFixture.origin });
     const runner = createRemoteKameletRunner(
@@ -229,7 +235,10 @@ test("a configured remote runner is unavailable until its signing secret is pres
     ports.configuration.set(RUNNER_SECRET_CONFIGURATION, SIGNING_SECRET);
     const after = await runner.available();
     assert.equal(after.available, true);
-    assert.equal(after.available === true ? after.authentication : "", "host-signed");
+    assert.equal(
+      after.available === true ? after.authentication : "",
+      "host-signed",
+    );
     assert.equal(after.available === true ? after.mode : "", "remote");
   } finally {
     await runnerFixture.close();
@@ -287,7 +296,9 @@ test("delegation is host-signed and the runner verifies it independently", async
 });
 
 test("a runner that rejects the signature produces a denial, not a silent local run", async () => {
-  const runnerFixture = await startCamelRunnerFixture({ secret: "a-different-secret" });
+  const runnerFixture = await startCamelRunnerFixture({
+    secret: "a-different-secret",
+  });
   try {
     const { ctx, ports } = harness({ runnerOrigin: runnerFixture.origin });
     ports.configuration.set(RUNNER_SECRET_CONFIGURATION, SIGNING_SECRET);
@@ -322,7 +333,9 @@ test("a runner that rejects the signature produces a denial, not a silent local 
 });
 
 test("an operation naming a different Kamelet than the binding is refused", async () => {
-  const runnerFixture = await startCamelRunnerFixture({ secret: SIGNING_SECRET });
+  const runnerFixture = await startCamelRunnerFixture({
+    secret: SIGNING_SECRET,
+  });
   try {
     const { ports, binding } = harness({ runnerOrigin: runnerFixture.origin });
     ports.configuration.set(RUNNER_SECRET_CONFIGURATION, SIGNING_SECRET);

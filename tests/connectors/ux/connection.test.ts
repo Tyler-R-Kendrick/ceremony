@@ -124,7 +124,10 @@ test("an organization connection is offered only when policy allows it", async (
   }
   const permissive = createConnectorFixture();
   const allowed = await open(permissive, {
-    viewer: { capabilities: ["executor"], ownerKinds: ["user", "organization"] },
+    viewer: {
+      capabilities: ["executor"],
+      ownerKinds: ["user", "organization"],
+    },
   });
   try {
     const organization = allowed
@@ -147,7 +150,10 @@ test("AC-UX-04: a blocked popup continues in the same window", async () => {
     // A same-window continuation is an ordinary navigation to the server's
     // presentation URL, not a second popup attempt.
     assert.equal(link?.getAttribute("target"), null);
-    assert.match(link?.getAttribute("href") ?? "", /^https:\/\/app\.test\/authorize/);
+    assert.match(
+      link?.getAttribute("href") ?? "",
+      /^https:\/\/app\.test\/authorize/,
+    );
   } finally {
     await view.close();
   }
@@ -197,7 +203,10 @@ test("an expired session asks for sign-in and shows nothing stale", async () => 
   const view = await open(fixture);
   try {
     await view.click("Connect GitHub (native app)");
-    await view.waitFor(() => lifecycle(view) === "active" || view.text.includes("session expired"));
+    await view.waitFor(
+      () =>
+        lifecycle(view) === "active" || view.text.includes("session expired"),
+    );
     assert.match(view.text, /Your session expired/);
     assert.doesNotMatch(view.text, /Verified target/);
     assert.ok(view.button("Sign in"));
@@ -257,10 +266,7 @@ test("a private value is collected separately and only a reference is submitted"
     const submitted = fixture.requests.find((item) =>
       item.path.includes("/handoffs/"),
     );
-    assert.match(
-      JSON.stringify(submitted?.body),
-      /"secretRef":"secret:\d+"/,
-    );
+    assert.match(JSON.stringify(submitted?.body), /"secretRef":"secret:\d+"/);
     // Nothing keeps the secret afterwards: not the form, not the page text.
     assert.doesNotMatch(view.text, /CANARY-PETSTORE-KEY/);
     assert.equal(
@@ -353,7 +359,10 @@ test("a read operation proves the connection works and shows its classification"
   const fixture = createConnectorFixture();
   const view = await open(fixture, {
     readOperations: [
-      { operationRef: "operation:listRepositories", label: "List repositories" },
+      {
+        operationRef: "operation:listRepositories",
+        label: "List repositories",
+      },
     ],
   });
   try {

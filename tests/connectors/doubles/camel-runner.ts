@@ -23,12 +23,18 @@ export type CamelRunnerFixtureOptions = {
   toleranceSeconds?: number;
   now?: () => number;
   /** Reply for an accepted delegation. */
-  reply?: { state: "complete" | "failed" | "indeterminate"; output?: unknown; code?: string };
+  reply?: {
+    state: "complete" | "failed" | "indeterminate";
+    output?: unknown;
+    code?: string;
+  };
 };
 
 type ParsedSignature = { timestamp: number; nonce: string; signature: string };
 
-function parseSignatureHeader(value: string | undefined): ParsedSignature | undefined {
+function parseSignatureHeader(
+  value: string | undefined,
+): ParsedSignature | undefined {
   if (!value) return undefined;
   const parts = value.split(",").map((part) => part.trim());
   if (parts[0] !== "v1") return undefined;
@@ -57,7 +63,9 @@ export async function startCamelRunnerFixture(
   const fixture = await startHttpFixture((request) => {
     if (request.method !== "POST")
       return { status: 405, body: { error: "method not allowed" } };
-    const parsed = parseSignatureHeader(request.headers["ceremony-runner-signature"]);
+    const parsed = parseSignatureHeader(
+      request.headers["ceremony-runner-signature"],
+    );
     if (!parsed) {
       rejected.push({ reason: "malformed-signature" });
       return { status: 401, body: { error: "unsigned" } };

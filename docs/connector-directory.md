@@ -11,26 +11,26 @@ cannot run, and no control changes state that only the server can change.
 
 ## The components
 
-| Module                             | What it is                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `src/core/connectors/client.ts`    | The typed browser client. Parses every response with the core schemas before a component sees it.     |
-| `src/react/connector-directory.tsx`| The directory: search, facets, service grouping, support and evidence badges, capability reports.     |
-| `src/react/connector-drawer.tsx`   | The modal shell: focus entry, focus trap, focus restoration, Escape.                                  |
-| `src/react/connector-connection.tsx`| One connection: intent, handoff, polling, verification, invocation, reconnect, disconnect.            |
-| `src/react/connector-review.tsx`   | Import and review: provenance, diagnostics, mappings, proposed binding. Loaded on demand.             |
-| `src/react/connectors.css`         | Zero-specificity styling scoped to `[data-connector]`, reading the existing `--ceremony-*` tokens.    |
-| `examples/web/connectors.tsx`      | The page composition: directory plus drawer, deep links, lazy import surface.                         |
+| Module                               | What it is                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `src/core/connectors/client.ts`      | The typed browser client. Parses every response with the core schemas before a component sees it.  |
+| `src/react/connector-directory.tsx`  | The directory: search, facets, service grouping, support and evidence badges, capability reports.  |
+| `src/react/connector-drawer.tsx`     | The modal shell: focus entry, focus trap, focus restoration, Escape.                               |
+| `src/react/connector-connection.tsx` | One connection: intent, handoff, polling, verification, invocation, reconnect, disconnect.         |
+| `src/react/connector-review.tsx`     | Import and review: provenance, diagnostics, mappings, proposed binding. Loaded on demand.          |
+| `src/react/connectors.css`           | Zero-specificity styling scoped to `[data-connector]`, reading the existing `--ceremony-*` tokens. |
+| `examples/web/connectors.tsx`        | The page composition: directory plus drawer, deep links, lazy import surface.                      |
 
 ## What a row is allowed to claim
 
 The catalogue separates four things a marketplace usually blurs, and the card
 shows which one it is:
 
-| Support level     | Meaning                                                                       |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `provider-backed` | A real adapter runs this and the deployment holds the configuration it needs. |
-| `fixture`         | A deterministic local harness drives it. Never a claim about a vendor.        |
-| `unconfigured`    | The adapter exists; this deployment is missing configuration it requires.     |
+| Support level     | Meaning                                                                          |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `provider-backed` | A real adapter runs this and the deployment holds the configuration it needs.    |
+| `fixture`         | A deterministic local harness drives it. Never a claim about a vendor.           |
+| `unconfigured`    | The adapter exists; this deployment is missing configuration it requires.        |
 | `catalog-only`    | Described here, implemented nowhere. Reviewable and exportable, not connectable. |
 
 Beside it, an evidence chip carries the strongest measured evidence level
@@ -64,22 +64,22 @@ Every control in the earlier Add Connection drawer was checked against the
 server contract. A control either names a field of a server command or it is
 gone.
 
-| PR #39 control                        | Outcome                                                                                                                                                              |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth family radio list ("Flows this connector supports") | Kept as **authentication method** → `intent.profileId`, populated from the definition's authentication profiles. The server decides whether the profile is permitted for the binding. |
-| `Managed` / `Custom` configuration source | **Removed.** Endpoints are never declared from the browser. The equivalent choice is **environment and authority**, chosen from approved bindings → `bindingRef`.   |
-| Per-family endpoint fields (issuer, authorization endpoint, token endpoint, device endpoint, entry origin, claim page) | **Removed.** An imported or typed URL is not an approved destination; the binding's destinations are.                                                                |
-| Environment-name fields (client id, key name, app id, private key) | **Removed** from the connection drawer. Configuration names are shown as a readiness report (`present` / `missing`); values are set on the server by an operator.     |
-| Service / name / UID                  | **Removed.** Identity comes from the catalogue entry and the definition.                                                                                             |
-| Target (account, organization, site)  | Kept as **account or workspace** → `intent.target`. Where the provider offers a list, the options arrive from the server as handoff fields.                          |
-| Identity preference (`personal` / `anonymous` / `either`) | Replaced by **whose access this is** → `ownerKind`. `organization` is offered only when the catalogue's viewer reports that owner kind; otherwise it is disabled and reads "requires administrator policy". |
-| Interruption budget (`any` / `at-most-one` / `none`) | Kept as `intent.interruption` (`allowed` / `none`). The copy says it is a constraint: "none" may end in `human-required`, and never in another route.                 |
-| Shared vs per-user API keys           | **Removed as a control.** Custody is reported from the catalogue entry and stated as server policy: "it cannot be changed from here". A radio button cannot change who owns a grant. |
-| Capability toggles (teaching, recipes, a2h, prerequisites, arazzo, session environment, webmcp, minted password) | **Removed.** Replaced by a read-only capability report of the server's `CapabilityStatus` rows: dimension, profile, implementation, configuration, evidence and limitations. |
-| "Verify real access before completing" toggle | **Removed entirely.** Verified status exists only as the server's verification claims; there is no switch, and no default, to turn off.                               |
-| Expiration select (`30d` / `90d` / `1y`) | **Removed.** Validity is reported from the verification claim's `validUntil`, including "the provider did not state an expiry".                                      |
-| Step accordion (Service / Configure / Customize / Complete) | Simplified to one drawer: intent, then the handoff, then the connection. The four-step shape existed to hold configuration the browser no longer collects.            |
-| Drawer scrim, Close, Escape           | Kept, with focus entry, a focus trap and focus restoration added.                                                                                                    |
+| PR #39 control                                                                                                         | Outcome                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth family radio list ("Flows this connector supports")                                                               | Kept as **authentication method** → `intent.profileId`, populated from the definition's authentication profiles. The server decides whether the profile is permitted for the binding.                       |
+| `Managed` / `Custom` configuration source                                                                              | **Removed.** Endpoints are never declared from the browser. The equivalent choice is **environment and authority**, chosen from approved bindings → `bindingRef`.                                           |
+| Per-family endpoint fields (issuer, authorization endpoint, token endpoint, device endpoint, entry origin, claim page) | **Removed.** An imported or typed URL is not an approved destination; the binding's destinations are.                                                                                                       |
+| Environment-name fields (client id, key name, app id, private key)                                                     | **Removed** from the connection drawer. Configuration names are shown as a readiness report (`present` / `missing`); values are set on the server by an operator.                                           |
+| Service / name / UID                                                                                                   | **Removed.** Identity comes from the catalogue entry and the definition.                                                                                                                                    |
+| Target (account, organization, site)                                                                                   | Kept as **account or workspace** → `intent.target`. Where the provider offers a list, the options arrive from the server as handoff fields.                                                                 |
+| Identity preference (`personal` / `anonymous` / `either`)                                                              | Replaced by **whose access this is** → `ownerKind`. `organization` is offered only when the catalogue's viewer reports that owner kind; otherwise it is disabled and reads "requires administrator policy". |
+| Interruption budget (`any` / `at-most-one` / `none`)                                                                   | Kept as `intent.interruption` (`allowed` / `none`). The copy says it is a constraint: "none" may end in `human-required`, and never in another route.                                                       |
+| Shared vs per-user API keys                                                                                            | **Removed as a control.** Custody is reported from the catalogue entry and stated as server policy: "it cannot be changed from here". A radio button cannot change who owns a grant.                        |
+| Capability toggles (teaching, recipes, a2h, prerequisites, arazzo, session environment, webmcp, minted password)       | **Removed.** Replaced by a read-only capability report of the server's `CapabilityStatus` rows: dimension, profile, implementation, configuration, evidence and limitations.                                |
+| "Verify real access before completing" toggle                                                                          | **Removed entirely.** Verified status exists only as the server's verification claims; there is no switch, and no default, to turn off.                                                                     |
+| Expiration select (`30d` / `90d` / `1y`)                                                                               | **Removed.** Validity is reported from the verification claim's `validUntil`, including "the provider did not state an expiry".                                                                             |
+| Step accordion (Service / Configure / Customize / Complete)                                                            | Simplified to one drawer: intent, then the handoff, then the connection. The four-step shape existed to hold configuration the browser no longer collects.                                                  |
+| Drawer scrim, Close, Escape                                                                                            | Kept, with focus entry, a focus trap and focus restoration added.                                                                                                                                           |
 
 ## What the connection surface reports
 
@@ -145,11 +145,11 @@ read under the previous session stays visible.
 
 ## Tests
 
-| Command                                                          | What it covers                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `node --import tsx --test tests/connectors/ux/*.test.ts`         | Client contract, directory, connection, review and service-worker guards. |
-| `npx playwright test tests/browser/connector-directory.spec.ts`  | The whole browser journey and the message-correlation oracles.           |
-| `npx playwright test tests/browser/connector-drawer.spec.ts`     | Focus, accessibility, dynamic fields and the popup fallback.             |
+| Command                                                         | What it covers                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `node --import tsx --test tests/connectors/ux/*.test.ts`        | Client contract, directory, connection, review and service-worker guards. |
+| `npx playwright test tests/browser/connector-directory.spec.ts` | The whole browser journey and the message-correlation oracles.            |
+| `npx playwright test tests/browser/connector-drawer.spec.ts`    | Focus, accessibility, dynamic fields and the popup fallback.              |
 
 The browser specs serve themselves: `tests/connectors/ux/harness-server.ts`
 bundles the shipped components with esbuild and serves them, the documented

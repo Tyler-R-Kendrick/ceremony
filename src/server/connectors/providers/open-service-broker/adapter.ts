@@ -147,7 +147,9 @@ export type ResolvedOsbBroker = {
   destination: ApprovedDestination;
 };
 
-export function osbBrokerFromBinding(binding: RuntimeBinding): ResolvedOsbBroker {
+export function osbBrokerFromBinding(
+  binding: RuntimeBinding,
+): ResolvedOsbBroker {
   const raw = binding.settings["broker"];
   if (raw === undefined)
     throw new ConnectorError("configuration-required", {
@@ -155,7 +157,9 @@ export function osbBrokerFromBinding(binding: RuntimeBinding): ResolvedOsbBroker
     });
   const parsed = osbBindingSettingsSchema.safeParse(raw);
   if (!parsed.success)
-    throw new ConnectorError("invalid-request", { detail: "osb.settings.invalid" });
+    throw new ConnectorError("invalid-request", {
+      detail: "osb.settings.invalid",
+    });
   const destination = binding.destinations.find(
     (item) => item.id === parsed.data.destinationId,
   );
@@ -171,7 +175,9 @@ export function reviewedService(
   settings: OsbBindingSettings,
   serviceId: string,
 ): OsbBindingSettings["services"][number] {
-  const service = settings.services.find((item) => item.serviceId === serviceId);
+  const service = settings.services.find(
+    (item) => item.serviceId === serviceId,
+  );
   if (!service)
     throw new ConnectorError("denied", { detail: "osb.service.unapproved" });
   return service;
@@ -360,7 +366,9 @@ export function createOpenServiceBrokerAdapter(
   ) => {
     const operation = boundOperation(ctx.binding, operationRef);
     if (!operation)
-      throw new ConnectorError("not-found", { detail: "osb.operation.unknown" });
+      throw new ConnectorError("not-found", {
+        detail: "osb.operation.unknown",
+      });
     if (operation.transport.kind !== "http")
       throw new ConnectorError("invalid-request", {
         detail: "osb.operation.transport",
@@ -374,7 +382,10 @@ export function createOpenServiceBrokerAdapter(
         detail: "osb.operation.not-read-only",
       });
     const expectedPrefix = OPERATION_PATHS[operationRef];
-    if (!expectedPrefix || !operation.transport.pathTemplate.startsWith(expectedPrefix))
+    if (
+      !expectedPrefix ||
+      !operation.transport.pathTemplate.startsWith(expectedPrefix)
+    )
       throw new ConnectorError("denied", { detail: "osb.operation.path" });
     const destination = destinationFor(ctx.binding, operation);
     if (destination.id !== broker.destination.id)
@@ -509,8 +520,9 @@ export function createOpenServiceBrokerAdapter(
           },
           displayName: service.name.slice(0, 200),
           description: (
-            response.value.services.find((item) => item.id === service.serviceId)
-              ?.description ?? ""
+            response.value.services.find(
+              (item) => item.id === service.serviceId,
+            )?.description ?? ""
           ).slice(0, 500),
           provenance: {
             broker: broker.settings.brokerId,
@@ -518,11 +530,17 @@ export function createOpenServiceBrokerAdapter(
             instancesRetrievable: String(service.instancesRetrievable),
             bindingsRetrievable: String(service.bindingsRetrievable),
             freePlans: String(service.plans.filter((plan) => plan.free).length),
-            paidPlans: String(service.plans.filter((plan) => !plan.free).length),
+            paidPlans: String(
+              service.plans.filter((plan) => !plan.free).length,
+            ),
           },
           status: "active",
         })),
-        freshness: { fetchedAt: response.fetchedAt, stale: false, source: "live" },
+        freshness: {
+          fetchedAt: response.fetchedAt,
+          stale: false,
+          source: "live",
+        },
         issues: response.issues,
       };
     },
@@ -563,7 +581,8 @@ export function createOpenServiceBrokerAdapter(
           identity: imported.identity,
           origin: input.origin,
           bytes: input.bytes,
-          mediaType: input.mediaType.split(";")[0]?.trim() || "application/json",
+          mediaType:
+            input.mediaType.split(";")[0]?.trim() || "application/json",
           capturedAt,
         }),
         definitions: [imported.definition],
@@ -635,7 +654,11 @@ export function createOpenServiceBrokerAdapter(
       request: InvokeRequest,
     ): Promise<InvokeResult> {
       const broker = osbBrokerFromBinding(ctx.binding);
-      const operation = assertReadOnlyOperation(ctx, request.operationRef, broker);
+      const operation = assertReadOnlyOperation(
+        ctx,
+        request.operationRef,
+        broker,
+      );
       const client = clientFor(ctx, broker);
       const options = requestOptions(ctx);
 
@@ -662,7 +685,10 @@ export function createOpenServiceBrokerAdapter(
             detail: "osb.input.invalid",
           });
         assertPermittedTarget(ctx, "service-instance", parsed.data.instanceId);
-        const reviewed = reviewedService(broker.settings, parsed.data.serviceId);
+        const reviewed = reviewedService(
+          broker.settings,
+          parsed.data.serviceId,
+        );
         if (request.operationRef === OSB_OPERATIONS.instance) {
           if (!reviewed.instancesRetrievable)
             throw new ConnectorError("unsupported", {
@@ -681,12 +707,16 @@ export function createOpenServiceBrokerAdapter(
             output: {
               instanceId: parsed.data.instanceId,
               serviceId: response.value.service_id ?? parsed.data.serviceId,
-              ...(response.value.plan_id ? { planId: response.value.plan_id } : {}),
+              ...(response.value.plan_id
+                ? { planId: response.value.plan_id }
+                : {}),
               ...(response.value.dashboard_url
                 ? { dashboardUrl: response.value.dashboard_url }
                 : {}),
               ...(response.value.maintenance_info
-                ? { maintenanceVersion: response.value.maintenance_info.version }
+                ? {
+                    maintenanceVersion: response.value.maintenance_info.version,
+                  }
                 : {}),
               parametersPresent: response.value.parameters !== undefined,
             },
@@ -699,7 +729,9 @@ export function createOpenServiceBrokerAdapter(
             instanceId: parsed.data.instanceId,
             serviceId: parsed.data.serviceId,
             ...(parsed.data.planId ? { planId: parsed.data.planId } : {}),
-            ...(parsed.data.operation ? { operation: parsed.data.operation } : {}),
+            ...(parsed.data.operation
+              ? { operation: parsed.data.operation }
+              : {}),
           },
           options,
         );
@@ -735,7 +767,10 @@ export function createOpenServiceBrokerAdapter(
           });
         assertPermittedTarget(ctx, "service-instance", parsed.data.instanceId);
         assertPermittedTarget(ctx, "service-binding", parsed.data.bindingId);
-        const reviewed = reviewedService(broker.settings, parsed.data.serviceId);
+        const reviewed = reviewedService(
+          broker.settings,
+          parsed.data.serviceId,
+        );
         if (request.operationRef === OSB_OPERATIONS.bindingLastOperation) {
           const response = await client.bindingLastOperation(
             {
@@ -828,7 +863,9 @@ export function createOpenServiceBrokerAdapter(
         };
       }
 
-      throw new ConnectorError("not-found", { detail: "osb.operation.unknown" });
+      throw new ConnectorError("not-found", {
+        detail: "osb.operation.unknown",
+      });
     },
 
     async disconnect(ctx: AdapterCallContext, scope) {
