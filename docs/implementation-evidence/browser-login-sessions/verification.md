@@ -14,16 +14,20 @@ what that means for these results.
 node scripts/test.mjs all
 ```
 
-| Run                                        | Tests    | Pass     | Fail  | Skipped | Exit  |
-| ------------------------------------------ | -------- | -------- | ----- | ------- | ----- |
-| Baseline `d741eed` (separate worktree)     | 1135     | 1106     | 29    | 0       | 1     |
-| This work, before the PostgreSQL repair    | 1205     | 1176     | 29    | 0       | 1     |
-| **This work, after the PostgreSQL repair** | **1251** | **1251** | **0** | **0**   | **0** |
+| Run                                     | Tests    | Pass     | Fail  | Skipped | Exit  |
+| --------------------------------------- | -------- | -------- | ----- | ------- | ----- |
+| Baseline `d741eed` (separate worktree)  | 1135     | 1106     | 29    | 0       | 1     |
+| This work, before the PostgreSQL repair | 1205     | 1176     | 29    | 0       | 1     |
+| **This work, complete**                 | **1302** | **1302** | **0** | **0**   | **0** |
 
 The 29 failures in the first two runs are the same set, all PostgreSQL /
 mounted-runtime tests, reproduced at the pristine baseline. `baseline.md`
 records their root cause and the fixture repair. No test was skipped, disabled
 or excluded in any run.
+
+The final run includes the Firefox extension suites and the added verifier and
+login-service cases: 167 more tests than the baseline, all passing, with the
+baseline's 29 failures resolved at their root cause rather than excluded.
 
 ## Focused suites
 
