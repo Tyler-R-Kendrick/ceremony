@@ -2,8 +2,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   authFamilyLabels,
   capabilityDetails,
+  isHostSwitchable,
   type AuthFamily,
-  type Capability,
+  type HostCapability,
   type CatalogEntry,
 } from "./catalog.js";
 import { Glyph, initials } from "./connect-catalog.js";
@@ -34,7 +35,7 @@ export interface ConnectionDraft {
   /** Free-form per-family configuration; the server re-validates all of it. */
   values: Record<string, string>;
   keyScope: KeyScope;
-  capabilities: Capability[];
+  capabilities: HostCapability[];
   interruptions: "any" | "at-most-one" | "none";
   identity: "personal" | "anonymous" | "either";
 }
@@ -66,11 +67,18 @@ export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
     // A card that exists for one capability starts with it on. Otherwise just
     // verification, which is not opt-in: a connection that never reads
     // anything has not been shown to work, and the toggle says why.
-    capabilities: entry.defaultCapabilities
-      ? [...entry.defaultCapabilities]
-      : entry.capabilities.includes("verification")
-        ? ["verification"]
-        : [],
+    // Only what this application can actually turn off, starting where the
+    // application already started. A card that exists for one capability names
+    // it; everything else takes the capability's own default, so opening a
+    // drawer never quietly asks for more than the page did before.
+    capabilities: entry.capabilities.filter(isHostSwitchable).filter(
+      (capability) =>
+        capabilityDetails[capability].defaultOn ||
+        // A card that exists for one capability adds it to the defaults
+        // rather than replacing them: "Record a Sign-in" is a reason to
+        // teach, not a reason to stop exposing the connection.
+        entry.defaultCapabilities?.includes(capability),
+    ),
     interruptions: "any",
     identity: "either",
   };
@@ -744,7 +752,7 @@ export function AddConnection({
     if (!open || panel.current?.contains(document.activeElement)) return;
     panel.current?.focus();
   }, [open, step]);
-  const toggle = (capability: Capability) =>
+  const toggle = (capability: HostCapability) =>
     set({
       capabilities: draft.capabilities.includes(capability)
         ? draft.capabilities.filter((value) => value !== capability)
@@ -752,6 +760,10 @@ export function AddConnection({
     });
   const state = (index: number) =>
     step === index ? "active" : step > index ? "done" : "upcoming";
+  const switchable = entry.capabilities.filter(isHostSwitchable);
+  const described = entry.capabilities.filter(
+    (capability) => !isHostSwitchable(capability),
+  );
   return (
     <>
       <button
@@ -903,31 +915,66 @@ export function AddConnection({
         >
           <p className="step-note">
             What this connection should do beyond collecting a credential. Each
-            option names the module that carries it. These are a declaration,
-            not a grant: the budget and whose access this is reach the resolver
-            directly, and the server decides what it will actually run.
+            one names the module that carries it, so the claim is checkable
+            rather than decorative.
           </p>
-          <fieldset className="toggle-list">
-            <legend className="sr-only">Connection capabilities</legend>
-            {entry.capabilities.map((capability) => {
-              const detail = capabilityDetails[capability];
-              return (
-                <label className="toggle" key={capability}>
-                  <input
-                    type="checkbox"
-                    checked={draft.capabilities.includes(capability)}
-                    onChange={() => toggle(capability)}
-                  />
-                  <div>
-                    <span className="choice-title">{detail.label}</span>
-                    <span className="choice-note">
-                      {detail.summary} <code>{detail.module}</code>
-                    </span>
-                  </div>
-                </label>
-              );
-            })}
-          </fieldset>
+          {switchable.length > 0 && (
+            <fieldset className="toggle-list">
+              <legend className="sr-only">Connection capabilities</legend>
+              {switchable.map((capability) => {
+                const detail = capabilityDetails[capability];
+                const on = draft.capabilities.includes(capability);
+                return (
+                  <label className="toggle" key={capability}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggle(capability)}
+                    />
+                    <div>
+                      <span className="choice-title">{detail.label}</span>
+                      <span className="choice-note">
+                        {detail.summary} <code>{detail.module}</code>
+                      </span>
+                      {/* What the connection is without it, said while the
+                          box is still ticked — after it is cleared there is
+                          nothing on screen to explain what changed. */}
+                      {on && "offNote" in detail && (
+                        <span className="choice-note choice-consequence">
+                          {detail.offNote}
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </fieldset>
+          )}
+          {/*
+           * Not checkboxes. These are settled by the connector's manifest and
+           * its adapter, so a box here would be a control that changes
+           * nothing — the same promise the rail's dead switchers used to make.
+           * They still belong on screen: they are most of what separates this
+           * connection from a credential form.
+           */}
+          {described.length > 0 && (
+            <div className="capability-readout">
+              <h3>What this connection does anyway</h3>
+              <ul>
+                {described.map((capability) => {
+                  const detail = capabilityDetails[capability];
+                  return (
+                    <li key={capability}>
+                      <span className="choice-title">{detail.label}</span>
+                      <span className="choice-note">
+                        {detail.summary} <code>{detail.module}</code>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <Field
             label="Interruption budget"
             hint="How often this integration may stop and ask a person. The cheapest route that still satisfies it is the one resolved."

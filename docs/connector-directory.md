@@ -129,22 +129,48 @@ at, the drawer configures every family this project actually carries:
 
 ## Capabilities
 
-Each toggle names the module that carries it, so a reviewer can check the claim
-rather than trust the copy.
+Each one names the module that carries it, so a reviewer can check the claim
+rather than trust the copy. They divide by **who decides**, and Customize shows
+the two groups differently, because a checkbox beside something this
+application cannot change is the same false promise as a menu that never opens.
 
-| Capability                           | Module                                           |
-| ------------------------------------ | ------------------------------------------------ |
-| Teach this connection                | [`src/server/teaching.ts`](ceremony-teaching.md) |
-| Save as a reusable recipe            | `src/core/recipe-contracts.ts`                   |
-| Agent-to-human handoff               | [`src/server/a2h.ts`](a2h-ceremony-binding.md)   |
-| Prerequisite child ceremonies        | `src/core/connector-contracts.ts`                |
-| Session environment bindings         | `src/server/environment.ts`                      |
-| Verify real access before completing | `src/server/verification.ts`                     |
-| Expose to WebMCP and MCP clients     | [`src/core/webmcp.ts`](mcp-endpoint.md)          |
-| Mint the credential                  | `src/core/connector-contracts.ts`                |
+### Switches this application has
 
-Verification is on before anybody asks: a returned token is not a connection,
-and a connection that has read nothing has not been shown to work.
+These take a prop the component actually reads, so the box does what a box
+looks like it does. Each starts where the application already started.
+
+| Capability                       | Module                                           | Default | Off means                                            |
+| -------------------------------- | ------------------------------------------------ | ------- | ---------------------------------------------------- |
+| Teach this connection            | [`src/server/teaching.ts`](ceremony-teaching.md) | On      | The plain ceremony runs; the way in is not recorded. |
+| Agent-to-human handoff           | [`src/server/a2h.ts`](a2h-ceremony-binding.md)   | Off     | Every approval happens in this browser.              |
+| Expose to WebMCP and MCP clients | [`src/core/webmcp.ts`](mcp-endpoint.md)          | On      | The connection is driveable only from this page.     |
+
+Agent assistance is off by default because approving in your own browser is the
+thing nobody asked for help with. The other two are on because that is what the
+page did before either was a switch — teaching wherever the server offers it,
+and WebMCP because the component exposes a connection unless a host says
+otherwise.
+
+### What the connector settles for itself
+
+These follow from the manifest and its adapter. They are shown, with their
+modules, and not offered:
+
+| Capability                           | Module                            |
+| ------------------------------------ | --------------------------------- |
+| Save as a reusable recipe            | `src/core/recipe-contracts.ts`    |
+| Prerequisite child ceremonies        | `src/core/connector-contracts.ts` |
+| Session environment bindings         | `src/server/environment.ts`       |
+| Verify real access before completing | `src/server/verification.ts`      |
+| Mint the credential                  | `src/core/connector-contracts.ts` |
+
+Verification is the clearest case: a returned token is not a connection, and a
+connection that has read nothing has not been shown to work. Nothing on this
+page can waive that, so it is stated rather than asked.
+
+Which group a capability belongs to is a field in the catalogue's own table,
+and the type of a host switch is derived from it — so moving one is a single
+edit and anything still assuming the old answer stops compiling.
 
 ## Navigation
 
