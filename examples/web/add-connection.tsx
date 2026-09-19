@@ -620,9 +620,16 @@ export function AddConnection({
         first.focus();
       }
     };
-    addEventListener("keydown", onKey);
+    /*
+     * Captured, not bubbled. A modal's dismissal should not be something a
+     * descendant can withhold: on the way down this runs before anything
+     * between the key and here gets a chance to stop it, and the alternative
+     * is a dialog that cannot be closed from the keyboard for reasons no part
+     * of this file can see.
+     */
+    addEventListener("keydown", onKey, true);
     return () => {
-      removeEventListener("keydown", onKey);
+      removeEventListener("keydown", onKey, true);
       if (opener.current?.isConnected) opener.current.focus();
     };
   }, [open]);

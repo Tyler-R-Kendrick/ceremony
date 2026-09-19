@@ -124,8 +124,19 @@ test("the directory filters, searches and hands a chosen service to the drawer",
     ),
   ).toBe(true);
 
-  // Escape closes the drawer and returns the directory, still navigable.
+  // Escape closes the drawer and returns the directory, still navigable. Two
+  // claims, deliberately separate: the attribute says this application closed
+  // it, the role says nobody is still being offered it. Together they say
+  // which half is wrong when one of them is — a key that never arrived reads
+  // nothing like a drawer that closed without leaving the accessibility tree.
   await page.keyboard.press("Escape");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.querySelector(".connect-drawer")?.hasAttribute("hidden"),
+      ),
+    )
+    .toBe(true);
   await expect(drawer).toHaveCount(0);
   await expect(all.getByRole("button", { name: "Stripe" })).toBeVisible();
 });
