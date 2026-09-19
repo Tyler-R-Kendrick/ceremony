@@ -93,6 +93,16 @@ before every action — after every await — the adapter rechecks that:
 Any of these failing ends the step with a named refusal —`stale-document`,
 `stale-element`, `unapproved-recipient` — and nothing is typed.
 
+`stale-document` is the one of the three the attempt does not give up on
+first time. A page replaced under an approval leaves a page that can be read;
+a submit whose navigation commits after the read that followed it leaves the
+_signed-in_ page there, and ending the attempt would report a login that
+succeeded as one that never happened. So the page is read again and decided
+on from scratch — approvals, origins and recipients all re-derived from the
+document actually in front of the driver — and only a second move in a row
+ends the attempt. The other two mean the page rearranged itself under an
+approval rather than replacing itself, and stay terminal.
+
 **What this does not do.** It does not protect a password from the site it was
 typed into. Entering a credential means trusting that site as its recipient;
 DOM isolation does not hide a filled value from the page's own scripts. What is

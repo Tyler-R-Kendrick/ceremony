@@ -32,7 +32,21 @@ export type StaleTargetReason =
   | "target-unavailable";
 
 export class StaleTargetError extends Error {
-  constructor(readonly reason: StaleTargetReason) {
+  constructor(
+    readonly reason: StaleTargetReason,
+    /**
+     * Whether the refused action had already begun.
+     *
+     * Every reason here means nothing was *approved*, and almost always that
+     * the operation never ran either - the guards refuse before it does. The
+     * exception is a dispatching click that threw while the page was being
+     * replaced: Playwright can lose the execution context between sending the
+     * submission and returning, so the throw is not evidence that nothing was
+     * sent. A caller that would otherwise act again must not act again on
+     * that one.
+     */
+    readonly begun = false,
+  ) {
     super(`Refused: ${reason}`);
     this.name = "StaleTargetError";
   }
@@ -377,8 +391,11 @@ export function createBoundTargets(page: BoundPageLike) {
     try {
       await operation(handle);
     } catch (error) {
+      // Marked begun only for a dispatching action. A fill that threw put
+      // nothing on the wire whatever else went wrong; a click may have.
       throw new StaleTargetError(
         movedOn(error) ? "stale-document" : "stale-element",
+        options.dispatches === true,
       );
     }
     if (!options.dispatches || !approved) return;

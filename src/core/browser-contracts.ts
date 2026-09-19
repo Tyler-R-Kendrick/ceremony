@@ -146,7 +146,14 @@ export const blockedReasons = [
    * driver. A page is free to navigate or re-render while an interpreter is
    * thinking or a credential is being fetched; acting on what was seen before
    * that would deliver a secret under an approval that no longer describes the
-   * page. The attempt stops instead of filling a replacement.
+   * page. Nothing is filled into the replacement.
+   *
+   * Reaching a *caller* under this name means it happened twice in a row. The
+   * first time, the attempt reads the page again and decides on what is
+   * actually there — a submit whose navigation commits late leaves a perfectly
+   * drivable signed-in page behind the dead approval, and ending there would
+   * report a login that succeeded as one that never happened. A page that
+   * moves under two reads running cannot be driven, and says so.
    */
   "stale-document",
   /**
@@ -204,7 +211,14 @@ export type CeremonyCallback = { code: string; state?: string };
  * Steps a transcript can record. `handoff` is the driver's own, never an
  * interpreter's: asking a person to take part is not an inference decision.
  */
-export type CeremonyStepAction = DriverAction["action"] | "handoff";
+/**
+ * What a transcript entry records. `handoff` is a person being brought in;
+ * `reobserve` is the page having been replaced under an approval, so the
+ * attempt read it again instead of ending. Neither is something an
+ * interpreter proposed, which is why they are not `DriverAction`s.
+ */
+export type CeremonyStepAction =
+  DriverAction["action"] | "handoff" | "reobserve";
 
 /** One transcript entry. Values are excluded, so this is safe to persist. */
 export type CeremonyStep = {
