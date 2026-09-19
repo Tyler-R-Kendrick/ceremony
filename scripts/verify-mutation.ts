@@ -13,6 +13,8 @@ export async function mutationProgress(
 ) {
   const started = performance.now();
   let initial = true;
+  /** The file the dry run is streaming, so a failure in it can be named. */
+  let running: string | undefined;
   const record = (value: Record<string, string | number | null>) =>
     emit({ elapsedMs: Math.round(performance.now() - started), ...value });
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -47,8 +49,19 @@ export async function mutationProgress(
         });
       if (initial && /\bDEBUG TapTestRunner Running: `node /.test(line)) {
         const file = inventory.find((name) => line.includes(`"${name}"\` in `));
-        if (file) record({ phase: "initial", file });
+        if (file) {
+          running = file;
+          record({ phase: "initial", file });
+        }
       }
+      // A baseline that fails says only "exit 1" otherwise, and the dry run is
+      // where the whole suite runs before a single mutant exists — so a real
+      // failure there is invisible in exactly the way a real failure should not
+      // be. The file is the one already being streamed above: an allowlisted
+      // inventory name, never a diagnostic, so nothing leaves here that was not
+      // leaving here already.
+      if (initial && /^not ok /.test(line) && running)
+        record({ phase: "initial-failure", file: running });
     }
   };
   const closed = new Promise<number | null>((done) => {
