@@ -294,6 +294,8 @@ export async function runCeremony(
   let steps = 0;
   let unchanged = 0;
   let refusals = 0;
+  /** Consecutive times the page moved on under an approval. */
+  let moved = 0;
   let unverifiedClaims = 0;
   let previous = "";
   let followed: string | undefined;
@@ -303,7 +305,19 @@ export async function runCeremony(
   const record = (
     snapshot: PageSnapshot,
     action: CeremonyStepAction,
-    extra: { role?: CeremonyRole; reason?: BlockedReason; note?: string } = {},
+    extra: {
+      role?: CeremonyRole;
+      reason?: BlockedReason;
+      note?: string;
+      /**
+       * Whether the interpreter should see this step. Everything it *did* to
+       * the page belongs in its history; a re-read is not something it did,
+       * and its `wait` heuristic reads the last entry, so recording one there
+       * would change the next proposal for a reason that has nothing to do
+       * with the page.
+       */
+      remembered?: boolean;
+    } = {},
   ) => {
     const step: CeremonyStep = { path: snapshot.path, action };
     if (extra.role) step.role = extra.role;
@@ -313,11 +327,12 @@ export async function runCeremony(
     // The document goes into the history too. An interpreter asking "have I
     // tried this already?" has to be able to tell one page's button from
     // another's with the same label, and a label is not an identity.
-    history.push(
-      step.note
-        ? { action, note: step.note, path: step.path }
-        : { action, path: step.path },
-    );
+    if (extra.remembered !== false)
+      history.push(
+        step.note
+          ? { action, note: step.note, path: step.path }
+          : { action, path: step.path },
+      );
     options.onStep?.(step);
   };
   const finish = (outcome: CeremonyOutcome): CeremonyResult => ({
@@ -327,20 +342,65 @@ export async function runCeremony(
   });
 
   /**
+   * Whether a refusal is one to read the page again over rather than give up
+   * on.
+   *
+   * `stale-document` says the page was replaced between the observation that
+   * approved something and the use of that observation. The guard did its
+   * job: nothing was typed, nothing was sent, and the approval is gone. But
+   * ending the attempt there throws away a login that may have *just
+   * succeeded* — a submit whose navigation commits after the read that
+   * followed it produces exactly this, and the page waiting to be read is the
+   * signed-in one. Re-reading is already how this driver copes with a
+   * document changing; AUTH-IDENTIFIER depends on it. The only reason a race
+   * was fatal is that the change landed inside the window between the read
+   * and the action, and nothing looked again.
+   *
+   * Looking again is not a weaker check. The new observation is read,
+   * approved and origin-checked from scratch, and every recipient rule is
+   * applied to it, so a page that really was swapped by someone hostile is
+   * refused on its own merits rather than on a memory of the page before it.
+   *
+   * Bounded, because a page that keeps moving cannot be driven and re-reading
+   * it forever would turn a refusal into a spin. The second move in a row
+   * ends the attempt under the name it would have carried immediately, so
+   * nothing is hidden — only retried once.
+   *
+   * Only this reason. `stale-element` means the control was replaced inside a
+   * document that stayed and `unapproved-recipient` means the form was
+   * re-pointed; both are a page rearranging itself under an approval rather
+   * than replacing itself, and both stay terminal.
+   */
+  const rereadable = (reason: BlockedReason): boolean =>
+    reason === "stale-document" && ++moved < 2;
+
+  /**
    * Read the page, tolerating the one thing that legitimately stops a read: the
    * browser or tab going away. A fresh observation after an action is expected
    * to describe a *different* document — that is what the action was for — so
    * only an unreadable page ends the attempt here.
+   *
+   * A read that failed *because* the page moved under it is the one case with
+   * nothing to report and nothing to undo: no snapshot was produced, so there
+   * is no document to name in the transcript, and reading again is the whole
+   * remedy. It is counted against the same budget as a refused action, so a
+   * page thrashing is bounded however the driver notices.
    */
   const observe = async (): Promise<
     { snapshot: PageSnapshot } | { blocked: CeremonyResult }
   > => {
-    try {
-      return { snapshot: await page.snapshot() };
-    } catch (error) {
-      const reason = refusalReason(error);
-      if (reason === undefined) throw error;
-      return { blocked: finish({ status: "blocked", reason, steps }) };
+    for (;;) {
+      try {
+        return { snapshot: await page.snapshot() };
+      } catch (error) {
+        const reason = refusalReason(error);
+        if (reason === undefined) throw error;
+        if (!rereadable(reason))
+          return { blocked: finish({ status: "blocked", reason, steps }) };
+        steps++;
+        if (steps >= maxSteps)
+          return { blocked: finish({ status: "exhausted", steps }) };
+      }
     }
   };
 
@@ -407,6 +467,32 @@ export async function runCeremony(
     snapshot: PageSnapshot,
     url: string,
   ): Promise<CeremonyResult | undefined> {
+    /**
+     * The one ending shared by every action the adapter refused.
+     *
+     * Returning `undefined` is this function's "carry on", and carrying on is
+     * what a re-readable refusal asks for: the main loop's next thing is to
+     * read the page, which is precisely the remedy. A refusal that is not
+     * re-readable ends the attempt under its own name, as before.
+     */
+    const refused = (error: unknown): CeremonyResult | undefined => {
+      const reason = refusalReason(error);
+      if (reason === undefined) throw error;
+      // Reading the page again is always safe. *Acting* again on what is read
+      // is not, if the refused action had already begun: a click that threw
+      // while the page was being replaced may still have sent the submission
+      // it was for, and nothing here can tell. That one ends the attempt, as
+      // it did before - uncertainty is never rewritten into something more
+      // retryable.
+      const begun = error instanceof StaleTargetError && error.begun;
+      if (!begun && rereadable(reason)) {
+        record(snapshot, "reobserve", { reason, remembered: false });
+        steps++;
+        return undefined;
+      }
+      record(snapshot, "blocked", { reason });
+      return finish({ status: "blocked", reason, steps });
+    };
     const element =
       action.element === undefined
         ? undefined
@@ -460,10 +546,7 @@ export async function runCeremony(
       try {
         await page.fill(element, value);
       } catch (error) {
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        return refused(error);
       }
       record(snapshot, "fill", {
         role,
@@ -473,10 +556,7 @@ export async function runCeremony(
       try {
         await page.check(element);
       } catch (error) {
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        return refused(error);
       }
       record(snapshot, "check", action.note ? { note: action.note } : {});
     } else {
@@ -495,15 +575,17 @@ export async function runCeremony(
           record(snapshot, "blocked", { reason: "provider-error" });
           return finish({ status: "indeterminate", steps });
         }
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        return refused(error);
       }
       record(snapshot, "click", action.note ? { note: action.note } : {});
     }
 
     refusals = 0;
+    // An action that landed means the page in front of the attempt is one it
+    // can act on, so whatever moved before this is behind it. The budget
+    // counts documents moving *in a row*, not over a whole login: a flow that
+    // legitimately redirects twice is not a page thrashing.
+    moved = 0;
     await page.settle();
     steps++;
     const observed = await observe();

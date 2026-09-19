@@ -431,6 +431,67 @@ on the post-login page and the service deliberately treats that as "the drive
 is over, ask the verifier". So the presence of `blocked` is not the signal -
 its path is, and its absence is.
 
+### The defect the trail was built to find, found without it
+
+Writing the diagnostic meant reading the refusal path closely enough to model
+it, and modelling it deterministically was enough. The case is
+`tests/browser-driver.test.ts`, "a submit whose navigation lands late is read
+again, not given up on": a page whose document is replaced after `settle()`
+returns and after both reads that follow the submit — the loaded-runner shape
+— on the recording page double rather than on a browser. It produces the CI
+signature exactly:
+
+```
+{"status":"blocked","reason":"stale-document","steps":2,
+ "transcript":[{fill@/signin},{click@/signin},{blocked@/signin,"stale-document"}]}
+```
+
+The refusal itself is correct and stays: nothing was typed into the new
+document, nothing was sent to it. What was wrong is what followed. The submit
+had already gone through, the page waiting to be read was the signed-in one,
+and the attempt ended anyway — reporting a login that had in fact succeeded as
+one that never happened, with the verifier never asked. `verified` is zero in
+that case before the change.
+
+Re-reading is already how this driver copes with a document changing;
+AUTH-IDENTIFIER exists for it. The only reason a race was fatal is that the
+change landed inside the window between the read and the action, and nothing
+looked again. So a `stale-document` refusal now costs one re-read rather than
+the attempt, and the new observation is read, approved and origin-checked from
+scratch, with every recipient rule applied to it — a page swapped by someone
+hostile is refused on its own merits rather than on a memory of the page
+before it. Nothing is relaxed; the guard runs the same way on a page that is
+actually there.
+
+Bounded at one re-read, and the bound is pinned from both sides: narrowing it
+to none fails the case above, widening it to two fails "a page that keeps
+moving still ends the attempt". The second move in a row ends the attempt
+under the name it would have carried immediately. Only `stale-document`:
+`stale-element` means the control was replaced inside a document that stayed
+and `unapproved-recipient` means the form was re-pointed, and a page
+rearranging itself under an approval stays terminal.
+
+One refusal is deliberately left terminal, and finding it was the point of
+reading the change adversarially rather than shipping it. `act()` converts a
+throw from the operation itself into the same `StaleTargetError` as a throw
+from the guards, and for a _click_ those are not the same thing: Playwright
+can lose the execution context between sending a submission and returning, so
+the throw is not evidence that nothing was sent. Reading the page again would
+still be safe; acting on what is read could submit twice, and nothing in the
+attempt can tell which happened. The error now carries whether the action had
+begun, set only for a dispatching operation - a fill that threw put nothing on
+the wire whatever else went wrong - and a refusal that had begun ends the
+attempt exactly as before. "A submit that threw while the page moved is not
+tried again" pins it, and removing the flag fails it.
+
+What this does **not** establish is that it is CI's trigger. It reproduces the
+signature and it is a defect on its own terms, found by the method this
+document keeps recording as the one that works — write the case, reproduce
+before fixing, restore the defect and watch the case go red. Whether the
+conformance intermittent stops is a question for CI, and the `reobserve` entry
+in the transcript is how the answer will be read: a recovered attempt is
+distinguishable from one that never raced.
+
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
 rather than a credential delivered somewhere unintended - which is the direction
