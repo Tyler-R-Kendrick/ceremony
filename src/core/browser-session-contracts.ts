@@ -115,6 +115,37 @@ export const browserTrustModes = ["constrained-auth", "trusted-agent"] as const;
 export const browserTrustModeSchema = z.enum(browserTrustModes);
 export type BrowserTrustMode = z.infer<typeof browserTrustModeSchema>;
 
+/**
+ * Who is allowed to decide the next action, and what a decision discloses.
+ *
+ * `trustMode` is about what the holder of control may do *after* a login.
+ * This is about the login itself, and the two are genuinely separate: a
+ * deployment can delegate broad authority over the resulting session while
+ * refusing to send anybody's sign-in page to a model, and it can permit
+ * inference on the page while keeping the session constrained afterwards.
+ *
+ * `deterministic` is the rules in `createHeuristicInterpreter`. Nothing about
+ * the page leaves the process, which is why it is the value a draft that says
+ * nothing compiles to: a plan should not acquire an inference call because
+ * somebody omitted a field.
+ *
+ * `host-model` permits the model this host configured. What it discloses is
+ * exactly one sanitized snapshot per step — no markup, no values, no
+ * credentials, the same object the deterministic rules read — and it grants no
+ * authority at all: the driver validates every action that comes back, owns
+ * origin policy and secret substitution, and a malformed or refused answer is
+ * a step that made no progress rather than an outcome.
+ *
+ * There is deliberately no value for a caller-driven external harness. It is
+ * the other half of the product requirement and it needs a protocol this does
+ * not have — a proposal, a validation, and the next snapshot, round-tripped
+ * through a client — so offering a name for it here would be a setting that
+ * reads as effective and is not.
+ */
+export const browserReasoningModes = ["deterministic", "host-model"] as const;
+export const browserReasoningModeSchema = z.enum(browserReasoningModes);
+export type BrowserReasoningMode = z.infer<typeof browserReasoningModeSchema>;
+
 /** What happens to the session when the login call returns. */
 export const loginContinuations = [
   /** Hand the authenticated browser back to the person who asked for it. */
@@ -190,6 +221,15 @@ export const browserOperationReasons = [
    * happened and carries nothing about the value, which is the point.
    */
   "protected-value-exposed",
+  /**
+   * The plan says a model decides the next action and this host has none.
+   *
+   * A plan compiles against the host that compiled it; it can be run later,
+   * or on a different host, after a model endpoint was removed. Running the
+   * deterministic rules instead would produce an attempt whose digest claims
+   * a model read the page when nothing did, so it refuses under its own name.
+   */
+  "reasoning-unavailable",
   /** The provider reported an error the ceremony cannot act on. */
   "provider-error",
 ] as const;

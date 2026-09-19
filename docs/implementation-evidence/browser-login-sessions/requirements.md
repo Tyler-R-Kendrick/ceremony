@@ -144,5 +144,59 @@ Node test suites (`tests/browser-login-conformance.test.ts`,
 
 ## F-MODEL — extension and server inference paths differ
 
-**Not addressed.** No change was made to either inference path. The new login
-service runs the deterministic interpreter and makes **zero model calls**.
+**Half addressed: the seam exists; the two paths are still two paths.**
+
+What was actually wrong is narrower than the heading suggested and worse than
+"no change was made". `createModelInterpreter` has existed in
+`browser-interpreter.ts` since the driver did — bounded, schema-checked,
+telemetry off, a refusal or timeout returning `undefined` — and there was no
+way to reach it from an authorized login. `browser-login-service.ts` named
+`createHeuristicInterpreter()` in its own body. So "use an interchangeable
+model or external harness for permitted reasoning" was true of the driver and
+false of the product: a host that had configured a model could not use it, and
+a host that had not could not be told so.
+
+The plan now carries `reasoning`, compiled and digested like every other
+operative field.
+
+- `deterministic` is what an absent field compiles to. A model reading
+  somebody's sign-in page is a disclosure, and the one field that decides
+  whether anything about that page leaves the deployment must not be switched
+  on by an omission.
+- `host-model` permits the model this host configured. It is refused at
+  compile time when the host declares none — a refusal rather than a quiet
+  downgrade, because both answers run a login and only one runs the login the
+  plan describes. It is refused again at run time, before anything launches,
+  when the host can no longer supply one: a plan compiles against the host
+  that compiled it and can be run later, or elsewhere, after a model endpoint
+  was removed.
+
+Nothing about authority changed, and the cases say so rather than assuming it.
+An interpreter proposes; the driver disposes. A model asking for a role the
+plan never authorized types nothing, an element the page does not have is
+refused rather than invented, a fill on a page outside the declared origins
+stops the attempt, and a model claiming `done` on a browser the provider does
+not recognise gets `submitted-unverified` and no session. What the two
+interpreters differ in is which page-reading rules run, not how much is
+trusted.
+
+The canary from the privacy sweep is what makes the seam safe to open: a
+provider echoing a credential into its own page now stops the attempt with
+`protected-value-exposed` **before** any observation reaches the interpreter,
+which is asserted end to end with a model plugged in.
+
+### What is still open
+
+**A caller-driven external harness.** The product requirement says "an
+interchangeable model _or external harness_", and only the first half is
+here. A harness doing the reasoning needs a protocol this does not have — a
+proposal, a validation, and the next snapshot, round-tripped through a client
+— so there is deliberately no enum value for it. A name that reads as
+effective and is not is the defect this repository keeps finding.
+
+**The extension path is still separate.** `src/browser-login/inference.ts`
+infers a _form mapping_ from an observation using a local in-browser model,
+and `src/server/isolated-account-interpreter.ts` is a third
+`createModelInterpreter` for a different flow. Neither was touched. They read
+different inputs and answer different questions, so reconciling them is a
+real piece of design rather than a rename, and it is not started.

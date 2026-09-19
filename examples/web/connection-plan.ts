@@ -648,6 +648,11 @@ export const rejectionGuidance: Record<
       "This workspace does not run a connection that never reads anything back. Turn on “Verify real access before completing”.",
     step: 3,
   },
+  "reasoning-unavailable": {
+    message:
+      "This configuration asks a model to read the sign-in page and decide what to do, and this host has no model configured. Nothing was run on the built-in rules instead, because that would not be the configuration you asked for.",
+    step: 3,
+  },
   "unknown-credential-reference": {
     message:
       "The stored credential this configuration names is not one this workspace holds.",
