@@ -187,14 +187,26 @@ const dimensionLimitations: Partial<Record<SupportDimension, string[]>> = {
   ],
   export: ["Composio tool descriptions are not re-exported by this adapter."],
   delegate: [
-    "Session delegation runs approved tools only; the workbench and bash meta tools are not bound.",
+    "This adapter exposes no delegate method. A Composio session tool is its own bound operation and runs through invoke on a `session:<TOOL>` route, so effect, consent and replay stay decided per tool rather than per delegation.",
   ],
 };
 
+/*
+ * The dimensions this adapter reports as negative capabilities. The set has to
+ * match the methods below exactly in both directions: a dimension left out of
+ * it is published as implemented, and a published column an adapter cannot
+ * serve is worse than an honest absence.
+ *
+ * `delegate` is here because there is no `delegate` method; session tool
+ * execution is `invoke` on a bound session route. `revoke` is deliberately not
+ * here: `revoke` is implemented and answers that Composio documents no
+ * provider-side revocation, which is a reported outcome rather than a missing
+ * capability.
+ */
 const unsupportedDimensions = new Set<SupportDimension>([
   "import",
   "events",
-  "revoke",
+  "delegate",
   "export",
 ]);
 

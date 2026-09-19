@@ -135,6 +135,59 @@ describe("Composio authorization", () => {
     );
   });
 
+  it("refuses a hosted URL when no origin was approved at all", async () => {
+    // Nothing requires a `connect` destination and the adapter was built with
+    // no extra authorization origins, so the allowlist is empty. An empty
+    // allowlist is the absence of an approval: whatever Composio answers with,
+    // nothing has approved where the initiating human would be sent.
+    const h = await start({
+      binding: { ...unpinned, omitConnectDestination: true },
+    });
+    await assert.rejects(
+      () => h.adapter.authorize!(h.context(), intent()),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "network-policy" &&
+        error.detail === "composio.redirect.origin-unapproved",
+    );
+  });
+
+  it("refuses an attacker's hosted URL with no approved origin to check it against", async () => {
+    // The phishing shape: Composio answers with a page on a host the reviewer
+    // never saw, and that link would be rendered to the person who started the
+    // authorization. A URL is not evidence of anything just because it is
+    // HTTPS, so it is refused rather than handed over.
+    const phish = "https://attacker.example/phish";
+    const h = await start({
+      double: { hostedRedirectUrl: phish },
+      binding: { ...unpinned, omitConnectDestination: true },
+    });
+    await assert.rejects(
+      () => h.adapter.authorize!(h.context(), intent()),
+      (error: unknown) =>
+        error instanceof ConnectorError && error.code === "network-policy",
+    );
+    // The created account exists upstream, but no handoff carries the link.
+    assert.equal(h.double.created.length, 1);
+  });
+
+  it("still admits a hosted URL on an origin the deployment configured", async () => {
+    // The refusal above is about an empty allowlist, not about the `connect`
+    // destination being the only way to fill one.
+    const h = await start({
+      double: { hostedRedirectUrl: "https://backend.composio.dev/s/abc" },
+      binding: { ...unpinned, omitConnectDestination: true },
+      adapter: { authorizationOrigins: ["https://backend.composio.dev"] },
+    });
+    const result = await h.adapter.authorize!(h.context(), intent());
+    assert.equal(result.kind, "handoff");
+    if (result.kind !== "handoff") return;
+    assert.equal(
+      result.handoff.private.url,
+      "https://backend.composio.dev/s/abc",
+    );
+  });
+
   it("refuses an auth config the binding did not approve", async () => {
     const h = await start();
     await assert.rejects(

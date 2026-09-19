@@ -220,6 +220,12 @@ export const unlistedOperation: BoundOperation = {
 export type BindingOverrides = {
   apiOrigin: string;
   connectOrigin?: string;
+  /**
+   * Leaves the `connect` destination out. Nothing requires one — the adapter
+   * only demands `api` — so a host onboarding a toolkit can approve a binding
+   * that names no origin for Composio's hosted page at all.
+   */
+  omitConnectDestination?: boolean;
   operations?: BoundOperation[];
   settings?: Record<string, unknown>;
   permittedTargets?: Array<{ kind: string; id: string }>;
@@ -266,11 +272,15 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
     tenantId: overrides.tenantId ?? TENANT,
     destinations: [
       { id: "api", origin: overrides.apiOrigin, network: "loopback-fixture" },
-      {
-        id: "connect",
-        origin: overrides.connectOrigin ?? overrides.apiOrigin,
-        network: "loopback-fixture",
-      },
+      ...(overrides.omitConnectDestination
+        ? []
+        : [
+            {
+              id: "connect",
+              origin: overrides.connectOrigin ?? overrides.apiOrigin,
+              network: "loopback-fixture",
+            },
+          ]),
     ],
     operations: overrides.operations ?? [
       readOperation,

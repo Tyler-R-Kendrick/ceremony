@@ -4,7 +4,10 @@ import { canaries, canaryValues } from "../fixtures/builders.js";
 import { canonicalDigest } from "../../../src/core/connectors/index.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
+  ACCOUNT_A,
   ACCOUNT_B,
+  AUTH_CONFIG,
+  OTHER_AUTH_CONFIG,
   READ_TOOL,
   RETIRED_VERSION,
   TOOLKIT,
@@ -267,6 +270,63 @@ describe("Composio execution", () => {
     // The session's MCP URL is a private handle; it never reaches a result.
     const text = stringsIn(result).join(" ");
     assert.ok(!text.includes("/mcp/"));
+  });
+
+  it("names the auth config the connection's account belongs to, not the last approved one", async () => {
+    // Both `auth_configs` and `connected_accounts` are keyed by toolkit slug,
+    // so each holds one entry for this binding's one toolkit. With two
+    // blueprints approved, spreading them onto that single key keeps whichever
+    // came last in the settings array — a blueprint the pinned account does not
+    // belong to, chosen by array order.
+    const h = await start({
+      ...withAccount,
+      binding: {
+        settings: defaultSettings({
+          execution: "session",
+          authConfigs: [AUTH_CONFIG, OTHER_AUTH_CONFIG],
+        }),
+      },
+    });
+    const connection = activeConnection(h.binding);
+    const result = await h.adapter.invoke!(
+      h.context({ connection }),
+      request({ operationRef: sessionOperation.operationRef }),
+    );
+    assert.equal(result.state, "complete");
+    const [created] = h.double.received("POST", "/api/v3/tool_router/session");
+    assert.ok(created);
+    const body = bodyOf(created);
+    assert.deepEqual(body.auth_configs, { [TOOLKIT]: AUTH_CONFIG });
+    assert.deepEqual(body.connected_accounts, { [TOOLKIT]: ACCOUNT_A });
+  });
+
+  it("refuses a session for a connection that records no auth config", async () => {
+    // Without a recorded blueprint there is no honest value for this key, and
+    // omitting it would leave the router free to choose one the binding never
+    // approved.
+    const h = await start({
+      ...withAccount,
+      binding: { settings: defaultSettings({ execution: "session" }) },
+    });
+    const base = activeConnection(h.binding);
+    const { authConfigId, ...withoutAuthConfig } = base.externalIds;
+    void authConfigId;
+    const connection = { ...base, externalIds: withoutAuthConfig };
+    await assert.rejects(
+      () =>
+        h.adapter.invoke!(
+          h.context({ connection }),
+          request({ operationRef: sessionOperation.operationRef }),
+        ),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "not-found" &&
+        error.detail === "composio.auth-config.unknown",
+    );
+    assert.equal(
+      h.double.received("POST", "/api/v3/tool_router/session").length,
+      0,
+    );
   });
 
   it("refuses to use a session that advertises an unapproved meta tool", async () => {

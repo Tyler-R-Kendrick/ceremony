@@ -553,6 +553,14 @@ export async function startAuth0TokenVaultDouble(options: Auth0DoubleOptions) {
         },
       );
     },
+    /**
+     * A token that names this tenant as its issuer but is signed by another
+     * key: the forgery a tenant-issuer claim has to be checked against, rather
+     * than decoded and believed.
+     */
+    forgedTenantToken(subject: string, audience: string): Promise<string> {
+      return sign(foreign.privateKey, {}, { subject, audience });
+    },
     /** The single-use code the provider's redirect would deliver. */
     issueConnectCode(subject: string): string {
       const code = randomUUID();

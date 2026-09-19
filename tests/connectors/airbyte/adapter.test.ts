@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
+import { resolvePinnedSource } from "../../../src/server/connectors/import/index.js";
 import type { RuntimeBinding } from "../../../src/server/connectors/binding.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import type {
@@ -761,6 +763,79 @@ test("import produces a source record and definitions without contacting the dep
     assert.equal(outcome.definitions[0]?.capabilities[0]?.nativeId, "users");
     assert.equal(outcome.source.format.name, "airbyte-catalog");
     assert.equal(h.double.requests.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("import names its source by the captured bytes, not by the normalized document", async () => {
+  const h = await harness();
+  try {
+    // Two uploads of the same catalog, spelled differently. They describe the
+    // same connector, so they normalize identically — and that is exactly why
+    // the source record cannot be named after the normalized document: a
+    // binding pinned to one capture would then select the other.
+    const document = {
+      spec: { connectionSpecification: { type: "object" } },
+      catalog: {
+        streams: [
+          {
+            name: "users",
+            json_schema: { type: "object" },
+            supported_sync_modes: ["full_refresh"],
+          },
+        ],
+      },
+    };
+    const compact = new TextEncoder().encode(JSON.stringify(document));
+    const indented = new TextEncoder().encode(
+      JSON.stringify(document, null, 2),
+    );
+    assert.notEqual(compact.byteLength, indented.byteLength);
+    const capture = async (bytes: Uint8Array) =>
+      h.adapter.import!(h.ctx, {
+        bytes,
+        mediaType: "application/json",
+        origin: { kind: "upload" },
+      });
+    const first = await capture(compact);
+    const second = await capture(indented);
+
+    // One description, so one canonical digest of the normalized document.
+    assert.equal(
+      first.definitions[0]?.normalizedDigest,
+      second.definitions[0]?.normalizedDigest,
+    );
+    // Two captures, so two exact-byte digests and two source references.
+    assert.equal(
+      first.source.digest.value,
+      createHash("sha256").update(compact).digest("hex"),
+    );
+    assert.equal(
+      second.source.digest.value,
+      createHash("sha256").update(indented).digest("hex"),
+    );
+    assert.notEqual(first.source.sourceRef, second.source.sourceRef);
+
+    // The consequence the digest exists for: a live binding pinned to the first
+    // capture does not silently accept the substituted one.
+    assert.equal(
+      resolvePinnedSource(
+        {
+          sourceRef: first.source.sourceRef,
+          digest: first.source.digest.value,
+        },
+        [{ record: second.source, latest: true }],
+      ).outcome,
+      "pin-missing",
+    );
+
+    // And the capture time is the clock's, so candidate revisions can be
+    // ordered at all.
+    assert.equal(
+      first.source.capturedAt,
+      new Date(1_770_000_000_000).toISOString(),
+    );
   } finally {
     await h.close();
   }

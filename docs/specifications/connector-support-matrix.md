@@ -53,7 +53,7 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `auth0-token-vault`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `aws-agentcore-gateway`         | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `camel-kamelet`                 | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
-| `composio`                      | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
+| `composio`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `dapr`                          | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `docker-mcp-catalog`            | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
 | `google-integration-connectors` | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
@@ -207,7 +207,7 @@ Module: `src/server/connectors/providers/composio/index.ts` (`createComposioAdap
 - disconnect: Local unlink performs no Composio call. Broker scope deletes the connected account permanently and is disabled unless the deployment enables it.
 - revoke: Composio documents no operation that revokes the end user's grant at the third-party provider.
 - export: Composio tool descriptions are not re-exported by this adapter.
-- delegate: Session delegation runs approved tools only; the workbench and bash meta tools are not bound.
+- delegate: This adapter exposes no delegate method. A Composio session tool is its own bound operation and runs through invoke on a `session:<TOOL>` route, so effect, consent and replay stay decided per tool rather than per delegation.
 
 ### `dapr` — Dapr bindings
 

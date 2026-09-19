@@ -5,9 +5,14 @@ import type {
   DelegateRequest,
   InvokeResult,
 } from "../../adapter.js";
-import { boundOperation, type BoundOperation } from "../../binding.js";
+import {
+  boundOperation,
+  destinationUrl,
+  type BoundOperation,
+} from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { classifyAddress } from "../../import/network.js";
+import { readBounded } from "./client.js";
 import type {
   ConnectionRecord,
   EffectOutcome,
@@ -628,6 +633,23 @@ export async function retrieveA2aArtifact(
     throw new ConnectorError("network-policy", {
       detail: "a2a.artifact.unapproved-origin",
     });
+  /*
+   * An approved destination is an origin *and*, when the host narrowed it, a
+   * path prefix. Comparing origins alone accepted any path on that host, so an
+   * agent could name `/internal/anything` under a destination approved only for
+   * `/agents/alpha`. `destinationUrl` is this repo's containment primitive — it
+   * normalizes, refuses `..`, `//` and encoded slashes, and checks the prefix —
+   * so the agent-supplied path is re-checked with it rather than by hand, and
+   * the request is then sent to exactly the URL that was checked.
+   */
+  let approved: URL;
+  try {
+    approved = destinationUrl(destination, `${url.pathname}${url.search}`);
+  } catch {
+    throw new ConnectorError("network-policy", {
+      detail: "a2a.artifact.outside-prefix",
+    });
+  }
   const host = url.hostname.replace(/^\[|\]$/g, "");
   const classification = classifyAddress(host);
   if (
@@ -644,7 +666,7 @@ export async function retrieveA2aArtifact(
   ]);
   let response: Response;
   try {
-    response = await ctx.environment.fetch(url, {
+    response = await ctx.environment.fetch(approved, {
       method: "GET",
       redirect: "error",
       signal,
@@ -659,11 +681,15 @@ export async function retrieveA2aArtifact(
     throw new ConnectorError("upstream-rejected", {
       detail: "a2a.artifact.status",
     });
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.byteLength > retrieval.maxBytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "a2a.artifact.too-large",
-    });
+  // The ceiling bounds the read, not the result. An artifact is a body another
+  // agent chose the size of, so buffering it whole and measuring afterwards
+  // would hold gigabytes in memory to then refuse them; the transport bounds
+  // its own responses the same way, for the same reason.
+  const buffer = await readBounded(
+    response,
+    retrieval.maxBytes,
+    "a2a.artifact.too-large",
+  );
   return {
     mediaType:
       response.headers.get("content-type") ?? "application/octet-stream",

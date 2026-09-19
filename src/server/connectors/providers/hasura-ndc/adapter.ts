@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   capabilityStatus,
@@ -8,6 +9,8 @@ import {
   type ConnectorAdapter,
   type DiscoverInput,
   type DiscoverResult,
+  type ImportInput,
+  type ImportOutcome,
   type InvokeRequest,
   type InvokeResult,
 } from "../../adapter.js";
@@ -380,6 +383,81 @@ export function createHasuraNdcAdapter(
     configuration: ndcConfiguration,
     profiles: ["http-bearer"],
     capabilities,
+
+    /**
+     * Imports a captured pair of NDC documents — one `/capabilities` answer and
+     * one `/schema` answer — into the same normalized definition discovery
+     * builds. Import runs with no approved destination and no configuration, so
+     * the documents arrive as bytes and nothing is fetched: the reader is handed
+     * a client that answers from the upload, which is why discovery and import
+     * cannot drift into two readings of the same protocol.
+     */
+    async import(
+      ctx: AdapterCallContext,
+      input: ImportInput,
+    ): Promise<ImportOutcome> {
+      if (input.bytes.byteLength > MAX_BODY_BYTES)
+        throw new ConnectorError("invalid-request", {
+          detail: "ndc.import.too-large",
+        });
+      let value: unknown;
+      try {
+        value = JSON.parse(new TextDecoder().decode(input.bytes));
+      } catch {
+        throw new ConnectorError("invalid-request", {
+          detail: "ndc.import.invalid",
+        });
+      }
+      assertPlainJson(value, "ndc.import.invalid");
+      const document = z
+        .looseObject({ capabilities: z.unknown(), schema: z.unknown() })
+        .safeParse(value);
+      if (!document.success)
+        throw new ConnectorError("invalid-request", {
+          detail: "ndc.import.shape",
+        });
+      // The exact-byte digest names the capture; the canonical digest of the
+      // normalized document is a separate fact the definition carries.
+      const digest = createHash("sha256").update(input.bytes).digest("hex");
+      const hint = input.identityHint;
+      const discovery = await discoverNdc(
+        {
+          capabilities: async () => document.data.capabilities,
+          schema: async () => document.data.schema,
+        },
+        {
+          requestedVersion,
+          sourceRef: `src:ndc:${digest}`,
+          ...(hint?.authorityNamespace === undefined
+            ? {}
+            : { authorityNamespace: hint.authorityNamespace }),
+          ...(hint?.nativeId === undefined ? {} : { nativeId: hint.nativeId }),
+        },
+      );
+      return {
+        source: {
+          sourceRef: discovery.definition.sourceRef,
+          identity: discovery.definition.identity,
+          format: { name: "hasura-ndc", version: discovery.version },
+          origin: input.origin,
+          digest: { algorithm: "sha256", value: digest },
+          byteLength: input.bytes.byteLength,
+          mediaType: "application/json",
+          capturedAt: new Date(ctx.environment.now()).toISOString(),
+          adaptation: [],
+          overlays: [],
+        },
+        definitions: [discovery.definition],
+        issues: discovery.issues,
+        // A connector outside the pinned range executes nothing, so it offers
+        // no candidate a binding could name.
+        executableCandidates: discovery.versionCompatible
+          ? discovery.definition.capabilities.map(
+              (capability) => capability.nativeId,
+            )
+          : [],
+      };
+    },
 
     /** Lists the connector's collections, functions and procedures as discovered items. */
     async discover(

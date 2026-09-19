@@ -80,10 +80,30 @@ export function a2aFailure(code: number): ConnectorError {
   });
 }
 
-async function readBounded(
+/**
+ * Reads a response body under a byte ceiling, while it arrives.
+ *
+ * The ceiling has to apply to the read itself, not to the result: the body is
+ * written by another agent, so buffering it first and measuring afterwards
+ * means a multi-gigabyte answer is held in memory before the limit refuses it.
+ * A declared `content-length` above the ceiling is refused before the body is
+ * touched at all, and a body that overruns while streaming cancels the reader
+ * at the chunk that crosses the line.
+ *
+ * `detail` names the failure for the caller's surface; the ceiling is the
+ * caller's, because a card, a JSON-RPC answer and an artifact are bounded
+ * differently.
+ */
+export async function readBounded(
   response: Response,
   maxBytes: number,
+  detail = "a2a.response.too-large",
 ): Promise<Uint8Array> {
+  const declared = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new ConnectorError("upstream-rejected", { detail });
+  }
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -94,9 +114,7 @@ async function readBounded(
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw new ConnectorError("upstream-rejected", {
-        detail: "a2a.response.too-large",
-      });
+      throw new ConnectorError("upstream-rejected", { detail });
     }
     chunks.push(value);
   }
@@ -314,7 +332,21 @@ export class A2aClient {
    * binding: a card can never redirect this call to somewhere else.
    */
   async fetchCard(path: string): Promise<Uint8Array> {
-    const url = destinationUrl(this.options.destination, path);
+    let url: URL;
+    try {
+      url = destinationUrl(this.options.destination, path);
+    } catch {
+      // The specification puts the card at the authority root
+      // (`https://{server_domain}/.well-known/agent-card.json`, section 8.2),
+      // so a destination narrowed to a path prefix excludes the only place the
+      // card is defined to be. Fetching it outside the approved prefix would
+      // reach a path nobody approved, so this is reported rather than widened:
+      // a prefixed destination can carry the JSON-RPC path and still have no
+      // readable card.
+      throw new ConnectorError("network-policy", {
+        detail: "a2a.card.path-outside-destination",
+      });
+    }
     const headers = await this.headers();
     headers.set("accept", "application/json");
     headers.delete("content-type");

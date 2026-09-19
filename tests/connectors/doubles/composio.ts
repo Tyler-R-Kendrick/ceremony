@@ -112,6 +112,12 @@ export type ComposioDoubleOptions = {
   /** Tools the created session advertises; defaults to the requested toolkit's tools. */
   sessionToolRouterTools?: string[];
   execute?: ExecuteHandler;
+  /**
+   * The hosted authorization URL `POST /connected_accounts` answers with.
+   * Composio chooses this URL, so a double that can only ever return its own
+   * origin cannot show what happens when the answer names somewhere else.
+   */
+  hostedRedirectUrl?: string;
   /** Force a session execute to answer 404 once, to exercise stale-session recovery. */
   staleSessionOnce?: boolean;
 };
@@ -262,12 +268,13 @@ export async function startComposioDouble(options: ComposioDoubleOptions) {
       created.push({ id, callbackUrl, authConfigId: config.id });
       const redirect = new URL(`${origin}/hosted/authorize`);
       redirect.searchParams.set("connected_account_id", id);
+      const hosted = options.hostedRedirectUrl ?? redirect.toString();
       return json(201, {
         id,
         connectionData: { authScheme: config.auth_scheme, val: {} },
         status: "INITIATED",
-        redirect_url: redirect.toString(),
-        redirect_uri: redirect.toString(),
+        redirect_url: hosted,
+        redirect_uri: hosted,
       });
     }
 

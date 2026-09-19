@@ -223,15 +223,30 @@ async function createSession(
 ): Promise<string> {
   const meta = call.settings.metaTools ?? [];
   const session = call.settings.session ?? {};
+  // `auth_configs` and `connected_accounts` are both keyed by toolkit slug, so
+  // each carries exactly one entry for this binding's one toolkit. Spreading
+  // every approved auth config onto that single key cannot describe "all of
+  // them": it keeps whichever happened to be last in the settings array, so
+  // reordering the array silently changes which blueprint is sent and the
+  // session can name a blueprint the pinned account does not belong to.
+  //
+  // The blueprint that belongs here is the one this connection's account was
+  // created under. `guardConnection` has already refused a recorded auth config
+  // this binding no longer approves, and `selectAuthConfig` treats several
+  // approved configs as ambiguous rather than choosing one — so a connection
+  // that records none is refused here too, instead of letting the router pick.
+  const authConfigId = guardConnection(call).externalIds.authConfigId;
+  if (!authConfigId)
+    throw new ConnectorError("not-found", {
+      detail: "composio.auth-config.unknown",
+    });
   const response = await call.client.send({
     method: "POST",
     path: call.client.path("/tool_router/session"),
     body: {
       user_id: call.userId,
       toolkits: [call.settings.toolkit.slug],
-      auth_configs: Object.fromEntries(
-        call.settings.authConfigs.map((id) => [call.settings.toolkit.slug, id]),
-      ),
+      auth_configs: { [call.settings.toolkit.slug]: authConfigId },
       connected_accounts: { [call.settings.toolkit.slug]: accountId },
       manage_connections: {
         enable: meta.includes("COMPOSIO_MANAGE_CONNECTIONS"),

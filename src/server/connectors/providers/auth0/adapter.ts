@@ -1,4 +1,4 @@
-import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
+import { createLocalJWKSet, decodeJwt, jwtVerify } from "jose";
 import {
   canonicalDigest,
   type OwnerKind,
@@ -860,19 +860,44 @@ export function createAuth0TokenVaultAdapter(
     // The upstream provider's token is usually opaque. When it is a JWS that
     // claims this tenant as issuer, it is verified against the tenant keys
     // rather than decoded and believed; a forgery is refused here.
+    //
+    // "Claims this tenant" means the `iss` claim, not merely the presence of a
+    // `kid`. Token Vault federates providers whose own access tokens are JWTs
+    // signed by that provider (Entra, for instance), and every such token
+    // carries a `kid`: checking for one sent correct exchanges to the tenant's
+    // JWKS, where they cannot verify, and reported them as forgeries. `iss` is
+    // read from the still-unverified token for this routing decision alone —
+    // a token that does claim the tenant has to verify before anything is
+    // believed, and one that claims another issuer is stored with
+    // `tokenClaimsVerified: false`, which is the honest statement that this
+    // adapter observed nothing about its signature.
     let verified = false;
     if (looksLikeJwt(parsed.data.access_token)) {
       let claimsTenant = false;
       try {
-        const header = decodeProtectedHeader(parsed.data.access_token);
-        claimsTenant = typeof header.kid === "string";
+        claimsTenant =
+          decodeJwt(parsed.data.access_token).iss === resolved.issuer;
       } catch {
         claimsTenant = false;
       }
       if (claimsTenant) {
-        await verifyTenantJwt(ctx, resolved, parsed.data.access_token, {
-          subject: held.subject,
-        });
+        try {
+          await verifyTenantJwt(ctx, resolved, parsed.data.access_token, {
+            subject: held.subject,
+          });
+        } catch (error) {
+          // The exchange happened upstream and its journal entry was opened
+          // before the call, so this exit completes it like the neighbouring
+          // ones: the tenant issued a token, nothing was applied here, and a
+          // `begin` with no outcome would leave the effect to reconcile
+          // forever.
+          await ctx.environment.effects.complete(effect.effectRef, {
+            status: "not-applied",
+            code: "unverified",
+            at: ctx.environment.now(),
+          });
+          throw error;
+        }
         verified = true;
       }
     }

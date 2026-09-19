@@ -255,4 +255,35 @@ describe("Composio discovery", () => {
       "external-execution-broker",
     ]);
   });
+
+  it("reports every dimension exactly as the adapter implements it", async () => {
+    // A published column an adapter cannot serve is worse than an honest
+    // absence, and a negative capability an adapter does serve understates
+    // what a host can rely on. The declaration is checked against the methods
+    // rather than trusted: `delegate` has no method here (a session tool is
+    // `invoke` on a bound `session:<TOOL>` route), while `revoke` has one and
+    // answers that Composio documents no provider-side revocation.
+    const h = await start();
+    const present = [composioConfigurationNames.apiKey];
+    const dimensions: Array<[string, keyof typeof h.adapter]> = [
+      ["discover", "discover"],
+      ["authorize", "authorize"],
+      ["reconnect", "reconnect"],
+      ["verify", "verify"],
+      ["invoke", "invoke"],
+      ["disconnect", "disconnect"],
+      ["revoke", "revoke"],
+      ["delegate", "delegate"],
+      ["import", "import"],
+      ["export", "export"],
+    ];
+    for (const [dimension, method] of dimensions) {
+      const row = capabilityFor(h.adapter, dimension, present);
+      assert.equal(
+        row?.implementation === "implemented",
+        typeof h.adapter[method] === "function",
+        `${dimension} is reported as ${row?.implementation} but the method is ${typeof h.adapter[method]}`,
+      );
+    }
+  });
 });

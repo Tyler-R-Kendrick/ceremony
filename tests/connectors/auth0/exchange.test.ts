@@ -495,3 +495,113 @@ test("Auth0 will not exchange before an account has been selected", async () => 
   assert.equal(auth0.requests.length, 0);
   await auth0.close();
 });
+
+test("a federated provider token that is a JWT for another issuer is exchanged, not called a forgery", async () => {
+  // Token Vault federates providers whose own access tokens are JWTs, signed by
+  // that provider and carrying its own `kid`. Such a token claims nothing about
+  // this Auth0 tenant, so it is not checked against the tenant's keys: doing so
+  // reported every correct exchange with an Entra-shaped provider as a forgery.
+  const auth0 = await tenant();
+  try {
+    const provider = await auth0.foreignToken(
+      SUBJECT,
+      "https://graph.microsoft.com",
+    );
+    const account = auth0.account("cac_primary");
+    assert.ok(account);
+    account.upstreamToken = provider;
+    const adapter = createAuth0TokenVaultAdapter({
+      identity: identityPort({
+        subject: subjectToken({
+          value: auth0.refreshToken(SUBJECT),
+          tokenType: REFRESH_TOKEN_TYPE,
+          subject: SUBJECT,
+        }),
+        myAccount: heldToken(await auth0.myAccountToken(SUBJECT)),
+      }),
+    });
+    const binding = tokenVaultBinding(auth0.origin, {
+      settings: { connection: CONNECTION },
+    });
+    const app = harness({ binding, domain: auth0.domain });
+    const connection = linkedConnection(binding);
+    const result = await adapter.invoke!(app.context({ connection }), {
+      operationRef: "operation:auth0.exchange",
+      input: {},
+      commandId: "c1",
+    });
+    assert.equal(result.state, "complete");
+    const output = result.output as Record<string, unknown>;
+    // Nothing was observed about the provider's signature, and the result says
+    // so rather than implying a verification that never happened.
+    assert.equal(output.tokenClaimsVerified, false);
+    // The token went into custody and never came back to the caller.
+    assert.equal(JSON.stringify(output).includes(provider), false);
+    const stored = await app.ports.credentials.use(
+      {
+        tenantId: binding.tenantId,
+        ownerKind: connection.ownerKind,
+        ownerId: connection.ownerId,
+        connectionRef: connection.connectionRef,
+        bindingRef: binding.bindingRef,
+        custody: "external-credential-broker",
+      },
+      String(output.credentialRef),
+      async (material) => material.access_token,
+    );
+    assert.equal(stored, provider);
+  } finally {
+    await auth0.close();
+  }
+});
+
+test("a returned token that claims this tenant as issuer is still verified against its keys", async () => {
+  // The other half of the same rule: a token naming the tenant as issuer is
+  // checked, a forged one is refused, and the journal entry the exchange opened
+  // reaches an outcome on that exit too.
+  const auth0 = await tenant();
+  try {
+    const forged = await auth0.forgedTenantToken(SUBJECT, API_AUDIENCE);
+    const account = auth0.account("cac_primary");
+    assert.ok(account);
+    account.upstreamToken = forged;
+    const adapter = createAuth0TokenVaultAdapter({
+      identity: identityPort({
+        subject: subjectToken({
+          value: auth0.refreshToken(SUBJECT),
+          tokenType: REFRESH_TOKEN_TYPE,
+          subject: SUBJECT,
+        }),
+        myAccount: heldToken(await auth0.myAccountToken(SUBJECT)),
+      }),
+    });
+    const binding = tokenVaultBinding(auth0.origin, {
+      settings: { connection: CONNECTION },
+    });
+    const app = harness({ binding, domain: auth0.domain });
+    await assert.rejects(
+      adapter.invoke!(app.context({ connection: linkedConnection(binding) }), {
+        operationRef: "operation:auth0.exchange",
+        input: {},
+        commandId: "c1",
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "denied" &&
+        error.detail === "auth0.token.unverified",
+    );
+    // Nothing forged was stored.
+    assert.deepEqual(app.ports.inspect.credentialRefs(), []);
+    // And no effect is left as a `begin` with no outcome: an unresolved entry
+    // is an effect the deployment has to reconcile forever.
+    const exchanges = app.ports.inspect
+      .effects()
+      .filter(
+        (entry) => entry.intent.operation === "auth0.token-vault.exchange",
+      );
+    assert.equal(exchanges.length, 1);
+    assert.equal(exchanges[0]?.outcome?.status, "not-applied");
+  } finally {
+    await auth0.close();
+  }
+});

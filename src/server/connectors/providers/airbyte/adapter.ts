@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   capabilityStatus,
@@ -532,7 +533,7 @@ export function createAirbyteAdapter(
     capabilities,
 
     async import(
-      _ctx: AdapterCallContext,
+      ctx: AdapterCallContext,
       input: ImportInput,
     ): Promise<ImportOutcome> {
       if (input.bytes.byteLength > MAX_BODY_BYTES)
@@ -554,14 +555,26 @@ export function createAirbyteAdapter(
         throw new ConnectorError("invalid-request", {
           detail: "airbyte.import.shape",
         });
+      /*
+       * The exact-byte digest and the canonical digest of the normalized
+       * document are different facts, and the source record stores the first
+       * one. Two catalogs can differ in bytes — key order, whitespace, a field
+       * the normalizer drops — and normalize identically; recording the
+       * normalized digest here would give both captures the same `sourceRef`
+       * and the same `digest.value`, so `resolvePinnedSource` would select a
+       * substituted document as the pinned one instead of surfacing it as a
+       * candidate revision a reviewer has to promote. Every sibling importer
+       * hashes the captured bytes, and this one names its source after them.
+       */
+      const digest = createHash("sha256").update(input.bytes).digest("hex");
       const result = await readAirbyteCatalog(
         document.data.spec,
         document.data.catalog,
         {
           ...(input.identityHint ? { identity: input.identityHint } : {}),
+          sourceRef: `src:airbyte:${digest}`,
         },
       );
-      const digest = result.definition.normalizedDigest;
       return {
         source: {
           sourceRef: result.definition.sourceRef,
@@ -571,7 +584,11 @@ export function createAirbyteAdapter(
           digest: { algorithm: "sha256", value: digest },
           byteLength: input.bytes.byteLength,
           mediaType: "application/json",
-          capturedAt: new Date(0).toISOString(),
+          // The capture happened now. Recording the epoch instead left every
+          // Airbyte capture tied, and `resolvePinnedSource` orders candidate
+          // revisions by `capturedAt`: "the newest capture" has to mean
+          // something before a reviewer can be offered one.
+          capturedAt: new Date(ctx.environment.now()).toISOString(),
           adaptation: [],
           overlays: [],
         },

@@ -146,6 +146,12 @@ export async function selectAccount(
   return { kind: "ambiguous", count: usable.length };
 }
 
+/**
+ * The exact origins a hosted authorization URL may have: the binding's
+ * `connect` destination when it names one, plus any origin the deployment
+ * configured. Both are optional, so this list can be empty — and an empty list
+ * is the absence of an approval, which `checkAuthorizationUrl` treats as one.
+ */
 function authorizationOrigins(call: ComposioCall): string[] {
   const connect = call.ctx.binding.destinations.find(
     (item) => item.id === "connect",
@@ -161,6 +167,15 @@ function authorizationOrigins(call: ComposioCall): string[] {
  * It is protected transient material: it goes into the handoff's private bag
  * and is rendered only to the initiating human, never into a result, a log, a
  * catalog or a model-visible continuation.
+ *
+ * Composio chooses this URL, so the origin check is the only thing standing
+ * between the response and a page a person will sign in on. An empty allowlist
+ * therefore refuses: nothing has approved where the initiating human may be
+ * sent, and "no approved origin" is not "every origin". This is deliberately
+ * the opposite of `permittedAccounts`, where an empty list means the binding
+ * pinned no account and the connection's own account decides — there the
+ * absence of a pin is a policy the host wrote, here it is a policy nobody
+ * wrote.
  */
 function checkAuthorizationUrl(call: ComposioCall, value: string): string {
   if (!URL.canParse(value))
@@ -179,7 +194,11 @@ function checkAuthorizationUrl(call: ComposioCall, value: string): string {
       detail: "composio.redirect.invalid",
     });
   const allowed = authorizationOrigins(call);
-  if (allowed.length && !allowed.includes(url.origin))
+  if (!allowed.length)
+    throw new ConnectorError("network-policy", {
+      detail: "composio.redirect.origin-unapproved",
+    });
+  if (!allowed.includes(url.origin))
     throw new ConnectorError("network-policy", {
       detail: "composio.redirect.origin",
     });

@@ -73,7 +73,11 @@ export type BindingOverrides = {
   tenantId?: string;
   bindingRef?: string;
   network?: "public" | "approved-private" | "loopback-fixture";
+  /** Narrows the agent destination to a path prefix, as a host would for a shared host. */
+  agentPathPrefix?: string;
   artifactOrigin?: string;
+  /** Narrows the artifact destination the same way. */
+  artifactPathPrefix?: string;
 };
 
 export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
@@ -100,6 +104,9 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
       {
         id: "agent",
         origin: overrides.agentOrigin,
+        ...(overrides.agentPathPrefix
+          ? { pathPrefix: overrides.agentPathPrefix }
+          : {}),
         network: overrides.network ?? "loopback-fixture",
       },
       ...(overrides.artifactOrigin
@@ -107,6 +114,9 @@ export function makeBinding(overrides: BindingOverrides): RuntimeBinding {
             {
               id: "artifacts",
               origin: overrides.artifactOrigin,
+              ...(overrides.artifactPathPrefix
+                ? { pathPrefix: overrides.artifactPathPrefix }
+                : {}),
               network: "loopback-fixture",
             },
           ]

@@ -525,3 +525,230 @@ test("AG-02: the catalog report distinguishes what is implemented, configured an
     await kit.close();
   }
 });
+
+test("AG-02: an artifact URL outside the approved path prefix is refused, not fetched", async () => {
+  // A destination may be narrowed to a path prefix, which is how a host
+  // approves one agent on a shared host. Comparing origins alone accepted any
+  // path there, so the agent could name its own.
+  const store = await startHttpFixture((request) =>
+    request.url.pathname.startsWith("/reports/")
+      ? {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+          body: "PDF-BYTES",
+        }
+      : {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+          body: "oops",
+        },
+  );
+  const kit = await harness({
+    double: {
+      script: { [SKILL]: "artifact-url" },
+      artifactUrl: `${store.origin}/internal/anything`,
+    },
+    binding: {
+      artifactOrigin: store.origin,
+      artifactPathPrefix: "/reports",
+      artifactRetrieval: {
+        enabled: true,
+        destinationId: "artifacts",
+        maxBytes: 65536,
+      },
+    },
+  });
+  try {
+    const connection = await activeConnection(kit.ports, kit.binding);
+    const started = await kit.adapter.delegate!(kit.context({ connection }), {
+      action: "start",
+      skill: SKILL,
+      input: { text: "go" },
+      commandId: "cmd-1",
+    });
+    const view = output(started);
+    await assert.rejects(
+      kit.adapter.retrieveArtifact(kit.context({ connection }), {
+        taskRef: view.taskRef,
+        artifactId: view.artifacts[0]!.artifactId,
+        partIndex: 0,
+        approval,
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "network-policy" &&
+        error.detail === "a2a.artifact.outside-prefix",
+    );
+    // The refusal happens before the request: the store saw nothing at all.
+    assert.deepEqual(
+      store.requests.map((request) => request.url.pathname),
+      [],
+    );
+  } finally {
+    await kit.close();
+    await store.close();
+  }
+});
+
+test("AG-02: an oversized artifact is refused while it streams, not after it is buffered", async () => {
+  // The body is written by another agent, which chooses its size. Reading it
+  // whole and measuring afterwards means a multi-gigabyte artifact is held in
+  // memory before the 1 KiB ceiling refuses it, so the ceiling has to bound the
+  // read. The fixture only counts bytes the kernel acknowledged, and records
+  // whether it ever finished the body.
+  const CHUNK = Buffer.alloc(64 * 1024, 0x61);
+  const CHUNKS = 64;
+  const TOTAL = CHUNK.byteLength * CHUNKS;
+  let flushed = 0;
+  let finished = false;
+  const store = await startHttpFixture(async (request, raw) => {
+    if (request.url.pathname !== "/huge.bin")
+      return { status: 404, body: { error: "not_found" } };
+    const res = raw.res;
+    let closed = false;
+    res.on("error", () => {});
+    res.on("close", () => {
+      closed = true;
+    });
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    for (let index = 0; index < CHUNKS; index++) {
+      if (closed || res.destroyed) break;
+      const ok = await new Promise<boolean>((resolve) => {
+        res.write(CHUNK, (error) => resolve(!error));
+      });
+      if (!ok) break;
+      flushed += CHUNK.byteLength;
+    }
+    if (!closed && !res.destroyed) {
+      res.end();
+      finished = true;
+    }
+    return {};
+  });
+  const kit = await harness({
+    double: {
+      script: { [SKILL]: "artifact-url" },
+      artifactUrl: `${store.origin}/huge.bin`,
+    },
+    binding: {
+      artifactOrigin: store.origin,
+      artifactRetrieval: {
+        enabled: true,
+        destinationId: "artifacts",
+        maxBytes: 1024,
+      },
+    },
+  });
+  try {
+    const connection = await activeConnection(kit.ports, kit.binding);
+    const started = await kit.adapter.delegate!(kit.context({ connection }), {
+      action: "start",
+      skill: SKILL,
+      input: { text: "go" },
+      commandId: "cmd-1",
+    });
+    const view = output(started);
+    await assert.rejects(
+      kit.adapter.retrieveArtifact(kit.context({ connection }), {
+        taskRef: view.taskRef,
+        artifactId: view.artifacts[0]!.artifactId,
+        partIndex: 0,
+        approval,
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "upstream-rejected" &&
+        error.detail === "a2a.artifact.too-large",
+    );
+    // The read was cut off: the agent never got to deliver the whole body.
+    assert.equal(finished, false, "the artifact body was read to completion");
+    assert.ok(
+      flushed < TOTAL,
+      `the whole artifact was accepted (${flushed} of ${TOTAL} bytes)`,
+    );
+  } finally {
+    await kit.close();
+    await store.close();
+  }
+});
+
+test("AG-02: an artifact declaring a length above the ceiling is refused before its body is read", async () => {
+  // The cheapest refusal available: the agent's own content-length already
+  // exceeds what the binding allows, so nothing is read. The fixture declares a
+  // length it does not deliver, which is what an adapter that reads first sees
+  // as a truncated body rather than as a bounded refusal.
+  const store = await startHttpFixture((request, raw) => {
+    if (request.url.pathname !== "/declared.bin")
+      return { status: 404, body: { error: "not_found" } };
+    const res = raw.res;
+    res.on("error", () => {});
+    res.writeHead(200, {
+      "content-type": "application/octet-stream",
+      "content-length": String(8 * 1024 * 1024),
+    });
+    // Far less than it declared: an adapter that starts reading sees a body cut
+    // short, not a bounded refusal.
+    res.write(Buffer.alloc(64, 0x61));
+    res.end();
+    return {};
+  });
+  const kit = await harness({
+    double: {
+      script: { [SKILL]: "artifact-url" },
+      artifactUrl: `${store.origin}/declared.bin`,
+    },
+    binding: {
+      artifactOrigin: store.origin,
+      artifactRetrieval: {
+        enabled: true,
+        destinationId: "artifacts",
+        maxBytes: 1024,
+      },
+    },
+  });
+  try {
+    const connection = await activeConnection(kit.ports, kit.binding);
+    const started = await kit.adapter.delegate!(kit.context({ connection }), {
+      action: "start",
+      skill: SKILL,
+      input: { text: "go" },
+      commandId: "cmd-1",
+    });
+    const view = output(started);
+    await assert.rejects(
+      kit.adapter.retrieveArtifact(kit.context({ connection }), {
+        taskRef: view.taskRef,
+        artifactId: view.artifacts[0]!.artifactId,
+        partIndex: 0,
+        approval,
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "upstream-rejected" &&
+        error.detail === "a2a.artifact.too-large",
+    );
+  } finally {
+    await kit.close();
+    await store.close();
+  }
+});
+
+test("a path-prefixed destination reports that the well-known card is outside it", async () => {
+  // The specification puts the card at the authority root (section 8.2), which
+  // a destination narrowed to a prefix excludes. That is a real limitation of a
+  // prefixed A2A destination, and it has to arrive as a bounded connector
+  // failure rather than as a raw containment error from the binding helper.
+  const kit = await harness({ binding: { agentPathPrefix: "/a2a" } });
+  try {
+    const connection = await activeConnection(kit.ports, kit.binding);
+    await assert.rejects(
+      kit.adapter.verify!(kit.context({ connection })),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "network-policy" &&
+        error.detail === "a2a.card.path-outside-destination",
+    );
+  } finally {
+    await kit.close();
+  }
+});
