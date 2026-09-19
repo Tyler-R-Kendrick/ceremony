@@ -190,8 +190,13 @@ export async function runAgentCeremony(
       protectedValues: [password],
       human: {
         contract,
-        request: async ({ reason, url, attempt }) =>
-          takeOver({ reason, url: liveUrl ?? url, attempt }),
+        // The live view when this host has one, because handing a person a
+        // viewer onto the very browser the agent is driving is the point of
+        // the example. Without one they get the request's own `path`, which
+        // is origin and pathname: enough to know where to go, and carrying
+        // none of the query string the driver deliberately leaves out.
+        request: async ({ reason, path, attempt }) =>
+          takeOver({ reason, url: liveUrl ?? path, attempt }),
       },
       ...(own
         ? {

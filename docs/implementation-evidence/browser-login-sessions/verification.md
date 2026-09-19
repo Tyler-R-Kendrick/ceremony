@@ -260,6 +260,68 @@ treated as a release blocker, and it is not a reason to relax the check: a
 refusal that is sometimes wrong is a cost worth paying for one that is never
 wrong in the other direction.
 
+## The canary sweep, and the three surfaces it found
+
+`tests/browser-login-privacy.test.ts` plants one value where a credential
+actually goes and then hunts it across four boundaries. It was written as an
+audit rather than a regression test, so the useful result is what it found
+rather than that it passes.
+
+Each of the three was verified the same way: restore the defect, watch the
+case that exists for it go red, restore the fix, watch it go green.
+
+**The driver's canary was never armed in the service path.** The driver adds a
+secret to its guarded set when it _fills_ one, which covers every snapshot
+from that point on. `browser-login-service.ts` passed no `protectedValues`, so
+nothing was armed before the first fill — and on a page whose password field
+arrives already filled, no fill ever happens and nothing is armed at all. That
+page is not exotic: a browser password manager produces it, so does a resumed
+form, so does a provider redisplaying a failed attempt, and the repository's
+own service test fixture already models it (`filled: true`, so the
+interpreter's next move is the submit button). A provider echoing the password
+into an alert on such a page would have had it handed to the interpreter on
+every observation. The service now asks the credential source for its
+secret-role values before the drive and declares them; resolution is
+best-effort, so a role the flow never reaches and cannot resolve is not turned
+into a failed login. Restoring the defect fails two cases.
+
+**A plan rejection echoed the caller's own string back.** `PlanRejected`
+carries a `detail`, and for `unknown-connector` that detail was
+`draft.connectorId` — 128 characters of anything the caller sent. A rejection
+is the one object here that routinely leaves by a route nobody planned: it is
+thrown, logged, attached to a report, and on a model-facing surface rendered
+into a transcript. The echo bought nothing, because a caller already knows
+what it asked for; it was only ever a second, unredacted copy travelling
+somewhere the first was not going to go. `detail` is now scoped in writing to
+server-derived findings and closed-set tokens, and the unbounded echo is gone.
+Twelve cases plant the value in every free-form draft field in turn, so a
+future field that echoes fails without anybody remembering to assert on it.
+
+**A human handoff carried the live URL, query string and all.** The driver
+already refuses to put a submission's URL in the effect ledger, under a
+comment reading "an origin rather than a URL because a form action can carry
+an identifier or a token in its query string". The handoff request is the one
+thing in an attempt that is _meant_ to leave the process — a host renders it
+for a person, sends it as a notification, writes it to a log — and it carried
+`https://provider.example/challenge?code=…&login_hint=…` verbatim. It now
+carries `path`, origin and pathname, taken from the observation rather than
+re-derived from the URL, so there is no point in that function where the query
+string exists to be reintroduced. A host that genuinely needs to navigate
+holds the live page already and can ask it.
+
+One thing was checked and found already correct, and is pinned so it stays
+that way: nothing durable holds a credential. The sweep reads back _every_
+record kind the store has, decrypted — strictly more than anyone holding the
+file could see — and finds none. `onStep`, the progress surface most likely to
+be rendered verbatim into a log line, is asserted to be exactly two fields.
+
+Two limits, stated rather than implied. A saved storage state is deliberately
+outside this sweep; it is a cookie jar by design, and the case that covers it
+is LIFE-STATE. And a canary that trips _after_ something was dispatched is
+still reported as `indeterminate` rather than by the new name: uncertainty
+outranks the tripwire, because relabelling a dispatch nobody observed as a
+refusal would invite exactly the retry the effect record exists to prevent.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
