@@ -45,6 +45,130 @@ function loopbackOnlyFetch(seen: string[]): typeof fetch {
   };
 }
 
+/**
+ * The same guard, tallying requests per origin. Counting is the only way to
+ * state the containment property as a test: it is not enough that the report
+ * says "not met", nothing may have been sent to the other origin at all.
+ */
+function countingFetch(counts: Map<string, number>): typeof fetch {
+  return async (input, init) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+    );
+    counts.set(url.origin, (counts.get(url.origin) ?? 0) + 1);
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
+      throw new Error(`conformance harness reached ${url.origin}`);
+    return fetch(input, init);
+  };
+}
+
+/**
+ * A server that completes the whole flow for whoever asks: it registers a
+ * client and mints a token. It is deliberately co-operative, so that the only
+ * thing standing between it and a real authorization code with its PKCE
+ * verifier is the harness's own containment check.
+ */
+async function startAttacker(t: { after(fn: () => Promise<void>): void }) {
+  const received: Array<{ path: string; body: string }> = [];
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      received.push({
+        path: request.url ?? "/",
+        body: Buffer.concat(chunks).toString(),
+      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify(
+          (request.url ?? "").startsWith("/register")
+            ? {
+                client_id: "client-the-attacker-issued",
+                redirect_uris: [VERCEL_CONNECT_PROVIDER_REDIRECT_URI],
+                token_endpoint_auth_method: "none",
+              }
+            : {
+                access_token: "token-the-attacker-minted",
+                token_type: "Bearer",
+                expires_in: 3600,
+              },
+        ),
+      );
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  return {
+    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    received,
+  };
+}
+
+/**
+ * Serves one RFC 8414 document at the well-known location, and registers a
+ * client on its own origin - so that when a document sends only the *token*
+ * endpoint elsewhere, nothing else in the flow is what stops the harness. The
+ * document is built from the origin, which has to be claimed before the server
+ * that publishes it can name itself.
+ */
+async function startMetadata(
+  t: { after(fn: () => Promise<void>): void },
+  document: (origin: string) => Record<string, unknown>,
+) {
+  const claim = createServer(() => {});
+  claim.listen(0, "127.0.0.1");
+  await once(claim, "listening");
+  const port = (claim.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => claim.close(() => resolve()));
+  const origin = `http://127.0.0.1:${port}`;
+  const server: Server = createServer((request, response) => {
+    if (request.url === "/.well-known/oauth-authorization-server") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(document(origin)));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/register") {
+      request.resume();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          client_id: "client-the-probed-server-issued",
+          redirect_uris: [VERCEL_CONNECT_PROVIDER_REDIRECT_URI],
+          token_endpoint_auth_method: "none",
+        }),
+      );
+      return;
+    }
+    response.writeHead(404, { "content-type": "text/plain" });
+    response.end("no metadata here");
+  });
+  server.listen(port, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  return { origin };
+}
+
+/**
+ * Drives the consent leg the way a person would be driven, and returns the
+ * callback the harness needs to carry on to the token endpoint. It must never
+ * be called for a document that fails containment: reaching it means a real
+ * operator's browser was pointed at whatever the document named.
+ */
+function recordingAuthorize(handed: URL[]) {
+  return async (url: URL) => {
+    handed.push(url);
+    const callback = new URL(VERCEL_CONNECT_PROVIDER_REDIRECT_URI);
+    callback.searchParams.set("code", "code-worth-stealing");
+    callback.searchParams.set("state", url.searchParams.get("state") ?? "");
+    return callback;
+  };
+}
+
 test("discovery locations follow RFC 8414 for issuers with and without a path", () => {
   assert.deepEqual(discoveryLocations("https://auth.example.com"), {
     oauth: ["https://auth.example.com/.well-known/oauth-authorization-server"],
@@ -323,4 +447,143 @@ test("an authorization that returns to the wrong place or state is not a complet
     "callback did not arrive at the registered redirect URL",
   );
   assert.equal(idp.counts.token, 0, "no code was ever exchanged");
+});
+
+test("a document that claims a foreign issuer and names foreign endpoints is a failure, not a redirection", async (t) => {
+  const attacker = await startAttacker(t);
+  const { origin } = await startMetadata(t, () => ({
+    // RFC 8414 §3.3: this must be the identifier whose metadata was requested.
+    // It is not, and every endpoint is somewhere else again - which is the
+    // whole point of publishing such a document.
+    issuer: "https://totally-different.example",
+    authorization_endpoint: `${attacker.origin}/authorize`,
+    token_endpoint: `${attacker.origin}/token`,
+    registration_endpoint: `${attacker.origin}/register`,
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    token_endpoint_auth_methods_supported: ["none"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["openid"],
+  }));
+  const counts = new Map<string, number>();
+  const handed: URL[] = [];
+  const report = await assessConnectProviderConformance({
+    serverUrl: origin,
+    fetch: countingFetch(counts),
+    exercise: { authorize: recordingAuthorize(handed) },
+  });
+
+  // Nothing was sent, opened or exchanged anywhere but the probed origin.
+  assert.deepEqual(
+    attacker.received,
+    [],
+    "no client registration, code or code_verifier reached the other origin",
+  );
+  assert.deepEqual(
+    handed,
+    [],
+    "no operator's browser was pointed at the authorization endpoint",
+  );
+  assert.equal(counts.get(attacker.origin), undefined);
+  assert.equal(
+    counts.get(origin),
+    3,
+    "only the two discovery locations and the protected-resource probe were fetched",
+  );
+  assert.equal(report.exercise, undefined, "the exercise never started");
+
+  // The harness still reports everything it can read from the document.
+  assert.equal(status(report.findings, "required.discovery-documents"), "met");
+  assert.equal(status(report.findings, "required.grant-types-declared"), "met");
+  assert.deepEqual(report.subjectTypes, ["user"]);
+  assert.equal(status(report.findings, "recommended.pkce-s256"), "met");
+
+  // And it reports the mismatch as the required-tier failure it is.
+  assert.equal(report.discovery.issuerMatchesProbe, false);
+  assert.equal(report.discovery.endpointsContained, false);
+  assert.equal(
+    status(report.findings, "required.issuer-consistency"),
+    "not-met",
+    "one published document cannot satisfy issuer consistency by agreeing with itself",
+  );
+  assert.match(
+    detail(report.findings, "required.issuer-consistency"),
+    /totally-different\.example/,
+  );
+  assert.equal(
+    status(report.findings, "required.endpoints-within-issuer"),
+    "not-met",
+  );
+  for (const endpoint of [
+    "registration_endpoint",
+    "authorization_endpoint",
+    "token_endpoint",
+  ])
+    assert.match(
+      detail(report.findings, "required.endpoints-within-issuer"),
+      new RegExp(endpoint),
+      `${endpoint} is named as one of the endpoints that left the origin`,
+    );
+  assert.equal(status(report.findings, "required.token-endpoint"), "not-met");
+  assert.equal(
+    status(report.findings, "recommended.client-registration"),
+    "not-met",
+    "registration the client must not perform is not registration Connect could use",
+  );
+  assert.match(
+    detail(report.findings, "required.expires-in"),
+    /does not stay within the issuer/,
+    "the skipped exercise says why it was skipped",
+  );
+});
+
+test("an endpoint off the probed origin fails the harness even when the issuer matches", async (t) => {
+  const attacker = await startAttacker(t);
+  const { origin } = await startMetadata(t, (self) => ({
+    // Everything here is in order except the one endpoint that receives the
+    // authorization code and the PKCE verifier.
+    issuer: self,
+    authorization_endpoint: `${self}/authorize`,
+    registration_endpoint: `${self}/register`,
+    token_endpoint: `${attacker.origin}/token`,
+    grant_types_supported: ["authorization_code"],
+    token_endpoint_auth_methods_supported: ["none"],
+    code_challenge_methods_supported: ["S256"],
+  }));
+  const counts = new Map<string, number>();
+  const handed: URL[] = [];
+  const report = await assessConnectProviderConformance({
+    serverUrl: origin,
+    fetch: countingFetch(counts),
+    exercise: { authorize: recordingAuthorize(handed) },
+  });
+
+  assert.deepEqual(
+    attacker.received,
+    [],
+    "the code exchange was never attempted off-origin",
+  );
+  assert.deepEqual(handed, []);
+  assert.equal(counts.get(attacker.origin), undefined);
+  assert.equal(
+    counts.get(origin),
+    3,
+    "a client is not registered against a server whose token endpoint is elsewhere",
+  );
+  assert.equal(report.exercise, undefined);
+  assert.equal(
+    report.discovery.issuerMatchesProbe,
+    true,
+    "the issuer is the one whose metadata was requested",
+  );
+  assert.equal(status(report.findings, "required.issuer-consistency"), "met");
+  assert.equal(report.discovery.endpointsContained, false);
+  assert.equal(
+    status(report.findings, "required.endpoints-within-issuer"),
+    "not-met",
+  );
+  assert.equal(status(report.findings, "required.token-endpoint"), "not-met");
+  assert.match(
+    detail(report.findings, "required.token-endpoint"),
+    /token_endpoint/,
+  );
 });

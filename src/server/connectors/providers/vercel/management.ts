@@ -557,10 +557,22 @@ async function execute(
   }
 }
 
-const sameSet = (a: readonly string[], b: readonly string[]) =>
-  a.length === b.length &&
-  new Set(a).size === a.length &&
-  b.every((item) => a.includes(item));
+/**
+ * Set equality, in both directions.
+ *
+ * Comparing lengths and then checking that `b` is contained in `a` is not set
+ * equality: a duplicate in `b` makes the lengths agree while `b` still covers
+ * only part of `a`, so `["production","production"]` read as
+ * `["production","preview"]`. That is exactly the comparison reconciliation
+ * relies on to decide whether the upstream already reflects the intent, and no
+ * input here refines away duplicates, so both sides are reduced to sets and
+ * the sets are compared.
+ */
+const sameSet = (a: readonly string[], b: readonly string[]) => {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((item) => right.has(item));
+};
 
 /**
  * Reconciles an interrupted write by reading current state. `applied` means

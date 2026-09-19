@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { decodeJwt } from "jose";
 import { z } from "zod";
+import { destinationUrl, type ApprovedDestination } from "../../binding.js";
 import { VERCEL_CONNECT_PROVIDER_REDIRECT_URI } from "./contracts.js";
 
 /*
@@ -79,7 +80,11 @@ export type ProviderConformanceReport = {
     oauth?: string;
     oidc?: string;
     issuerConsistent: boolean;
+    /** Whether the document's issuer is the identifier whose metadata was asked for. */
+    issuerMatchesProbe: boolean;
     tokenEndpointConsistent: boolean;
+    /** Whether every endpoint the harness would contact stays on the probed origin. */
+    endpointsContained: boolean;
   };
   subjectTypes: string[];
   findings: ConformanceFinding[];
@@ -127,6 +132,77 @@ export function discoveryLocations(serverUrl: string): {
       `${origin}/.well-known/openid-configuration${path}`,
     ],
   };
+}
+
+/**
+ * The one origin the operator asked the harness to probe, as an approved
+ * destination.
+ *
+ * A discovery document is provider-controlled input, and the endpoints inside
+ * it are exactly as trustworthy as the server that published them - no more.
+ * So the harness treats the probed origin the way the rest of the server
+ * treats a destination and reuses `destinationUrl` to decide what lies inside
+ * it, instead of growing a second copy of those checks here.
+ */
+function probedDestination(serverUrl: string): ApprovedDestination {
+  const url = new URL(serverUrl);
+  return {
+    id: "conformance-probe",
+    origin: url.origin,
+    network: ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      ? "loopback-fixture"
+      : "public",
+  };
+}
+
+/**
+ * The endpoint the harness may contact, or nothing.
+ *
+ * Origin equality comes first, because a document that points somewhere else
+ * is the whole attack: the harness would POST a client registration, send a
+ * person's browser to an authorization page, and then hand over the
+ * authorization code together with the PKCE verifier. Everything after that is
+ * `destinationUrl`'s job - one absolute path, no encoded slash, no traversal.
+ * A fragment or embedded credentials are refused outright: RFC 8414 endpoints
+ * carry neither, and both are ways to write a URL that reads as one origin.
+ */
+function contactable(
+  destination: ApprovedDestination,
+  endpoint: string | undefined,
+): URL | undefined {
+  if (endpoint === undefined || !URL.canParse(endpoint)) return undefined;
+  const candidate = new URL(endpoint);
+  if (
+    candidate.origin !== destination.origin ||
+    candidate.username !== "" ||
+    candidate.password !== "" ||
+    candidate.hash !== ""
+  )
+    return undefined;
+  try {
+    return destinationUrl(
+      destination,
+      `${candidate.pathname}${candidate.search}`,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * RFC 8414 §3.3: the `issuer` a document declares must be identical to the
+ * issuer identifier whose metadata was requested. Comparing the two documents
+ * to each other, which is all this harness used to do, is satisfied by any
+ * single document that agrees with itself - including one that names somebody
+ * else's issuer entirely. Trailing slashes are normalized away on both sides
+ * because `discoveryLocations` already built the well-known URL that way.
+ */
+function issuerIdentifier(value: string): string | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  // An issuer identifier carries no query and no fragment.
+  if (url.search !== "" || url.hash !== "") return undefined;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 async function fetchMetadata(
@@ -190,6 +266,30 @@ export async function assessConnectProviderConformance(input: {
   // The OAuth document leads; the OpenID Connect document fills its gaps.
   const merged: AuthorizationServerMetadata | undefined =
     oauth && oidc ? { ...oidc, ...oauth } : (oauth ?? oidc);
+  const probe = probedDestination(input.serverUrl);
+  const requested = issuerIdentifier(input.serverUrl);
+  const issuerMatchesProbe =
+    merged !== undefined &&
+    requested !== undefined &&
+    issuerIdentifier(merged.issuer) === requested;
+  // The three endpoints the harness itself would contact, each resolved inside
+  // the probed origin or not at all. The endpoints it only reports on -
+  // revocation, jwks, userinfo - are never fetched here, so they are described
+  // as published rather than gated.
+  const registration = contactable(probe, merged?.registration_endpoint);
+  const authorization = contactable(probe, merged?.authorization_endpoint);
+  const token = contactable(probe, merged?.token_endpoint);
+  const foreign = merged
+    ? [
+        ...(merged.registration_endpoint !== undefined && !registration
+          ? ["registration_endpoint"]
+          : []),
+        ...(merged.authorization_endpoint !== undefined && !authorization
+          ? ["authorization_endpoint"]
+          : []),
+        ...(!token ? ["token_endpoint"] : []),
+      ]
+    : [];
   const report: ProviderConformanceReport = {
     serverUrl: input.serverUrl,
     ...(merged ? { issuer: merged.issuer } : {}),
@@ -197,7 +297,9 @@ export async function assessConnectProviderConformance(input: {
       ...(oauthAt ? { oauth: oauthAt } : {}),
       ...(oidcAt ? { oidc: oidcAt } : {}),
       issuerConsistent,
+      issuerMatchesProbe,
       tokenEndpointConsistent,
+      endpointsContained: foreign.length === 0,
     },
     subjectTypes: [],
     findings,
@@ -214,12 +316,31 @@ export async function assessConnectProviderConformance(input: {
   finding(
     "required.issuer-consistency",
     "required",
-    issuerConsistent && tokenEndpointConsistent ? "met" : "not-met",
-    oauth && oidc
-      ? "both documents declare the same issuer and token_endpoint"
-      : "only one document is published; consistency is trivially satisfied",
+    issuerConsistent && tokenEndpointConsistent && issuerMatchesProbe
+      ? "met"
+      : "not-met",
+    !issuerMatchesProbe
+      ? `the document declares issuer ${merged.issuer}, which is not the issuer identifier whose metadata was requested (${input.serverUrl})`
+      : oauth && oidc
+        ? "both documents declare the same issuer and token_endpoint"
+        : "only one document is published; consistency is trivially satisfied",
   );
-  finding("required.token-endpoint", "required", "met", merged.token_endpoint);
+  finding(
+    "required.endpoints-within-issuer",
+    "required",
+    foreign.length === 0 ? "met" : "not-met",
+    foreign.length === 0
+      ? `every endpoint the client contacts is contained by ${probe.origin}`
+      : `${foreign.join(", ")} not contained by ${probe.origin}; the harness will not register a client, open a browser or exchange a code there`,
+  );
+  finding(
+    "required.token-endpoint",
+    "required",
+    token ? "met" : "not-met",
+    token
+      ? merged.token_endpoint
+      : `token_endpoint ${merged.token_endpoint} is not contained by ${probe.origin}; no authorization code or verifier may be sent there`,
+  );
   const grants = merged.grant_types_supported ?? [];
   report.subjectTypes = grants
     .map((grant) => subjectTypeByGrant[grant])
@@ -233,8 +354,10 @@ export async function assessConnectProviderConformance(input: {
       : "grant_types_supported is absent, so no subject type would appear on the connector",
   );
   const authMethods = merged.token_endpoint_auth_methods_supported ?? [];
+  // A registration endpoint the client must not talk to is not registration
+  // Connect could use, so containment is part of whether this is met.
   const dcr =
-    merged.registration_endpoint !== undefined &&
+    registration !== undefined &&
     authMethods.some((method) => usableAuthMethods.includes(method));
   const pkceS256 = (merged.code_challenge_methods_supported ?? []).includes(
     "S256",
@@ -251,7 +374,9 @@ export async function assessConnectProviderConformance(input: {
       ? `dynamic client registration at ${merged.registration_endpoint} with ${authMethods.join(",")}`
       : cimd
         ? "client ID metadata documents are supported"
-        : "neither DCR with a usable token_endpoint_auth_method nor CIMD is declared; users must register a client by hand",
+        : merged.registration_endpoint !== undefined && !registration
+          ? `registration_endpoint ${merged.registration_endpoint} is not contained by ${probe.origin}, so no client may be registered there`
+          : "neither DCR with a usable token_endpoint_auth_method nor CIMD is declared; users must register a client by hand",
   );
   finding(
     "recommended.pkce-s256",
@@ -309,14 +434,24 @@ export async function assessConnectProviderConformance(input: {
       : "no RFC 9728 protected resource metadata at the well-known location",
   );
 
-  if (!input.exercise || !merged.authorization_endpoint) {
+  // Nothing below this line is a read of the document any more: it registers a
+  // client, sends a person to an authorization page and then hands over an
+  // authorization code together with the PKCE verifier. A document that names
+  // another issuer, or an endpoint off the probed origin, is reported above and
+  // the exercise is skipped: no conformance report is worth becoming the
+  // instrument that delivers those credentials to whoever published it.
+  const containedByIssuer = issuerMatchesProbe && foreign.length === 0;
+  if (!input.exercise || !authorization || !token || !containedByIssuer) {
+    const unexercised = containedByIssuer
+      ? "not exercised"
+      : "not exercised: the discovery document does not stay within the issuer that was probed";
     finding(
       "required.redirect-url-accepted",
       "required",
       "unknown",
-      "not exercised",
+      unexercised,
     );
-    finding("required.expires-in", "required", "unknown", "not exercised");
+    finding("required.expires-in", "required", "unknown", unexercised);
     finding(
       "recommended.refresh-tokens",
       "recommended",
@@ -329,14 +464,9 @@ export async function assessConnectProviderConformance(input: {
       "recommended.rfc7592-client-update",
       "recommended",
       "unknown",
-      "not exercised",
+      unexercised,
     );
-    finding(
-      "optional.resource-indicators",
-      "optional",
-      "unknown",
-      "not exercised",
-    );
+    finding("optional.resource-indicators", "optional", "unknown", unexercised);
     return report;
   }
 
@@ -375,9 +505,9 @@ export async function assessConnectProviderConformance(input: {
     : authMethods.includes("client_secret_post")
       ? "client_secret_post"
       : "client_secret_basic";
-  if (merged.registration_endpoint) {
+  if (registration) {
     const response = await post(
-      merged.registration_endpoint,
+      registration.href,
       JSON.stringify({
         client_name: "Vercel Connect conformance harness",
         redirect_uris: [redirectUri],
@@ -447,7 +577,7 @@ export async function assessConnectProviderConformance(input: {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const state = randomBytes(16).toString("base64url");
-  const authorizationUrl = new URL(merged.authorization_endpoint);
+  const authorizationUrl = new URL(authorization.href);
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("redirect_uri", redirectUri);
@@ -504,7 +634,7 @@ export async function assessConnectProviderConformance(input: {
     tokenRequest.set("resource", input.exercise.resource);
   if (clientSecret && authMethod === "client_secret_post")
     tokenRequest.set("client_secret", clientSecret);
-  const tokenResponse = await input.fetch(merged.token_endpoint, {
+  const tokenResponse = await input.fetch(token, {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -544,7 +674,7 @@ export async function assessConnectProviderConformance(input: {
     });
     if (clientSecret && authMethod === "client_secret_post")
       refresh.set("client_secret", clientSecret);
-    const refreshed = await post(merged.token_endpoint, refresh, false);
+    const refreshed = await post(token.href, refresh, false);
     const body = refreshed.ok
       ? tokenSchema.safeParse(await refreshed.json())
       : undefined;

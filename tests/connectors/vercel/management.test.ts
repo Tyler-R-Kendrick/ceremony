@@ -12,6 +12,7 @@ import {
 } from "../../../src/server/connectors/providers/vercel/index.js";
 import { startVercelConnect } from "../doubles/vercel-connect.js";
 import {
+  APP_ORIGIN,
   buildBinding,
   buildConnection,
   fixtureActor,
@@ -541,6 +542,68 @@ test("a repeated delete command reconciles instead of deleting twice", async (t)
     1,
     "the journal stopped the second delete from reaching the provider",
   );
+});
+
+test("reconciliation compares the enabled environments as sets, not by length", async (t) => {
+  const double = await fixture();
+  t.after(double.close);
+  const { test: h, binding, connection, ctx } = setup(double);
+  const adapter = createVercelConnectAdapter();
+  assert.deepEqual(
+    double.connector(CONNECTOR)?.projects[PROJECT],
+    ["production", "preview"],
+    "the upstream link the interrupted attempt races against",
+  );
+
+  // Cut the first attempt off on the way out: the journal then holds an intent
+  // whose outcome nobody knows, which is the state a retry reconciles.
+  const cutOff: typeof fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+    );
+    if (init?.method === "POST" && url.pathname.includes("/projects/"))
+      throw new Error("connection reset while linking");
+    return fetch(input, init);
+  };
+  const request = {
+    operationRef: vercelOperationRef("connect.projects.link"),
+    input: {
+      connector: CONNECTOR,
+      projectId: PROJECT,
+      // One environment, named twice. Nothing refines duplicates away on the
+      // way in, so reconciliation must not read this as two environments.
+      environments: ["production", "production"],
+    },
+    commandId: "cmd-link-duplicate-environment",
+  };
+  const interrupted = await adapter.invoke!(
+    {
+      ...h.context({ binding, connection }),
+      environment: h.ports.environment({ fetch: cutOff, origin: APP_ORIGIN }),
+    },
+    request,
+  );
+  assert.equal(interrupted.state, "indeterminate");
+  assert.equal(interrupted.code, "vercel.effect.indeterminate");
+  assert.equal(double.routed("connect.projects.link").length, 0);
+
+  const retried = await adapter.invoke!(ctx, request);
+  assert.equal(retried.state, "complete");
+  assert.notEqual(
+    retried.code,
+    "vercel.effect.reconciled",
+    "a link that also enables preview does not match an intent that does not",
+  );
+  assert.deepEqual(
+    double.connector(CONNECTOR)?.projects[PROJECT],
+    ["production"],
+    "the retry applied the intent instead of reporting it already met",
+  );
+  assert.equal(double.routed("connect.projects.link").length, 1);
 });
 
 test("upstream failures are sanitized into codes, never provider prose", async (t) => {

@@ -1,11 +1,16 @@
+import { createServer } from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type {
   AdapterCallContext,
+  BoundOperation,
   ConnectionRecord,
   HandoffProposal,
   RuntimeBinding,
 } from "../../../src/server/connectors/index.js";
+import { ConnectorError } from "../../../src/server/connectors/index.js";
 import {
   connectAuthorizeResponseSchema,
   connectTokenResponseSchema,
@@ -166,6 +171,45 @@ const withHandoff = (
     generation: connection.generation,
   },
   bindingRef: binding.bindingRef,
+});
+
+/**
+ * A bound provider call, the kind a host binds so a caller can reach the
+ * service behind the connector rather than Vercel itself. `projectId` selects
+ * a target, so the value a caller supplies must be one of the binding's
+ * permitted targets.
+ */
+const providerOperation = (): BoundOperation => ({
+  operationRef: "vercel.provider.project-things",
+  nativeId: "provider.project-things",
+  destinationId: "provider",
+  transport: {
+    kind: "http",
+    method: "GET",
+    pathTemplate: "/v1/projects/{projectId}/things",
+  },
+  effect: "read",
+  outputClassification: "personal",
+  cost: "free",
+  consent: "none",
+  replay: "read-only",
+  targetParameters: ["projectId"],
+});
+
+/** The state a completed authorization leaves behind, as `complete` writes it. */
+const connectedState = (connectorId: string) => ({
+  vercel: {
+    profileId: "user",
+    subjectType: "user" as const,
+    scopes: ["read", "write"],
+    connectorUid: USER_CONNECTOR,
+    connectorId,
+    connectorType: "oauth",
+    externalSubject: "U1234",
+    expiresAt: Date.now() + 3_600_000,
+    target: { kind: "provider-user", id: "U1234" },
+    identityKnown: true,
+  },
 });
 
 const returnUrl = (state: string, extra: Record<string, string> = {}) => {
@@ -758,6 +802,104 @@ test("scopes come from the approved profile; a wider request is refused locally"
     ["read"],
     "a caller may narrow within the profile",
   );
+});
+
+test("a bound provider call reaches a permitted target, and no other", async (t) => {
+  const double = await fixture();
+  t.after(double.close);
+  const seen: Array<{ path: string; authorization: string }> = [];
+  const service = createServer((request, response) => {
+    seen.push({
+      path: request.url ?? "/",
+      authorization: request.headers["authorization"] ?? "",
+    });
+    request.resume();
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ things: [] }));
+  });
+  service.listen(0, "127.0.0.1");
+  await once(service, "listening");
+  t.after(() => new Promise<void>((resolve) => service.close(() => resolve())));
+  const serviceOrigin = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
+
+  const h = harness();
+  h.ports.configuration.set("VERCEL_TEAM_ID", TEAM);
+  h.ports.configuration.set(
+    "VERCEL_CONNECT_WORKLOAD_TOKEN",
+    "oidc_workload_token",
+  );
+  const binding = buildBinding({
+    apiOrigin: double.origin,
+    teamId: TEAM,
+    settings: userSettings(),
+    connectors: [USER_CONNECTOR],
+    projects: [PROJECT],
+    environments: ["production"],
+    extraDestinations: [
+      { id: "provider", origin: serviceOrigin, network: "loopback-fixture" },
+    ],
+    operations: [providerOperation()],
+  });
+  const connection = buildConnection({
+    binding,
+    ownerKind: "user",
+    lifecycle: "active",
+    state: connectedState(double.connector(USER_CONNECTOR)!.id),
+  });
+  const credentialRef = await h.ports.credentials.store(
+    {
+      tenantId: connection.tenantId,
+      ownerKind: "user",
+      ownerId: connection.ownerId,
+      connectionRef: connection.connectionRef,
+      bindingRef: binding.bindingRef,
+      custody: "external-credential-broker",
+    },
+    { token: "provider_access_token" },
+    { expiresAt: Date.now() + 3_600_000 },
+  );
+  const ctx = h.context({
+    binding,
+    connection: { ...connection, credentialRef },
+  });
+  const adapter = createVercelConnectAdapter();
+  const call = (projectId: string | undefined, commandId: string) =>
+    adapter.invoke!(ctx, {
+      operationRef: "vercel.provider.project-things",
+      input: projectId === undefined ? {} : { path: { projectId } },
+      commandId,
+    });
+
+  // The project the binding permitted is the project the caller may name. A
+  // target check that never admits anything is not a policy, it is an outage.
+  const permitted = await call(PROJECT, "cmd-provider-permitted");
+  assert.equal(permitted.state, "complete");
+  assert.deepEqual(permitted.output, { things: [] });
+  assert.equal(seen.length, 1, "the call reached the service once");
+  assert.equal(seen[0]!.path, `/v1/projects/${PROJECT}/things`);
+  assert.equal(
+    seen[0]!.authorization,
+    "Bearer provider_access_token",
+    "the custody token is what authorizes a provider call",
+  );
+
+  await assert.rejects(
+    call("prj_not_reviewed", "cmd-provider-unpermitted"),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "denied" &&
+      error.detail === "vercel.target.not-permitted",
+    "a project the binding never approved is still refused",
+  );
+  await assert.rejects(
+    call(undefined, "cmd-provider-absent"),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "vercel.target.missing",
+    "omitting the target parameter is not a way past the check",
+  );
+  assert.equal(seen.length, 1, "neither refusal reached the service");
+  assert.equal(double.calls.length, 0, "a provider call is not a Vercel call");
 });
 
 test("an owner kind that contradicts the profile's subject is refused", async (t) => {

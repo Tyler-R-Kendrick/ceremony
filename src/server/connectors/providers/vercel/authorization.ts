@@ -1491,15 +1491,20 @@ export async function invokeProviderOperation(
       detail: "vercel.input.invalid",
     });
   const input = parsed.data;
+  // A parameter the operation marks as selecting a target must name a target
+  // the binding permitted. What is compared is the target's id: the parameter
+  // name is the provider's spelling of a field, and a target kind is ours, so
+  // comparing the two refuses every correctly permitted target - no path
+  // parameter can even be spelled `vercel-project`, because the kinds are
+  // hyphenated and the parameter names are not. The kind is deliberately not
+  // constrained here: this binding has no per-parameter kind map to constrain
+  // it with, and every sibling adapter that also lacks one compares the id
+  // alone rather than inventing one.
   for (const name of bound.targetParameters) {
     const value = input.path?.[name] ?? input.query?.[name];
     if (value === undefined)
       throw new ConnectorError("denied", { detail: "vercel.target.missing" });
-    if (
-      !ctx.binding.permittedTargets.some(
-        (target) => target.kind === name && target.id === value,
-      )
-    )
+    if (!ctx.binding.permittedTargets.some((target) => target.id === value))
       throw new ConnectorError("denied", {
         detail: "vercel.target.not-permitted",
       });
