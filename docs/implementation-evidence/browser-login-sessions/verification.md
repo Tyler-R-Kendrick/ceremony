@@ -611,6 +611,17 @@ module has produced it - #53 split `no-observation` out of `stale-document`
 for the same reason. Classification now returns an already-named refusal
 unchanged, and restoring the re-labelling fails both selection cases.
 
+Two cases had to change, and how they changed is the point. CAP-HONEST proved
+"declaring a frame origin requires the capability" by watching every engine
+_refuse_ such a plan - which was true only while nothing implemented frames.
+The moment one did, a case about the compiler failed for a reason that had
+nothing to do with the compiler. It now asserts the rule directly, that the
+requirement is derived from the declaration, and a second case proves the
+refusal against a backend table built to say no rather than against whatever
+the real one happens to say this month. A case that asserts a consequence
+instead of a rule passes for the wrong reason and then fails for the wrong
+reason, and both halves cost a run to find out.
+
 What is **not** built: `popupBinding`, which stays false. `browser-executor.ts`
 deliberately aborts a popup and closes the context, so that flag is not
 waiting on an implementation but on a decision about whether adopting popup
