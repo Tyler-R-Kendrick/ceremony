@@ -19,6 +19,16 @@ export async function mountHarness(connectorId = "github") {
   if (!manifest) throw new Error("Missing test connector");
   const host = document.createElement("section");
   host.id = "hook-harness";
+  // The harness is injected into the host page in order to be driven, and the
+  // connect surface's Add Connection drawer lays a fixed, full-viewport scrim
+  // over everything at z-index 40. Appended to the body in normal flow, the
+  // harness ends up underneath it and every click meant for the harness lands
+  // on the scrim instead. A stacking context of its own puts it back where a
+  // consuming app's own UI would be. Nothing about the application changes,
+  // and no assertion moves: what is under test here is WebMCP registration and
+  // execution, not which layer the drawer paints on.
+  host.style.position = "relative";
+  host.style.zIndex = "50";
   const output = document.createElement("output");
   output.id = "hook-events";
   output.textContent = "[]";
