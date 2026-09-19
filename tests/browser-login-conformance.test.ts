@@ -590,6 +590,64 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("AUTH-CONDITIONAL: a passkey offered beside a password is still a password login", async () => {
+      // The distinction the driver makes before an interpreter is consulted:
+      //
+      //   const passkeyOnly =
+      //     snapshot.passkey &&
+      //     !snapshot.elements.some((element) => element.type === "password");
+      //
+      // `[autocomplete~="webauthn"]` is a real published signal, and its own
+      // comment calls it conditional passkey UI - a browser *may* offer a
+      // passkey in the identifier field, and the form still takes a password
+      // from everyone who has not got one. That is what most large providers
+      // serve now.
+      //
+      // Get it wrong in the obvious direction - treat any passkey hint as a
+      // passkey prompt - and every one of those providers stops being
+      // signable-in: the attempt hands off to a person who has nothing to do,
+      // on a page the driver could have completed itself. AUTH-PASSKEY covers
+      // the page that genuinely needs an authenticator; this covers the far
+      // more common one that does not, and until now nothing drove it on a
+      // real browser.
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/signin-conditional"),
+          }),
+          // Deliberately no `human`. A handoff here would not merely be
+          // wasteful - with nobody to ask, the attempt ends by name instead
+          // of signing in, which is exactly the failure being guarded
+          // against, and it shows up as a refusal rather than as a hang.
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `a passkey hint beside a password must not require a person, got ${JSON.stringify(result)}`,
+        );
+        if (result.status !== "verified") return;
+
+        // The provider's own record: the password was sent, to the
+        // conditional route, and it matched. Not "the driver did not hand
+        // off" - what it actually did instead.
+        const submissions = fixture.submissions();
+        assert.deepEqual(
+          submissions.map((submission) => submission.path),
+          ["/signin-conditional"],
+        );
+        assert.equal(submissions[0]?.account, owner.account);
+        assert.equal(submissions[0]?.passwordMatched, true);
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
     test("AUTH-PASSKEY: an authenticator-only page hands off rather than inventing an assertion", async () => {
       fixture.reset();
       const { sessions, service } = serviceFor(engine, {
