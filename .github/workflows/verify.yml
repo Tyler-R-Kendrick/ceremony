@@ -149,6 +149,32 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:coverage
+  browser-ui:
+    # Two chromium specs fail here on every run and pass locally on every run —
+    # five configurations, including with CI=1 set. `verify` runs `test:e2e` and
+    # captures its output, and the retained artifact keeps allowlisted
+    # coordinates only, so the assertion itself has never been visible.
+    #
+    # Printing Playwright's own output is safe by this repository's own
+    # standard, and AC-24 is the proof: it drives a nested run with a canary in
+    # the DOM, in a textarea, in the title and in a dataset attribute, and
+    # asserts the process output does not contain it. The fixture strips
+    # matcher snapshots and `PLAYWRIGHT_NO_COPY_PROMPT` stops the ARIA dump. So
+    # what reaches this log is assertions and locators, never page content.
+    #
+    # Chromium only: that is where both failures are, and a narrower job is a
+    # faster answer.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=chromium tests/browser/connection-plan.spec.ts tests/browser/ceremony.spec.ts
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
