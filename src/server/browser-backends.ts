@@ -105,13 +105,22 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     backendHeldElements: true,
     documentBinding: true,
     // False on every engine, and this is a correction rather than a
-    // limitation newly discovered. Nothing in this driver binds a popup to
-    // its opener or acts inside a frame: `createBoundTargets` observes through
-    // `page.evaluateHandle`, which is the main frame and nothing else, and the
-    // word "popup" appeared nowhere in `src/` except in these declarations.
-    // They were read as intentions. `unmetCapabilities` believes this table, so
-    // a plan that asked for either was admitted and then run without it — which
-    // is worse than refusing, because the caller was told yes.
+    // limitation newly discovered.
+    //
+    // Nothing here acts inside a frame: `createBoundTargets` observes through
+    // `page.evaluateHandle`, which is the main frame and nothing else, and no
+    // frame is ever enumerated or held.
+    //
+    // Popups are stronger than unimplemented. `browser-executor.ts` watches
+    // `Page.windowOpen`, aborts the navigation `blockedbyclient` and closes
+    // the context, reporting `blocked` / `popup`, under a comment reading
+    // "the driver owns one page; use native handoff until popup targets can
+    // be securely adopted". So the flag was not running ahead of an absent
+    // feature - it contradicted what the executor deliberately does.
+    //
+    // `unmetCapabilities` believes this table, so a plan that asked for either
+    // was admitted and then run without it, which is worse than refusing:
+    // the caller was told yes.
     popupBinding: false,
     frameBinding: false,
     // Chromium's `Fetch` interception in this repository covers Document
