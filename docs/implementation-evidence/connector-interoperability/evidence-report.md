@@ -21,8 +21,8 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 
 ## Recorded test run
 
-- Recorded: 2026-09-19T04:40:51.292Z
-- Tested commit: `c271c4ce941b36a688cddc9a9c582c16f8c2e443+dirty`
+- Recorded: 2026-09-19T07:40:22.101Z
+- Tested commit: `78c7ceb771867df577432c0a229ecb6b2937b737`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 179; passed 1904, failed 0, skipped 0
 - Ledger-named test files covered by that run: 218 of 237.
