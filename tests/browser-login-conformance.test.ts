@@ -7,6 +7,11 @@ import {
   type ManagedBrowser,
 } from "../src/server/browser-backends.js";
 import { createEffectLedger } from "../src/server/browser-effects.js";
+import {
+  BrowserStateUnavailable,
+  createBrowserStateStore,
+  storageStateSchema,
+} from "../src/server/browser-state.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import {
@@ -317,6 +322,111 @@ for (const engine of browserEngines) {
         assert.deepEqual(JSON.parse(await response.text()), {
           account: owner.account,
         });
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("LIFE-STATE: a saved session is restored into a context that never logged in", async () => {
+      // What `statePersistence` has to mean if the flag is to be worth
+      // declaring: a second context, opened from a saved state, is recognised
+      // by the *provider* - not by a marker this process drew.
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      const states = createBrowserStateStore({ store });
+      const browser = engines.get(engine)!;
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
+        if (result.status !== "verified") return;
+        const before = fixture.sessionsFor(owner.account).length;
+
+        const { session } = await sessions.resolve(actor, result.sessionRef);
+        assert.ok(session.context, "a retained session must hold its context");
+        const stateRef = await states.save(
+          actor,
+          {
+            browserGeneration: browser.browserGeneration,
+            effectivePlanDigest: planFor(engine).digest,
+          },
+          storageStateSchema.parse(await session.context.saveState()),
+        );
+
+        // A context that has never seen a credential. The only thing it is
+        // given is the saved state.
+        const restored = await browser.openContext({
+          storageState: states.restore(actor, stateRef),
+        });
+        try {
+          const answer = await restored.request.get(fixture.url("/api/whoami"));
+          assert.equal(
+            answer.status(),
+            200,
+            "the provider must recognise the restored context",
+          );
+          assert.deepEqual(JSON.parse(await answer.text()), {
+            account: owner.account,
+          });
+        } finally {
+          await restored.close();
+        }
+
+        // Restoring is not logging in again. The provider issued no second
+        // session: the same one is being presented from somewhere else, which
+        // is exactly what makes a saved state a credential.
+        assert.equal(fixture.sessionsFor(owner.account).length, before);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("LIFE-STATE-SUBJECT: a saved session is not another subject's to restore", async () => {
+      // The reference is opaque, but opacity is not authorization. A
+      // colleague who comes by one must not be able to put themselves inside
+      // somebody else's session with it.
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      const states = createBrowserStateStore({ store });
+      const browser = engines.get(engine)!;
+      try {
+        const result = await service.login(actor, { plan: planFor(engine) });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
+        if (result.status !== "verified") return;
+        const { session } = await sessions.resolve(actor, result.sessionRef);
+        assert.ok(session.context, "a retained session must hold its context");
+        const stateRef = await states.save(
+          actor,
+          {
+            browserGeneration: browser.browserGeneration,
+            effectivePlanDigest: planFor(engine).digest,
+          },
+          storageStateSchema.parse(await session.context.saveState()),
+        );
+
+        const intruder = { ...actor, subjectId: "someone-else" };
+        await assert.rejects(
+          () => states.restore(intruder, stateRef)(),
+          (error: unknown) =>
+            error instanceof BrowserStateUnavailable &&
+            error.reason === "not-authorized",
+          "another subject must not restore this state",
+        );
+        // And the same tenant asking about it learns nothing either.
+        await assert.rejects(() => states.describe(intruder, stateRef));
       } finally {
         await sessions.disposeAll();
       }
