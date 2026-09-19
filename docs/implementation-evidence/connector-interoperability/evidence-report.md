@@ -21,10 +21,10 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 
 ## Recorded test run
 
-- Recorded: 2026-09-18T21:27:50.725Z
-- Tested commit: `dee7d7c12d0981a75e2c5cb7a76527f5ab860e36+dirty`
+- Recorded: 2026-09-19T04:40:51.292Z
+- Tested commit: `c271c4ce941b36a688cddc9a9c582c16f8c2e443+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
-- Test files in that run: 177; passed 1846, failed 0, skipped 0
+- Test files in that run: 179; passed 1904, failed 0, skipped 0
 - Ledger-named test files covered by that run: 218 of 237.
 
 **10 of the paths a ledger names have no result in that run**, so their rows below read `not in the recorded run`. An absence is not a failure and is not reported as one. Each one, and why:
@@ -115,7 +115,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Pinned sources: none named
 - Tests:
   - `node --import tsx --test tests/connectors/inventory/registry.test.ts` — pass 6
-  - `node --import tsx --test tests/connectors/commands/agent-seam.test.ts` — pass 6
+  - `node --import tsx --test tests/connectors/commands/agent-seam.test.ts` — pass 7
   - `node --import tsx --test tests/connectors/dapr/app-routes.test.ts` — pass 6
   - `node --import tsx --test tests/connectors/packaging/consumer.test.ts` — pass 1
 
@@ -143,7 +143,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Tests:
   - `node --import tsx --test tests/browser/connector-directory.spec.ts` — not in the recorded run
   - `node --import tsx --test tests/browser/connector-drawer.spec.ts` — not in the recorded run
-  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 14
 
 ### INT-06 (INT) — implemented, local-integration
 
@@ -238,7 +238,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-IMP-10, AC-IMP-11
 - Pinned sources: `json-pointer-rfc6901`
 - Tests:
-  - `node --import tsx --test tests/connectors/import/references.test.ts` — pass 10
+  - `node --import tsx --test tests/connectors/import/references.test.ts` — pass 11
 
 ### IMP-05 (IMPORT) — implemented, unit
 
@@ -296,8 +296,8 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-IMP-06, AC-IMP-16
 - Pinned sources: `overlay-1.1.0`, `overlay-1.0.0`
 - Tests:
-  - `node --import tsx --test tests/connectors/overlay/apply.test.ts` — pass 22
-  - `node --import tsx --test tests/connectors/overlay/diff.test.ts` — pass 15
+  - `node --import tsx --test tests/connectors/overlay/apply.test.ts` — pass 23
+  - `node --import tsx --test tests/connectors/overlay/diff.test.ts` — pass 16
 
 ### HTTP-06 (HTTP) — implemented, unit
 
@@ -313,7 +313,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-IMP-08, AC-IMP-09, AC-IMP-10, AC-IMP-13
 - Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
 - Tests:
-  - `node --import tsx --test tests/connectors/arazzo/read.test.ts` — pass 10
+  - `node --import tsx --test tests/connectors/arazzo/read.test.ts` — pass 11
 
 ### WF-02 (WORKFLOW) — implemented, unit
 
@@ -329,7 +329,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-IMP-08
 - Pinned sources: `arazzo-1.0.1`, `arazzo-1.1.0`
 - Tests:
-  - `node --import tsx --test tests/connectors/arazzo/evaluator.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/arazzo/evaluator.test.ts` — pass 8
 
 ### WF-04 (WORKFLOW) — implemented, unit
 
@@ -402,7 +402,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-AUTH-04, AC-AUTH-17
 - Pinned sources: `rfc8414`, `rfc9728`, `openid-connect-discovery-1.0`, `mcp-2026-07-28-authorization`
 - Tests:
-  - `node --import tsx --test tests/connectors/auth/discovery.test.ts` — pass 24
+  - `node --import tsx --test tests/connectors/auth/discovery.test.ts` — pass 26
 
 ### OA-02 (OAUTH) — implemented, protocol-fixture
 
@@ -410,7 +410,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-AUTH-03, AC-AUTH-04, AC-AUTH-06, AC-AUTH-07, AC-STATE-01
 - Pinned sources: `rfc7636`, `rfc9207`, `rfc9700`, `rfc8628`, `rfc9126`, `oauth-2.1-draft-16`
 - Tests:
-  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — pass 19
+  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — pass 23
   - `node --import tsx --test tests/connectors/auth/device.test.ts` — pass 8
 
 ### OA-03 (OAUTH) — implemented, protocol-fixture
@@ -435,8 +435,8 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-AUTH-10, AC-AUTH-11
 - Pinned sources: `rfc8707`, `rfc9396`
 - Tests:
-  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — pass 19
-  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/auth/authorization-code.test.ts` — pass 23
+  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — pass 12
 
 ### OA-06 (OAUTH) — implemented, protocol-fixture
 
@@ -444,7 +444,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-AUTH-05, AC-EXT-06
 - Pinned sources: `rfc8693`, `rfc7662`, `mcp-enterprise-managed-authorization`
 - Tests:
-  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/auth/token-exchange.test.ts` — pass 12
 
 ### REG-01 (REGISTRY) — implemented, protocol-fixture
 
@@ -494,7 +494,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Tests:
   - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — pass 18
   - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — pass 12
-  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — pass 12
+  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — pass 13
 
 ### MCP-02 (MCP) — implemented, protocol-fixture
 
@@ -504,8 +504,8 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Tests:
   - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — pass 18
   - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — pass 12
-  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 17
-  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — pass 12
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 19
+  - `node --import tsx --test tests/connectors/mcp/wire.test.ts` — pass 13
 
 ### MCP-03 (MCP) — implemented, protocol-fixture
 
@@ -513,7 +513,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-MCP-02
 - Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
 - Tests:
-  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 17
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 19
   - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — pass 18
   - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — pass 12
 
@@ -523,7 +523,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-MCP-03, AC-MCP-04
 - Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`
 - Tests:
-  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 17
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 19
   - `node --import tsx --test tests/connectors/mcp/current-profile.test.ts` — pass 18
   - `node --import tsx --test tests/connectors/mcp/legacy-profile.test.ts` — pass 12
 
@@ -542,7 +542,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-AUTH-18
 - Pinned sources: `mcp-2026-07-28`, `mcp-2025-11-25`, `mcp-2025-06-18`
 - Tests:
-  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 17
+  - `node --import tsx --test tests/connectors/mcp/adapter.test.ts` — pass 19
 
 ### VC-01 (VERCEL) — implemented, protocol-fixture
 
@@ -550,7 +550,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-VC-01, AC-VC-06
 - Pinned sources: `vercel-connect-rest-2026-09`
 - Tests:
-  - `node --import tsx --test tests/connectors/vercel/management.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/vercel/management.test.ts` — pass 12
 
 ### VC-02 (VERCEL) — implemented, protocol-fixture
 
@@ -558,7 +558,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-VC-02, AC-VC-05
 - Pinned sources: `vercel-connect-rest-2026-09`
 - Tests:
-  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — pass 12
+  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — pass 13
 
 ### VC-03 (VERCEL) — implemented, protocol-fixture
 
@@ -575,7 +575,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Pinned sources: `vercel-connect-rest-2026-09`
 - Tests:
   - `node --import tsx --test tests/connectors/vercel/tokens.test.ts` — pass 10
-  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — pass 12
+  - `node --import tsx --test tests/connectors/vercel/authorization.test.ts` — pass 13
 
 ### VC-05 (VERCEL) — implemented, protocol-fixture
 
@@ -593,7 +593,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Pinned sources: `vercel-connect-rest-2026-09`
 - Tests:
   - `node --import tsx --test tests/connectors/vercel/triggers.test.ts` — pass 7
-  - `node --import tsx --test tests/connectors/vercel/provider-conformance.test.ts` — pass 5
+  - `node --import tsx --test tests/connectors/vercel/provider-conformance.test.ts` — pass 7
 
 ### SB-01 (SUPABASE) — implemented, protocol-fixture
 
@@ -659,7 +659,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-NG-08
 - Pinned sources: `nango-http-api-2026-09`
 - Tests:
-  - `node --import tsx --test tests/connectors/nango/discover.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/nango/discover.test.ts` — pass 12
 
 ### NG-02 (NANGO) — implemented, protocol-fixture
 
@@ -691,7 +691,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-NG-07, AC-NG-08
 - Pinned sources: `nango-http-api-2026-09`
 - Tests:
-  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — pass 13
+  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — pass 15
   - `node --import tsx --test tests/connectors/nango/invoke.test.ts` — pass 18
 
 ### NG-06 (NANGO) — implemented, protocol-fixture
@@ -700,8 +700,8 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Acceptance: AC-NG-07, AC-AUTH-01, AC-STATE-03, AC-STATE-04, AC-STATE-07
 - Pinned sources: `nango-http-api-2026-09`
 - Tests:
-  - `node --import tsx --test tests/connectors/nango/webhooks.test.ts` — pass 20
-  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — pass 13
+  - `node --import tsx --test tests/connectors/nango/webhooks.test.ts` — pass 21
+  - `node --import tsx --test tests/connectors/nango/syncs.test.ts` — pass 15
 
 ### PD-01 (PIPEDREAM) — implemented, protocol-fixture
 
@@ -794,7 +794,7 @@ One entry per required work item, joined to the ledger that delivered it. A resu
 - Pinned sources: `auth0-token-vault-2026-09-18`, `auth0-myaccount-api-1.0`
 - Tests:
   - `node --import tsx --test tests/connectors/auth0/linking.test.ts` — pass 7
-  - `node --import tsx --test tests/connectors/auth0/exchange.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/auth0/exchange.test.ts` — pass 10
 
 ### IB-04 (IDENTITY-BROKERS) — implemented, protocol-fixture
 
@@ -924,7 +924,7 @@ Nobody delivered this required work item.
 - Pinned sources: `airbyte-protocol-v0`, `airbyte-api-v1-2026-09`
 - Tests:
   - `node --import tsx --test tests/connectors/airbyte/catalog.test.ts` — pass 19
-  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — pass 17
+  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — pass 18
 
 ### DATA-02 (DATA) — implemented, protocol-fixture
 
@@ -932,7 +932,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-EXT-14
 - Pinned sources: `hasura-ndc-0.2`
 - Tests:
-  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — pass 11
   - `node --import tsx --test tests/connectors/hasura-ndc/policy.test.ts` — pass 22
 
 ### DATA-03 (DATA) — implemented, protocol-fixture
@@ -958,8 +958,8 @@ Nobody delivered this required work item.
 - Pinned sources: `airbyte-protocol-v0`, `airbyte-api-v1-2026-09`, `hasura-ndc-0.2`, `merge-unified-2026-09`, `cloud-search-acl-2026-09`
 - Tests:
   - `node --import tsx --test tests/connectors/airbyte/catalog.test.ts` — pass 19
-  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — pass 17
-  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/airbyte/adapter.test.ts` — pass 18
+  - `node --import tsx --test tests/connectors/hasura-ndc/discover.test.ts` — pass 11
   - `node --import tsx --test tests/connectors/hasura-ndc/policy.test.ts` — pass 22
   - `node --import tsx --test tests/connectors/merge/adapter.test.ts` — pass 22
   - `node --import tsx --test tests/connectors/retrieval/acl.test.ts` — pass 37
@@ -1042,7 +1042,7 @@ Nobody delivered this required work item.
 - Pinned sources: `a2a-1.0`, `a2a-0.3`
 - Tests:
   - `node --import tsx --test tests/connectors/a2a/delegate.test.ts` — pass 14
-  - `node --import tsx --test tests/connectors/a2a/security.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/a2a/security.test.ts` — pass 15
   - `node --import tsx --test tests/connectors/doubles/a2a-agent.ts` — not in the recorded run
 
 ### AG-03 (AGENT-SURFACES) — implemented, unit
@@ -1068,7 +1068,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-AG-04
 - Pinned sources: none named
 - Tests:
-  - `node --import tsx --test tests/connectors/agent-tools/continuations.test.ts` — pass 9
+  - `node --import tsx --test tests/connectors/agent-tools/continuations.test.ts` — pass 10
   - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 4
 
 ### STATE-01 (STATE) — implemented, local-integration
@@ -1077,7 +1077,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-AUTH-02, AC-STATE-08
 - Pinned sources: `ceremony-connector-state/1`
 - Tests:
-  - `node --import tsx --test tests/connectors/state/storage.test.ts` — pass 10
+  - `node --import tsx --test tests/connectors/state/storage.test.ts` — pass 12
   - `node --import tsx --test tests/connectors/state/conformance.test.ts` — pass 4
 
 ### STATE-02 (STATE) — implemented, local-integration
@@ -1086,7 +1086,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-STATE-01
 - Pinned sources: `ceremony-connector-state/1`
 - Tests:
-  - `node --import tsx --test tests/connectors/state/custody.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/state/custody.test.ts` — pass 8
   - `node --import tsx --test tests/connectors/state/concurrency.test.ts` — pass 6
 
 ### STATE-03 (STATE) — implemented, local-integration
@@ -1095,7 +1095,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-AUTH-06, AC-AUTH-07, AC-STATE-02
 - Pinned sources: `ceremony-connector-state/1`
 - Tests:
-  - `node --import tsx --test tests/connectors/state/lifecycle.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/state/lifecycle.test.ts` — pass 12
   - `node --import tsx --test tests/connectors/state/conformance.test.ts` — pass 4
 
 ### STATE-04 (STATE) — implemented, local-integration
@@ -1194,7 +1194,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-UX-03, AC-IMP-13
 - Pinned sources: `ceremony-connectors-http-v1`
 - Tests:
-  - `node --import tsx --test tests/connectors/ux/review.test.ts` — pass 5
+  - `node --import tsx --test tests/connectors/ux/review.test.ts` — pass 7
 
 ### UX-03 (UX) — implemented, browser-integration
 
@@ -1202,7 +1202,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-UX-02, AC-EXT-10
 - Pinned sources: `ceremony-connectors-http-v1`
 - Tests:
-  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 14
   - `node --import tsx --test tests/browser/connector-drawer.spec.ts` — not in the recorded run
 
 ### UX-04 (UX) — implemented, browser-integration
@@ -1211,7 +1211,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-UX-02, AC-AUTH-12, AC-AUTH-16
 - Pinned sources: `ceremony-connectors-http-v1`
 - Tests:
-  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 14
 
 ### UX-05 (UX) — implemented, browser-integration
 
@@ -1219,7 +1219,7 @@ Nobody delivered this required work item.
 - Acceptance: AC-UX-02, AC-AUTH-09, AC-AUTH-15, AC-STATE-03, AC-STATE-04, AC-STATE-05
 - Pinned sources: `ceremony-connectors-http-v1`
 - Tests:
-  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 11
+  - `node --import tsx --test tests/connectors/ux/connection.test.ts` — pass 14
   - `node --import tsx --test tests/connectors/ux/client.test.ts` — pass 16
   - `node --import tsx --test tests/browser/connector-directory.spec.ts` — not in the recorded run
 
@@ -1265,7 +1265,7 @@ Nobody delivered this required work item.
 - Pinned sources: `rfc-8414`, `rfc-9207`, `rfc-8693`, `rfc-7591`, `rfc-9728`, `mcp-2026-07-28-authorization`
 - Tests:
   - `node --import tsx --test tests/connectors/security/authority.test.ts` — pass 8
-  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 9
 
 ### SEC-04 (SECURITY) — implemented, protocol-fixture
 
@@ -1274,7 +1274,7 @@ Nobody delivered this required work item.
 - Pinned sources: `rfc-6749-refresh`, `rfc-7636`, `nango-http-api-2026-09`, `nango-webhooks-2026-09`
 - Tests:
   - `node --import tsx --test tests/connectors/security/effects.test.ts` — pass 7
-  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 9
 
 ### SEC-05 (SECURITY) — implemented, protocol-fixture
 
@@ -1291,7 +1291,7 @@ Nobody delivered this required work item.
 - Pinned sources: none named
 - Tests:
   - `node --import tsx --test tests/connectors/security/mutations.test.ts` — pass 9
-  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/security/command-boundary.test.ts` — pass 9
 
 ### QA-01 (QA) — implemented, protocol-fixture
 
@@ -1467,7 +1467,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - **HTTP-05** (HTTP)
   - The JSONPath subset is: root ($), child by name (.name and ['name'] / ["name"]), wildcard (.* and [_]), recursive descent (..name and .._) and non-negative array index ([0]). RFC 9535 filters, scripts, unions, slices, negative indexes and function extensions are refused with a blocking structure.unsupported-selector issue rather than approximated. The Overlay specification requires full RFC 9535 for interoperability, so this is an explicit, documented subset, not a conformance claim.
   - Selection, merge depth, action count and update size are bounded; exceeding a bound refuses the whole overlay rather than applying part of it.
-  - A document that cannot be serialized within bounds (for example one whose shared references expand exponentially) is refused with structure.document-too-large instead of throwing.
+  - A document that cannot be serialized within bounds (for example one whose shared references expand exponentially) is refused with structure.document-too-large instead of throwing, and an overlay's own update or copy value that cannot be cloned within bounds -- oversized, or cyclic as a YAML alias cycle produces -- is refused with structure.update-too-large, leaving the input document unchanged.
 - **HTTP-06** (HTTP)
   - Export emits OpenAPI 3.1 only; a document imported as 2.0, 3.0 or 3.2 is republished in 3.1 spelling and the version change is part of the loss report.
   - Response schemas are emitted as permissive (`true`) rather than reproduced: the compiled subset keeps request schemas for validation but does not validate responses, and publishing a response schema the runtime does not enforce would overstate the contract.
