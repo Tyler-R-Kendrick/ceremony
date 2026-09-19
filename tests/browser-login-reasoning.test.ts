@@ -334,6 +334,36 @@ describe("MODEL-SEAM: the plan chooses, and the service obeys it", () => {
     }
   });
 
+  test("a model that cannot be built is a model this host does not have", async () => {
+    // The realistic shape of a missing model, and the one the type signature
+    // does not describe. `configuredModel` throws on an invalid endpoint, an
+    // endpoint that is not https, a missing model name - so the factory this
+    // option exists for fails by throwing, not by returning `undefined`.
+    //
+    // An attempt that ends with an exception instead of a named outcome is
+    // the one thing this module promises not to do: the effect record goes
+    // unsettled and the caller gets a stack trace where a reason belongs.
+    const { sessions, service } = serviceWith({
+      model: () => {
+        throw new Error("Invalid model endpoint");
+      },
+    });
+    try {
+      const result = await service.login(actor, {
+        plan: compileLoginPlan(draft({ reasoning: "host-model" }), {
+          ...compileOptions,
+          modelAvailable: true,
+        }),
+      });
+      assert.equal(
+        result.status === "blocked" && result.reason,
+        "reasoning-unavailable",
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
   test("a host that configured no model at all is the same refusal", async () => {
     const { sessions, service } = serviceWith({});
     try {
@@ -595,15 +625,18 @@ describe("MODEL-PROMPT: what a model is actually shown", () => {
         result.status === "blocked" && result.reason,
         "protected-value-exposed",
       );
-      // The assertion that matters: not one observation reached the model,
-      // and nothing that did serializes to anything containing the value.
-      assert.deepEqual(seen, []);
+      // Checked in this order deliberately. Whatever the model was shown,
+      // none of it may contain the value - that is the assertion that would
+      // still mean something if the guard were later moved or relaxed. Then
+      // the stronger fact for the guard as it stands: it was shown nothing,
+      // because the very first observation tripped the canary.
       for (const input of seen)
         assert.equal(
           interpreterPrompt(input).includes(canary),
           false,
           "a prompt carried the credential",
         );
+      assert.deepEqual(seen, []);
     } finally {
       await sessions.disposeAll();
     }

@@ -482,12 +482,26 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
    * not; the honest answer then is a refusal, because running the
    * deterministic rules would produce an attempt whose plan digest says a
    * model looked at the page when nothing did.
+   *
+   * A factory that *throws* is that same answer arriving badly. It is the
+   * normal failure of the host construction this option exists for:
+   * `configuredModel` throws on an invalid endpoint, an endpoint that is not
+   * https, a missing model name. Letting it out of here would end `login()`
+   * with an exception, and an attempt that terminates any way other than with
+   * a named outcome is the one thing this module promises not to do — the
+   * effect record would go unsettled and the caller would get a stack trace
+   * where a reason belongs. A model that cannot be built is a model this host
+   * does not have.
    */
   function interpreterFor(
     plan: EffectiveLoginPlan,
   ): CeremonyInterpreter | undefined {
     if (plan.reasoning === "deterministic") return createHeuristicInterpreter();
-    return options.modelInterpreter?.();
+    try {
+      return options.modelInterpreter?.();
+    } catch {
+      return undefined;
+    }
   }
 
   /**
