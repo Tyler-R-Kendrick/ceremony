@@ -161,6 +161,45 @@ for (const engine of browserEngines) {
       );
     });
 
+    test("TARGET-NONE: an action with nothing approved names that, not the page", async () => {
+      const before = provider.received.length;
+      const context = await browsers.get(engine)!.openContext();
+      try {
+        const { page } = await context.openPage();
+        await page.goto(`${provider.origin}/race`);
+        const snapshot = await page.snapshot();
+        const field = snapshot.elements.find(
+          (element) => element.type === "password",
+        );
+        assert.ok(field, "the fixture must present a password field");
+
+        // Navigating releases the approval — that is what `goto` is documented
+        // to do — so the next action has nothing behind it. The page here is
+        // not the thing at fault: it was never asked a second time.
+        await page.goto(`${provider.origin}/race`);
+
+        let refusal: StaleTargetError | undefined;
+        try {
+          await page.fill(field, canary);
+        } catch (error) {
+          if (!(error instanceof StaleTargetError)) throw error;
+          refusal = error;
+        }
+        assert.ok(refusal, "an action with no approval must be refused");
+        // The distinction this case exists for. `stale-document` sends whoever
+        // reads it to the guards that compare documents, and those guards
+        // cannot have run: there was nothing to compare against.
+        assert.equal(refusal.reason, "no-observation");
+        assert.equal(
+          provider.received.length,
+          before,
+          "nothing may be submitted",
+        );
+      } finally {
+        await context.close();
+      }
+    });
+
     test("TARGET-ASYNC: a same-origin navigation mid-race refuses", async () => {
       const before = provider.received.length;
       const refusal = await raceFill(engine, async (raw) => {

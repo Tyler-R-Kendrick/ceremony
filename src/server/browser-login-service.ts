@@ -351,6 +351,12 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         result.reason === "stale-element"
       )
         return { kind: "blocked", reason: "stale-document" };
+      // Carried under its own name rather than folded into the one above. Both
+      // end the attempt the same way, but a caller told "the document moved
+      // on" goes looking at the page; a caller told no approval was held goes
+      // looking at the sequence that should have taken one.
+      if (result.reason === "no-observation")
+        return { kind: "blocked", reason: "no-observation" };
       if (result.reason === "unapproved-recipient")
         return { kind: "blocked", reason: "unapproved-recipient" };
       if (result.reason === "untrusted-origin")

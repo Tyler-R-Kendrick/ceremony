@@ -138,6 +138,8 @@ export const browserOperationReasons = [
   "stale-document",
   /** The element that was approved is not the element now in the page. */
   "stale-element",
+  /** No approval was held to act against; none was taken, or it was released. */
+  "no-observation",
   /** The form would now deliver to somewhere the approval never covered. */
   "unapproved-recipient",
   /** A backend cannot do what the effective plan requires of it. */

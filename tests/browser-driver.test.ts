@@ -888,8 +888,29 @@ test("acting before any observation is refused rather than guessed", async () =>
   await assert.rejects(
     page.click({ index: 2, kind: "button", text: "Sign in" }),
     (error: unknown) =>
-      error instanceof StaleTargetError && error.reason === "stale-document",
+      // Not `stale-document`: nothing was ever approved, so no document was
+      // compared and none moved on. The case below is the one where a page
+      // really does change under an attempt, and it still says so — which is
+      // the whole point of the two names being different.
+      error instanceof StaleTargetError && error.reason === "no-observation",
   );
+});
+
+test("a released observation is not a page that moved on", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  const snapshot = await page.snapshot();
+  assert.ok(snapshot.elements.length > 0);
+  // Navigating releases the approval. What follows has nothing behind it, and
+  // blaming the document for that is what sent three runs' worth of failures
+  // looking at guards that had not run.
+  await page.goto("https://provider.example/second");
+  await assert.rejects(
+    page.click({ index: 2, kind: "button", text: "Sign in" }),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "no-observation",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("click")));
 });
 
 test("the driver reports a stale document instead of failing the run", async () => {
