@@ -782,6 +782,44 @@ test("a service that never claims WebMCP is still offered the switch the host ow
   ).toBeChecked();
 });
 
+test("a switch the host owns survives a drawer opened before the host answers", async ({
+  page,
+}) => {
+  // The same claim as the test above, made under the one condition that
+  // breaks it.
+  //
+  // Which host capabilities a row carries is derived from the manifests in
+  // `/api/config`. Before that request lands there are no manifests, so every
+  // row reads as `declared` and carries no host capability at all - and the
+  // drawer seeds its draft exactly once, with
+  // `useState(() => emptyDraft(entry))`. A drawer opened inside that window
+  // kept a draft with WebMCP missing for the rest of its life, and a missing
+  // answer is not a neutral one: Customize leaves it out, the run reads the
+  // draft, and the connection is withdrawn from every WebMCP client watching
+  // the page.
+  //
+  // Nobody would see it on a fast machine - the fetch beats any human click -
+  // which is why it arrived as an intermittent `browser-ui` failure on an
+  // unrelated pull request rather than as a bug report. Delaying the response
+  // makes the race lose every time instead of rarely.
+  await page.route("**/api/config*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "Neon", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("checkbox", {
+      name: new RegExp(capabilityDetails.webmcp.label),
+    }),
+  ).toBeChecked();
+});
+
 test("the directory asks this host one question on arrival", async ({
   page,
 }) => {
