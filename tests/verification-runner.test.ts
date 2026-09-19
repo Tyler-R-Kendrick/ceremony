@@ -15,7 +15,7 @@ import {
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 test("OPS: failed test diagnostics retain only known inventory names", () => {
   const inventory = ["tests/one.test.ts", "tests/nested/two.test.ts"];
@@ -228,34 +228,42 @@ test("OPS: an actual Playwright failure names its file and case, retaining no di
       ),
       "cli.js",
     );
-    const result = spawnSync(
-      process.execPath,
-      [
-        cli,
-        "test",
-        "--config",
-        join(directory, "playwright.config.ts"),
-        "--reporter=line",
-      ],
-      { encoding: "utf8", env: process.env, timeout: 120_000 },
-    );
-    assert.equal(result.error, undefined);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
-    // Playwright spells the file relative to the directory its config is in,
-    // which for this repository's own config is the repository root — the same
-    // spelling the inventory uses. The fixture's config is in the fixture, so
-    // its spelling is relative to that.
-    const inventory = { files: ["sentinel.spec.ts"], names: [name] };
-    assert.deepEqual(failedBrowserTests(result.stdout, inventory), inventory);
-    // The fixture's own failure text is in that output and stays there.
-    assert.deepEqual(
-      failedBrowserTests(result.stdout, {
-        files: [],
-        names: ["CEREMONY_EXPECTED_ASSERTION_FAILURE"],
-      }),
-      { files: [], names: [] },
-    );
+    // This repository configures `list`; the others are here because which one
+    // is configured is not this code's business, and a reporter swap must not
+    // quietly take the names away again.
+    for (const reporter of ["list", "line", "dot"]) {
+      const result = spawnSync(
+        process.execPath,
+        [
+          cli,
+          "test",
+          "--config",
+          join(directory, "playwright.config.ts"),
+          `--reporter=${reporter}`,
+        ],
+        { encoding: "utf8", env: process.env, timeout: 120_000 },
+      );
+      assert.equal(result.error, undefined);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
+      // Playwright spells the file relative to the directory the run started
+      // in, which for this repository is the root the inventory is built at,
+      // so the two agree exactly. The fixture sits one directory below that.
+      const inventory = {
+        files: [`${basename(directory)}/sentinel.spec.ts`],
+        names: [name],
+      };
+      assert.deepEqual(failedBrowserTests(result.stdout, inventory), inventory);
+      // A shorter spelling of the same file still names it, and the fixture's
+      // own failure text is in that output and stays there.
+      assert.deepEqual(
+        failedBrowserTests(result.stdout, {
+          files: ["sentinel.spec.ts"],
+          names: ["CEREMONY_EXPECTED_ASSERTION_FAILURE"],
+        }),
+        { files: ["sentinel.spec.ts"], names: [] },
+      );
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
