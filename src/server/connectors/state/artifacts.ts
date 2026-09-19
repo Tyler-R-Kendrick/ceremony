@@ -6,8 +6,8 @@ import type { Clock, SourceArtifactPort } from "../ports.js";
 import {
   SCHEMA_VERSION,
   checkTenant,
+  parseStored,
   readRecord,
-  scanPrefix,
   timeSource,
   transact,
 } from "./common.js";
@@ -24,7 +24,12 @@ import { mediaTypeSchema, storedArtifactSchema } from "./schemas.js";
 export type SourceArtifactOptions = { now?: Clock; maxBytes?: number };
 
 export interface ConnectorSourceArtifacts extends SourceArtifactPort {
-  /** Trusted retention worker only; removes artifacts past `retainUntil` in bounded pages. */
+  /**
+   * Trusted retention worker only; removes artifacts past `retainUntil` in
+   * bounded pages. `afterId` resumes where a previous page stopped: pass the
+   * `lastId` it answered, and keep going until a page answers no `lastId`,
+   * which is the only signal that the tenant has no artifacts left to visit.
+   */
   purgeExpired(
     tenantId: string,
     limit?: number,
@@ -176,30 +181,50 @@ export function createSourceArtifactPort(
 
     async purgeExpired(rawTenant, limit = 100, afterId = "") {
       const tenantId = checkTenant(rawTenant);
+      if (!Number.isSafeInteger(limit) || limit < 1)
+        throw new ConnectorError("invalid-request", {
+          detail: "artifact.purge-limit",
+        });
       return transact(store, async (tx) => {
         const at = await time(tx);
         let deleted = 0;
         let lastId: string | undefined;
         let seen = 0;
-        await scanPrefix(
-          tx,
-          tenantId,
-          "connector-artifact",
-          afterId || "artifact:",
-          storedArtifactSchema,
-          async ({ id, revision, value }) => {
-            lastId = id;
+        /*
+         * `afterId` says where this page starts, which is not the same thing
+         * as what the ids start with: it is a whole artifact id, so no listing
+         * could both begin after it and be prefixed by it. The store's own
+         * paging primitive keeps the two apart — `list` answers the records
+         * whose id sorts after the cursor — so a worker that follows `lastId`
+         * sees the rest of the tenant's artifacts instead of nothing at all.
+         * Only `artifactKey` writes this kind, so every id it answers is an
+         * artifact of this tenant.
+         */
+        let cursor = afterId;
+        while (seen < limit) {
+          const size = Math.min(limit - seen, 200);
+          const rows = await tx.list(
+            tenantId,
+            "connector-artifact",
+            size,
+            cursor,
+          );
+          for (const row of rows) {
+            const value = parseStored(storedArtifactSchema, row.value);
+            lastId = row.id;
             seen++;
             if (value.retainUntil !== undefined && value.retainUntil <= at) {
               await tx.delete(
-                { tenant: tenantId, kind: "connector-artifact", id },
-                revision,
+                { tenant: tenantId, kind: "connector-artifact", id: row.id },
+                row.revision,
               );
               deleted++;
             }
-            if (seen >= limit) return false;
-          },
-        );
+          }
+          // A short page is the end of the tenant's artifacts, not a pause.
+          if (rows.length < size) break;
+          cursor = rows.at(-1)!.id;
+        }
         return { deleted, lastId };
       });
     },

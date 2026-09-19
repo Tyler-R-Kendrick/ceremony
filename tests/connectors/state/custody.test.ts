@@ -231,6 +231,84 @@ test("STATE-02: expiry has a safety margin and refresh rotates under single flig
   }
 });
 
+test("STATE-02: a foreign scope is refused while the owner's refresh is in flight", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", stateKeyring());
+  const clock = clockAt(1_700_000_000_000);
+  const ports = createConnectorPorts(store, { now: clock.now });
+  try {
+    const scope = credentialScope("tenant-a");
+    const foreign = credentialScope("tenant-b");
+    const ref = await ports.credentials.store(
+      scope,
+      { accessToken: `${CANARY}-1` },
+      { expiresAt: clock.now() + 600_000 },
+    );
+
+    /*
+     * Refresh is single flight per reference, so the moment a legitimate
+     * refresh is in flight is exactly the moment a second caller can be
+     * answered out of it. A caller whose scope does not own the credential
+     * must be refused in that moment as well: otherwise the refusal it would
+     * get at any other time turns into an existence-and-expiry oracle for a
+     * reference belonging to another tenant.
+     */
+    let foreignWork = 0;
+    const steal = async () => {
+      foreignWork++;
+      return { material: { accessToken: "should-never-be-written" } };
+    };
+    let joined:
+      | Promise<
+          | { joined: "answered"; value: unknown }
+          | { joined: "refused"; error: unknown }
+        >
+      | undefined;
+    const rotated = await ports.credentials.refresh(scope, ref, async () => {
+      // Settled rather than awaited: the refusal must not surface as an
+      // unhandled rejection, and awaiting the in-flight promise from inside
+      // the work that has to finish first would wait on itself.
+      joined = ports.credentials.refresh(foreign, ref, steal).then(
+        (value: unknown) => ({ joined: "answered" as const, value }),
+        (error: unknown) => ({ joined: "refused" as const, error }),
+      );
+      return {
+        material: { accessToken: `${CANARY}-2` },
+        expiresAt: clock.now() + 600_000,
+      };
+    });
+    assert.equal(rotated.ref, ref);
+
+    const outcome = await joined!;
+    if (outcome.joined !== "refused")
+      assert.fail("a foreign scope was answered out of the owner's refresh");
+    assert.ok(outcome.error instanceof ConnectorError);
+    assert.equal(outcome.error.code, "not-found");
+    assert.equal(outcome.error.detail, "credential.unknown");
+
+    // The same answer it gets with nothing in flight: one rule, every call.
+    await assert.rejects(
+      ports.credentials.refresh(foreign, ref, steal),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "not-found" &&
+        error.detail === "credential.unknown",
+    );
+    assert.equal(foreignWork, 0);
+
+    // The owner's own rotation went through untouched.
+    assert.equal(
+      await ports.credentials.use(
+        scope,
+        ref,
+        async (m) => m.accessToken === `${CANARY}-2`,
+      ),
+      true,
+    );
+  } finally {
+    await store.close();
+  }
+});
+
 test("AC-STATE-01: a refresh computed against an older generation cannot overwrite a newer credential", async () => {
   const store = new SQLiteCeremonyStore(":memory:", stateKeyring());
   const ports = createConnectorPorts(store);

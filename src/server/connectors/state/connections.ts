@@ -53,8 +53,11 @@ import { nativeIdentifierSchema } from "../../../core/connectors/index.js";
  * (tenant, authority instance, name, value) with insert-if-absent semantics,
  * so two workers binding the same external response end with exactly one
  * owner, and the same account under two tenants or two authorities never
- * aliases. Local unlink, broker deletion and upstream revocation are recorded
- * as three separate outcomes on the record, never collapsed into one.
+ * aliases. That index names the *live* owner: closing a connection releases
+ * its exclusive entries, so the same upstream account can be connected again,
+ * while a second live owner is still refused. Local unlink, broker deletion
+ * and upstream revocation are recorded as three separate outcomes on the
+ * record, never collapsed into one.
  */
 
 export type ConnectionOwnership = (
@@ -300,6 +303,18 @@ const externalEntries = (record: ConnectionRecord): ExternalEntry[] =>
 const entryId = (entry: ExternalEntry) =>
   canonicalJson([entry.authorityInstance, entry.name, entry.value]);
 
+/**
+ * A connection whose link is over: unlinked locally, revoked upstream, or
+ * purged by an administrator. The record stays, and it keeps the upstream
+ * identifiers it observed, but it no longer speaks for that account. An
+ * indeterminate disconnect is not closed: nobody knows yet whether the grant
+ * is gone, so the connection keeps what it holds until an outcome is observed.
+ */
+const isClosed = (record: ConnectionRecord): boolean =>
+  record.lifecycle === "locally-disconnected" ||
+  record.lifecycle === "upstream-revoked" ||
+  record.state.deleted === true;
+
 export function createConnectionStore(
   store: AsyncCeremonyStore,
   options: ConnectionStoreOptions = {},
@@ -389,6 +404,21 @@ export function createConnectionStore(
       await tx.delete(key, existing.revision);
   };
 
+  /*
+   * The entries a record owns in the index right now. Exclusivity is about
+   * live ownership — at most one *live* connection per upstream account, not
+   * at most one ever — so a closed connection releases its exclusive entries
+   * and the same account can be connected again. Nothing else in the product
+   * frees them, so without this a disconnect would make an account
+   * unreconnectable for good. A shared name is a membership set rather than a
+   * claim to an account, so a closed connection stays in it and `sharedWith`
+   * keeps explaining which local connections took part in the grant.
+   */
+  const indexedEntries = (record: ConnectionRecord): ExternalEntry[] =>
+    isClosed(record)
+      ? externalEntries(record).filter((entry) => shared.has(entry.name))
+      : externalEntries(record);
+
   const reindex = async (
     tx: AsyncTransaction,
     tenantId: string,
@@ -397,9 +427,9 @@ export function createConnectionStore(
     at: number,
   ) => {
     const previous = new Map(
-      (before ? externalEntries(before) : []).map((e) => [entryId(e), e]),
+      (before ? indexedEntries(before) : []).map((e) => [entryId(e), e]),
     );
-    const next = new Map(externalEntries(after).map((e) => [entryId(e), e]));
+    const next = new Map(indexedEntries(after).map((e) => [entryId(e), e]));
     for (const [id, entry] of previous)
       if (!next.has(id)) await unbind(tx, tenantId, entry, after.connectionRef);
     for (const [id, entry] of next)
@@ -832,6 +862,11 @@ export function createConnectionStore(
           sharedImpactAcknowledged: input.sharedImpactAcknowledged === true,
           codes,
         };
+        // A disconnect that closed the connection hands its exclusive
+        // identifiers back, in the same transaction that records the outcome,
+        // so the account the person just disconnected can be connected again.
+        // `update` reaches the same code for the command layer's own path.
+        await reindex(tx, actor.tenantId, before, record, at);
         const revision = await saveConnection(
           tx,
           actor.tenantId,

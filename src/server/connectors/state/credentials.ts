@@ -309,6 +309,19 @@ export function createCredentialCustodyPort(
 
     async refresh(rawScope, ref, work) {
       const scope = checkScope(rawScope);
+      /*
+       * Ownership is decided before the single-flight map is consulted. The
+       * map is keyed by reference alone, so a caller that joins a refresh
+       * started by another scope would otherwise be answered out of that
+       * refresh — learning that the reference exists and when it expires —
+       * without its scope ever being looked at. Every call proves ownership
+       * first, the joining one included; one extra read buys a scope check
+       * that holds whether or not a refresh happens to be in flight.
+       */
+      await transact(store, async (tx) => {
+        // Only the verdict leaves this transaction; the material stays in it.
+        await mustLoad(tx, scope, ref);
+      });
       const inflight = refreshing.get(ref);
       if (inflight) return inflight;
       const run = (async () => {

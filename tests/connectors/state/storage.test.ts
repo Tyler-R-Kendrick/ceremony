@@ -384,6 +384,168 @@ test("STATE-01: an external identifier binds to one owner per tenant and authori
   });
 });
 
+test("STATE-01: a disconnected connection releases its external identifier, so the same account reconnects", async () => {
+  await withPorts(async (ports) => {
+    const actor = actorFor("tenant-a");
+    const first = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_1" },
+    });
+    await ports.connections.create(first);
+
+    // While the connection is live the identifier is exclusive to it.
+    const rival = () =>
+      connectionRecord({
+        tenantId: "tenant-a",
+        ownerId: "subject-2",
+        externalIds: { connectionId: "conn_1" },
+      });
+    await assert.rejects(
+      ports.connections.create(rival()),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "conflict" &&
+        error.detail === "connection.external-id-bound",
+    );
+
+    // The person unlinks it. The outcome is recorded, the record keeps the
+    // upstream identifier it observed for audit, and the index entry goes:
+    // exclusivity is about the live owner, not about who owned it once.
+    const unlinked = await ports.connections.recordDisconnect(
+      actor,
+      first.connectionRef,
+      1,
+      {
+        scope: "local",
+        local: "applied",
+        broker: "not-attempted",
+        upstream: "not-attempted",
+      },
+    );
+    assert.equal(unlinked.record.lifecycle, "locally-disconnected");
+    assert.equal(unlinked.record.externalIds.connectionId, "conn_1");
+    assert.equal(
+      await ports.connections.findByExternalId(
+        "tenant-a",
+        first.authorityInstance,
+        "connectionId",
+        "conn_1",
+      ),
+      undefined,
+    );
+
+    // Connecting the same upstream account again is the point: a fresh record
+    // binds what the disconnected one released, and becomes exclusive in turn.
+    const again = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_1" },
+    });
+    await ports.connections.create(again);
+    assert.equal(
+      (
+        await ports.connections.findByExternalId(
+          "tenant-a",
+          again.authorityInstance,
+          "connectionId",
+          "conn_1",
+        )
+      )?.record.connectionRef,
+      again.connectionRef,
+    );
+    await assert.rejects(
+      ports.connections.create(rival()),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "connection.external-id-bound",
+    );
+    // The disconnected record is still readable, and still says what it held.
+    assert.equal(
+      (await ports.connections.get(actor, first.connectionRef))?.record
+        .externalIds.connectionId,
+      "conn_1",
+    );
+  });
+});
+
+test("STATE-01: an upstream revocation and an administrative delete release the identifier too", async () => {
+  await withPorts(async (ports) => {
+    const actor = actorFor("tenant-a");
+    // The command layer closes a connection by moving its lifecycle rather
+    // than by calling `recordDisconnect`, so that path must release as well.
+    const revoked = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_revoked" },
+    });
+    await ports.connections.create(revoked);
+    await ports.connections.update(actor, revoked.connectionRef, 1, {
+      lifecycle: "upstream-revoked",
+      lastOutcome: "disconnect.upstream",
+    });
+    assert.equal(
+      await ports.connections.findByExternalId(
+        "tenant-a",
+        revoked.authorityInstance,
+        "connectionId",
+        "conn_revoked",
+      ),
+      undefined,
+    );
+
+    // An administrative delete is a flag on the record and nothing more; the
+    // account it held must not stay claimed by a row nobody can reach.
+    const purged = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_purged" },
+    });
+    await ports.connections.create(purged);
+    await ports.connections.update(actor, purged.connectionRef, 1, {
+      state: { deleted: true },
+      lastOutcome: "delete.applied",
+    });
+    const reconnected = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_purged" },
+    });
+    await ports.connections.create(reconnected);
+    assert.equal(
+      (
+        await ports.connections.findByExternalId(
+          "tenant-a",
+          reconnected.authorityInstance,
+          "connectionId",
+          "conn_purged",
+        )
+      )?.record.connectionRef,
+      reconnected.connectionRef,
+    );
+
+    // An indeterminate outcome is not a close: nobody knows whether the grant
+    // is gone, so the connection keeps the account until an outcome is seen.
+    const unknown = connectionRecord({
+      tenantId: "tenant-a",
+      externalIds: { connectionId: "conn_unknown" },
+    });
+    await ports.connections.create(unknown);
+    await ports.connections.recordDisconnect(actor, unknown.connectionRef, 1, {
+      scope: "upstream",
+      local: "not-attempted",
+      broker: "not-attempted",
+      upstream: "indeterminate",
+    });
+    assert.equal(
+      (
+        await ports.connections.findByExternalId(
+          "tenant-a",
+          unknown.authorityInstance,
+          "connectionId",
+          "conn_unknown",
+        )
+      )?.record.connectionRef,
+      unknown.connectionRef,
+    );
+  });
+});
+
 test("STATE-01: a shared grant identifier may be carried by several connections", async () => {
   await withPorts(
     async (ports) => {

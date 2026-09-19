@@ -594,3 +594,58 @@ test("STATE-03: raw source artifacts are digest-addressed, retained and deletabl
     assert.equal(await ports.artifacts.get("tenant-a", keep), undefined);
   });
 });
+
+test("STATE-03: the retention worker's cursor carries it across every page of expired artifacts", async () => {
+  await withPorts(async (ports, store, clock) => {
+    const refs: string[] = [];
+    for (let index = 0; index < 5; index++) {
+      const bytes = new TextEncoder().encode(`{"imported":${index}}`);
+      refs.push(
+        await ports.artifacts.put("tenant-a", bytes, {
+          mediaType: "application/json",
+          digest: createHash("sha256").update(bytes).digest("hex"),
+          retainUntil: clock.now() + 60_000,
+        }),
+      );
+    }
+    clock.advance(60_001);
+
+    /*
+     * The worker pages by handing back the `lastId` it was given. Every page
+     * after the first must therefore move: a cursor mistaken for a prefix
+     * matches nothing — no id both sorts after a whole artifact id and starts
+     * with it — and the raw imported documents behind it would be retained for
+     * ever while the worker believed it had finished.
+     */
+    const pages: Array<{ deleted: number; lastId: string | undefined }> = [];
+    let cursor: string | undefined = "";
+    while (cursor !== undefined) {
+      pages.push(await ports.artifacts.purgeExpired("tenant-a", 2, cursor));
+      cursor = pages.at(-1)!.lastId;
+      assert.ok(pages.length <= 5, "the purge never reached the end");
+    }
+    assert.deepEqual(
+      pages.map((page) => page.deleted),
+      [2, 2, 1, 0],
+    );
+    // Pages follow the stored order, and a page visits at most its limit.
+    assert.equal(pages[0]!.lastId, [...refs].sort()[1]);
+    assert.equal(pages[1]!.lastId, [...refs].sort()[3]);
+    for (const ref of refs)
+      assert.equal(await ports.artifacts.describe("tenant-a", ref), undefined);
+    assert.deepEqual(
+      await store.transaction((tx) =>
+        tx.list("tenant-a", "connector-artifact"),
+      ),
+      [],
+    );
+
+    // A page limit counts records, so it is a positive whole number or nothing.
+    await assert.rejects(
+      ports.artifacts.purgeExpired("tenant-a", 0),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "artifact.purge-limit",
+    );
+  });
+});
