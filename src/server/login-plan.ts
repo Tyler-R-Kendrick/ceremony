@@ -4,6 +4,7 @@ import {
   accountPolicySchema,
   browserEngineSchema,
   browserOwnershipSchema,
+  browserReasoningModeSchema,
   browserTrustModeSchema,
   loginContinuationSchema,
   requiredCapabilitySchema,
@@ -86,6 +87,15 @@ export const connectionDraftSchema = z
     continuation: loginContinuationSchema,
     trustMode: browserTrustModeSchema,
     /**
+     * Whether this login may consult the host's model, and nothing wider.
+     *
+     * Absent means `deterministic`. A default that reached for a model would
+     * make "I did not fill this in" mean "send the page to inference", which
+     * is the wrong direction for the one field here that decides whether
+     * anything about somebody's sign-in page leaves the deployment.
+     */
+    reasoning: browserReasoningModeSchema.optional(),
+    /**
      * How many times this ceremony may ask a person to take part. It counts
      * rounds Ceremony requests, cumulatively across retries, resumes and
      * interpreter fallback. It is not, and cannot be, a promise about the
@@ -119,6 +129,8 @@ export const planRejectionReasons = [
   "verification-required",
   "unknown-credential-reference",
   "ambiguous-account",
+  /** Inference was asked for and this host has no model to do it with. */
+  "reasoning-unavailable",
 ] as const;
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
@@ -165,6 +177,8 @@ export type EffectiveLoginPlan = {
   account: AccountPolicy;
   continuation: z.infer<typeof loginContinuationSchema>;
   trustMode: z.infer<typeof browserTrustModeSchema>;
+  /** Who may decide the next action. Resolved, never absent, always digested. */
+  reasoning: z.infer<typeof browserReasoningModeSchema>;
   interactionRounds: number;
   requireVerification: boolean;
   verifierOrigin: string | undefined;
@@ -207,6 +221,14 @@ export type CompileOptions = {
   availableCredentialRefs?: ReadonlySet<string>;
   /** Whether this deployment permits a deliberately unverified attempt. */
   allowUnverified?: boolean;
+  /**
+   * Whether this host has a model configured at all, from the runtime rather
+   * than from the client. A draft asking for inference on a host without one
+   * is refused here — the alternative is running the deterministic rules
+   * under a plan that says a model decided, which is the same defect as a
+   * wizard rendering a setting the server never compiled.
+   */
+  modelAvailable?: boolean;
   revision: number;
 };
 
@@ -285,6 +307,14 @@ export function compileLoginPlan(
   if (!draft.requireVerification && options.allowUnverified !== true)
     throw new PlanRejected("verification-required");
 
+  // Asking for a model this host does not have is a refusal, never a quiet
+  // downgrade. Both answers run a login; only one of them runs the login the
+  // plan describes, and a caller told "no model here" can choose a host that
+  // has one, while a caller told nothing believes a model looked at the page.
+  const reasoning = draft.reasoning ?? "deterministic";
+  if (reasoning === "host-model" && options.modelAvailable !== true)
+    throw new PlanRejected("reasoning-unavailable");
+
   const credentialRefs: Record<string, string> = {};
   for (const [role, reference] of Object.entries(draft.credentialRefs ?? {})) {
     if (
@@ -315,6 +345,7 @@ export function compileLoginPlan(
     account: draft.account,
     continuation: draft.continuation,
     trustMode: draft.trustMode,
+    reasoning,
     interactionRounds: draft.interactionRounds,
     requireVerification: draft.requireVerification,
     verifierOrigin: draft.verifierOrigin,

@@ -20,7 +20,10 @@ import {
   type CeremonyPage,
   type HumanParticipation,
 } from "./browser-driver.js";
-import { createHeuristicInterpreter } from "./browser-interpreter.js";
+import {
+  createHeuristicInterpreter,
+  type CeremonyInterpreter,
+} from "./browser-interpreter.js";
 import type { BrowserSessionRegistry } from "./browser-sessions.js";
 import {
   mintAttestation,
@@ -73,6 +76,21 @@ export type LoginServiceOptions = {
    * nothing was dispatched — so callers that can persist should supply it.
    */
   effects?: EffectLedger;
+  /**
+   * The host's model, as an interpreter, for plans that compiled to
+   * `reasoning: "host-model"`.
+   *
+   * A factory rather than a value, so a host that builds its model lazily —
+   * or whose configuration changed since the plan compiled — answers at the
+   * moment the question is asked. Returning `undefined` is a legitimate
+   * answer and is treated as one: the attempt is refused by name, never run
+   * on the deterministic rules under a plan that says a model decided.
+   *
+   * Absent means this host runs no inference, which is the only safe default
+   * for an option whose presence decides whether somebody's sign-in page is
+   * sent anywhere.
+   */
+  modelInterpreter?: () => CeremonyInterpreter | undefined;
 };
 
 export type LoginRunInput = {
@@ -185,6 +203,14 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       };
 
       const run = async (): Promise<LoginResult> => {
+        // Asked before anything launches, for the same reason the capability
+        // check is: an attempt that cannot be run as its plan describes should
+        // fail as a plan, not halfway through a login with a browser open and
+        // a credential already released.
+        const interpreter = interpreterFor(plan);
+        if (!interpreter)
+          return { status: "blocked", runRef, reason: "reasoning-unavailable" };
+
         let browser: ManagedBrowser;
         try {
           browser = await launch(plan.engine, plan.required);
@@ -224,6 +250,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
                 await ledger.dispatching(actor, effectRef, destination);
               dispatched = true;
             },
+            interpreter,
           );
           if (outcome.kind === "indeterminate")
             return {
@@ -438,11 +465,37 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
   }
 
   /**
+   * Which interpreter this plan compiled to, or nothing when the host cannot
+   * supply it.
+   *
+   * The plan decides, not the service and not the caller. A password login on
+   * an ordinary form needs no model, so `deterministic` stays the answer for
+   * everything that did not explicitly ask — a plan must not acquire an
+   * inference call by accident, and the compiler makes the omitted field mean
+   * "no".
+   *
+   * The second branch is the one that matters. A plan compiled against a host
+   * that had a model can be run later, or elsewhere, against one that does
+   * not; the honest answer then is a refusal, because running the
+   * deterministic rules would produce an attempt whose plan digest says a
+   * model looked at the page when nothing did.
+   */
+  function interpreterFor(
+    plan: EffectiveLoginPlan,
+  ): CeremonyInterpreter | undefined {
+    if (plan.reasoning === "deterministic") return createHeuristicInterpreter();
+    return options.modelInterpreter?.();
+  }
+
+  /**
    * Drive the login itself.
    *
-   * The interpreter is the deterministic one: a password login needs no model,
-   * and a plan that permits no interaction must not acquire one by accident.
-   * Secrets are resolved by role inside this call and never leave it.
+   * Whichever interpreter the plan chose, it has no authority here. The driver
+   * validates every action it proposes, owns origin policy, decides which role
+   * resolves to what, and refuses anything the observation does not support —
+   * so the difference between the two is which page-reading rules run, not how
+   * much is trusted. Secrets are resolved by role inside this call and never
+   * leave it.
    */
   async function drive(
     actor: ActorContext,
@@ -450,6 +503,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     page: CeremonyPage,
     input: LoginRunInput,
     onDispatch: (info: { destination: string }) => Promise<void> | void,
+    interpreter: CeremonyInterpreter,
   ): Promise<
     | { kind: "done" }
     | { kind: "indeterminate" }
@@ -501,7 +555,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
 
     const result = await runCeremony({
       page,
-      interpreter: createHeuristicInterpreter(),
+      interpreter,
       goal: "sign-in",
       secrets: createSecrets(values),
       // The driver's origin rule is the union of everywhere a secret may go,

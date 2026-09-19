@@ -68,6 +68,21 @@ describe("POLICY-DRAFT: every operative field reaches the plan", () => {
     ["credential references", { credentialRefs: { password: "ref-other" } }],
   ];
 
+  test("changing who reasons changes the canonical plan", () => {
+    // Separate from the loop because it needs the host to declare a model:
+    // a draft asking for one where there is none is a rejection, which is
+    // POLICY-UNKNOWN's business rather than this one's.
+    const changed = compileLoginPlan(draft({ reasoning: "host-model" }), {
+      ...options,
+      modelAvailable: true,
+    });
+    assert.notEqual(
+      changed.digest,
+      base.digest,
+      "reasoning must be part of what execution reads",
+    );
+  });
+
   for (const [name, change] of variations)
     test(`changing the ${name} changes the canonical plan`, () => {
       const changed = compileLoginPlan(draft(change), options);
@@ -97,6 +112,19 @@ describe("POLICY-UNKNOWN: nothing falls back to the first of anything", () => {
       () => compileLoginPlan(draft({ connectorId: "not-registered" }), options),
       (error: unknown) =>
         error instanceof PlanRejected && error.reason === "unknown-connector",
+    );
+  });
+
+  test("a model this host does not have is rejected, not downgraded", () => {
+    // The same rule as the engine below, for the field that decides whether
+    // anything about somebody's sign-in page leaves the deployment. Running
+    // the deterministic rules instead would produce an attempt whose digest
+    // says a model read the page when nothing did.
+    assert.throws(
+      () => compileLoginPlan(draft({ reasoning: "host-model" }), options),
+      (error: unknown) =>
+        error instanceof PlanRejected &&
+        error.reason === "reasoning-unavailable",
     );
   });
 

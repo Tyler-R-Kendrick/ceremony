@@ -45,39 +45,43 @@ From `src/server/browser-backends.ts`. These are what each engine can enforce
 
 ## Acceptance cases
 
-| Case           | Covered by                                                   | Engines | Evidence |
-| -------------- | ------------------------------------------------------------ | ------- | -------- |
-| AUTH-COMBINED  | `browser-login-conformance` AUTH-COMBINED                    | all 3   | fixture  |
-| AUTH-WRONG     | `browser-login-conformance` AUTH-WRONG                       | all 3   | fixture  |
-| AUTH-FORGED    | `browser-login-conformance` AUTH-FORGED                      | all 3   | fixture  |
-| AUTH-CAPTCHA   | `browser-login-conformance` AUTH-CAPTCHA                     | all 3   | fixture  |
-| AUTH-PASSKEY   | `browser-login-conformance` AUTH-PASSKEY                     | all 3   | fixture  |
-| LIFE-RETURN    | `browser-login-conformance` LIFE-RETURN                      | all 3   | fixture  |
-| LIFE-MANAGED   | `browser-login-conformance` LIFE-MANAGED                     | all 3   | fixture  |
-| LIFE-LEGACY    | `browser-login-conformance` LIFE-LEGACY                      | all 3   | fixture  |
-| LIFE-ATTACHED  | `browser-session-lifetime` LIFE-ATTACHED                     | n/a     | unit     |
-| LIFE-TRANSFER  | `browser-session-lifetime` LIFE-TRANSFER                     | n/a     | unit     |
-| LIFE-RESTART   | `browser-session-lifetime` LIFE-RESTART                      | n/a     | unit     |
-| CLIENT-OWNER   | `browser-session-lifetime` CLIENT-OWNER                      | n/a     | unit     |
-| EFFECT-CANCEL  | `browser-session-lifetime` EFFECT-CANCEL                     | n/a     | unit     |
-| TARGET-MARKER  | `browser-targets.e2e` TARGET-MARKER                          | all 3   | fixture  |
-| TARGET-ASYNC   | `browser-targets.e2e` TARGET-ASYNC                           | all 3   | fixture  |
-| TARGET-FORM    | `browser-targets.e2e` TARGET-FORM (×2: action, `formaction`) | all 3   | fixture  |
-| ORIGIN-SSO     | `login-plan` ORIGIN-SSO                                      | n/a     | unit     |
-| ORIGIN-SSRF    | `login-plan` ORIGIN-SSRF                                     | n/a     | unit     |
-| POLICY-DRAFT   | `login-plan` POLICY-DRAFT (9 fields)                         | n/a     | unit     |
-| POLICY-UNKNOWN | `login-plan` POLICY-UNKNOWN                                  | n/a     | unit     |
-| POLICY-VERIFY  | `login-plan` POLICY-VERIFY                                   | n/a     | unit     |
-| POLICY-REVISE  | `login-plan` + `browser-session-lifetime` POLICY-REVISE      | n/a     | unit     |
-| VER-FRESH      | `browser-session-lifetime` VER-FRESH                         | n/a     | unit     |
-| HOF-STALE      | `browser-login-handoff` HOF-STALE                            | n/a     | unit     |
-| HOF-PORT       | `browser-login-handoff` HOF-PORT                             | n/a     | unit     |
-| HOF-DUP        | `browser-login-handoff` HOF-DUP                              | n/a     | unit     |
-| ENGINE-REAL    | `browser-login-conformance` ENGINE-REAL                      | all 3   | runtime  |
-| PRIV-PROMPT    | `browser-login-privacy` PRIV-PROMPT (4 cases)                | n/a     | unit     |
-| PRIV-ERROR     | `browser-login-privacy` PRIV-ERROR (12 cases)                | n/a     | unit     |
-| PRIV-ARTIFACT  | `browser-login-privacy` PRIV-ARTIFACT (2 cases)              | n/a     | unit     |
-| PRIV-ALTERNATE | `browser-login-privacy` PRIV-ALTERNATE (2 cases)             | n/a     | unit     |
+| Case            | Covered by                                                   | Engines | Evidence |
+| --------------- | ------------------------------------------------------------ | ------- | -------- |
+| AUTH-COMBINED   | `browser-login-conformance` AUTH-COMBINED                    | all 3   | fixture  |
+| AUTH-WRONG      | `browser-login-conformance` AUTH-WRONG                       | all 3   | fixture  |
+| AUTH-FORGED     | `browser-login-conformance` AUTH-FORGED                      | all 3   | fixture  |
+| AUTH-CAPTCHA    | `browser-login-conformance` AUTH-CAPTCHA                     | all 3   | fixture  |
+| AUTH-PASSKEY    | `browser-login-conformance` AUTH-PASSKEY                     | all 3   | fixture  |
+| LIFE-RETURN     | `browser-login-conformance` LIFE-RETURN                      | all 3   | fixture  |
+| LIFE-MANAGED    | `browser-login-conformance` LIFE-MANAGED                     | all 3   | fixture  |
+| LIFE-LEGACY     | `browser-login-conformance` LIFE-LEGACY                      | all 3   | fixture  |
+| LIFE-ATTACHED   | `browser-session-lifetime` LIFE-ATTACHED                     | n/a     | unit     |
+| LIFE-TRANSFER   | `browser-session-lifetime` LIFE-TRANSFER                     | n/a     | unit     |
+| LIFE-RESTART    | `browser-session-lifetime` LIFE-RESTART                      | n/a     | unit     |
+| CLIENT-OWNER    | `browser-session-lifetime` CLIENT-OWNER                      | n/a     | unit     |
+| EFFECT-CANCEL   | `browser-session-lifetime` EFFECT-CANCEL                     | n/a     | unit     |
+| TARGET-MARKER   | `browser-targets.e2e` TARGET-MARKER                          | all 3   | fixture  |
+| TARGET-ASYNC    | `browser-targets.e2e` TARGET-ASYNC                           | all 3   | fixture  |
+| TARGET-FORM     | `browser-targets.e2e` TARGET-FORM (×2: action, `formaction`) | all 3   | fixture  |
+| ORIGIN-SSO      | `login-plan` ORIGIN-SSO                                      | n/a     | unit     |
+| ORIGIN-SSRF     | `login-plan` ORIGIN-SSRF                                     | n/a     | unit     |
+| POLICY-DRAFT    | `login-plan` POLICY-DRAFT (9 fields)                         | n/a     | unit     |
+| POLICY-UNKNOWN  | `login-plan` POLICY-UNKNOWN                                  | n/a     | unit     |
+| POLICY-VERIFY   | `login-plan` POLICY-VERIFY                                   | n/a     | unit     |
+| POLICY-REVISE   | `login-plan` + `browser-session-lifetime` POLICY-REVISE      | n/a     | unit     |
+| VER-FRESH       | `browser-session-lifetime` VER-FRESH                         | n/a     | unit     |
+| HOF-STALE       | `browser-login-handoff` HOF-STALE                            | n/a     | unit     |
+| HOF-PORT        | `browser-login-handoff` HOF-PORT                             | n/a     | unit     |
+| HOF-DUP         | `browser-login-handoff` HOF-DUP                              | n/a     | unit     |
+| ENGINE-REAL     | `browser-login-conformance` ENGINE-REAL                      | all 3   | runtime  |
+| PRIV-PROMPT     | `browser-login-privacy` PRIV-PROMPT (4 cases)                | n/a     | unit     |
+| PRIV-ERROR      | `browser-login-privacy` PRIV-ERROR (12 cases)                | n/a     | unit     |
+| PRIV-ARTIFACT   | `browser-login-privacy` PRIV-ARTIFACT (2 cases)              | n/a     | unit     |
+| PRIV-ALTERNATE  | `browser-login-privacy` PRIV-ALTERNATE (2 cases)             | n/a     | unit     |
+| MODEL-POLICY    | `browser-login-reasoning` MODEL-POLICY (5 cases)             | n/a     | unit     |
+| MODEL-SEAM      | `browser-login-reasoning` MODEL-SEAM (4 cases)               | n/a     | unit     |
+| MODEL-AUTHORITY | `browser-login-reasoning` MODEL-AUTHORITY (5 cases)          | n/a     | unit     |
+| MODEL-PROMPT    | `browser-login-reasoning` MODEL-PROMPT (3 cases)             | n/a     | unit     |
 
 ### Cases not covered
 
