@@ -54,7 +54,14 @@ test("canonical runner caps file concurrency without dropping inventory or failu
         timeout: 15000,
       }),
     );
-    assert.deepEqual(inventory, { mode: "all", files: expectedFiles });
+    // The case-name inventory is part of the contract: a sanitized failure
+    // report names the case from it, so a runner that stopped emitting it
+    // would silently take that name away again.
+    assert.deepEqual(inventory, {
+      mode: "all",
+      files: expectedFiles,
+      names: ["real fixture assertion"],
+    });
     const run = () =>
       spawnSync(process.execPath, ["--import", preload, runner, "all"], {
         cwd: directory,
