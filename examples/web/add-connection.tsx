@@ -561,7 +561,7 @@ export interface AddConnectionProps {
    */
   open: boolean;
   /** The live ceremony for this connector, rendered once the draft is settled. */
-  renderRun(draft: ConnectionDraft): ReactNode;
+  renderRun(draft: ConnectionDraft, runEpoch: number): ReactNode;
   /**
    * Where to open. A person who clicked a card is configuring; a person who
    * followed a resume link already did, and should land on the run.
@@ -592,25 +592,28 @@ export function AddConnection({
   const set = (patch: Partial<ConnectionDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
   /**
-   * Whether Complete has been reached at least once.
+   * How many times Complete has been arrived at.
    *
-   * The run reads the declaration when it mounts and keeps what it read, so it
-   * must not mount before that declaration is finished. `keepMounted` exists so
-   * the connection outlives the drawer that started it — but unconditional, it
-   * also brought the run to life on the drawer's first paint, against the empty
-   * draft, and every answer given afterwards was decoration: the summary said
-   * one thing and the resolver was handed another. Reaching Complete is the
-   * moment the declaration stops changing, so it is the moment to mount, and
-   * from then on this keeps it mounted exactly as before.
+   * The run reads the declaration when it mounts and keeps what it read, so a
+   * run mounted on the drawer's first paint is holding the empty draft and
+   * every answer given afterwards is decoration — the summary says one thing
+   * and the resolver is handed another. The fix is not to delay the mount:
+   * mounting is also what registers this connection's WebMCP tools, and those
+   * are expected from page load, whether or not anybody opens the drawer.
+   *
+   * So the run stays mounted throughout and is rebuilt at the one moment the
+   * declaration is finished — arriving at Complete. Going back, changing an
+   * answer and returning arrives again, so the rebuilt run carries the changed
+   * declaration too. A run already under way is handed its resume id, so being
+   * rebuilt returns it to the same ceremony rather than starting another.
    */
-  const [reachedRun, setReachedRun] = useState(initialStep === 4);
+  const [runEpoch, setRunEpoch] = useState(0);
   useEffect(() => {
-    if (step === 4) setReachedRun(true);
+    if (step === 4) setRunEpoch((count) => count + 1);
   }, [step]);
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
-    setReachedRun(initialStep === 4);
     // Keyed on the id, not the object: `entries` is rebuilt whenever config
     // resolves, and a new object identity for the same connector would discard
     // everything the person had typed.
@@ -928,12 +931,7 @@ export function AddConnection({
             </button>
           </div>
         </Step>
-        <Step
-          index={4}
-          title="Complete"
-          state={state(4)}
-          keepMounted={reachedRun}
-        >
+        <Step index={4} title="Complete" state={state(4)} keepMounted>
           <details className="summary-disclosure">
             <summary>Connection summary</summary>
             <dl className="summary-list">
@@ -957,7 +955,7 @@ export function AddConnection({
               </dd>
             </dl>
           </details>
-          <div className="run-region">{renderRun(draft)}</div>
+          <div className="run-region">{renderRun(draft, runEpoch)}</div>
           <div className="step-actions">
             <button
               type="button"

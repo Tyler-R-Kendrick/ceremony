@@ -265,7 +265,7 @@ function App() {
   };
 
   /** The connection workspace, unchanged in substance and hosted by the drawer. */
-  const renderRun = (draft: ConnectionDraft) => {
+  const renderRun = (draft: ConnectionDraft, runEpoch: number) => {
     if (loadError) return <p role="alert">{loadError}</p>;
     if (!config) return <p role="status">Loading your workspace…</p>;
     if (!entry)
@@ -431,7 +431,7 @@ function App() {
             </div>
           ) : (
             <Ceremony
-              key={`${connector.id}:${delegation}`}
+              key={`${connector.id}:${delegation}:${runEpoch}`}
               manifest={connector}
               transport={transport}
               /* What Customize declared actually reaches the resolver, so the
