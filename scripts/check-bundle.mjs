@@ -44,7 +44,30 @@ const totals = files.reduce(
 // number moves to where it can still catch a real regression: about 3% clear
 // of today's build, which is roughly one careless import, not one sentence of
 // copy.
-const budget = { raw: 545000, gzip: 169000 };
+//
+// Raised again for the compiled-plan readout, measured on one variable before
+// the number moved. The same tree was built twice, with nothing different
+// between the two but whether `add-connection.tsx` imports
+// `connection-plan.ts`:
+//
+//   without the wiring   534349 raw / 165795 gzip
+//   with the wiring      548315 raw / 169937 gzip
+//   ------------------------------------------------
+//   cost                  13966 raw /   4142 gzip
+//
+// That is the whole of it: no other module grew and no dependency came along,
+// which is what building it both ways establishes and what asserting it would
+// not. The module reaches into `src/server/login-plan.ts` and
+// `src/core/browser-session-contracts.ts` for *types only*, which erase at
+// build time, so nothing server-side is shipped to a browser and no Node
+// built-in is polyfilled into one - the 14 kB is a zod schema for the plan
+// echo, a projection per auth family, and plain words for every rejection the
+// compiler can name.
+//
+// The ceiling lands about 2% clear of the measurement, which is where the
+// previous one sat in practice rather than the 3% its comment claimed. Enough
+// to absorb a rename; not enough to hide a feature.
+const budget = { raw: 560000, gzip: 173500 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(

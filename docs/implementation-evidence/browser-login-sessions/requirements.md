@@ -110,9 +110,10 @@ and accounts are rejected rather than defaulted.
 **Evidence:** `tests/login-plan.test.ts` — 30 cases, including nine that each
 change one operative field and assert the canonical digest changes.
 
-**UI half repaired in:** `examples/web/connection-plan.ts` (new),
-`examples/web/add-connection.tsx`, `examples/web/catalog.ts`,
-`examples/web/connect-catalog.tsx`.
+**UI half repaired in:** `examples/web/connection-plan.ts` (new) and
+`examples/web/add-connection.tsx`. The catalogue and the directory grid are
+unchanged: what was missing was never a row or a card, it was that nothing the
+wizard collected ever reached the compiler.
 
 `connection-plan.ts` is the only place a draft is allowed to leave the browser
 and the only place a compiled plan is read out of a response. Every value the

@@ -226,12 +226,17 @@ test("QA-PR: two wizard configurations put two different plans on the wire", asy
 test("a configuration the server rejects shows the reason it named", async ({
   page,
 }) => {
-  await serveBackends(page, [managedBackend("chromium")]);
+  // A host whose only browser cannot keep state between runs. That is not a
+  // contrived fixture: `statePersistence` is false on every engine this
+  // project registers, because nothing implements it.
+  const limited = managedBackend("chromium");
+  limited.capabilities.statePersistence = false;
+  await serveBackends(page, [limited]);
   const sent = await serveLogin(page, (draft) =>
-    draft.requireVerification === false
+    (draft.required as Record<string, boolean> | undefined)?.statePersistence
       ? {
           status: 400,
-          body: { error: "plan-rejected", reason: "verification-required" },
+          body: { error: "plan-rejected", reason: "unsupported-capability" },
         }
       : { status: 200, body: { status: "verified", runRef: "brun_x" } },
   );
@@ -239,20 +244,26 @@ test("a configuration the server rejects shows the reason it named", async ({
   const drawer = await openBrowserLogin(page);
   await drawer.getByLabel("Entry origin").fill("https://refused.example");
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
-  await drawer.getByRole("checkbox", { name: /Verify real access/ }).uncheck();
+  // Teaching is on by default for this row, and replaying a recorded sign-in
+  // is what makes the plan ask for state to survive the run.
+  await expect(
+    drawer.getByRole("checkbox", { name: /Teach this connection/ }),
+  ).toBeChecked();
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await drawer
     .getByRole("button", { name: "Check this configuration" })
     .click();
   await expect.poll(() => sent.length).toBe(1);
-  // The unchecked box reached the wire, which is why it could be refused.
-  expect(sent[0]!.requireVerification).toBe(false);
+  // The capability reached the wire, which is why it could be refused. A
+  // wizard that kept this to itself would have shown a plan that runs without
+  // the thing the person asked for.
+  expect(sent[0]!.required).toEqual({ statePersistence: true });
 
   const panel = drawer.getByRole("region", { name: "Effective configuration" });
   const alert = panel.getByRole("alert");
-  await expect(alert).toContainText("verification-required");
+  await expect(alert).toContainText("unsupported-capability");
   await expect(alert).toContainText(
-    "does not run a connection that never reads anything back",
+    "cannot enforce something this configuration requires",
   );
   // A rejected configuration is not quietly replaced by a plausible-looking one.
   await expect(panel.locator('[data-plan="digest"]')).toHaveCount(0);
@@ -290,12 +301,15 @@ test("a browser this host does not run is disabled with the reason on it", async
   ).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  // A host that will not compile an unverified plan says so on the control
-  // rather than accepting the choice and refusing it a step later.
-  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
-  const verify = drawer.getByRole("checkbox", { name: /Verify real access/ });
-  await expect(verify).toBeChecked();
-  await expect(verify).toBeDisabled();
+  // A host that will not compile an unverified plan says so where the
+  // configuration is made, rather than accepting it and refusing a step later.
+  //
+  // It is stated, not offered. Whether a connection proves real access is
+  // settled by the connector's manifest and, above that, by this workspace -
+  // so a checkbox here would be a control that changes nothing, which is the
+  // defect the whole drawer was rebuilt to remove. What a person is owed is
+  // the fact, in the place where they would otherwise have looked for the
+  // switch.
   await expect(
     drawer.getByText("This workspace refuses a plan that turns verification"),
   ).toBeVisible();

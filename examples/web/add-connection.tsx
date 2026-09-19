@@ -9,6 +9,17 @@ import {
 } from "./catalog.js";
 import { Glyph, initials } from "./connect-catalog.js";
 import { environmentName } from "./declaration.js";
+import {
+  allEngines,
+  compileConnection,
+  engineLabels,
+  ownershipLabels,
+  readBackends,
+  rejectionGuidance,
+  type BackendNegotiation,
+  type CompileOutcome,
+  type ConnectionDraft,
+} from "./connection-plan.js";
 
 /**
  * Add Connection: four steps, only one of them open.
@@ -25,20 +36,16 @@ import { environmentName } from "./declaration.js";
  * server decides what it will actually run.
  */
 
-export type KeyScope = "shared" | "per-user";
-export type Mode = "managed" | "custom";
-
-export interface ConnectionDraft {
-  entryId: string;
-  mode: Mode;
-  family: AuthFamily;
-  /** Free-form per-family configuration; the server re-validates all of it. */
-  values: Record<string, string>;
-  keyScope: KeyScope;
-  capabilities: HostCapability[];
-  interruptions: "any" | "at-most-one" | "none";
-  identity: "personal" | "anonymous" | "either";
-}
+/**
+ * The draft lives beside the code that sends it, not beside the form.
+ *
+ * `connection-plan.ts` is the only module allowed to put a draft on the wire,
+ * and it is the one that has to stay in step with the compiler's own draft
+ * type. Defining the shape here as well meant two declarations of the same
+ * thing, and the one the server checks against is the other one. Re-exported
+ * because `main.tsx` and `declaration.ts` name it from here.
+ */
+export type { ConnectionDraft, KeyScope, Mode } from "./connection-plan.js";
 
 /**
  * The families whose Configure step actually reads `mode`.
@@ -81,7 +88,21 @@ export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
     ),
     interruptions: "any",
     identity: "either",
+    // A starting point, not a decision. The Customize step replaces both from
+    // the host's own registered backends, and a host that registers none
+    // offers nothing to pick: the wizard says so rather than defaulting to a
+    // browser that is not there.
+    engine: "chromium",
+    ownership: "managed",
   };
+}
+
+/** A duration a person can read, from the milliseconds a plan carries. */
+function minutes(value: number | undefined): string {
+  if (value === undefined) return "not stated";
+  const total = Math.round(value / 60_000);
+  if (total < 1) return "under a minute";
+  return total === 1 ? "1 minute" : `${total} minutes`;
 }
 
 function Field({
@@ -675,6 +696,72 @@ export function AddConnection({
   useEffect(() => {
     if (step === 4) setRunEpoch((count) => count + 1);
   }, [step]);
+  /**
+   * What the server compiled, which is the only thing Complete may present as
+   * settled.
+   *
+   * `undefined` is "not asked yet" and is rendered as such. It is never
+   * rendered as the draft: a summary assembled from the answers a person gave
+   * reads exactly like a summary of what will run, and the two are different
+   * documents whenever the compiler narrows, refuses or substitutes anything.
+   */
+  const [compiled, setCompiled] = useState<CompileOutcome | undefined>();
+  const [compiling, setCompiling] = useState(false);
+  const [backends, setBackends] = useState<BackendNegotiation | undefined>();
+  useEffect(() => {
+    let live = true;
+    void readBackends().then((answer) => {
+      if (live) setBackends(answer);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  /** What the host actually registered. Empty until it has answered. */
+  const offers = backends?.kind === "offered" ? backends.backends : [];
+  /**
+   * What the selected backend cannot do that a plan is allowed to require.
+   *
+   * Narrowed to the requirable set on purpose. A descriptor carries other
+   * false flags that are not deficiencies at all - `debugExposure: false` is
+   * the browser declining to expose a debugger, which is the answer anyone
+   * would want - and listing those as things it "cannot enforce" would turn a
+   * safety property into an apology. Only a capability a plan can name in
+   * `required`, and therefore be refused over, belongs here.
+   */
+  const requirable = [
+    "retainedSession",
+    "strongEgressContainment",
+    "statePersistence",
+    "frameBinding",
+    "popupBinding",
+  ] as const;
+  const selected = offers.find(
+    (backend) =>
+      backend.engine === draft.engine && backend.ownership === draft.ownership,
+  );
+  const unenforceable = selected
+    ? requirable.filter((name) => selected.capabilities[name] !== true)
+    : [];
+  /**
+   * A compiled plan describes the draft it was compiled from, and nothing
+   * else.
+   *
+   * So any edit discards it. Leaving the previous answer on screen while the
+   * configuration behind it changes is the same defect as rendering the draft
+   * in the first place, only harder to notice: the digest, the origins and the
+   * budget would all still be there, all still look authoritative, and all
+   * describe a configuration that is no longer the one on screen.
+   */
+  useEffect(() => {
+    setCompiled(undefined);
+  }, [draft]);
+  const check = async () => {
+    setCompiling(true);
+    const outcome = await compileConnection(entry, draft);
+    setCompiled(outcome);
+    setCompiling(false);
+  };
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
@@ -889,6 +976,90 @@ export function AddConnection({
             })}
           </fieldset>
           <FamilyForm family={draft.family} draft={draft} set={set} />
+          {/*
+           * Two questions, not one dropdown.
+           *
+           * Which engine and whose browser are independent, and a host
+           * commonly runs one of each rather than a matrix. Asking them
+           * separately also lets each answer carry its own reason for being
+           * unavailable, which a combined list cannot: "no backend for this
+           * engine" and "no companion is attached" are different problems with
+           * different fixes.
+           *
+           * An engine this host does not run is shown and disabled rather than
+           * omitted. A list that silently contains only what works reads as
+           * the whole world; a disabled row with a reason on it says the world
+           * is bigger than this host.
+           */}
+          <fieldset className="choice-group">
+            <legend>Browser engine</legend>
+            {allEngines.map((engine) => {
+              const offered = offers.some(
+                (backend) => backend.engine === engine,
+              );
+              return (
+                <label key={engine} className="choice">
+                  <input
+                    type="radio"
+                    name="browser-engine"
+                    value={engine}
+                    disabled={!offered}
+                    checked={offered && draft.engine === engine}
+                    onChange={() => set({ engine })}
+                  />
+                  <span className="choice-title">{engineLabels[engine]}</span>
+                  <span className="choice-note">
+                    {offered
+                      ? (offers.find((backend) => backend.engine === engine)
+                          ?.engineVersion ?? "")
+                      : "No backend for this engine is registered on this host."}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+          <fieldset className="choice-group">
+            <legend>Whose browser</legend>
+            {(["managed", "attached-user"] as const).map((ownership) => {
+              const offered = offers.some(
+                (backend) => backend.ownership === ownership,
+              );
+              return (
+                <label key={ownership} className="choice">
+                  <input
+                    type="radio"
+                    name="browser-ownership"
+                    value={ownership}
+                    disabled={!offered}
+                    checked={offered && draft.ownership === ownership}
+                    onChange={() => set({ ownership })}
+                  />
+                  <span className="choice-title">
+                    {ownershipLabels[ownership]}
+                  </span>
+                  {!offered && (
+                    <span className="choice-note">
+                      No browser of this kind is registered on this host.
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </fieldset>
+          {backends?.kind === "offered" && backends.verificationRequired && (
+            <p className="choice-note">
+              This workspace refuses a plan that turns verification off, so
+              every connection made here has to read something the grant was for
+              before it completes.
+            </p>
+          )}
+          {unenforceable.length > 0 && (
+            <p className="choice-note">
+              What the selected browser cannot enforce:{" "}
+              {unenforceable.join(", ")}. A plan that requires one of these is
+              refused rather than run without it.
+            </p>
+          )}
           <div className="step-actions">
             <button
               type="button"
@@ -1035,29 +1206,113 @@ export function AddConnection({
           </div>
         </Step>
         <Step index={4} title="Complete" state={state(4)} keepMounted>
-          <details className="summary-disclosure">
-            <summary>Connection summary</summary>
-            <dl className="summary-list">
-              <dt>Service</dt>
-              <dd>{entry.name}</dd>
-              {modeAwareFamilies.includes(draft.family) && (
-                <>
-                  <dt>Configuration</dt>
-                  <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
-                </>
-              )}
-              <dt>Auth family</dt>
-              <dd>{authFamilyLabels[draft.family]}</dd>
-              <dt>Capabilities</dt>
-              <dd>
-                {draft.capabilities.length
-                  ? draft.capabilities
-                      .map((capability) => capabilityDetails[capability].label)
-                      .join(", ")
-                  : "Credential collection only"}
-              </dd>
-            </dl>
-          </details>
+          {/*
+           * What the server compiled, never what this page asked for.
+           *
+           * The list this replaces was assembled from `draft` and read as a
+           * statement of what would run: "Managed, OAuth, teaching on". It was
+           * a statement of what had been *requested*. Every value below comes
+           * out of the compiler's own echo, and when the compiler refused
+           * there is no list at all - because there is nothing in effect to
+           * describe, and printing the request in its place is the precise
+           * defect this step exists to remove.
+           */}
+          <section
+            className="plan-readout"
+            aria-label="Effective configuration"
+          >
+            <h3>Effective configuration</h3>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void check()}
+              disabled={compiling}
+            >
+              {compiling
+                ? "Checking…"
+                : compiled
+                  ? "Check this configuration again"
+                  : "Check this configuration"}
+            </button>
+            {compiled === undefined ? (
+              <p className="choice-note">
+                Nothing has been sent yet, so there is nothing to report. What
+                you chose above is a request; this is where the server says what
+                it will actually run.
+              </p>
+            ) : compiled.kind === "refused" ? (
+              <p className="choice-note" role="alert">
+                {compiled.message}
+              </p>
+            ) : compiled.kind === "rejected" ? (
+              <>
+                <p role="alert">
+                  <strong>{compiled.reason}</strong> — {compiled.message}
+                </p>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => setStep(compiled.step)}
+                >
+                  {compiled.step === 2
+                    ? "Fix in Configure"
+                    : "Fix in Customize"}
+                </button>
+              </>
+            ) : compiled.plan === undefined ? (
+              <p className="choice-note" role="status">
+                This host ran the configuration without echoing the plan it
+                compiled, so there is nothing here to show you. That is the
+                host&rsquo;s answer, not a summary of what you typed.
+              </p>
+            ) : (
+              <dl className="summary-list">
+                <dt>Plan digest</dt>
+                <dd>
+                  <code data-plan="digest">{compiled.plan.digest}</code>
+                </dd>
+                <dt>Revision</dt>
+                <dd data-plan="revision">{compiled.plan.revision}</dd>
+                <dt>Browser</dt>
+                <dd data-plan="engine">
+                  {compiled.plan.engine ?? "not stated"} ·{" "}
+                  {compiled.plan.ownership ?? "not stated"}
+                </dd>
+                <dt>Starts at</dt>
+                <dd data-plan="entryUrl">
+                  {compiled.plan.entryUrl ?? "not stated"}
+                </dd>
+                <dt>May navigate to</dt>
+                <dd data-plan="navigationOrigins">
+                  {compiled.plan.navigationOrigins?.join(", ") ?? "not stated"}
+                </dd>
+                <dt>Trust mode</dt>
+                <dd data-plan="trustMode">
+                  {compiled.plan.trustMode ?? "not stated"}
+                </dd>
+                <dt>Continuation</dt>
+                <dd data-plan="continuation">
+                  {compiled.plan.continuation ?? "not stated"}
+                </dd>
+                <dt>Verifies real access</dt>
+                <dd data-plan="requireVerification">
+                  {compiled.plan.requireVerification === undefined
+                    ? "not stated"
+                    : compiled.plan.requireVerification
+                      ? "yes"
+                      : "no"}
+                </dd>
+                <dt>Times it may interrupt</dt>
+                <dd data-plan="interactionRounds">
+                  {compiled.plan.interactionRounds ?? "not stated"}
+                </dd>
+                <dt>Session lifetime</dt>
+                <dd data-plan="sessionTtlMs">
+                  {minutes(compiled.plan.sessionTtlMs)}
+                </dd>
+              </dl>
+            )}
+          </section>
           <div className="run-region">{renderRun(draft, runEpoch)}</div>
           <div className="step-actions">
             <button

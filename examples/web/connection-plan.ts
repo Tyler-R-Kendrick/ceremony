@@ -14,7 +14,7 @@ import type {
   ConnectionDraft as ServerConnectionDraft,
   PlanRejectionReason,
 } from "../../src/server/login-plan.js";
-import type { AuthFamily, Capability, CatalogEntry } from "./catalog.js";
+import type { AuthFamily, CatalogEntry, HostCapability } from "./catalog.js";
 
 /**
  * Turning what the Add Connection wizard collected into what the server will
@@ -47,7 +47,16 @@ export interface ConnectionDraft {
   /** Free-form per-family configuration; the server re-validates all of it. */
   values: Record<string, string>;
   keyScope: KeyScope;
-  capabilities: Capability[];
+  /**
+   * Only what this application can switch.
+   *
+   * A connector property is not a draft field: the manifest settles whether a
+   * service verifies real access or publishes a recipe, and offering a person
+   * a box for it would be a control that changes nothing. Those are read from
+   * the catalogue entry where they belong, which is also the only place they
+   * are true.
+   */
+  capabilities: HostCapability[];
   interruptions: "any" | "at-most-one" | "none";
   identity: "personal" | "anonymous" | "either";
   /** Which registered browser runs this. Offered from the server's own list. */
@@ -214,11 +223,6 @@ const oauth: FamilyProjection = {
 
 const projections: Record<AuthFamily, FamilyProjection> = {
   "oauth-code": oauth,
-  "oauth-client-credentials": {
-    ...oauth,
-    // Nobody is present, so nothing may pop up and nothing may be asked.
-    required: () => ({}),
-  },
   "api-key": {
     entry: (draft) => value(draft, "service"),
     entryField: "service",
@@ -332,7 +336,24 @@ const projections: Record<AuthFamily, FamilyProjection> = {
       value(draft, "sequence") === "identifier"
         ? ["identifier", "password"]
         : ["password"],
-    required: () => ({ frameBinding: true, popupBinding: true }),
+    // Nothing here. An attended sign-in on a provider's own page navigates the
+    // top-level document: this projection declares no frame origins and no
+    // window handoff, so requiring the engine to bind a frame or adopt a popup
+    // was asking it to enforce something this flow does not do.
+    //
+    // It mattered once #51 corrected `frameBinding` and `popupBinding` to
+    // false on every engine. Before that the table claimed both, the plan was
+    // admitted, and it ran with neither - so the requirement had never bought
+    // any enforcement. Afterwards it bought a universal refusal instead, which
+    // is how this was noticed: every browser-login configuration stopped
+    // compiling. Dropping it restores what actually happened all along, and
+    // says so, rather than leaving a demand nothing can meet.
+    //
+    // The rows that genuinely do hand off through a window - OAuth, the GitHub
+    // App, provider-run registration - keep requiring `popupBinding` and are
+    // now correctly refused until something implements it. That refusal is the
+    // point: being told no leaves a person free to choose something else.
+    required: () => ({}),
     notCarried: [],
   },
   "account-registration": {
@@ -406,14 +427,17 @@ export function projectDraft(
   draft: ConnectionDraft,
 ): ProjectionResult {
   const projection = projections[draft.family];
-  const declared = exactOrigin(projection.entry(draft));
-  const registered = entry.origin ? exactOrigin(entry.origin) : undefined;
-  // "Managed" means this workspace's registration for the service is what runs;
-  // "Custom" means the endpoints the operator declared are the whole of it.
-  const entryOrigin =
-    draft.mode === "managed"
-      ? (registered ?? declared)
-      : (declared ?? registered);
+  // The one origin everything else is checked against, and it comes from what
+  // was declared here - never from the catalogue row.
+  //
+  // A row is host copy: it describes a protocol and says whether this
+  // deployment can run it. It carries no endpoint, deliberately, because a
+  // page that could supply one would be a browser declaring where a credential
+  // goes. "Managed" therefore does not mean "use the address we shipped"; it
+  // means the workspace's registration decides the rest of the arrangement,
+  // and the address is still answered here or the draft is refused with the
+  // field named.
+  const entryOrigin = exactOrigin(projection.entry(draft));
   if (!entryOrigin)
     return {
       ok: false,
@@ -431,15 +455,13 @@ export function projectDraft(
     .frames(draft)
     .map(exactOrigin)
     .filter((origin): origin is string => Boolean(origin));
-  const navigationOrigins = [
-    ...new Set([
-      entryOrigin,
-      ...extras,
-      // A managed configuration also admits the registration; a custom one
-      // deliberately does not, so the two produce different plans.
-      ...(draft.mode === "managed" && registered ? [registered] : []),
-    ]),
-  ];
+  // Managed and custom still compile differently, and where they differ is
+  // real rather than decorative: the three families that offer the choice put
+  // a hand-entered token endpoint in `extras` under custom and drop it under
+  // managed, so the navigable set - and therefore the digest - is not the
+  // same. What is gone is a phantom third origin from a catalogue field that
+  // never existed.
+  const navigationOrigins = [...new Set([entryOrigin, ...extras])];
   const roles = projection.roles(draft);
   // Whose key this is changes who may be asked for it, which is a different
   // role in the plan and therefore a different digest.
@@ -447,7 +469,9 @@ export function projectDraft(
   const credentialRecipients = Object.fromEntries(
     roles.map((role) => [`${holder}-${role}`, [entryOrigin]]),
   );
-  const verify = draft.capabilities.includes("verification");
+  // The connector decides this, not the drawer: whether completing means
+  // reading something the grant was for is a property of the adapter.
+  const verify = entry.capabilities.includes("verification");
   // Exposing the session to MCP clients is what retains it for a client to
   // drive; handing it back is what a person-owned handoff means; anything else
   // ends when the call does.
@@ -461,7 +485,7 @@ export function projectDraft(
     // Replaying a recorded sign-in means the browser has to be able to save
     // and restore what the recording established.
     ...(draft.capabilities.includes("teaching") ||
-    draft.capabilities.includes("recipes")
+    entry.capabilities.includes("recipes")
       ? { statePersistence: true }
       : {}),
   };
