@@ -114,6 +114,34 @@ function authFamiliesOf(manifest: {
   return families.length ? families : ["api-key"];
 }
 
+/**
+ * The install and update affordance, rendered on both surfaces.
+ *
+ * Connect and the app shell each carry one, and both stay mounted so a glance
+ * at the directory does not discard the studio — which puts two copies of this
+ * in the document at once, as `teaching-pwa` had to scope around. Two copies
+ * of the markup is the part worth avoiding: they have to agree, and nothing
+ * made them.
+ */
+function InstallControls({
+  install,
+}: {
+  install: ReturnType<typeof usePwaInstall>;
+}) {
+  return (
+    <details className="install-controls">
+      <summary>Install app</summary>
+      <p>{install.instructions}</p>
+      {install.canInstall && (
+        <button onClick={() => void install.install()}>Install Ceremony</button>
+      )}
+      {install.updateAvailable && (
+        <button onClick={install.update}>Update static shell</button>
+      )}
+    </details>
+  );
+}
+
 function App() {
   const install = usePwaInstall();
   const [config, setConfig] = useState<Config>();
@@ -559,18 +587,7 @@ function App() {
         topbarExtra={
           /* This is a PWA, and the install and update controls belong on
                the page people open rather than behind another section. */
-          <details className="install-controls">
-            <summary>Install app</summary>
-            <p>{install.instructions}</p>
-            {install.canInstall && (
-              <button onClick={() => void install.install()}>
-                Install Ceremony
-              </button>
-            )}
-            {install.updateAvailable && (
-              <button onClick={install.update}>Update static shell</button>
-            )}
-          </details>
+          <InstallControls install={install} />
         }
         footer={
           config && (
@@ -649,18 +666,7 @@ function App() {
               Environment
             </button>
           </nav>
-          <details className="install-controls">
-            <summary>Install app</summary>
-            <p>{install.instructions}</p>
-            {install.canInstall && (
-              <button onClick={() => void install.install()}>
-                Install Ceremony
-              </button>
-            )}
-            {install.updateAvailable && (
-              <button onClick={install.update}>Update static shell</button>
-            )}
-          </details>
+          <InstallControls install={install} />
           <span className="header-note">
             <span />
             Local workspace

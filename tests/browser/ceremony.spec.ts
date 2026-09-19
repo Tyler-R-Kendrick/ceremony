@@ -93,10 +93,15 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   // Opening a service starts on Configure, not on somebody's credentials.
   await all.getByRole("button", { name: "Stripe" }).click();
   const drawer = page.getByRole("dialog", { name: "Add Connection" });
-  await expect(drawer.getByRole("button", { name: "Managed" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    drawer.getByRole("region", { name: "Configure" }),
+  ).toHaveAttribute("data-state", "active");
+  // Stripe is an API key, and nothing about that flow changes with a
+  // configuration source, so it is not offered one. The control appears for
+  // the three families whose form it actually swaps.
+  await expect(
+    drawer.getByRole("group", { name: "Configuration source" }),
+  ).toHaveCount(0);
   // Hidden rather than absent: the connection stays mounted so its WebMCP
   // tools outlive the drawer, which is what the surface did before the drawer
   // existed. What matters here is that nobody is looking at a credential

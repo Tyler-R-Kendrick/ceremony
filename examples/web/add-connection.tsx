@@ -38,6 +38,23 @@ export interface ConnectionDraft {
   identity: "personal" | "anonymous" | "either";
 }
 
+/**
+ * The families whose Configure step actually reads `mode`.
+ *
+ * Only these three swap a form when it changes: OAuth and the GitHub App offer
+ * discovery against hand-entered endpoints, and device authorization makes one
+ * field required. For the other five the control moved a highlight, changed
+ * nothing on screen, and still wrote `custom` into the draft — which the
+ * summary then reported as "Configuration: Custom" and the server received.
+ * This branch removes the control where it is inert rather than styling it,
+ * which is what was done to the other three controls like it.
+ */
+const modeAwareFamilies: readonly AuthFamily[] = [
+  "oauth-code",
+  "github-app",
+  "device",
+];
+
 export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
   return {
     entryId: entry.id,
@@ -740,26 +757,28 @@ export function AddConnection({
           state={state(2)}
           {...(step > 2 ? { onOpen: () => setStep(2) } : {})}
         >
-          <div
-            className="segmented"
-            role="group"
-            aria-label="Configuration source"
-          >
-            <button
-              type="button"
-              aria-pressed={draft.mode === "managed"}
-              onClick={() => set({ mode: "managed" })}
+          {modeAwareFamilies.includes(draft.family) && (
+            <div
+              className="segmented"
+              role="group"
+              aria-label="Configuration source"
             >
-              Managed
-            </button>
-            <button
-              type="button"
-              aria-pressed={draft.mode === "custom"}
-              onClick={() => set({ mode: "custom" })}
-            >
-              Custom
-            </button>
-          </div>
+              <button
+                type="button"
+                aria-pressed={draft.mode === "managed"}
+                onClick={() => set({ mode: "managed" })}
+              >
+                Managed
+              </button>
+              <button
+                type="button"
+                aria-pressed={draft.mode === "custom"}
+                onClick={() => set({ mode: "custom" })}
+              >
+                Custom
+              </button>
+            </div>
+          )}
           {/*
             Every flow the connector declares, each one selectable and each
             swapping in the form its protocol actually needs. A connector with
@@ -778,7 +797,17 @@ export function AddConnection({
                     type="radio"
                     name="auth-family"
                     checked={draft.family === family}
-                    onChange={() => set({ family, values: {} })}
+                    onChange={() =>
+                      set({
+                        family,
+                        values: {},
+                        // A family that never reads this must not inherit
+                        // somebody's answer to a question it does not ask.
+                        ...(modeAwareFamilies.includes(family)
+                          ? {}
+                          : { mode: "managed" as const }),
+                      })
+                    }
                   />
                   <div>
                     <span className="choice-title">{title}</span>
@@ -910,8 +939,12 @@ export function AddConnection({
             <dl className="summary-list">
               <dt>Service</dt>
               <dd>{entry.name}</dd>
-              <dt>Configuration</dt>
-              <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
+              {modeAwareFamilies.includes(draft.family) && (
+                <>
+                  <dt>Configuration</dt>
+                  <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
+                </>
+              )}
               <dt>Auth family</dt>
               <dd>{authFamilyLabels[draft.family]}</dd>
               <dt>Capabilities</dt>

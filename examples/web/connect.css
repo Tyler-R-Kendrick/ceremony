@@ -1,10 +1,20 @@
 /*
  * The browse-and-connect surface.
  *
- * Scoped to [data-surface="connect"] so it cannot leak into the ceremony
- * components, the studio or the environment editor, all of which keep their
- * own palette. Every colour is a token: the drawer, the rail and the cards all
- * read from the same set, so a theme change is one block rather than a sweep.
+ * Every colour is a token: the drawer, the rail and the cards all read from
+ * the same set, so a theme change is one block rather than a sweep.
+ *
+ * The tokens are declared on [data-surface="connect"] and therefore resolve
+ * only inside it — that part is scoped, and it is what keeps the ceremony
+ * components, the studio and the environment editor on their own palette.
+ * The component rules below are not: this file is a side-effect import, so
+ * `.step`, `.field`, `.choice`, `.toggle`, `.badge` and the rest are global
+ * class selectors. Nothing collides today — every one of those names was
+ * checked against workflow-studio, environment, agent-card, extension-setup,
+ * teaching, style.css and src/react/styles.css — but they are ordinary enough
+ * that the first component elsewhere to reuse one inherits this surface's
+ * geometry along with tokens that resolve to nothing outside it. Prefix a new
+ * class here, or scope it, rather than assuming the file does.
  */
 [data-surface="connect"] {
   --c-bg: #08090a;
