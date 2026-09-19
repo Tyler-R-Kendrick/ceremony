@@ -316,7 +316,55 @@ GB free is a condition CI has now been shown not to be in. So the mechanism is
 understood and the trigger is not, and saying so is better than the third
 wrong cause in one document.
 
-The `coverage` job now prints `nproc`, `free -m` and `df -h /` before it runs.
+### The same command, twice, on one commit
+
+Then CI answered the question itself, in the only way that settles it.
+
+`verify` and `coverage` are separate jobs that both run `npm run test:coverage`
+
+- one inside the deterministic wrapper, one directly, so a failure arrives with
+  a name. They check out the same commit onto the same kind of runner. On two
+  commits on the same afternoon they disagreed, in opposite directions:
+
+| Commit            | `coverage` | `verify`   | Named failure                     |
+| ----------------- | ---------- | ---------- | --------------------------------- |
+| `main` at 4cb1587 | **failed** | passed     | -                                 |
+| PR #57 at 194d9c4 | passed     | **failed** | AUTH-COMBINED, LIFE-STATE-SUBJECT |
+
+Same code. Same command. Same CI. One passed and one failed, and which one
+changed between commits.
+
+That is nondeterminism established from CI's own record rather than argued
+from a local experiment, and it retires the question of whether some property
+of the code or of a particular commit is responsible. Nothing that is a
+function of the input can pass and fail the same input.
+
+It also means the base branch is red on this. A failure that reproduces on
+`main` is not the pull request's, which is what the runs since have been
+merged on.
+
+### The same thing again, in a different job
+
+`mutation (resolution)` failed on `main` at the same commit, and it is worth
+recording because it looks like a separate problem and is not.
+
+Stryker's tap runner starts one process per test file and the dry run logs
+each. Progress is ordinary up to `tests/browser-executor.test.ts` at 244
+seconds - and then nothing at all for the remaining twenty-one minutes, until
+the 25-minute dry-run budget expires. Not slow: stopped.
+
+Which reads like a budget that needs raising, and is not. That same file run
+alone, with Stryker's own node arguments, takes **1 minute 44 seconds** and
+passes 139 of 139. And the same job passed on PR #45 and PR #57, on all but
+identical code. So a browser-driving file that normally finishes in under two
+minutes occasionally stops making progress for twenty-one - which is the same
+statement as the one above, arriving through a different door.
+
+Raising the budget would have bought nothing. A stall is not a duration.
+
+### What is instrumented now
+
+The `coverage` job prints `nproc`, `free -m` and `df -h /` before it runs.
 Four lines, in the log, beside any failure that needs explaining - so the next
 person reads the machine instead of inferring it, which is the mistake this
 section has now made once.
