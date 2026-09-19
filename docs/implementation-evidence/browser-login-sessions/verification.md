@@ -215,10 +215,17 @@ alongside `browser-targets.e2e`, `browser-session-lifetime` and
 cores. Not settling at all, under the harshest conditions reproducible here,
 produces no failure. The candidate is recorded as ruled out.
 
-**Memory pressure reproduces it.** This machine has four cores and 15 GB; a
-hosted runner has two and 7, and four concurrent files each driving browsers
-was the one condition never matched locally. Holding memory in a ballast
-process matches it:
+**Memory pressure reproduces it — but not CI's.** The paragraph below was
+written believing a hosted runner has two cores and 7 GB. It does not. This
+repository is public, so a standard `ubuntu-24.04` runner is four vCPUs and
+16 GB, which is the same shape as the machine every local experiment ran on.
+The section that follows is kept as written, and then corrected by
+measurement, because the wrong turn is the useful part: the belief was
+plausible, was recorded as a hypothesis rather than a finding, and was still
+wrong on both numbers.
+
+Holding memory in a ballast process, to match what was believed to be the
+runner's ceiling:
 
 | Held  | Available | Result                                      |
 | ----- | --------- | ------------------------------------------- |
@@ -242,15 +249,77 @@ refusing to act on an element approved against the old one is the protection
 working exactly as intended. The conformance case asserts that a login
 succeeds, and under memory exhaustion it legitimately cannot.
 
-What it points at instead is the harness. `scripts/test.mjs` runs four test
-files at once, and its own comment already names the tension - "Files also
-launch browsers, databases and covered children. Bound the outer pool rather
-than exhausting each nested fixture's unchanged deadline." Four
-browser-driving files on a two-core, 7 GB runner may be more than that pool
-should allow. Lowering it changes no assertion and skips no test, but it is a
-change to every job in the repository on the strength of a hypothesis about a
-machine nobody has instrumented, so it is written here as the next thing to
-establish rather than done.
+What it pointed at was the harness. `scripts/test.mjs` runs four test files at
+once, and its own comment already names the tension - "Files also launch
+browsers, databases and covered children. Bound the outer pool rather than
+exhausting each nested fixture's unchanged deadline." Lowering that pool was
+recorded here as the next thing to establish rather than done, because it
+changes every job in the repository on the strength of a hypothesis about a
+machine nobody had instrumented.
+
+### It was established, and it is not supported
+
+Measured rather than argued, because that was the whole complaint about it.
+The four browser-driving files (`browser-login-conformance`,
+`browser-executor`, `browser-targets.e2e`, `browser-egress`) run under a
+sampler that sums every process's `VmRSS` every 200ms and keeps the worst
+moment - the peak of the _tree_, which is the number that matters here, and
+not the number `/usr/bin/time -v` reports.
+
+| Concurrency | Peak resident | Processes at peak | Result          |
+| ----------- | ------------- | ----------------- | --------------- |
+| 4           | 4863 MB       | 55                | 219 of 219 pass |
+| 2           | 6056 MB       | 54                | 219 of 219 pass |
+| 1           | 3204 MB       | 43                | 219 of 219 pass |
+
+Two things fall out, and both are against the hypothesis.
+
+**The peak is not close to the limit.** 4863 MB is under a third of a 16 GB
+runner, at the exact setting CI uses, with the four heaviest browser files
+deliberately scheduled together - which the real run only does by chance.
+
+**Lowering the pool would not have helped.** Concurrency 2 peaked _higher_
+than concurrency 4, by 1.2 GB. Browsers are launched per file and held for
+its duration, so a longer, less parallel run holds them longer and overlaps
+differently; the relationship is not the monotonic one the remedy assumed.
+Halving the pool to reduce memory would have doubled the job and raised the
+peak.
+
+So the remedy is not taken, and not because it was hard to justify - because
+it was measured and it is wrong.
+
+**`c8` was the one variable never varied**, and it is not the answer either.
+
+It is a real difference between the job that fails intermittently
+(`coverage` and `verify`: concurrency 4, every suite, instrumented) and the
+job that never does (`browser-login`: concurrency 1, four suites,
+uninstrumented) - and every local experiment, including the ballast ones, had
+run uninstrumented. Three runs under the same sampler, with c8 instrumenting
+all of `src/`:
+
+| Run | Peak resident   | Result          |
+| --- | --------------- | --------------- |
+| 1   | 4934 MB         | 219 of 219 pass |
+| 2   | 5805 MB (noisy) | 219 of 219 pass |
+| 3   | 4745 MB         | 219 of 219 pass |
+
+Run 2 overlapped the tail of another job, so its baseline started 900 MB high
+and its peak is not comparable; it is left in rather than dropped, because
+dropping the inconvenient sample is how a measurement becomes an argument.
+Runs 1 and 3 bracket the uninstrumented 4863 MB on either side. Instrumenting
+every source file costs CPU, not memory, and it did not reproduce the failure
+in three attempts.
+
+What remains true is what the ballast experiment actually established:
+resource exhaustion produces this refusal, on these cases, for this reason. 2
+GB free is a condition CI has now been shown not to be in. So the mechanism is
+understood and the trigger is not, and saying so is better than the third
+wrong cause in one document.
+
+The `coverage` job now prints `nproc`, `free -m` and `df -h /` before it runs.
+Four lines, in the log, beside any failure that needs explaining - so the next
+person reads the machine instead of inferring it, which is the mistake this
+section has now made once.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
