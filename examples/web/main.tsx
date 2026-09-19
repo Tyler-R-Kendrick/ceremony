@@ -287,7 +287,26 @@ function App() {
      * so it is asked for by name rather than assumed either way.
      */
     const hosted = (entry: CatalogEntry): CatalogEntry => {
-      if (entry.support === "declared") return entry;
+      // Only when the host has actually answered. `support` is derived from
+      // the manifests in `config`, and before that request lands `manifests`
+      // is empty - which makes *every* row read as `declared` and takes this
+      // early return, so no row carries a host capability at all.
+      //
+      // That window is not harmless, because the drawer seeds its draft once
+      // with `useState(() => emptyDraft(entry))` and never re-seeds. A drawer
+      // opened inside it keeps a draft with WebMCP missing for the rest of its
+      // life, and a missing answer is not a neutral one: it reads as "no" and
+      // withdraws the connection from every WebMCP client watching the page -
+      // the exact harm the comment above describes, arriving through the one
+      // route it did not consider.
+      //
+      // So "we have not been told yet" is separated from "there is no
+      // manifest". Unknown is treated as hosted, and the trade is deliberate:
+      // a genuinely declared row may briefly offer a switch, on a row that
+      // reaches the studio rather than a ceremony, where by the comment above
+      // nothing it claims is ever acted on. Silently dropping a real
+      // capability is the worse of the two by a distance.
+      if (config !== undefined && entry.support === "declared") return entry;
       const missing = (
         [
           ...(teachable.includes(entry.id) ? (["teaching"] as const) : []),
