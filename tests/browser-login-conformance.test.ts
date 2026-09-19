@@ -145,14 +145,66 @@ function serviceFor(engine: string, values: Record<string, string>) {
       return { ...shared, dispose: async () => {} };
     }) as typeof launchManagedBrowser,
   });
-  return { sessions, service, effects };
+  /**
+   * What the driver did, in the service's own progress vocabulary: one
+   * `action@path` per recorded step and nothing else. Those are already the
+   * two fields the privacy sweep pins `onStep` to, so making a failure
+   * readable adds nothing to what leaves the trusted path.
+   *
+   * It is attached to every failure message below because the intermittent
+   * this suite keeps hitting on CI reports `stale-document` and nothing
+   * else, and that name is raised by more than one guard at more than one
+   * moment. What the trail adds is the document an approval was held
+   * against when the refusal came.
+   *
+   * Read the last step by its path, not by its name. A *successful* login's
+   * trail also ends in `blocked`, usually `blocked@/account`: the heuristic
+   * interpreter runs out of ideas on the post-login page, and the service
+   * deliberately treats that as "the drive is over, ask the verifier". What
+   * is diagnostic is the absence of a `blocked` step on a failing attempt,
+   * because `observe()` returns its refusal without recording one - so a
+   * trail with none says the read itself failed rather than an action on
+   * something read earlier.
+   */
+  let trail: string[] = [];
+  const traced: typeof service = {
+    ...service,
+    login: (who, input) => {
+      trail = [];
+      return service.login(who, {
+        ...input,
+        onStep: (step) => {
+          input.onStep?.(step);
+          trail.push(`${step.action}@${step.path}`);
+        },
+      });
+    },
+  };
+
+  /**
+   * A failure message that says how far the attempt got rather than only
+   * where it stopped. The provider's own record of what it received is the
+   * other half: it distinguishes a refusal before the credentials were sent
+   * from one after.
+   */
+  const shown = (outcome: unknown) =>
+    [
+      JSON.stringify(outcome),
+      `steps [${trail.join(" ")}]`,
+      `provider recorded [${fixture
+        .submissions()
+        .map((submission) => submission.path)
+        .join(" ")}]`,
+    ].join("; ");
+
+  return { sessions, service: traced, effects, shown };
 }
 
 for (const engine of browserEngines) {
   describe(`managed ${engine}`, () => {
     test("AUTH-COMBINED: a combined form logs the expected account in", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -161,7 +213,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
         assert.equal(result.evidenceKind, "fixture-verified");
@@ -189,7 +241,7 @@ for (const engine of browserEngines) {
       // in the first. On a combined form none of that is exercised, because
       // the document never changes.
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -202,7 +254,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
 
@@ -247,7 +299,7 @@ for (const engine of browserEngines) {
       // driver that "completed" here would have done so against the page that
       // rejected it - and the secret must not have gone anywhere at all.
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: "nobody@fixture.test",
         password: owner.password,
       });
@@ -260,7 +312,7 @@ for (const engine of browserEngines) {
         assert.notEqual(
           result.status,
           "verified",
-          `an unknown identifier must not verify, got ${JSON.stringify(result)}`,
+          `an unknown identifier must not verify, got ${shown(result)}`,
         );
 
         // The provider saw the identifier attempt and nothing else. In
@@ -286,7 +338,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-RETURN: the session still works after the call returns", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -295,7 +347,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
 
@@ -332,7 +384,7 @@ for (const engine of browserEngines) {
       // declaring: a second context, opened from a saved state, is recognised
       // by the *provider* - not by a marker this process drew.
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -343,7 +395,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
         const before = fixture.sessionsFor(owner.account).length;
@@ -392,7 +444,7 @@ for (const engine of browserEngines) {
       // colleague who comes by one must not be able to put themselves inside
       // somebody else's session with it.
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -403,7 +455,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
         const { session } = await sessions.resolve(actor, result.sessionRef);
@@ -464,12 +516,12 @@ for (const engine of browserEngines) {
         assert.equal(
           first.status,
           "verified",
-          `expected the first login to verify, got ${JSON.stringify(first)}`,
+          `expected the first login to verify, got ${one.shown(first)}`,
         );
         assert.equal(
           second.status,
           "verified",
-          `expected the second login to verify, got ${JSON.stringify(second)}`,
+          `expected the second login to verify, got ${two.shown(second)}`,
         );
         if (first.status !== "verified" || second.status !== "verified") return;
 
@@ -522,7 +574,7 @@ for (const engine of browserEngines) {
     test("AUTH-WRONG: a different account is a mismatch, not a success", async () => {
       fixture.reset();
       // The credentials are the deputy's; the plan expects the owner.
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: deputy.identifier,
         password: deputy.password,
       });
@@ -544,7 +596,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-FORGED: a page that only looks signed in is not verified", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -567,7 +619,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-CAPTCHA: a human challenge asks for a person, it is not solved", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -578,7 +630,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "requires-human",
-          `expected a handoff, got ${JSON.stringify(result)}`,
+          `expected a handoff, got ${shown(result)}`,
         );
         assert.equal(
           result.status === "requires-human" ? result.reason : undefined,
@@ -611,7 +663,7 @@ for (const engine of browserEngines) {
       // more common one that does not, and until now nothing drove it on a
       // real browser.
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -628,7 +680,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `a passkey hint beside a password must not require a person, got ${JSON.stringify(result)}`,
+          `a passkey hint beside a password must not require a person, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
 
@@ -650,7 +702,7 @@ for (const engine of browserEngines) {
 
     test("AUTH-PASSKEY: an authenticator-only page hands off rather than inventing an assertion", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -661,7 +713,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "requires-human",
-          `expected a handoff, got ${JSON.stringify(result)}`,
+          `expected a handoff, got ${shown(result)}`,
         );
         assert.equal(
           result.status === "requires-human" ? result.reason : undefined,
@@ -675,7 +727,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-MANAGED: disposal ends this session and leaves the provider's alone", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -684,7 +736,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
 
@@ -711,7 +763,7 @@ for (const engine of browserEngines) {
 
     test("LIFE-LEGACY: a dispose continuation still verifies and still cleans up", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -722,7 +774,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
         if (result.status !== "verified") return;
         // The account really was verified; the session simply does not outlive
@@ -735,7 +787,7 @@ for (const engine of browserEngines) {
 
     test("EFFECT-DUP: the same request twice reaches the provider once", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -747,7 +799,7 @@ for (const engine of browserEngines) {
         assert.equal(
           first.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(first)}`,
+          `expected a verified login, got ${shown(first)}`,
         );
 
         // A client whose connection dropped while the first call was running
@@ -773,7 +825,7 @@ for (const engine of browserEngines) {
 
     test("EFFECT-NEW: a different request is not suppressed by an earlier one", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -785,7 +837,7 @@ for (const engine of browserEngines) {
         assert.equal(
           first.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(first)}`,
+          `expected a verified login, got ${shown(first)}`,
         );
         const second = await service.login(actor, {
           plan: planFor(engine),
@@ -796,7 +848,7 @@ for (const engine of browserEngines) {
         assert.equal(
           second.status,
           "verified",
-          `expected the second request to run, got ${JSON.stringify(second)}`,
+          `expected the second request to run, got ${shown(second)}`,
         );
         assert.equal(fixture.submissions().length, 2);
       } finally {
@@ -806,7 +858,7 @@ for (const engine of browserEngines) {
 
     test("EFFECT-LEDGER: a completed login is recorded as settled, not undetermined", async () => {
       fixture.reset();
-      const { sessions, service } = serviceFor(engine, {
+      const { sessions, service, shown } = serviceFor(engine, {
         email: owner.identifier,
         password: owner.password,
       });
@@ -818,7 +870,7 @@ for (const engine of browserEngines) {
         assert.equal(
           result.status,
           "verified",
-          `expected a verified login, got ${JSON.stringify(result)}`,
+          `expected a verified login, got ${shown(result)}`,
         );
 
         // The replay path is the only way to read back the effect a caller

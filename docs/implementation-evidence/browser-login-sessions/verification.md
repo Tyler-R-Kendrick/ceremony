@@ -326,13 +326,21 @@ Then CI answered the question itself, in the only way that settles it.
   a name. They check out the same commit onto the same kind of runner. On two
   commits on the same afternoon they disagreed, in opposite directions:
 
-| Commit            | `coverage` | `verify`   | Named failure                     |
-| ----------------- | ---------- | ---------- | --------------------------------- |
-| `main` at 4cb1587 | **failed** | passed     | -                                 |
-| PR #57 at 194d9c4 | passed     | **failed** | AUTH-COMBINED, LIFE-STATE-SUBJECT |
+| Commit            | `coverage` | `verify`   | Named failure                                 |
+| ----------------- | ---------- | ---------- | --------------------------------------------- |
+| `main` at 4cb1587 | **failed** | passed     | -                                             |
+| PR #57 at 194d9c4 | passed     | **failed** | AUTH-COMBINED, LIFE-STATE-SUBJECT             |
+| PR #62 at f8bb2c9 | **failed** | **failed** | `coverage`: EFFECT-NEW; `verify`: LIFE-SHARED |
+| PR #63 at a4919b2 | passed     | **failed** | AUTH-IDENTIFIER, EFFECT-NEW, LIFE-STATE       |
 
 Same code. Same command. Same CI. One passed and one failed, and which one
 changed between commits.
+
+The two rows added on 2026-09-19 sharpen it in two directions. On `f8bb2c9`
+both jobs failed and they failed on _different cases_, which a property of the
+input cannot produce either. On `a4919b2` the split is back, and it is the
+cleanest instance yet: `coverage` passed outright while `verify` failed three
+cases, on one checkout of one commit, running one command.
 
 That is nondeterminism established from CI's own record rather than argued
 from a local experiment, and it retires the question of whether some property
@@ -368,6 +376,60 @@ The `coverage` job prints `nproc`, `free -m` and `df -h /` before it runs.
 Four lines, in the log, beside any failure that needs explaining - so the next
 person reads the machine instead of inferring it, which is the mistake this
 section has now made once.
+
+It has now printed them beside a failure. `cpus: 4`, 15989 MB total, and
+**14305-14411 MB available** while the cases were failing. The ballast
+experiment above does reproduce this refusal under exhaustion; this is what
+rules exhaustion out as CI's explanation, read off the machine rather than
+argued from the local analogue of it.
+
+### It is getting worse, and it costs more than a red square
+
+Occurrences used to be "exactly one failure out of 1372, never two". On
+2026-09-19 the suite is 3492 tests and a run produces three: PR #62 at
+`31c194c` failed LIFE-STATE, LIFE-STATE-SUBJECT and EFFECT-LEDGER; PR #63 at
+`7aa9f3d` failed AUTH-COMBINED, LIFE-SHARED and EFFECT-DUP; PR #63 at
+`a4919b2` failed AUTH-IDENTIFIER, EFFECT-NEW and LIFE-STATE. Every one is
+`stale-document` on a `login -> verified` precondition, none is a case its
+branch added, and LIFE-STATE, LIFE-STATE-SUBJECT, LIFE-SHARED and
+AUTH-IDENTIFIER join the names this has surfaced through. A rate that rises
+with the number of cases sharing a machine fits contention; it does not fit a
+fixed ceiling on memory.
+
+What it costs is not one red square. `verify` runs its nine stages in order
+and `break`s on the first failure, and `test:coverage` is the sixth of them.
+So on every head where this fires, `test:workflow`, `test:security:mutation`
+and the full `test:e2e` never run at all - on that branch, and on every branch
+merged while this has been red.
+
+Still not reproduced here. Three rounds of `npm run test:coverage` - the exact
+command both failing jobs run, and the one the never-failing `browser-login`
+job does not - passed 3492 of 3492 on the same four-core, 16 GB shape.
+
+### What a CI failure can now say
+
+`stale-document` is raised by three guards at more than one moment, and
+nothing in a failure distinguished them, which is why "which observation was
+taken across which change" stayed open above. The conformance assertions now
+carry two things they can have for free.
+
+The first is the driver's own progress trail, one `action@path` per recorded
+step. Those are exactly the two fields the privacy sweep pins `onStep` to, so
+making a failure readable adds nothing to what leaves the trusted path. It
+names the document an approval was held against when the refusal came. A trail
+that ends without a `blocked` step says something further: `observe()` returns
+its refusal without recording one, so the read itself failed rather than an
+action on something read earlier.
+
+The second is the provider's own record of what it received, which separates a
+refusal before the credentials were sent from one after.
+
+Read with care in one respect, established by forcing a passing case to fail
+rather than assumed: a _successful_ login's trail also ends in a `blocked`
+step, usually `blocked@/account`. The heuristic interpreter runs out of ideas
+on the post-login page and the service deliberately treats that as "the drive
+is over, ask the verifier". So the presence of `blocked` is not the signal -
+its path is, and its absence is.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
