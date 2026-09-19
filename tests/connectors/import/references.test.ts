@@ -309,11 +309,15 @@ test("a byte budget bounds external documents even when the count does not", asy
   t.after(() => fixture.close());
   const approved = createApprovedFetch(loopbackPolicy());
   t.after(() => approved.close());
+  const offered: number[] = [];
   const resolver = new ReferenceResolver({
     limits: { maxExternalBytes: 5_000 },
-    fetchExternal: async (url) => ({
-      bytes: new Uint8Array(await (await approved(url.href)).arrayBuffer()),
-    }),
+    fetchExternal: async (url, limit) => {
+      offered.push(limit.maxBytes);
+      return {
+        bytes: new Uint8Array(await (await approved(url.href)).arrayBuffer()),
+      };
+    },
   });
   const root = `${fixture.origin}/root.json`;
   resolver.register(root, {});
@@ -325,6 +329,54 @@ test("a byte budget bounds external documents even when the count does not", asy
   const second = await resolver.resolve("./b.json#/padding", from);
   assert.equal(second.status, "budget-exceeded");
   assert.ok(resolver.budget().externalBytes > 4_000);
+  // Each retrieval is told how much of the budget is left, so a hook that can
+  // stop reading part way through has the number it needs to do so.
+  assert.equal(offered.length, 2);
+  assert.equal(offered[0], 5_000);
+  assert.ok(offered[1]! < 1_000);
+});
+
+test("the byte budget bounds what is retrieved, not only what is kept", async (t) => {
+  // Every document is four times the whole budget, so none of them can be
+  // accepted; the question is how much is pulled off the network before the
+  // resolver stops asking.
+  const document = JSON.stringify({ padding: "x".repeat(400 * 1024) });
+  const fixture = await startHttpFixture(() => ({
+    headers: { "content-type": "application/json" },
+    body: document,
+  }));
+  t.after(() => fixture.close());
+  const approved = createApprovedFetch(loopbackPolicy());
+  t.after(() => approved.close());
+  let retrieved = 0;
+  const resolver = new ReferenceResolver({
+    limits: { maxExternalBytes: 100 * 1024, maxExternalDocuments: 8 },
+    fetchExternal: async (url) => {
+      const bytes = new Uint8Array(
+        await (await approved(url.href)).arrayBuffer(),
+      );
+      retrieved += bytes.byteLength;
+      return { bytes };
+    },
+  });
+  const root = `${fixture.origin}/root.json`;
+  resolver.register(root, {});
+  const from = { documentId: root, pointer: "" };
+  for (let index = 0; index < 12; index++) {
+    const outcome = await resolver.resolve(`./doc${index}.json#/padding`, from);
+    assert.equal(outcome.status, "budget-exceeded", `doc${index}`);
+  }
+  // A buffered hook can only report a size after the transfer, so one document
+  // may cost its own length. Nothing after it is requested at all: the document
+  // budget of eight is never the thing that stops the fetching.
+  assert.equal(fixture.requests.length, 1);
+  assert.ok(
+    retrieved < 2 * document.length,
+    `retrieved ${retrieved} bytes for a ${100 * 1024} byte budget`,
+  );
+  // The budget the resolver reports is what it actually retrieved, whether or
+  // not a document was kept; a refused document is not a free download.
+  assert.equal(resolver.budget().externalBytes, retrieved);
 });
 
 test("a retrieval failure is temporarily unavailable, not a missing reference", async (t) => {

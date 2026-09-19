@@ -29,7 +29,13 @@ export type ReferenceLimits = {
   maxDocuments: number;
   /** External documents one resolver may retrieve. */
   maxExternalDocuments: number;
-  /** Total bytes of external documents one resolver may retrieve. */
+  /**
+   * Total bytes of external documents one resolver may retrieve, counted as
+   * they arrive and not as they are accepted. A hook that buffers a whole
+   * response can only report its length afterwards, so the retrieval that
+   * spends the budget may overshoot it by one response; a hook that honours
+   * the `limit.maxBytes` it is given does not.
+   */
   maxExternalBytes: number;
   maxRefLength: number;
   maxPointerSegments: number;
@@ -80,8 +86,16 @@ export type ReferenceOutcome =
       issue: CompatibilityIssue;
     };
 
+/**
+ * Retrieves one external document. `limit.maxBytes` is what is left of the
+ * resolver's byte budget at the moment of the call: a hook that can stop
+ * reading part way through -- rather than hand back a buffer it already
+ * holds -- should stop there, because everything it retrieves is charged to
+ * the budget whether or not the document turns out to be usable.
+ */
 export type ExternalDocumentFetch = (
   url: URL,
+  limit: { maxBytes: number },
 ) => Promise<{ bytes: Uint8Array; mediaType?: string | undefined }>;
 
 export type ReferenceResolverOptions = {
@@ -453,10 +467,20 @@ export class ReferenceResolver {
           status: "budget-exceeded",
           detail: "reference.document-budget",
         };
+      // A spent budget refuses before the network is touched. Checking only
+      // after a document had been retrieved bounded nothing: a refusal left the
+      // total at zero, so the next reference downloaded in full as well, and
+      // the only real ceiling was the document count times whatever the
+      // fetcher allows per response.
+      const remaining = this.limits.maxExternalBytes - this.externalBytes;
+      if (remaining <= 0)
+        return { status: "budget-exceeded", detail: "reference.bytes-budget" };
       this.externalDocuments++;
       let fetched: Awaited<ReturnType<ExternalDocumentFetch>>;
       try {
-        fetched = await fetchExternal(new URL(documentId));
+        fetched = await fetchExternal(new URL(documentId), {
+          maxBytes: remaining,
+        });
       } catch (error) {
         return this.classifyFetchFailure(error);
       }
@@ -465,12 +489,12 @@ export class ReferenceResolver {
           status: "document-invalid",
           detail: "reference.document-invalid",
         };
-      if (
-        this.externalBytes + fetched.bytes.byteLength >
-        this.limits.maxExternalBytes
-      )
-        return { status: "budget-exceeded", detail: "reference.bytes-budget" };
+      // Every byte that arrived is charged, accepted or not: a hook that hands
+      // back a buffer has already paid the transfer, and a document refused
+      // for its size must not leave the budget looking untouched.
       this.externalBytes += fetched.bytes.byteLength;
+      if (this.externalBytes > this.limits.maxExternalBytes)
+        return { status: "budget-exceeded", detail: "reference.bytes-budget" };
       let value: unknown;
       try {
         value = parseBoundedDocument(fetched.bytes, {

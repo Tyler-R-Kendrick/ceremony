@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { generateKeyPair, SignJWT } from "jose";
 import {
   exchangeToken,
   hostAuthorizedTokenExchange,
@@ -395,6 +396,62 @@ test("a subject token type outside policy is refused", async (t) => {
       error instanceof ConnectorError &&
       error.detail === "oauth.exchange.subject-type-not-allowed",
   );
+});
+
+test("the issuer's JWKS is read once for many exchanges, and an unknown key cannot make it read again", async (t) => {
+  const harness = await exchangeHarness(t);
+  const port = hostAuthorizedTokenExchange(
+    harness.policy,
+    harness.resolved,
+    harness.client,
+  );
+  assert.equal(
+    harness.server.counts.jwks,
+    0,
+    "resolving the server reads metadata, not keys",
+  );
+  for (let index = 0; index < 3; index++) {
+    // A fresh context per exchange, as the command layer builds one per call.
+    const outcome = await exchangeToken(harness.ctx(), port, {
+      subjectToken: await harness.server.mintToken({
+        subject: `user-${index}`,
+        audience: harness.client.client.client_id,
+      }),
+      subjectTokenType: tokenTypeIdentifiers.accessToken,
+      resource: RESOURCE,
+      scope: scopeOf(harness),
+    });
+    assert.equal(outcome.verified.subject, `user-${index}`);
+  }
+  // Each exchange verifies two tokens against the issuer's keys -- the subject
+  // token and the issued token -- so a key set that is not shared shows six
+  // reads of /jwks here. One read is what the library's cache is for.
+  assert.equal(harness.server.counts.jwks, 1);
+
+  // The cooldown that guards the endpoint is the same shared state: a token
+  // signed by a key the issuer never published cannot be replayed into a fetch
+  // per attempt, however many times it is presented.
+  const { privateKey } = await generateKeyPair("ES256");
+  const foreign = await new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: "never-published" })
+    .setIssuer(harness.server.issuer)
+    .setSubject("user-1")
+    .setAudience(harness.client.client.client_id)
+    .setExpirationTime("5m")
+    .sign(privateKey);
+  for (let index = 0; index < 5; index++)
+    await assert.rejects(
+      exchangeToken(harness.ctx(), port, {
+        subjectToken: foreign,
+        subjectTokenType: tokenTypeIdentifiers.accessToken,
+        resource: RESOURCE,
+        scope: scopeOf(harness),
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "oauth.exchange.subject-unverifiable",
+    );
+  assert.equal(harness.server.counts.jwks, 1);
 });
 
 test("granted scope from the exchange is reported as provider scopes", async (t) => {

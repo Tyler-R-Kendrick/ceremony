@@ -214,6 +214,115 @@ test("non-JSON and oversized metadata are malformed, never parsed", async (t) =>
   assert.equal(bounded.state === "unavailable" && bounded.reason, "malformed");
 });
 
+test("metadata whose body dies mid-transfer is a network outcome, not a raw stream error", async (t) => {
+  // A response that begins correctly -- 200, `application/json` -- and then
+  // loses its connection part way through the body: it promises 400 bytes,
+  // sends eleven and drops the socket. That is what an upstream reset looks
+  // like to the reader, a `TypeError` out of `read()`, and it arrives after the
+  // status and the content type have already been accepted.
+  const truncated = await startHttpFixture((_request, raw) => {
+    raw.res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": "400",
+    });
+    raw.res.write('{"issuer":"');
+    // `end` leaves the fixture's own writer with nothing more to send, and the
+    // destroyed socket reaches the client at once instead of timing out.
+    raw.res.end();
+    raw.res.socket?.destroy();
+    return undefined;
+  });
+  t.after(() => truncated.close());
+  const result = await discoverAuthorizationServer(truncated.origin, {
+    fetch: loopbackFetch,
+    allowLoopbackHttp: true,
+  });
+  // The same outcome an unreachable endpoint produces: transient and retryable,
+  // never an unclassified exception escaping the discovery result.
+  assert.equal(result.state, "unavailable");
+  assert.equal(result.state === "unavailable" && result.reason, "network");
+  assert.equal(result.state === "unavailable" && result.retryable, true);
+  assert.equal(result.state === "unavailable" && result.attempted.length, 2);
+
+  // A protected-resource document shares the helper and the exposure.
+  const prm = await discoverProtectedResource(`${truncated.origin}/mcp`, {
+    fetch: loopbackFetch,
+    allowLoopbackHttp: true,
+  });
+  assert.equal(prm.state === "unavailable" && prm.reason, "network");
+  assert.equal(prm.state === "unavailable" && prm.retryable, true);
+
+  // `discovery: "preferred"` therefore still reaches the configured endpoints,
+  // which is the whole point of preferring discovery instead of requiring it.
+  const resolved = await resolveAuthorizationServer(
+    issuerPolicy({
+      issuer: truncated.origin,
+      allowLoopbackHttp: true,
+      discovery: "preferred",
+      endpoints: {
+        authorization: `${truncated.origin}/authorize`,
+        token: `${truncated.origin}/token`,
+      },
+    }),
+    { fetch: loopbackFetch },
+  );
+  assert.equal(resolved.source, "configured");
+  assert.equal(resolved.metadata.token_endpoint, `${truncated.origin}/token`);
+  assert.equal(resolved.discovery.state, "unavailable");
+
+  // With discovery required, the caller gets the retryable upstream signal
+  // rather than a stream error it cannot classify.
+  await assert.rejects(
+    resolveAuthorizationServer(
+      issuerPolicy({ issuer: truncated.origin, allowLoopbackHttp: true }),
+      { fetch: loopbackFetch },
+    ),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "upstream-unavailable" &&
+      error.detail === "oauth.discovery.unavailable",
+  );
+});
+
+test("an oversized metadata body is refused even when the peer refuses the cancel", async () => {
+  // No server can be made to reject a `cancel()`, so the stream is built here;
+  // everything else about the response is what a real endpoint would send.
+  const stubborn: typeof fetch = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(8192));
+        },
+        cancel() {
+          return Promise.reject(new Error("cancel refused by the peer"));
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const result = await discoverAuthorizationServer("https://as.example", {
+    fetch: stubborn,
+    maxBytes: 4096,
+  });
+  assert.equal(result.state === "unavailable" && result.reason, "malformed");
+  assert.equal(result.state === "unavailable" && result.retryable, false);
+
+  // A refused cancel does not escape resolution either; the configured
+  // endpoints still stand in for the document that was never read.
+  const resolved = await resolveAuthorizationServer(
+    issuerPolicy({
+      issuer: "https://as.example",
+      discovery: "preferred",
+      endpoints: {
+        authorization: "https://as.example/authorize",
+        token: "https://as.example/token",
+      },
+    }),
+    { fetch: stubborn, maxBytes: 4096 },
+  );
+  assert.equal(resolved.source, "configured");
+  assert.equal(resolved.metadata.token_endpoint, "https://as.example/token");
+});
+
 test("metadata carrying a prototype-polluting key is refused", async (t) => {
   const polluted = await startHttpFixture((request) => ({
     status: 200,

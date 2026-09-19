@@ -2,8 +2,11 @@ import {
   createRemoteJWKSet,
   customFetch as joseFetch,
   decodeProtectedHeader,
+  jwksCache as joseJwksCache,
   jwtVerify,
+  type JWKSCacheInput,
   type JWTPayload,
+  type RemoteJWKSet,
 } from "jose";
 import * as oauth from "oauth4webapi";
 import type { AdapterCallContext } from "../adapter.js";
@@ -128,14 +131,60 @@ function looksLikeJwt(token: string): boolean {
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
 }
 
-function jwks(ctx: AdapterCallContext, port: TokenExchangePort) {
+type KeySetEntry = {
+  /** The `jwks_uri` the keys below were fetched from; a different one is a different entry. */
+  uri: string;
+  /** jose's own cache: the fetched keys and the moment they arrived. */
+  cache: JWKSCacheInput;
+  /** The approved fetcher and cancellation this key set closed over. */
+  fetch: typeof fetch;
+  signal: AbortSignal;
+  keySet: RemoteJWKSet;
+};
+
+/*
+ * A remote key set is not a request; it is what holds the keys, the freshness
+ * window and the cooldown. Building one inside every verification threw all of
+ * that away: one exchange read the issuer's JWKS twice -- once for the subject
+ * token, once for the token that came back -- and nothing survived between
+ * calls, so anything able to drive exchanges was amplified onto the issuer, and
+ * the cooldown that exists so an unknown `kid` cannot be replayed into a fetch
+ * per attempt never applied at all.
+ *
+ * Reuse is decided by identity, never by URL alone. The entry hangs off the
+ * resolved authorization server, which one call to `resolveAuthorizationServer`
+ * produced for one tenant's policy, so a memo is reachable only through that
+ * object: two tenants whose issuers publish the same `jwks_uri` hold different
+ * resolved servers and therefore different entries, and an entry is discarded
+ * if the `jwks_uri` it was built for ever reads differently.
+ *
+ * Inside one entry, the key set itself is reused only while the call context's
+ * approved fetcher and cancellation are the same objects it closed over, so a
+ * later call can never inherit an earlier call's transport or an earlier call's
+ * already-aborted signal. When either differs the key set is rebuilt around the
+ * new context and seeded from the shared cache, so the keys and the cooldown
+ * carry over without another request.
+ */
+const keySets = new WeakMap<ResolvedAuthorizationServer, KeySetEntry>();
+
+function jwks(ctx: AdapterCallContext, port: TokenExchangePort): RemoteJWKSet {
   const uri = port.server.metadata.jwks_uri;
   if (typeof uri !== "string")
     throw new ConnectorError("unsupported", {
       detail: "oauth.exchange.jwks-unavailable",
     });
-  return createRemoteJWKSet(new URL(uri), {
+  const known = keySets.get(port.server);
+  const current = known?.uri === uri ? known : undefined;
+  if (
+    current &&
+    current.fetch === ctx.environment.fetch &&
+    current.signal === ctx.signal
+  )
+    return current.keySet;
+  const cache: JWKSCacheInput = current?.cache ?? {};
+  const keySet = createRemoteJWKSet(new URL(uri), {
     timeoutDuration: DEFAULT_TIMEOUT_MS,
+    [joseJwksCache]: cache,
     [joseFetch]: (url, options) =>
       ctx.environment.fetch(url, {
         method: options.method,
@@ -144,6 +193,14 @@ function jwks(ctx: AdapterCallContext, port: TokenExchangePort) {
         signal: boundedSignal(ctx.signal, DEFAULT_TIMEOUT_MS, options.signal),
       }),
   });
+  keySets.set(port.server, {
+    uri,
+    cache,
+    fetch: ctx.environment.fetch,
+    signal: ctx.signal,
+    keySet,
+  });
+  return keySet;
 }
 
 async function verifyJwt(

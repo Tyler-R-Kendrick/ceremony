@@ -227,25 +227,41 @@ type FetchedDocument =
   | { status: "network" }
   | { status: "malformed" };
 
+/**
+ * The body, up to a ceiling, or which way reading it failed.
+ *
+ * A metadata response can fail after its status and content type have already
+ * been accepted: the connection dies part way through the body, and `read()`
+ * rejects. That is the same transient upstream condition as an endpoint that
+ * could not be reached at all, so it is reported, not thrown -- an escaping
+ * stream error would carry no `upstream-unavailable` signal and would deny a
+ * caller with configured endpoints the fallback it asked for. Cancelling is
+ * best-effort for the same reason: a peer that refuses the cancel does not get
+ * to decide what this function returns.
+ */
 async function readBounded(
   response: Response,
   maxBytes: number,
-): Promise<string | undefined> {
+): Promise<Uint8Array | "too-large" | "unreadable"> {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      return undefined;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return "too-large";
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch {
+    return "unreadable";
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return new Uint8Array(Buffer.concat(chunks));
 }
 
 async function fetchJsonDocument(
@@ -290,8 +306,14 @@ async function fetchJsonDocument(
     await response.body?.cancel();
     return { status: "malformed" };
   }
-  const text = await readBounded(response, options.maxBytes ?? 65_536);
-  if (text === undefined) return { status: "malformed" };
+  const body = await readBounded(response, options.maxBytes ?? 65_536);
+  // A document larger than the ceiling is a document this host will not read:
+  // malformed, like a body that is not JSON at all. A body that stopped
+  // arriving says nothing about the issuer's configuration, so it is the
+  // retryable network outcome instead.
+  if (body === "too-large") return { status: "malformed" };
+  if (body === "unreadable") return { status: "network" };
+  const text = Buffer.from(body).toString("utf8");
   try {
     const json: unknown = JSON.parse(text);
     if (!json || typeof json !== "object" || Array.isArray(json))
