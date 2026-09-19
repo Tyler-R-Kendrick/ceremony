@@ -708,7 +708,19 @@ export function AddConnection({
   const [compiled, setCompiled] = useState<CompileOutcome | undefined>();
   const [compiling, setCompiling] = useState(false);
   const [backends, setBackends] = useState<BackendNegotiation | undefined>();
+  /**
+   * Asked when the drawer opens, never on mount.
+   *
+   * This component stays mounted from page load so its WebMCP tools are
+   * registered whether or not anybody opens it, and this host hands a session
+   * to the first call that arrives without one - so a second question asked
+   * beside the directory's own comes back as a different person: two sessions
+   * created, and the browser keeping whichever reply landed last. Nobody
+   * choosing a browser is doing it before the drawer is on screen, so there
+   * is nothing to gain by asking earlier and a session to lose.
+   */
   useEffect(() => {
+    if (!open || backends !== undefined) return;
     let live = true;
     void readBackends().then((answer) => {
       if (live) setBackends(answer);
@@ -716,7 +728,7 @@ export function AddConnection({
     return () => {
       live = false;
     };
-  }, []);
+  }, [open, backends]);
   /** What the host actually registered. Empty until it has answered. */
   const offers = backends?.kind === "offered" ? backends.backends : [];
   /**
