@@ -45,60 +45,62 @@ From `src/server/browser-backends.ts`. These are what each engine can enforce
 
 ## Acceptance cases
 
-| Case             | Covered by                                                   | Engines | Evidence |
-| ---------------- | ------------------------------------------------------------ | ------- | -------- |
-| AUTH-COMBINED    | `browser-login-conformance` AUTH-COMBINED                    | all 3   | fixture  |
-| AUTH-WRONG       | `browser-login-conformance` AUTH-WRONG                       | all 3   | fixture  |
-| AUTH-FORGED      | `browser-login-conformance` AUTH-FORGED                      | all 3   | fixture  |
-| AUTH-CAPTCHA     | `browser-login-conformance` AUTH-CAPTCHA                     | all 3   | fixture  |
-| AUTH-PASSKEY     | `browser-login-conformance` AUTH-PASSKEY                     | all 3   | fixture  |
-| AUTH-CONDITIONAL | `browser-login-conformance` AUTH-CONDITIONAL                 | all 3   | fixture  |
-| LIFE-RETURN      | `browser-login-conformance` LIFE-RETURN                      | all 3   | fixture  |
-| LIFE-MANAGED     | `browser-login-conformance` LIFE-MANAGED                     | all 3   | fixture  |
-| LIFE-LEGACY      | `browser-login-conformance` LIFE-LEGACY                      | all 3   | fixture  |
-| LIFE-ATTACHED    | `browser-session-lifetime` LIFE-ATTACHED                     | n/a     | unit     |
-| LIFE-TRANSFER    | `browser-session-lifetime` LIFE-TRANSFER                     | n/a     | unit     |
-| LIFE-RESTART     | `browser-session-lifetime` LIFE-RESTART                      | n/a     | unit     |
-| CLIENT-OWNER     | `browser-session-lifetime` CLIENT-OWNER                      | n/a     | unit     |
-| EFFECT-CANCEL    | `browser-session-lifetime` EFFECT-CANCEL                     | n/a     | unit     |
-| TARGET-MARKER    | `browser-targets.e2e` TARGET-MARKER                          | all 3   | fixture  |
-| TARGET-ASYNC     | `browser-targets.e2e` TARGET-ASYNC                           | all 3   | fixture  |
-| TARGET-FORM      | `browser-targets.e2e` TARGET-FORM (×2: action, `formaction`) | all 3   | fixture  |
-| ORIGIN-SSO       | `login-plan` ORIGIN-SSO                                      | n/a     | unit     |
-| ORIGIN-SSRF      | `login-plan` ORIGIN-SSRF                                     | n/a     | unit     |
-| POLICY-DRAFT     | `login-plan` POLICY-DRAFT (9 fields)                         | n/a     | unit     |
-| POLICY-UNKNOWN   | `login-plan` POLICY-UNKNOWN                                  | n/a     | unit     |
-| POLICY-VERIFY    | `login-plan` POLICY-VERIFY                                   | n/a     | unit     |
-| POLICY-REVISE    | `login-plan` + `browser-session-lifetime` POLICY-REVISE      | n/a     | unit     |
-| VER-FRESH        | `browser-session-lifetime` VER-FRESH                         | n/a     | unit     |
-| HOF-STALE        | `browser-login-handoff` HOF-STALE                            | n/a     | unit     |
-| HOF-PORT         | `browser-login-handoff` HOF-PORT                             | n/a     | unit     |
-| HOF-DUP          | `browser-login-handoff` HOF-DUP                              | n/a     | unit     |
-| ENGINE-REAL      | `browser-login-conformance` ENGINE-REAL                      | all 3   | runtime  |
-| PRIV-PROMPT      | `browser-login-privacy` PRIV-PROMPT (4 cases)                | n/a     | unit     |
-| PRIV-ERROR       | `browser-login-privacy` PRIV-ERROR (12 cases)                | n/a     | unit     |
-| PRIV-ARTIFACT    | `browser-login-privacy` PRIV-ARTIFACT (2 cases)              | n/a     | unit     |
-| PRIV-ALTERNATE   | `browser-login-privacy` PRIV-ALTERNATE (2 cases)             | n/a     | unit     |
-| MODEL-POLICY     | `browser-login-reasoning` MODEL-POLICY (5 cases)             | n/a     | unit     |
-| MODEL-SEAM       | `browser-login-reasoning` MODEL-SEAM (4 cases)               | n/a     | unit     |
-| MODEL-AUTHORITY  | `browser-login-reasoning` MODEL-AUTHORITY (5 cases)          | n/a     | unit     |
-| MODEL-PROMPT     | `browser-login-reasoning` MODEL-PROMPT (3 cases)             | n/a     | unit     |
+| Case             | Covered by                                                                                 | Engines | Evidence       |
+| ---------------- | ------------------------------------------------------------------------------------------ | ------- | -------------- |
+| AUTH-COMBINED    | `browser-login-conformance` AUTH-COMBINED                                                  | all 3   | fixture        |
+| AUTH-WRONG       | `browser-login-conformance` AUTH-WRONG                                                     | all 3   | fixture        |
+| AUTH-FORGED      | `browser-login-conformance` AUTH-FORGED                                                    | all 3   | fixture        |
+| AUTH-CAPTCHA     | `browser-login-conformance` AUTH-CAPTCHA                                                   | all 3   | fixture        |
+| AUTH-PASSKEY     | `browser-login-conformance` AUTH-PASSKEY                                                   | all 3   | fixture        |
+| AUTH-CONDITIONAL | `browser-login-conformance` AUTH-CONDITIONAL                                               | all 3   | fixture        |
+| LIFE-RETURN      | `browser-login-conformance` LIFE-RETURN                                                    | all 3   | fixture        |
+| LIFE-MANAGED     | `browser-login-conformance` LIFE-MANAGED                                                   | all 3   | fixture        |
+| LIFE-LEGACY      | `browser-login-conformance` LIFE-LEGACY                                                    | all 3   | fixture        |
+| LIFE-ATTACHED    | `browser-session-lifetime` LIFE-ATTACHED                                                   | n/a     | unit           |
+| LIFE-TRANSFER    | `browser-session-lifetime` LIFE-TRANSFER                                                   | n/a     | unit           |
+| LIFE-RESTART     | `browser-session-lifetime` LIFE-RESTART                                                    | n/a     | unit           |
+| CLIENT-OWNER     | `browser-session-lifetime` CLIENT-OWNER                                                    | n/a     | unit           |
+| EFFECT-CANCEL    | `browser-session-lifetime` EFFECT-CANCEL                                                   | n/a     | unit           |
+| TARGET-MARKER    | `browser-targets.e2e` TARGET-MARKER                                                        | all 3   | fixture        |
+| TARGET-ASYNC     | `browser-targets.e2e` TARGET-ASYNC                                                         | all 3   | fixture        |
+| TARGET-FORM      | `browser-targets.e2e` TARGET-FORM (×2: action, `formaction`)                               | all 3   | fixture        |
+| ORIGIN-SSO       | `login-plan` ORIGIN-SSO                                                                    | n/a     | unit           |
+| ORIGIN-SSRF      | `login-plan` ORIGIN-SSRF                                                                   | n/a     | unit           |
+| POLICY-DRAFT     | `login-plan` POLICY-DRAFT (9 fields)                                                       | n/a     | unit           |
+| POLICY-UNKNOWN   | `login-plan` POLICY-UNKNOWN                                                                | n/a     | unit           |
+| POLICY-VERIFY    | `login-plan` POLICY-VERIFY                                                                 | n/a     | unit           |
+| POLICY-REVISE    | `login-plan` + `browser-session-lifetime` POLICY-REVISE                                    | n/a     | unit           |
+| VER-FRESH        | `browser-session-lifetime` VER-FRESH                                                       | n/a     | unit           |
+| HOF-STALE        | `browser-login-handoff` HOF-STALE                                                          | n/a     | unit           |
+| HOF-PORT         | `browser-login-handoff` HOF-PORT                                                           | n/a     | unit           |
+| HOF-DUP          | `browser-login-handoff` HOF-DUP                                                            | n/a     | unit           |
+| ENGINE-REAL      | `browser-login-conformance` ENGINE-REAL                                                    | all 3   | runtime        |
+| PRIV-PROMPT      | `browser-login-privacy` PRIV-PROMPT (4 cases)                                              | n/a     | unit           |
+| PRIV-ERROR       | `browser-login-privacy` PRIV-ERROR (12 cases)                                              | n/a     | unit           |
+| PRIV-ARTIFACT    | `browser-login-privacy` PRIV-ARTIFACT (2 cases)                                            | n/a     | unit           |
+| PRIV-ALTERNATE   | `browser-login-privacy` PRIV-ALTERNATE (2 cases)                                           | n/a     | unit           |
+| MODEL-POLICY     | `browser-login-reasoning` MODEL-POLICY (5 cases)                                           | n/a     | unit           |
+| MODEL-SEAM       | `browser-login-reasoning` MODEL-SEAM (4 cases)                                             | n/a     | unit           |
+| MODEL-AUTHORITY  | `browser-login-reasoning` MODEL-AUTHORITY (5 cases)                                        | n/a     | unit           |
+| MODEL-PROMPT     | `browser-login-reasoning` MODEL-PROMPT (3 cases)                                           | n/a     | unit           |
+| LIFE-SHARED      | `browser-login-conformance` LIFE-SHARED + `browser-session-lifetime` LIFE-SHARED (4 cases) | all 3   | fixture + unit |
+| LIFE-COPIED      | `browser-session-lifetime` LIFE-COPIED (2 cases)                                           | n/a     | unit           |
 
 ### Cases not covered
 
 Listed so their absence is a statement rather than an oversight.
 
-| Case                                                                                     | Status                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ~~AUTH-IDENTIFIER (two-document)~~                                                       | **Covered.** AUTH-IDENTIFIER and AUTH-IDENTIFIER-WRONG on all three engines, asserted against the provider's own record of which route received what. Writing the case found that no identifier-first provider could be signed in to at all: the interpreter remembered pressed buttons by label, and both steps say "Sign in".                                                                                         |
-| AUTH-REUSE, AUTH-TOTP, AUTH-PUSH, ~~AUTH-CONDITIONAL~~, AUTH-CALLBACK, AUTH-REGISTRATION | **AUTH-CONDITIONAL covered**: a passkey hint beside a password field is driven as a password login on all three engines, asserted against the provider's record of the submission, and treating any passkey hint as a passkey prompt fails it 3 for 3. The rest are not covered, and each needs a fixture route that does not exist yet - there is no TOTP, push, callback or registration flow to drive.               |
-| ~~EFFECT-DUP, EFFECT-LOST~~                                                              | **Covered** by #50. EFFECT-DUP replays an idempotency key over both MCP and HTTP and asks the provider what it received; EFFECT-LOST asserts a dispatch with no answer is reported as undetermined, not as a refusal.                                                                                                                                                                                                   |
-| LIFE-SHARED, ~~LIFE-STATE~~, LIFE-COPIED                                                 | **LIFE-STATE covered**: a saved storage state is restored into a context that never logged in, and the provider recognises it, on all three engines; LIFE-STATE-SUBJECT covers the refusal. LIFE-SHARED and LIFE-COPIED are not covered.                                                                                                                                                                                |
-| TARGET-FRAME, TARGET-POPUP, TARGET-AMBIG, TARGET-CLOSED                                  | Not covered.                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ORIGIN-REDIRECT, ORIGIN-RESOURCE                                                         | Not covered. Note `strongEgressContainment` is declared false everywhere, so no containment claim is being made.                                                                                                                                                                                                                                                                                                        |
-| ~~PRIV-PROMPT, PRIV-ERROR, PRIV-ARTIFACT, PRIV-ALTERNATE~~                               | **Covered.** `browser-login-privacy` plants one value where a credential goes and hunts it across four boundaries. Writing it found three surfaces carrying one: the driver's canary was never armed in the service path, a plan rejection echoed the caller's string back, and a human handoff carried the live URL with its query. What is still _not_ covered is a saved storage state, which lands with LIFE-STATE. |
-| BRIDGE-ORIGIN, BRIDGE-REPLAY                                                             | No authenticated companion bridge was implemented.                                                                                                                                                                                                                                                                                                                                                                      |
-| UX-RESUME, UX-ACCESS                                                                     | The wizard is wired to the compiler and covered by `connection-plan.spec.ts`; resume and access-review paths are not separately driven.                                                                                                                                                                                                                                                                                 |
+| Case                                                                                     | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~AUTH-IDENTIFIER (two-document)~~                                                       | **Covered.** AUTH-IDENTIFIER and AUTH-IDENTIFIER-WRONG on all three engines, asserted against the provider's own record of which route received what. Writing the case found that no identifier-first provider could be signed in to at all: the interpreter remembered pressed buttons by label, and both steps say "Sign in".                                                                                                                                                        |
+| AUTH-REUSE, AUTH-TOTP, AUTH-PUSH, ~~AUTH-CONDITIONAL~~, AUTH-CALLBACK, AUTH-REGISTRATION | **AUTH-CONDITIONAL covered**: a passkey hint beside a password field is driven as a password login on all three engines, asserted against the provider's record of the submission, and treating any passkey hint as a passkey prompt fails it 3 for 3. The rest are not covered, and each needs a fixture route that does not exist yet - there is no TOTP, push, callback or registration flow to drive.                                                                              |
+| ~~EFFECT-DUP, EFFECT-LOST~~                                                              | **Covered** by #50. EFFECT-DUP replays an idempotency key over both MCP and HTTP and asks the provider what it received; EFFECT-LOST asserts a dispatch with no answer is reported as undetermined, not as a refusal.                                                                                                                                                                                                                                                                  |
+| ~~LIFE-SHARED, LIFE-STATE, LIFE-COPIED~~                                                 | **Covered.** LIFE-STATE and LIFE-STATE-SUBJECT in #57. LIFE-SHARED asks the provider who each of two contexts in one real browser is, and gets two different answers on all three engines; writing it found that ending one session called `ManagedBrowser.dispose()`, which closes every context the backend created - so a release took down every other session sharing that browser. LIFE-COPIED covers a reference copied to another actor and a record copied to another tenant. |
+| TARGET-FRAME, TARGET-POPUP, TARGET-AMBIG, TARGET-CLOSED                                  | Not covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ORIGIN-REDIRECT, ORIGIN-RESOURCE                                                         | Not covered. Note `strongEgressContainment` is declared false everywhere, so no containment claim is being made.                                                                                                                                                                                                                                                                                                                                                                       |
+| ~~PRIV-PROMPT, PRIV-ERROR, PRIV-ARTIFACT, PRIV-ALTERNATE~~                               | **Covered.** `browser-login-privacy` plants one value where a credential goes and hunts it across four boundaries. Writing it found three surfaces carrying one: the driver's canary was never armed in the service path, a plan rejection echoed the caller's string back, and a human handoff carried the live URL with its query. What is still _not_ covered is a saved storage state, which lands with LIFE-STATE.                                                                |
+| BRIDGE-ORIGIN, BRIDGE-REPLAY                                                             | No authenticated companion bridge was implemented.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| UX-RESUME, UX-ACCESS                                                                     | The wizard is wired to the compiler and covered by `connection-plan.spec.ts`; resume and access-review paths are not separately driven.                                                                                                                                                                                                                                                                                                                                                |
 
 ## Existing-profile Firefox, precisely
 

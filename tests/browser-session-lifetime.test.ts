@@ -405,3 +405,245 @@ describe("status projection", () => {
       assert.ok(!keys.includes(leaked), `${leaked} must not be projected`);
   });
 });
+
+describe("LIFE-SHARED: one browser, more than one session", () => {
+  /**
+   * A managed browser is built to hold several contexts. `openContext` exists,
+   * the backend keeps a set of them, and the comment on it says cookies are
+   * shared inside one and never across — so contexts, not processes, are the
+   * isolation boundary, and a host that runs many logins is expected to put
+   * them in one browser rather than launch one process each.
+   *
+   * Which makes what a release does to the *others* a real question, and the
+   * one these cases ask. The login service happens to launch a browser per
+   * login today, so nothing in production shares one yet; the conformance
+   * suite does, and works around this by stubbing `dispose` to a no-op so
+   * "a single case ending must not take the engine away from the cases after
+   * it". That workaround is the bug report.
+   */
+  function sharedBrowser() {
+    const closed: string[] = [];
+    let browserDisposed = 0;
+    const browser = {
+      descriptor: managedBackends()[0]!,
+      browserGeneration: "bgen_shared",
+      openContext: async () => {
+        throw new Error("unused");
+      },
+      alive: () => true,
+      dispose: async () => {
+        browserDisposed++;
+      },
+    };
+    const context = (ref: string) => ({
+      contextRef: ref,
+      request: {
+        get: async () => ({ status: () => 200, text: async () => "{}" }),
+      },
+      openPage: async () => {
+        throw new Error("unused");
+      },
+      alive: async () => true,
+      close: async () => {
+        closed.push(ref);
+      },
+    });
+    return { browser, context, closed, disposed: () => browserDisposed };
+  }
+
+  function retainIn(
+    registry: ReturnType<typeof createBrowserSessionRegistry>,
+    shared: ReturnType<typeof sharedBrowser>,
+    ref: string,
+  ) {
+    return registry.retain(actor, {
+      ownership: "managed",
+      engine: "chromium",
+      backendId: "managed-chromium",
+      executorRef: registry.executorRef,
+      browserGeneration: "bgen_shared",
+      contextRef: ref,
+      trustMode: "constrained-auth",
+      scope: ["observe"],
+      effectivePlanDigest: "b".repeat(64),
+      ttlMs: 600_000,
+      browser: shared.browser as never,
+      context: shared.context(ref) as never,
+    });
+  }
+
+  test("releasing one session leaves the other's browser alone", async () => {
+    // `ManagedBrowser.dispose()` closes every context the backend created and
+    // then the process. Calling it to end *one* session ends all of them, and
+    // the harm is the one this module exists to prevent in the other
+    // direction: an authenticated session nobody can reach.
+    const registry = createBrowserSessionRegistry({ store });
+    const shared = sharedBrowser();
+    const first = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000021",
+    );
+    const second = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000022",
+    );
+
+    await registry.release(actor, first.sessionRef, "dispose-managed");
+
+    assert.deepEqual(
+      shared.closed,
+      ["bctx_00000000000000000000000000000021"],
+      "only the released session's own context may be closed",
+    );
+    assert.equal(
+      shared.disposed(),
+      0,
+      "the browser is still holding another session and must not be disposed",
+    );
+    // And the survivor is still drivable, which is the point of all of it.
+    await assert.doesNotReject(
+      () => registry.resolve(actor, second.sessionRef),
+      "releasing one session made the other unreachable",
+    );
+    await registry.disposeAll();
+  });
+
+  test("the last session out disposes the browser", async () => {
+    // The other half. A rule that never disposed would leak a browser process
+    // per login, which is the failure the disposal was written for.
+    const registry = createBrowserSessionRegistry({ store });
+    const shared = sharedBrowser();
+    const first = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000023",
+    );
+    const second = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000024",
+    );
+
+    await registry.release(actor, first.sessionRef, "dispose-managed");
+    assert.equal(shared.disposed(), 0);
+    await registry.release(actor, second.sessionRef, "dispose-managed");
+    assert.equal(
+      shared.disposed(),
+      1,
+      "nothing was left using the browser and it was not disposed",
+    );
+    assert.deepEqual(shared.closed, [
+      "bctx_00000000000000000000000000000023",
+      "bctx_00000000000000000000000000000024",
+    ]);
+  });
+
+  test("a session with a browser of its own still disposes it immediately", async () => {
+    // The production path today: one browser per login. Nothing else is
+    // holding it, so the first release is the last one, and the behaviour
+    // must be exactly what it was.
+    const registry = createBrowserSessionRegistry({ store });
+    const shared = sharedBrowser();
+    const only = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000025",
+    );
+    await registry.release(actor, only.sessionRef, "dispose-managed");
+    assert.equal(shared.disposed(), 1);
+  });
+
+  test("a session that is not disposed does not hold the browser open", async () => {
+    // `release-control` revokes automation without destroying anything. It
+    // must not then count as a reason to keep the browser alive for a later
+    // `dispose-managed` on a different session.
+    const registry = createBrowserSessionRegistry({ store });
+    const shared = sharedBrowser();
+    const kept = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000026",
+    );
+    const owned = await retainIn(
+      registry,
+      shared,
+      "bctx_00000000000000000000000000000027",
+    );
+    await registry.release(actor, kept.sessionRef, "release-control");
+    await registry.release(actor, owned.sessionRef, "dispose-managed");
+    assert.equal(
+      shared.disposed(),
+      1,
+      "a released session still counted as a user of the browser",
+    );
+  });
+});
+
+describe("LIFE-COPIED: a copy of something is not a grant", () => {
+  test("a copied reference is refused for every actor it did not belong to", async () => {
+    const registry = createBrowserSessionRegistry({ store });
+    const { retain } = retainable(registry);
+    const record = await retain();
+    // Tenant and subject are both re-derived from the authenticated actor on
+    // every operation, so the reference itself carries no authority. Asserted
+    // for every operation rather than for `resolve` alone: a projection that
+    // forgot the check would leak what a session is and who it belongs to.
+    for (const intruder of [otherTenant, otherSubject]) {
+      await assert.rejects(() => registry.resolve(intruder, record.sessionRef));
+      await assert.rejects(() =>
+        registry.status(intruder, record.sessionRef, {
+          planDigest: "a".repeat(64),
+        }),
+      );
+      await assert.rejects(() =>
+        registry.transfer(intruder, record.sessionRef, {
+          controllerRef: "stolen",
+          scope: ["observe"],
+        }),
+      );
+      await assert.rejects(() =>
+        registry.release(intruder, record.sessionRef, "dispose-managed"),
+      );
+    }
+    // Refusing them left it intact for the person it belongs to.
+    await assert.doesNotReject(() =>
+      registry.resolve(actor, record.sessionRef),
+    );
+    await registry.disposeAll();
+  });
+
+  test("a copied record cannot be read under another tenant or another id", async () => {
+    // The row itself, not the reference. Someone with the database and the
+    // key still must not be able to move a session between tenants by
+    // rewriting its key columns: the record is sealed with its tenant, kind,
+    // id and revision as associated data, so a row that has been moved fails
+    // to open rather than opening as somebody else's.
+    const registry = createBrowserSessionRegistry({ store });
+    const { retain } = retainable(registry);
+    const record = await retain();
+    const key = {
+      tenant: actor.tenantId,
+      kind: "session" as const,
+      id: `browser:${record.sessionRef}`,
+    };
+    const stored = await store.transaction((tx) => tx.get(key));
+    assert.ok(stored, "the session row should exist");
+
+    // Copy the *decrypted* value into another tenant, which is the most
+    // generous thing an attacker with write access could do, and then check
+    // that reading it back does not make them the owner of the original.
+    await store.transaction((tx) =>
+      tx.put({ ...key, tenant: otherTenant.tenantId }, stored.value, null),
+    );
+    // The row now exists under the other tenant, and it is still refused:
+    // the record carries the subject and tenant it was made for, and `load`
+    // compares them against the actor rather than against the key it used.
+    await assert.rejects(
+      () => registry.resolve(otherTenant, record.sessionRef),
+      "a row copied into another tenant became that tenant's session",
+    );
+    await registry.disposeAll();
+  });
+});

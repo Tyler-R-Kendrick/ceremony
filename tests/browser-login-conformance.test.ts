@@ -432,6 +432,93 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("LIFE-SHARED: two sessions in one browser are two sessions", async () => {
+      // A managed browser is built to hold several contexts, and contexts -
+      // not processes - are where cookies stop. So the question a host that
+      // pools browsers has to be able to answer is whether two people signed
+      // in through the same process are actually separate, and the only
+      // answer worth anything comes from the provider rather than from this
+      // side of the connection.
+      //
+      // Both logins run against the same real browser: `serviceFor` hands
+      // back the engine this suite launched once, so nothing here arranges
+      // the isolation - it is whatever the backend actually does.
+      fixture.reset();
+      const one = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      const two = serviceFor(engine, {
+        email: deputy.identifier,
+        password: deputy.password,
+      });
+      try {
+        const first = await one.service.login(actor, {
+          plan: planFor(engine),
+        });
+        const second = await two.service.login(actor, {
+          plan: planFor(engine, {
+            account: { kind: "expect", accountRef: deputy.account },
+          }),
+        });
+        assert.equal(
+          first.status,
+          "verified",
+          `expected the first login to verify, got ${JSON.stringify(first)}`,
+        );
+        assert.equal(
+          second.status,
+          "verified",
+          `expected the second login to verify, got ${JSON.stringify(second)}`,
+        );
+        if (first.status !== "verified" || second.status !== "verified") return;
+
+        // Each context asks the provider who *it* is. Two different answers
+        // is the whole claim: the second login did not overwrite the first,
+        // and neither is reading the other's cookie.
+        const asked = async (sessionRef: string) => {
+          const { session } = await (
+            sessionRef === first.sessionRef ? one.sessions : two.sessions
+          ).resolve(actor, sessionRef);
+          assert.ok(session.context, "a retained session must hold a context");
+          const answer = await session.context.request.get(
+            fixture.url("/api/whoami"),
+          );
+          assert.equal(answer.status(), 200);
+          return (JSON.parse(await answer.text()) as { account: string })
+            .account;
+        };
+        assert.equal(await asked(first.sessionRef), owner.account);
+        assert.equal(await asked(second.sessionRef), deputy.account);
+
+        // And the provider agrees there are two, rather than one that moved.
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+        assert.equal(fixture.sessionsFor(deputy.account).length, 1);
+
+        // Releasing one must leave the other usable.
+        //
+        // Stated precisely, because this assertion is weaker than it looks:
+        // `serviceFor` hands back the shared engine with `dispose` stubbed to
+        // a no-op, so that one case ending cannot take the browser away from
+        // the cases after it. That stub also hides the defect this rule is
+        // about - a release calling `ManagedBrowser.dispose()` and closing
+        // every context the backend created. What is proven here is the
+        // context-level half: closing one session's context leaves the
+        // other's alive and still holding its cookie. The browser-level half
+        // is `browser-session-lifetime` LIFE-SHARED, where the stub does not
+        // lie and restoring the defect fails the case.
+        await one.sessions.release(actor, first.sessionRef, "dispose-managed");
+        assert.equal(
+          await asked(second.sessionRef),
+          deputy.account,
+          "releasing one session took the other's context with it",
+        );
+      } finally {
+        await one.sessions.disposeAll();
+        await two.sessions.disposeAll();
+      }
+    });
+
     test("AUTH-WRONG: a different account is a mismatch, not a success", async () => {
       fixture.reset();
       // The credentials are the deputy's; the plan expects the owner.
