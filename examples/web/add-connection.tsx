@@ -7,6 +7,7 @@ import {
   type CatalogEntry,
 } from "./catalog.js";
 import { Glyph, initials } from "./connect-catalog.js";
+import { environmentName } from "./declaration.js";
 
 /**
  * Add Connection: four steps, only one of them open.
@@ -104,7 +105,11 @@ function Field({
         </span>
       </label>
       {children(id)}
-      {hint && <p className="field-hint">{hint}</p>}
+      {hint && (
+        <p className="field-hint" id={`${id}-hint`}>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -115,6 +120,7 @@ function Text({
   placeholder,
   required,
   hint,
+  invalid,
   onChange,
 }: {
   label: string;
@@ -122,13 +128,16 @@ function Text({
   placeholder?: string;
   required?: boolean;
   hint?: ReactNode;
+  /** Said out loud when the value cannot be used, in place of the hint. */
+  invalid?: string;
   onChange(value: string): void;
 }) {
+  const message = invalid ?? hint;
   return (
     <Field
       label={label}
       {...(required ? { required } : {})}
-      {...(hint ? { hint } : {})}
+      {...(message ? { hint: message } : {})}
     >
       {(id) => (
         <input
@@ -136,10 +145,50 @@ function Text({
           type="text"
           value={value}
           {...(placeholder ? { placeholder } : {})}
+          {...(message ? { "aria-describedby": `${id}-hint` } : {})}
+          {...(invalid ? { "aria-invalid": true } : {})}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
     </Field>
+  );
+}
+
+/**
+ * A field that names a session-environment entry rather than carrying a value.
+ *
+ * The name is the whole point — the secret stays in the encrypted vault — so a
+ * name the vault cannot hold is worth saying immediately. The declaration
+ * drops one silently rather than throwing from inside a render, and silently
+ * is exactly what this stops it being.
+ */
+function EnvironmentName({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange(value: string): void;
+}) {
+  const usable =
+    value.trim().length === 0 || environmentName.test(value.trim());
+  return (
+    <Text
+      label={label}
+      value={value}
+      placeholder={placeholder}
+      hint="Names a session-environment entry. Secrets are never typed into this form; the value stays in the encrypted vault."
+      {...(usable
+        ? {}
+        : {
+            invalid:
+              "Capitals, digits and underscores, starting with a letter — the shape a session-environment entry has. Until it matches, this connection is declared as not holding it.",
+          })}
+      onChange={onChange}
+    />
   );
 }
 
@@ -162,51 +211,60 @@ function FamilyForm({
     set({ values: { ...draft.values, [name]: next } });
   const managed = draft.mode === "managed";
   if (family === "oauth-code")
-    return managed ? (
+    return (
       <>
-        <p className="step-note">
-          Enter the OAuth server URL to auto-discover the provider.
-        </p>
-        <Text
-          label="Server URL"
-          required
-          value={value("issuer")}
-          placeholder="https://example.com"
-          hint="Authorization server metadata is read from the origin you enter. Discovery is advisory; the server re-validates every endpoint it is given."
-          onChange={put("issuer")}
-        />
-      </>
-    ) : (
-      <>
-        <p className="step-note">
-          Declare the endpoints yourself when a provider publishes no metadata
-          document.
-        </p>
-        <Text
-          label="Authorization endpoint"
-          required
-          value={value("authorizationEndpoint")}
-          placeholder="https://example.com/oauth/authorize"
-          onChange={put("authorizationEndpoint")}
-        />
-        <Text
-          label="Token endpoint"
-          required
-          value={value("tokenEndpoint")}
-          placeholder="https://example.com/oauth/token"
-          onChange={put("tokenEndpoint")}
-        />
-        <Text
+        {managed ? (
+          <>
+            <p className="step-note">
+              Enter the OAuth server URL to auto-discover the provider.
+            </p>
+            <Text
+              label="Server URL"
+              required
+              value={value("issuer")}
+              placeholder="https://example.com"
+              hint="Authorization server metadata is read from the origin you enter. Discovery is advisory; the server re-validates every endpoint it is given."
+              onChange={put("issuer")}
+            />
+          </>
+        ) : (
+          <>
+            <p className="step-note">
+              Declare the endpoints yourself when a provider publishes no
+              metadata document.
+            </p>
+            <Text
+              label="Authorization endpoint"
+              required
+              value={value("authorizationEndpoint")}
+              placeholder="https://example.com/oauth/authorize"
+              onChange={put("authorizationEndpoint")}
+            />
+            <Text
+              label="Token endpoint"
+              required
+              value={value("tokenEndpoint")}
+              placeholder="https://example.com/oauth/token"
+              onChange={put("tokenEndpoint")}
+            />
+          </>
+        )}
+        {/* Neither of these is an endpoint, so discovery never supplies them:
+            what a connection asks for is a decision, and where its client id
+            lives is this workspace's business. Managed mode was offering only
+            the issuer, which left a discovered provider with nothing to say to
+            the resolver. */}
+        <EnvironmentName
           label="Client ID environment name"
           value={value("clientIdName")}
           placeholder="EXAMPLE_CLIENT_ID"
-          hint="Names a session-environment entry. Secrets are never typed into this form; the value stays in the encrypted vault."
           onChange={put("clientIdName")}
         />
         <Text
           label="Scopes"
           value={value("scopes")}
           placeholder="read:user repo"
+          hint="What this connection is asking to be able to do. A route that cannot carry every one of them is not offered."
           onChange={put("scopes")}
         />
       </>
@@ -265,11 +323,10 @@ function FamilyForm({
           </label>
         </fieldset>
         {draft.keyScope === "shared" ? (
-          <Text
+          <EnvironmentName
             label="Key environment name"
             value={value("keyName")}
             placeholder="EXAMPLE_API_KEY"
-            hint="The key itself is collected privately and held in the encrypted vault. This form stores its name, never its value."
             onChange={put("keyName")}
           />
         ) : (
@@ -366,17 +423,16 @@ function FamilyForm({
       </>
     ) : (
       <>
-        <Text
+        <EnvironmentName
           label="App ID environment name"
           value={value("appIdName")}
           placeholder="GITHUB_APP_ID"
           onChange={put("appIdName")}
         />
-        <Text
+        <EnvironmentName
           label="Private key environment name"
           value={value("appKeyName")}
           placeholder="GITHUB_APP_PRIVATE_KEY"
-          hint="Held in session-scoped encrypted configuration. Never entered in chat or in this form."
           onChange={put("appKeyName")}
         />
       </>
