@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 function discover(directory) {
@@ -25,8 +25,25 @@ const patterns = {
 if (!Object.hasOwn(patterns, mode)) throw new Error("Unknown test profile");
 const files = all.filter((file) => patterns[mode].test(file)).sort();
 if (!files.length) throw new Error("No tests discovered for required profile");
+/**
+ * The case names a discovered file authors, as written.
+ *
+ * This is an inventory in the same sense the file list is: names that exist in
+ * the repository, gathered so a sanitized failure report can name one without
+ * ever echoing a line of test output. Only single-line string literals are
+ * collected — a template literal can interpolate a value at runtime, and a name
+ * that is not fixed in the source is not a name this inventory can vouch for.
+ */
+function caseNames(file) {
+  return [
+    ...readFileSync(file, "utf8").matchAll(
+      /(?:^|[^\w.$])(?:test|it)\s*\(\s*(["'])((?:\\.|(?!\1)[^\\\r\n])*)\1/g,
+    ),
+  ].map((match) => match[2].replace(/\\(.)/g, "$1"));
+}
 if (process.argv.includes("--inventory")) {
-  console.log(JSON.stringify({ mode, files }));
+  const names = [...new Set(files.flatMap(caseNames))].sort();
+  console.log(JSON.stringify({ mode, files, names }));
   process.exit(0);
 }
 const probe = spawnSync(
