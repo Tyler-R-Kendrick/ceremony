@@ -136,28 +136,36 @@ different from passing:
 ## A known intermittent, stated rather than smoothed over
 
 `browser-login-conformance` intermittently fails on GitHub's runners, under
-`test:coverage` at `--test-concurrency=4`, and has never once failed here. When
-it does, the assertions carry the reason:
+`test:coverage` at `--test-concurrency=4`, and has never once failed here. The
+assertions carry the reason, and the reason is:
 
 ```
-expected a verified login, got {"status":"blocked","reason":"no-observation"}
+expected a verified login, got {"status":"blocked","reason":"stale-document"}
 ```
 
-**That reason used to read `stale-document`, and the name was wrong.** One
-branch of `resolve()` raised `stale-document` for "there is no approved
-observation to act against" - a sequencing fault - while every other use of
-that name means "the document you approved has been replaced", which is a
-safety event detected by guards further down. Both refuse, so no guarantee ever
-moved; but the name sent three separate investigations, this one included, to
-read code that had not run. #53 split the two, and this section is corrected
-against what the split revealed rather than against what the old name implied.
+**Measured on a commit that already carries the `no-observation` split.** #53
+separated two faults that had shared the name `stale-document`: a page that
+moved under an approved element, found by guards comparing the held document
+against the live one, and "there was no approved observation at all", raised
+before any of those guards run. On `efa4a98` the failure reports
+`stale-document` - so it comes from a document comparison, and the guards did
+run.
 
-An earlier revision of this document said the failure was "the document binding
-refusing to act because the document it observed is not the document in front
-of it - the protection working, on a page nobody swapped". That was inference
-from the name. It is not what happens: in the reproduction that finally caught
-it, all fifteen refusals came from the missing-approval branch and not one from
-either document comparison.
+This section has now been wrong in both directions, and both are worth keeping
+written down because the cost each time was a day of reading the wrong code.
+
+- It first said the cause was a document that moved. That was inference from a
+  name that meant two things.
+- It was then corrected to the missing-approval branch, on the strength of
+  #53's reproduction, in which all fifteen refusals came from there and none
+  from either comparison. That reproduction is real; it is not what CI hits.
+  Under the split, CI says `stale-document`, which is the branch the earlier
+  text guessed at and the later text ruled out.
+
+What follows from that: the defect is a document genuinely being replaced
+between the observation that approved an element and the action on it, under a
+loaded runner - not a bookkeeping slot left empty. Anything aimed at
+`no-observation` is aimed elsewhere.
 
 One contributing cause was found and fixed here: the adapter's `goto` returned
 at `domcontentloaded`, which means a document has started rather than that it is
@@ -169,9 +177,14 @@ assumed to be enough.
 
 What is established:
 
-- Occurrences across LIFE-LEGACY, EFFECT-DUP, EFFECT-NEW, EFFECT-LEDGER and
-  AUTH-COMBINED. One defect, surfacing through whichever case happens to run
-  when the window opens, not five defects.
+- Occurrences across LIFE-LEGACY, EFFECT-DUP, EFFECT-NEW, EFFECT-LEDGER,
+  AUTH-COMBINED and LIFE-MANAGED. One defect, surfacing through whichever case
+  happens to run when the window opens, not six defects. Every occurrence is
+  exactly one failure out of 1372, never two, and never outside this file.
+- It is not any branch's. `#56` changed two lines - a Stryker timeout and a
+  paragraph of Markdown, neither read by `test:coverage` - and its `coverage`
+  job failed on LIFE-MANAGED. A pull request that touches no source code is
+  the control this had been missing.
 - It never fails in the `browser-login` job, which runs the same suite serially
   and without coverage instrumentation.
 - It does not reproduce here: eight configurations tried, including the
@@ -179,16 +192,65 @@ What is established:
   `--test-concurrency=4` under eight CPU burners on four cores with a
   lifecycle trace recording every clear of the held observation and the stack
   that asked for it. 102 cases, no failures, and the trace never fired.
-- It is reproducible under heavy enough CPU starvation, and there the refusals
-  are unanimously the missing-approval branch.
+- Under heavy enough CPU starvation it is reproducible _somewhere_: #53's
+  attempt produced refusals unanimously from the missing-approval branch. That
+  is a different path from the one CI reports, so it is recorded as a second
+  finding rather than as this one.
 
-What is **not** established: what clears the approval. `current` is set by
-`observe()` and cleared in exactly two places - `release()`, which only `goto()`
-calls, and the top of `observe()` itself, which clears before it spends several
-awaited round trips on the browser and only then sets the new value. The
-driver's path through those is sequential, so neither explains a missing
-approval on its own, and the window has not been caught open with a lifecycle
-trace attached.
+What is **not** established: which observation is taken across which change.
+`stale-document` is raised by three guards - the origin comparison against the
+adapter's own view of the address, the held document node against the live one,
+and any `movedOn` error while asking the page a question - and nothing yet
+distinguishes them in a CI failure.
+
+**One candidate has been eliminated by experiment rather than left plausible.**
+`settle()` waits for `networkidle` with a five-second timeout and swallows the
+timeout, so a driver on a loaded runner proceeds as though a page had settled
+when it had not - the same shape as the `goto` defect already fixed, in the
+other place an observation follows a navigation. If that were the mechanism,
+removing the wait should reproduce the symptom. It does not: with the timeout
+cut to 1ms, the conformance suite passes 34 of 34 serially, and 210 of 210
+alongside `browser-targets.e2e`, `browser-session-lifetime` and
+`browser-executor` at `--test-concurrency=4` under eight CPU burners on four
+cores. Not settling at all, under the harshest conditions reproducible here,
+produces no failure. The candidate is recorded as ruled out.
+
+**Memory pressure reproduces it.** This machine has four cores and 15 GB; a
+hosted runner has two and 7, and four concurrent files each driving browsers
+was the one condition never matched locally. Holding memory in a ballast
+process matches it:
+
+| Held  | Available | Result                                      |
+| ----- | --------- | ------------------------------------------- |
+| 9 GB  | ~6 GB     | 210 of 210 pass                             |
+| 12 GB | ~2 GB     | 14 fail, **two reporting `stale-document`** |
+
+The two are `LIFE-MANAGED` and `EFFECT-NEW` - both among the six names CI has
+produced. After ten configurations that reproduced nothing, this is the first
+that reproduces the symptom, on the same cases, with the same reason.
+
+It is **past** the CI condition rather than matched to it, and that is stated
+rather than glossed: at 2 GB the same run also produced
+`page.goto: Timeout 30000ms exceeded` and took over ten minutes instead of
+four. CI shows no navigation timeouts. So the finding is that resource
+exhaustion produces this refusal on these cases, not that CI's exhaustion has
+been measured.
+
+What it means for the driver: nothing to fix. A browser that discards and
+reloads a page under memory pressure really has replaced the document, and
+refusing to act on an element approved against the old one is the protection
+working exactly as intended. The conformance case asserts that a login
+succeeds, and under memory exhaustion it legitimately cannot.
+
+What it points at instead is the harness. `scripts/test.mjs` runs four test
+files at once, and its own comment already names the tension - "Files also
+launch browsers, databases and covered children. Bound the outer pool rather
+than exhausting each nested fixture's unchanged deadline." Four
+browser-driving files on a two-core, 7 GB runner may be more than that pool
+should allow. Lowering it changes no assertion and skips no test, but it is a
+change to every job in the repository on the strength of a hypothesis about a
+machine nobody has instrumented, so it is written here as the next thing to
+establish rather than done.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
