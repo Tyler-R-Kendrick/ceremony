@@ -128,3 +128,41 @@ test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject acro
     await fixture.close();
   }
 });
+
+test("a host that needs an account says so on the directory, before any setup", async ({
+  page,
+}) => {
+  const fixture = await teachingHostedFixture();
+  try {
+    // The directory itself, with no connector named and no drawer open.
+    await page.goto(fixture.origin);
+    await expect(
+      page.getByRole("heading", { name: "Connections" }),
+    ).toBeVisible();
+    const notice = page
+      .getByRole("status")
+      .filter({ hasText: "needs an account" });
+    await expect(notice).toBeVisible();
+    await notice
+      .getByRole("button", { name: "Sign in to this workspace", exact: true })
+      .click();
+
+    // Signing in returns to the same page it was asked from, which is the
+    // whole point of asking here: the round trip costs nothing drafted.
+    await expect(
+      page.getByRole("heading", { name: "Connections" }),
+    ).toBeVisible();
+    await expect(notice).toHaveCount(0);
+
+    // And the connection no longer has a sign-in gate waiting at its last step.
+    await page.goto(`${fixture.origin}/?connector=github`);
+    await expect(
+      page.getByRole("button", { name: "Connect GitHub", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Sign in", exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await fixture.close();
+  }
+});

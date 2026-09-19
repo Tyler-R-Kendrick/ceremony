@@ -135,6 +135,17 @@ export const blockedReasons = [
    */
   "stale-element",
   /**
+   * There was no observation to act against at all — not a document that moved
+   * on, but an approval that was never taken or was already released.
+   *
+   * Both refuse, so nothing is delivered either way, and for a long time both
+   * said `stale-document`. That reads as the page having changed under the
+   * attempt, which sends whoever is reading it to the guards that compare
+   * documents — and those guards never ran. It is a fault in the caller's own
+   * sequencing, and it says so.
+   */
+  "no-observation",
+  /**
    * The submission would now reach somewhere the approval never covered —
    * a changed `action`, a `formaction` override, a different method or a
    * different target.

@@ -134,14 +134,22 @@ test("the inventory reaches its reader whole, and is written so that it can", ()
    */
   const runner = fileURLToPath(new URL("../scripts/test.mjs", import.meta.url));
   const source = readFileSync(runner, "utf8");
+  // Phrased against the mechanism rather than the spelling, deliberately. The
+  // first version of this pinned the exact payload expression
+  // (`{ mode, files, names }`), and the very next change to this file moved the
+  // payload into an `inventory()` function -- so the assertion would have failed
+  // for a change that kept the synchronous write, while a change that restored
+  // `console.log` around the new expression would have passed. What must hold is
+  // that the document leaves through a synchronous write and not through
+  // `console.log`, whatever shape the payload takes next.
   assert.match(
     source,
-    /writeSync\(1, `\$\{JSON\.stringify\(\{ mode, files, names \}\)\}/,
+    /writeSync\(1, `\$\{JSON\.stringify\(/,
     "the inventory must be written synchronously, or a large one is truncated",
   );
   assert.doesNotMatch(
     source,
-    /console\.log\(JSON\.stringify\(\{ mode, files, names \}\)\)/,
+    /console\.log\(JSON\.stringify\((inventory|\{ mode)/,
     "console.log to a pipe does not drain before the process exits",
   );
 

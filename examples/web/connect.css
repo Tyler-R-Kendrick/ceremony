@@ -803,7 +803,14 @@ kbd {
   margin-block-start: 4px;
   color: var(--c-ink-dim);
   font-size: 12.5px;
+  /* A label is 600 and this sits inside one, so the explanation under every
+     toggle was rendering as bold as the choice it explains. */
+  font-weight: 400;
   line-height: 1.5;
+}
+/* What the connection is without this switch, rather than what it is. */
+.choice-consequence {
+  color: var(--c-ink-faint);
 }
 .flow-list {
   display: flex;
@@ -1299,6 +1306,54 @@ kbd {
   color: var(--c-ink-dim);
   font-size: 13px;
   line-height: 1.7;
+}
+
+/*
+ * What the connector settles for itself. The same information the toggles
+ * carry, without the checkbox that would imply somebody here can change it.
+ */
+.capability-readout {
+  margin-block-start: 18px;
+}
+.capability-readout h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-ink-dim);
+}
+.capability-readout ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.capability-readout li {
+  display: grid;
+  gap: 4px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--c-line);
+}
+
+/*
+ * The directory's own notice. Wide enough to carry a sentence and the action
+ * it is about, because the host asking for an account is the first thing to
+ * answer and the last thing to hide behind a step.
+ */
+.catalog-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.catalog-notice p {
+  flex: 1 1 22rem;
+  margin: 0;
+}
+.catalog-notice [role="alert"] {
+  flex-basis: 100%;
+  color: #ff8f85;
+  font-size: 13px;
 }
 
 /*

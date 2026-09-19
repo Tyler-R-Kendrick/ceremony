@@ -7,6 +7,7 @@ import {
   coverageTotals,
   failedTestFiles,
   failedTestNames,
+  failedBrowserTests,
 } from "./verification-summary.js";
 import {
   profileFingerprint,
@@ -171,6 +172,30 @@ for (const command of commands) {
       console.log(
         "  No coverage summary was written, so this stage failed before the gates were reached.",
       );
+    }
+  }
+  if (command === "test:e2e" && record.exitCode !== 0) {
+    try {
+      // Asked of the same script the node suites are inventoried from, rather
+      // than of Playwright, which would have to load its config and every spec
+      // to answer — work this stage has just finished doing, and work that can
+      // fail for its own reasons on the one path where the answer is needed.
+      const failed = failedBrowserTests(
+        output,
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            ["scripts/test.mjs", "browser", "--inventory"],
+            { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+          ),
+        ),
+      );
+      record.failedTestFiles = failed.files;
+      record.failedTests = failed.names;
+    } catch {
+      // Inventory failure must not prevent retaining the original failed stage.
+      record.failedTestFiles = [];
+      record.failedTests = [];
     }
   }
   if (command === "test:e2e" && record.exitCode === 0) {

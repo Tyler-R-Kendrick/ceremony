@@ -15,7 +15,10 @@ import "./style.css";
 import "./connect.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
-import { TeachingConnection } from "./teaching.js";
+import {
+  TeachingConnection,
+  beginHostedSignIn as beginSignIn,
+} from "./teaching.js";
 import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
 import {
@@ -68,12 +71,20 @@ const returningToRun = Boolean(
 const transport = createHttpTransport(
   liveMode ? "/api/live/ceremonies" : "/api/ceremonies",
 );
+/** What the host answers about whether somebody has to be signed in. */
+type HostedIdentity = "unknown" | "not-required" | "required" | "signed-in";
 const configSchema = z.object({
   manifests: z.array(manifestSchema).min(1),
   generationAvailable: z.boolean(),
   liveManifests: z.array(manifestSchema).default([]),
   liveAvailable: z.boolean().default(false),
   teachingAvailable: z.boolean().default(false),
+  /*
+   * Absent from a host too old to report it, which then reads as nobody
+   * signed in: the directory asks rather than assuming an account it cannot
+   * confirm. The component's own gate still has the last word.
+   */
+  teachingAuthenticated: z.boolean().default(false),
   teachingConnectors: z.array(z.string()).default(["github"]),
   agentProviders: z.array(agentProviderSchema).default([]),
 });
@@ -170,17 +181,39 @@ function App() {
   /** Bumped when a card is chosen again, so the next attempt is a new one. */
   const [attempt, setAttempt] = useState(0);
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
-  const [delegation, setDelegation] = useState(false);
-  useEffect(() => {
-    void fetch("/api/config")
+  const [signInError, setSignInError] = useState("");
+  const loadConfig = () =>
+    fetch("/api/config")
       .then((response) => response.json())
-      .then((value) => setConfig(configSchema.parse(value)))
-      .catch(() =>
-        setLoadError(
-          "Could not load connectors. Check the reference server and reload.",
-        ),
-      );
+      .then((value) => setConfig(configSchema.parse(value)));
+  useEffect(() => {
+    void loadConfig().catch(() =>
+      setLoadError(
+        "Could not load connectors. Check the reference server and reload.",
+      ),
+    );
   }, []);
+  /**
+   * Whether this host wants an account before a connection starts.
+   *
+   * Asked on the directory rather than discovered at the drawer's last step:
+   * the component that asks there is mounted after Configure and Customize,
+   * and signing in is a provider round trip that returns to the bare origin,
+   * so being asked late costs whatever was drafted.
+   *
+   * Read from the configuration rather than asked for. The host works this out
+   * anyway to decide what to list, and a page that asks a second time is a
+   * second call racing the first for the same session — which this host hands
+   * to whichever call arrives without one. One question, one arrival, and no
+   * order to get wrong.
+   */
+  const identity: HostedIdentity = !config
+    ? "unknown"
+    : !liveMode || !config.teachingAvailable
+      ? "not-required"
+      : config.teachingAuthenticated
+        ? "signed-in"
+        : "required";
   // Memoised on the config itself: a fresh array every render would rebuild
   // every entry, and the drawer resets its draft when its entry changes.
   const manifests = useMemo(
@@ -212,9 +245,21 @@ function App() {
    * Connectors the server publishes that the static directory has never heard
    * of — anything authored in the studio — still belong in the browse surface
    * that replaced the old picker. They are described from the manifest alone.
+   *
+   * Which host capabilities a row carries is the host's answer, not the
+   * directory's, and it has to be asked for rather than assumed absent. A row
+   * that fails to claim one does not merely show its switch off: Customize
+   * leaves it out of the draft, and the draft is what the run now reads — so
+   * an omission here silently withdraws the feature. A studio-authored row
+   * described from its manifest alone claims none of them, and three of the
+   * listed services claim no WebMCP, which is not a thing any of them decide.
    */
   const rows = useMemo(() => {
     const described = new Set(entries.map((entry) => entry.id));
+    // The same conditions the run itself applies, so a switch appears exactly
+    // where it can act.
+    const teachable =
+      liveMode && config?.teachingAvailable ? config.teachingConnectors : [];
     const authored = manifests
       .filter((manifest) => !described.has(manifest.id))
       .map((manifest): CatalogEntry => ({
@@ -232,8 +277,29 @@ function App() {
         auth: authFamiliesOf(manifest),
         capabilities: ["verification"],
       }));
-    return authored.length ? [...entries, ...authored] : entries;
-  }, [entries, manifests]);
+    /**
+     * What this host offers for a row that can actually run.
+     *
+     * A declared row is left alone: it reaches the studio rather than a
+     * ceremony, so nothing it claims is ever acted on. WebMCP is not
+     * per-connector — any connection this page hosts is driveable from a
+     * WebMCP client — and teaching is the one the server names per connector,
+     * so it is asked for by name rather than assumed either way.
+     */
+    const hosted = (entry: CatalogEntry): CatalogEntry => {
+      if (entry.support === "declared") return entry;
+      const missing = (
+        [
+          ...(teachable.includes(entry.id) ? (["teaching"] as const) : []),
+          "webmcp" as const,
+        ] as const
+      ).filter((capability) => !entry.capabilities.includes(capability));
+      return missing.length
+        ? { ...entry, capabilities: [...entry.capabilities, ...missing] }
+        : entry;
+    };
+    return [...entries, ...authored].map(hosted);
+  }, [entries, manifests, config]);
   /**
    * Point the application at a connector.
    *
@@ -266,6 +332,16 @@ function App() {
     );
   };
   const entry = rows.find((item) => item.id === connectorId);
+  /**
+   * Somebody arrived on a link naming a service this workspace does not
+   * publish.
+   *
+   * Only once the configuration has answered, because until then every name
+   * looks unknown and the directory would accuse a working link of being
+   * stale. Read from the name the page was opened on rather than the current
+   * one, so picking a service from the directory clears it.
+   */
+  const unknownConnector = Boolean(config && openedOnConnector && !entry);
   const connector = manifests.find((value) => value.id === connectorId);
   const goTo = (section: Section) => {
     if (section === "studio") setStudioOpened(true);
@@ -274,19 +350,19 @@ function App() {
 
   /** The connection workspace, unchanged in substance and hosted by the drawer. */
   const renderRun = (draft: ConnectionDraft, runEpoch: number) => {
+    /* Agent assistance is one of Customize's capabilities rather than a
+       separate piece of state, so the checkbox and the run cannot disagree. */
+    const delegation = draft.capabilities.includes("a2h");
     if (loadError) return <p role="alert">{loadError}</p>;
     if (!config) return <p role="status">Loading your workspace…</p>;
-    if (!entry)
-      return (
-        <div className="ceremony">
-          <h3>No connector by that name</h3>
-          <p>
-            This workspace publishes no connector called{" "}
-            <code>{connectorId}</code>. Close this and pick one from the
-            directory, or author it in the workflow studio.
-          </p>
-        </div>
-      );
+    /*
+     * The entry is what mounts this drawer, so it cannot be missing by the
+     * time the drawer renders — and it never could, going back to the commit
+     * that first wrote a panel for it. A stale link naming nothing lands on
+     * the directory instead, which is where somebody who followed one has to
+     * end up anyway, so the directory is where it is told.
+     */
+    if (!entry) return null;
     if (!connector || entry.support === "declared")
       return (
         <div className="ceremony">
@@ -385,22 +461,15 @@ function App() {
           {liveMode && (
             <details className="test-details">
               <summary>Session and assistance</summary>
-              <label htmlFor="approval-assistance">Approval assistance</label>
-              <select
-                id="approval-assistance"
-                value={delegation ? "agent" : "browser"}
-                onChange={(event) =>
-                  setDelegation(event.target.value === "agent")
-                }
-              >
-                <option value="browser">I’ll approve in my browser</option>
-                <option value="agent">
-                  Request configured agent assistance
-                </option>
-              </select>
+              {/* Whether an agent may prepare a step is the A2H capability,
+                  answered in Customize. A second control for it here was the
+                  real one and the checkbox was decoration; this says which
+                  answer is in force and where it was given. */}
               <p>
-                Configured agents can assist supported steps. Account consent
-                stays with you; private input never enters model context.
+                {delegation
+                  ? "Agent-to-human handoff is on: configured agents may prepare supported steps. Account consent stays with you; private input never enters model context."
+                  : "Agent-to-human handoff is off, so every approval happens in this browser."}{" "}
+                Change it in Customize.
               </p>
               <button onClick={() => goTo("environment")}>
                 Manage session environment
@@ -428,7 +497,8 @@ function App() {
           </div>
           {liveMode &&
           config.teachingAvailable &&
-          config.teachingConnectors.includes(connector.id) ? (
+          config.teachingConnectors.includes(connector.id) &&
+          draft.capabilities.includes("teaching") ? (
             <TeachingConnection
               key={connector.id}
               connectorId={connector.id}
@@ -439,7 +509,27 @@ function App() {
                  studio mounted and the scroll position intact, and it is what
                  the prop exists for. Signing out in another tab arrives the
                  same way, over the session broadcast channel. */
-              onSignedOut={() => setOpen(false)}
+              /* No `onSignIn`: the component's own is the implementation the
+                 directory calls, so overriding it with the same function
+                 would only be a second place for it to stop being true. */
+              onSignedOut={() => {
+                setOpen(false);
+                // Back to the directory, which should ask again rather than
+                // look like a workspace nobody needs an account for. The host
+                // is what knows, so the host is asked again — and a host that
+                // cannot answer says so, rather than leaving the stale answer
+                // on screen claiming somebody is still signed in.
+                void loadConfig().catch(() =>
+                  setLoadError(
+                    "Could not load connectors. Check the reference server and reload.",
+                  ),
+                );
+              }}
+              /* The component exposes the connection to WebMCP unless a host
+                 says otherwise, so the toggle has to say otherwise. */
+              {...(draft.capabilities.includes("webmcp")
+                ? {}
+                : { webmcp: false as const })}
               onDeleted={() => {
                 void fetch("/api/config")
                   .then((response) => response.json())
@@ -606,8 +696,11 @@ function App() {
           else goTo(section);
         }}
         /* A directory that cannot reach its server still draws every row it
-           can describe, which reads as a working catalogue. Say so on the
-           grid rather than only once somebody is inside a drawer. */
+           can describe, which reads as a working catalogue. A link naming a
+           service this workspace does not publish drops somebody here with no
+           account of why the page they asked for is a catalogue. And a host
+           that will demand an account should demand it here, not after two
+           steps of setup that a sign-in round trip then throws away. */
         {...(loadError
           ? {
               notice: (
@@ -616,7 +709,57 @@ function App() {
                 </p>
               ),
             }
-          : {})}
+          : unknownConnector
+            ? {
+                notice: (
+                  <div className="catalog-notice" role="status">
+                    <p>
+                      This workspace publishes no connector called{" "}
+                      <code>{connectorId}</code>. Pick one below, or author it
+                      in the workflow studio.
+                    </p>
+                    <button type="button" onClick={() => goTo("studio")}>
+                      Open workflow studio
+                    </button>
+                  </div>
+                ),
+              }
+            : identity === "required"
+              ? {
+                  notice: (
+                    <div className="catalog-notice" role="status">
+                      <p>
+                        This workspace records and replays connections, which
+                        needs an account. Signing in takes you to the identity
+                        provider and back to this page — nothing you set up is
+                        lost, because nothing has been set up yet.
+                      </p>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() =>
+                          void beginSignIn().catch((error: unknown) =>
+                            setSignInError(
+                              error instanceof Error
+                                ? error.message
+                                : "Sign-in is unavailable.",
+                            ),
+                          )
+                        }
+                      >
+                        {/* Named apart from the connection component's own
+                          gate, which a deep link can still reach: that one
+                          signs in to connect a particular service, this one
+                          signs in to the workspace before anything has been
+                          chosen. Two identical labels for two different asks
+                          is a question nobody should have to answer. */}
+                        Sign in to this workspace
+                      </button>
+                      {signInError && <span role="alert">{signInError}</span>}
+                    </div>
+                  ),
+                }
+              : {})}
         topbarExtra={
           /* This is a PWA, and the install and update controls belong on
                the page people open rather than behind another section. */

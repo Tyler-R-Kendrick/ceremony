@@ -77,6 +77,11 @@ async function mount(
       replace() {
         navigations++;
       },
+      // Leaving for the identity provider is a navigation like any other, and
+      // the component's own sign-in is the one path that takes it.
+      assign() {
+        navigations++;
+      },
     },
     history: {
       replaceState() {
@@ -1451,6 +1456,47 @@ test("assistant status transport closes on terminal and unmount without implicit
     await view.close();
   }
   assert.ok(view.streams.every((stream) => stream.closed));
+});
+
+test("sign-in without a host override asks this host and leaves for its provider", async () => {
+  // The path a host that supplies no `onSignIn` takes, and the one the
+  // directory now calls directly. Nothing exercised it before: the ask has to
+  // reach `/api/auth/login` with a body the route accepts, and the answer has
+  // to be the only thing that decides where the person goes.
+  const view = await mount({}, 200, { authenticated: false }, waiting, (url) =>
+    url.endsWith("/api/auth/login")
+      ? Response.json({ authorizationUrl: "https://idp.test/authorize" })
+      : undefined,
+  );
+  try {
+    await view.click("Sign in");
+    const login = view.calls.filter((call) =>
+      call.path.endsWith("/api/auth/login"),
+    );
+    assert.equal(login.length, 1);
+    assert.deepEqual(login[0]?.body, {});
+    assert.equal(view.navigations, 1);
+  } finally {
+    await view.close();
+  }
+});
+
+test("sign-in a host cannot start says so and goes nowhere", async () => {
+  const view = await mount({}, 200, { authenticated: false }, waiting, (url) =>
+    url.endsWith("/api/auth/login")
+      ? new Response("", { status: 503 })
+      : undefined,
+  );
+  try {
+    await view.click("Sign in");
+    assert.equal(view.navigations, 0);
+    assert.match(
+      view.document.querySelector('[role="alert"]')?.textContent ?? "",
+      /Sign-in is unavailable/,
+    );
+  } finally {
+    await view.close();
+  }
 });
 
 test("host sign-in callback retains identity and navigation ownership", async () => {

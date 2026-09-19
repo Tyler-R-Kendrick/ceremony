@@ -69,6 +69,64 @@ export function failedTestNames(output: string, inventory: readonly string[]) {
   return inventory.filter((name) => reported.has(name));
 }
 
+/**
+ * The same pair of answers for a browser run, whose reporter says it its own way.
+ *
+ * A failing `test:e2e` stage used to report the count and nothing else — "172
+ * passed, 1 failed" with no file and no case — because the inventory the other
+ * two functions read is the node suites' and stops at `tests/browser`. Which
+ * of a hundred and seventy-two was the one is not something anybody could work
+ * out from that, and re-running the suite to find out costs eleven minutes.
+ *
+ * Playwright names the failure in a header of its own — `1) [chromium] ›
+ * file.spec.ts:12:3 › suite › case` — so both halves are already in the
+ * output. They are read back the same way as everywhere else here: the header
+ * decides which inventory entries are named, and only inventory entries are
+ * returned, so nothing a provider, a page or an assertion message put in the
+ * output can reach the retained record. A case whose title the inventory
+ * cannot vouch for — interpolated, or escaped — is reported by file alone,
+ * which is what every browser failure got before.
+ *
+ * The numbered prefix is what separates a failure from the progress line for
+ * the same case, which the same reporter writes as `[86/172] [chromium] ›
+ * file.spec.ts:12:3 › suite › case`. Requiring it means a run whose failure
+ * headers are missing names nothing, rather than a run whose every case is
+ * named as failing.
+ */
+export function failedBrowserTests(
+  output: string,
+  inventory: { files: readonly string[]; names: readonly string[] },
+) {
+  const headers = [
+    ...output
+      .replace(/\u001b\[[0-9;]*m/g, "")
+      .matchAll(
+        /^[ \t]*\d+\) (?:\[[^\]\r\n]+\] \u203a )?([^\r\n]+?):\d+:\d+ \u203a ([^\r\n]+?)[ \t]*$/gm,
+      ),
+  ];
+  const locations = headers.map((match) => match[1]!);
+  /*
+   * Every suffix of the describe chain, not just its last segment: the case is
+   * the end of it, and a case whose own title contains the separator would
+   * otherwise be cut in half and match nothing. The suites above it are not in
+   * the inventory, so offering them costs nothing.
+   */
+  const titles = new Set(
+    headers.flatMap((match) => {
+      const chain = match[2]!.split(" \u203a ");
+      return chain.map((_, index) => chain.slice(index).join(" \u203a "));
+    }),
+  );
+  return {
+    files: inventory.files.filter((file) =>
+      locations.some(
+        (location) => location === file || location.endsWith(`/${file}`),
+      ),
+    ),
+    names: inventory.names.filter((name) => titles.has(name)),
+  };
+}
+
 export function coverageTotals(value: unknown) {
   if (
     !value ||

@@ -248,8 +248,15 @@ test("QA-05: every QA test file is reachable from the canonical commands", () =>
   // `npm test` runs scripts/test.mjs, which discovers tests/**/*.test.ts
   // recursively and excludes only tests/workflow.
   const runner = readFileSync(resolve(ROOT, "scripts/test.mjs"), "utf8");
-  assert.ok(
-    runner.includes('discover("tests")'),
+  // Matched on the directory rather than the whole call. The helper gained a
+  // suffix argument -- `discover("tests", ".test.ts")` -- so that the same walk
+  // could also collect `tests/browser/*.spec.ts`, which changed this call's text
+  // without changing the fact this assertion is about: the walk starts at the
+  // tests root and is recursive. Pinning the exact arguments made a signature
+  // change look like a coverage regression.
+  assert.match(
+    runner,
+    /discover\("tests"/,
     "the canonical runner discovers the whole tests tree",
   );
   assert.ok(
