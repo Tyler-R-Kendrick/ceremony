@@ -24,6 +24,7 @@ import type {
   ImportOutcome,
 } from "../../adapter.js";
 import { ConnectorError } from "../../errors.js";
+import { sha256Hex } from "../../import/parse.js";
 import {
   resolveNango,
   sha256,
@@ -368,7 +369,14 @@ export async function importNango(
     throw new ConnectorError("invalid-request", {
       detail: "nango.import.too-large",
     });
-  const digest = sha256(Buffer.from(input.bytes).toString("latin1"));
+  // The digest is over the captured bytes themselves. Hashing a re-decoding of
+  // them instead would agree only while the snapshot is pure ASCII: a single
+  // non-ASCII byte in an integration's display name makes the recorded value
+  // disagree with `sha256(bytes)`, which is what the artifact store recomputes
+  // before it retains anything, so those bytes could never be kept and the
+  // `sourceRef` derived from the digest would name an artifact that is not
+  // this one.
+  const digest = sha256Hex(input.bytes);
   const capturedAt = new Date(ctx.environment.now()).toISOString();
   const sourceRef = `nango:src:${digest.slice(0, 32)}`;
   const baseSource = {

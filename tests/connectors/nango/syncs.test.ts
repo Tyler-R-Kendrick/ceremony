@@ -230,7 +230,84 @@ test("NG-05: a sync belonging to another integration cannot be driven", async (t
   assert.equal(h.double.syncCommands.length, 0);
 });
 
-test("NG-05: a lost sync response is indeterminate, not a silent no-op", async (t) => {
+test("NG-05: a sync command lost at Nango's gateway is indeterminate, not a definite failure", async (t) => {
+  // 502 and 504 come from the gateway in front of Nango, so the request
+  // reached Nango and its fate is unknown: the sync may already be running.
+  // Reporting that as `failed` invites a retry against a sync in flight, which
+  // is exactly what `invokeNango` refuses to do for a non-read.
+  for (const status of [502, 504]) {
+    const h = await syncHarness({
+      double: {
+        connections: [connectionRow()],
+        syncStatus: statusRows,
+        intercept: (request) =>
+          request.url.pathname === "/sync/trigger"
+            ? { status, body: { message: "gateway" } }
+            : undefined,
+      },
+    });
+    t.after(() => h.close());
+    const connection = await activeConnection(h.ports, h.binding);
+    const result = await h.adapter.delegate!(h.context({ connection }), {
+      skill: syncOperation.operationRef,
+      input: {},
+      commandId: `cmd-gateway-${status}`,
+      action: "start",
+    });
+    assert.equal(result.state, "indeterminate", `status ${status}`);
+    assert.equal(result.code, "nango.upstream.uncertain");
+    // The journal has to agree, or reconciliation would never be asked for.
+    const [effect] = h.ports.inspect.effects();
+    assert.equal(effect?.outcome?.status, "indeterminate");
+    assert.equal(effect?.outcome?.code, "nango.upstream.uncertain");
+    assert.equal(effect?.effectRef, result.effectRef);
+
+    // And the journal keeps the same answer on a retry of the same command,
+    // rather than quietly sending a second trigger.
+    const again = await h.adapter.delegate!(h.context({ connection }), {
+      skill: syncOperation.operationRef,
+      input: {},
+      commandId: `cmd-gateway-${status}`,
+      action: "start",
+    });
+    assert.equal(again.state, "indeterminate");
+    assert.equal(again.code, "nango.effect.indeterminate");
+    assert.equal(h.double.received("POST", "/sync/trigger").length, 1);
+  }
+});
+
+test("NG-05: a 4xx refusal of a sync command stays a definite failure", async (t) => {
+  // Nango refused the command outright, so nothing was started and the caller
+  // is entitled to be told the sync definitely did not run. The gateway rule
+  // must not widen to cover this.
+  const h = await syncHarness({
+    double: {
+      connections: [connectionRow()],
+      syncStatus: statusRows,
+      intercept: (request) =>
+        request.url.pathname === "/sync/trigger"
+          ? {
+              status: 404,
+              body: { error: { code: "not_found", message: "unknown sync" } },
+            }
+          : undefined,
+    },
+  });
+  t.after(() => h.close());
+  const connection = await activeConnection(h.ports, h.binding);
+  const result = await h.adapter.delegate!(h.context({ connection }), {
+    skill: syncOperation.operationRef,
+    input: {},
+    commandId: "cmd-refused-sync",
+    action: "start",
+  });
+  assert.equal(result.state, "failed");
+  assert.equal(result.code, "nango.api.not-found.not-found");
+  const [effect] = h.ports.inspect.effects();
+  assert.equal(effect?.outcome?.status, "failed");
+});
+
+test("NG-05: a sync response lost before it arrived is indeterminate, not a silent no-op", async (t) => {
   const h = await syncHarness({
     double: {
       connections: [connectionRow()],
@@ -249,8 +326,8 @@ test("NG-05: a lost sync response is indeterminate, not a silent no-op", async (
     commandId: "cmd-lost-sync",
     action: "start",
   });
-  assert.equal(result.state, "failed");
-  assert.equal(result.code, "nango.api.server-error");
+  assert.equal(result.state, "indeterminate");
+  assert.equal(result.code, "nango.upstream.uncertain");
 });
 
 test("NG-06: the default disconnect unlinks locally and touches nothing at Nango", async (t) => {

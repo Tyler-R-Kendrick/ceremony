@@ -277,6 +277,78 @@ test("NG-06: an event naming another integration is refused", async (t) => {
   assert.equal(result.code, "nango.event.integration-mismatch");
 });
 
+test("AC-NG-05: an expired reconnect handoff is not completed by a genuine override webhook", async (t) => {
+  let now = Date.UTC(2026, 2, 1, 12, 0, 0);
+  const h = await harness({
+    now: () => now,
+    double: {
+      connections: [
+        connectionRow({ errors: [{ type: "auth", log_id: "log-1" }] }),
+      ],
+    },
+  });
+  t.after(() => h.close());
+  const connection = await activeConnection(h.ports, h.binding, {
+    generation: 1,
+    lifecycle: "reconnect-required",
+  });
+  const start = await h.adapter.reconnect!(
+    h.context({ connection, generation: 1 }),
+    {
+      ownerKind: "user",
+      requestedPermissions: [],
+      accountSwitch: false,
+      interruption: "allowed",
+    },
+  );
+  assert.equal(start.kind, "handoff");
+  const issued = await h.ports.handoffs.issue({
+    ...start.handoff,
+    actor: fixtureActor,
+    connectionRef: connection.connectionRef,
+    bindingRef: h.binding.bindingRef,
+    generation: 1,
+  });
+
+  // The session lapses, and only then does the provider finish: Nango's own
+  // override webhook arrives, correctly signed, for exactly this connection,
+  // with the prior auth error cleared. Everything about it is genuine except
+  // that the handoff it would finish is overdue.
+  now += 31 * 60_000;
+  h.double.setConnectionErrors(CONNECTION_ID, []);
+  const ctx = h.context({
+    connection: { ...connection, handoff: issued.summary },
+    generation: 1,
+  });
+  const event = await h.adapter.events!.verify(
+    ctx,
+    delivery(authBody({ operation: "override" })),
+  );
+  assert.ok(event);
+  // Nothing marks a record expired merely because time passed — only
+  // presenting it to its human does — so the record this correlation resolves
+  // to still reads "issued". The deadline is checked on this path or it is not
+  // checked at all.
+  assert.equal(
+    h.ports.inspect
+      .handoffs()
+      .find((record) => record.handoffRef === issued.handoffRef)?.state,
+    "issued",
+  );
+
+  const result = await h.adapter.complete!(ctx, { kind: "event", event });
+  assert.equal(result.state, "expired");
+  assert.equal(result.code, "nango.session.expired");
+  assert.equal(result.claims.length, 0);
+  assert.equal(result.externalIds, undefined);
+  // The same overdue record refuses a poll, and the event path has to agree
+  // with it: one delivery mechanism must not decide a handoff the other
+  // considers finished.
+  const polled = await h.adapter.complete!(ctx, { kind: "poll" });
+  assert.equal(polled.state, "expired");
+  assert.equal(polled.code, "nango.session.expired");
+});
+
 test("AC-NG-07: a duplicate delivery is reconciled once and changes nothing the second time", async (t) => {
   const h = await harness({ double: { connections: [connectionRow()] } });
   t.after(() => h.close());

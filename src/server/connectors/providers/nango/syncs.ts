@@ -259,6 +259,23 @@ export async function delegateNango(
       };
     }
   }
+  // A gateway-level failure means the request reached Nango but its fate is
+  // unknown: Nango may already have accepted the command and started, resumed
+  // or paused the sync before the reply was lost. Every command that gets this
+  // far changes the sync engine's state — `status` is the only read here and it
+  // returned long before — so that is indeterminate, not a failure a caller may
+  // simply retry against a sync that may already be running. A 4xx is
+  // different: Nango refused the command explicitly, and a 429 is an explicit
+  // refusal too, so those definitely did not run.
+  if (response.status >= 500) {
+    await finish("indeterminate", "nango.upstream.uncertain");
+    return {
+      ...base,
+      state: "indeterminate",
+      code: "nango.upstream.uncertain",
+      effectRef: journal.effectRef,
+    };
+  }
   const failure = nangoFailure(response.status, response.json);
   await finish("failed", failure.detail ?? failure.code);
   return {

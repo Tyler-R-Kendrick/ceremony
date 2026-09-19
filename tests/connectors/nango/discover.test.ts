@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
@@ -11,6 +12,7 @@ import {
   ENVIRONMENT,
   harness,
   INTEGRATION,
+  PROVIDER,
   sampleFunctions,
   SECRET_KEY,
 } from "./harness.js";
@@ -183,6 +185,47 @@ test("AC-NG-08: current integration and function metadata import without a nango
     )?.classification,
     "secret",
   );
+});
+
+test("AC-NG-08: the source digest is sha256 of the captured bytes, non-ASCII metadata and all", async (t) => {
+  // An en dash and a u-umlaut in the integration's display name: both are
+  // multi-byte in UTF-8, and that is all it takes for a digest taken over a
+  // re-decoding of the bytes to disagree with a digest taken over the bytes.
+  // An ASCII-only snapshot cannot tell the two apart.
+  const h = await harness({
+    double: {
+      integrations: [
+        {
+          unique_key: INTEGRATION,
+          display_name: "GitHub Prod – Zürich",
+          provider: PROVIDER,
+          created_at: "2026-01-02T03:04:05.000Z",
+          updated_at: "2026-02-03T04:05:06.000Z",
+        },
+      ],
+    },
+  });
+  t.after(() => h.close());
+  const captured = await h.adapter.captureIntegration(h.context(), INTEGRATION);
+  assert.ok(
+    captured.bytes.some((byte) => byte > 0x7f),
+    "the snapshot must really carry a non-ASCII byte or this proves nothing",
+  );
+
+  const outcome = await h.adapter.import!(h.context(), captured);
+  // This is the identity the source artifact store enforces: it recomputes
+  // sha256 over the same bytes before it retains them and refuses the whole
+  // record when the two disagree. A digest over anything but the bytes means
+  // the captured snapshot can never be kept for this import, and the
+  // digest-derived `sourceRef` points at an artifact that is not this one.
+  const expected = createHash("sha256").update(captured.bytes).digest("hex");
+  assert.equal(outcome.source.digest.algorithm, "sha256");
+  assert.equal(outcome.source.digest.value, expected);
+  assert.equal(outcome.source.byteLength, captured.bytes.byteLength);
+  assert.equal(outcome.source.sourceRef, `nango:src:${expected.slice(0, 32)}`);
+  // The non-ASCII display name still travels through the import intact; the
+  // digest is not being made to match by mangling what was captured.
+  assert.equal(outcome.definitions[0]?.display.name, "GitHub Prod – Zürich");
 });
 
 test("AC-NG-08: a legacy nango.yaml is refused with a blocking diagnostic, never parsed", async (t) => {

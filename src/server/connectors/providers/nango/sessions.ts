@@ -643,6 +643,19 @@ async function eventCompletion(
             claims: [],
             code: `nango.handoff.${record.state}`,
           };
+    // A reconnect handoff expires exactly like a connect one, and the deadline
+    // has to be read here rather than trusted to the stored state: nothing
+    // marks a record expired merely because time passed, so an overdue record
+    // still reads "issued" when the correlation is resolved. Without this the
+    // signed webhook would bind the connection on a handoff the human was no
+    // longer meant to be able to finish, which is the one thing the deadline
+    // exists to prevent.
+    if (record.expiresAt <= ctx.environment.now()) {
+      await ctx.environment.handoffs
+        .complete(record.handoffRef, ctx.generation, "expired")
+        .catch(() => undefined);
+      return { state: "expired", claims: [], code: "nango.session.expired" };
+    }
     if (!body.success) {
       await ctx.environment.handoffs
         .complete(record.handoffRef, ctx.generation, "denied")
