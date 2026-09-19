@@ -84,9 +84,22 @@ test("AC-43: real static worker update and account switch preserve pending autho
       .toBe(true);
     expect(page.url()).toBe(url);
     expect(fixture.effects).toEqual(before);
-    // Reloading onto the same resume link after the shell was replaced returns
-    // to the same pending authorization: the update swapped the static files,
-    // not the run.
+    // First the claim about *this* page: the run is still in this document
+    // after the shell was replaced. The drawer hides its region, it does not
+    // unmount it, so the link is asked for by content rather than by role —
+    // a hidden subtree exposes no roles. Reloading first would have re-fetched
+    // the authorization from the server and passed either way, which is no
+    // longer an assertion about surviving the update.
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll("a")].some(
+          (anchor) => anchor.textContent?.trim() === "Continue with GitHub",
+        ),
+      ),
+    ).toBe(true);
+    // Then the separate claim that the resume link still works: returning to
+    // it lands on the same pending authorization, because the update swapped
+    // the static files and not the run.
     await page.goto(url);
     await expect(
       page.getByRole("link", { name: "Continue with GitHub", exact: true }),

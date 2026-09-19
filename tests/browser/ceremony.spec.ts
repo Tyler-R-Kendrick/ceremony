@@ -232,9 +232,15 @@ async function openFromDirectory(page: Page, service: string | RegExp) {
     .click();
   const drawer = page.getByRole("dialog", { name: "Add Connection" });
   // The open step's header is not a button — only the ones you may jump back
-  // to are — so the step is identified by its region instead.
+  // to are — so the step is identified by its region instead. Its visibility
+  // is not the test: every step renders its head on every step, so a drawer
+  // that opened on Complete would satisfy `toBeVisible` for "Configure" too.
+  // `data-state` is the thing that actually distinguishes which one is open.
   for (const step of ["Configure", "Customize"]) {
-    await expect(drawer.getByRole("region", { name: step })).toBeVisible();
+    await expect(drawer.getByRole("region", { name: step })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
     await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   }
 }

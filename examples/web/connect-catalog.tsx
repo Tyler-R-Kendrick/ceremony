@@ -35,62 +35,61 @@ const supportBadges = {
 } as const;
 
 /** Small, original line glyphs. Icon fonts and brand assets stay out of this app. */
+const glyphPaths: Record<string, ReactNode> = {
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  spark: <path d="M12 3l2.2 5.4L20 10l-5.8 1.6L12 17l-2.2-5.4L4 10l5.8-1.6z" />,
+  chart: <path d="M4 19V9m5 10V5m5 14v-7m5 7V8" />,
+  card: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 10h18" />
+    </>
+  ),
+  chat: <path d="M4 5h16v10H9l-5 4z" />,
+  image: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 16l5-4 4 3 3-2 6 5" />
+    </>
+  ),
+  database: (
+    <>
+      <ellipse cx="12" cy="6" rx="8" ry="3" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+    </>
+  ),
+  code: <path d="M9 7l-5 5 5 5m6-10l5 5-5 5" />,
+  clipboard: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4h6v3H9z" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+    </>
+  ),
+  back: <path d="M14 6l-6 6 6 6" />,
+  next: <path d="M10 6l6 6-6 6" />,
+  close: <path d="M6 6l12 12M18 6L6 18" />,
+  agent: (
+    <>
+      <rect x="4" y="8" width="16" height="11" rx="3" />
+      <path d="M12 8V4M8.5 13v1.5M15.5 13v1.5" />
+    </>
+  ),
+};
+
 function Glyph({ name }: { name: string }) {
-  const paths: Record<string, ReactNode> = {
-    grid: (
-      <>
-        <rect x="3" y="3" width="7" height="7" rx="1.5" />
-        <rect x="14" y="3" width="7" height="7" rx="1.5" />
-        <rect x="3" y="14" width="7" height="7" rx="1.5" />
-        <rect x="14" y="14" width="7" height="7" rx="1.5" />
-      </>
-    ),
-    spark: (
-      <path d="M12 3l2.2 5.4L20 10l-5.8 1.6L12 17l-2.2-5.4L4 10l5.8-1.6z" />
-    ),
-    chart: <path d="M4 19V9m5 10V5m5 14v-7m5 7V8" />,
-    card: (
-      <>
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <path d="M3 10h18" />
-      </>
-    ),
-    chat: <path d="M4 5h16v10H9l-5 4z" />,
-    image: (
-      <>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M3 16l5-4 4 3 3-2 6 5" />
-      </>
-    ),
-    database: (
-      <>
-        <ellipse cx="12" cy="6" rx="8" ry="3" />
-        <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      </>
-    ),
-    code: <path d="M9 7l-5 5 5 5m6-10l5 5-5 5" />,
-    clipboard: (
-      <>
-        <rect x="5" y="4" width="14" height="17" rx="2" />
-        <path d="M9 4h6v3H9z" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="6.5" />
-        <path d="M16 16l4.5 4.5" />
-      </>
-    ),
-    back: <path d="M14 6l-6 6 6 6" />,
-    next: <path d="M10 6l6 6-6 6" />,
-    close: <path d="M6 6l12 12M18 6L6 18" />,
-    agent: (
-      <>
-        <rect x="4" y="8" width="16" height="11" rx="3" />
-        <path d="M12 8V4M8.5 13v1.5M15.5 13v1.5" />
-      </>
-    ),
-  };
   return (
     <svg
       className="glyph"
@@ -102,7 +101,7 @@ function Glyph({ name }: { name: string }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {paths[name]}
+      {glyphPaths[name]}
     </svg>
   );
 }
@@ -223,8 +222,13 @@ export function ConnectCatalog({
         event.ctrlKey ||
         target?.isContentEditable ||
         ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "") ||
-        // A modal is open: the directory behind it is not the thing being used.
-        document.querySelector('[role="dialog"][aria-modal="true"]')
+        // A modal is *open*: the directory behind it is not the thing being
+        // used. The drawer stays in the document while closed so the run it
+        // holds outlives it, and a hidden dialog is not one anybody is in —
+        // matching it here made this shortcut unreachable from first paint.
+        document.querySelector(
+          '[role="dialog"][aria-modal="true"]:not([hidden])',
+        )
       )
         return;
       event.preventDefault();

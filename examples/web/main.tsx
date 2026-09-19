@@ -19,6 +19,7 @@ import {
   capabilityDetails,
   catalog,
   isCustomEntry,
+  type AuthFamily,
   type CatalogEntry,
 } from "./catalog.js";
 import { ConnectCatalog } from "./connect-catalog.js";
@@ -36,7 +37,7 @@ const liveMode = entryParams.get("mode") !== "test";
  * would turn every click into a resume link and skip the two steps the person
  * came to fill in.
  */
-const openedOnConnector = entryParams.get("connector");
+const openedOnConnector = entryParams.get("connector") || undefined;
 /**
  * Whether this page load is somebody coming back to a connection they had
  * already started, rather than arriving to browse.
@@ -49,6 +50,11 @@ const openedOnConnector = entryParams.get("connector");
  * to go.
  */
 const returningToRun = Boolean(
+  // `??` and not `||` would be wrong here only because an absent parameter and
+  // an empty one are different values and the same intent: `?connector=` is
+  // nobody's named connector, and reading it as one suppressed the `ceremony`
+  // it arrived beside. Normalising the parameter above settles it once, for
+  // this and for the id below, rather than at each use.
   openedOnConnector ??
   (entryParams.get("ceremony") || entryParams.get("teachingRun")),
 );
@@ -77,6 +83,37 @@ function sectionFromUrl(): Section {
       : "connect";
 }
 
+/**
+ * The families a studio-authored manifest actually offers.
+ *
+ * A manifest names its methods and the directory describes families; these are
+ * the same claim in two vocabularies, so the row is built from what the
+ * manifest already says rather than from a guess. A method this shell has no
+ * family for is dropped instead of approximated, and a row left with none
+ * falls back to the one family that needs nothing from the provider to draft.
+ */
+const methodFamilies: Record<string, AuthFamily> = {
+  oauth: "oauth-code",
+  "api-key": "api-key",
+  basic: "basic",
+  form: "basic",
+  device: "device",
+  anonymous: "anonymous-claim",
+};
+
+function authFamiliesOf(manifest: {
+  methods: readonly { id: string }[];
+}): readonly AuthFamily[] {
+  const families = [
+    ...new Set(
+      manifest.methods
+        .map((method) => methodFamilies[method.id])
+        .filter((family): family is AuthFamily => family !== undefined),
+    ),
+  ];
+  return families.length ? families : ["api-key"];
+}
+
 function App() {
   const install = usePwaInstall();
   const [config, setConfig] = useState<Config>();
@@ -94,6 +131,8 @@ function App() {
   const [resumeId, setResumeId] = useState(
     entryParams.get("ceremony") ?? undefined,
   );
+  /** Bumped when a card is chosen again, so the next attempt is a new one. */
+  const [attempt, setAttempt] = useState(0);
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
   const [delegation, setDelegation] = useState(false);
   useEffect(() => {
@@ -149,7 +188,12 @@ function App() {
         category: "Other",
         support:
           manifest.support === "live-adapter" ? "provider-backed" : "fixture",
-        auth: [],
+        // Read from the manifest rather than left empty. An empty list is the
+        // one thing the drawer cannot open on: a draft starts from the first
+        // family a row declares, so a row declaring none started on
+        // `undefined` and fell past every branch of the credential form to the
+        // anonymous one, under a summary naming no family at all.
+        auth: authFamiliesOf(manifest),
         capabilities: ["verification"],
       }));
     return authored.length ? [...entries, ...authored] : entries;
@@ -171,6 +215,14 @@ function App() {
     if (next === connectorId && !restart) return;
     setConnectorId(next);
     setResumeId(undefined);
+    // Picking a card is starting a connection, and React keys on identity: for
+    // a *different* service the id alone changes everything downstream, but
+    // choosing the same card again changes no key at all, so the drawer stayed
+    // on the step it was left on with the old draft and the run kept going
+    // under it. Clearing the resume id was never enough on its own, because
+    // nothing remounted to notice. This counter is what makes the second
+    // attempt a second attempt.
+    if (restart) setAttempt((count) => count + 1);
     history.replaceState(
       null,
       "",
@@ -543,7 +595,7 @@ function App() {
           entry={entry}
           open={open}
           initialStep={resuming ? 4 : 2}
-          key={entry.id}
+          key={`${entry.id}:${attempt}`}
           renderRun={renderRun}
           onClose={() => setOpen(false)}
           onChangeService={() => setOpen(false)}
@@ -615,6 +667,10 @@ function App() {
           </span>
         </header>
         <main>
+          {/* The directory says this in its own notice; every other section
+              said nothing at all, so a person deep-linking to Environment with
+              the server down got an empty editor and no reason for it. */}
+          {tab !== "connect" && loadError && <p role="alert">{loadError}</p>}
           {tab === "environment" && <Environment />}
           {studioOpened && (
             <div hidden={tab !== "studio"}>

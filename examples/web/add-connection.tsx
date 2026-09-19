@@ -574,9 +574,26 @@ export function AddConnection({
   dismiss.current = onClose;
   const set = (patch: Partial<ConnectionDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
+  /**
+   * Whether Complete has been reached at least once.
+   *
+   * The run reads the declaration when it mounts and keeps what it read, so it
+   * must not mount before that declaration is finished. `keepMounted` exists so
+   * the connection outlives the drawer that started it — but unconditional, it
+   * also brought the run to life on the drawer's first paint, against the empty
+   * draft, and every answer given afterwards was decoration: the summary said
+   * one thing and the resolver was handed another. Reaching Complete is the
+   * moment the declaration stops changing, so it is the moment to mount, and
+   * from then on this keeps it mounted exactly as before.
+   */
+  const [reachedRun, setReachedRun] = useState(initialStep === 4);
+  useEffect(() => {
+    if (step === 4) setReachedRun(true);
+  }, [step]);
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
+    setReachedRun(initialStep === 4);
     // Keyed on the id, not the object: `entries` is rebuilt whenever config
     // resolves, and a new object identity for the same connector would discard
     // everything the person had typed.
@@ -882,7 +899,12 @@ export function AddConnection({
             </button>
           </div>
         </Step>
-        <Step index={4} title="Complete" state={state(4)} keepMounted>
+        <Step
+          index={4}
+          title="Complete"
+          state={state(4)}
+          keepMounted={reachedRun}
+        >
           <details className="summary-disclosure">
             <summary>Connection summary</summary>
             <dl className="summary-list">
