@@ -15,7 +15,10 @@ import "./style.css";
 import "./connect.css";
 import { connectorDetails } from "../manifests.js";
 import { Environment } from "./environment.js";
-import { TeachingConnection } from "./teaching.js";
+import {
+  TeachingConnection,
+  beginHostedSignIn as beginSignIn,
+} from "./teaching.js";
 import { AgentConnectors, agentProviderSchema } from "./agent-card.js";
 import { usePwaInstall } from "./pwa.js";
 import {
@@ -29,11 +32,6 @@ import {
 import { ConnectCatalog } from "./connect-catalog.js";
 import { AddConnection, type ConnectionDraft } from "./add-connection.js";
 import { declarationOf, refusals } from "./declaration.js";
-import {
-  beginSignIn,
-  hostedIdentity,
-  type HostedIdentity,
-} from "./hosted-identity.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -72,12 +70,20 @@ const returningToRun = Boolean(
 const transport = createHttpTransport(
   liveMode ? "/api/live/ceremonies" : "/api/ceremonies",
 );
+/** What the host answers about whether somebody has to be signed in. */
+type HostedIdentity = "unknown" | "not-required" | "required" | "signed-in";
 const configSchema = z.object({
   manifests: z.array(manifestSchema).min(1),
   generationAvailable: z.boolean(),
   liveManifests: z.array(manifestSchema).default([]),
   liveAvailable: z.boolean().default(false),
   teachingAvailable: z.boolean().default(false),
+  /*
+   * Absent from a host too old to report it, which then reads as nobody
+   * signed in: the directory asks rather than assuming an account it cannot
+   * confirm. The component's own gate still has the last word.
+   */
+  teachingAuthenticated: z.boolean().default(false),
   teachingConnectors: z.array(z.string()).default(["github"]),
   agentProviders: z.array(agentProviderSchema).default([]),
 });
@@ -172,35 +178,39 @@ function App() {
   /** Bumped when a card is chosen again, so the next attempt is a new one. */
   const [attempt, setAttempt] = useState(0);
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
+  const [signInError, setSignInError] = useState("");
+  const loadConfig = () =>
+    fetch("/api/config")
+      .then((response) => response.json())
+      .then((value) => setConfig(configSchema.parse(value)));
+  useEffect(() => {
+    void loadConfig().catch(() =>
+      setLoadError(
+        "Could not load connectors. Check the reference server and reload.",
+      ),
+    );
+  }, []);
   /**
    * Whether this host wants an account before a connection starts.
    *
-   * Asked on the directory rather than discovered at the drawer's last step.
-   * The component that asks there is mounted after Configure and Customize,
-   * and signing in is a provider round trip that returns to the bare origin —
-   * so being asked late costs whatever was drafted. Asked here, the round trip
-   * returns to the page it left.
+   * Asked on the directory rather than discovered at the drawer's last step:
+   * the component that asks there is mounted after Configure and Customize,
+   * and signing in is a provider round trip that returns to the bare origin,
+   * so being asked late costs whatever was drafted.
+   *
+   * Read from the configuration rather than asked for. The host works this out
+   * anyway to decide what to list, and a page that asks a second time is a
+   * second call racing the first for the same session — which this host hands
+   * to whichever call arrives without one. One question, one arrival, and no
+   * order to get wrong.
    */
-  const [identity, setIdentity] = useState<HostedIdentity>("unknown");
-  const [signInError, setSignInError] = useState("");
-  useEffect(() => {
-    if (!liveMode) return;
-    const abort = new AbortController();
-    void hostedIdentity(undefined, abort.signal).then((value) => {
-      if (!abort.signal.aborted) setIdentity(value);
-    });
-    return () => abort.abort();
-  }, []);
-  useEffect(() => {
-    void fetch("/api/config")
-      .then((response) => response.json())
-      .then((value) => setConfig(configSchema.parse(value)))
-      .catch(() =>
-        setLoadError(
-          "Could not load connectors. Check the reference server and reload.",
-        ),
-      );
-  }, []);
+  const identity: HostedIdentity = !config
+    ? "unknown"
+    : !liveMode || !config.teachingAvailable
+      ? "not-required"
+      : config.teachingAuthenticated
+        ? "signed-in"
+        : "required";
   // Memoised on the config itself: a fresh array every render would rebuild
   // every entry, and the drawer resets its draft when its entry changes.
   const manifests = useMemo(
@@ -502,8 +512,15 @@ function App() {
               onSignedOut={() => {
                 setOpen(false);
                 // Back to the directory, which should ask again rather than
-                // look like a workspace nobody needs an account for.
-                setIdentity("required");
+                // look like a workspace nobody needs an account for. The host
+                // is what knows, so the host is asked again — and a host that
+                // cannot answer says so, rather than leaving the stale answer
+                // on screen claiming somebody is still signed in.
+                void loadConfig().catch(() =>
+                  setLoadError(
+                    "Could not load connectors. Check the reference server and reload.",
+                  ),
+                );
               }}
               /* The component exposes the connection to WebMCP unless a host
                  says otherwise, so the toggle has to say otherwise. */
