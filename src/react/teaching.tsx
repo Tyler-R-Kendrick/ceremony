@@ -137,6 +137,36 @@ async function requestAt<T>(
   return response.json() as Promise<T>;
 }
 
+/**
+ * Start this host's sign-in and leave for its identity provider.
+ *
+ * Exported because the component is not the only place the question comes up.
+ * A host that knows an account is required before anything has been drafted
+ * asks on its own surface instead of at the end of a wizard, and the ask has
+ * to be the same ask: a second copy of this is a second thing to keep in step
+ * with whatever the host's login route decides to answer.
+ *
+ * A host that wants different behaviour supplies `onSignIn` and this is not
+ * called at all.
+ */
+export async function beginHostedSignIn(): Promise<void> {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!response.ok)
+    throw new Error(
+      "Sign-in is unavailable. Contact this host’s administrator.",
+    );
+  location.assign(
+    z.strictObject({ authorizationUrl: z.url() }).parse(await response.json())
+      .authorizationUrl,
+  );
+}
+
 export interface TeachingConnectionProps {
   connectorId?: string;
   mode?: "connect" | "studio";
@@ -1723,21 +1753,7 @@ export function TeachingConnection({
                 await onSignIn();
                 return;
               }
-              const response = await fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-                cache: "no-store",
-                credentials: "same-origin",
-              });
-              if (!response.ok)
-                throw new Error(
-                  "Sign-in is unavailable. Contact this host’s administrator.",
-                );
-              const result = z
-                .strictObject({ authorizationUrl: z.url() })
-                .parse(await response.json());
-              location.assign(result.authorizationUrl);
+              await beginHostedSignIn();
             })
           }
         >

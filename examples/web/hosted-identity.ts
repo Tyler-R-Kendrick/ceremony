@@ -17,8 +17,6 @@ const capabilitiesSchema = z.object({
   authenticated: z.boolean(),
 });
 
-const loginSchema = z.strictObject({ authorizationUrl: z.url() });
-
 export type HostedIdentity =
   "unknown" | "not-required" | "required" | "signed-in";
 
@@ -53,23 +51,11 @@ export async function hostedIdentity(
 /**
  * Start the host's sign-in.
  *
- * The same call the teaching component makes on its own, hoisted so the
- * directory and the drawer cannot drift apart. The provider round trip returns
- * to the host's configured path with no query of its own, which is the
- * directory — so asking here means the person lands back where they were
- * rather than outside a drawer they had already filled in.
+ * The component's own implementation, re-exported rather than repeated: the
+ * directory's ask and the drawer's are the same ask, and two copies of it are
+ * two things to keep in step with whatever `/api/auth/login` answers. The
+ * provider round trip returns to the host's configured path with no query of
+ * its own, which is the directory — so asking here means the person lands back
+ * where they were rather than outside a drawer they had already filled in.
  */
-export async function beginSignIn(): Promise<void> {
-  const response = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-  if (!response.ok)
-    throw new Error(
-      "Sign-in is unavailable. Contact this host’s administrator.",
-    );
-  location.assign(loginSchema.parse(await response.json()).authorizationUrl);
-}
+export { beginHostedSignIn as beginSignIn } from "./teaching.js";
