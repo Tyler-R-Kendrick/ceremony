@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 function discover(directory) {
@@ -49,7 +49,15 @@ function caseNames(file) {
 }
 if (process.argv.includes("--inventory")) {
   const names = [...new Set(files.flatMap(caseNames))].sort();
-  console.log(JSON.stringify({ mode, files, names }));
+  /*
+   * Written synchronously, not with `console.log`. Writing to a pipe is
+   * asynchronous and `process.exit` does not wait for the queue to drain, so a
+   * payload larger than one pipe buffer reaches the reader cut off mid-string.
+   * Once the case names joined the file list this document passed 140 kB and
+   * every caller that parses it -- the mutation runner is the one that reads it
+   * -- died on an unterminated string rather than on anything about the tests.
+   */
+  writeSync(1, `${JSON.stringify({ mode, files, names })}\n`);
   process.exit(0);
 }
 const probe = spawnSync(
