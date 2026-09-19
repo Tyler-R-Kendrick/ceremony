@@ -31,6 +31,21 @@ export const CONNECTOR_HTTP_PREFIX = "/api/v1/connectors";
 export { CONNECTOR_CALLBACK_PATH };
 export const DEFAULT_RETURN_PATH = "/connectors";
 
+/**
+ * Whether a request under the connector prefix must carry an authenticated
+ * session before the handler sees it.
+ *
+ * Provider deliveries to the event routes must not. The receiver authenticates
+ * each delivery by verifying a signature over the raw body, and a provider
+ * sends no session; resolving one first rejects every delivery with 401 before
+ * verification ever runs. A host mounting the handler asks this instead of
+ * re-deriving the path, so the host's boundary and this module's routing cannot
+ * drift apart.
+ */
+export function connectorRequestNeedsActor(pathname: string): boolean {
+  return !pathname.startsWith(`${CONNECTOR_HTTP_PREFIX}/events/`);
+}
+
 export type ConnectorEventReceiver = (input: {
   authority: string;
   request: Request;
@@ -50,9 +65,15 @@ export interface ConnectorHttpOptions {
   maxBodyBytes?: number;
 }
 
+/**
+ * `actor` is the authenticated caller, or undefined for a route that
+ * authenticates without a session. `connectorRequestNeedsActor` says which
+ * paths those are; every other path refuses an absent actor, and the type makes
+ * the compiler prove it rather than leaving it to a comment.
+ */
 export type ConnectorHttpHandler = (
   request: Request,
-  actor: ActorContext,
+  actor: ActorContext | undefined,
 ) => Promise<Response | undefined>;
 
 const headers = {
@@ -175,6 +196,10 @@ export function createConnectorHttp(
     const path = url.pathname.slice(CONNECTOR_HTTP_PREFIX.length);
     try {
       if (path.startsWith("/events/")) return await events(request);
+      // Everything past here acts for a caller. The events routes above are the
+      // only ones that authenticate without a session, so an absent actor here
+      // is a host that mounted this handler without authenticating first.
+      if (!actor) throw new ConnectorError("unauthenticated");
       const isImport = path === "/import";
       assertRequestBoundary(request, {
         origin: options.origin,

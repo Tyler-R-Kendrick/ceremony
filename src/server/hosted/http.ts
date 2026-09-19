@@ -9,7 +9,10 @@ import {
   reserveRequest,
 } from "../authorization.js";
 import { teachingHttp } from "../teaching-http.js";
-import type { ConnectorHttpHandler } from "../connectors/commands/http.js";
+import {
+  connectorRequestNeedsActor,
+  type ConnectorHttpHandler,
+} from "../connectors/commands/http.js";
 import type { TeachingRuntime } from "../teaching-runtime.js";
 import { validContinuationWorker } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
@@ -111,7 +114,13 @@ export async function hostedHttp(
     // for itself. Anything it does not own returns undefined and falls
     // through to the routes below.
     if (connectors && path.startsWith("/api/v1/connectors/")) {
-      const actor = await authenticatedActor(request, runtime.identity);
+      // A provider delivery carries no session, so the event routes are
+      // resolved without one and authenticate by signature inside the handler.
+      // Requiring a session for them would answer 401 before verification ever
+      // ran, which is what made the whole event surface unreachable here.
+      const actor = connectorRequestNeedsActor(path)
+        ? await authenticatedActor(request, runtime.identity)
+        : undefined;
       const handled = await connectors(request, actor);
       if (handled) return handled;
     }

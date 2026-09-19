@@ -16,9 +16,11 @@ import {
 } from "../../../src/server/connectors/index.js";
 import {
   ConnectorCommandService,
+  connectorRequestNeedsActor,
   createConnectorHttp,
   defaultConnectorPolicy,
   type ConnectorCommandServiceOptions,
+  type ConnectorEventReceiver,
   type ConnectorHttpHandler,
   type ConnectorImporter,
   type ConnectorPolicy,
@@ -322,6 +324,8 @@ export async function createHarness(
     policy?: (base: ConnectorPolicy) => ConnectorPolicy;
     now?: () => number;
     service?: Partial<ConnectorCommandServiceOptions>;
+    /** Supplied when a test exercises the event mount; absent means it answers 404. */
+    receiveEvent?: ConnectorEventReceiver;
   } = {},
 ) {
   const store = new SQLiteCeremonyStore(":memory:", {
@@ -378,6 +382,7 @@ export async function createHarness(
     origin: ORIGIN,
     store,
     returnPath: "/connectors",
+    ...(options.receiveEvent ? { receiveEvent: options.receiveEvent } : {}),
   });
 
   const actors = new Map<string, ActorContext>();
@@ -399,6 +404,14 @@ export async function createHarness(
     service,
     http,
     actors,
+    /**
+     * The fake host identity, as a deployment's adapter: a cookie maps to an
+     * actor, and an unknown cookie is nobody. Exposed so a test that mounts the
+     * real host router authenticates the same way this harness does.
+     */
+    identity: {
+      authenticate: async (request: Request) => identify(request) ?? null,
+    },
     setConfiguration(actor: ActorContext, name: string, value?: string) {
       const key = joinKey(actor.tenantId, actor.subjectId);
       const values = configurationValues.get(key) ?? new Map<string, string>();
@@ -442,10 +455,17 @@ export async function createHarness(
           ? {}
           : { body: JSON.stringify(init.body) }),
       });
+      // Exactly what a correct host does: resolve a session only for the paths
+      // that need one. A provider delivery carries none, so demanding one here
+      // would answer 401 before the receiver could verify a signature -- the
+      // mistake this harness previously modelled.
+      const needsActor = connectorRequestNeedsActor(
+        new URL(request.url).pathname,
+      );
       const actor = identify(request);
-      if (!actor)
+      if (needsActor && !actor)
         return Response.json({ error: "unauthenticated" }, { status: 401 });
-      const response = await http(request, actor);
+      const response = await http(request, needsActor ? actor : undefined);
       return response ?? Response.json({ error: "not-found" }, { status: 404 });
     },
     async close() {

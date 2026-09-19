@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
+import { hostedHttp } from "../../../src/server/hosted/http.js";
+import { connectorRequestNeedsActor } from "../../../src/server/connectors/commands/index.js";
 import type {
   ConnectorAction,
   ConnectorPolicy,
@@ -424,4 +426,97 @@ test("the event mount point authenticates by signature and reaches nothing else"
   const odd = await post("/api/v1/connectors/events/..%2Fadmin");
   assert.equal(odd?.status, 404);
   assert.equal(deliveries.length, 2, "no extra delivery reached the receiver");
+});
+
+test("SEC-03: the hosted mount resolves a session only where the route needs one, so signed deliveries reach the receiver", async () => {
+  const deliveries: Array<{ authority: string; body: string }> = [];
+  const harness = await createHarness({
+    receiveEvent: async ({ authority, request }) => {
+      // The receiver reads the raw bytes: that is what verifying a signature
+      // over the body requires, and anything that reparsed it on the way
+      // through would break verification rather than fail it.
+      deliveries.push({ authority, body: await request.text() });
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  try {
+    // The real host router with the real connector handler mounted. The
+    // teaching runtime's other members are absent deliberately: a connector
+    // path reads `identity` and nothing else before delegating, and it is that
+    // delegation under test, not teaching.
+    const runtime = {
+      origin: ORIGIN,
+      identity: harness.identity,
+      store: harness.store,
+      connectors: [],
+    } as unknown as Parameters<typeof hostedHttp>[1];
+    const host = (path: string, init: RequestInit = {}) =>
+      hostedHttp(
+        new Request(`${ORIGIN}${path}`, init),
+        runtime,
+        async () => {},
+        undefined,
+        undefined,
+        harness.http,
+      );
+
+    // A provider carries no session. Before this was fixed the host demanded
+    // one, so every delivery was answered 401 and the receiver never ran --
+    // the whole event surface was unreachable behind the host.
+    const payload = JSON.stringify({ id: "evt-1", type: "ping" });
+    const delivery = await host("/api/v1/connectors/events/nango", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-signature": "good" },
+      body: payload,
+    });
+    assert.equal(delivery.status, 202);
+    assert.deepEqual(deliveries, [{ authority: "nango", body: payload }]);
+
+    // Every other route still needs one, and refuses before reaching a service.
+    const anonymous = await host("/api/v1/connectors/connections", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: "{}",
+    });
+    assert.equal(anonymous.status, 401);
+
+    // And an authenticated caller still gets through the same mount.
+    harness.register("boundary-session", human());
+    const authenticated = await host("/api/v1/connectors/connections", {
+      headers: { cookie: "fixture-session=boundary-session" },
+    });
+    assert.equal(authenticated.status, 200);
+    assert.deepEqual(await body(authenticated), { connections: [] });
+
+    assert.equal(
+      deliveries.length,
+      1,
+      "no extra delivery reached the receiver",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+test("SEC-03: only the event routes are exempt from the session the host resolves", () => {
+  // A prefix boundary, not a substring one: `/eventsx` is a command route that
+  // must keep its session, and the bare `/events` is not a delivery path.
+  for (const path of [
+    "/api/v1/connectors/events/nango",
+    "/api/v1/connectors/events/nango/extra",
+    "/api/v1/connectors/events/",
+  ])
+    assert.equal(connectorRequestNeedsActor(path), false, path);
+  for (const path of [
+    "/api/v1/connectors/events",
+    "/api/v1/connectors/eventsx",
+    "/api/v1/connectors/events-admin/nango",
+    "/api/v1/connectors/connections",
+    "/api/v1/connectors/import",
+    "/api/v1/connectors/callback",
+  ])
+    assert.equal(connectorRequestNeedsActor(path), true, path);
 });
