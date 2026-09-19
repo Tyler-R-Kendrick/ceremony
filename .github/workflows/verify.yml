@@ -182,6 +182,22 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
+      # What machine this actually ran on.
+      #
+      # `verification.md` carried "four browser-driving files at once on a
+      # two-core, 7 GB runner" as the leading explanation for an intermittent
+      # refusal in this job, and that was inference — the same document
+      # admitted nobody had instrumented the machine. This repository is
+      # public, so a standard `ubuntu-24.04` runner is four vCPUs and 16 GB,
+      # and the inference was wrong on both numbers.
+      #
+      # Four lines of output are cheaper than being wrong twice, and they sit
+      # in the log beside the failure they would be needed to explain.
+      - name: Runner shape
+        run: |
+          echo "cpus: $(nproc)"
+          free -m | sed -n '1,2p'
+          df -h / | sed -n '1,2p'
       - run: npm run test:coverage
   browser-ui:
     # Two chromium specs fail here on every run and pass locally on every run —
