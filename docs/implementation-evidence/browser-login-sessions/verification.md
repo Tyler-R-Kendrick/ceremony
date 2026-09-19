@@ -215,15 +215,42 @@ alongside `browser-targets.e2e`, `browser-session-lifetime` and
 cores. Not settling at all, under the harshest conditions reproducible here,
 produces no failure. The candidate is recorded as ruled out.
 
-What remains unreproduced here is the runner itself. This machine has four
-cores and 15 GB; a hosted runner has two and 7, and four concurrent test files
-each driving browsers is the one condition that has never been matched locally.
-Memory pressure is consistent with everything observed - a browser that
-discards and reloads a page under pressure replaces the document, which is
-exactly what the guard reports, and it would explain why only the
-four-way-concurrent job is ever affected, why the victim is arbitrary, and why
-there is never more than one. It is a candidate, not a finding; constraining
-memory to test it is the next experiment, not a fix to ship.
+**Memory pressure reproduces it.** This machine has four cores and 15 GB; a
+hosted runner has two and 7, and four concurrent files each driving browsers
+was the one condition never matched locally. Holding memory in a ballast
+process matches it:
+
+| Held  | Available | Result                                      |
+| ----- | --------- | ------------------------------------------- |
+| 9 GB  | ~6 GB     | 210 of 210 pass                             |
+| 12 GB | ~2 GB     | 14 fail, **two reporting `stale-document`** |
+
+The two are `LIFE-MANAGED` and `EFFECT-NEW` - both among the six names CI has
+produced. After ten configurations that reproduced nothing, this is the first
+that reproduces the symptom, on the same cases, with the same reason.
+
+It is **past** the CI condition rather than matched to it, and that is stated
+rather than glossed: at 2 GB the same run also produced
+`page.goto: Timeout 30000ms exceeded` and took over ten minutes instead of
+four. CI shows no navigation timeouts. So the finding is that resource
+exhaustion produces this refusal on these cases, not that CI's exhaustion has
+been measured.
+
+What it means for the driver: nothing to fix. A browser that discards and
+reloads a page under memory pressure really has replaced the document, and
+refusing to act on an element approved against the old one is the protection
+working exactly as intended. The conformance case asserts that a login
+succeeds, and under memory exhaustion it legitimately cannot.
+
+What it points at instead is the harness. `scripts/test.mjs` runs four test
+files at once, and its own comment already names the tension - "Files also
+launch browsers, databases and covered children. Bound the outer pool rather
+than exhausting each nested fixture's unchanged deadline." Four
+browser-driving files on a two-core, 7 GB runner may be more than that pool
+should allow. Lowering it changes no assertion and skips no test, but it is a
+change to every job in the repository on the strength of a hypothesis about a
+machine nobody has instrumented, so it is written here as the next thing to
+establish rather than done.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
