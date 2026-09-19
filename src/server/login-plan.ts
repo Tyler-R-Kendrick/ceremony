@@ -123,6 +123,23 @@ export const planRejectionReasons = [
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
 
+/**
+ * Why a draft was refused, and — only where it is safe — which value did it.
+ *
+ * A rejection is the one object here that routinely leaves the process by a
+ * route nobody planned: it is thrown, logged, attached to a report, and on a
+ * model-facing surface it is rendered into a transcript. Every other surface
+ * in this system has a written rule about what it may carry. This is that
+ * rule.
+ *
+ * `detail` may hold something the *server* worked out — which capabilities a
+ * backend lacks — or a token from a closed set the schema already validated:
+ * an engine, an ownership, a role name, a canonical origin. It may not hold a
+ * free-form string the caller sent. `connectorId` is the one such field, 128
+ * characters of anything, and echoing it back bought nothing: a caller
+ * already knows what it asked for, so the echo was only ever a second,
+ * unredacted copy travelling somewhere the first one was not going to go.
+ */
 export class PlanRejected extends Error {
   constructor(
     readonly reason: PlanRejectionReason,
@@ -207,8 +224,10 @@ export function compileLoginPlan(
 ): EffectiveLoginPlan {
   const draft = connectionDraftSchema.parse(input);
 
+  // No detail. The connector id is the only unbounded caller string the
+  // compiler reads, and the reason alone names the field it belongs to.
   if (!options.knownConnectors.has(draft.connectorId))
-    throw new PlanRejected("unknown-connector", draft.connectorId);
+    throw new PlanRejected("unknown-connector");
 
   const backend = options.backends.find(
     (candidate) =>

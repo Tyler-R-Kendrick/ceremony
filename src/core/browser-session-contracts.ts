@@ -178,6 +178,18 @@ export const browserOperationReasons = [
   "human-declined",
   /** Nobody could be reached to take part. */
   "human-unavailable",
+  /**
+   * A value the attempt was holding privately appeared on a surface that must
+   * never carry one - a page snapshot bound for an interpreter, or a note an
+   * interpreter proposed. The attempt stops.
+   *
+   * It has its own name rather than folding into `provider-error` because the
+   * two call for opposite responses. A provider error is something to retry or
+   * report upstream; this is a privacy tripwire, and a host that cannot tell
+   * them apart cannot alarm on the one that matters. The name says what
+   * happened and carries nothing about the value, which is the point.
+   */
+  "protected-value-exposed",
   /** The provider reported an error the ceremony cannot act on. */
   "provider-error",
 ] as const;

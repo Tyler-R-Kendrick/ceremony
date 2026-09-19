@@ -36,14 +36,29 @@ export {
 
 /**
  * What a host is asked for. It carries no value and no secret: the person acts
- * at `url` in their own browser, or through whatever the host's delegation
+ * where the ceremony already is, or through whatever the host's delegation
  * offers. `attempt` lets a host stop asking rather than prompt forever.
+ *
+ * This request is the one thing in an attempt that is *meant* to leave the
+ * process. A host shows it to a person, puts it in a notification, writes it
+ * to an activity log — so it is held to the same rule as a snapshot rather
+ * than to the rule for something only the driver sees.
+ *
+ * That is why `path` is origin and pathname and the full URL is not here. The
+ * driver already refuses to put a submission's URL in the effect ledger, for
+ * exactly this reason: a query string carries authorization codes, login
+ * hints, session identifiers and one-time tokens, and the same string that
+ * tells a person which page to look at would carry all of it into wherever
+ * the host displays it. A host that genuinely needs to navigate holds the
+ * live page already and can ask it — see `CeremonyPage.url()`, which is
+ * reachable only from something that can already drive the browser.
  */
 export type HumanParticipationRequest = {
   reason: HumanStepReason;
   surface: HumanHandoffContract["surface"];
   recipient: HumanHandoffContract["recipient"];
-  url: string;
+  /** Origin and pathname of the page awaiting a person. Never the query. */
+  path: string;
   attempt: number;
 };
 
@@ -331,15 +346,15 @@ export async function runCeremony(
 
   /**
    * Bring a person into a step the browser cannot complete. The declared
-   * handoff contract says where they act and who they are; the driver supplies
-   * the live page so an own-browser fallback always exists. A person's "done"
-   * is a claim: the attempt resumes and re-reads the page, and completion still
-   * requires the same provider evidence it always did.
+   * handoff contract says where they act and who they are; the request names
+   * the page by origin and pathname, and a host that drives the browser holds
+   * the live page already. A person's "done" is a claim: the attempt resumes
+   * and re-reads the page, and completion still requires the same provider
+   * evidence it always did.
    */
   const handOff = async (
     snapshot: PageSnapshot,
     reason: HumanStepReason,
-    url: string,
   ): Promise<BlockedReason | undefined> => {
     const fallback: BlockedReason =
       reason === "passkey"
@@ -354,7 +369,12 @@ export async function runCeremony(
       reason,
       surface: options.human.contract.surface,
       recipient: options.human.contract.recipient,
-      url,
+      // The observation's own path, which is already origin and pathname.
+      // Taking it from here rather than re-deriving it from the live URL is
+      // deliberate: there is then no place in this function where the query
+      // string exists at all, so no later edit can reintroduce it by
+      // forgetting to strip something.
+      path: snapshot.path,
       attempt: handoffs,
     });
     if (outcome === "declined") return "human-declined";
@@ -617,7 +637,7 @@ export async function runCeremony(
           ? "native-dialog"
           : undefined;
     if (humanStep) {
-      const refused = await handOff(snapshot, humanStep, url);
+      const refused = await handOff(snapshot, humanStep);
       if (refused) {
         record(snapshot, "blocked", { reason: refused });
         return finish({ status: "blocked", reason: refused, steps });

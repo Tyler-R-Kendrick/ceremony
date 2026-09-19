@@ -6,7 +6,10 @@ import {
   type LoginResult,
 } from "../core/browser-session-contracts.js";
 import type { ActorContext } from "../core/operation-contracts.js";
-import type { CeremonyRole } from "../core/browser-contracts.js";
+import {
+  heldSecretRoles,
+  type CeremonyRole,
+} from "../core/browser-contracts.js";
 import {
   launchManagedBrowser,
   UnsupportedBackend,
@@ -14,6 +17,7 @@ import {
   type ManagedContext,
 } from "./browser-backends.js";
 import {
+  CeremonySecretLeak,
   createSecrets,
   runCeremony,
   type CeremonyPage,
@@ -334,15 +338,35 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             evidenceRef,
             evidenceKind: evidence.kind,
           };
-        } catch {
+        } catch (error) {
           // The difference that matters. A failure before anything was sent is a
           // refusal a caller may retry; a failure after a submission left the
           // browser is not, because the provider may already have acted on it.
+          //
+          // Uncertainty outranks everything, including the tripwire below. An
+          // attempt that clicked and then found a protected value on the next
+          // page really did dispatch something whose outcome nobody saw, and
+          // relabelling that as a refusal would invite the retry the record
+          // exists to prevent. So a canary that trips after a dispatch is
+          // reported as `indeterminate`; the ledger still holds the
+          // dispatched-and-unobserved record, which is the fact a caller has
+          // to act on.
           if (dispatched)
             return {
               status: "indeterminate",
               runRef,
               ...(effectRef ? { effectRef } : {}),
+            };
+          // Nothing left the browser, so the honest answer is the specific
+          // one. `provider-error` would have said a provider misbehaved; what
+          // happened is that this process was about to hand a value it holds
+          // privately to something that must never see it, and stopped. A
+          // host that cannot tell those apart cannot alarm on the second.
+          if (error instanceof CeremonySecretLeak)
+            return {
+              status: "blocked",
+              runRef,
+              reason: "protected-value-exposed",
             };
           return { status: "blocked", runRef, reason: "provider-error" };
         } finally {
@@ -448,6 +472,48 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         return value;
       };
 
+    // Arm the driver's canary before the first page is read, not after the
+    // first field is typed.
+    //
+    // The driver adds a secret to its guarded set when it fills one, which
+    // covers every snapshot from that point on. What it cannot cover is every
+    // snapshot *before* it, and that window is not hypothetical: a provider
+    // whose password field arrives already filled — a browser password
+    // manager, a resumed form, a retry after a failed attempt — is a page the
+    // driver submits without ever typing, so the guard would stay unarmed for
+    // the whole attempt while the provider echoed the value back in an alert.
+    //
+    // This is the layer that can close it. The plan says which roles are
+    // authorized and the credential source is the only thing that can turn
+    // them into values, so the values are asked for here and handed to the
+    // driver as the things no surface may carry.
+    //
+    // Only the *held* secrets, and the restriction is not a nicety. A
+    // password sits in the collector and reading it early costs nothing. A
+    // verification code does not exist until a submission causes the provider
+    // to send one, and resolving it means waiting on a mailbox — so asking
+    // before the drive starts would block every flow that uses one, on a code
+    // that cannot arrive, for as long as that mailbox waits. The hole this
+    // closes cannot apply to those roles anyway: a page cannot display a value
+    // the provider has not issued, and once the driver types one the driver's
+    // own guard covers every snapshot after it, exactly as before.
+    //
+    // Not the non-secret roles either. An address or a display name is shown
+    // by legitimate providers on their own pages, and guarding one would make
+    // an ordinary login look like a leak.
+    //
+    // Resolution is best-effort by design. A role the flow never reaches may
+    // have no value, and a collector that cannot answer for it must not turn
+    // into a failed login — that role simply resolves at fill time as before.
+    const guarded: string[] = [];
+    for (const role of roles) {
+      if (!heldSecretRoles.includes(role)) continue;
+      const value = await options.credentials
+        .resolve(actor, plan, role)
+        .catch(() => undefined);
+      if (value !== undefined && !guarded.includes(value)) guarded.push(value);
+    }
+
     const result = await runCeremony({
       page,
       interpreter: createHeuristicInterpreter(),
@@ -457,6 +523,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       // and its per-role narrowing is applied by the plan before we get here.
       allowedOrigins: plan.navigationOrigins,
       onDispatch,
+      ...(guarded.length > 0 ? { protectedValues: guarded } : {}),
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
         : {}),

@@ -58,6 +58,27 @@ export const secretRoles: readonly CeremonyRole[] = [
   "totp-code",
 ];
 
+/**
+ * The secret roles a caller already *holds* when an attempt starts.
+ *
+ * The distinction is when the value comes into existence, and it matters to
+ * anything that wants a secret's value before the flow asks for one. A
+ * password sits in the private collector and is there to be read. A
+ * verification code does not exist yet: resolving one means waiting on a
+ * mailbox until the provider sends it, which cannot happen before the
+ * submission that causes it. Asking early does not get an early answer — it
+ * blocks, or polls until it gives up, before anything has been submitted.
+ *
+ * So a caller that wants to know a secret's value up front may ask for these
+ * and must not ask for the others. The two lists are deliberately separate
+ * rather than one list with a flag, because a role added to `secretRoles`
+ * without a thought about this one is the mistake worth making visible.
+ */
+export const heldSecretRoles: readonly CeremonyRole[] = [
+  "password",
+  "password-confirm",
+];
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
