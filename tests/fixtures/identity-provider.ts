@@ -145,6 +145,18 @@ const passwordField =
   '<label for="password">Password</label>' +
   '<input id="password" name="password" type="password" autocomplete="current-password">';
 const submitField = '<button id="submit" type="submit">Sign in</button>';
+/**
+ * The same identifier control, carrying the WebAuthn autocomplete hint.
+ *
+ * This is what conditional passkey UI actually looks like on a real provider:
+ * the browser may offer a passkey in the identifier field, and the form still
+ * accepts a password for everyone who does not have one. It is the common
+ * shape now, not an edge case, which is why telling it apart from a page that
+ * can *only* be answered by an authenticator matters so much.
+ */
+const conditionalIdentifierField =
+  '<label for="identifier">Email</label>' +
+  '<input id="identifier" name="identifier" type="text" autocomplete="username webauthn">';
 
 /** Alert markup matching `snapshotSelectors.alerts`, so a refusal is observable. */
 const alert = (message: string) =>
@@ -262,6 +274,19 @@ async function startOrigin(
       return redirect(response, "/account", [openSession(match.account)]);
     }
 
+    if (path === "/signin-conditional") {
+      // Identical to `/signin` in every way that matters: the password is
+      // what completes it. The only difference is the hint on the identifier,
+      // which must not change the outcome.
+      const match = accounts.find(
+        (candidate) => candidate.identifier === identifier,
+      );
+      record(path, match?.account ?? identifier, match?.password === password);
+      if (!match || match.password !== password)
+        return redirect(response, "/signin-conditional?error=1");
+      return redirect(response, "/account", [openSession(match.account)]);
+    }
+
     if (path === "/signin-identifier") {
       const match = byIdentifier(identifier);
       record(path, match?.account ?? identifier, false);
@@ -323,6 +348,19 @@ async function startOrigin(
         page(
           "Sign in",
           signInForm("/signin", identifierField + passwordField, error),
+        ),
+      );
+
+    if (path === "/signin-conditional")
+      return html(
+        response,
+        page(
+          "Sign in",
+          signInForm(
+            "/signin-conditional",
+            conditionalIdentifierField + passwordField,
+            error,
+          ),
         ),
       );
 
