@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 function discover(directory) {
@@ -25,8 +25,31 @@ const patterns = {
 if (!Object.hasOwn(patterns, mode)) throw new Error("Unknown test profile");
 const files = all.filter((file) => patterns[mode].test(file)).sort();
 if (!files.length) throw new Error("No tests discovered for required profile");
+/**
+ * The case names a discovered file authors, as written.
+ *
+ * This is an inventory in the same sense the file list is: names that exist in
+ * the repository, gathered so a sanitized failure report can name one without
+ * ever echoing a line of test output. Only plain single-line string literals
+ * count. A template literal can interpolate a value at run time, and a literal
+ * carrying an escape does not read the same in the file as it does in a
+ * result — `"say \\"hi\\""` is five characters shorter once unescaped. Either
+ * way the name is not fixed in the source, so this inventory cannot vouch for
+ * it and does not carry it: the failure is then reported by file alone, which
+ * is what it was before. Requiring the closing quote to be followed by the
+ * argument separator keeps a half-matched literal from entering as a truncated
+ * name.
+ */
+function caseNames(file) {
+  return [
+    ...readFileSync(file, "utf8").matchAll(
+      /(?:^|[^\w.$])(?:test|it)\s*\(\s*(["'])([^\\\r\n]*?)\1\s*[,)]/g,
+    ),
+  ].map((match) => match[2]);
+}
 if (process.argv.includes("--inventory")) {
-  console.log(JSON.stringify({ mode, files }));
+  const names = [...new Set(files.flatMap(caseNames))].sort();
+  console.log(JSON.stringify({ mode, files, names }));
   process.exit(0);
 }
 const probe = spawnSync(
