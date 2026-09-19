@@ -891,12 +891,17 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       };
     }
     if (reply.kind === "stream") {
-      if (reply.status >= 400)
+      if (reply.status >= 400) {
+        // The status is the whole answer, so the frames are never read -- which
+        // means nothing else releases the body. Retries multiply this, so a
+        // failed read would otherwise abandon one socket per attempt.
+        await reply.cancel();
         return {
           kind: "failed",
           code: `mcp.http.${reply.status}`,
           applied: reply.status >= 500 ? "unknown" : "no",
         };
+      }
       try {
         for await (const frame of reply.frames()) {
           let value: unknown;
@@ -1886,17 +1891,28 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       }
       const tool = tools?.items.find((item) => item.name === request.name);
       if (!tool) warnings.add("mcp.tool.not-listed");
-      if (
-        request.expectedDigest !== undefined &&
-        tool &&
-        tool.definitionDigest !== request.expectedDigest
-      )
-        return {
-          kind: "failed",
-          code: "mcp.tool.drift",
-          applied: "no",
-          warnings: warnings.codes,
-        };
+      if (request.expectedDigest !== undefined) {
+        // A pin the server can dodge is not a pin. When no live definition can
+        // be produced -- the listing failed, or this server omitted the very
+        // tool it is about to run -- there is nothing to compare the reviewed
+        // digest against, and the server that changed the tool would be the one
+        // deciding whether its own definition gets checked. Refuse instead: an
+        // approved binding is not proof of an advertised capability.
+        if (!tool)
+          return {
+            kind: "failed",
+            code: "mcp.tool.unverifiable",
+            applied: "no",
+            warnings: warnings.codes,
+          };
+        if (tool.definitionDigest !== request.expectedDigest)
+          return {
+            kind: "failed",
+            code: "mcp.tool.drift",
+            applied: "no",
+            warnings: warnings.codes,
+          };
+      }
       if (tool && state.era === "modern")
         headerParameters = mirroredHeaders(tool, request.arguments);
     }
@@ -2110,7 +2126,12 @@ export function createMcpClient(options: McpClientOptions): McpClient {
             : "error",
         );
       }
-      if (reply.status === 405) return finish("unsupported", undefined, false);
+      if (reply.status === 405) {
+        // A 405 decides this on its own, but a server may still have sent it as
+        // an event stream; let the body go rather than leaving it open.
+        if (reply.kind === "stream") await reply.cancel();
+        return finish("unsupported", undefined, false);
+      }
       if (reply.kind !== "stream")
         return finish("error", undefined, reply.status < 400);
       try {

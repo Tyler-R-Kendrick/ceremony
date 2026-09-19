@@ -248,11 +248,22 @@ export class DelegationStopRegistry {
   }
 
   stop(scope: DelegationScope, at: number): void {
-    if (this.stops.size > 8192) {
-      const first = this.stops.keys().next().value;
-      if (first !== undefined) this.stops.delete(first);
-    }
-    this.stops.set(DelegationStopRegistry.key(scope), at);
+    const key = DelegationStopRegistry.key(scope);
+    /*
+     * A stop is a deny record, so evicting the oldest one to make room for a new
+     * one silently un-stops whoever held it: recording enough stops would clear
+     * someone else's, turning a capacity limit into a way to resume an assistant
+     * a person had stopped. Refuse the new stop instead, so the caller learns
+     * the control is saturated rather than a victim quietly losing theirs.
+     *
+     * Re-stopping a scope already stopped is always allowed, because it replaces
+     * an entry rather than adding one and so cannot be used to fill the map.
+     */
+    if (!this.stops.has(key) && this.stops.size >= 8192)
+      throw new ConnectorError("conflict", {
+        detail: "delegation.stops-full",
+      });
+    this.stops.set(key, at);
   }
 
   resume(scope: DelegationScope): void {

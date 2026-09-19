@@ -450,6 +450,7 @@ export async function completeAuthorizationCode(
   }
   let tokens: oauth.TokenEndpointResponse;
   try {
+    const transport = requestOptions(wire(ctx, input.server.allowLoopbackHttp));
     const response = await oauth.authorizationCodeGrantRequest(
       as,
       input.client.client,
@@ -458,7 +459,7 @@ export async function completeAuthorizationCode(
       open.redirectUri,
       open.verifier,
       {
-        ...requestOptions(wire(ctx, input.server.allowLoopbackHttp)),
+        ...transport,
         additionalParameters: resourceParameters(open.resource),
       },
     );
@@ -468,6 +469,33 @@ export async function completeAuthorizationCode(
       response,
       { expectedNonce: open.nonce ?? oauth.expectNoNonce },
     );
+    /*
+     * `processAuthorizationCodeResponse` validates an ID token's claims but not
+     * its signature: oauth4webapi makes that a separate, explicit step, on the
+     * reasoning that TLS to the issuer's own token endpoint already establishes
+     * who answered. That reasoning does not hold here. `trustedEndpoint` admits
+     * a `token_endpoint` on an origin the issuer merely declared, so TLS to it
+     * proves only that that origin answered -- and this subject becomes the
+     * connection's identity, its `target` and its external id. Unverified, any
+     * origin that can serve the token endpoint mints whichever account it likes.
+     *
+     * This deployment's own sign-in path already validates the signature. A
+     * connector identity is held to the same standard.
+     */
+    if (oauth.getValidatedIdTokenClaims(tokens) !== undefined)
+      try {
+        await oauth.validateApplicationLevelSignature(as, response, transport);
+      } catch (failure) {
+        // Every reason this can fail is the same answer: the identity in the
+        // token is not proven to be the issuer's. A bad signature, an algorithm
+        // outside the allowlist, and no published keys to check it against all
+        // refuse the grant. Raised as a protocol failure because the response
+        // did arrive and the code is spent -- not as an uncertain effect.
+        throw new oauth.OperationProcessingError(
+          "ID Token signature was not validated",
+          { cause: failure },
+        );
+      }
   } catch (failure) {
     if (neverSent(failure)) {
       await ctx.environment.effects.complete(begun.effectRef, {
