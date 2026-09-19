@@ -1,0 +1,8 @@
+version: 2
+name: duplicate-fixture
+registry:
+  one:
+    type: server
+    image: mcp/one@sha256:8888888888888888888888888888888888888888888888888888888888888888
+    description: First
+    description: Second

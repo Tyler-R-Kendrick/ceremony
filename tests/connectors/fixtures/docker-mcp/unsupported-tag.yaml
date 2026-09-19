@@ -1,0 +1,4 @@
+version: 2
+name: tag-fixture
+registry:
+  one: !!python/object/apply:os.system ["echo pwned"]

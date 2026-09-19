@@ -1,0 +1,213 @@
+{
+  "swarm": "AUTOMATION",
+  "workItems": [
+    {
+      "id": "AUTO-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/zapier/profile.ts",
+        "src/server/connectors/formats/zapier/read.ts",
+        "src/server/connectors/formats/zapier/export.ts",
+        "src/server/connectors/formats/zapier/index.ts",
+        "src/server/connectors/formats/automation/common.ts",
+        "src/server/connectors/formats/automation/definition.ts",
+        "src/server/connectors/formats/automation/js-literals.ts"
+      ],
+      "tests": [
+        "tests/connectors/zapier/import.test.ts",
+        "tests/connectors/zapier/export.test.ts",
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/js-literals.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-IMP-03", "AC-UX-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "zapier-app-definition/19",
+        "zapier-app-source-static/1",
+        "zapier-static-app/1"
+      ],
+      "limitations": [
+        "An app definition carries no identifier or display name; the host supplies both and an info diagnostic says so.",
+        "`custom`, `session`, `digest` and `oauth1` authentication map to an unsupported native profile with a blocking security diagnostic: Zapier states where a credential goes only inside middleware code, and this reader will not guess it. The auth fields still import as configuration.",
+        "`oauth2` maps to oauth-authorization-code only when `authorizeUrl` and `getAccessToken` are literal https URLs without `{{curlies}}`; otherwise the profile is unsupported native `zapier-oauth2-dynamic`.",
+        "Resource-generated actions are identified as `<resourceKey>.<method>` because the platform's generated key is not stated in the definition; an info diagnostic records that.",
+        "Dynamic dropdowns (`dynamic`, `search`, `choices.perform`) and function-valued field lists produce diagnostics and definition-level limitations; their options are never fetched.",
+        "`beforeRequest`/`afterResponse`/`hydrators` are recorded inert and never applied to any host request."
+      ],
+      "notes": "readZapierApp({ json?, sourceText?, identity? }). The JSON path is exact; the source path is adapted. Effects come from Zapier's own semantics (creates write, searches and triggers read), never from an HTTP method."
+    },
+    {
+      "id": "AUTO-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/n8n/profile.ts",
+        "src/server/connectors/formats/n8n/read.ts",
+        "src/server/connectors/formats/n8n/export.ts",
+        "src/server/connectors/formats/n8n/index.ts",
+        "src/server/connectors/formats/automation/js-literals.ts"
+      ],
+      "tests": [
+        "tests/connectors/n8n/import.test.ts",
+        "tests/connectors/n8n/export.test.ts",
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/js-literals.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-IMP-16", "AC-UX-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "n8n-node-description/1",
+        "n8n-node-source-static/1",
+        "n8n-static-node/1"
+      ],
+      "limitations": [
+        "A programmatic node (an `execute`, `webhook`, `poll` or `trigger` method) reports `invoke: unsupported` and the limitation \"programmatic node requires host runtime\"; its metadata still imports.",
+        "An expression (any value beginning with `=`) is preserved verbatim as inert text and never evaluated; a routing URL or base URL that is an expression yields no approved destination.",
+        "An n8n node does not declare whether an operation reads or writes, so every imported operation records `effect: unknown` with an info diagnostic. An HTTP method is not a declaration.",
+        "A credential maps to an executable profile only from a literal `authenticate.properties` placement (`header`, `qs`, `auth`); a body placement and an inherited `oAuth2Api` credential are unsupported with a blocking security diagnostic.",
+        "`methods.loadOptions` is never invoked; option lists it would produce are not part of the description.",
+        "The node icon, the compiled package and the node's own code are outside the description; the export says the node cannot run from it."
+      ],
+      "notes": "readN8nNode({ json?, sourceText?, credentialsJson?, credentialsSource?, packageJson?, identity? }). nativeVersion is the node version (defaultVersion, else the highest declared); package name, package version and n8nNodesApiVersion travel in nativeExtensions."
+    },
+    {
+      "id": "AUTO-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/workato/profile.ts",
+        "src/server/connectors/formats/workato/read.ts",
+        "src/server/connectors/formats/workato/export.ts",
+        "src/server/connectors/formats/workato/index.ts",
+        "src/server/connectors/formats/automation/ruby-literals.ts"
+      ],
+      "tests": [
+        "tests/connectors/workato/import.test.ts",
+        "tests/connectors/workato/export.test.ts",
+        "tests/connectors/automation/no-execution.test.ts",
+        "tests/connectors/automation/ruby-literals.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-15", "AC-IMP-14", "AC-UX-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "workato-static-profile/1",
+        "workato-connector-ruby-static/1"
+      ],
+      "limitations": [
+        "Workato publishes no non-Ruby serialization, so `workato-static-profile/1` is this repository's own format, documented in src/server/connectors/formats/workato/profile.ts. A Ruby lambda is spelled `{\"$lambda\": true}` in it.",
+        "From Ruby source only literal hash entries are read: connection fields, the authorization type, action and trigger names, and field lists written as literal arrays. Every lambda, block, heredoc, interpolated string, backtick command and method call is an inert diagnostic.",
+        "`api_key` maps to an executable profile only when the static profile declares `authorization.apply` as `{placement, parameter}`; from Ruby the placement lives in a lambda and the profile is unsupported native `workato-api-key-placement`.",
+        "`oauth2` needs literal `authorization_url` and `token_url`; the SDK writes them as lambdas, so the Ruby path reports `workato-oauth2-dynamic`.",
+        "The client-credentials grant, which the SDK writes as `custom_auth` with an `acquire` lambda, maps only from an explicit `authorization.oauth2 = {grant: \"client_credentials\", token_url}` declaration.",
+        "A Workato action does not declare whether it reads or writes, so actions record `effect: unknown`; triggers record `read`.",
+        "A connector carries no version of its own; the host supplies one and an info diagnostic says so.",
+        "`base_uri` is a lambda in idiomatic Ruby, so the Ruby path derives no approved destination from it."
+      ],
+      "notes": "readWorkatoConnector({ staticProfile?, rubySource?, identity? }). `multi` authorization maps each declared option to its own profile."
+    },
+    {
+      "id": "AUTO-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/automation/external-runtime.ts",
+        "src/server/connectors/formats/automation/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/zapier/binding.test.ts",
+        "tests/connectors/n8n/binding.test.ts",
+        "tests/connectors/workato/binding.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-IMP-15",
+        "AC-EXT-01",
+        "AC-EXT-02",
+        "AC-AUTH-01",
+        "AC-STATE-02",
+        "AC-MCP-03"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-external-runtime/1"],
+      "limitations": [
+        "The wire contract is Ceremony's own; no vendor publishes one. A deployment must register an endpoint that implements it. `verifyExternalRuntimeSignature` is exported so a host implements verification with the same code the adapter signs with.",
+        "The input and output shape language is deliberately not JSON Schema: no $ref, no composition, no `pattern`, no `format`. A caller-supplied regular expression is an execution primitive and is refused at binding-parse time.",
+        "Evidence is protocol-fixture against a loopback runtime. No vendor runtime was contacted and no live authorization exists.",
+        "A repeated request digest returns the journalled prior outcome for anything but a genuinely read-only operation; it never re-issues the call."
+      ],
+      "notes": "ExternalRuntimeBinding names the imported operation by ecosystem + nativeId + nativeVersion, the approved destination, the owner and upstream account it may act for, the input/output shapes, the effect policy and the execution environment class (vendor-hosted | host-managed-sandbox | trusted-local-runner | loopback-fixture). createExternalRuntimeAdapter(options) yields id 'external-runtime', custody 'external-execution-broker', runtime 'hosted-server'. Signature: HMAC-SHA256 over `${timestamp}.${body}`, rendered `v1=<hex>`, secret read inside CredentialCustodyPort.use and never outside it. A lost or unreadable response on a non-read-only operation is `indeterminate`, journalled as such."
+    },
+    {
+      "id": "AUTO-05",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/fixtures/zapier/app.ts",
+        "tests/connectors/fixtures/n8n/node.ts",
+        "tests/connectors/fixtures/workato/connector.ts",
+        "tests/connectors/fixtures/automation/external-runtime.ts",
+        "src/server/connectors/formats/automation/definition.ts"
+      ],
+      "tests": [
+        "tests/connectors/zapier/export.test.ts",
+        "tests/connectors/n8n/export.test.ts",
+        "tests/connectors/workato/export.test.ts",
+        "tests/connectors/zapier/import.test.ts",
+        "tests/connectors/n8n/import.test.ts",
+        "tests/connectors/workato/import.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-14", "AC-IMP-15", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "zapier-static-app/1",
+        "n8n-static-node/1",
+        "workato-static-profile/1"
+      ],
+      "limitations": [
+        "The round trip is defined over the supported subset (`automationSupportedSubset`): identity, display, authentication profiles, configuration, events, declared servers and each capability's descriptive fields plus the native extension keys the exporter documents. Diagnostics and digests are deliberately outside it, because an export legitimately produces its own diagnostics.",
+        "No export is runnable on its target platform. Zapier's export replaces a function with the platform's own `$func$0$f$` marker; n8n's carries the node description without its package or code; Workato's carries `{\"$lambda\": true}` markers. Each reports the loss.",
+        "A security-critical loss (a credential placement that was never imported) is reported as blocking with `blocks-authorization`."
+      ],
+      "notes": "License and provenance: every fixture is an original minimal example authored for this repository against the vendors' published schemas and documentation. No Zapier integration source, no node from n8n-io/n8n or a community package (n8n's own nodes are under the Sustainable Use License), and no Workato community connector is copied or redistributed. Services are fictional; hosts use reserved domains (.example / .invalid per RFC 2606 and RFC 6761). Adversarial fixtures are strings that would write a sentinel file and then throw if they were ever loaded."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/import (INT)",
+      "description": "Dispatch to the three readers from the import command: readZapierApp from formats/zapier, readN8nNode from formats/n8n, readWorkatoConnector from formats/workato. Each takes already-parsed JSON or raw source text and returns { definition, issues, executableCandidates }; each is async, pure and performs no I/O. Media-type hints: application/json for the exported/static profiles, text/javascript or text/plain for source text. The readers accept a host-supplied identity hint ({ nativeId, nativeVersion, authorityNamespace, displayName, description, service }) because a Zapier app definition and a Workato connector carry no identifier of their own; pass the upload name or the registry id."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createExternalRuntimeAdapter({ bindings, ecosystem }) from formats/automation/external-runtime.ts for each ecosystem a deployment has approved runtime bindings for. The default adapter id is 'external-runtime'; pass a distinct `id` per ecosystem instance because ConnectorAdapterRegistry rejects a duplicate id. With no bindings the adapter reports invoke/delegate as configuration 'missing', which surfaces as an unconfigured catalog row."
+    },
+    {
+      "target": "src/core/index.ts and src/server/index.ts (INT)",
+      "description": "Nothing needs to be exported publicly for these readers to work; they are server-only and import only from src/core/connectors and src/server/connectors. If the reference UI should show the three ecosystems, export the profile constants (ZAPIER_PROFILES, N8N_PROFILES, WORKATO_PROFILES) rather than the readers."
+    },
+    {
+      "target": "src/server/connectors/formats/automation (INT, directory note)",
+      "description": "formats/automation holds what the three ecosystems share: diagnostics and text bounds (common.ts), definition assembly and the supported-subset projection (definition.ts), the bounded JavaScript literal reader (js-literals.ts), the bounded Ruby literal reader (ruby-literals.ts) and the external runtime adapter (external-runtime.ts). It is not an ecosystem of its own and registers no adapter by itself. Its barrel renames the Ruby JSON helpers (rubyValueToJson / jsonToRubyValue) because both literal readers legitimately use the same local names."
+    },
+    {
+      "target": "tests/connectors/automation and tests/connectors/fixtures/automation (INT, directory note)",
+      "description": "tests/connectors/automation/no-execution.test.ts is the by-design guard: it reads the readers' own source and fails if an execution primitive ever appears in them. tests/connectors/fixtures/automation/external-runtime.ts is the shared loopback runtime, the delegated binding builder and the connection-with-secret helper used by all three binding tests. Both are discovered by scripts/test.mjs automatically."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "AUTO-04-live",
+      "description": "No live or vendor-certified evidence. Every binding test runs against a loopback fixture runtime; no Zapier, n8n or Workato service was contacted, and no account exists to contact one with. Evidence stays at protocol-fixture."
+    },
+    {
+      "id": "AUTO-01-custom-auth",
+      "description": "Zapier `custom` and `session` authentication remain unsupported profiles rather than executable ones. Making them executable would require either evaluating the app's middleware (refused) or a host-supplied declaration of the credential's placement; the latter is a small additive change to the reader's identity hint if a host wants it, and is not implemented here."
+    },
+    {
+      "id": "AUTO-03-ruby-oauth",
+      "description": "The Ruby path cannot produce an OAuth 2.0 profile, because the SDK writes `authorization_url` and `token_url` as lambdas. A connector that needs one must supply a workato-static-profile document. This is a property of the vendor format, not a gap in the reader."
+    }
+  ],
+  "externalEffectsPerformed": [
+    {
+      "kind": "documentation-read",
+      "detail": "Fetched vendor documentation over HTTPS on 2026-09-18: docs.zapier.com/integrations/build-cli/overview and the raw zapier-platform schema.md (zapier-platform-schema 19.1.0); docs.n8n.io sitemap and the /connect/create-nodes/ reference pages (the charter's /integrations/creating-nodes/overview/ returns 404 and its successor is recorded in n8n/profile.ts); docs.workato.com SDK reference and authentication guides. Read-only GETs; no account, no token, no write."
+    }
+  ]
+}

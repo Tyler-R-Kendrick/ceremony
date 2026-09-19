@@ -1,0 +1,17 @@
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-duplicate-keys
+  labels:
+    camel.apache.org/kamelet.type: "sink"
+spec:
+  definition:
+    title: "Duplicate"
+    type: object
+    properties:
+      target:
+        title: Target
+        type: string
+      target:
+        title: Target again
+        type: string

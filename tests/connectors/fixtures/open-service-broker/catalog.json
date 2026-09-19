@@ -1,0 +1,68 @@
+{
+  "services": [
+    {
+      "name": "fixture-postgres",
+      "id": "5cbd05d2-0f4a-4f0f-bd6c-63f1b8f5f5d1",
+      "description": "A fixture relational database offering.",
+      "tags": ["relational", "postgres"],
+      "bindable": true,
+      "instances_retrievable": true,
+      "bindings_retrievable": true,
+      "plan_updateable": true,
+      "metadata": {
+        "displayName": "Fixture Postgres",
+        "providerDisplayName": "Ceremony fixtures"
+      },
+      "plans": [
+        {
+          "id": "9fb0e0ba-b2ec-4ab9-9d9b-7d98d1b8a0a1",
+          "name": "shared",
+          "description": "Shared fixture instance, no cost.",
+          "free": true,
+          "bindable": true,
+          "binding_rotatable": true,
+          "maximum_polling_duration": 600
+        },
+        {
+          "id": "c1f9b8d8-4b1b-4c8e-8b6f-5b0e3f3f2a22",
+          "name": "dedicated",
+          "description": "Dedicated fixture instance with a monthly cost.",
+          "free": false,
+          "bindable": true,
+          "plan_updateable": true
+        }
+      ]
+    },
+    {
+      "name": "fixture-opaque-cache",
+      "id": "0b1f9d8b-4ab0-4f43-8e2c-6a8f2dcd4c10",
+      "description": "A fixture cache offering whose broker supports no retrieval endpoints.",
+      "tags": ["key-value", "cache"],
+      "bindable": true,
+      "plan_updateable": false,
+      "plans": [
+        {
+          "id": "b6c3a3b0-1f8a-49cd-9bb1-5a3e3f9f1d42",
+          "name": "standard",
+          "description": "Standard fixture cache, no cost.",
+          "free": true
+        }
+      ]
+    },
+    {
+      "name": "fixture-unbindable-report",
+      "id": "3ac1a0bd-0a52-4d18-9c4d-3f3b5d4c9e71",
+      "description": "A fixture offering that cannot be bound at all.",
+      "bindable": false,
+      "instances_retrievable": true,
+      "plans": [
+        {
+          "id": "d5a0e0aa-8f51-4a2e-9c7d-1c1e9c7c2f08",
+          "name": "reporting",
+          "description": "Reporting-only fixture plan.",
+          "free": true
+        }
+      ]
+    }
+  ]
+}

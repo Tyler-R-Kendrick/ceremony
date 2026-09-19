@@ -1,0 +1,10 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Legacy Fixture", "version": "3" },
+  "host": "legacy.example",
+  "basePath": "/api",
+  "schemes": ["https"],
+  "paths": {
+    "/items": { "get": { "responses": { "200": { "description": "ok" } } } }
+  }
+}

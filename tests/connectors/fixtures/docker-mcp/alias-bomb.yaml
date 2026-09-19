@@ -1,0 +1,10 @@
+version: 2
+name: alias-fixture
+registry:
+  a: &a
+    type: server
+    image: mcp/a@sha256:9999999999999999999999999999999999999999999999999999999999999999
+    tools: []
+  b: &b [*a, *a, *a, *a, *a, *a, *a, *a]
+  c: &c [*b, *b, *b, *b, *b, *b, *b, *b]
+  d: [*c, *c, *c, *c, *c, *c, *c, *c]

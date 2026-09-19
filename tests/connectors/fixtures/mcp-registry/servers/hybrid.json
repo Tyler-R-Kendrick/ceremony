@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.modelcontextprotocol.anonymous/hybrid-mcp",
+  "description": "MCP server available as both local package and remote service",
+  "title": "Hybrid",
+  "repository": {
+    "url": "https://github.com/example/hybrid-mcp",
+    "source": "github",
+    "id": "klm012no-pqrs-3456-tuvw-xyz789abcdef"
+  },
+  "version": "1.5.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@example/hybrid-mcp-server",
+      "version": "1.5.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--mode",
+          "description": "Operation mode",
+          "default": "local",
+          "choices": ["local", "cached", "proxy"]
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.anonymous.modelcontextprotocol.io/http",
+      "headers": [
+        {
+          "name": "X-API-Key",
+          "description": "API key for authentication",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "X-Region",
+          "description": "Service region",
+          "default": "us-east-1",
+          "choices": ["us-east-1", "eu-west-1", "ap-southeast-1"]
+        }
+      ]
+    },
+    {
+      "type": "sse",
+      "url": "https://mcp.anonymous.modelcontextprotocol.io/sse"
+    }
+  ]
+}

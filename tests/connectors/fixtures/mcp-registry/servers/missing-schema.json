@@ -1,0 +1,11 @@
+{
+  "name": "io.github.example/unversioned-schema",
+  "description": "Declares no $schema",
+  "version": "2026-09-18",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://unversioned.example.com/mcp"
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "swarm": "COMMAND",
+  "workItems": [
+    {
+      "id": "CMD-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/inputs.ts",
+        "src/server/connectors/commands/policy.ts"
+      ],
+      "tests": [
+        "tests/connectors/commands/lifecycle.test.ts",
+        "tests/connectors/commands/authorization.test.ts",
+        "tests/connectors/commands/bridge.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-AUTH-01",
+        "AC-AUTH-09",
+        "AC-AUTH-12",
+        "AC-AUTH-13",
+        "AC-AUTH-16",
+        "AC-STATE-03",
+        "AC-UX-02"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-connector-commands-2026-09"],
+      "limitations": [
+        "configure() requires a host ConfigurationWriter that consumes a secretRef from the existing private collection path; no writer is wired here, so the route reports configure.unavailable until the integrator supplies one",
+        "The default ConnectorPolicy denies every agent action unless a delegation store is supplied; hosts with a different delegation model must supply their own policy"
+      ],
+      "notes": "ConnectorCommandService: catalog, listDefinitions, getDefinition, import, approveBinding, configure, connect, callback, provideInput, poll, status, listConnections, verify, invoke, reconnect, cancelPending, disconnect, revoke, delete. Every command takes the authenticated ActorContext first; no tenant/subject/session/capability is ever read from a body (strict schemas reject unknown keys). Connections are keyed by tenant + owner kind + owner id + session (or durable) + authority instance + binding revision + policy revision + configuration revision."
+    },
+    {
+      "id": "CMD-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/commands/registration.ts"],
+      "tests": ["tests/connectors/commands/bridge.test.ts"],
+      "acceptanceIds": ["AC-UX-01", "AC-MCP-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-manifest-v1"],
+      "limitations": [
+        "Only profiles the v1 runtime can actually drive become methods: oauth-authorization-code -> oauth-code, api-key -> api-key, http-basic -> basic, oauth-device -> device. A definition with no drivable profile throws rather than fabricating a method (verified by test).",
+        "recoverable is false: the adapter keeps no protocol state of its own (the command service owns it), so the durable controller path is not opted into."
+      ],
+      "notes": "createConnectorRegistration(service, adapterId, options) returns a ConnectorRegistration whose AuthAdapter begin/submit/callback/poll/cancel drive the same ConnectorCommandService. Factories are configured by the host (connectorId, definition, bindingRef, actorFor); a client argument can select neither an adapter, a binding, a destination, an executable URL nor a credential store."
+    },
+    {
+      "id": "CMD-03",
+      "status": "implemented",
+      "files": ["src/server/connectors/commands/http.ts"],
+      "tests": [
+        "tests/connectors/commands/lifecycle.test.ts",
+        "tests/connectors/commands/authorization.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-01", "AC-AUTH-07", "AC-UX-02"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-connector-http-v1"],
+      "limitations": [
+        "The events mount point delegates to an injected receiveEvent hook (EVENT swarm); with no hook the path answers 404 rather than accepting an unauthenticated delivery."
+      ],
+      "notes": "createConnectorHttp(service, options) -> (request, actor) => Promise<Response | undefined>, answering only /api/v1/connectors/*. assertRequestBoundary on every route except the provider callback (a top-level navigation correlated by state and authenticated by the session cookie identity) and the events mount point (authenticated by signature inside the receiver). boundedJson, reserveRequest, no-store headers, expectedRevision -> 409, commandId idempotency on invoke, 404 for missing and foreign records alike."
+    },
+    {
+      "id": "CMD-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/policy.ts"
+      ],
+      "tests": [
+        "tests/connectors/commands/bridge.test.ts",
+        "tests/connectors/commands/authorization.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-09", "AC-AUTH-10", "AC-STATE-05"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [],
+      "limitations": [],
+      "notes": "policy.authorize is rechecked at resumed human flows, callback completion, event-driven continuation, poll, verify, invoke, reconnect, every disconnect scope, revoke and delete. The invoke intent digest covers tenant, subject, connection, generation, binding ref AND binding revision, operation ref, input and command id: changed input under a known command id is denied (command.reused), an operation from a revision the connection never reviewed is unapproved, and a configuration revision change moves the connection to reconnect-required before any call."
+    },
+    {
+      "id": "CMD-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/commands/service.ts",
+        "src/server/connectors/commands/http.ts"
+      ],
+      "tests": [
+        "tests/connectors/commands/bridge.test.ts",
+        "tests/connectors/commands/authorization.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-07", "AC-AUTH-15", "AC-UX-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [],
+      "limitations": [],
+      "notes": "CONNECTOR_CALLBACK_PATH is a constant (/api/v1/connectors/callback) and the return path is built from the deployment origin, never from input: both hosted Nitro and the local example mount the same handler. Execution is deterministic with no model configured. An agent status response carries a handoff's kind and state and never its presentation (agentConnectorProjection); polling a pending handoff reports pending, and cancelling records a cancellation rather than a completion."
+    },
+    {
+      "id": "CMD-06",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/doubles/fixture-adapter.ts",
+        "tests/connectors/commands/harness.ts"
+      ],
+      "tests": [
+        "tests/connectors/commands/lifecycle.test.ts",
+        "tests/connectors/commands/authorization.test.ts",
+        "tests/connectors/commands/bridge.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-AUTH-01",
+        "AC-AUTH-07",
+        "AC-AUTH-09",
+        "AC-AUTH-12",
+        "AC-AUTH-13",
+        "AC-AUTH-16",
+        "AC-STATE-03",
+        "AC-UX-02",
+        "AC-UX-06",
+        "AC-AG-04"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["fixture-http-1"],
+      "limitations": [
+        "The fixture provider is a loopback double on an ephemeral port: it proves wire correctness and command discipline, never live or vendor-certified behaviour."
+      ],
+      "notes": "32 tests. The fixture adapter is a real ConnectorAdapter over real HTTP: S256 PKCE, exact state correlation, one-use codes, exact redirect URI, bearer/api-key headers, an idempotency key on writes, and a genuine upstream revoke. The provider fixture independently records what it received, so no assertion is made against a value the implementation produced."
+    }
+  ],
+  "contractChanges": [
+    {
+      "file": "src/server/connectors/adapter.ts",
+      "change": "Added the optional `handoff?: HandoffRecord` slot to AdapterCallContext.",
+      "compatibility": "Additive and optional. Existing adapters compile and run unchanged. The command layer resolves the pending handoff (private human surface or tenant-scoped correlation) and passes it in, so an adapter that needs the protected transient material (PKCE verifier, device code, widget token) reads it from the context instead of receiving it as an argument or re-deriving it. Absent when the caller could not be shown it, in which case an adapter reports `pending` rather than an error that would leak it."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/teaching-http.ts or src/server/hosted/http.ts (INT)",
+      "description": "Mount `createConnectorHttp(service, { origin: runtime.origin, store: runtime.store, returnPath: '/connectors', receiveEvent })` after MCP and before or beside the teaching prefix: `const connectorHttp = createConnectorHttp(service, options)` once at construction, then inside the request chain `if (path.startsWith('/api/v1/connectors/')) { const actor = await authenticatedActor(request, runtime.identity); const handled = await connectorHttp(request, actor); if (handled) return handled; }`. The handler owns its own boundary, bounded bodies, rate limit and error translation, so no assertRequestBoundary call is needed around it. Its origin option must equal the ConnectorCommandService origin (the constructor refuses otherwise)."
+    },
+    {
+      "target": "src/server/connectors/commands/http.ts callback route (INT)",
+      "description": "The provider callback is a GET top-level navigation at /api/v1/connectors/callback and must reach the handler with the session cookie identity, like the existing /github/installation-return route: do not place it behind an Origin check. It answers 303 to `${origin}${returnPath}` with a sanitized `outcome` (and `detail`) query code; never a URL from input."
+    },
+    {
+      "target": "src/server/connectors/commands/http.ts events route (INT + EVENT)",
+      "description": "POST /api/v1/connectors/events/:authority delegates to the `receiveEvent({ authority, request })` hook. It is deliberately outside the browser boundary and the session identity: the EVENT swarm's receiver authenticates the delivery by signature and returns its own sanitized acknowledgement, whose status is passed through with cache-control: no-store. Without a hook the path answers 404."
+    },
+    {
+      "target": "examples/server.ts (INT)",
+      "description": "Build the service with the example's existing session identity and mount the same handler: `const connectors = createConnectorHttp(service, { origin, store, returnPath: '/connectors' })`, then in the /api/ branch, before the teaching branch, `if (url.pathname.startsWith('/api/v1/connectors/')) { const actor = await teaching.identity.authenticate(incoming); ... }` using the same Request construction the teaching branch already performs. The example's loopback origin requires a policy built with `defaultConnectorPolicy({ store, loopbackFixtures: true })` for fixture destinations."
+    },
+    {
+      "target": "src/server/mcp.ts / WebMCP surface (AGENT-SURFACES)",
+      "description": "`connectorToolDependencies(service)` returns an object satisfying ConnectorToolDependencies: `catalog(actor)`, `list(actor)`, `status(actor, { connectionRef })`, `connect(actor, { bindingRef, ownerKind?, durable?, intent })` and `invoke(actor, { connectionRef, operationRef, input, commandId })`. Every function takes the authenticated actor first and strips presentation material from its result for every actor kind. Input schemas are exported as `connectorToolInputs`."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "No registration needed from this swarm: the fixture adapter lives under tests/. The command service takes the ConnectorAdapterRegistry the integrator assembles from the provider swarms."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "CMD-01 configure",
+      "detail": "The configure command is implemented against a `ConfigurationWriter` interface (consume(actor, secretRef) + write(actor, values)); the concrete writer over AsyncPrivateCollectionBroker / the existing collect route belongs to the integrator or the STATE swarm. Until one is injected the route answers 501 configure.unavailable. Names-only responses and the refusal of inline secrets are implemented and enforced."
+    },
+    {
+      "id": "CMD-01 import",
+      "detail": "Import delegates to an adapter's own `import` when an adapterId is named, or to the injected `importers` hook (the IMPORT/format swarms). The command layer owns source capture (bounded fetch, exact-byte digest, protected artifact), definition persistence and the ConnectorImportResult; it contains no format parser of its own."
+    }
+  ],
+  "externalEffectsPerformed": []
+}

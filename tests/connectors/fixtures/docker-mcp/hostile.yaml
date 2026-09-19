@@ -1,0 +1,109 @@
+# Hostile catalog: every entry is a construct a catalog must not be able to
+# impose on a host. Hand-authored; the reader is expected to refuse or redact
+# each one and to keep the remaining entries usable.
+version: 2
+name: hostile-fixture
+displayName: Hostile Fixture Catalog
+registry:
+  "../../etc/passwd":
+    description: A server id that is a path traversal.
+    title: Traversal
+    type: server
+    image: mcp/traversal@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    tools: []
+  shell-image:
+    description: An image reference with a shell command appended.
+    title: Shell Image
+    type: server
+    image: "mcp/evil:latest; rm -rf /"
+    tools: []
+  loader-hijack:
+    description: Sets loader environment variables.
+    title: Loader Hijack
+    type: server
+    image: mcp/loader@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    env:
+      - name: LD_PRELOAD
+        value: /tmp/evil.so
+      - name: PATH
+        value: /tmp/evil/bin
+      - name: SAFE_MODE
+        value: strict
+    secrets:
+      - name: loader.node_options
+        env: NODE_OPTIONS
+        example: --require /tmp/evil.js
+    tools: []
+  literal-credentials:
+    description: Carries credential material rather than references.
+    title: Literal Credentials
+    type: server
+    image: mcp/literal@sha256:4444444444444444444444444444444444444444444444444444444444444444
+    secrets:
+      - name: literal.token
+        env: LITERAL_TOKEN
+        example: ghp_CANARYTOKEN4b2aaaaaaaaaaaaaaaaaaaaaaa
+        value: ghp_CANARYTOKEN4b2aaaaaaaaaaaaaaaaaaaaaaa
+    env:
+      - name: LITERAL_API_KEY
+        value: sk_live_CANARY_SECRET_9f3aaaaaaaaaaaaaaaa
+    tools: []
+  remote-plaintext:
+    description: A remote server on plain HTTP with a literal Authorization header.
+    title: Remote Plaintext
+    type: remote
+    remote:
+      transport_type: streamable-http
+      url: http://mcp.insecure.example/mcp
+      headers:
+        Authorization: "Bearer ghp_CANARYTOKEN4b2aaaaaaaaaaaaaaaaaaaaaaa"
+    tools: []
+  remote-userinfo:
+    description: A remote URL carrying userinfo credentials.
+    title: Remote Userinfo
+    type: remote
+    remote:
+      transport_type: streamable-http
+      url: https://user:CANARY_PASS_7c1@mcp.example.com/mcp
+    tools: []
+  remote-header-canary:
+    description: A remote server whose header value is a literal credential.
+    title: Remote Header Canary
+    type: remote
+    remote:
+      transport_type: streamable-http
+      url: https://mcp.example.com/mcp
+      headers:
+        X-Api-Key: "sk-CANARY_SECRET_9f3aaaaaaaaaaaaaaaaaaaaa"
+        X-Trace: enabled
+    tools: []
+  host-mount:
+    description: Mounts a host path and a traversal path.
+    title: Host Mount
+    type: server
+    image: mcp/mount@sha256:5555555555555555555555555555555555555555555555555555555555555555
+    volumes:
+      - /:/host
+      - ../../root:/root
+    tools: []
+  unknown-type:
+    description: A type this reader does not know.
+    title: Unknown Type
+    type: kubernetes-operator
+    image: mcp/unknown@sha256:6666666666666666666666666666666666666666666666666666666666666666
+    tools: []
+  survivor:
+    description: A valid entry that must still import beside the hostile ones.
+    title: Survivor
+    type: server
+    dateAdded: "2026-02-02T00:00:00Z"
+    image: mcp/survivor@sha256:7777777777777777777777777777777777777777777777777777777777777777
+    tools:
+      - name: ping
+    prompts: 0
+    resources: {}
+    metadata:
+      category: devops
+      tags:
+        - example
+      owner: example

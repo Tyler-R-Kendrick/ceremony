@@ -1,0 +1,101 @@
+{
+  "comment": "Component shapes from Pipedream's documented list/retrieve component responses (key, name, version, description, component_type, configurable_props, stash, annotations), retrieved 2026-09-18.",
+  "data": [
+    {
+      "key": "slack-send-message-to-channel",
+      "name": "Send Message to Channel",
+      "version": "0.0.23",
+      "description": "Send a message to a public or private channel.",
+      "component_type": "action",
+      "configurable_props": [
+        { "name": "slack", "type": "app", "app": "slack" },
+        {
+          "name": "channel",
+          "type": "string",
+          "label": "Channel",
+          "description": "Channel to post the message in",
+          "remoteOptions": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "label": "Text",
+          "description": "The message text"
+        },
+        {
+          "name": "attachments",
+          "type": "object",
+          "label": "Attachments",
+          "optional": true
+        }
+      ],
+      "annotations": {
+        "title": "Send Message to Channel",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "key": "slack-list-channels",
+      "name": "List Channels",
+      "version": "0.0.11",
+      "description": "Return a list of all channels in a workspace.",
+      "component_type": "action",
+      "configurable_props": [
+        { "name": "slack", "type": "app", "app": "slack" },
+        {
+          "name": "types",
+          "type": "string[]",
+          "label": "Types",
+          "optional": true
+        }
+      ],
+      "annotations": { "readOnlyHint": true, "openWorldHint": true }
+    },
+    {
+      "key": "slack-new-message-in-channel",
+      "name": "New Message In Channel",
+      "version": "1.0.4",
+      "description": "Emit new event when a new message is posted to one or more channels.",
+      "component_type": "trigger",
+      "configurable_props": [
+        { "name": "slack", "type": "app", "app": "slack" },
+        {
+          "name": "conversations",
+          "type": "string[]",
+          "label": "Channels",
+          "remoteOptions": true
+        },
+        {
+          "name": "ignoreMyself",
+          "type": "boolean",
+          "label": "Ignore myself",
+          "optional": true,
+          "reloadProps": true
+        }
+      ],
+      "annotations": { "readOnlyHint": true, "openWorldHint": true }
+    },
+    {
+      "key": "slack-upload-file",
+      "name": "Upload File",
+      "version": "0.0.9",
+      "description": "Upload a file to a channel.",
+      "component_type": "action",
+      "stash": "required",
+      "configurable_props": [
+        { "name": "slack", "type": "app", "app": "slack" },
+        { "name": "file", "type": "string", "label": "File" }
+      ],
+      "annotations": { "destructiveHint": false, "openWorldHint": true }
+    }
+  ],
+  "page_info": {
+    "count": 4,
+    "total_count": 4,
+    "start_cursor": "c2xhY2stc2VuZA",
+    "end_cursor": "c2xhY2stdXBsb2Fk"
+  }
+}

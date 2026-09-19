@@ -1,12 +1,20 @@
 # Driving ceremonies from a chat client
 
-Until now an agent could drive a ceremony only through the browser application's HTTP API. The MCP endpoint gives a chat client the same four operations, against the same runtime, under the same authorization.
+Until now an agent could drive a ceremony only through the browser application's HTTP API. The MCP endpoint gives a chat client the same four run operations, against the same runtime, under the same authorization.
+
+This page is about Ceremony **serving** MCP. Connecting outward to somebody else's MCP server is a different thing entirely, and the last section says why.
 
 ## One implementation, two transports
 
 `src/server/agent-tools.ts` holds what an agent may do to a run: `connect`, `snapshot`, `advance`, `cancel`. The HTTP route and the MCP server both call it.
 
 That sharing is the point rather than a tidiness preference. The rule these operations exist to enforce — a run may be driven only by the session that created it — is one comparison in one place. Two copies of an authorization rule is not duplication, it is a hole waiting for one copy to be updated.
+
+## What the endpoint registers
+
+Five tools are always registered: `ceremony_connect`, `ceremony_snapshot`, `ceremony_advance`, `ceremony_cancel` and `ceremony_connectors`. The first four are the run operations above; the fifth reports what this deployment can connect and where credential entry happens.
+
+Four more — `connector_catalog`, `connector_status`, `connector_connect` and `connector_invoke` — are registered **only** when the host passes the optional `connectors` option to `createCeremonyMcpHandler`. They are a transport over the connector command service, which re-checks authorization itself; the tools enforce projection and output policy. `connector_connect` never returns a link or a code, `connector_status` never returns credentials or links, and `connector_invoke` returns output only when the binding classified that output public — a personal or secret result is withheld from this transport and stays readable by the person in the application. A host that does not pass the option has exactly the five tools it had before, unchanged.
 
 ## What authenticates a chat client
 
@@ -47,3 +55,21 @@ Absent or invalid configuration produces no handler rather than an open one: the
 It does not register an OAuth client for you, and it is not an authorization server. It validates tokens; it does not issue them. Dynamic client registration, consent, and token issuance belong to the configured issuer.
 
 It does not certify any provider. Driving a real provider from chat still runs the same ceremonies with the same evidence requirements as the browser, and the same human steps still cost a person's attention.
+
+## Inbound is not outbound
+
+Two unrelated things in this repository both say "MCP", and confusing them is how a deployment ends up forwarding the wrong token to the wrong party.
+
+|                        | **Inbound: Ceremony as an MCP server**                                         | **Outbound: Ceremony as an MCP client**                                               |
+| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Code                   | `src/server/mcp.ts`, `src/server/agent-tools.ts`                               | `src/server/connectors/mcp/`                                                          |
+| Who authenticates whom | A chat client presents a bearer token **to** this deployment                   | This deployment presents a credential **to** somebody else's server                   |
+| The token              | Issued by this deployment's configured issuer, audience-bound to this endpoint | Issued by the remote server's authorization server, held in this deployment's custody |
+| Discovery              | This endpoint **publishes** RFC 9728 protected-resource metadata               | The client **reads** the remote server's 401 challenge and metadata                   |
+| Client registration    | Not our concern; the configured issuer owns it                                 | Pre-registered, or CIMD, or Dynamic Client Registration, in host policy order         |
+| Protocol revision      | Whatever `@modelcontextprotocol/server` v2 serves                              | Pinned per binding: `2026-07-28`, or the `2025-11-25`/`2025-06-18` legacy era         |
+| What a failure means   | A client cannot drive a run here                                               | A connection to an external service is unavailable                                    |
+
+The rule that matters: **a Ceremony token is never passed to an unrelated downstream service, and a remote server's credential never authenticates a request to this endpoint.** The outbound client validates the resource and audience of what it obtains, and an access token valid for another resource is not accepted or forwarded as authority. The two sides share no credential, no session and no client registration.
+
+The outbound client has its own boundaries, documented in the [dialect profile](specifications/connector-dialects.md#the-mcp-client-subset): sampling is refused rather than suspended, roots answer an empty list, extensions are never assumed, stdio transports are unsupported by design because a hosted connector launches no local process, and no live or vendor-certified evidence exists for any of it.

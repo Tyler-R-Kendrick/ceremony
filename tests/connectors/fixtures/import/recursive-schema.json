@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example/tree.json",
+  "type": "object",
+  "properties": {
+    "value": { "type": "string" },
+    "left": { "$ref": "#" },
+    "right": { "$ref": "#/$defs/node" }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "root": { "$ref": "#" }
+      }
+    }
+  }
+}

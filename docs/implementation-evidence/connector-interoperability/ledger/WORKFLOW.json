@@ -1,0 +1,124 @@
+{
+  "swarm": "WORKFLOW",
+  "workItems": [
+    {
+      "id": "WF-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/arazzo/read.ts",
+        "src/server/connectors/formats/arazzo/model.ts",
+        "src/server/connectors/formats/arazzo/graph.ts",
+        "src/server/connectors/formats/arazzo/expressions.ts",
+        "src/server/connectors/formats/arazzo/limits.ts",
+        "src/server/connectors/formats/arazzo/issues.ts",
+        "src/server/connectors/formats/arazzo/index.ts"
+      ],
+      "tests": ["tests/connectors/arazzo/read.test.ts"],
+      "acceptanceIds": ["AC-IMP-08", "AC-IMP-09", "AC-IMP-10", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["arazzo-1.0.1", "arazzo-1.1.0"],
+      "limitations": [
+        "readArazzo takes an already-parsed JSON value; bounded JSON/YAML text parsing belongs to the import pipeline (IMPORT swarm) and is applied again here through measureJsonValue before interpretation.",
+        "Non-x- fields the specification never defined are preserved and reported as warnings rather than rejecting the document; fields defined only by a later Arazzo version are blocking.",
+        "Workflow input JSON Schemas are preserved inertly: they are never compiled, expanded or used to validate runtime inputs (the registered operation contract does that)."
+      ],
+      "notes": "Version dispatch on the declared `arazzo` string for 1.0.1 and 1.1.0; an unknown version yields one blocking issue, no interpretation and no rewritten version string. Preserves info, sourceDescriptions (openapi/arazzo/asyncapi), workflows (inputs, dependsOn, steps, actions, outputs, parameters), components, reusable objects and x- extensions on every object, with a JSON pointer on every diagnostic. Projects a NormalizedDefinition with ecosystem \"arazzo\", one custom capability per workflow (nativeId = workflowId) and declaredServers only from absolute credential-free openapi source description URLs."
+    },
+    {
+      "id": "WF-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/arazzo/catalog.ts",
+        "src/server/connectors/formats/arazzo/compile.ts"
+      ],
+      "tests": ["tests/connectors/arazzo/compile.test.ts"],
+      "acceptanceIds": ["AC-IMP-07", "AC-IMP-08"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["arazzo-1.0.1", "arazzo-1.1.0"],
+      "limitations": [
+        "Executable profile only: parallel semantics, goto branching, conditional end, failure goto, channel/async steps, payload replacements, querystring parameters, non-JSON request bodies, selector objects, embedded {$...} templates and pointer extraction inside bindings are preserved and blocked, never approximated.",
+        "A nested workflow across documents requires the host to have published that workflow as a recipe and registered it in the catalog; there is no cross-document Arazzo resolution.",
+        "compileArazzoToRecipe compiles one named workflow per call; a document with several executable workflows is compiled once per workflow."
+      ],
+      "notes": "OperationBindingCatalog pins, per source description name, exactly one document identity (sha256 digest or exact URL), the reviewed document version, and the registered operation id@version for each operationId/operationPath plus its parameter, request-body and output mappings and replay policy. Resolution is exact: a plain operationId defined by two registered documents is a blocking identity.ambiguous-operation unless the step disambiguates with $sourceDescriptions.<name>.<operationId> or an operationPath; there is no first-match path in the code. A catalog whose tenantId differs from the compilation's is refused outright."
+    },
+    {
+      "id": "WF-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/arazzo/evaluator.ts",
+        "src/server/connectors/formats/arazzo/expressions.ts"
+      ],
+      "tests": ["tests/connectors/arazzo/evaluator.test.ts"],
+      "acceptanceIds": ["AC-IMP-08"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["arazzo-1.0.1", "arazzo-1.1.0"],
+      "limitations": [
+        "Only `simple` criteria are evaluated. regex, jsonpath and xpath criteria are parsed for their embedded expressions, preserved and blocked; this runtime implements none of those languages.",
+        "$request, $message, $response.body, $response.query, $response.path, $self, $workflows and $components resolve to no runtime value; they are recognised by the grammar and refused by the evaluator.",
+        "Arazzo's `[]` index and `.` property-dereference operators inside a condition are not implemented; a value is reached with an RFC 6901 pointer on the expression instead."
+      ],
+      "notes": "Hand-written tokenizer and recursive-descent parser: no eval, no Function, no dynamic import, no RegExp built from input. Bounded token count, parser depth, literal length, condition length and pointer segments; syntax errors carry a code and a position, never document text. Implements the specification's loose comparison (case-insensitive strings, numeric-string coercion, null equals only null) and fails closed on unresolved, unsupported, incomparable or non-boolean results. Every value carries a FieldClassification and every result carries the join of what it read, so a value derived from a personal or secret input stays personal or secret; compilation uses that to block policy.private-output."
+    },
+    {
+      "id": "WF-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/arazzo/review.ts",
+        "src/server/connectors/formats/arazzo/export.ts"
+      ],
+      "tests": ["tests/connectors/arazzo/preservation.test.ts"],
+      "acceptanceIds": ["AC-IMP-01", "AC-IMP-14"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["arazzo-1.0.1", "arazzo-1.1.0"],
+      "limitations": [
+        "reviewArazzoImport reports the studio projection; it does not write a ConnectorProject. Assembling a project (manifest, templates, method contracts) around the reviewed workflow document stays with the studio.",
+        "exportArazzo writes a JSON value; YAML serialization is not implemented.",
+        "A 1.0.1 to 1.1.0 export changes only the version string and records an info-level note; it does not migrate constructs into 1.1.0 forms."
+      ],
+      "notes": "src/core/connector-authoring.ts is untouched: saved v1 projects still validate through connectorProjectSchema, still export through exportConnectorFiles, and their exported documents still run through the existing bounded runArazzo executor (asserted in the tests). studioProjection reports every construct that has no studio field as a loss with a pointer and marks the document editable only when no loss is blocking. exportArazzo refuses to write a 1.1.0 document as 1.0.1 when it holds 1.1-only constructs: each is a blocking export.version-downgrade-loss and no document is produced."
+    },
+    {
+      "id": "WF-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/arazzo/compile.ts",
+        "tests/connectors/fixtures/arazzo/host.ts"
+      ],
+      "tests": ["tests/connectors/arazzo/runtime.test.ts"],
+      "acceptanceIds": ["AC-IMP-07", "AC-IMP-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["arazzo-1.0.1", "arazzo-1.1.0"],
+      "limitations": [
+        "The provider is a loopback HTTP fixture on an ephemeral port; no live provider evidence is claimed.",
+        "Compiled successCriteria, retry policy and timeouts are carried on CompiledStep for the host to enforce; ProtectedCommandService's own verifier/fence/abort machinery is what the tests exercise, and no new retry loop was added to the command service.",
+        "Cross-surface HTTP mounting of a compile-and-run route is not included; the integrator owns teaching-http and hosted routes."
+      ],
+      "notes": "toRunPlan turns validated recipe leaves into RunPlanNodes. The tests drive a compiled workflow through OperationRegistry + RecipeService.preview/validateRecipe + ProtectedCommandService over SQLiteCeremonyStore(\":memory:\"), covering: output references between steps (asserted on the fixture's recorded request bodies), recipe children (a compiled child workflow published through RecipeService and pinned by id@version:digest), human waits (awaiting-human blocks the dependent step), failed prerequisites (rejected verification), cancellation, resumed verification (revalidate rechecks evidence without repeating the effect and reopens the run when evidence is withdrawn), cyclic dependencies (blocked before any run exists) and uncertain external effects (the fixture records the request, the handler then throws, the node becomes uncertain, the identical command replays the same uncertainty without a second request and a fresh command is denied)."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/index.ts (INT)",
+      "description": "Optionally re-export the format module: `export * from \"./formats/arazzo/index.js\";`. It is server-only (imports node:crypto) and must not enter the default browser bundle. Consumers today import src/server/connectors/formats/arazzo/index.js directly, so this is a convenience only; check for name collisions with other formats first (this module's exported names are all prefixed ARAZZO_/arazzo or are readArazzo, compileArazzoToRecipe, reviewArazzoImport, exportArazzo, parseCondition, evaluateCondition, evaluateCriteria, parseRuntimeExpression, toRunPlan, analyzeWorkflow, issuesInScope, stepGraph, cycleMembers and the Preserved*/Catalog* types)."
+    },
+    {
+      "target": "docs/specifications/README.md (INT)",
+      "description": "Add a row to the contract-stack table linking the new page: `| [Arazzo interoperability](arazzo-profiles.md) | Bounded reading, executable subset, review and version-aware export of Arazzo 1.0.1 and 1.1.0 | Host operation catalog, OperationRegistry and ProtectedCommandService |`, and note in the Sources list that Arazzo 1.1.0 (https://spec.openapis.org/arazzo/v1.1.0.html) is now read as well as 1.0.1. docs/specifications/protocol-profiles.md keeps its ARZ-01..ARZ-05 contract for the studio's bounded executor unchanged; arazzo-profiles.md states explicitly that it does not replace it."
+    },
+    {
+      "target": "connector adapter registration (INT)",
+      "description": "There is no ConnectorAdapter for Arazzo and there should not be one: an Arazzo description is a workflow over another connector's operations, not a service to connect to. If the importer needs a dispatch entry, route media types application/vnd.oai.workflows(+json|+yaml) and documents whose root has an `arazzo` string to readArazzo, and expose compileArazzoToRecipe behind an authenticated command that supplies the host's OperationBindingCatalog and OperationRegistry. The catalog is host state and must never be assembled from an imported document."
+    },
+    {
+      "target": "persistence recordKinds (INT, optional)",
+      "description": "If the OperationBindingCatalog is to be persisted rather than configured in host code, it needs a record kind (e.g. \"connector-operation-catalog\") added forward-compatibly to src/server/persistence/index.ts. Nothing in this swarm's code persists it; compileArazzoToRecipe takes it as an argument."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [
+    "Fetched the two Arazzo specification documents over the agent proxy (https://spec.openapis.org/arazzo/v1.1.0.html and https://spec.openapis.org/arazzo/v1.0.1.html) to pin field tables, the runtime-expression ABNF and the simple-condition semantics. No credential was used and nothing was written to any external service."
+  ]
+}

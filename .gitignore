@@ -56,3 +56,15 @@ src/plugins/impeccable-live.client.ts
 .nitro/
 .workflow-data/
 .workflow-vitest/
+
+# Ad-hoc verification scratch scripts written by agents during development.
+# These carry absolute paths and are not part of the project; keep them out of
+# commits. Durable checks belong in tests/.
+/.probe/
+
+# Playwright diagnostic scratch directories. `tests/browser/diagnostics.spec.ts`
+# creates one per run with `mkdtemp(".diagnostics-")`, so the name carries a
+# random suffix and an interrupted run leaves it behind. Its contents are
+# failure context for a deliberately failing case, which is local diagnostic
+# output and never project content.
+/.diagnostics-*/

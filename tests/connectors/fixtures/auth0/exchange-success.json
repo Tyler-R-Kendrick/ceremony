@@ -1,0 +1,9 @@
+{
+  "_source": "https://auth0.com/docs/secure/tokens/token-vault/refresh-token-exchange-with-token-vault, retrieved 2026-09-18",
+  "_note": "Documented 200 body; the access token here is the external provider's, and a canary stands in for it.",
+  "access_token": "ghp_CANARYTOKEN4b2",
+  "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events openid",
+  "expires_in": 1377,
+  "issued_token_type": "http://auth0.com/oauth/token-type/federated-connection-access-token",
+  "token_type": "Bearer"
+}

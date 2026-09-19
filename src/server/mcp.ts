@@ -15,6 +15,10 @@ import { AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { registerPrivateCollector } from "./mcp-app.js";
 import type { PrivateCollectorOptions } from "./mcp-app.js";
+import { registerConnectorServerTools } from "./connectors/mcp/server-tools.js";
+import { registerAgentConnectorTools } from "./connectors/agents/mcp-intents.js";
+import type { AgentConnectorDependencies } from "./connectors/agents/intents.js";
+import type { ConnectorToolDependencies } from "./connectors/mcp/server-tools.js";
 import type { CeremonyController } from "./controller.js";
 import type { CeremonyDatabase } from "./storage.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
@@ -61,6 +65,20 @@ export interface CeremonyMcpOptions {
     db: CeremonyDatabase;
     requestOwner: NonNullable<PrivateCollectorOptions["requestOwner"]>;
   };
+  /**
+   * Connector operations, when this deployment offers them. Supplying this
+   * adds four tools beside the five above; leaving it out changes nothing.
+   * The service behind it receives the authenticated actor and re-checks
+   * capability, ownership and policy itself.
+   */
+  connectors?: ConnectorToolDependencies;
+  /**
+   * Safe connector intents (list, inspect, operations, reconnect,
+   * disconnect), when this deployment offers them. Names already
+   * registered are skipped, so this only ever adds; leaving it unset
+   * changes nothing.
+   */
+  connectorIntents?: AgentConnectorDependencies;
   serverName?: string;
   serverVersion?: string;
   onerror?(error: Error): void;
@@ -237,6 +255,18 @@ export function createCeremonyMcpHandler(
         ],
       }),
     );
+
+    if (options.connectors)
+      registerConnectorServerTools(server, options.connectors, {
+        actor: () => actor,
+        ...(options.onerror ? { onerror: options.onerror } : {}),
+      });
+
+    if (options.connectorIntents)
+      registerAgentConnectorTools(server, options.connectorIntents, {
+        actor: () => actor,
+        ...(options.onerror ? { onerror: options.onerror } : {}),
+      });
 
     // The retained-browser operations are registered only where this
     // deployment actually has a browser executor. A tool that is offered and

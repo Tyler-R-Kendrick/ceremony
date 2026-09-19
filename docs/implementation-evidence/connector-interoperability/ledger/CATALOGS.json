@@ -1,0 +1,281 @@
+{
+  "swarm": "CATALOGS",
+  "workItems": [
+    {
+      "id": "CAT-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/registries/smithery/api.ts",
+        "src/server/connectors/registries/smithery/normalize.ts",
+        "src/server/connectors/registries/smithery/adapter.ts",
+        "src/server/connectors/registries/smithery/index.ts"
+      ],
+      "tests": ["tests/connectors/smithery/registry.test.ts"],
+      "acceptanceIds": ["AC-IMP-02", "AC-IMP-03", "AC-MCP-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["smithery-registry-2026-09"],
+      "limitations": [
+        "Smithery's catalog exposes no server version; identities carry nativeVersion \"unversioned\" and a smithery.version.not-exposed diagnostic rather than an invented version.",
+        "Pagination is Smithery's page/pageSize with a pagination envelope; the adapter reports page numbers as cursors and never follows an upstream-supplied URL.",
+        "A stdio bundle connection is preserved as an unsupported profile with a blocking issue: no bundle is downloaded or executed.",
+        "Live evidence blocked: no authorized Smithery account or API key in this environment."
+      ],
+      "notes": "createSmitheryRegistryAdapter, id \"smithery-registry\", support catalog-only, custody no-credential. Requires SMITHERY_API_KEY (the documented catalog endpoints are Bearer-authenticated). Listings are never treated as official-registry server.json documents."
+    },
+    {
+      "id": "CAT-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/smithery/ports.ts",
+        "src/server/connectors/providers/smithery/connections.ts",
+        "src/server/connectors/providers/smithery/index.ts",
+        "src/server/connectors/registries/smithery/api.ts"
+      ],
+      "tests": ["tests/connectors/smithery/connections.test.ts"],
+      "acceptanceIds": ["AC-EXT-07", "AC-AUTH-08", "AC-STATE-03"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["smithery-connect-2026-09"],
+      "limitations": [
+        "Smithery reports connection state only; it exposes no upstream account identity, so claims carry that limitation and no exact-account verification is asserted.",
+        "Upstream revocation is unsupported: deleting a managed connection ends the brokered session and does not revoke the provider grant.",
+        "Runtime calls need a host-supplied McpClientPort; without one the invoke capability row is unsupported.",
+        "Live evidence blocked: no authorized Smithery namespace or service token in this environment."
+      ],
+      "notes": "createSmitheryConnectionsAdapter, id \"smithery\", custody external-execution-broker. Namespace and connection id come from the reviewed binding settings and are checked against permittedTargets; a token that cannot reach the selected connection fails closed (no broad-token fallback, no namespace creation, no substituted connection). Runtime tokens are minted per call through POST /tokens scoped to {namespaces, resources: connections, operations: [read, execute], metadata, ttl 1h}; the deployment API key is never the bearer of a runtime call. The MCP destination is the binding's approved origin plus the approved namespace, and tools are addressed as {connectionId}.{toolName}."
+    },
+    {
+      "id": "CAT-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/registries/docker/catalog.ts",
+        "src/server/connectors/registries/docker/normalize.ts",
+        "src/server/connectors/registries/docker/export.ts",
+        "src/server/connectors/registries/docker/runner.ts",
+        "src/server/connectors/registries/docker/adapter.ts",
+        "src/server/connectors/registries/docker/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/docker-mcp/catalog.test.ts",
+        "tests/connectors/docker-mcp/adapter.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-08", "AC-IMP-09", "AC-IMP-13", "AC-IMP-14"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["docker-mcp-catalog-v2"],
+      "limitations": [
+        "Local execution is unavailable by default: unavailableHostRunner reports the exact reason and the invoke capability row is unsupported with runtime trusted-local-runner.",
+        "Docker publishes no JSON schema for the catalog file; the field set was taken from the documentation and from the served catalog, and unknown fields are noted by name rather than carried.",
+        "Entries whose authorization is performed by the Docker MCP Toolkit are preserved with a blocking authorize diagnostic; Ceremony does not run the Toolkit.",
+        "Export is only possible for definitions that originated from a Docker catalog; values redacted on import are never reconstructed."
+      ],
+      "notes": "readDockerMcpCatalog(text) parses with yaml 2.9.0 under uniqueKeys, core schema, YAML 1.2, silent log level and a bounded alias count, then measures depth/nodes/bytes and refuses reserved object keys before interpreting any field. createDockerMcpCatalogAdapter, id \"docker-mcp-catalog\", support catalog-only. exportDockerMcpDescriptor(definition) round-trips an entry with a loss report; dockerRunDescriptor(definition) builds the descriptor a HostRunnerPort would need without running anything."
+    },
+    {
+      "id": "CAT-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/registries/pulsemcp/api.ts",
+        "src/server/connectors/registries/pulsemcp/normalize.ts",
+        "src/server/connectors/registries/pulsemcp/adapter.ts",
+        "src/server/connectors/registries/pulsemcp/index.ts"
+      ],
+      "tests": ["tests/connectors/pulsemcp/discovery.test.ts"],
+      "acceptanceIds": ["AC-EXT-09", "AC-MCP-07", "AC-STATE-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["pulsemcp-v0beta", "pulsemcp-subregistry-v0.1"],
+      "limitations": [
+        "PulseMCP documents /v0beta as deprecated with a sunset by September 2026; the capability row carries that sentence.",
+        "The native listing exposes no version, tools or configuration schema, so definitions record that rather than inventing them.",
+        "Sub-registry entries wrap a server.json document; importing one requires the MCP registry importer to be wired in, otherwise the import capability row is unsupported and the entry stays discoverable only.",
+        "Live evidence blocked: no PulseMCP tenant API key in this environment."
+      ],
+      "notes": "createPulseMcpAdapter, id \"pulsemcp\", support catalog-only. The native profile pages with offset/count_per_page and never follows PulseMCP's absolute next link; the sub-registry profile pages with cursor/limit behind X-API-Key and X-Tenant-ID read through ConfigurationPort. Discovery results are cached per tenant, binding revision and configuration revision with a bounded TTL (default 5 minutes, capped at one hour); on an outage the previous snapshot is returned with freshness.stale true and a pulsemcp.refresh.failed diagnostic, and a cold outage fails rather than reporting an empty catalog."
+    },
+    {
+      "id": "CAT-05",
+      "status": "implemented",
+      "files": ["src/server/connectors/registries/cross-source.ts"],
+      "tests": ["tests/connectors/pulsemcp/equivalence.test.ts"],
+      "acceptanceIds": ["AC-IMP-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [],
+      "limitations": [
+        "Suggestions only: the module merges nothing and exposes no way to accept a suggestion; acceptance is a separate host action.",
+        "Evidence is limited to repository identity, remote origin and qualified name. A shared display name never produces a suggestion.",
+        "Same-ecosystem duplicates are excluded unless includeSameEcosystem is set, because a source's own duplicates are that source's problem."
+      ],
+      "notes": "suggestEquivalences(items, options) returns EquivalenceSuggestion { members, confidence, reasons, limitations }. Confidence is the number of independent shared identities (high: two or more kinds; medium: repository or qualified name; low: remote origin alone), never a probability."
+    }
+  ],
+  "contractChanges": [
+    {
+      "kind": "proposed",
+      "target": "src/server/connectors/binding.ts",
+      "description": "destinationUrl rejects any %2F in a path, which is right for a path template but wrong for a single path segment that legitimately contains a slash (Smithery documents encoding a qualified name as namespace%2Fserver). A local helper smitheryUrl(destination, basePath, segments) in src/server/connectors/registries/smithery/api.ts repeats every other destinationUrl check (absolute base path, no encoded slash in the template, one segment per entry, exact origin, path prefix, no `..` after decoding) and appends already-encoded segments. Proposal: add destinationUrlFromSegments(destination, template, segments) to binding.ts with the same rules and have the Smithery modules use it.",
+      "compatibility": "Additive; no existing shape changes. The local helper stays valid if the proposal is declined."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createSmitheryRegistryAdapter() from registries/smithery/index.ts (id smithery-registry, catalog-only), createSmitheryConnectionsAdapter({ mcpClient }) from providers/smithery/index.ts (id smithery, external-execution-broker), createDockerMcpCatalogAdapter() from registries/docker/index.ts (id docker-mcp-catalog, catalog-only) and createPulseMcpAdapter({ importServerJson }) from registries/pulsemcp/index.ts (id pulsemcp, catalog-only)."
+    },
+    {
+      "target": "src/server/connectors/providers/smithery (MCP swarm seam)",
+      "description": "McpClientFactory in providers/smithery/ports.ts is a structural narrowing of the MCP swarm's McpClient: wire it as ({ endpoint, bearer, fetch }) => createMcpClient({ profile, endpoint, fetch, auth: { kind: \"bearer\", use: bearer.use } }). Their callTool outcome union is assignable to McpToolOutcome. Without this the Smithery invoke capability row reports unsupported, which is accurate rather than broken."
+    },
+    {
+      "target": "src/server/connectors/registries/pulsemcp (REGISTRY swarm seam)",
+      "description": "createPulseMcpAdapter accepts importServerJson(document, { location?, capturedAt }) => NormalizedDefinition[]. Wire it to importServerJson from registries/mcp/import.ts so PulseMCP sub-registry entries are imported by the official server.json importer instead of a second implementation of that schema. The PulseMCP module reads only the envelope and the com.pulsemcp/* _meta extensions."
+    },
+    {
+      "target": "src/server/connectors/registries/cross-source.ts (file placement)",
+      "description": "suggestEquivalences is cross-source by nature and does not belong inside any one registry directory, so it was created as a new file at registries/cross-source.ts rather than edited into a shared file. Move it if the integrator prefers another home; it imports only ../adapter.js types."
+    },
+    {
+      "target": "public export barrels (INT)",
+      "description": "None of these modules are exported from src/core/index.ts or src/server/index.ts by this swarm. They are server-only and must not enter the browser bundle; export them from the server barrel only if the reference app needs them."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "Live or vendor-authorized evidence for all three sources (no Smithery, Docker Hub or PulseMCP credentials, and no account access is implied). Every result here is protocol-fixture or unit.",
+    "Docker MCP Gateway flag surface (--servers, --secrets, --verify-signatures and similar) could not be verified: docs.docker.com/ai/mcp-catalog-and-toolkit/mcp-gateway/ documents only --profile and the gateway repository README was not reachable for the flag list. The HostRunnerPort therefore takes a descriptor and leaves command construction to the host runner instead of guessing a gateway invocation.",
+    "Docker publishes no machine-readable schema for the catalog file; unknown per-entry fields are reported by name and not carried.",
+    "Smithery's error bodies for a service token that lacks a connection are documented only as 401/403/404 with {error, message}; the double follows the documented shape and the adapter maps status codes, but the exact upstream body was not observed.",
+    "PulseMCP /v0beta premium enrichment fields (authOptions, tools) exist only on the /v0.1 sub-registry; they are read as provenance there and are not normalized into capabilities."
+  ],
+  "externalEffectsPerformed": [],
+  "sources": [
+    {
+      "url": "https://smithery.ai/docs/use/connect",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "namespace MCP endpoint https://mcp.smithery.run/{namespace}",
+        "tools prefixed {connectionId}.{toolName}",
+        "connection status states connected | disconnected | auth_required | input_required | error with setupUrl, http, missing, message",
+        "Authorization: Bearer $SMITHERY_API_KEY",
+        "credentials are encrypted and write-only",
+        "API key is backend-only; service tokens are the scoped client credential"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://smithery.ai/docs/use/token-scoping",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "POST https://api.smithery.ai/tokens",
+        "policy array of {namespaces, resources, operations, metadata, ttl}",
+        "AND within a constraint, OR across constraints and across list elements",
+        "response {token, expiresAt}; ttl default 1h, maximum 24h",
+        "a child token cannot exceed its parent's scope"
+      ],
+      "unverified": [
+        "exact status code per denial reason (the page describes denial without a code table)"
+      ]
+    },
+    {
+      "url": "https://smithery.ai/docs/api-reference/servers/list-all-servers",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "GET https://api.smithery.ai/servers",
+        "q, page, pageSize (1..100, default 10), qualifiedName, namespace, remote, isDeployed, verified, ownerId",
+        "response {servers: [{id, qualifiedName, namespace, slug, displayName, description, iconUrl, verified, useCount, remote, isDeployed, createdAt, homepage, bySmithery, owner}], pagination: {currentPage, pageSize, totalPages, totalCount}}"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://smithery.ai/docs/api-reference/servers/get-a-server",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "GET /servers/{qualifiedName} with slashes encoded as %2F",
+        "response {qualifiedName, displayName, description, iconUrl, remote, deploymentUrl, connections[{type, deploymentUrl, bundleUrl, runtime, configSchema}], security{scanPassed}, tools[{name, description, inputSchema, outputSchema}], resources, prompts}"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://smithery.ai/docs/api-reference/connect/*",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "GET /connect/{namespace} with limit (1..100, default 100), cursor, name, mcpUrl, metadata.{key}; response {connections, nextCursor}",
+        "POST /connect/{namespace} creates (201) and generates a connection id",
+        "PUT /connect/{namespace}/{connectionId} upserts (200 update, 201 create); 404 namespace not found or access denied; 409 when the target URL changes outside input_required",
+        "GET /connect/{namespace}/{connectionId} needs connections:read",
+        "DELETE /connect/{namespace}/{connectionId} answers {\"success\": true}",
+        "request body fields transport, server, mcpUrl, name, metadata, headers, mock, source; custom headers are stored securely and are not returned"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://smithery.ai/docs/build/session-config",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "configSchema properties carry x-from {header} or {query}",
+        "the default placement is {query: \"<propertyName>\"}",
+        "schemas are limited to 20 fields and 1 KB"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://docs.docker.com/ai/mcp-catalog-and-toolkit/ (plus /catalog/, /toolkit/, /mcp-gateway/, /cli/)",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "catalogs are curated collections of MCP servers, distributed as OCI artifacts and imported with the docker mcp CLI",
+        "catalog YAML top-level keys name, displayName, registry, and per-server description, title, type, dateAdded, image, tools, secrets, env, command, volumes, config, metadata",
+        "servers run in isolated containers with restricted privileges (1 CPU, 2 GB, no host filesystem by default)",
+        "Docker Desktop 4.62+ is required for the MCP Toolkit; the Gateway is invoked as docker mcp gateway run"
+      ],
+      "unverified": [
+        "the full docker mcp gateway run flag list",
+        "any published JSON schema for the catalog file format"
+      ]
+    },
+    {
+      "url": "https://desktop.docker.com/mcp/catalog/v2/catalog.yaml",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "version: 2, name: docker-mcp, displayName, registry map",
+        "per-entry keys description, title, type (server | remote | poci), dateAdded, image, ref, readme, toolsUrl, source, upstream, icon, tools[{name}], prompts, resources, secrets[{name, env, example, description}], env[{name, value}], command[], volumes[], allowHosts[], disableNetwork, longLived, user, config[{name, description, type, properties, required}], metadata{pulls, stars, githubStars, category, tags, license, owner}, oauth{providers[{provider, secret, env}]}, remote{transport_type, url, headers}",
+        "270 entries observed: 237 server, 30 remote, 3 poci"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://github.com/docker/mcp-registry (CONTRIBUTING.md, servers/*/server.yaml)",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "server.yaml fields name, image, type, meta.category, meta.tags, about.title/description/icon, source.project/commit, run.allowHosts, config.secrets[{name, env, example, description}], remote.transport_type/url, oauth[{provider, secret, env}], dynamic.tools"
+      ],
+      "unverified": []
+    },
+    {
+      "url": "https://www.pulsemcp.com/api and https://www.pulsemcp.com/api/docs/v0beta",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "GET https://api.pulsemcp.com/v0beta/servers with query, count_per_page (max 5000) and offset; response servers[], total_count, next",
+        "server fields name, url, external_url, short_description, source_code_url, github_stars, package_registry, package_name, package_download_count, EXPERIMENTAL_ai_generated_description, remotes[{url_direct, url_setup, transport, authentication_method, cost}], integrations",
+        "GET /v0beta/integrations",
+        "no authentication required; rate limits 20/s, 200/min, 2000/day per IP",
+        "deprecated with a sunset by September 2026 and staged failures from January 2026"
+      ],
+      "unverified": [
+        "the documented enumeration of authentication_method values (treated as free text and preserved verbatim)"
+      ]
+    },
+    {
+      "url": "https://api.pulsemcp.com/api/openapi_v01.yaml (PulseMCP Sub-Registry API 0.1.9)",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "GET /v0.1/servers with cursor, limit (1..100 default 30), search, updated_since, version",
+        "security schemes X-API-Key (required) and X-Tenant-ID (required for data endpoints)",
+        "ServerList {servers: [{server, _meta}], metadata: {count, nextCursor}}",
+        "_meta keys com.pulsemcp/server {isOfficial, visitorsEstimate*} and com.pulsemcp/server-version {source, status active|deprecated|deleted, isLatest, publishedAt, updatedAt, statusMessage}",
+        "errors {error, code} with invalid_limit, invalid_cursor, invalid_updated_since, unauthorized, forbidden, not_found, rate_limited",
+        "rate limits 200/min, 5000/hour, 10000/day with X-RateLimit-* headers"
+      ],
+      "unverified": []
+    }
+  ],
+  "testCommands": [
+    "node --import tsx --test tests/connectors/smithery/*.test.ts tests/connectors/docker-mcp/*.test.ts tests/connectors/pulsemcp/*.test.ts"
+  ]
+}

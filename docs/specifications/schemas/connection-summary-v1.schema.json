@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "connectionRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "bindingRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "definitionRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "ecosystem": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "service": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^(?:[a-z0-9][a-z0-9._-]*)?$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]*$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    },
+    "ownerKind": {
+      "type": "string",
+      "enum": ["user", "organization", "workload"]
+    },
+    "custody": {
+      "type": "string",
+      "enum": [
+        "host-owned",
+        "external-credential-broker",
+        "external-execution-broker",
+        "attended-browser",
+        "no-credential"
+      ]
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["browser", "hosted-server", "trusted-local-runner"]
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": [
+        "configuration-required",
+        "authorization-required",
+        "human-required",
+        "verifying",
+        "active",
+        "degraded",
+        "expired",
+        "reconnect-required",
+        "locally-disconnected",
+        "upstream-revoked",
+        "indeterminate"
+      ]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "allOf": [
+            { "pattern": "^[^\\p{Cc}]+$" },
+            {
+              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+            }
+          ]
+        }
+      },
+      "required": ["kind", "id"],
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "credential-accepted",
+              "account-identity",
+              "resource-access",
+              "ownership-claimed",
+              "permission-observed"
+            ]
+          }
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "validUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "limitations": {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500,
+            "allOf": [
+              { "pattern": "^[^\\p{Cc}]*$" },
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
+            ]
+          }
+        }
+      },
+      "required": ["kinds", "observedAt", "limitations"],
+      "additionalProperties": false
+    },
+    "handoff": {
+      "type": "object",
+      "properties": {
+        "handoffRef": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "provider-browser",
+            "connect-widget",
+            "device-code",
+            "private-collector",
+            "input-required"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "issued",
+            "waiting",
+            "completed",
+            "denied",
+            "expired",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "presentation": {
+          "type": "string",
+          "enum": ["same-window", "popup", "second-device", "in-app"]
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "handoffRef",
+        "kind",
+        "state",
+        "presentation",
+        "expiresAt",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "lastOutcome": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "connectionRef",
+    "bindingRef",
+    "definitionRef",
+    "ecosystem",
+    "service",
+    "displayName",
+    "ownerKind",
+    "custody",
+    "runtime",
+    "lifecycle",
+    "generation",
+    "revision",
+    "createdAt",
+    "updatedAt"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:connection-summary-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}
