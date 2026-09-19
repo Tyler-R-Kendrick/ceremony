@@ -177,8 +177,12 @@ test("AC-AUTH-14: a completion message from another origin or another window cha
       .click();
     const provider = await popupOpened;
     await provider.waitForLoadState();
+    // The window is opened on the click and the address is rewritten when the
+    // server answers, so the reference arrives after the window does.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("connection"))
+      .toBeTruthy();
     const connection = new URL(page.url()).searchParams.get("connection")!;
-    expect(connection).toBeTruthy();
 
     // The page posts a perfectly well-formed message at itself.
     await page.evaluate((connectionRef) => {
@@ -240,6 +244,73 @@ test("AC-AUTH-15: closing the provider window without approving leaves the flow 
       .click();
     await expect(drawer).toContainText("Your participation is needed");
     await expect(drawer).not.toContainText("Verified target");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a refused connect closes the window it opened for the provider", async ({
+  page,
+  context,
+}) => {
+  // Three reads load the page — the catalogue, the bindings and the
+  // description — so the connect command is the first thing the expired
+  // session refuses.
+  const harness = await startConnectorHarness({ expireSessionAfter: 3 });
+  try {
+    await page.goto(harness.url({ connector: "github-app" }));
+    const drawer = page.getByRole("dialog");
+    const connect = drawer.getByRole("button", {
+      name: "Connect GitHub (native app)",
+    });
+    await expect(connect).toBeEnabled();
+    const opened = page.waitForEvent("popup");
+    await connect.click();
+    // The window is opened on the click, before the server is asked, because a
+    // browser only allows it while the click is fresh. The server then refused,
+    // so nothing is ever going to be shown in it.
+    const stray = await opened;
+    await expect(drawer).toContainText("Your session expired");
+    await expect.poll(() => stray.isClosed()).toBe(true);
+    expect(context.pages()).toHaveLength(1);
+    expect(context.pages().map((open) => open.url())).not.toContain(
+      "about:blank",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a connector whose description could not be read is not offered as connectable", async ({
+  page,
+}) => {
+  const harness = await startConnectorHarness();
+  try {
+    // The inventory answers; the description behind the open entry does not.
+    await page.route(/\/api\/v1\/connectors\/definitions\//, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "unavailable",
+          message: "The description store is unavailable.",
+        }),
+      }),
+    );
+    await page.goto(harness.url({ connector: "github-app" }));
+    const drawer = page.getByRole("dialog");
+    await expect(
+      drawer.locator("[data-connector-definition-unread]"),
+    ).toBeVisible();
+    await expect(drawer).toContainText("The description store is unavailable.");
+    // Nothing was read, so nothing is known about what would block this — and
+    // unknown is not the same answer as nothing.
+    await expect(
+      drawer.getByRole("button", { name: "Connect GitHub (native app)" }),
+    ).toBeDisabled();
+    // The rest of the drawer is what the entry itself reported, and still works.
+    await expect(drawer).toContainText("Provider-backed");
+    await expect(drawer).toContainText("GITHUB_APP_ID");
   } finally {
     await harness.close();
   }

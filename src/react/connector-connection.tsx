@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { z } from "zod";
 import type {
   BindingReference,
   CatalogEntry,
@@ -511,13 +512,21 @@ export interface ConnectorConnectionProps {
   bindings?: readonly BindingReference[];
   /** The description behind this entry: authentication profiles and diagnostics. */
   definition?: NormalizedDefinition;
+  /**
+   * Why the description could not be read, when the host tried and failed. It
+   * is not the same as not having one: a connector whose entry names a
+   * description and whose description is missing has unknown diagnostics, and
+   * unknown is not the same as clean.
+   */
+  definitionError?: string;
   viewer?: ConnectorViewer;
   /** Reopen an existing connection, e.g. after a callback returns. */
   connectionRef?: string;
   /** Read-only operations offered as proof that the connection works. */
   readOperations?: readonly ReadOperation[];
   onConnectionChange?(connection: ConnectionSummary): void;
-  onSignIn?(): void;
+  /** A host's own sign-in. Without one, this application's own route is used. */
+  onSignIn?(): void | Promise<void>;
   /** Injected by tests and hosts that own window management. */
   openWindow?(url: string, name: string): Window | null;
   pollIntervalMs?: number;
@@ -529,6 +538,7 @@ export function ConnectorConnection({
   entry,
   bindings = [],
   definition,
+  definitionError,
   viewer,
   connectionRef,
   readOperations = [],
@@ -588,6 +598,16 @@ export function ConnectorConnection({
     () => connectBlockers(definition?.compatibility.issues ?? []),
     [definition],
   );
+  /*
+   * A description that could not be read is not a description with nothing
+   * blocking. `blockers` comes from the description's own diagnostics, so
+   * without one it is empty for the reason an unasked question has no answer:
+   * the very list that decides whether this connector may be authorized is
+   * what is missing. So an entry that names a description and has not got one
+   * cannot be connected, and the panel below says which of the two it is —
+   * still being read, or unreadable.
+   */
+  const definitionKnown = !entry.definitionRef || Boolean(definition);
   const organizationAllowed = ownerKindPermitted(viewer, "organization");
 
   const popup = useRef<Window | null>(null);
@@ -781,16 +801,26 @@ export function ConnectorConnection({
     }
   }, [openWindow]);
 
+  /*
+   * A window opened for a handoff that is not going to happen is closed here
+   * and nowhere else. Every path that stops before `present` — a refused
+   * connect, an expired session, a dropped network — comes through this, so
+   * nobody is left with a blank popup over their application to close by hand.
+   */
+  const dismiss = useCallback((placeholder: Window | null) => {
+    try {
+      placeholder?.close();
+    } catch {
+      /* Already gone. */
+    }
+  }, []);
+
   const present = useCallback(
     (view: ConnectionView, placeholder: Window | null) => {
       const url = view.presentation?.url;
       const presentation = view.handoff?.presentation;
       if (!url || presentation !== "popup") {
-        try {
-          placeholder?.close();
-        } catch {
-          /* Already gone. */
-        }
+        dismiss(placeholder);
         popup.current = null;
         return;
       }
@@ -810,30 +840,36 @@ export function ConnectorConnection({
       popup.current = null;
       setPopupBlocked(true);
     },
-    [],
+    [dismiss],
   );
 
   const connect = (placeholder: Window | null) =>
     act(async () => {
-      if (!chosenBinding)
-        throw new Error(
-          "No approved binding is available for this connector in this deployment.",
-        );
-      const view = await client.connect({
-        bindingRef: chosenBinding.bindingRef,
-        ownerKind,
-        intent: {
-          ...(chosenProfile ? { profileId: chosenProfile.id } : {}),
-          requestedPermissions,
-          ...(targetId
-            ? { target: { kind: entry.service || "account", id: targetId } }
-            : {}),
-          accountSwitch: false,
-          interruption,
-        },
-      });
-      remember(view);
-      present(view, placeholder);
+      try {
+        if (!chosenBinding)
+          throw new Error(
+            "No approved binding is available for this connector in this deployment.",
+          );
+        const view = await client.connect({
+          bindingRef: chosenBinding.bindingRef,
+          ownerKind,
+          intent: {
+            ...(chosenProfile ? { profileId: chosenProfile.id } : {}),
+            requestedPermissions,
+            ...(targetId
+              ? { target: { kind: entry.service || "account", id: targetId } }
+              : {}),
+            accountSwitch: false,
+            interruption,
+          },
+        });
+        remember(view);
+        present(view, placeholder);
+      } catch (failure) {
+        // The refusal is `act`'s to report; the window is this line's to close.
+        dismiss(placeholder);
+        throw failure;
+      }
     });
 
   const submitHandoff = (event: FormEvent<HTMLFormElement>) => {
@@ -903,6 +939,36 @@ export function ConnectorConnection({
     [client],
   );
 
+  /*
+   * Signing in again is a route somewhere, not a state this component can
+   * clear. A host that owns sign-in is asked to do it; otherwise the same
+   * command the rest of this application uses is asked for an authorization
+   * URL and the browser goes there. Clearing the panel without either put a
+   * person back on a connect form whose next attempt expired again.
+   */
+  const signIn = useCallback(async () => {
+    if (onSignIn) {
+      await onSignIn();
+      if (mounted.current) setSignInNeeded(false);
+      return;
+    }
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok)
+      throw new Error(
+        "Sign-in is unavailable in this deployment. Ask this host's administrator how to sign in again.",
+      );
+    const { authorizationUrl } = z
+      .strictObject({ authorizationUrl: z.url() })
+      .parse(await response.json());
+    location.assign(authorizationUrl);
+  }, [onSignIn]);
+
   const lifecycle = connection
     ? lifecyclePresentation[connection.lifecycle]
     : undefined;
@@ -912,6 +978,7 @@ export function ConnectorConnection({
     !busy &&
     Boolean(chosenBinding) &&
     blockers.length === 0 &&
+    definitionKnown &&
     entry.support !== "catalog-only" &&
     entry.support !== "unconfigured";
 
@@ -931,13 +998,16 @@ export function ConnectorConnection({
         <button
           type="button"
           className="primary"
-          onClick={() => {
-            setSignInNeeded(false);
-            onSignIn?.();
-          }}
+          disabled={busy}
+          onClick={() => void act(signIn)}
         >
           Sign in
         </button>
+        {error && (
+          <p role="alert" className="connector-error">
+            {error}
+          </p>
+        )}
       </div>
     );
 
@@ -1001,6 +1071,35 @@ export function ConnectorConnection({
       )}
       {notice && <p role="status">{notice}</p>}
 
+      {!definitionKnown &&
+        (definitionError ? (
+          <div
+            className="connector-notice"
+            role="alert"
+            data-connector-definition-unread=""
+          >
+            <h4>This connector's description could not be read</h4>
+            <p>{definitionError}</p>
+            <p>
+              Connecting stays unavailable until it can be: the diagnostics that
+              say whether this connector may be authorized at all are part of
+              that description, and an unread one is unknown rather than clean.
+              Everything else on this page is what the server already reported
+              about the entry itself.
+            </p>
+          </div>
+        ) : (
+          <p
+            className="connector-notice"
+            role="status"
+            data-connector-definition-pending=""
+          >
+            Reading this connector's description. It carries the authentication
+            methods and the diagnostics that decide whether connecting is
+            possible, so connecting waits for it.
+          </p>
+        ))}
+
       {blockers.length > 0 && (
         <div
           className="connector-notice"
@@ -1027,12 +1126,20 @@ export function ConnectorConnection({
             void connect(openPlaceholder());
           }}
         >
+          {/*
+            A field's label is its name and nothing else, the way DynamicField
+            above does it: the help below is referenced with aria-describedby
+            instead of being wrapped in the label, where it would become part of
+            the control's name and be read out in full every time the control is
+            reached.
+          */}
           {profiles.length > 1 && (
-            <label htmlFor="connector-profile" className="connector-field">
-              <span>Authentication method</span>
+            <div className="connector-field">
+              <label htmlFor="connector-profile">Authentication method</label>
               <select
                 id="connector-profile"
                 value={chosenProfile?.id ?? ""}
+                aria-describedby="connector-profile-description"
                 onChange={(event) => setProfileId(event.target.value)}
               >
                 {profiles.map((profile) => (
@@ -1041,18 +1148,21 @@ export function ConnectorConnection({
                   </option>
                 ))}
               </select>
-              <span className="connector-muted">
+              <p className="connector-muted" id="connector-profile-description">
                 Sent as the authorization profile. The server decides whether it
                 is permitted for this binding.
-              </span>
-            </label>
+              </p>
+            </div>
           )}
           {candidateBindings.length > 1 && (
-            <label htmlFor="connector-binding" className="connector-field">
-              <span>Environment and authority</span>
+            <div className="connector-field">
+              <label htmlFor="connector-binding">
+                Environment and authority
+              </label>
               <select
                 id="connector-binding"
                 value={chosenBinding?.bindingRef ?? ""}
+                aria-describedby="connector-binding-description"
                 onChange={(event) => setBindingRef(event.target.value)}
               >
                 {candidateBindings.map((binding) => (
@@ -1062,13 +1172,15 @@ export function ConnectorConnection({
                   </option>
                 ))}
               </select>
-              <span className="connector-muted">
+              <p className="connector-muted" id="connector-binding-description">
                 Only authorities the server has approved appear here.
-              </span>
-            </label>
+              </p>
+            </div>
           )}
-          <label htmlFor="connector-target" className="connector-field">
-            <span>Account or workspace (optional)</span>
+          <div className="connector-field">
+            <label htmlFor="connector-target">
+              Account or workspace (optional)
+            </label>
             <input
               id="connector-target"
               name="connector-target"
@@ -1077,15 +1189,16 @@ export function ConnectorConnection({
               autoComplete="off"
               spellCheck={false}
               maxLength={200}
+              aria-describedby="connector-target-description"
               onInput={(event) => setTargetId(event.currentTarget.value.trim())}
               onChange={(event) => setTargetId(event.target.value.trim())}
             />
-            <span className="connector-muted">
+            <p className="connector-muted" id="connector-target-description">
               The server must observe this exact account or workspace before the
               connection counts as working. Where the provider offers a list,
               you are asked to pick from it after signing in.
-            </span>
-          </label>
+            </p>
+          </div>
           <fieldset className="connector-field">
             <legend>Whose access this is</legend>
             <label>
@@ -1116,11 +1229,12 @@ export function ConnectorConnection({
               )}
             </label>
           </fieldset>
-          <label htmlFor="connector-interruption" className="connector-field">
-            <span>Interruption budget</span>
+          <div className="connector-field">
+            <label htmlFor="connector-interruption">Interruption budget</label>
             <select
               id="connector-interruption"
               value={interruption}
+              aria-describedby="connector-interruption-description"
               onChange={(event) =>
                 setInterruption(event.target.value as "allowed" | "none")
               }
@@ -1128,12 +1242,15 @@ export function ConnectorConnection({
               <option value="allowed">Ask me when the provider needs me</option>
               <option value="none">Do not interrupt anyone</option>
             </select>
-            <span className="connector-muted">
+            <p
+              className="connector-muted"
+              id="connector-interruption-description"
+            >
               A constraint, not a bypass. If the provider requires consent or a
               second factor, choosing “do not interrupt” stops the connection as
               needing a person rather than finding another way in.
-            </span>
-          </label>
+            </p>
+          </div>
           <div className="connector-field" data-connector-custody="">
             <span>Credential custody</span>
             <p className="connector-muted">
@@ -1377,23 +1494,24 @@ export function ConnectorConnection({
                     disabled={busy}
                     onClick={() => {
                       const placeholder = openPlaceholder();
+                      // `act` reports every refusal itself and never rejects,
+                      // so the window is closed where the refusal is seen.
                       void act(async () => {
-                        const next = await client.reconnect(
-                          connection.connectionRef,
-                          {
-                            expectedRevision: connection.revision,
-                            accountSwitch,
-                          },
-                        );
-                        remember(next);
-                        setConfirmReconnect(false);
-                        setAccountSwitch(false);
-                        present(next, placeholder);
-                      }).catch(() => {
                         try {
-                          placeholder?.close();
-                        } catch {
-                          /* Already gone. */
+                          const next = await client.reconnect(
+                            connection.connectionRef,
+                            {
+                              expectedRevision: connection.revision,
+                              accountSwitch,
+                            },
+                          );
+                          remember(next);
+                          setConfirmReconnect(false);
+                          setAccountSwitch(false);
+                          present(next, placeholder);
+                        } catch (failure) {
+                          dismiss(placeholder);
+                          throw failure;
                         }
                       });
                     }}

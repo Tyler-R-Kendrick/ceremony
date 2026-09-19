@@ -155,6 +155,70 @@ test("an import shows diagnostics without echoing the document", async () => {
   }
 });
 
+test("a description that cannot be read back does not unsay the import", async () => {
+  const fixture = createConnectorFixture();
+  const client = createConnectorClient({
+    // The document imports; reading back the description it produced does not.
+    // These are two different failures, and only one of them is about the
+    // document.
+    fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("/definitions/")
+        ? new Response(JSON.stringify({ error: "not-found" }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          })
+        : fixture.fetch(input, init)) as typeof fetch,
+  });
+  const view = await mount(createElement(ConnectorImport, { client }));
+  try {
+    await view.fill("#connector-import-text", '{"openapi":"3.1.0"}');
+    await view.submit("[data-connector-import] form");
+    await view.waitFor(() => view.text.includes("could not be read back"));
+    // What the importer said about this document is still on screen beside the
+    // count that summarised it.
+    assert.match(view.text, /1 description read/);
+    assert.ok(view.query("[data-connector-issues]"));
+    assert.match(view.text, /openapi\.security\.unsupported-scheme/);
+    assert.match(view.text, /no longer exists/);
+    // No review panel, because no description was read; that is the only thing
+    // the failed read decides.
+    assert.equal(view.query("[data-connector-definition]"), null);
+  } finally {
+    await view.close();
+  }
+});
+
+test("the URL field is named by its label and explained by its description", async () => {
+  const fixture = createConnectorFixture();
+  const client = createConnectorClient({ fetch: fixture.fetch });
+  const view = await mount(createElement(ConnectorImport, { client }));
+  try {
+    const url = view.all("input[name='connector-import-kind']").at(1) as
+      (Record<string, unknown> & { checked: boolean }) | undefined;
+    assert.ok(url);
+    // A radio reports its state on the click, so the state comes first.
+    url.checked = true;
+    await view.clickElement(url as never);
+    const field = view.query("#connector-import-url");
+    assert.ok(field);
+    const label = view
+      .all("label")
+      .find(
+        (element) => element.getAttribute("for") === "connector-import-url",
+      );
+    // The name is the field's name. The network policy under it is a
+    // description the control points at, not part of what it is called.
+    assert.equal(label?.textContent, "Document URL");
+    const describedBy = field.getAttribute("aria-describedby") ?? "";
+    assert.match(
+      view.query(`#${describedBy}`)?.textContent ?? "",
+      /own network policy/,
+    );
+  } finally {
+    await view.close();
+  }
+});
+
 test("an invalid document reports its issues, not its contents", async () => {
   const fixture = createConnectorFixture();
   const client = createConnectorClient({ fetch: fixture.fetch });

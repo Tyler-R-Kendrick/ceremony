@@ -3,7 +3,11 @@ import test from "node:test";
 import { createElement } from "react";
 import { createConnectorClient } from "../../../src/core/connectors/client.js";
 import { ConnectorConnection } from "../../../src/react/connector-connection.js";
-import { createConnectorFixture, type ConnectorFixture } from "./fixture.js";
+import {
+  blockedDefinition,
+  createConnectorFixture,
+  type ConnectorFixture,
+} from "./fixture.js";
 import { mount, type Mounted } from "./render.js";
 
 /*
@@ -198,6 +202,75 @@ test("offline refuses to connect and says nothing is queued", async () => {
   }
 });
 
+test("a description that never arrived is unknown, not clean", async () => {
+  const fixture = createConnectorFixture();
+  const client = createConnectorClient({ fetch: fixture.fetch });
+  const props = {
+    client,
+    entry: entryFor(fixture, "github-app"),
+    bindings: fixture.bindings,
+    viewer: { capabilities: ["executor"], ownerKinds: ["user"] },
+    pollIntervalMs: 20,
+    autoFocus: false,
+    openWindow: () => ({ closed: false }) as unknown as Window,
+  };
+  const connect = (view: Mounted) =>
+    view.button("Connect GitHub (native app)") as unknown as {
+      disabled: boolean;
+    };
+  // A description whose security requirement cannot be executed refuses the
+  // connection and names the issue that refused it.
+  const view = await mount(
+    createElement(ConnectorConnection, {
+      ...props,
+      definition: blockedDefinition(),
+    } as never),
+  );
+  try {
+    assert.ok(view.query("[data-connector-blockers]"));
+    assert.match(view.text, /cannot be authorized as imported/);
+    assert.equal(connect(view).disabled, true);
+
+    // The same connector with no description at all knows none of that. The
+    // blocking list is empty because nothing was read, which is not the same
+    // answer as nothing being wrong, so connecting stays refused.
+    await view.render(createElement(ConnectorConnection, props as never));
+    assert.equal(view.query("[data-connector-blockers]"), null);
+    assert.equal(connect(view).disabled, true);
+    assert.ok(view.query("[data-connector-definition-pending]"));
+    assert.equal(
+      fixture.requests.some((item) => item.path === "/connections"),
+      false,
+    );
+
+    // A read the host reported as failed says so, in the host's own words, and
+    // still refuses.
+    await view.render(
+      createElement(ConnectorConnection, {
+        ...props,
+        definitionError: "The description store is unavailable.",
+      } as never),
+    );
+    const unread = view.query("[data-connector-definition-unread]");
+    assert.match(unread?.textContent ?? "", /could not be read/);
+    assert.match(unread?.textContent ?? "", /store is unavailable/);
+    assert.equal(connect(view).disabled, true);
+
+    // And the description in hand, with nothing blocking, connects as before.
+    await view.render(
+      createElement(ConnectorConnection, {
+        ...props,
+        definition: definitionFor(fixture, "definition:github-app"),
+      } as never),
+    );
+    assert.equal(view.query("[data-connector-definition-unread]"), null);
+    assert.equal(view.query("[data-connector-definition-pending]"), null);
+    assert.equal(connect(view).disabled, false);
+  } finally {
+    await view.close();
+  }
+});
+
 test("an expired session asks for sign-in and shows nothing stale", async () => {
   const fixture = createConnectorFixture({ expireSessionAfter: 1 });
   const view = await open(fixture);
@@ -210,6 +283,77 @@ test("an expired session asks for sign-in and shows nothing stale", async () => 
     assert.match(view.text, /Your session expired/);
     assert.doesNotMatch(view.text, /Verified target/);
     assert.ok(view.button("Sign in"));
+  } finally {
+    await view.close();
+  }
+});
+
+test("the sign-in a dead session offers actually starts one", async () => {
+  const fixture = createConnectorFixture({ expireSessionAfter: 0 });
+  const asked: string[] = [];
+  const view = await open(
+    fixture,
+    {},
+    {
+      // No host handler is passed, which is the shipped case: the panel uses
+      // this application's own sign-in command.
+      fetch: (async (input: RequestInfo | URL) => {
+        asked.push(String(input));
+        return new Response(
+          JSON.stringify({ authorizationUrl: "https://id.test/authorize?x=1" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    },
+  );
+  try {
+    await view.click("Connect GitHub (native app)");
+    await view.waitFor(() => view.text.includes("Your session expired"));
+    const visited: string[] = [];
+    (globalThis.location as unknown as { assign(url: string): void }).assign = (
+      url,
+    ) => visited.push(url);
+    await view.click("Sign in");
+    await view.waitFor(() => visited.length > 0);
+    assert.deepEqual(asked, ["/api/auth/login"]);
+    assert.deepEqual(visited, ["https://id.test/authorize?x=1"]);
+    // The panel is not cleared by a button that did nothing else: what
+    // replaces it is the page the browser is on its way to.
+    assert.match(view.text, /Your session expired/);
+  } finally {
+    await view.close();
+  }
+});
+
+test("a refused reconnect closes the window it opened", async () => {
+  const fixture = createConnectorFixture({ requireAccountSwitch: true });
+  const opened: Array<{ closed: boolean }> = [];
+  const view = await open(fixture, {
+    openWindow: () => {
+      const handle = {
+        closed: false,
+        close() {
+          handle.closed = true;
+        },
+        location: { replace() {} },
+      };
+      opened.push(handle);
+      return handle as unknown as Window;
+    },
+  });
+  try {
+    await view.click("Connect GitHub (native app)");
+    fixture.approve();
+    await view.waitFor(() => lifecycle(view) === "active");
+    await view.click("Reconnect");
+    await view.click("Start reconnect");
+    await view.waitFor(() => view.text.includes("Confirm the account change"));
+    // The server refused, so the window opened on the click has nowhere to go
+    // and is not left over the page for somebody to close by hand. The window
+    // the provider is still using is untouched.
+    assert.equal(opened.length, 2);
+    assert.equal(opened[1]?.closed, true);
+    assert.equal(opened[0]?.closed, false);
   } finally {
     await view.close();
   }

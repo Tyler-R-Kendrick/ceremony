@@ -57,6 +57,56 @@ test("focus enters the drawer, stays inside it, and returns to the card", async 
   }
 });
 
+test("the scrim dims the page it covers instead of replacing it", async ({
+  page,
+}) => {
+  const harness = await startConnectorHarness();
+  try {
+    await page.goto(harness.url({ connector: "github-app" }));
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const measure = () =>
+      page.locator(".connector-scrim").evaluate((element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return {
+          background: style.backgroundColor,
+          borderWidth: style.borderTopWidth,
+          radius: style.borderTopLeftRadius,
+          padding: `${style.paddingBlockStart} ${style.paddingInlineStart}`,
+          opacity: style.opacity,
+          width: box.width,
+          height: box.height,
+          viewport: { width: innerWidth, height: innerHeight },
+        };
+      });
+    // The scrim is a button, and the rule that styles every other button comes
+    // later in the sheet at the same zero specificity. Whatever the theme
+    // resolved to, what a person sees here has to be a dim: a dark colour with
+    // an alpha, and none of the panel a control would have drawn.
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      const scrim = await measure();
+      const channels = (/^rgba?\(([^)]+)\)$/.exec(scrim.background)?.[1] ?? "")
+        .split(",")
+        .map((part) => Number(part.trim()));
+      expect(channels).toHaveLength(4);
+      const [red = 255, green = 255, blue = 255, alpha = 1] = channels;
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(1);
+      expect(red + green + blue).toBeLessThan(150);
+      expect(scrim.opacity).toBe("1");
+      expect(scrim.borderWidth).toBe("0px");
+      expect(scrim.radius).toBe("0px");
+      expect(scrim.padding).toBe("0px 0px");
+      // And it is still the whole page it is dimming, not a control-sized box.
+      expect(scrim.width).toBeGreaterThan(scrim.viewport.width - 24);
+      expect(scrim.height).toBeGreaterThan(scrim.viewport.height - 24);
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
 test("the drawer is usable and accessible at desktop and phone widths", async ({
   page,
   browserName,
@@ -124,6 +174,42 @@ test("inline validation and the intent controls are announced, not only coloured
     const secret = drawer.getByLabel("Petstore API key (required)");
     await expect(secret).toHaveAttribute("type", "password");
     await expect(drawer).toContainText("replaced by a reference");
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a field is named by its label and explained by its description", async ({
+  page,
+}) => {
+  const harness = await startConnectorHarness();
+  try {
+    await page.goto(harness.url({ connector: "github-app" }));
+    const drawer = page.getByRole("dialog");
+    await expect(drawer).toBeVisible();
+    for (const [name, help] of [
+      [
+        "Account or workspace (optional)",
+        "The server must observe this exact account",
+      ],
+      ["Interruption budget", "A constraint, not a bypass"],
+      ["Authentication method", "Sent as the authorization profile"],
+    ] as const) {
+      // Exactly, not by substring: help text wrapped in the label becomes part
+      // of what the control is called, so every visit to the field reads the
+      // whole paragraph out and nothing can address the field by its name.
+      const field = drawer.getByLabel(name, { exact: true });
+      await expect(field).toHaveCount(1);
+      expect(
+        await field.evaluate(
+          (element) =>
+            document.getElementById(
+              element.getAttribute("aria-describedby") ?? "",
+            )?.textContent ?? "",
+        ),
+      ).toContain(help);
+    }
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   } finally {
     await harness.close();

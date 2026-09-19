@@ -411,7 +411,15 @@
   gap: 0.5rem;
 }
 
-:where([data-connector] button, [data-connector] .button) {
+/* The scrim is a button so leaving is reachable without a mouse, but it is not
+   a button-shaped control: it is the dim over the page. It is excluded here
+   rather than given more specificity, because every selector in this file is
+   zero-specificity by design and the drawer section above would otherwise lose
+   its background, border, radius and padding to this rule. */
+:where(
+  [data-connector] button:not(.connector-scrim),
+  [data-connector] .button
+) {
   display: inline-flex;
   align-items: center;
   justify-content: center;

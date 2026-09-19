@@ -452,10 +452,27 @@ export function ConnectorImport({
         setResult(imported);
         setIssues(imported.issues);
         onImported?.(imported);
-        const loaded: DefinitionReview[] = [];
-        for (const ref of imported.definitions)
-          loaded.push(await client.definition(ref));
-        if (mounted.current) setReviews(loaded);
+        /*
+         * Reading the descriptions back is a second thing that can fail, and it
+         * fails differently. The diagnostics above are what the importer said
+         * about this document; a read that fails afterwards says nothing about
+         * the document, so it is reported beside them and never in place of
+         * them. A definition error carries no issues of its own, and the outer
+         * catch would have replaced the importer's list with that emptiness.
+         */
+        try {
+          const loaded: DefinitionReview[] = [];
+          for (const ref of imported.definitions)
+            loaded.push(await client.definition(ref));
+          if (mounted.current) setReviews(loaded);
+        } catch (failure) {
+          if (mounted.current)
+            setError(
+              failure instanceof Error
+                ? `The document was imported; its descriptions could not be read back. ${failure.message}`
+                : "The document was imported, but its descriptions could not be read back.",
+            );
+        }
       } catch (failure) {
         if (!mounted.current) return;
         // A rejected document reports codes, pointers and the importer's own
@@ -516,22 +533,29 @@ export function ConnectorImport({
           </label>
         </fieldset>
         {kind === "url" ? (
-          <label className="connector-field" htmlFor="connector-import-url">
-            <span>Document URL</span>
+          // The label is the field's name; the policy below it is a
+          // description, so it is referenced rather than wrapped, where it
+          // would be read out as part of the field's own name.
+          <div className="connector-field">
+            <label htmlFor="connector-import-url">Document URL</label>
             <input
               id="connector-import-url"
               type="url"
               value={url}
               required
+              aria-describedby="connector-import-url-description"
               onInput={(event) => setUrl(event.currentTarget.value)}
               onChange={(event) => setUrl(event.target.value)}
             />
-            <span className="connector-muted">
+            <p
+              className="connector-muted"
+              id="connector-import-url-description"
+            >
               The server fetches it under its own network policy. Private and
               metadata addresses are refused unless an administrator approved
               that exact destination.
-            </span>
-          </label>
+            </p>
+          </div>
         ) : (
           <>
             <label
@@ -586,9 +610,11 @@ export function ConnectorImport({
           {result.definitions.length}{" "}
           {result.definitions.length === 1 ? "description" : "descriptions"}{" "}
           read from <code>{result.sourceRef}</code>;{" "}
-          {result.executableCandidates.length} capability
-          {result.executableCandidates.length === 1 ? "" : "s"} a reviewer may
-          bind. Nothing executable was registered by this import.
+          {result.executableCandidates.length}{" "}
+          {result.executableCandidates.length === 1
+            ? "capability"
+            : "capabilities"}{" "}
+          a reviewer may bind. Nothing executable was registered by this import.
         </p>
       )}
       {reviews.map((review) => (

@@ -62,6 +62,16 @@ function keepQuery(next: URLSearchParams, current: URLSearchParams) {
   return next;
 }
 
+/** Drops one key, so a read that succeeded stops reporting the one that failed. */
+const forget =
+  (ref: string) =>
+  (current: Record<string, string>): Record<string, string> => {
+    if (!(ref in current)) return current;
+    const next = { ...current };
+    delete next[ref];
+    return next;
+  };
+
 export function ConnectorWorkspace({
   client: supplied,
   base,
@@ -89,6 +99,9 @@ export function ConnectorWorkspace({
   const [bindings, setBindings] = useState<BindingReference[]>([]);
   const [definitions, setDefinitions] = useState<
     Record<string, NormalizedDefinition>
+  >({});
+  const [definitionErrors, setDefinitionErrors] = useState<
+    Record<string, string>
   >({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
@@ -143,14 +156,26 @@ export function ConnectorWorkspace({
     client
       .definition(ref, abort.signal)
       .then((review) => {
-        if (!abort.signal.aborted)
-          setDefinitions((current) => ({
-            ...current,
-            [ref]: review.definition,
-          }));
+        if (abort.signal.aborted) return;
+        setDefinitions((current) => ({
+          ...current,
+          [ref]: review.definition,
+        }));
+        setDefinitionErrors(forget(ref));
       })
-      .catch(() => {
-        /* The drawer works without it; it just offers fewer choices. */
+      .catch((failure: unknown) => {
+        if (abort.signal.aborted) return;
+        // The rest of the drawer works without it, but connecting must not:
+        // the diagnostics that decide whether this connector can be authorized
+        // at all are in the description, so a failed read is reported to the
+        // surface instead of leaving it to assume there was nothing to report.
+        setDefinitionErrors((current) => ({
+          ...current,
+          [ref]:
+            failure instanceof Error
+              ? failure.message
+              : "This connector's description could not be read.",
+        }));
       });
     return () => abort.abort();
   }, [entry?.definitionRef, client, definitions]);
@@ -230,6 +255,9 @@ export function ConnectorWorkspace({
             bindings={bindings}
             {...(entry.definitionRef && definitions[entry.definitionRef]
               ? { definition: definitions[entry.definitionRef] }
+              : {})}
+            {...(entry.definitionRef && definitionErrors[entry.definitionRef]
+              ? { definitionError: definitionErrors[entry.definitionRef] }
               : {})}
             {...(viewer ? { viewer } : {})}
             {...(resumeRef ? { connectionRef: resumeRef } : {})}
