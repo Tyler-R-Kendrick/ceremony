@@ -1009,6 +1009,174 @@ test("the driver reports a stale document instead of failing the run", async () 
   assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
 });
 
+/**
+ * A page whose navigation lands late, which is the shape a loaded runner
+ * produces and the shape CI has been reporting as `stale-document`.
+ *
+ * The submit goes through. `settle()` returns, the read that follows it and
+ * the next main-loop read both still describe the page that is about to be
+ * replaced, and the replacement commits while the interpreter is deciding
+ * what to do with what it was shown. The approval the next action would use
+ * is then against a document that no longer exists.
+ */
+function lateNavigation(destination: string) {
+  let submitted = false;
+  let reads = 0;
+  const graph = handleGraph({
+    onClick: () => {
+      submitted = true;
+      reads = 0;
+    },
+  });
+  const page: PlaywrightPageLike = {
+    ...graph.page,
+    evaluateHandle: async (source: string) => {
+      const handle = await graph.page.evaluateHandle(source);
+      // The two reads are the post-action one and the main loop's, so the
+      // document survives exactly long enough to be read and approved and
+      // no longer.
+      if (submitted && source.includes("destinations") && ++reads === 2) {
+        submitted = false;
+        graph.navigate(destination);
+      }
+      return handle;
+    },
+  };
+  return { graph, page: createPlaywrightCeremonyPage(page) };
+}
+
+test("a submit whose navigation lands late is read again, not given up on", async () => {
+  const { graph, page } = lateNavigation("https://provider.example/account");
+  let verified = 0;
+  let step = 0;
+  const result = await runCeremony({
+    page,
+    // What a real interpreter does with a page it has just submitted and is
+    // still being shown: try it again. That is the proposal that meets the
+    // dead approval.
+    interpreter: async () => {
+      step += 1;
+      if (step === 1) return { action: "fill", element: 0, role: "username" };
+      if (step === 2) return { action: "click", element: 2 };
+      if (step === 3) return { action: "fill", element: 0, role: "username" };
+      return { action: "done" };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => {
+      verified += 1;
+      return true;
+    },
+  });
+
+  // The point of the case. Before the attempt learned to look again this
+  // ended `blocked` / `stale-document` with `verified` still zero: a login
+  // that had in fact succeeded, reported as one that never happened, and
+  // the provider never asked.
+  assert.equal(result.status, "completed");
+  assert.equal(verified, 1);
+
+  // The refusal is not swallowed. It is in the transcript under its own
+  // name, against the document that went stale, so a recovered attempt is
+  // distinguishable from one that never raced.
+  const reread = result.transcript.filter(
+    (entry) => entry.action === "reobserve",
+  );
+  assert.equal(reread.length, 1);
+  assert.equal(reread[0]?.reason, "stale-document");
+  assert.equal(reread[0]?.path, "https://provider.example/signin");
+
+  // And nothing was typed at the page that replaced it. Looking again is not
+  // acting anyway: the value went in once, before the submit.
+  assert.deepEqual(
+    graph.calls.filter((call) => call.startsWith("fill")),
+    ["fill 0 person@example.com"],
+  );
+});
+
+test("a submit that threw while the page moved is not tried again", async () => {
+  // The one refusal that must stay terminal. Playwright can lose the
+  // execution context between sending a submission and returning, so a click
+  // that threw is not evidence that nothing was sent. Reading the page again
+  // would be safe; acting on what is read could submit twice, and nothing in
+  // the attempt can tell which happened.
+  const graph = handleGraph({
+    onClick: () => {
+      graph.navigate("https://provider.example/account");
+      throw new Error(
+        "Execution context was destroyed, most likely because of a navigation",
+      );
+    },
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  let clicks = 0;
+  const result = await runCeremony({
+    page,
+    interpreter: async () => {
+      clicks += 1;
+      return { action: "click", element: 2 };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "stale-document",
+  );
+  // Proposed once, refused once, and never proposed again: no second submit.
+  assert.equal(clicks, 1);
+  assert.equal(
+    result.transcript.filter((entry) => entry.action === "reobserve").length,
+    0,
+  );
+});
+
+test("a page that keeps moving still ends the attempt", async () => {
+  const graph = handleGraph();
+  let moves = 0;
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    // Replaced under every single read. Re-reading cannot help, and the
+    // budget is what stops the attempt spinning on it.
+    evaluateHandle: async (source: string) => {
+      const handle = await graph.page.evaluateHandle(source);
+      if (source.includes("destinations")) {
+        moves += 1;
+        graph.navigate(`https://provider.example/moved-${moves}`);
+      }
+      return handle;
+    },
+  });
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({
+      action: "fill",
+      element: 0,
+      role: "username",
+    }),
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "stale-document",
+  );
+  // One re-read, then the name it would have carried immediately. A wider
+  // budget would show up here as a second entry.
+  assert.equal(
+    result.transcript.filter((entry) => entry.action === "reobserve").length,
+    1,
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
   const graph = handleGraph();
   const page = createPlaywrightCeremonyPage({
