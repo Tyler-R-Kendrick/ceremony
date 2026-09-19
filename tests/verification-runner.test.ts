@@ -6,13 +6,16 @@ import {
   coverageTotals,
   failedTestFiles,
   failedTestNames,
+  failedBrowserTests,
 } from "../scripts/verification-summary.js";
 import {
   browserVersions,
   profileFingerprint,
 } from "../scripts/verification-metadata.js";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 
 test("OPS: failed test diagnostics retain only known inventory names", () => {
   const inventory = ["tests/one.test.ts", "tests/nested/two.test.ts"];
@@ -147,6 +150,149 @@ test("OPS: every inventoried case name is verbatim repository content", async ()
       sources.includes(name),
       `${name} must be authored in a test file`,
     );
+});
+
+test("OPS: a failed browser case is named from the inventory, never quoted from output", () => {
+  const inventory = {
+    files: ["tests/browser/ceremony.spec.ts", "tests/browser/webmcp.spec.ts"],
+    names: [
+      "the directory asks this host one question on arrival",
+      "native tools share UI execution",
+    ],
+  };
+  const output = [
+    "  1) [chromium] \u203a tests/browser/ceremony.spec.ts:785:1 \u203a the directory asks this host one question on arrival ",
+    "    Error: expect(received).toEqual(expected)",
+    '    - Expected: ["/api/config"]',
+    '    + Received: ["/api/config", "/api/v1/teaching/capabilities?token=synthetic-secret"]',
+    "  2) [native-webmcp] \u203a tests/browser/invented.spec.ts:1:1 \u203a a case no file in this repository authors ",
+    "  3) [native-webmcp] \u203a tests/browser/webmcp.spec.ts:292:1 \u203a a suite above it \u203a native tools share UI execution ",
+  ].join("\n");
+  // Both halves come from the inventory: the file a failure names and the case
+  // inside it. The invented third file, the invented case, and every line of
+  // the assertion message between them are dropped.
+  assert.deepEqual(failedBrowserTests(output, inventory), inventory);
+  assert.deepEqual(failedBrowserTests(output, { files: [], names: [] }), {
+    files: [],
+    names: [],
+  });
+  assert.equal(
+    JSON.stringify(failedBrowserTests(output, inventory)).includes(
+      "synthetic-secret",
+    ),
+    false,
+  );
+  // A line that is not a failure header names nothing, whatever it contains.
+  assert.deepEqual(
+    failedBrowserTests(
+      `  ok [chromium] \u203a ${inventory.files[0]}:785:1 \u203a ${inventory.names[0]}`,
+      inventory,
+    ),
+    { files: [], names: [] },
+  );
+  assert.deepEqual(
+    failedBrowserTests(
+      `\u001b[31m  1) [chromium] \u203a ${inventory.files[0]}:785:1 \u203a ${inventory.names[0]}\u001b[0m`,
+      inventory,
+    ),
+    { files: [inventory.files[0]!], names: [inventory.names[0]!] },
+  );
+});
+
+test("OPS: an actual Playwright failure names its file and case, retaining no diagnostics", async () => {
+  // Inside the repository, because a project anywhere else cannot resolve the
+  // Playwright this repository installed — and it is that Playwright whose
+  // reporter has to be read, not a shape copied out of a log once.
+  const directory = await mkdtemp(resolve(".line-reporter-"));
+  const name = "a browser case this fixture fails on purpose";
+  try {
+    await writeFile(
+      join(directory, "playwright.config.ts"),
+      "export default { testDir: '.', projects: [{ name: 'chromium' }] };\n",
+    );
+    await writeFile(
+      join(directory, "sentinel.spec.ts"),
+      [
+        'import { test, expect } from "@playwright/test";',
+        'test.describe("a suite around it", () => {',
+        `  test(${JSON.stringify(name)}, () => {`,
+        '    expect("CEREMONY_EXPECTED_ASSERTION_FAILURE").toBe("passing");',
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    );
+    const cli = join(
+      dirname(
+        createRequire(import.meta.url).resolve("@playwright/test/package.json"),
+      ),
+      "cli.js",
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "test",
+        "--config",
+        join(directory, "playwright.config.ts"),
+        "--reporter=line",
+      ],
+      { encoding: "utf8", env: process.env, timeout: 120_000 },
+    );
+    assert.equal(result.error, undefined);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
+    const inventory = {
+      files: [join(directory, "sentinel.spec.ts")],
+      names: [name],
+    };
+    assert.deepEqual(failedBrowserTests(result.stdout, inventory), inventory);
+    // The fixture's own failure text is in that output and stays there.
+    assert.deepEqual(
+      failedBrowserTests(result.stdout, {
+        files: [],
+        names: ["CEREMONY_EXPECTED_ASSERTION_FAILURE"],
+      }),
+      { files: [], names: [] },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("OPS: every inventoried browser case name is verbatim repository content", async () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/test.mjs", "browser", "--inventory"],
+    { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+  assert.equal(result.status, 0);
+  const inventory = JSON.parse(result.stdout) as {
+    files: string[];
+    names: string[];
+  };
+  assert.ok(inventory.files.length > 0, "browser suites must be discovered");
+  assert.ok(inventory.names.length > 0, "the inventory must carry case names");
+  assert.deepEqual(inventory.files, [...inventory.files].sort());
+  assert.deepEqual(inventory.names, [...new Set(inventory.names)].sort());
+  // A suite title is not a case title, and a failure is never reported under
+  // one, so `test.describe` must not reach the inventory.
+  assert.equal(inventory.names.includes("a suite around it"), false);
+  const sources = (
+    await Promise.all(inventory.files.map((file) => readFile(file, "utf8")))
+  ).join("\n");
+  for (const name of inventory.names)
+    assert.ok(
+      sources.includes(name),
+      `${name} must be authored in a browser spec`,
+    );
+  // Running them is Playwright's job, and a caller that asks this script to is
+  // told rather than quietly given nothing.
+  const ran = spawnSync(process.execPath, ["scripts/test.mjs", "browser"], {
+    encoding: "utf8",
+  });
+  assert.notEqual(ran.status, 0);
+  assert.match(ran.stderr, /run by Playwright/);
 });
 
 test("OPS: runtime metadata fingerprints actual profile and never substitutes unavailable browser versions", async () => {
