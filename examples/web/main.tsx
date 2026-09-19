@@ -29,6 +29,11 @@ import {
 import { ConnectCatalog } from "./connect-catalog.js";
 import { AddConnection, type ConnectionDraft } from "./add-connection.js";
 import { declarationOf, refusals } from "./declaration.js";
+import {
+  beginSignIn,
+  hostedIdentity,
+  type HostedIdentity,
+} from "./hosted-identity.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -167,6 +172,25 @@ function App() {
   /** Bumped when a card is chosen again, so the next attempt is a new one. */
   const [attempt, setAttempt] = useState(0);
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
+  /**
+   * Whether this host wants an account before a connection starts.
+   *
+   * Asked on the directory rather than discovered at the drawer's last step.
+   * The component that asks there is mounted after Configure and Customize,
+   * and signing in is a provider round trip that returns to the bare origin —
+   * so being asked late costs whatever was drafted. Asked here, the round trip
+   * returns to the page it left.
+   */
+  const [identity, setIdentity] = useState<HostedIdentity>("unknown");
+  const [signInError, setSignInError] = useState("");
+  useEffect(() => {
+    if (!liveMode) return;
+    const abort = new AbortController();
+    void hostedIdentity(undefined, abort.signal).then((value) => {
+      if (!abort.signal.aborted) setIdentity(value);
+    });
+    return () => abort.abort();
+  }, []);
   useEffect(() => {
     void fetch("/api/config")
       .then((response) => response.json())
@@ -465,7 +489,15 @@ function App() {
                  studio mounted and the scroll position intact, and it is what
                  the prop exists for. Signing out in another tab arrives the
                  same way, over the session broadcast channel. */
-              onSignedOut={() => setOpen(false)}
+              /* One implementation of sign-in, so the directory's ask and
+                 the drawer's cannot drift apart. */
+              onSignIn={() => beginSignIn()}
+              onSignedOut={() => {
+                setOpen(false);
+                // Back to the directory, which should ask again rather than
+                // look like a workspace nobody needs an account for.
+                setIdentity("required");
+              }}
               /* The component exposes the connection to WebMCP unless a host
                  says otherwise, so the toggle has to say otherwise. */
               {...(draft.capabilities.includes("webmcp")
@@ -637,8 +669,9 @@ function App() {
           else goTo(section);
         }}
         /* A directory that cannot reach its server still draws every row it
-           can describe, which reads as a working catalogue. Say so on the
-           grid rather than only once somebody is inside a drawer. */
+           can describe, which reads as a working catalogue. And a host that
+           will demand an account should demand it here, not after two steps
+           of setup that a sign-in round trip then throws away. */
         {...(loadError
           ? {
               notice: (
@@ -647,7 +680,42 @@ function App() {
                 </p>
               ),
             }
-          : {})}
+          : identity === "required"
+            ? {
+                notice: (
+                  <div className="catalog-notice" role="status">
+                    <p>
+                      This workspace records and replays connections, which
+                      needs an account. Signing in takes you to the identity
+                      provider and back to this page — nothing you set up is
+                      lost, because nothing has been set up yet.
+                    </p>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() =>
+                        void beginSignIn().catch((error: unknown) =>
+                          setSignInError(
+                            error instanceof Error
+                              ? error.message
+                              : "Sign-in is unavailable.",
+                          ),
+                        )
+                      }
+                    >
+                      {/* Named apart from the connection component's own
+                          gate, which a deep link can still reach: that one
+                          signs in to connect a particular service, this one
+                          signs in to the workspace before anything has been
+                          chosen. Two identical labels for two different asks
+                          is a question nobody should have to answer. */}
+                      Sign in to this workspace
+                    </button>
+                    {signInError && <span role="alert">{signInError}</span>}
+                  </div>
+                ),
+              }
+            : {})}
         topbarExtra={
           /* This is a PWA, and the install and update controls belong on
                the page people open rather than behind another section. */
