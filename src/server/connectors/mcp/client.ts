@@ -10,6 +10,7 @@ import {
   BoundsError,
   TransportError,
   exchange,
+  releaseReply,
   type HttpReply,
 } from "./http.js";
 import { parseInputRequests, type ParsedInputRequest } from "./input.js";
@@ -574,11 +575,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     } catch (error) {
       return transportFailure(error, "read");
     }
-    if (reply.status === 401 || reply.status === 403)
-      return {
-        kind: "authorization-required",
-        challenge: await challengeFor(reply, signal),
-      };
+    if (reply.status === 401 || reply.status === 403) {
+      // Decided on the status alone, so nothing will read the frames: release
+      // the body here rather than leaving an event stream open behind a
+      // challenge the caller still has to answer.
+      const challenge = await challengeFor(reply, signal);
+      await releaseReply(reply);
+      return { kind: "authorization-required", challenge };
+    }
     const message = await singleMessage(reply, id, warnings, signal, "read");
     if (message.kind !== "result") {
       if (
@@ -649,6 +653,8 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       );
       if (ack.status >= 300)
         warnings.add(`mcp.protocol.initialized-status:${ack.status}`);
+      // A fire-and-forget acknowledgement still arrives with a body.
+      await releaseReply(ack);
     } catch {
       warnings.add("mcp.protocol.initialized-undelivered");
     }
@@ -754,6 +760,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       );
       if (reply.status >= 300)
         warnings.add(`mcp.protocol.response-status:${reply.status}`);
+      await releaseReply(reply);
     } catch {
       warnings.add("mcp.protocol.response-undelivered");
     }
@@ -1045,11 +1052,24 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       return failure;
     }
 
+    /*
+     * Every branch below decides on the status alone and never reads a frame,
+     * so each one has to let the body go: the frame generator is what would
+     * otherwise release it, and a retried status abandons one socket per
+     * attempt. `challengeFor` reads headers only, so it is safe either side of
+     * this. Releasing centrally here rather than at each `return` is what keeps
+     * a branch added later from quietly reintroducing the leak.
+     */
+    const settle = async <T>(outcome: T): Promise<T> => {
+      await releaseReply(reply);
+      return outcome;
+    };
+
     if (reply.status === 401 || reply.status === 403)
-      return {
+      return settle({
         kind: "authorization-required",
         challenge: await challengeFor(reply, rpcOptions.signal),
-      };
+      });
 
     // Legacy: a 404 for a session the server no longer knows means "start a
     // new session"; the request was not processed. Reads are reissued once.
@@ -1063,23 +1083,36 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       state.session = undefined;
       invalidate();
       if (rpcOptions.effect !== "read")
-        return { kind: "failed", code: "mcp.session.expired", applied: "no" };
+        return settle({
+          kind: "failed",
+          code: "mcp.session.expired",
+          applied: "no",
+        });
       rpcOptions.warnings.add("mcp.session.reinitialized");
+      await settle(undefined);
       return rpc(method, params, { ...rpcOptions, reinitialized: true });
     }
 
     if (reply.status === 429 || (reply.status >= 500 && reply.status <= 599)) {
-      if (rpcOptions.effect === "read" && mayRetry(limits.readRetries))
+      if (rpcOptions.effect === "read" && mayRetry(limits.readRetries)) {
+        await settle(undefined);
         return retry(`http-${reply.status}`);
+      }
       if (reply.status === 429)
-        return { kind: "failed", code: "mcp.http.429", applied: "no" };
-      return rpcOptions.effect === "read"
-        ? {
-            kind: "failed",
-            code: `mcp.http.${reply.status}`,
-            applied: "unknown",
-          }
-        : { kind: "indeterminate", code: `mcp.http.${reply.status}` };
+        return settle({
+          kind: "failed",
+          code: "mcp.http.429",
+          applied: "no",
+        });
+      return settle(
+        rpcOptions.effect === "read"
+          ? {
+              kind: "failed",
+              code: `mcp.http.${reply.status}`,
+              applied: "unknown",
+            }
+          : { kind: "indeterminate", code: `mcp.http.${reply.status}` },
+      );
     }
 
     const message = await singleMessage(

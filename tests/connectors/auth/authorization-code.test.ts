@@ -117,6 +117,146 @@ test("a full code exchange stores credentials and reports requested vs granted s
   assert.equal(inspectHandoffs(harness)[0]?.state, "completed");
 });
 
+test("AC-AUTH-03: an ID token signed by a key the issuer never published cannot name the account", async (t) => {
+  /*
+   * The subject in an ID token becomes the connection's identity, its `target`
+   * and its external id, so it decides which account this connection is. TLS to
+   * the token endpoint does not establish it: the endpoint may sit on an origin
+   * the issuer merely declared, and any origin that can answer there would then
+   * be choosing the account. The forged token here is exactly what such an
+   * origin produces -- the genuine `alg` and `kid`, a real signature, a
+   * different `sub` -- and it verifies against nothing the issuer published.
+   */
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      subject: "ada",
+      misbehave: { forgedIdTokenSubject: "root" },
+    },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  await assert.rejects(
+    completeAuthorizationCode(ctx, {
+      url: new URL(callback),
+      handoff: record,
+      server: harness.resolved,
+      client: harness.client,
+      policy: harness.policy,
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "upstream-rejected" &&
+      error.detail === "oauth.token.invalid-response",
+  );
+  // Nothing was kept: an unproven identity does not leave a usable connection
+  // behind, however good the access token that arrived with it looked.
+  assert.deepEqual(harness.ports.inspect.credentialRefs(), []);
+  assert.equal(inspectHandoffs(harness)[0]?.state, "denied");
+  // The exchange did happen and the code is spent, so this is a failed effect
+  // rather than an uncertain one.
+  assert.equal(harness.server.counts.token, 1);
+  assert.equal(
+    harness.ports.inspect.effects()[0]?.outcome?.code,
+    "oauth.token.invalid-response",
+  );
+});
+
+test("an honestly signed ID token still identifies the account it names", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true, subject: "ada" },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  const result = await completeAuthorizationCode(ctx, {
+    url: new URL(callback),
+    handoff: record,
+    server: harness.resolved,
+    client: harness.client,
+    policy: harness.policy,
+  });
+  assert.equal(result.state, "complete");
+  assert.deepEqual(result.target, { kind: "oidc-subject", id: "ada" });
+  assert.deepEqual(result.externalIds, { subject: "ada" });
+  assert.ok(result.credentialRef);
+  const identity = result.claims.find(
+    (claim) => claim.kind === "account-identity",
+  );
+  assert.deepEqual(identity?.target, { kind: "oidc-subject", id: "ada" });
+  // The signature was checked against the keys the issuer publishes, so the
+  // key set was really fetched rather than assumed.
+  assert.ok(harness.server.counts.jwks >= 1);
+});
+
+test("AC-AUTH-03: an ID token with no published keys to check it against is refused, not trusted", async (t) => {
+  // An issuer that publishes no key set leaves the signature uncheckable. That
+  // is the same answer as a bad signature: the subject is not proven to be the
+  // issuer's, so it cannot become the account this connection speaks for.
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true, misbehave: { omitJwksUri: true } },
+  });
+  assert.equal(
+    harness.resolved.metadata.jwks_uri,
+    undefined,
+    "the fixture really served metadata without a key set",
+  );
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  await assert.rejects(
+    completeAuthorizationCode(ctx, {
+      url: new URL(callback),
+      handoff: record,
+      server: harness.resolved,
+      client: harness.client,
+      policy: harness.policy,
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "upstream-rejected",
+  );
+  assert.deepEqual(harness.ports.inspect.credentialRefs(), []);
+});
+
+test("a plain OAuth 2.0 grant carries no ID token and is not held to one", async (t) => {
+  // The check applies to an identity that was asserted, not to every grant: a
+  // token response with no ID token claims no account and must still complete.
+  // Nothing here asks for `openid`, so nothing promised an ID token either.
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx, { scopes: ["profile"] });
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  const result = await completeAuthorizationCode(ctx, {
+    url: new URL(callback),
+    handoff: record,
+    server: harness.resolved,
+    client: harness.client,
+    policy: harness.policy,
+  });
+  assert.equal(result.state, "complete");
+  assert.ok(result.credentialRef);
+  assert.equal(result.target, undefined);
+  assert.equal(
+    harness.server.counts.jwks,
+    0,
+    "there was no signature to check",
+  );
+});
+
 test("AC-AUTH-03: a callback with a mismatched state is refused (login CSRF)", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },

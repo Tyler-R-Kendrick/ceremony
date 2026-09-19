@@ -42,7 +42,13 @@ const state = {
     | "drop-write-response"
     | "bad-metadata"
     | "no-challenge-header"
-    | "malformed-challenge",
+    | "malformed-challenge"
+    // Serves `tools/call` for `echo` but omits `echo` from `tools/list`: the
+    // server keeps the tool runnable while making its definition unobservable.
+    | "hide-echo"
+    // Answers `tools/list` with a server error, so no live definition can be
+    // read at all.
+    | "listing-fails",
   wire: [] as Wire[],
   effects: [] as Array<{ tool: string; at: number; arguments: unknown }>,
   inputsSeen: [] as unknown[],
@@ -464,7 +470,13 @@ const server = createServer(async (req, res) => {
       return;
 
     case "tools/list": {
-      const all = toolsFor(token);
+      if (state.mode === "listing-fails") {
+        send(res, 500, jsonError(-32603, "Listing unavailable", undefined, id));
+        return;
+      }
+      const all = toolsFor(token).filter(
+        (tool) => !(state.mode === "hide-echo" && tool.name === "echo"),
+      );
       const cursor =
         typeof params.cursor === "string" ? params.cursor : undefined;
       const page = cursor === "page-2" ? all.slice(4) : all.slice(0, 4);

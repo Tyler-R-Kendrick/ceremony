@@ -59,6 +59,14 @@ export type AuthorizationServerMisbehaviour = {
   tokenError?: string;
   /** Delay every token response by this many milliseconds. */
   tokenDelayMs?: number;
+  /**
+   * Issue an ID token for this subject, signed by a key this server never
+   * publishes, under the genuine `alg` and `kid`. Everything a client that
+   * reads the claims without checking the signature would accept.
+   */
+  forgedIdTokenSubject?: string;
+  /** Serve metadata with no `jwks_uri`, so no published key can check a signature. */
+  omitJwksUri?: boolean;
 };
 
 export type AuthorizationServerOptions = {
@@ -223,6 +231,12 @@ export async function startAuthorizationServer(
     extractable: true,
   });
   const keyId = `key-${randomBytes(4).toString("hex")}`;
+  // The forger's key: a real ES256 key that never appears at `jwks_uri`, so a
+  // token signed with it verifies against nothing the issuer published.
+  const strangerKey =
+    bad.forgedIdTokenSubject === undefined
+      ? undefined
+      : (await generateKeyPair("ES256", { extractable: true })).privateKey;
   const subject = options.subject ?? "user-1";
   const deviceInterval = options.deviceInterval ?? 1;
   const clientSecret = options.clientSecret;
@@ -273,7 +287,7 @@ export async function startAuthorizationServer(
       bad.authorizationEndpointOrigin,
     ),
     token_endpoint: endpoint("token", bad.tokenEndpointOrigin),
-    jwks_uri: endpoint("jwks"),
+    ...(bad.omitJwksUri ? {} : { jwks_uri: endpoint("jwks") }),
     scopes_supported: options.scopes ?? ["openid", "profile", "email"],
     response_types_supported: ["code"],
     grant_types_supported: [
@@ -338,6 +352,8 @@ export async function startAuthorizationServer(
     actor?: string | undefined;
     nonce?: string | undefined;
     type?: string;
+    /** Signs with this key instead of the published one; the header is unchanged. */
+    signWith?: CryptoKey | undefined;
   }) => {
     const seconds = input.expiresInSeconds ?? 3600;
     let builder = new SignJWT({
@@ -360,7 +376,7 @@ export async function startAuthorizationServer(
       : builder.setAudience(input.audience);
     return builder
       .setExpirationTime(Math.floor(now() / 1000) + seconds)
-      .sign(privateKey as CryptoKey);
+      .sign(input.signWith ?? (privateKey as CryptoKey));
   };
 
   const issueAccessToken = async (input: {
@@ -662,9 +678,10 @@ export async function startAuthorizationServer(
           ...(options.openidConnect
             ? {
                 id_token: await signJwt({
-                  subject: grant.subject,
+                  subject: bad.forgedIdTokenSubject ?? grant.subject,
                   audience: authenticated.clientId,
                   ...(grant.nonce !== undefined ? { nonce: grant.nonce } : {}),
+                  ...(strangerKey ? { signWith: strangerKey } : {}),
                 }),
               }
             : {}),

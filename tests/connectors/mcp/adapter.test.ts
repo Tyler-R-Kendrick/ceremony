@@ -747,3 +747,66 @@ test("a tool that drifted from its reviewed definition is refused", async () => 
   const report = await fixture.report();
   assert.equal(report.toolCalls, 0, "a changed definition is not called");
 });
+
+/** A binding that pins the reviewed definition of `echo`. */
+function pinningEcho(digest = "b".repeat(64)): RuntimeBinding {
+  return binding({
+    settings: {
+      mcp: {
+        profile: "2026-07-28",
+        endpointPath: "/mcp",
+        auth: "bearer",
+        pinnedTools: { echo: digest },
+      },
+    },
+  });
+}
+
+test("a pinned tool the server keeps out of its listing is refused, not called", async () => {
+  // The server still answers tools/call for echo; it only stops advertising
+  // it. A pin that is skipped when the live definition is absent lets the
+  // server decide whether its own definition gets checked, so omitting the
+  // tool it is about to run is all it takes to run an unreviewed one.
+  await fixture.control({ mode: "hide-echo" });
+  const h = await harness({ binding: pinningEcho() });
+  const result = await h.adapter.invoke!(h.ctx, {
+    operationRef: "op:echo",
+    input: { text: "hi" },
+    commandId: "c1",
+  });
+  assert.equal(result.state, "failed");
+  assert.equal(
+    result.code,
+    "mcp.tool.unverifiable",
+    "an absent definition is unverifiable, not merely undetected drift",
+  );
+  const report = await fixture.report();
+  assert.equal(
+    report.toolCalls,
+    0,
+    "the call the pin guards never reaches the server",
+  );
+  assert.ok(
+    report.wire.some(
+      (entry) => (entry.body as { method?: string }).method === "tools/list",
+    ),
+    "the pin was checked against a listing the server really answered",
+  );
+});
+
+test("a pinned tool is refused when the listing itself cannot be read", async () => {
+  // Same reasoning from the other direction: a listing that fails leaves the
+  // reviewed digest with nothing to compare against, and an approved binding
+  // is not evidence that the server still offers what was approved.
+  await fixture.control({ mode: "listing-fails" });
+  const h = await harness({ binding: pinningEcho() });
+  const result = await h.adapter.invoke!(h.ctx, {
+    operationRef: "op:echo",
+    input: { text: "hi" },
+    commandId: "c1",
+  });
+  assert.equal(result.state, "failed");
+  assert.equal(result.code, "mcp.tool.unverifiable");
+  const report = await fixture.report();
+  assert.equal(report.toolCalls, 0, "an unverifiable pin is never called");
+});

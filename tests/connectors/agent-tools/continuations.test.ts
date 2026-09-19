@@ -334,6 +334,67 @@ test("AG-05: a stop scope cannot be confused by a subject or session that contai
   );
 });
 
+test("AG-05: a stop registry at its limit refuses the new stop rather than un-stopping the oldest assistant", async () => {
+  const stops = new DelegationStopRegistry();
+  const guard = createContinuationGuard({
+    stops,
+    now: () => 1_760_000_000_000,
+    connection: async () => connection,
+  });
+  const victim = {
+    tenantId: agentActor.tenantId,
+    subjectId: agentActor.subjectId,
+    sessionId: agentActor.sessionId,
+  };
+  stops.stop(victim, 1_759_000_000_000);
+
+  /*
+   * A stop is a deny record, so making room for a new one by dropping the
+   * oldest resumes whoever held it. Filling the map is the cheap half of that:
+   * recording a stop takes one call and names any scope the caller likes, so
+   * this loop -- nobody's stop but its own -- was all it took to lift a stop a
+   * person had asked for, with no resume anywhere in the account.
+   */
+  let refusal: unknown;
+  let recorded = 0;
+  for (let index = 0; index < 9000 && refusal === undefined; index++)
+    try {
+      stops.stop(
+        { tenantId: agentActor.tenantId, subjectId: `filler-${index}` },
+        1_759_000_000_001,
+      );
+      recorded++;
+    } catch (error) {
+      refusal = error;
+    }
+  assert.ok(
+    refusal instanceof ConnectorError,
+    "the stop that does not fit is refused, not absorbed at a victim's expense",
+  );
+  assert.equal((refusal as ConnectorError).code, "conflict");
+  assert.equal((refusal as ConnectorError).detail, "delegation.stops-full");
+  assert.ok(
+    recorded > 0 && recorded < 9000,
+    "the limit is reached by recording stops, not by refusing every one",
+  );
+
+  // The victim's stop is still there, with the moment it was recorded.
+  assert.equal(stops.readStop(agentActor), 1_759_000_000_000);
+  // And the invariant that actually matters: the assistant is still stopped on
+  // the surface a caller would use to carry on working.
+  const decision = await guard.evaluate(request("mcp", { intent: "operate" }));
+  assert.equal(decision.allowed, false);
+  assert.equal(
+    decision.allowed === false && decision.denial,
+    "assistant-stopped",
+  );
+
+  // Stopping a scope that is already stopped replaces an entry rather than
+  // adding one, so a saturated registry never stops a person stopping again.
+  assert.doesNotThrow(() => stops.stop(victim, 1_759_000_000_500));
+  assert.equal(stops.readStop(agentActor), 1_759_000_000_500);
+});
+
 test("AG-05: assertContinuation raises the same failure the decision names", () => {
   assert.doesNotThrow(() =>
     assertContinuation(

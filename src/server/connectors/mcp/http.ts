@@ -56,6 +56,19 @@ export type HttpReply =
   | { kind: "empty"; status: number; headers: Headers }
   | { kind: "text"; status: number; headers: Headers; text: string };
 
+/**
+ * Releases a reply whose caller decided on its status alone.
+ *
+ * Only a `stream` reply is holding anything: `exchange` has already read or
+ * cancelled the body of every other kind. So this is a no-op except for the one
+ * case that leaks, which is why every "look at the status and move on" site can
+ * call it unconditionally instead of re-deriving when a release is needed.
+ * Calling it twice is not a fault.
+ */
+export async function releaseReply(reply: HttpReply): Promise<void> {
+  if (reply.kind === "stream") await reply.cancel();
+}
+
 export type HttpRequest = {
   url: URL;
   method: "POST" | "GET" | "DELETE";
