@@ -33,7 +33,12 @@ test("canonical runner caps file concurrency without dropping inventory or failu
       readFileSync(new URL("./fixtures/runner-sentinel.ts", import.meta.url)),
     );
     const passing = `import {test} from 'node:test'; import assert from 'node:assert/strict'; test('real fixture assertion',()=>assert.equal(1,1));`;
-    writeFileSync(join(directory, "tests/one.test.ts"), passing);
+    // A name carrying an escape does not read the same in the file as it does
+    // in a result, so the inventory leaves it out rather than entering it in a
+    // form that is not in the source. It still runs and still passes; only its
+    // name is unavailable to a sanitized report.
+    const escaped = `\ntest("a name with \\"quotes\\" is not inventoried",()=>assert.equal(1,1));`;
+    writeFileSync(join(directory, "tests/one.test.ts"), passing + escaped);
     writeFileSync(join(directory, "tests/nested/two.test.ts"), passing);
     writeFileSync(
       join(directory, "tests/workflow/excluded.test.ts"),
