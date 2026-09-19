@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { defaultTemplate } from "../../src/core/index.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { manifests, connectorDetails } from "../../examples/manifests.js";
+import { customEntries } from "../../examples/web/catalog.js";
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -22,10 +23,133 @@ test.afterEach(({ page }) => {
   expect(browserErrors.get(page)).toEqual([]);
 });
 
-test("every named service renders only its documented methods and clearly identifies local execution", async ({
+test("the directory filters, searches and hands a chosen service to the drawer", async ({
   page,
 }) => {
   await page.goto("/?mode=test");
+  const all = page.getByRole("region", { name: "All Connectors" });
+  await expect(
+    page.getByRole("heading", { name: "Connections" }),
+  ).toBeVisible();
+  await expect(all.getByRole("button", { name: "GitHub" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Searching narrows by name, summary and auth family alike: none of these
+  // rows carries the words "browser login" in its name, and all three are
+  // reached through that family.
+  const search = page.getByLabel("Search connectors");
+  await search.fill("browser login");
+  const found = page
+    .getByRole("region", { name: /Results for/ })
+    .getByRole("button");
+  // The count carries as much of this as the names do. On its own,
+  // `toContainText(array)` is a subsequence match: it passes just as happily
+  // with unrelated rows wedged between the three named here, which would make
+  // it an assertion about what the search includes rather than what it returns.
+  await expect(found).toHaveCount(3);
+  await expect(found).toContainText([
+    "Browser Login",
+    "Record a Sign-in",
+    "Legacy Portal",
+  ]);
+  await search.fill("");
+
+  // A category narrows the grid and the featured strip steps aside.
+  await page.getByRole("button", { name: /^Commerce/ }).click();
+  await expect(page.getByRole("region", { name: "Featured" })).toHaveCount(0);
+  const commerce = page.getByRole("region", { name: "Commerce" });
+  await expect(
+    commerce.getByRole("button", { name: "Stripe", exact: true }),
+  ).toBeVisible();
+  // Narrowing is only narrowing if something is left out, and a fixed count
+  // would go red for adding a payments connector rather than for a broken
+  // filter. A developer-tools row has no business in a commerce grid.
+  await expect(
+    commerce.getByRole("button", { name: "GitHub", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: /^Any category/ }).click();
+
+  // Every family this workspace can run is offered as its own card, including
+  // the one that records a sign-in rather than collecting a credential.
+  const byo = page.getByRole("region", { name: "Bring your own" });
+  // Counted from the catalogue rather than written down, so adding or removing
+  // a protocol keeps this honest instead of merely red.
+  await expect(byo.getByRole("button")).toHaveCount(customEntries.length);
+  await byo.getByRole("button", { name: "Record a Sign-in" }).click();
+  const recording = page.getByRole("dialog", { name: "Add Connection" });
+  await recording
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  // Teaching is pre-checked: recording is the reason to choose that card.
+  await expect(
+    recording.getByRole("checkbox", { name: /Teach this connection/ }),
+  ).toBeChecked();
+  // Closed by its own control rather than by a key. Escape is asserted on its
+  // own at the end of this test; reaching the directory behind the scrim is a
+  // different claim, and pinning it on a key press is what made this test — and
+  // three others — spend their whole timeout on the runner rather than here.
+  await recording.getByRole("button", { name: "Close", exact: true }).click();
+
+  // Opening a service starts on Configure, not on somebody's credentials.
+  await all.getByRole("button", { name: "Stripe" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await expect(
+    drawer.getByRole("region", { name: "Configure" }),
+  ).toHaveAttribute("data-state", "active");
+  // Stripe is an API key, and nothing about that flow changes with a
+  // configuration source, so it is not offered one. The control appears for
+  // the three families whose form it actually swaps.
+  await expect(
+    drawer.getByRole("group", { name: "Configuration source" }),
+  ).toHaveCount(0);
+  // Hidden rather than absent: the connection stays mounted so its WebMCP
+  // tools outlive the drawer, which is what the surface did before the drawer
+  // existed. What matters here is that nobody is looking at a credential
+  // field on the step that asks how to reach the provider.
+  await expect(page.getByLabel("Stripe secret key")).toBeHidden();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Verification is on before anybody asks, because a connection that reads
+  // nothing has not been shown to work.
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("checkbox", { name: /Verify real access/ }),
+  ).toBeChecked();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByLabel("Stripe secret key")).toBeVisible();
+
+  // Continue removes the button that was pressed, so focus has somewhere to
+  // fall. Outside a dialog that declares aria-modal is not it: that puts a
+  // keyboard user at the top of the document with the dialog still over them,
+  // and takes Escape with them, because a document with nothing focused is not
+  // reliably given the key.
+  expect(
+    await page.evaluate(() =>
+      Boolean(document.activeElement?.closest(".connect-drawer")),
+    ),
+  ).toBe(true);
+
+  // Escape closes the drawer and returns the directory, still navigable. Two
+  // claims, deliberately separate: the attribute says this application closed
+  // it, the role says nobody is still being offered it. Together they say
+  // which half is wrong when one of them is — a key that never arrived reads
+  // nothing like a drawer that closed without leaving the accessibility tree.
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.querySelector(".connect-drawer")?.hasAttribute("hidden"),
+      ),
+    )
+    .toBe(true);
+  await expect(drawer).toHaveCount(0);
+  await expect(all.getByRole("button", { name: "Stripe" })).toBeVisible();
+});
+
+test("every named service renders only its documented methods and clearly identifies local execution", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test&connector=github");
   const services = page.getByRole("complementary", {
     name: "Available services",
     exact: true,
@@ -105,6 +229,27 @@ test("connector entry chooses browser OAuth and preserves progress across servic
     (await (await page.request.get(`/api/ceremonies/${id}`)).json()).method.id,
   ).toBe("oauth");
 });
+/** Browse the directory, open a service, and step the drawer through to its run. */
+async function openFromDirectory(page: Page, service: string | RegExp) {
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: service })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  // The open step's header is not a button — only the ones you may jump back
+  // to are — so the step is identified by its region instead. Its visibility
+  // is not the test: every step renders its head on every step, so a drawer
+  // that opened on Complete would satisfy `toBeVisible` for "Configure" too.
+  // `data-state` is the thing that actually distinguishes which one is open.
+  for (const step of ["Configure", "Customize"]) {
+    await expect(drawer.getByRole("region", { name: step })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  }
+}
+
 async function signIn(page: Page, code?: string, decision = "Approve") {
   await page.getByLabel("Email", { exact: true }).fill("demo@example.com");
   await page.getByLabel("Password", { exact: true }).fill("ceremony-demo");
@@ -192,7 +337,10 @@ test("credentials, rejection/retry, template reuse, secret exclusion and reload"
       .filter((request) => request.data.includes("demo-api-key"))
       .every((request) => request.url.endsWith("/collect")),
   ).toBe(true);
-  await page.getByRole("button", { name: /Stripe/ }).click();
+  await page
+    .getByRole("complementary", { name: "Available services" })
+    .getByRole("button", { name: /Stripe/ })
+    .click();
   await expect(page.getByLabel("Stripe secret key")).toBeVisible();
   await page.getByLabel("Stripe secret key").fill("demo-api-key");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -493,7 +641,7 @@ test("isolated presentation editor generates, exports and imports without applyi
       .getByRole("navigation")
       .getByRole("button", { name: "Connect", exact: true })
       .click();
-    await page.getByRole("button", { name: /Stripe/ }).click();
+    await openFromDirectory(page, /Stripe/);
     await expect(
       page.getByRole("heading", { name: "Enter your credentials" }),
     ).toBeVisible();
