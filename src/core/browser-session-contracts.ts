@@ -62,6 +62,16 @@ export const runRefSchema = opaqueReferenceSchema("brun");
 export const evidenceRefSchema = opaqueReferenceSchema("bevd");
 export const handoffRefSchema = opaqueReferenceSchema("bhof");
 export const effectRefSchema = opaqueReferenceSchema("beff");
+/**
+ * A saved browser storage state.
+ *
+ * The reference is the only thing that travels. A storage-state export is not
+ * a description of a session - it *is* the session, cookies any client
+ * presenting them can use - so it is handled the way this project handles a
+ * credential rather than the way it handles a record: the bytes stay in the
+ * encrypted store, and nothing hands them back across a tool boundary.
+ */
+export const browserStateRefSchema = opaqueReferenceSchema("bstt");
 export const leaseRefSchema = opaqueReferenceSchema("blse");
 export const grantRefSchema = opaqueReferenceSchema("bgrt");
 

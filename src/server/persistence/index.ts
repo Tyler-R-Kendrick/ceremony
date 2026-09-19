@@ -23,6 +23,9 @@ export const recordKinds = [
   "continuation",
   "budget",
   "session",
+  // A browser's saved storage state. Encrypted at rest like every other
+  // record here, which is the point: the value is a bearer credential.
+  "browser-state",
   "audit",
   "connector-registry-snapshot",
   // Connector interoperability state (STATE swarm). Additive: the encrypted
