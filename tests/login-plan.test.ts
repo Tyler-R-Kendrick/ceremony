@@ -240,6 +240,50 @@ describe("plan identity", () => {
     assert.equal(plan.required.retainedSession, true);
   });
 
+  for (const capability of [
+    "popupBinding",
+    "frameBinding",
+    "statePersistence",
+  ] as const)
+    test(`CAP-HONEST: a plan requiring ${capability} is refused, on every engine`, () => {
+      // These three were declared true on all three backends with nothing
+      // implementing any of them, so `unmetCapabilities` admitted a plan that
+      // asked for one and the login then ran without it. Being told yes is
+      // worse than being refused: a caller that hears "no" can choose something
+      // else, and a caller that hears "yes" proceeds on a promise.
+      for (const engine of ["chromium", "firefox", "webkit"] as const)
+        assert.throws(
+          () =>
+            compileLoginPlan(
+              draft({ engine, required: { [capability]: true } }),
+              options,
+            ),
+          (error: unknown) =>
+            error instanceof PlanRejected &&
+            error.reason === "unsupported-capability",
+          `${engine} admitted a plan requiring ${capability}`,
+        );
+    });
+
+  test("CAP-HONEST: the capability that is real is still granted, on every engine", () => {
+    // The other half of the claim. A correction that quietly turned everything
+    // false would satisfy the cases above and break every real login, so the
+    // one requirable capability that *is* implemented must still compile.
+    //
+    // Only five capabilities can be required of a backend at all, and after
+    // this correction `retainedSession` is the only one any engine can offer:
+    // `strongEgressContainment` was already false everywhere and truthfully so,
+    // and the other three are false because nothing implements them.
+    for (const engine of ["chromium", "firefox", "webkit"] as const) {
+      const plan = compileLoginPlan(
+        draft({ engine, required: { retainedSession: true } }),
+        options,
+      );
+      assert.equal(plan.engine, engine);
+      assert.equal(plan.required.retainedSession, true);
+    }
+  });
+
   test("an unknown credential reference is rejected before anything runs", () => {
     assert.throws(
       () =>
