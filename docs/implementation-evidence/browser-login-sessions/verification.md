@@ -135,37 +135,57 @@ different from passing:
 
 ## A known intermittent, stated rather than smoothed over
 
-`browser-login-conformance` intermittently fails on GitHub's runners and has
-never once failed here. When it does, the reason is always the same and the
-assertions now carry it:
+`browser-login-conformance` intermittently fails on GitHub's runners, under
+`test:coverage` at `--test-concurrency=4`, and has never once failed here. When
+it does, the assertions carry the reason:
 
 ```
-expected a verified login, got {"status":"blocked","reason":"stale-document"}
+expected a verified login, got {"status":"blocked","reason":"no-observation"}
 ```
 
-Always managed WebKit, always a legitimate login. `stale-document` is the
-document binding refusing to act because the document it observed is not the
-document in front of it - the protection working, on a page nobody swapped.
+**That reason used to read `stale-document`, and the name was wrong.** One
+branch of `resolve()` raised `stale-document` for "there is no approved
+observation to act against" - a sequencing fault - while every other use of
+that name means "the document you approved has been replaced", which is a
+safety event detected by guards further down. Both refuse, so no guarantee ever
+moved; but the name sent three separate investigations, this one included, to
+read code that had not run. #53 split the two, and this section is corrected
+against what the split revealed rather than against what the old name implied.
 
-One cause was found and fixed: the adapter's `goto` returned at
-`domcontentloaded`, which means a document has started rather than that it is
+An earlier revision of this document said the failure was "the document binding
+refusing to act because the document it observed is not the document in front
+of it - the protection working, on a page nobody swapped". That was inference
+from the name. It is not what happens: in the reproduction that finally caught
+it, all fifteen refusals came from the missing-approval branch and not one from
+either document comparison.
+
+One contributing cause was found and fixed here: the adapter's `goto` returned
+at `domcontentloaded`, which means a document has started rather than that it is
 the one still there a moment later, so an observation taken across that gap was
 of a page still becoming one. Navigation now settles before `goto` returns.
 That was necessary and it was not sufficient - the case recurred on the commit
-carrying it.
+carrying it, which is how it was established as insufficient rather than
+assumed to be enough.
 
 What is established:
 
-- Four occurrences, each with `stale-document` recorded, across LIFE-LEGACY,
-  EFFECT-DUP, EFFECT-NEW and EFFECT-LEDGER. One defect, surfacing through
-  whichever case happens to run when the window opens.
-- It never fails in the `browser-login` job, which runs the same suite without
-  coverage instrumentation.
+- Occurrences across LIFE-LEGACY, EFFECT-DUP, EFFECT-NEW, EFFECT-LEDGER and
+  AUTH-COMBINED. One defect, surfacing through whichever case happens to run
+  when the window opens, not five defects.
+- It never fails in the `browser-login` job, which runs the same suite serially
+  and without coverage instrumentation.
 - It does not reproduce here: five configurations tried, including the coverage
   harness, six concurrent CPU burners, and c8 over the suite alone.
+- It is reproducible under heavy enough CPU starvation, and there the refusals
+  are unanimously the missing-approval branch.
 
-What is not established: the remaining window. There is more than one place an
-observation can be taken across a change, and only one has been closed.
+What is **not** established: what clears the approval. `current` is set by
+`observe()` and cleared in exactly two places - `release()`, which only `goto()`
+calls, and the top of `observe()` itself, which clears before it spends several
+awaited round trips on the browser and only then sets the new value. The
+driver's path through those is sequential, so neither explains a missing
+approval on its own, and the window has not been caught open with a lifecycle
+trace attached.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
