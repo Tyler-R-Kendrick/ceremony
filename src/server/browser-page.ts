@@ -48,11 +48,32 @@ export function createPlaywrightCeremonyPage(
 ): CeremonyPage {
   const settleTimeout = options.settleTimeoutMs ?? 5_000;
   const targets = createBoundTargets(page);
+  const settle = async () => {
+    try {
+      await page.waitForLoadState("networkidle", { timeout: settleTimeout });
+    } catch {
+      // A page that keeps a connection open is not a failed step; the driver's
+      // own stall detection decides whether progress stopped.
+    }
+  };
   return {
     url: async () => page.url(),
     goto: async (target) => {
       await targets.release();
       await page.goto(target, { waitUntil: "domcontentloaded" });
+      // `domcontentloaded` means the document has started, not that it is the
+      // document that will still be here in a moment: a client-side redirect,
+      // a late replacement or a framework's first commit can all follow it.
+      // Whoever observes next holds a reference to whatever was there at this
+      // instant, so observing too early produces a `stale-document` refusal on
+      // the first action — the protection working correctly, on a page that was
+      // never actually swapped underneath anyone.
+      //
+      // WebKit is where this showed up, intermittently and only under load,
+      // which is exactly the shape of a window that is normally too narrow to
+      // hit. Settling here closes it for every engine rather than special-casing
+      // the one that happened to reveal it.
+      await settle();
     },
     snapshot: async (): Promise<PageSnapshot> => targets.observe(),
     fill: async (element, value) => {
@@ -86,13 +107,6 @@ export function createPlaywrightCeremonyPage(
         return "unknown";
       }
     },
-    settle: async () => {
-      try {
-        await page.waitForLoadState("networkidle", { timeout: settleTimeout });
-      } catch {
-        // A page that keeps a connection open is not a failed step; the
-        // driver's own stall detection decides whether progress stopped.
-      }
-    },
+    settle,
   };
 }
