@@ -179,6 +179,22 @@ export const blockedReasons = [
    * different target.
    */
   "unapproved-recipient",
+  /**
+   * The plan says this login happens in a frame at a named origin, and no
+   * such frame is on the page. Failing closed matters more here than most
+   * places: the alternative is quietly acting in the embedding document,
+   * which is a different origin with a different form, and the whole point
+   * of naming the frame was that it is not that one.
+   */
+  "frame-missing",
+  /**
+   * More than one frame answers to the named origin, so "the frame" does not
+   * identify a document. Choosing one would approve a position rather than a
+   * thing, which is the failure every guard in `browser-targets.ts` exists to
+   * prevent, one level up: a page that can add a second frame at an origin
+   * could choose which document a credential is typed into.
+   */
+  "frame-ambiguous",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;

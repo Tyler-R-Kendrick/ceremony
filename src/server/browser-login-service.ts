@@ -235,7 +235,15 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         let retained = false;
         try {
           context = await browser.openContext();
-          const { page } = await context.openPage();
+          const { page } = await context.openPage(
+            // What the plan said about frames, and the only route it has to
+            // the adapter. A plan that declares a frame origin requires the
+            // `frameBinding` capability, so reaching here with one means the
+            // backend claims to observe inside a frame.
+            plan.frameOrigins.length > 0
+              ? { frameOrigins: plan.frameOrigins }
+              : {},
+          );
 
           const outcome = await drive(
             actor,

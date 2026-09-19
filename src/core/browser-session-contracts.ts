@@ -177,6 +177,8 @@ export const browserOperationReasons = [
   "target-unavailable",
   /** The document that was observed is not the document now in front of us. */
   "stale-document",
+  "frame-missing",
+  "frame-ambiguous",
   /** The element that was approved is not the element now in the page. */
   "stale-element",
   /** No approval was held to act against; none was taken, or it was released. */

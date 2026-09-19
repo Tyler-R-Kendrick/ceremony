@@ -133,7 +133,14 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     // was admitted and then run without it, which is worse than refusing:
     // the caller was told yes.
     popupBinding: false,
-    frameBinding: false,
+    // True now, and true by the only route this table allows: something
+    // enforces it. `createPlaywrightCeremonyPage` resolves the declared
+    // frame on every read and every action, so the origin is rechecked at
+    // both, and refuses rather than falling back to the page when no frame
+    // answers or more than one does. TARGET-FRAME drives a credential form
+    // served by a second origin inside an iframe, on this engine, and the
+    // partner server's own record is what says the login happened.
+    frameBinding: true,
     // Chromium's `Fetch` interception in this repository covers Document
     // requests. That is real navigation control, not total resource
     // containment, so the stronger claim stays false until something actually
@@ -159,7 +166,7 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     backendHeldElements: true,
     documentBinding: true,
     popupBinding: false,
-    frameBinding: false,
+    frameBinding: true,
     strongEgressContainment: false,
     // Firefox surfaces a WebAuthn request to the page the same way, and the
     // driver detects the request rather than answering it.
@@ -172,7 +179,7 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     backendHeldElements: true,
     documentBinding: true,
     popupBinding: false,
-    frameBinding: false,
+    frameBinding: true,
     strongEgressContainment: false,
     authenticatorHandoff: true,
     statePersistence: true,
@@ -213,8 +220,17 @@ export type ManagedContext = {
   contextRef: string;
   /** Issues requests inside this context, carrying its cookies. */
   request: ContextRequestLike;
-  /** A driver-facing page bound to this context. */
-  openPage(): Promise<{ targetRef: string; page: CeremonyPage; raw: PageLike }>;
+  /**
+   * A driver-facing page bound to this context.
+   *
+   * `frameOrigins` comes from the effective plan and names the origins whose
+   * frame this login happens inside. It has to arrive here because the
+   * adapter is built here: nothing further down knows what the plan said, and
+   * a frame chosen anywhere else would be chosen without it.
+   */
+  openPage(options?: {
+    frameOrigins?: readonly string[];
+  }): Promise<{ targetRef: string; page: CeremonyPage; raw: PageLike }>;
   /** Whether the context still holds any cookie at all, for liveness checks. */
   alive(): Promise<boolean>;
   /**
@@ -322,7 +338,7 @@ export async function launchManagedBrowser(
       return {
         contextRef,
         request: context.request,
-        async openPage() {
+        async openPage(open: { frameOrigins?: readonly string[] } = {}) {
           const raw = await context.newPage();
           return {
             targetRef: mintReference("btgt"),
@@ -330,6 +346,9 @@ export async function launchManagedBrowser(
               raw as unknown as Parameters<
                 typeof createPlaywrightCeremonyPage
               >[0],
+              open.frameOrigins && open.frameOrigins.length > 0
+                ? { frameOrigins: open.frameOrigins }
+                : {},
             ),
             raw,
           };
