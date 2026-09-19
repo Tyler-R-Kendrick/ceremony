@@ -207,6 +207,35 @@ describe("reading a declarative n8n node", () => {
     );
   });
 
+  test("a description field built by code is recorded as unread, not fatal", async () => {
+    // `group` is converted without a guard, and a value built by a call cannot
+    // convert to data at all. An undefined there reaches a typed array and the
+    // definition schema rejects the whole description, so one field nobody
+    // needs takes the entire read down. It has to come back as an explicit
+    // null: the key is still there, which is how this reader says "I could not
+    // read this" rather than "this is absent".
+    const hostile = declarativeNodeSource.replace(
+      "group: ['transform'],",
+      "group: buildGroups(),",
+    );
+    assert.notEqual(hostile, declarativeNodeSource, "the fixture still has it");
+    const result = await readN8nNode({
+      sourceText: hostile,
+      packageJson: declarativePackageJson,
+      identity: declarativeIdentity,
+    });
+    assert.equal(result.definition.nativeExtensions["group"], null);
+    const benign = await readN8nNode({
+      sourceText: declarativeNodeSource,
+      packageJson: declarativePackageJson,
+      identity: declarativeIdentity,
+    });
+    assert.deepEqual(
+      result.definition.capabilities.map((capability) => capability.nativeId),
+      benign.definition.capabilities.map((capability) => capability.nativeId),
+    );
+  });
+
   test("capability rows never claim portability the reader does not have", async () => {
     const result = await readN8nNode({
       json: declarativeNodeDescription,

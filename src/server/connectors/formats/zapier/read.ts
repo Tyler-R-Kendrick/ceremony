@@ -1106,8 +1106,13 @@ export async function readZapierApp(
     ...(literalRequestTemplate
       ? { requestTemplate: literalRequestTemplate }
       : {}),
-    ...(flags ? { flags: inertCopy(toJsonValue(flags)) } : {}),
-    ...(throttle ? { throttle: inertCopy(toJsonValue(throttle)) } : {}),
+    // A value built by code converts to nothing, and an unguarded `undefined`
+    // here reaches a typed array and kills the whole read with a schema error
+    // rather than describing what could not be read. An explicit null keeps the
+    // key present, which is how this reader distinguishes "I could not read
+    // this" from "this is absent"; `workato/read.ts` does the same.
+    ...(flags ? { flags: inertCopy(toJsonValue(flags)) ?? null } : {}),
+    ...(throttle ? { throttle: inertCopy(toJsonValue(throttle)) ?? null } : {}),
     limitations: [...limitations].slice(0, 32),
   };
 

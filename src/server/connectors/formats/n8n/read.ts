@@ -981,7 +981,13 @@ export async function readN8nNode(
           ),
         }),
     ...(description && objectValue(description, "group")
-      ? { group: inertCopy(toJsonValue(objectValue(description, "group"))) }
+      ? {
+          // Null rather than undefined: a group built by code cannot convert,
+          // and an undefined here fails the schema and loses the description
+          // instead of reporting the one field that could not be read.
+          group:
+            inertCopy(toJsonValue(objectValue(description, "group"))) ?? null,
+        }
       : {}),
     ...(description &&
     asString(objectValue(description, "subtitle")) !== undefined
