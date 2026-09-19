@@ -538,6 +538,7 @@ test("the heuristic stops at provider walls and does not fill unavailable or cro
 
 test("the heuristic follows the goal's alternative link without repeating a clicked action", async () => {
   const interpret = createHeuristicInterpreter();
+  const here = "https://provider.example/signin";
   for (const [goal, label] of [
     ["sign-in", "Already have an account? Log in"],
     ["registration", "Create an account"],
@@ -562,20 +563,78 @@ test("the heuristic follows the goal's alternative link without repeating a clic
       element: 0,
       note: "Continue",
     });
-    input.history = [{ action: "fill" }, { action: "click", note: "Continue" }];
+    // The history the driver actually records: each entry says which document
+    // it happened on, because that is what makes "already pressed" mean
+    // anything.
+    input.history = [
+      { action: "fill", path: here },
+      { action: "click", note: "Continue", path: here },
+    ];
     assert.deepEqual(await interpret(input), {
       action: "click",
       element: 3,
       note: label,
     });
-    input.history = [...input.history, { action: "click", note: label }];
+    input.history = [
+      ...input.history,
+      { action: "click", note: label, path: here },
+    ];
     assert.deepEqual(await interpret(input), { action: "wait" });
-    input.history = [...input.history, { action: "wait" }];
+    input.history = [...input.history, { action: "wait", path: here }];
     assert.deepEqual(await interpret(input), {
       action: "blocked",
       reason: "unsupported-page",
     });
   }
+});
+
+test("a button with the same label on the next document is not already pressed", async () => {
+  // The defect this pins cost every identifier-first provider. Step one and
+  // step two of such a flow both carry a button reading "Sign in" - so did
+  // "Continue" and "Next" everywhere else - and the interpreter suppressed the
+  // second because it remembered the label rather than the button. The driver
+  // filled the password and then declined to submit it.
+  const interpret = createHeuristicInterpreter();
+  const first = "https://provider.example/signin-identifier";
+  const second = "https://provider.example/signin-password";
+  const elements: PageSnapshot["elements"] = [
+    {
+      index: 0,
+      kind: "input",
+      type: "password",
+      label: "Password",
+      filled: true,
+    },
+    { index: 1, kind: "button", text: "Sign in" },
+  ];
+  const history = [
+    { action: "fill", path: first },
+    { action: "click", note: "Sign in", path: first },
+    { action: "fill", path: second },
+  ];
+
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["password"],
+      history,
+      snapshot: snapshot({ path: second, elements }),
+    }),
+    { action: "click", element: 1, note: "Sign in" },
+    "the second document's submit button must be offered",
+  );
+
+  // And the guard it replaces still holds: pressed on *this* document, it is
+  // not offered again, so a dead button is still not pressed twice.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["password"],
+      history: [...history, { action: "click", note: "Sign in", path: second }],
+      snapshot: snapshot({ path: second, elements }),
+    }),
+    { action: "click", element: 1, note: "Sign in" },
+  );
 });
 
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {

@@ -273,7 +273,7 @@ export async function runCeremony(
   if (allowed.size === 0 || allowed.has(""))
     throw new Error("A ceremony requires at least one allowed origin");
   const transcript: CeremonyStep[] = [];
-  const history: { action: string; note?: string }[] = [];
+  const history: { action: string; note?: string; path?: string }[] = [];
   /** Values actually substituted into the page, plus any caller-declared ones. */
   const guarded: string[] = [...(options.protectedValues ?? [])];
   let steps = 0;
@@ -295,7 +295,14 @@ export async function runCeremony(
     if (extra.reason) step.reason = extra.reason;
     if (extra.note) step.note = redact(extra.note, guarded);
     transcript.push(step);
-    history.push(step.note ? { action, note: step.note } : { action });
+    // The document goes into the history too. An interpreter asking "have I
+    // tried this already?" has to be able to tell one page's button from
+    // another's with the same label, and a label is not an identity.
+    history.push(
+      step.note
+        ? { action, note: step.note, path: step.path }
+        : { action, path: step.path },
+    );
     options.onStep?.(step);
   };
   const finish = (outcome: CeremonyOutcome): CeremonyResult => ({
