@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
@@ -232,4 +234,46 @@ test("AC-AG-04: after the assistant is stopped, an A2A delegation is refused by 
   } finally {
     await kit.close();
   }
+});
+
+test("AG-03: the shipped reference application actually hands its connector intents to the MCP surface", () => {
+  /*
+   * The library contract above is the important half, and it is the half that
+   * cannot tell you whether anything uses it. `createCeremonyMcpHandler` takes
+   * `connectorIntents` as an option, so a deployment that never passes it gets a
+   * working MCP surface with the connector tools simply absent -- and absence is
+   * the failure mode hardest to see from the outside, because an assistant has
+   * no way to distinguish a tool that was never registered from a capability
+   * this deployment does not have. The reference application shipped that way.
+   *
+   * Asserted against the source rather than by starting the app, because
+   * starting it boots Vite and a provider double for a question about one
+   * argument. Phrased to survive reformatting and renaming of everything except
+   * the two things that matter: that the option is passed at all, and that what
+   * it is passed is the unprojected seam. The intents project for the actor
+   * themselves, so handing them an already-projected view would project twice
+   * and hide rows they meant to report.
+   */
+  const server = readFileSync(
+    fileURLToPath(new URL("../../../examples/server.ts", import.meta.url)),
+    "utf8",
+  );
+  assert.match(
+    server,
+    /connectorIntents:/,
+    "the reference application must pass its connector intents to the MCP surface",
+  );
+  assert.match(
+    server,
+    /connectorIntents:\s*connectors\.agentDependencies/,
+    "and must pass the unprojected seam, not a projection of it",
+  );
+  // The route table is the other half of the same claim: an assistant reaching
+  // these tools and a person reaching the workspace both need the deployment to
+  // have mounted the connector surface at all.
+  assert.match(
+    server,
+    /\/api\/v1\/connectors\//,
+    "and must mount the connector route table it shares with the browser",
+  );
 });

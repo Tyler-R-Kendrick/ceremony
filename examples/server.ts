@@ -470,6 +470,22 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         issuer: origin,
         authenticate,
         serverName: "Ceremony (development)",
+        /*
+         * The connector intents, when this deployment has a connector runtime
+         * at all. Without this the surface still answers, and the tools that
+         * read and run a connector are simply absent -- which is the one
+         * failure mode hardest to notice from the outside, because an assistant
+         * cannot tell a tool that was never registered from a capability this
+         * deployment does not have.
+         *
+         * `agentDependencies` is the unprojected seam on purpose: the intents
+         * narrow every result themselves, so exactly one module decides what an
+         * assistant sees. Handing them an already-projected view would project
+         * twice and quietly hide rows the intents meant to report.
+         */
+        ...(connectors
+          ? { connectorIntents: connectors.agentDependencies }
+          : {}),
       });
       return {
         async fetch(request: Request) {

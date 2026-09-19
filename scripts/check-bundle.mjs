@@ -47,7 +47,7 @@ const totals = files.reduce(
 // stays: a ceiling that ignored lazy chunks would let any amount of code in
 // behind an import().
 //
-// So the merged number is larger than either side predicted — 614281 raw
+// So the merged number is larger than either side predicted — 616126 raw
 // against ceilings of 580000 and 545000 — and the reason is not drift. The
 // application now ships TWO connector surfaces: main's catalogue-driven one in
 // examples/web/, and this branch's server-bound one behind the Connectors

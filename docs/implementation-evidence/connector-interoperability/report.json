@@ -1,10 +1,10 @@
 {
   "reportVersion": 1,
-  "generatedAt": "2026-09-19T07:40:22.101Z",
+  "generatedAt": "2026-09-19T13:03:15.330Z",
   "git": {
     "baseCommit": "d741eed0de296950def366d0a92fa63b77070abc",
-    "testedCommit": "78c7ceb771867df577432c0a229ecb6b2937b737",
-    "workingTreeDigest": null,
+    "testedCommit": "bac4e068b3c9e45356e452aa7e6c8e06da4d1f32+dirty",
+    "workingTreeDigest": "5df072ef0a300999a05e159e3cdf10f157af501eab1037a1f4e4217e7854e60d",
     "lockfileDigest": "b46daa4bf6dfcacd3769eda9118f6d9906f339ce4acb49291daef822497fe72e"
   },
   "environment": {
@@ -48,7 +48,7 @@
     },
     {
       "file": "tests/connectors/agent-tools/surfaces.test.ts",
-      "passed": 4,
+      "passed": 5,
       "failed": 0,
       "skipped": 0
     },

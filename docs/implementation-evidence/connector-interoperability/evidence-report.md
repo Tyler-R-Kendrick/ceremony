@@ -21,10 +21,10 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 
 ## Recorded test run
 
-- Recorded: 2026-09-19T07:40:22.101Z
-- Tested commit: `78c7ceb771867df577432c0a229ecb6b2937b737`
+- Recorded: 2026-09-19T13:03:15.330Z
+- Tested commit: `bac4e068b3c9e45356e452aa7e6c8e06da4d1f32+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
-- Test files in that run: 179; passed 1904, failed 0, skipped 0
+- Test files in that run: 179; passed 1905, failed 0, skipped 0
 - Ledger-named test files covered by that run: 218 of 237.
 
 **10 of the paths a ledger names have no result in that run**, so their rows below read `not in the recorded run`. An absence is not a failure and is not reported as one. Each one, and why:
@@ -1052,7 +1052,7 @@ Nobody delivered this required work item.
 - Pinned sources: none named
 - Tests:
   - `node --import tsx --test tests/connectors/agent-tools/intents.test.ts` — pass 8
-  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 5
 
 ### AG-04 (AGENT-SURFACES) — implemented, unit
 
@@ -1069,7 +1069,7 @@ Nobody delivered this required work item.
 - Pinned sources: none named
 - Tests:
   - `node --import tsx --test tests/connectors/agent-tools/continuations.test.ts` — pass 10
-  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 5
 
 ### STATE-01 (STATE) — implemented, local-integration
 
