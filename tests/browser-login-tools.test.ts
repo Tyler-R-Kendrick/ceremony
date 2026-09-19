@@ -759,7 +759,10 @@ describe("browser login tools", () => {
         idempotencyKey: "client-retry-1",
       });
       assert.equal(again.isError, false, again.text);
-      assert.notEqual(again.value.status, "verified");
+      // The retry is answered with the first call's own result, so a client
+      // that lost the response learns it succeeded rather than being told
+      // something that reads like a failure.
+      assert.deepEqual(again.value, first.value);
 
       // The provider's own records, not the tool's report of itself.
       assert.equal(fixture.submissions().length, 1);

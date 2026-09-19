@@ -396,7 +396,10 @@ for (const engine of browserEngines) {
           plan: planFor(engine),
           idempotencyKey: "retry-me",
         });
-        assert.notEqual(second.status, "verified");
+        // Answered, not re-run: the retry repeats the first call's result.
+        // What proves it did not re-run is the provider's records below, not
+        // the shape of this reply.
+        assert.deepEqual(second, first);
 
         // The oracle, again the provider's own records: one credential
         // submission, one session. Not "the service said it deduplicated".
@@ -464,15 +467,15 @@ for (const engine of browserEngines) {
           plan: planFor(engine),
           idempotencyKey: "settled-request",
         });
-        assert.equal(
-          replay.status,
-          "blocked",
-          `expected the replay to be refused, got ${JSON.stringify(replay)}`,
+        // An idempotent request answers the same thing twice. Anything else —
+        // including a refusal that borrows a reason meaning something it did
+        // not mean — tells a caller whose login worked that it did not, and
+        // sends them back with a fresh key to log in a second time.
+        assert.deepEqual(
+          replay,
+          result,
+          `expected the replay to repeat the first answer, got ${JSON.stringify(replay)}`,
         );
-        if (replay.status !== "blocked") return;
-        // A settled effect is reported as a request that will not run again,
-        // never as an undetermined one: this login is known to have worked.
-        assert.equal(replay.reason, "cancelled");
         assert.equal(fixture.submissions().length, 1);
       } finally {
         await sessions.disposeAll();

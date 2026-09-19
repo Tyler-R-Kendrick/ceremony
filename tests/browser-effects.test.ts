@@ -173,6 +173,34 @@ describe("recording what was sent", () => {
     assert.equal(effectIsIndeterminate(done), false);
   });
 
+  test("an effect settled without an answer keeps none", async () => {
+    // The ledger does not invent one. A caller replaying this gets a refusal
+    // that says the request is spent, which is true, rather than a fabricated
+    // result for a call whose answer nobody kept.
+    const { record } = await begin("key-no-answer");
+    await ledger.dispatching(actor, record.effectRef, "https://p");
+    const done = await ledger.observed(actor, record.effectRef, "verified");
+    assert.equal(done.state, "observed");
+    assert.equal(done.outcome, "verified");
+    assert.equal(done.settled, undefined);
+  });
+
+  test("a settled effect keeps the answer it was given, verbatim", async () => {
+    const { record } = await begin("key-answer");
+    await ledger.dispatching(actor, record.effectRef, "https://p");
+    const body = JSON.stringify({ status: "verified" });
+    const done = await ledger.observed(
+      actor,
+      record.effectRef,
+      "verified",
+      body,
+    );
+    assert.equal(done.settled, body);
+    // And it survives a reload, because a replay happens in another call and
+    // often in another process.
+    assert.equal((await ledger.read(actor, record.effectRef)).settled, body);
+  });
+
   test("an attempt that sent nothing is abandoned, not left hanging", async () => {
     const { record } = await begin("key-abandon");
     const done = await ledger.abandon(actor, record.effectRef);

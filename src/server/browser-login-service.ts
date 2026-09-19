@@ -1,4 +1,5 @@
 import {
+  loginResultSchema,
   mintReference,
   type BrowserOperationReason,
   type LoginEvidence,
@@ -131,10 +132,21 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               runRef: prior.runRef,
               effectRef: prior.effectRef,
             };
+          // An idempotent request answers the same thing twice. Returning the
+          // first call's result verbatim is the only honest reply: there is no
+          // reason in the vocabulary that means "this already ran", and
+          // borrowing one that means something else — `cancelled` says the
+          // operation stopped before dispatch — would tell a caller whose login
+          // succeeded that it did not, and send them back with a fresh key.
+          if (prior.settled)
+            return loginResultSchema.parse(JSON.parse(prior.settled));
+          // Settled without a recorded answer: older record, or an attempt that
+          // ended before one existed. Refusing to re-run it is still right; the
+          // honest reason is that this request is spent, not that it failed.
           return {
             status: "blocked",
             runRef: prior.runRef,
-            reason: "cancelled",
+            reason: "expired",
           };
         }
         effectRef = claim.record.effectRef;
@@ -142,14 +154,15 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       /** Whether anything left the browser. Decides uncertainty from refusal. */
       let dispatched = false;
       /** Close the effect honestly, whatever the attempt turned out to be. */
-      const settle = async (outcome: string) => {
+      const settle = async (outcome: string, serialized?: string) => {
         if (!ledger || !effectRef) return;
         // An undetermined attempt is not closed. "Observed" means this process
         // saw the attempt through, and marking an outcome nobody saw as
         // observed would erase the exact uncertainty the record exists to
         // keep — and with it the reason a retry is refused.
         if (outcome === "indeterminate") return;
-        if (dispatched) await ledger.observed(actor, effectRef, outcome);
+        if (dispatched)
+          await ledger.observed(actor, effectRef, outcome, serialized);
         else await ledger.abandon(actor, effectRef);
       };
 
@@ -327,7 +340,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       };
 
       const result = await run();
-      await settle(result.status);
+      await settle(result.status, JSON.stringify(result));
       return result;
     },
 

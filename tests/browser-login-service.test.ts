@@ -427,6 +427,36 @@ describe("a submission whose outcome never came back", () => {
     }
   });
 
+  test("a settled request with no recorded answer is spent, not cancelled", async () => {
+    const backend = stubBackend({ status: 200, body: '{"account":"ada"}' });
+    const { sessions, service, effects } = serviceWith(backend);
+    try {
+      // An effect settled by something that kept no answer — an older record,
+      // or an attempt that ended before answers were stored.
+      const claim = await effects.begin(actor, {
+        runRef: "brun_00000000000000000000000000000009",
+        effectivePlanDigest: planFor().digest,
+        idempotencyKey: "no-answer",
+      });
+      assert.equal(claim.kind, "fresh");
+      await effects.dispatching(actor, claim.record.effectRef, origin);
+      await effects.observed(actor, claim.record.effectRef, "verified");
+
+      const replay = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "no-answer",
+      });
+      assert.equal(replay.status, "blocked");
+      if (replay.status !== "blocked") return;
+      // `expired` says this request is spent. `cancelled` would say it stopped
+      // before dispatch, which is the one thing known to be false here.
+      assert.equal(replay.reason, "expired");
+      assert.equal(backend.state.disposed, 0);
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
   test("without a ledger the uncertainty is still reported, just not persisted", async () => {
     const backend = stubBackend(
       { status: 200, body: '{"account":"ada"}' },

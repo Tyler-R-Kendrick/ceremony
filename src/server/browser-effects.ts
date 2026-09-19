@@ -77,8 +77,23 @@ export const effectRecordSchema = z
     destination: z.string().max(200).optional(),
     /** How many dispatches this effect covers. A resume is not a new effect. */
     dispatches: z.number().int().nonnegative(),
-    /** The settled outcome, recorded only once the attempt was seen through. */
+    /** The settled outcome's name, for reading a ledger without parsing it. */
     outcome: z.string().min(1).max(64).optional(),
+    /**
+     * The settled answer itself, verbatim, so a replay can return what the
+     * first call returned.
+     *
+     * Without it a replay can only say "this already ran", and there is no
+     * honest way to say that: the vocabulary's `cancelled` means the operation
+     * stopped *before* dispatch, and telling a caller that about a login which
+     * succeeded invites them to retry under a fresh key — which is the double
+     * submission this module exists to prevent, arrived at by a longer road.
+     *
+     * Opaque here. The ledger does not interpret it; whoever wrote it parses
+     * it back through its own schema, and nothing is stored that the caller
+     * was not already handed once.
+     */
+    settled: z.string().max(4000).optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -262,12 +277,14 @@ export function createEffectLedger(options: {
       actor: ActorContext,
       effectRef: string,
       outcome: string,
+      settled?: string,
     ): Promise<EffectRecord> {
       const { record, revision } = await load(actor, effectRef);
       const next = effectRecordSchema.parse({
         ...record,
         state: "observed",
         outcome,
+        ...(settled === undefined ? {} : { settled }),
         updatedAt: new Date(now()).toISOString(),
       } satisfies EffectRecord);
       await write(actor, next, revision);
