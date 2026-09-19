@@ -49,7 +49,7 @@ test("AC-44 AC-45: keyboard teaching controls, reduced motion, and expanded mobi
   try {
     await fixture.login(context, "keyboard-author");
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(`${fixture.origin}/`);
+    await page.goto(`${fixture.origin}/?connector=github`);
     const start = page.getByRole("button", {
       name: "Teach this connection",
       exact: true,

@@ -6,12 +6,12 @@
 - [Embedding](integration.md): framework-neutral and React interfaces, host-owned styles/navigation and consumer examples.
 - [API and protocol reference](reference.md): detailed library examples, WebMCP hooks and presentation contracts.
 - [Live authentication](live-auth.md), [service support](service-examples.md), and [auth catalog](auth-catalog.md): real adapters versus simulations and unsupported profiles.
+- [Connector directory](connector-directory.md): the two in-application connector surfaces — browsing before committing with the four-step Add Connection drawer, and the server-bound workspace for finding, reviewing, connecting and managing a connector.
 - [Workflow studio](workflow-studio.md): author new connectors and ceremonies, save drafts, validate and export Arazzo/manifest definitions.
 - [Formal specifications](specifications/README.md): versioned connector manifests, AI decision contracts, Arazzo/A2H profiles and executable conformance.
 - [Connector interoperability profile](specifications/connector-interoperability.md): source provenance, normalized definitions, the version 2 envelope, support dimensions, evidence levels and projections.
 - [Connector dialects and versions](specifications/connector-dialects.md): which document dialects and protocol revisions are read, which subset of each can execute, and how to migrate when one moves.
 - [Connector support matrix](specifications/connector-support-matrix.md): per-adapter, per-dimension support, generated from the adapters and the ledgers.
-- [Connector directory](connector-directory.md): the in-application surface for finding, reviewing, connecting and managing a connector.
 
 ## Develop and operate
 

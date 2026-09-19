@@ -16,17 +16,29 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    # Raised from 25. This job runs nine stages in series, and the base commit
-    # used 20 minutes 48 seconds of the old 25, so it had four minutes of
-    # headroom before this branch. Connector interoperability roughly doubles
-    # the suite `test:coverage` instruments, from about 1200 tests to 2899, and
-    # that stage is the longest of the nine. A cap that trips at stage three of
-    # nine wastes a whole CI cycle and tells you nothing about stages four to
-    # nine, which is worse than a generous cap: this number is a guard against
-    # a hang, not a performance target. Locally the nine stages measure
-    # format:check 22s, check 25s, test:coverage 196s, test:workflow 10s,
-    # build 60s, build:hosted 60s, build:vercel 90s, with the mutation and
+    # 45 rather than 25, measured from both directions and both reasons kept,
+    # because they are different measurements of the same job.
+    #
+    # From main's side: at d741eed this job finished in 22m03s against the old
+    # 25-minute cap; at 96b43e9 `npm run verify` took 23m05s and finished with
+    # 21 seconds to spare — but only because 23 browser tests aborted early on
+    # a failed above-the-fold assertion. Fixing that assertion made those tests
+    # run their bodies and the next run was cancelled at 25m18s with webkit
+    # still going. ~12m17s goes before the browsers start at all (npm ci and
+    # three engine downloads, then format/check, test:coverage at 2m16s and
+    # test:security:mutation at 7m20s), leaving the four-project Playwright
+    # suite the remainder.
+    #
+    # From connector interoperability's side: that change roughly doubles the
+    # suite `test:coverage` instruments, from about 1200 tests to 2899, and
+    # that stage is the longest of the nine run in series. Locally the stages
+    # measure format:check 22s, check 25s, test:coverage 196s, test:workflow
+    # 10s, build 60s, build:hosted 60s, build:vercel 90s, with the mutation and
     # browser stages on top.
+    #
+    # A cap that trips at stage three of nine wastes a whole CI cycle and tells
+    # you nothing about stages four to nine, which is worse than a generous
+    # cap: this number is a guard against a hang, not a performance target.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

@@ -17,7 +17,7 @@ test("AC-43: real static worker update and account switch preserve pending autho
   try {
     await fixture.login(context, "pwa-owner");
     await fixture.providerPages(context);
-    await page.goto(fixture.origin);
+    await page.goto(`${fixture.origin}/?connector=github`);
     await expect(
       page.getByRole("button", { name: "Connect GitHub", exact: true }),
     ).toBeVisible();
@@ -53,9 +53,27 @@ test("AC-43: real static worker update and account switch preserve pending autho
     await page.evaluate(async () => {
       await (await navigator.serviceWorker.ready).update();
     });
-    await page.getByText("Install app", { exact: true }).click();
-    await expect(page.getByRole("button", { name: /update/i })).toBeVisible();
-    await page.getByRole("button", { name: /update/i }).click();
+    // The pending authorization is on screen before the static update, so
+    // "undisturbed" below is a comparison rather than an assumption.
+    await expect(
+      page.getByRole("link", { name: "Continue with GitHub", exact: true }),
+    ).toBeVisible();
+    // Install and update live in the app's own top bar, which the drawer's
+    // scrim covers, so the drawer closes first. Its own Close button rather
+    // than Escape: a key goes to whatever holds focus, and after a service
+    // worker update in WebKit that is not reliably this document — the button
+    // is also what a person would reach for. Closing touches neither the run
+    // nor the URL. Both surfaces stay mounted so the studio survives a glance
+    // at the directory, which puts a second, inert copy of these controls in
+    // the document; the banner is the one a person can actually reach.
+    await page
+      .getByRole("dialog", { name: "Add Connection" })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    const topBar = page.getByRole("banner");
+    await topBar.getByText("Install app", { exact: true }).click();
+    await expect(topBar.getByRole("button", { name: /update/i })).toBeVisible();
+    await topBar.getByRole("button", { name: /update/i }).click();
     await expect
       .poll(() =>
         page.evaluate(
@@ -66,6 +84,23 @@ test("AC-43: real static worker update and account switch preserve pending autho
       .toBe(true);
     expect(page.url()).toBe(url);
     expect(fixture.effects).toEqual(before);
+    // First the claim about *this* page: the run is still in this document
+    // after the shell was replaced. The drawer hides its region, it does not
+    // unmount it, so the link is asked for by content rather than by role —
+    // a hidden subtree exposes no roles. Reloading first would have re-fetched
+    // the authorization from the server and passed either way, which is no
+    // longer an assertion about surviving the update.
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll("a")].some(
+          (anchor) => anchor.textContent?.trim() === "Continue with GitHub",
+        ),
+      ),
+    ).toBe(true);
+    // Then the separate claim that the resume link still works: returning to
+    // it lands on the same pending authorization, because the update swapped
+    // the static files and not the run.
+    await page.goto(url);
     await expect(
       page.getByRole("link", { name: "Continue with GitHub", exact: true }),
     ).toBeVisible();
