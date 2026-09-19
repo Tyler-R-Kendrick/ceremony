@@ -5,6 +5,7 @@ import {
   requiredStages,
   coverageTotals,
   failedTestFiles,
+  failedTestNames,
 } from "../scripts/verification-summary.js";
 import {
   browserVersions,
@@ -58,6 +59,94 @@ test("OPS: actual Node assertion failures identify a file without retaining diag
     assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
     assert.deepEqual(failedTestFiles(result.stdout, [fixture]), [fixture]);
   }
+});
+
+test("OPS: a failed case is named from the inventory, never quoted from output", () => {
+  const inventory = [
+    "AUTH-COMBINED: a combined form logs the expected account in",
+    "LIFE-RETURN: the session still works after the call returns",
+  ];
+  const output = [
+    "    not ok 1 - AUTH-COMBINED: a combined form logs the expected account in",
+    "      error: |-",
+    "        password=synthetic-secret refused by https://provider.invalid",
+    "    not ok 2 - a case name no file in this repository authors",
+    "\u2716 LIFE-RETURN: the session still works after the call returns (1640.635375ms)",
+  ].join("\n");
+  // Both reporters are read, and only names the inventory already holds come
+  // back — the unlisted one on the same line shape is dropped with the rest.
+  assert.deepEqual(failedTestNames(output, inventory), inventory);
+  assert.deepEqual(failedTestNames(output, []), []);
+  assert.equal(
+    failedTestNames(output, inventory).join("\n"),
+    inventory.join("\n"),
+  );
+  // A passing case is not a failing one, whatever its name.
+  assert.deepEqual(failedTestNames(`ok 1 - ${inventory[0]}`, inventory), []);
+  assert.deepEqual(
+    failedTestNames(`\u001b[31mnot ok 1 - ${inventory[1]}\u001b[0m`, inventory),
+    [inventory[1]],
+  );
+});
+
+test("OPS: an actual Node failure names its case, retaining no diagnostics", () => {
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const fixture = "tests/fixtures/runner-sentinel.ts";
+  const name = "Node must actually execute assertions";
+  for (const reporter of ["spec", "tap"]) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--no-experimental-webstorage",
+        "--import",
+        "tsx",
+        "--test",
+        `--test-reporter=${reporter}`,
+        fixture,
+      ],
+      { encoding: "utf8", env: environment, timeout: 15_000 },
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
+    assert.deepEqual(failedTestNames(result.stdout, [name]), [name]);
+    // The sentinel's own failure text is in that output and stays there.
+    assert.deepEqual(
+      failedTestNames(result.stdout, ["CEREMONY_EXPECTED_ASSERTION_FAILURE"]),
+      [],
+    );
+  }
+});
+
+test("OPS: every inventoried case name is verbatim repository content", async () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/test.mjs", "all", "--inventory"],
+    { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+  assert.equal(result.status, 0);
+  const { files, names } = JSON.parse(result.stdout) as {
+    files: string[];
+    names: string[];
+  };
+  assert.ok(names.length > 0, "the inventory must carry case names");
+  assert.deepEqual(names, [...new Set(names)].sort());
+  // The conformance suite is why this exists: twenty-four cases across three
+  // engines that a file name alone cannot tell apart.
+  assert.ok(
+    names.includes(
+      "AUTH-COMBINED: a combined form logs the expected account in",
+    ),
+  );
+  const sources = (
+    await Promise.all(files.map((file) => readFile(file, "utf8")))
+  ).join("\n");
+  for (const name of names)
+    assert.ok(
+      sources.includes(name),
+      `${name} must be authored in a test file`,
+    );
 });
 
 test("OPS: runtime metadata fingerprints actual profile and never substitutes unavailable browser versions", async () => {
