@@ -133,6 +133,48 @@ different from passing:
   these need authorized live configuration, accounts or devices that this
   environment does not have. No result may be invented for them.
 
+## A known intermittent, stated rather than smoothed over
+
+`browser-login-conformance` intermittently fails on GitHub's runners and has
+never once failed here. When it does, the reason is always the same and the
+assertions now carry it:
+
+```
+expected a verified login, got {"status":"blocked","reason":"stale-document"}
+```
+
+Always managed WebKit, always a legitimate login. `stale-document` is the
+document binding refusing to act because the document it observed is not the
+document in front of it - the protection working, on a page nobody swapped.
+
+One cause was found and fixed: the adapter's `goto` returned at
+`domcontentloaded`, which means a document has started rather than that it is
+the one still there a moment later, so an observation taken across that gap was
+of a page still becoming one. Navigation now settles before `goto` returns.
+That was necessary and it was not sufficient - the case recurred on the commit
+carrying it.
+
+What is established:
+
+- Four occurrences, each with `stale-document` recorded, across LIFE-LEGACY,
+  EFFECT-DUP, EFFECT-NEW and EFFECT-LEDGER. One defect, surfacing through
+  whichever case happens to run when the window opens.
+- It never fails in the `browser-login` job, which runs the same suite without
+  coverage instrumentation.
+- It does not reproduce here: five configurations tried, including the coverage
+  harness, six concurrent CPU burners, and c8 over the suite alone.
+
+What is not established: the remaining window. There is more than one place an
+observation can be taken across a change, and only one has been closed.
+
+**It fails safe.** Every occurrence is a refusal. The driver declines to act on
+an element it cannot confirm, so the outcome is a login that did not happen
+rather than a credential delivered somewhere unintended - which is the direction
+this protection exists to fail in. That is why it is recorded here and not
+treated as a release blocker, and it is not a reason to relax the check: a
+refusal that is sometimes wrong is a cost worth paying for one that is never
+wrong in the other direction.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
