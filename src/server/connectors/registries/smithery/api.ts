@@ -5,6 +5,7 @@ import {
 } from "../../../../core/connectors/json-bounds.js";
 import { encodePathSegment } from "../../../../core/connectors/identity.js";
 import { ConnectorError } from "../../errors.js";
+import { readBoundedBytes } from "../bounded-read.js";
 
 /*
  * Pinned wire shapes of the Smithery Platform API, from Smithery's published
@@ -57,21 +58,16 @@ export async function readBoundedJson(
   response: Response,
   limits: JsonValueLimits = jsonLimits,
 ): Promise<unknown> {
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > limits.bytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "smithery.response.too-large",
-    });
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > limits.bytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "smithery.response.too-large",
-    });
+  // The shared reader holds Smithery to `limits.bytes` as the body arrives, so
+  // a chunked reply that declares no length is cut off rather than buffered.
+  const bytes = await readBoundedBytes(
+    response,
+    limits.bytes,
+    "smithery.response.too-large",
+  );
   let value: unknown;
   try {
-    value = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(buffer),
-    );
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
     throw new ConnectorError("upstream-rejected", {
       detail: "smithery.response.invalid-json",

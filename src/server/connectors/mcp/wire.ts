@@ -532,8 +532,12 @@ export type SseFrame = {
 
 /**
  * Incremental Server-Sent Events parser. Comment lines are ignored, `data`
- * lines are joined with newlines, a blank line dispatches. The caller bounds
- * frames and bytes; the parser only reports what it consumed.
+ * lines are joined with newlines, a blank line dispatches. CRLF, LF and a
+ * bare CR all end a line, so a CR arriving as the last byte of a chunk is not
+ * yet decidable and its line waits for the next chunk; `push` returning
+ * nothing therefore means only that nothing is certain yet, never that a byte
+ * was dropped. The caller bounds frames and bytes; the parser only reports
+ * what it consumed.
  */
 export class SseParser {
   private buffer = "";
@@ -562,8 +566,23 @@ export class SseParser {
     for (;;) {
       const index = this.buffer.search(/\r\n|\n|\r/);
       if (index === -1) break;
-      const line = this.buffer.slice(0, index);
       const separator = this.buffer.slice(index, index + 2);
+      // A CR that is the last character we hold is ambiguous, because the next
+      // chunk may open with the LF that completes a CRLF: a slice of the TCP
+      // stream can fall anywhere, including between those two bytes. Believing
+      // it now would end the line here and then read that LF as a blank line,
+      // which dispatches the half-written frame and leaves the rest to be
+      // dispatched as a second one; downstream neither half parses as JSON and
+      // an answered call looks dropped. So hold the CR and its line back until
+      // a byte arrives to decide it. Only the end of the stream decides it the
+      // other way, and `final` covers that: there the CR is the bare-CR
+      // terminator the spec allows and the line is delivered, so waiting here
+      // can never lose data. Held-back bytes stay in the buffer they were
+      // already counted into, so the caller's ceilings are unaffected: this
+      // withholds at most the one CR beyond what an unterminated line already
+      // withheld.
+      if (separator === "\r" && !final) break;
+      const line = this.buffer.slice(0, index);
       this.buffer = this.buffer.slice(index + (separator === "\r\n" ? 2 : 1));
       const frame = this.line(line);
       if (frame) frames.push(frame);

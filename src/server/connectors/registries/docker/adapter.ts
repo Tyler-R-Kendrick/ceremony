@@ -4,6 +4,7 @@ import {
   destinationUrl,
 } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
+import { readBoundedBytes } from "../bounded-read.js";
 import {
   capabilityStatus,
   type AdapterCallContext,
@@ -64,17 +65,16 @@ async function readBoundedText(
   response: Response,
   maxBytes: number,
 ): Promise<string> {
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > maxBytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "docker.catalog.too-large",
-    });
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > maxBytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "docker.catalog.too-large",
-    });
-  return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  // The catalog is a document of a known size class, and the shared reader
+  // refuses anything larger while it arrives rather than after. Decoding stays
+  // lossy here: a byte the catalog server mangled should surface as a parse
+  // issue the reviewer can read, not as a thrown decode error.
+  const bytes = await readBoundedBytes(
+    response,
+    maxBytes,
+    "docker.catalog.too-large",
+  );
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 function decodeCursor(cursor: string | undefined): number {

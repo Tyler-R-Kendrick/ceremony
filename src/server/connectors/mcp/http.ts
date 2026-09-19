@@ -44,6 +44,14 @@ export type HttpReply =
       headers: Headers;
       /** Frames in arrival order; returning early cancels the underlying body. */
       frames: () => AsyncGenerator<SseFrame, void, undefined>;
+      /**
+       * Releases the body without reading it. A caller that decides on the
+       * status alone -- an error status is answered by the status, not by the
+       * frames -- must still call this, because nothing else closes the body and
+       * an abandoned `text/event-stream` holds its socket open for as long as
+       * the server keeps writing.
+       */
+      cancel: () => Promise<void>;
     }
   | { kind: "empty"; status: number; headers: Headers }
   | { kind: "text"; status: number; headers: Headers; text: string };
@@ -200,6 +208,11 @@ export async function exchange(
       status: response.status,
       headers: response.headers,
       frames: () => frames(body, limits, signal),
+      cancel: async () => {
+        // Already-closed and already-cancelled bodies both reject here, and
+        // neither is a failure worth reporting: the point was to let go of it.
+        await body.cancel().catch(() => {});
+      },
     };
   }
   const text = await readBounded(response, limits.maxResponseBytes, signal);

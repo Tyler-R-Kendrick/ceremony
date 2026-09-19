@@ -10,6 +10,7 @@ import type { CompatibilityIssue } from "../../../../core/connectors/contracts.j
 import { identifierSchema } from "../../../../core/operation-contracts.js";
 import type { ApprovedDestination } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
+import { readBoundedBytes } from "../bounded-read.js";
 import {
   DEFAULT_JSON_BOUNDS,
   parseBoundedJsonBytes,
@@ -315,42 +316,6 @@ function statusError(status: number, cursorPresent: boolean): ConnectorError {
   });
 }
 
-async function readBounded(
-  response: Response,
-  maxBytes: number,
-): Promise<Uint8Array> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => {});
-    throw new ConnectorError("upstream-rejected", {
-      detail: "registry.response.oversized",
-    });
-  }
-  const reader = response.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw new ConnectorError("upstream-rejected", {
-        detail: "registry.response.oversized",
-      });
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
 export type McpRegistryClient = ReturnType<typeof createMcpRegistryClient>;
 
 export function createMcpRegistryClient(options: McpRegistryClientOptions) {
@@ -417,7 +382,13 @@ export function createMcpRegistryClient(options: McpRegistryClientOptions) {
         cause: error,
       });
     }
-    const bytes = await readBounded(response, limits.maxPageBytes);
+    // Read before the status is classified, and bounded while reading: an
+    // error reply is as much a registry-controlled body as a successful one.
+    const bytes = await readBoundedBytes(
+      response,
+      limits.maxPageBytes,
+      "registry.response.oversized",
+    );
     if (!response.ok)
       throw statusError(response.status, call.cursorPresent === true);
     return {

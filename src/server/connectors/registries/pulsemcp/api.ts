@@ -4,6 +4,7 @@ import {
   type JsonValueLimits,
 } from "../../../../core/connectors/json-bounds.js";
 import { ConnectorError } from "../../errors.js";
+import { readBoundedBytes } from "../bounded-read.js";
 
 /*
  * Pinned wire shapes of PulseMCP's own APIs, from PulseMCP's published
@@ -70,21 +71,16 @@ export async function readBoundedJson(
   response: Response,
   limits: JsonValueLimits = jsonLimits,
 ): Promise<unknown> {
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > limits.bytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "pulsemcp.response.too-large",
-    });
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > limits.bytes)
-    throw new ConnectorError("upstream-rejected", {
-      detail: "pulsemcp.response.too-large",
-    });
+  // Both PulseMCP profiles answer chunked, so the bound has to hold while the
+  // body streams; the shared reader stops at `limits.bytes` and cancels.
+  const bytes = await readBoundedBytes(
+    response,
+    limits.bytes,
+    "pulsemcp.response.too-large",
+  );
   let value: unknown;
   try {
-    value = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(buffer),
-    );
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
     throw new ConnectorError("upstream-rejected", {
       detail: "pulsemcp.response.invalid-json",

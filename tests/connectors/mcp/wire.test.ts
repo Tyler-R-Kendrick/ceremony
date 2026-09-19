@@ -30,7 +30,8 @@ test("the SSE parser joins data lines, ignores comments and dispatches on blank 
   const chunk = (text: string) => parser.push(new TextEncoder().encode(text));
   assert.deepEqual(chunk(":\n"), []);
   assert.deepEqual(chunk('data: {"a":1}\n\n'), [{ data: '{"a":1}' }]);
-  // A frame split across chunks and across a CRLF boundary.
+  // A frame split across chunks in the middle of a field value. The harder
+  // split, between the CR and the LF of one CRLF, has its own test below.
   assert.deepEqual(chunk("event: message\r\ndata: one\r\ndata:"), []);
   assert.deepEqual(chunk(" two\r\n\r\n"), [
     { data: "one\ntwo", event: "message" },
@@ -41,6 +42,61 @@ test("the SSE parser joins data lines, ignores comments and dispatches on blank 
   // A field with no value and an unterminated final frame.
   assert.deepEqual(chunk("data\n"), []);
   assert.deepEqual(parser.finish(), [{ data: "" }]);
+});
+
+test("the SSE parser reports the same frames wherever the chunks are cut", () => {
+  const encode = (text: string) => new TextEncoder().encode(text);
+  const frames = (...parts: string[]) => {
+    const parser = new SseParser();
+    const seen = parts.flatMap((part) => parser.push(encode(part)));
+    return [...seen, ...parser.finish()];
+  };
+  /*
+   * The boundary that used to be read wrong: a chunk ends on the CR of a CRLF
+   * and the LF opens the next one, which ordinary TCP segmentation does at
+   * will. Ending the line on that CR then read the LF as a blank line, which
+   * dispatched half a frame and left the rest to be dispatched as a second
+   * one. Neither half parses as JSON downstream, so an answered call looked
+   * like a dropped stream.
+   */
+  assert.deepEqual(
+    frames('data: {"jsonrpc":"2.0",\r', '\ndata: "id":1}\r\n\r\n'),
+    [{ data: '{"jsonrpc":"2.0",\n"id":1}' }],
+  );
+  /*
+   * The property behind that case, for each of the three terminators the spec
+   * allows and at every byte a reader could cut on: what we report may not
+   * depend on where the stream was sliced. Exhaustive rather than by example,
+   * so it cannot quietly stop covering the seam.
+   */
+  for (const terminator of ["\r\n", "\n", "\r"]) {
+    const payload = [
+      ": ping",
+      "event: message",
+      "id: 7",
+      'data: {"jsonrpc":"2.0",',
+      'data: "id":1}',
+      "",
+      "",
+    ].join(terminator);
+    const whole = frames(payload);
+    assert.deepEqual(whole, [
+      { data: '{"jsonrpc":"2.0",\n"id":1}', event: "message", id: "7" },
+    ]);
+    for (let at = 1; at < payload.length; at += 1)
+      assert.deepEqual(
+        frames(payload.slice(0, at), payload.slice(at)),
+        whole,
+        `${JSON.stringify(terminator)} split at byte ${at}`,
+      );
+  }
+  // Bytes the parser is still holding are bytes it has counted, so waiting for
+  // the next chunk cannot hide a flood from the caller's stream ceiling.
+  const parser = new SseParser();
+  assert.deepEqual(parser.push(encode("data: x\r")), []);
+  assert.equal(parser.bytes, 8);
+  assert.deepEqual(parser.push(encode("\n\r\n")), [{ data: "x" }]);
+  assert.equal(parser.bytes, 11);
 });
 
 test("header values are encoded only when they cannot travel as plain ASCII", () => {
