@@ -362,16 +362,14 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
   );
   assert.equal(first.state, "complete");
 
+  const reusedCommand = {
+    operationRef: listItems,
+    input: { project: "beta" },
+    commandId: "cmd-1",
+  };
   const changedInput = await harness.fetch(
     `/api/v1/connectors/connections/${encodeURIComponent(connectionRef)}/invoke`,
-    {
-      body: {
-        operationRef: listItems,
-        input: { project: "beta" },
-        commandId: "cmd-1",
-      },
-      session: SESSION,
-    },
+    { body: reusedCommand, session: SESSION },
   );
   assert.equal(
     changedInput.status,
@@ -383,6 +381,43 @@ test("CMD-04: a prior approval does not cover changed input or a changed binding
     harness.provider.received("GET", "/v1/items").length,
     1,
     "and nothing further reached the provider",
+  );
+
+  // The refusal happened before anything external was attempted, so sending it
+  // again must read exactly the same way. A refusal that left its journal entry
+  // open would answer this repeat from the journal instead -- reporting an
+  // effect that never started as one that may have landed, and, for a write,
+  // telling the caller and the operator to reconcile something that does not
+  // exist.
+  const repeated = await harness.fetch(
+    `/api/v1/connectors/connections/${encodeURIComponent(connectionRef)}/invoke`,
+    { body: reusedCommand, session: SESSION },
+  );
+  assert.equal(
+    repeated.status,
+    403,
+    "repeating the refused command is refused again, not replayed",
+  );
+  assert.equal((await json(repeated)).detail, "command.reused");
+  assert.equal(
+    harness.provider.received("GET", "/v1/items").length,
+    1,
+    "and still nothing reached the provider",
+  );
+  const journal = harness.ports.inspect.effects();
+  assert.deepEqual(
+    journal.filter((effect) => !effect.outcome).map((effect) => effect.intent),
+    [],
+    "no journal entry is left without an outcome for reconciliation to chase",
+  );
+  const refused = journal.filter(
+    (effect) => effect.outcome?.code === "command.reused",
+  );
+  assert.equal(refused.length, 1, "the refused intent is journaled once");
+  assert.equal(
+    refused[0]!.outcome?.status,
+    "not-applied",
+    "and recorded as definitively not applied, since nothing was attempted",
   );
 
   // A later review approves more; the live connection stays pinned to the

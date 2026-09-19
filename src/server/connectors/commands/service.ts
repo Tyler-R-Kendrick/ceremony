@@ -179,6 +179,13 @@ const dottedCode = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$/;
 const externalIdName = /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/;
 const configurationName = /^[A-Z][A-Z0-9_]{0,95}$/;
 const classificationRank = { public: 0, personal: 1, secret: 2 } as const;
+/**
+ * A command id admitted for one intent and then sent with another. It is both
+ * the refusal a caller reads and the outcome the journal records for the
+ * refused intent, so the entry that refusal opened says what happened to it
+ * rather than staying open and reading as an effect that may have landed.
+ */
+const REUSED_COMMAND = "command.reused";
 
 type ConnectionEntry = { record: ConnectionRecord; revision: number };
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
@@ -2074,6 +2081,11 @@ export class ConnectorCommandService {
     });
     if (journal.prior) {
       const prior = journal.prior;
+      // A refusal this method recorded itself is not an outcome to report back
+      // as a replay: nothing was ever attempted for this intent, so the honest
+      // answer to asking again is the same refusal an early refusal would give.
+      if (prior.code === REUSED_COMMAND)
+        throw new ConnectorError("denied", { detail: REUSED_COMMAND });
       return {
         state:
           prior.status === "applied" || prior.status === "reconciled"
@@ -2090,10 +2102,22 @@ export class ConnectorCommandService {
         replayed: true,
       };
     }
-    if (command.prior)
+    if (command.prior) {
       // The command id was used before with a different intent: refuse rather
-      // than run a second effect under a familiar name.
-      throw new ConnectorError("denied", { detail: "command.reused" });
+      // than run a second effect under a familiar name. The entry begun just
+      // above is closed first, and closed as definitively not applied: the
+      // refusal happens before the adapter is reached, so leaving it open would
+      // report an effect that never started as one that may have landed -- to
+      // the next caller, and to every reconciliation pass after that.
+      await this.ports.effects
+        .complete(journal.effectRef, {
+          status: "not-applied",
+          code: REUSED_COMMAND,
+          at: this.now(),
+        })
+        .catch(() => {});
+      throw new ConnectorError("denied", { detail: REUSED_COMMAND });
+    }
 
     let result: InvokeResult;
     try {
@@ -2662,16 +2686,19 @@ export class ConnectorCommandService {
       },
       reconnect: async (actor, input) => {
         agent(actor);
+        // `reconnectInputSchema` takes these at the top level: a reconnect
+        // carries no nested intent, because it continues the intent the
+        // connection already recorded. Wrapping them the way `connect` does
+        // makes every reconnect an unrecognized key, and `accountSwitch` is
+        // still passed on so the human-only refusal stays at the service.
         const view = await this.reconnect(actor, input.connectionRef, {
           expectedRevision: input.expectedRevision,
-          intent: {
-            ...(input.accountSwitch === undefined
-              ? {}
-              : { accountSwitch: input.accountSwitch }),
-            ...(input.interruption === undefined
-              ? {}
-              : { interruption: input.interruption }),
-          },
+          ...(input.accountSwitch === undefined
+            ? {}
+            : { accountSwitch: input.accountSwitch }),
+          ...(input.interruption === undefined
+            ? {}
+            : { interruption: input.interruption }),
         });
         void view;
         const entry = await this.connection(actor, input.connectionRef);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   agent,
+  completeOauthCallback,
   createHarness,
   delegate,
   FIXTURE_DOCUMENT,
@@ -12,7 +13,7 @@ import { createAgentConnectorIntents } from "../../../src/server/connectors/agen
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 
 /*
- * INT-AG-01..06: the seam between the command service and an assistant's
+ * INT-AG-01..07: the seam between the command service and an assistant's
  * connector intents.
  *
  * The intents narrow every result themselves, so what reaches them must be
@@ -21,6 +22,11 @@ import { ConnectorError } from "../../../src/server/connectors/errors.js";
  * must really be a delegated agent, the policy must really be asked again on
  * each call, and nothing presentational may survive the round trip to an
  * intent's result.
+ *
+ * They also drive the real dependencies rather than a stub, because each one
+ * hands the service an object a schema then parses: a key in the wrong place
+ * still compiles, since those methods take `unknown` and let the schema be the
+ * contract, so only a real call proves the intent is reachable at all.
  */
 
 const SESSION = "human-session";
@@ -178,4 +184,67 @@ test("INT-AG-06: listing is scoped to the caller and never leaks another tenant"
   const foreign = agent({ tenantId: "tenant-b", delegationId: "run:other" });
   await delegate(harness.store, foreign);
   assert.deepEqual(await deps.list(foreign), []);
+});
+
+test("INT-AG-07: an agent's reconnect reaches the service as the service declares it", async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const { bindingRef } = await approved(harness);
+  const connected = await json(
+    await harness.fetch("/api/v1/connectors/connections", {
+      body: {
+        bindingRef,
+        intent: { profileId: "oauth", requestedPermissions: ["read"] },
+      },
+      session: SESSION,
+    }),
+  );
+  const connectionRef = connected.connectionRef as string;
+  await completeOauthCallback(
+    harness,
+    SESSION,
+    (connected.presentation as { url: string }).url,
+  );
+
+  const actor = agent();
+  await delegate(harness.store, actor);
+  const deps = harness.service.agentDependencies();
+  const before = await deps.status(actor, connectionRef);
+  assert.ok(
+    before,
+    "the agent can see the connection it is about to reconnect",
+  );
+
+  // `accountSwitch` still refuses here, and that refusal is the proof the seam
+  // hands the service the keys it declares: a wrapped or dropped flag would
+  // reach `reconnect` as the default and quietly reconnect the same account.
+  await assert.rejects(
+    () =>
+      deps.reconnect(actor, {
+        connectionRef,
+        expectedRevision: before.revision,
+        accountSwitch: true,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ConnectorError);
+      assert.equal(error.code, "denied");
+      assert.equal(error.detail, "account-switch.human-only");
+      return true;
+    },
+  );
+
+  const summary = await deps.reconnect(actor, {
+    connectionRef,
+    expectedRevision: before.revision,
+  });
+  assert.equal(
+    summary.lifecycle,
+    "authorization-required",
+    "an expired connection can be re-established through the agent seam",
+  );
+  assert.equal(
+    summary.generation,
+    before.generation + 1,
+    "and the reconnect really advanced the generation, not just parsed",
+  );
 });

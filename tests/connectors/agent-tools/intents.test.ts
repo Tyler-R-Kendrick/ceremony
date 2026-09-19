@@ -27,6 +27,13 @@ import { fixtureActor } from "../doubles/ports.js";
  * the tests are mostly about what does not come back: no link, no device
  * code, no account name, no destination, no transport, no configuration
  * value and no upstream prose.
+ *
+ * The dependencies below are a stub on purpose: this file tests the boundary
+ * between an intent and its dependency, so it must be able to say exactly what
+ * that dependency returned. Whether the command service accepts what these
+ * intents pass is the next boundary along, and INT-AG-07 in
+ * tests/connectors/commands/agent-seam.test.ts answers that against the real
+ * `agentDependencies()`.
  */
 
 const stringsIn = (value: unknown, out: string[] = []): string[] => {
