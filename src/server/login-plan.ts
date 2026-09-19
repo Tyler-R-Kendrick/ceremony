@@ -268,6 +268,25 @@ export function compileLoginPlan(
     // a backend that cannot retain must refuse rather than return a browser it
     // is about to close.
     ...(draft.continuation === "dispose" ? {} : { retainedSession: true }),
+    // Nor is acting inside a frame. Declaring a frame origin *is* declaring
+    // that this login happens in a frame, so the capability that makes that
+    // possible is required whether or not the caller thought to name it.
+    //
+    // Without this the field was accepted, canonicalized, digested and then
+    // read by nothing: `createBoundTargets` observes through
+    // `page.evaluateHandle`, which is the main frame and nothing else. A
+    // person who configured "the credential form is at https://auth.example
+    // in a frame" got a plan that said so and a run that never looked. It
+    // failed closed - the driver simply never found the field - but a
+    // configuration that reads as supported and cannot work is the defect
+    // this compiler exists to prevent, one step further along than a wizard
+    // rendering a setting the server never compiled.
+    //
+    // `frameBinding` is false on every engine, so this is a refusal today.
+    // That is the point: being told no leaves a person free to choose
+    // something else, and the day something enforces frames this same line
+    // starts admitting them instead.
+    ...((draft.frameOrigins ?? []).length > 0 ? { frameBinding: true } : {}),
   };
   const unmet = unmetCapabilities(backend, required);
   if (unmet.length > 0)
