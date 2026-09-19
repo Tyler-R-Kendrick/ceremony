@@ -788,6 +788,11 @@ test("the Playwright adapter acts on the element it observed, not on a selector"
   await page.settle();
   assert.deepEqual(graph.calls, [
     "goto https://provider.example/signin",
+    // Navigation settles before anything observes. `domcontentloaded` means the
+    // document has started, not that it is the one still there a moment later,
+    // and an observation taken across that gap refuses the first action with
+    // `stale-document` on a page nobody swapped.
+    "settle networkidle",
     "observe",
     "fill 0 value-1",
     "click 2",
