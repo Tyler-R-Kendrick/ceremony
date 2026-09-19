@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: session-store
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: redis.fixture.invalid:6379
+    - name: redisPassword
+      secretKeyRef:
+        name: redis-secret
+        key: password

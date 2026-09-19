@@ -1,0 +1,85 @@
+{
+  "$comment": "Cloud Search-informed item ACL documents, in the documented ItemAcl / Principal shapes (readers, deniedReaders, owners, inheritAclFrom, aclInheritanceType; gsuitePrincipal with gsuiteUserEmail/gsuiteGroupEmail/gsuiteDomain, and identitysources/{source}/{users|groups}/{id} resource names). Reference retrieved 2026-09-18. These are input documents; reading one grants nothing.",
+  "gsuiteItem": {
+    "name": "datasources/drive/items/design-doc",
+    "itemType": "CONTENT_ITEM",
+    "version": "AQIDBAU=",
+    "metadata": { "containerName": "datasources/drive/items/design-folder" },
+    "acl": {
+      "readers": [
+        { "gsuitePrincipal": { "gsuiteUserEmail": "ada@acme.test" } },
+        { "gsuitePrincipal": { "gsuiteGroupEmail": "engineering@acme.test" } }
+      ],
+      "deniedReaders": [
+        { "gsuitePrincipal": { "gsuiteUserEmail": "contractor@acme.test" } }
+      ],
+      "owners": [{ "gsuitePrincipal": { "gsuiteUserEmail": "ada@acme.test" } }],
+      "inheritAclFrom": "datasources/drive/items/design-folder",
+      "aclInheritanceType": "PARENT_OVERRIDE"
+    }
+  },
+  "externalIdentityItem": {
+    "name": "datasources/jira/items/ISSUE-42",
+    "itemType": "CONTENT_ITEM",
+    "acl": {
+      "readers": [
+        { "userResourceName": "identitysources/corp/users/u-ada" },
+        { "groupResourceName": "identitysources/corp/groups/g-engineering" }
+      ],
+      "deniedReaders": [
+        { "groupResourceName": "identitysources/corp/groups/g-contractors" }
+      ]
+    }
+  },
+  "domainFlagItem": {
+    "name": "datasources/wiki/items/handbook",
+    "itemType": "CONTENT_ITEM",
+    "acl": {
+      "readers": [{ "gsuitePrincipal": { "gsuiteDomain": true } }],
+      "deniedReaders": []
+    }
+  },
+  "containerItem": {
+    "name": "datasources/drive/items/design-folder",
+    "itemType": "CONTAINER_ITEM",
+    "acl": {
+      "readers": [
+        { "gsuitePrincipal": { "gsuiteGroupEmail": "engineering@acme.test" } }
+      ],
+      "deniedReaders": []
+    }
+  },
+  "invalidPrincipalItem": {
+    "$comment": "Two identities in one principal, and a resource name in an unrecognized shape; both must be rejected rather than partially read.",
+    "name": "datasources/wiki/items/broken",
+    "acl": {
+      "readers": [
+        {
+          "gsuitePrincipal": {
+            "gsuiteUserEmail": "ada@acme.test",
+            "gsuiteGroupEmail": "engineering@acme.test"
+          }
+        }
+      ],
+      "deniedReaders": []
+    }
+  },
+  "unrecognizedResourceItem": {
+    "name": "datasources/wiki/items/odd",
+    "acl": {
+      "readers": [{ "userResourceName": "principals/corp/u-ada" }],
+      "deniedReaders": []
+    }
+  },
+  "inheritanceWithoutTypeItem": {
+    "$comment": "Inherits from a parent without saying how conflicts resolve; ambiguity is refused.",
+    "name": "datasources/wiki/items/ambiguous",
+    "acl": {
+      "readers": [
+        { "gsuitePrincipal": { "gsuiteUserEmail": "ada@acme.test" } }
+      ],
+      "deniedReaders": [],
+      "inheritAclFrom": "datasources/wiki/items/parent"
+    }
+  }
+}

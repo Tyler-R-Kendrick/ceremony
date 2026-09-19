@@ -1,0 +1,120 @@
+{
+  "source": "https://vercel.com/docs/rest-api#connect and https://openapi.vercel.sh",
+  "retrievedAt": "2026-09-18T00:35:23Z",
+  "note": "Endpoint versions differ per operation. This table is transcribed from the REST reference's connect group and cross-checked against the machine-readable OpenAPI document; a change to either is a change to the adapter's binding, not a detail.",
+  "operations": [
+    {
+      "id": "connect.connectors.list",
+      "method": "GET",
+      "path": "/v2/connect/connectors",
+      "operationId": "listConnectors",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.connectors.get",
+      "method": "GET",
+      "path": "/v1/connect/connectors/{connector}",
+      "operationId": "getConnector",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.connectors.create",
+      "method": "POST",
+      "path": "/v1/connect/connectors",
+      "operationId": "createConnector",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.connectors.update",
+      "method": "PATCH",
+      "path": "/v2/connect/connectors/{connector}",
+      "operationId": "updateConnector",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.connectors.delete",
+      "method": "DELETE",
+      "path": "/v1/connect/connectors/{connector}",
+      "operationId": "deleteConnector",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.projects.link",
+      "method": "POST",
+      "path": "/v1/connect/connectors/{connector}/projects/{projectId}",
+      "operationId": "upsertConnectorProjectConnection",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.projects.get",
+      "method": "GET",
+      "path": "/v1/connect/connectors/{connector}/projects/{projectId}",
+      "operationId": "getConnectorProjectConnection",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.projects.unlink",
+      "method": "DELETE",
+      "path": "/v1/connect/connectors/{connector}/projects/{projectId}",
+      "operationId": "deleteConnectorProjectConnection",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.projects.connectors",
+      "method": "GET",
+      "path": "/v2/connect/projects/{projectId}/connectors",
+      "operationId": "listProjectConnectorConnections",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.connectors.projects",
+      "method": "GET",
+      "path": "/v2/connect/connectors/{connector}/projects",
+      "operationId": "listConnectorProjectConnections",
+      "teamScoped": true,
+      "credential": "management"
+    },
+    {
+      "id": "connect.authorize",
+      "method": "POST",
+      "path": "/v1/connect/authorize/{connector}",
+      "operationId": "createConnectorAuthorizationRequest",
+      "teamScoped": false,
+      "credential": "workload"
+    },
+    {
+      "id": "connect.token",
+      "method": "POST",
+      "path": "/v1/connect/token/{connector}",
+      "operationId": "getConnectorToken",
+      "teamScoped": false,
+      "credential": "workload"
+    },
+    {
+      "id": "connect.triggers.destinations.replace",
+      "method": "PATCH",
+      "path": "/v1/connect/connectors/{connector}/trigger-destinations",
+      "operationId": "replaceConnectorTriggerDestinations",
+      "teamScoped": true,
+      "credential": "management"
+    }
+  ],
+  "sdkObserved": [
+    {
+      "id": "connect.tokens.revoke",
+      "method": "DELETE",
+      "path": "/v1/connect/connectors/{connector}/tokens",
+      "source": "@vercel/connect 2.3.0 dist/token.js revokeToken",
+      "note": "Not published in the REST reference or the OpenAPI document; opt-in per binding."
+    }
+  ]
+}

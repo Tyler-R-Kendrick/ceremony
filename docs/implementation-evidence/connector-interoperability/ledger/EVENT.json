@@ -1,0 +1,192 @@
+{
+  "swarm": "EVENT",
+  "workItems": [
+    {
+      "id": "EVT-01",
+      "status": "implemented",
+      "files": ["src/server/connectors/events/asyncapi.ts"],
+      "tests": ["tests/connectors/events/asyncapi.test.ts"],
+      "acceptanceIds": ["AC-NG-07"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["asyncapi-3.1.0", "asyncapi-3.0.0"],
+      "limitations": [
+        "Channels, messages and operations become event descriptors only; an AsyncAPI operation is never compiled into an HTTP capability, so capabilities is always empty for this ecosystem.",
+        "transport \"http-webhook\" is claimed only for an inbound operation whose every declared protocol is http/https; ws, wss, kafka, amqp, mqtt, googlepubsub and every other binding keep transport \"unsupported\" with nativeTransport preserved. No broker runtime is implemented.",
+        "Only local JSON-pointer $ref resolution; an external or cross-document reference is reported as structure.unresolved-reference and never fetched.",
+        "Message payload schemas are preserved by reference (messageSchemaRef) rather than expanded, so a recursive schema is bounded by construction.",
+        "Channel parameters, reply objects and correlationId are preserved only inside the document-level native extension, not as first-class descriptor fields.",
+        "Perspective (consumer vs provider) is an explicit option; it is never inferred from operation or channel names."
+      ],
+      "notes": "readAsyncApi(document, options) returns { definition, issues, receivable, document }. Bounds: 512 channels, 512 operations, 128 messages/channel, 512 events, 16 reference hops, 8 traits, 32KiB document extension budget; each exceeded bound raises ConnectorError(\"invalid-request\", detail asyncapi.bounds.<what>). Fixtures tests/connectors/fixtures/asyncapi/{acme-billing-webhooks-3.1.0,streetlights-kafka-3.0.0}.json."
+    },
+    {
+      "id": "EVT-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/events/envelope.ts"],
+      "tests": ["tests/connectors/events/envelope.test.ts"],
+      "acceptanceIds": ["AC-STATE-07"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["cloudevents-1.0"],
+      "limitations": [
+        "toCloudEvent maps only id, source, type, time, datacontenttype and data. receivedAt is custody time, not occurrence time, and is never emitted as `time`; verification, connectionRef and forwarderHops have no CloudEvents attribute and are not smuggled in as extensions.",
+        "fromCloudEvent returns an explicitly UnverifiedEvent (no verification, no authority): a CloudEvent carries no proof, so reading one can never produce a verified envelope. Mapping `source` to a configured authority is a host decision.",
+        "CloudEvents binary mode (data_base64) is refused with ConnectorError(\"unsupported\"); only the JSON event format is supported.",
+        "Only specversion 1.0 is accepted."
+      ],
+      "notes": "verifiedEventEnvelopeSchema is structurally compatible with the minimal VerifiedEventEnvelope in ports.ts, enforced at compile time by a type assertion in envelope.ts. Payloads are bounded structurally (1MiB, depth 32, 65536 nodes, reserved keys refused) before anything serializes or persists them."
+    },
+    {
+      "id": "EVT-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/events/standard-webhooks.ts",
+        "src/server/connectors/events/verification.ts"
+      ],
+      "tests": ["tests/connectors/events/standard-webhooks.test.ts"],
+      "acceptanceIds": ["AC-VC-07"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["standard-webhooks-1.0.0"],
+      "limitations": [
+        "Only the symmetric v1 scheme (HMAC-SHA256) is implemented. The asymmetric v1a (ed25519) scheme is recognized and reported as \"unsupported-scheme\" rather than silently ignored; whsk_/whpk_ keys are not handled.",
+        "Timestamp tolerance defaults to 300s and is bounded to 1..86400s in both directions; a host cannot configure the window away.",
+        "verifyHmacHeader covers the common HMAC-over-body (optionally over `${timestamp}.${body}`) vendor pattern. A provider whose scheme differs implements VendorVerifierPort directly; nothing guesses a header name or algorithm."
+      ],
+      "notes": "Verification runs on the ORIGINAL request bytes before any parse (tested by showing a re-serialized equivalent JSON value no longer verifies). Comparison uses crypto.timingSafeEqual on equal-length buffers, with a length mismatch reported as a mismatch rather than thrown. Key rotation: any configured key verifies and the accepted keyId is reported. The published Standard Webhooks test vector is reproduced exactly."
+    },
+    {
+      "id": "EVT-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/events/inbox.ts",
+        "src/server/connectors/events/lifecycle.ts"
+      ],
+      "tests": ["tests/connectors/events/inbox.test.ts"],
+      "acceptanceIds": ["AC-STATE-07", "AC-NG-07"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": [],
+      "limitations": [
+        "No exactly-once claim. A handler that succeeded but whose fence was superseded leaves the entry pending, so a consumer may see the same authority-scoped deliveryId again and must deduplicate on it. This is asserted, not hidden, in the PostgreSQL concurrency test.",
+        "A contended lease (PersistenceConflict, or a PostgreSQL deadlock on the shared claims table) is counted as `skipped` and retried on the next pass; nothing has been delivered at that point, so no effect can be lost or duplicated by skipping.",
+        "Ordering is decided from the sender's sourceTime against a per-(authority, connection) watermark. An envelope with no sourceTime is \"unknown\" ordering and is applied normally.",
+        "The dispatcher reconciles only deliveries that carry a lifecycle signal; a non-lifecycle event arriving out of order is applied, because its payload is not a status claim."
+      ],
+      "notes": "EventInbox.admit writes the inbox record (first-writer-wins on (tenant, authority-scoped deliveryId)) and the outbox continuation { kind, task, subjectId, connectionRef?, status: \"pending\", deliveryId, authority, admittedAt, attempts } in ONE transaction, and accepts a caller-supplied tx so a command can admit inside its own transaction. drain() reuses the claim/assertFence/cancel discipline of deliverContinuations. Reordering is labelled in-order/out-of-order/ambiguous/unknown and an ambiguous or out-of-order lifecycle change is sent to the reconcile hook (reconciled | unavailable -> indeterminate) instead of being applied."
+    },
+    {
+      "id": "EVT-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/events/subscriptions.ts",
+        "src/server/connectors/events/receiver.ts"
+      ],
+      "tests": [
+        "tests/connectors/events/receiver.test.ts",
+        "tests/connectors/events/inbox.test.ts"
+      ],
+      "acceptanceIds": ["AC-STATE-07"],
+      "evidenceLevel": "local-integration",
+      "sourceProfileIds": ["standard-webhooks-1.0.0"],
+      "limitations": [
+        "The receiver requires a registered VendorVerifierPort for any non-Standard-Webhooks subscription; an unregistered verifier fails closed with 401 and audit reason \"verifier-unavailable\". There is no fallback scheme.",
+        "The delivery identity must come from the verifier, a policy.identify hook or a top-level `type`/id in the payload; an event that cannot be identified is refused 400 rather than given an invented id.",
+        "The receiver only admits. Applying a lifecycle event to a connection is the COMMAND swarm's dispatch hook (CompletionInput { kind: \"event\" }); lifecycle mapping here is a hint carried on the delivery.",
+        "Body ceiling is 256KiB by default, enforced while streaming (a content-length hint alone is not trusted).",
+        "Only JSON content types are accepted (configurable); form-encoded provider webhooks are not supported."
+      ],
+      "notes": "SubscriptionRegistry.approve refuses any destination that is not an approved destination of the (same-tenant, approved) binding and pins the exact approved origin. replace() is the destination-change path: it approves a new subscription and retires the old one in the same transaction (retiredReason destination-changed, replaces/replacedBy links). fence(tenant, connectionRef, generation) retires everything approved under an older generation. Negative matrix covered: forged signature, body swapped after signing, wrong key, stale timestamp, missing headers, unknown subscription, authority/subscription mismatch, off-mount route, wrong method, wrong content type, declared and streamed amplification, malformed body, replay, unsubscribed event type, retired subscription, cross-tenant secret, unregistered verifier, unidentifiable event. Every refusal is a fixed short JSON body that never echoes the request body or headers; reasons go to the audit hook only."
+    },
+    {
+      "id": "EVT-06",
+      "status": "implemented",
+      "files": ["src/server/connectors/events/forwarded.ts"],
+      "tests": ["tests/connectors/events/forwarded.test.ts"],
+      "acceptanceIds": ["AC-VC-07"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["vercel-connect-triggers-2026-08-20"],
+      "limitations": [
+        "Vercel's outgoing trigger signature header name and algorithm are not published in the Connect triggers documentation (it states only that Vercel signs the forwarded request and publishes a per-connector signing key). verifyForwardedDelivery therefore takes the forwarder's VendorVerifierPort as an injected dependency; the VERCEL swarm supplies the concrete header/algorithm from its own source. The fixture verifier used in tests is explicitly a stand-in, not a claim about Vercel's wire format.",
+        "The original provider's hop is verified only when this deployment holds that provider's secret (material keys prefixed `upstream:`); otherwise no provider hop is recorded at all rather than an assumed one."
+      ],
+      "notes": "verifyForwardedDelivery distinguishes three hop kinds: a verified forwarder-signature hop (what actually authenticates the delivery), an optionally verified upstream provider hop (standard-webhooks or a vendor verifier), and an upstream-claim hop recorded with verified:false whenever the forwarder asserts it verified the provider. The envelope schema refuses an upstream-claim hop marked verified, refuses forwarder-signature verification without a verified forwarder hop, and refuses a verified forwarder hop on a directly verified event. A forged or missing forwarder signature is rejected even when the request asserts upstream verification."
+    }
+  ],
+  "contractChanges": [
+    {
+      "target": "src/core/connectors/contracts.ts (eventDescriptorSchema)",
+      "change": "Added two optional fields: `authentication` (bounded list of identifierSchema, max 16, any-of semantics like a capability's; [] means declared-anonymous, absent means the source said nothing) and `nativeExtensions` (nativeExtensionsSchema, for channel address, message identity and protocol bindings).",
+      "compatibility": "Additive and optional: every existing event descriptor still parses unchanged. refineNormalizedDefinition was extended to (a) reject an event referencing an unknown authentication profile, mirroring the existing capability rule, and (b) count event nativeExtensions against the existing DEFINITION_LIMITS.extensionBytes budget. Both only constrain descriptors that use the new fields."
+    },
+    {
+      "target": "src/server/connectors/ports.ts (VerifiedEventEnvelope)",
+      "change": "Widened the optional members (`sourceTime`, `verification.keyId`, `connectionRef`) to admit an explicit `undefined`, and documented that the events module owns the full schema.",
+      "compatibility": "Strictly additive under exactOptionalPropertyTypes: a reader already sees `T | undefined` for an optional property, and every existing producer remains assignable. Required by the full envelope being assignable to the minimal type, which is asserted at compile time in events/envelope.ts."
+    },
+    {
+      "target": "src/server/persistence/index.ts (recordKinds)",
+      "change": "Appended \"connector-event-inbox\" and \"connector-event-subscription\" after the STATE swarm's entries, without reordering anything.",
+      "compatibility": "Additive; the encrypted record table is generic, so no SQL migration is needed. Every value under both kinds carries `schemaVersion: 1` and is re-validated on read. The inbox kind also holds per-(authority, connection) ordering watermarks under a `watermark:` id prefix; subscriptions hold their route index under the fixed tenant `connector-events`."
+    },
+    {
+      "target": "brief deviation: structure.unsupported-transport severity",
+      "change": "The brief asked for the unsupported-transport issue at severity \"info\" with executionImpact \"blocks-operation\". The shared compatibilityIssueSchema (evolved concurrently by the CONTRACT swarm) now refuses that combination: \"An informational issue blocks nothing\". The issue is emitted at severity \"warning\" with disposition \"unsupported\", dimension \"events\" and executionImpact \"blocks-operation\", which preserves the intent (precise, blocks exactly that operation, never silently dropped) under the current contract. structure.unsupported-direction and structure.undeclared-transport follow the same rule.",
+      "compatibility": "No code change to the shared schema; this records why the emitted severity differs from the brief's wording."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/hosted/routes (INT)",
+      "description": "Mount the receiver at POST /api/v1/connectors/events/<authority>/<subscriptionId>. Build it with createWebhookReceiver({ resolveSecrets: registrySecretResolver({ registry, credentials }), inbox: new EventInbox(store, { subscriptions: registry, generation, reconcile }), verifiers: [...provider ports], policy: { mountPath: \"/api/v1/connectors/events\", audit } }) and call it directly with the Request. It returns a Response. IMPORTANT: this route must NOT go through assertRequestBoundary/authenticatedActor — the caller is a provider, not a host session; authentication is the signature over the raw bytes, and the actor is derived from the approved subscription. It must also be mounted before any body-parsing middleware, because the raw bytes are what is verified."
+    },
+    {
+      "target": "src/server/connectors/commands (COMMAND)",
+      "description": "Wire the dispatch hook: createEventDispatcher({ complete }) where `complete(delivery, { kind: \"event\", event })` calls the owning adapter's complete() under the connection's current generation and persists the CompletionResult. The dispatcher already refuses a stale delivery (ignored) and reconciles an out-of-order or ambiguous lifecycle change before any adapter is called. Register it as handlers[\"connector-event\"] for EventInbox.drain."
+    },
+    {
+      "target": "src/server/connectors/state (STATE)",
+      "description": "Supply EventInboxOptions.generation (current connection generation) and EventInboxOptions.reconcile (authoritative status re-read). Call SubscriptionRegistry.fence(tenantId, connectionRef, newGeneration) from every path that advances a connection generation (cancel, unlink, reconnect, revoke) so already-admitted deliveries become stale."
+    },
+    {
+      "target": "src/server/hosted/continuations.ts (INT)",
+      "description": "The event outbox rows live under the existing `outbox` kind with ids prefixed `connector-event:`. dispatchHostedContinuations currently ignores them (their `task` has no registered handler), which is safe. To deliver them from the workload dispatcher, call EventInbox.drain({ tenantId, handlers }) alongside the existing flushContinuations."
+    },
+    {
+      "target": "src/server/connectors/providers/* (VERCEL, NANGO, PIPEDREAM)",
+      "description": "Implement VendorVerifierPort (or build one with hmacVendorVerifier) per provider and register it in the receiver's `verifiers` list. For a broker that forwards provider triggers, set the subscription verification to { method: \"forwarder-signature\", forwarder, forwarderVerifier, upstream? } and implement upstreamClaim() so a header asserting upstream verification is recorded as an unverified claim."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [],
+  "sourcesPinned": [
+    {
+      "id": "standard-webhooks-1.0.0",
+      "url": "https://www.standardwebhooks.com/",
+      "revision": "spec version 1.0.0 (standard-webhooks/standard-webhooks spec/standard-webhooks.md), read 2026-09-18",
+      "facts": "headers webhook-id / webhook-timestamp / webhook-signature; signed content `${msg_id}.${timestamp}.${payload}`; symmetric scheme id v1 with base64 HMAC-SHA256; asymmetric scheme id v1a (ed25519, not implemented); secrets base64 prefixed whsec_; signatures space-delimited for zero-downtime rotation; timestamp must be within an allowable tolerance, exact value left to the implementer."
+    },
+    {
+      "id": "cloudevents-1.0",
+      "url": "https://cloudevents.io/",
+      "revision": "CloudEvents core spec, 1.0 attribute set (page read 2026-09-18 reported 1.0.3-wip as the working document)",
+      "facts": "REQUIRED id, source, specversion, type, all non-empty strings, source a URI-reference, id+source unique per event; OPTIONAL datacontenttype, dataschema, subject, time (RFC 3339); extension attribute names lowercase [a-z0-9]; specversion MUST be \"1.0\"."
+    },
+    {
+      "id": "asyncapi-3.1.0",
+      "url": "https://www.asyncapi.com/docs/reference/specification/v3.1.0",
+      "revision": "AsyncAPI 3.1.0, read 2026-09-18",
+      "facts": "required root asyncapi + info(title, version); Channel(address, messages, title, servers, parameters, bindings); Operation(action send|receive, channel $ref, security, traits, messages, reply); Message(headers, payload, contentType, name, title, traits); Server(host, protocol, protocolVersion, pathname, security); security scheme types userPassword, apiKey, X509, symmetricEncryption, asymmetricEncryption, httpApiKey, http, oauth2, openIdConnect, plain, scramSha256, scramSha512, gssapi; bindings table http, ws, kafka, anypointmq, amqp, amqp1, mqtt, mqtt5, nats, jms, sns, solace, sqs, stomp, redis, mercure, ibmmq, googlepubsub, pulsar, ros2."
+    },
+    {
+      "id": "asyncapi-3.0.0",
+      "url": "https://www.asyncapi.com/docs/reference/specification/v3.0.0",
+      "revision": "AsyncAPI 3.0.0; exercised through the streetlights-kafka fixture",
+      "facts": "Same document model as 3.1.0 for the constructs this importer reads; the version string is preserved rather than upgraded."
+    },
+    {
+      "id": "vercel-connect-triggers-2026-08-20",
+      "url": "https://vercel.com/docs/connect/concepts/triggers",
+      "revision": "last_updated 2026-08-20, read 2026-09-18",
+      "facts": "Vercel Connect verifies the provider's webhook against the connector's signing key, then forwards the verified event to each registered trigger destination (max three). \"When Vercel Connect forwards an event to your project, it signs the outbound request so your handler can confirm it came from Vercel Connect. Verify the signature on the receiving end before acting on the payload. Vercel Connect publishes the signing key per connector for this purpose.\" The documentation does NOT publish the outbound header name or algorithm, which is why the forwarder verifier is injected rather than hard-coded."
+    }
+  ]
+}

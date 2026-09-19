@@ -1,0 +1,97 @@
+{
+  "format": "ceremony-connector",
+  "version": 2,
+  "profile": {
+    "id": "ceremony-connector/2",
+    "producer": { "id": "ceremony-docs-example", "version": "1.0.0" }
+  },
+  "definition": {
+    "schemaVersion": 1,
+    "identity": {
+      "ecosystem": "openapi",
+      "authorityNamespace": "",
+      "nativeId": "example/public-weather",
+      "nativeVersion": "2026-09-01"
+    },
+    "normalizedDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "importer": { "id": "openapi-importer", "version": "1.0.0" },
+    "display": {
+      "name": "Public weather",
+      "description": "A public API that requires no credential of any kind.",
+      "ecosystem": "openapi",
+      "service": "public-weather"
+    },
+    "authentication": [
+      {
+        "id": "public",
+        "kind": "none",
+        "label": "No credential",
+        "reason": "public"
+      }
+    ],
+    "configuration": [],
+    "capabilities": [
+      {
+        "kind": "http-operation",
+        "nativeId": "listStations",
+        "label": "List stations",
+        "summary": "Lists public observation stations.",
+        "effect": "read",
+        "dataClassification": "public",
+        "cost": "unknown",
+        "authentication": []
+      }
+    ],
+    "events": [],
+    "declaredServers": [
+      { "url": "https://api.public-weather.example/v1", "status": "declared" }
+    ],
+    "compatibility": {
+      "issues": [],
+      "dimensions": {
+        "discover": "unsupported",
+        "import": "exact",
+        "configure": "unsupported",
+        "authorize": "unsupported",
+        "verify": "unsupported",
+        "invoke": "requires-configuration",
+        "events": "unsupported",
+        "reconnect": "unsupported",
+        "disconnect": "unsupported",
+        "revoke": "unsupported",
+        "export": "exact",
+        "delegate": "unsupported"
+      }
+    },
+    "nativeExtensions": {}
+  },
+  "sources": [
+    {
+      "identity": {
+        "ecosystem": "openapi",
+        "authorityNamespace": "",
+        "nativeId": "example/public-weather",
+        "nativeVersion": "2026-09-01"
+      },
+      "format": {
+        "name": "openapi",
+        "version": "3.1.0",
+        "dialect": "https://spec.openapis.org/oas/3.1/dialect/base"
+      },
+      "origin": {
+        "kind": "url",
+        "location": "https://api.public-weather.example/openapi.json"
+      },
+      "digest": {
+        "algorithm": "sha256",
+        "value": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+      },
+      "byteLength": 4096,
+      "mediaType": "application/json",
+      "capturedAt": "2026-09-18T00:00:00.000Z",
+      "license": { "spdx": "Apache-2.0", "redistributable": true },
+      "adaptation": [],
+      "overlays": []
+    }
+  ]
+}

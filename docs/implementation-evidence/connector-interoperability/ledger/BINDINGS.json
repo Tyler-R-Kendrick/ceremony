@@ -1,0 +1,214 @@
+{
+  "swarm": "BINDINGS",
+  "workItems": [
+    {
+      "id": "BIND-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/camel-kamelet/schemas.ts",
+        "src/server/connectors/formats/camel-kamelet/import.ts",
+        "src/server/connectors/formats/camel-kamelet/adapter.ts",
+        "src/server/connectors/formats/camel-kamelet/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/camel-kamelet/import.test.ts",
+        "tests/connectors/camel-kamelet/adapter.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-18", "AC-IMP-09", "AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["camel-kamelet-v1@4.22.0"],
+      "limitations": [
+        "Pinned to the released catalog tag v4.22.0 of apache/camel-kamelets (retrieved 2026-09-18); a newer catalog is a new pin, never an automatic upgrade.",
+        "The Camel route template, dataTypes block and Maven dependency list are preserved as inert data: nothing is evaluated, resolved or deployed.",
+        "A source Kamelet's delivery transport is a Camel component, not an HTTP webhook, so the event descriptor is transport unsupported with the native scheme preserved.",
+        "No live catalog fetch was performed from a test; fixtures are locally authored documents shaped exactly like the released ones."
+      ],
+      "notes": "Bounded YAML goes through the shared parseBoundedDocument (yaml 2.9.0, core schema, uniqueKeys, merge keys off, resolveKnownTags off, bounded maxAliasCount) rather than a second parser. Secret classification follows the catalog's own markers first (format: password, x-descriptors urn:camel:group:credentials or the OLM password descriptor) and only then a name heuristic, which is reported as a compatibility issue so the inference is visible. A credential's declared default is dropped and the drop is a blocking issue. Credential custody is declared external-execution-broker, because a Camel runner holds and uses these values and Ceremony never does; no API-key or OAuth method is invented for a route template."
+    },
+    {
+      "id": "BIND-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/dapr/schemas.ts",
+        "src/server/connectors/providers/dapr/binding-settings.ts",
+        "src/server/connectors/providers/dapr/import.ts",
+        "src/server/connectors/providers/dapr/invoke.ts",
+        "src/server/connectors/providers/dapr/events.ts",
+        "src/server/connectors/providers/dapr/verifier.ts",
+        "src/server/connectors/providers/dapr/adapter.ts",
+        "src/server/connectors/providers/dapr/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/dapr/import.test.ts",
+        "tests/connectors/dapr/invoke.test.ts",
+        "tests/connectors/dapr/events.test.ts",
+        "tests/connectors/dapr/verifier.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-18", "AC-STATE-06", "AC-STATE-07"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "dapr-component-v1alpha1",
+        "dapr-bindings-http-v1.0"
+      ],
+      "limitations": [
+        "Binding directions are taken from the supported-bindings component reference (docs.dapr.io, runtime v1.18, retrieved 2026-09-18) for the sixteen types that page states; any other component type is reported direction unknown and unverified rather than guessed.",
+        "There is no discover dimension: Dapr documents no sidecar component-inventory endpoint, and asking one for its loaded components would be the unauthenticated inventory surface this adapter exists to refuse.",
+        "There is no verify dimension: a sidecar exposes no account or identity endpoint, so connectivity could only be relabelled as identity.",
+        "Dapr defines no idempotency key for a binding invocation, so an interrupted write is journalled indeterminate and never retried automatically.",
+        "A Dapr input delivery carries no provider event id; deduplication therefore uses host-assigned identity, and the app API token carries no timestamp so this leg cannot be replay-bounded by the signature itself.",
+        "Disconnect is local only: Dapr offers a platform caller no operation to delete a component, unload it from a sidecar or revoke a sidecar token."
+      ],
+      "notes": "The runtime binding restricts four things at once: the single approved sidecar destination, the component names allowed for output invocation, the operation verbs allowed per component, and the per-call metadata keys. The bound operation's path template must equal the route rebuilt from its own approved component name, so a template naming another component is a policy failure rather than a differently-addressed call. An unauthenticated sidecar is admissible only when the binding declares it explicitly and the destination's network class is loopback-fixture; a public or approved-private sidecar without DAPR_API_TOKEN is refused with configuration-required, which is the concrete form of 'never a generic unauthenticated browser proxy'. The input receiver authenticates with the app API token (dapr-api-token, APP_API_TOKEN) in constant time, and is offered both as an adapter EventPort and as a VendorVerifierPort for the shared webhook receiver."
+    },
+    {
+      "id": "BIND-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/open-service-broker/schemas.ts",
+        "src/server/connectors/providers/open-service-broker/client.ts",
+        "src/server/connectors/providers/open-service-broker/import.ts",
+        "src/server/connectors/providers/open-service-broker/adapter.ts",
+        "src/server/connectors/providers/open-service-broker/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/open-service-broker/catalog.test.ts",
+        "tests/connectors/open-service-broker/inspection.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-18", "AC-STATE-03", "AC-AUTH-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["osb-2.17"],
+      "limitations": [
+        "Provision, deprovision, update, bind and unbind are not implemented: the module contains no request builder for them and every bound operation must be a GET with effect read, so the default profile cannot issue a state-changing request even if a binding asked it to.",
+        "Fetching an instance or a binding is attempted only when the reviewed catalog declared instances_retrievable or bindings_retrievable. The specification defines no error for calling an unsupported fetch endpoint, so an absent flag is reported as a native limitation and the endpoint is never probed.",
+        "Paid plans are recorded as out of scope: no plan change and no provisioning of a non-free plan is available here.",
+        "A fetched instance is the broker's assertion about its own record; the verification claim says so and asserts nothing about the underlying resource, and no permissions are inferred.",
+        "Binding rotation, volume mounts, syslog drains and route services are described but not exercised; only their presence is reported.",
+        "Basic authentication is the specification's default platform-to-broker mechanism and the only one implemented; out-of-band mechanisms are explicitly out of scope in the specification itself."
+      ],
+      "notes": "Pinned to the released tag v2.17 of openservicebrokerapi/servicebroker (spec.md, retrieved 2026-09-18); the repository's master copy is labelled as possibly containing unreleased changes and is deliberately not the pin. Every request sends X-Broker-API-Version: 2.17 and a fresh X-Broker-API-Request-Identity; X-Broker-API-Originating-Identity is sent only for a human-initiated request and carries a SHA-256 pseudonym of tenant and subject, never a host identifier. A 412 from a broker is reported unsupported rather than retried at a lower version. Credentials returned by a binding fetch are stored through CredentialCustodyPort and the result carries a credentialRef plus the credential key names; no credential value appears in any result, projection or error."
+    },
+    {
+      "id": "BIND-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/camel-kamelet/runner.ts",
+        "src/server/connectors/formats/camel-kamelet/adapter.ts"
+      ],
+      "tests": ["tests/connectors/camel-kamelet/runner.test.ts"],
+      "acceptanceIds": ["AC-EXT-18", "AC-EXT-08", "AC-MCP-09"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["camel-kamelet-v1@4.22.0"],
+      "limitations": [
+        "The default KameletHostRunnerPort is unavailable and fail-closed; its reason names that no Camel runner is configured and that Ceremony starts no JVM, resolves no dependency and deploys no integration.",
+        "A deployment whose runtime class is browser cannot be given a runner at all: construction throws, so no code path exists in which a browser-only deployment reports local execution.",
+        "A configured remote runner is unavailable until its signing-secret configuration is present; an unsigned delegation is never sent.",
+        "The delegation signature is a host-internal scheme (HMAC-SHA256 over v1:timestamp:nonce:descriptor-digest), not a vendor protocol; it is not a claim of interoperability with any Camel distribution's own API."
+      ],
+      "notes": "The run descriptor names the Kamelet, its catalog release, the non-secret parameter values the host approved and the host configuration names holding the secret ones. A credential value never enters a descriptor, an export or a request body. The invoke path journals the effect before delegating and records indeterminate when the runner call fails, so an interrupted run is reconcilable rather than silently retried."
+    },
+    {
+      "id": "BIND-05",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/doubles/service-broker.ts",
+        "tests/connectors/doubles/dapr-sidecar.ts",
+        "tests/connectors/doubles/camel-runner.ts",
+        "tests/connectors/fixtures/camel-kamelet/aws-s3-source.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/log-sink.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/insert-header-action.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/unmarked-credential.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/duplicate-keys.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/unsupported-tag.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/alias-bomb.kamelet.yaml",
+        "tests/connectors/fixtures/camel-kamelet/merge-key.kamelet.yaml",
+        "tests/connectors/fixtures/dapr/kafka-binding.yaml",
+        "tests/connectors/fixtures/dapr/cron-binding.yaml",
+        "tests/connectors/fixtures/dapr/http-binding.yaml",
+        "tests/connectors/fixtures/dapr/unknown-binding.yaml",
+        "tests/connectors/fixtures/dapr/statestore-component.yaml",
+        "tests/connectors/fixtures/dapr/duplicate-keys.yaml",
+        "tests/connectors/fixtures/open-service-broker/catalog.json"
+      ],
+      "tests": [
+        "tests/connectors/camel-kamelet/import.test.ts",
+        "tests/connectors/camel-kamelet/runner.test.ts",
+        "tests/connectors/camel-kamelet/adapter.test.ts",
+        "tests/connectors/dapr/import.test.ts",
+        "tests/connectors/dapr/invoke.test.ts",
+        "tests/connectors/dapr/events.test.ts",
+        "tests/connectors/dapr/verifier.test.ts",
+        "tests/connectors/open-service-broker/catalog.test.ts",
+        "tests/connectors/open-service-broker/inspection.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-18", "AC-IMP-09", "AC-IMP-13", "AC-UX-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "camel-kamelet-v1@4.22.0",
+        "dapr-bindings-http-v1.0",
+        "osb-2.17"
+      ],
+      "limitations": [
+        "All evidence is protocol-fixture. No vendor account, broker, sidecar or Camel runtime was contacted, and nothing here is live or vendor-certified.",
+        "The three doubles are written from the published documentation and decide conformance themselves; none of them calls the implementation under test, including the Camel runner double, which recomputes the delegation HMAC with node:crypto rather than using the signing helper."
+      ],
+      "notes": "74 tests over the three areas cover fixture catalogs, configured-runner operations, invalid and missing credentials, unknown component and binding names, omitted optional retrieval capabilities, event authentication and rotation, and unavailable-runtime reporting. Hostile YAML (duplicate keys, an unsupported tag, an alias bomb, a merge key) is refused within bounds with sanitized codes that quote nothing from the document."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "connector adapter registry construction (INT)",
+      "description": "Register the three adapters where the host builds its ConnectorAdapterRegistry: createCamelKameletAdapter(options) from src/server/connectors/formats/camel-kamelet/index.ts, createDaprAdapter(options) from src/server/connectors/providers/dapr/index.ts, and createOpenServiceBrokerAdapter(options) from src/server/connectors/providers/open-service-broker/index.ts. Adapter ids are camel-kamelet, dapr and open-service-broker. All three take only optional arguments and default to safe behaviour: the Kamelet adapter defaults to an unavailable runner, and Dapr and the broker default to protocol-fixture evidence."
+    },
+    {
+      "target": "src/server/connectors/formats/camel-kamelet (INT, deployment wiring)",
+      "description": "A deployment whose runtime class is browser must construct the Kamelet adapter as createCamelKameletAdapter({ deploymentRuntime: \"browser\" }). Passing a runner alongside that throws ConnectorError(\"unsupported\", { detail: \"kamelet.runner.browser-deployment\" }) by design; do not catch and ignore it."
+    },
+    {
+      "target": "src/server/connectors/events (INT, receiver registration)",
+      "description": "Register createDaprVendorVerifier() from src/server/connectors/providers/dapr/verifier.ts with the shared webhook receiver under vendor id \"dapr-app-api-token\" so a Dapr input binding is received through the existing authenticated receiver rather than a parallel route. Its secrets resolver should return the host's DAPR_APP_API_TOKEN values (several to allow rotation)."
+    },
+    {
+      "target": "src/server/teaching-http.ts or src/server/hosted/* (INT, route mount)",
+      "description": "Mount two routes for Dapr input bindings on the application side: OPTIONS /<component> answering the sidecar's startup subscription probe with the status from daprInputSubscriptionStatus(settings, component) (200 to subscribe, 404 to decline), and POST /<component> delivering into the receiver. The route, not the request, decides which component was addressed: pass the matched path segment to createDaprEventPort({ resolveInputBinding }) or call verifyDaprInputDelivery(ctx, { bindingName, delivery }) directly. A header naming the component must never be trusted for this."
+    },
+    {
+      "target": "src/core/index.ts and package exports (INT)",
+      "description": "No change requested. All three modules are server-only and must stay out of the default browser bundle; none of them is referenced from src/core."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "BIND-01",
+      "item": "Live catalog retrieval from camel.apache.org or the GitHub release tag at runtime",
+      "reason": "Tests have no internet by rule, and a live fetch adds no contract this importer does not already exercise from bytes. A deployment that wants a live catalog binds the release URL as an approved destination; that path is untested here and is recorded as such."
+    },
+    {
+      "id": "BIND-02",
+      "item": "Dapr gRPC transport and the Dapr Actors, Workflow and Conversation building blocks",
+      "reason": "Out of scope for BIND-02, which is component and binding metadata plus the HTTP output-binding and input-receiver profiles. Non-binding components import as descriptions with a blocking issue saying they have no invocation profile here."
+    },
+    {
+      "id": "BIND-03",
+      "item": "Binding rotation (PUT with predecessor_binding_id) and the maintenance_info update flow",
+      "reason": "Both are mutating operations. They belong to a provisioning profile that this swarm deliberately does not implement, and adding a request builder for them would remove the structural guarantee that no state-changing request can be issued."
+    }
+  ],
+  "externalEffectsPerformed": [
+    {
+      "effect": "Read public specification and documentation pages over HTTPS during research",
+      "targets": [
+        "https://raw.githubusercontent.com/openservicebrokerapi/servicebroker/v2.17/spec.md",
+        "https://raw.githubusercontent.com/apache/camel-kamelets/v4.22.0/kamelets/timer-source.kamelet.yaml",
+        "https://raw.githubusercontent.com/apache/camel-kamelets/v4.14.0/kamelets/aws-s3-source.kamelet.yaml",
+        "https://camel.apache.org/camel-kamelets/4.22.x/security-model.html",
+        "https://docs.dapr.io/reference/api/bindings_api/",
+        "https://docs.dapr.io/reference/components-reference/supported-bindings/",
+        "https://docs.dapr.io/operations/security/api-token/",
+        "https://docs.dapr.io/operations/security/app-api-token/"
+      ],
+      "note": "Read-only public documentation. No account was created, no credential issued, no package installed, no image pulled, no container or JVM started, and no vendor API was called with credentials."
+    }
+  ]
+}

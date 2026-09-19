@@ -1,0 +1,10 @@
+{
+  "connectorId": "contoso-projects-scripted-4b07",
+  "environment": "Default-00000000-0000-0000-0000-000000000000",
+  "apiProperties": "apiProperties.script.json",
+  "apiDefinition": "apiDefinition.swagger.json",
+  "icon": "icon.png",
+  "script": "script.csx",
+  "powerAppsApiVersion": "2016-11-01",
+  "powerAppsUrl": "https://api.powerapps.com"
+}

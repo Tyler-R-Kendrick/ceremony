@@ -1,0 +1,46 @@
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-log-sink
+  annotations:
+    camel.apache.org/kamelet.support.level: "Stable"
+    camel.apache.org/catalog.version: "4.22.0"
+    camel.apache.org/provider: "Ceremony fixtures"
+    camel.apache.org/kamelet.group: "Logging"
+    camel.apache.org/kamelet.namespace: "Logging"
+  labels:
+    camel.apache.org/kamelet.type: "sink"
+spec:
+  definition:
+    title: "Fixture log sink"
+    description: A sink that logs everything it receives, for debugging.
+    type: object
+    properties:
+      loggerName:
+        title: Logger name
+        description: Name of the logging category to use.
+        type: string
+        default: fixture-log-sink
+      level:
+        title: Log level
+        description: Logging level to use.
+        type: string
+        default: INFO
+        enum: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "OFF"]
+      showHeaders:
+        title: Show headers
+        description: Show the message headers.
+        type: boolean
+        default: false
+  dependencies:
+    - "camel:kamelet"
+    - "camel:log"
+  template:
+    from:
+      uri: "kamelet:source"
+      steps:
+        - to:
+            uri: "log:{{loggerName}}"
+            parameters:
+              level: "{{level}}"
+              showHeaders: "{{showHeaders}}"

@@ -16,20 +16,29 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    # Measured rather than guessed, after one raise that was propped up by a
-    # real defect and correctly reverted. On main at d741eed this job finished
-    # in 22m03s against a 25-minute cap; at 96b43e9 on this branch `npm run
-    # verify` took 23m05s and completed with 21 seconds to spare — but only
-    # because 23 browser tests aborted early on a failed above-the-fold
-    # assertion. Fixing that assertion made those tests run their bodies, and
-    # the next run was cancelled at 25m18s with webkit still going.
+    # 45 rather than 25, measured from both directions and both reasons kept,
+    # because they are different measurements of the same job.
     #
-    # The shape of the job is why it is close: ~12m17s is spent before the
-    # browsers start at all (npm ci and three engine downloads, then
-    # format/check, test:coverage at 2m16s and test:security:mutation at
-    # 7m20s), leaving the whole four-project Playwright suite the remainder.
-    # 45 leaves room for that suite plus runner variance, rather than
-    # re-tuning this on the next change that adds a browser case.
+    # From main's side: at d741eed this job finished in 22m03s against the old
+    # 25-minute cap; at 96b43e9 `npm run verify` took 23m05s and finished with
+    # 21 seconds to spare — but only because 23 browser tests aborted early on
+    # a failed above-the-fold assertion. Fixing that assertion made those tests
+    # run their bodies and the next run was cancelled at 25m18s with webkit
+    # still going. ~12m17s goes before the browsers start at all (npm ci and
+    # three engine downloads, then format/check, test:coverage at 2m16s and
+    # test:security:mutation at 7m20s), leaving the four-project Playwright
+    # suite the remainder.
+    #
+    # From connector interoperability's side: that change roughly doubles the
+    # suite `test:coverage` instruments, from about 1200 tests to 2899, and
+    # that stage is the longest of the nine run in series. Locally the stages
+    # measure format:check 22s, check 25s, test:coverage 196s, test:workflow
+    # 10s, build 60s, build:hosted 60s, build:vercel 90s, with the mutation and
+    # browser stages on top.
+    #
+    # A cap that trips at stage three of nine wastes a whole CI cycle and tells
+    # you nothing about stages four to nine, which is worse than a generous
+    # cap: this number is a guard against a hang, not a performance target.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -129,6 +138,28 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
+  connector-mutation:
+    # The connector guards: identifier rules and approved-path containment.
+    # Separate from the `mutation` matrix because those entries mutate a whole
+    # file with the base configuration, and these are narrow line ranges pinned
+    # to particular guards with their own measured threshold. Roughly two
+    # minutes: a hundred mutants over nine fast test files, no database, no
+    # network and no browser.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:connectors:mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-connector-guards
+          path: artifacts/connector-mutation/
   coverage:
     # `verify`'s largest stage is `test:coverage`, and the wrapper reports it as
     # counts plus the file a failure lived in — by design, because the retained

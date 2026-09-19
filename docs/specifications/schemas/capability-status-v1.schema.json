@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "discover",
+        "import",
+        "configure",
+        "authorize",
+        "verify",
+        "invoke",
+        "events",
+        "reconnect",
+        "disconnect",
+        "revoke",
+        "export",
+        "delegate"
+      ]
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\p{Cc}]+$"
+    },
+    "adapterVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]+$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["browser", "hosted-server", "trusted-local-runner"]
+    },
+    "implementation": {
+      "type": "string",
+      "enum": ["implemented", "unsupported"]
+    },
+    "configuration": {
+      "type": "string",
+      "enum": ["ready", "missing", "not-applicable"]
+    },
+    "evidence": {
+      "type": "string",
+      "enum": [
+        "not-tested",
+        "unit",
+        "protocol-fixture",
+        "local-integration",
+        "browser-integration",
+        "live-authorized",
+        "deployed-authorized"
+      ]
+    },
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    },
+    "limitations": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500,
+        "allOf": [
+          { "pattern": "^[^\\p{Cc}]*$" },
+          {
+            "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "dimension",
+    "profile",
+    "adapterVersion",
+    "runtime",
+    "implementation",
+    "configuration",
+    "evidence",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:capability-status-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

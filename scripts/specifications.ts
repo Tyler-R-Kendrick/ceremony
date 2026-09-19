@@ -14,6 +14,15 @@ import {
   methodSelectionSchema,
   connectorProjectSchema,
   connectorProjectDraftSchema,
+  sourceRecordSchema,
+  normalizedDefinitionSchema,
+  connectorEnvelopeSchema,
+  capabilityStatusSchema,
+  verificationClaimSchema,
+  compatibilityIssueSchema,
+  catalogEntrySchema,
+  connectionSummarySchema,
+  bindingReferenceSchema,
 } from "../src/core/index.js";
 import { arazzoSchema } from "../src/server/arazzo.js";
 
@@ -29,6 +38,15 @@ export const specificationSchemas = {
   "demonstration-event-v1": demonstrationEventSchema,
   "method-selection-v1": methodSelectionSchema,
   "arazzo-profile-1.0.1": arazzoSchema,
+  "connector-source-v1": sourceRecordSchema,
+  "connector-definition-v1": normalizedDefinitionSchema,
+  "connector-envelope-v2": connectorEnvelopeSchema,
+  "capability-status-v1": capabilityStatusSchema,
+  "verification-claim-v1": verificationClaimSchema,
+  "compatibility-issue-v1": compatibilityIssueSchema,
+  "catalog-entry-v1": catalogEntrySchema,
+  "connection-summary-v1": connectionSummarySchema,
+  "binding-reference-v1": bindingReferenceSchema,
 };
 export async function specificationDocument(
   name: keyof typeof specificationSchemas,

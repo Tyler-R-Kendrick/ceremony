@@ -1,0 +1,333 @@
+{
+  "swarm": "MICROSOFT",
+  "workItems": [
+    {
+      "id": "MS-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/microsoft/read.ts",
+        "src/server/connectors/formats/microsoft/swagger-walk.ts",
+        "src/server/connectors/formats/microsoft/api-properties.ts",
+        "src/server/connectors/formats/microsoft/issues.ts",
+        "src/server/connectors/formats/microsoft/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/microsoft/import.test.ts",
+        "tests/connectors/microsoft/policy.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-12", "AC-IMP-13", "AC-IMP-14"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "Swagger 2.0 only, which is the only version the Power Platform importer accepts; an OpenAPI 3.x document is refused with a blocking version diagnostic rather than half-imported",
+        "Native capability effect and data classification are reported as unknown: Swagger 2.0 declares neither, and an HTTP method is not evidence of an effect",
+        "Entra ID (identityProvider \"aad\") connection parameters yield an authorization-code profile with no endpoints; loginUri/tenantId are preserved but no authorize or token URL is synthesized from them",
+        "Request and response schemas are referenced by pointer, not copied into the definition; the protected source artifact remains authoritative for them"
+      ],
+      "notes": "readCustomConnector({swagger, apiProperties?, settings?, scriptPresent?}) returns a NormalizedDefinition plus review data. Connection parameters map to configurationRequirements with a deterministic uppercase name (securestring -> secret; oauthSetting -> <NAME>_CLIENT_ID public + <NAME>_CLIENT_SECRET secret, both provider-console); every rename raises a structure.configuration-name-adapted warning and the native spelling is kept in nativeExtensions[\"microsoft-custom-connector\"].connectionParameters[].nativeName. connectionParameterSets become alternative authentication profiles, grouped through presentation.profileSets, never merged. x-ms-visibility is recorded only under presentation.visibility. Missing apiProperties.json yields structure.incomplete-configuration (requires-configuration, executionImpact none). Every x-ms-* extension is preserved with its JSON pointer, grouped by the node it was read from (document, path item, operation, parameter, response) so an export can place it back; blocks are measured against EXTENSION_LIMITS and degrade to pointer-keeping markers rather than failing to parse."
+    },
+    {
+      "id": "MS-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/microsoft/dynamic.ts",
+        "src/server/connectors/formats/microsoft/adapter.ts",
+        "src/server/connectors/formats/microsoft/read.ts"
+      ],
+      "tests": ["tests/connectors/microsoft/dynamic.test.ts"],
+      "acceptanceIds": ["AC-EXT-10"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "A dynamic operation that is not a GET or HEAD is compiled with effect unknown and replay none, with a policy.dynamic-operation-effect-unknown warning, instead of being asserted read-only from the extension alone",
+        "Option caching is in-process by default (createMemoryDynamicCache); a deployment supplies a DynamicOptionCachePort with the same key discipline",
+        "Dynamic values are executed only for a contract the binding carries; a contract supplied by a caller is refused"
+      ],
+      "notes": "x-ms-dynamic-values / -list / -schema / -properties all compile into DynamicFieldContract with typed parameter binding (literal, `parameter`, `parameterReference`), and the newer extension is marked preferred when a field declares both. The referenced operationId must exist exactly once and be unblocked or the contract is non-executable with blockedBy codes. Compiled BoundOperations: kind http, effect read, outputClassification personal, consent none, replay read-only, targetParameters from the path template (checked against permittedTargets). Execution is server-side inside credentials.use, with redirect \"error\", AbortSignal.any(ctx.signal, timeout), a bounded body read and a bounded JSON measure. The cache key carries tenant, owner, connectionRef, generation, bindingRef, revision, policyRevision, operation, contract and the exact request, so another principal never sees cached options and a generation change invalidates them (AC-EXT-10). Titles are stripped of markup, control and format characters; values must be bounded primitives or they are dropped; option count is capped at 500 with a truncated flag."
+    },
+    {
+      "id": "MS-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/microsoft/read.ts",
+        "src/server/connectors/formats/microsoft/adapter.ts"
+      ],
+      "tests": ["tests/connectors/microsoft/verify.test.ts"],
+      "acceptanceIds": ["AC-EXT-11"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "A parameterized test-connection path is refused rather than guessed: verify throws unsupported with detail microsoft.verify.parameterized",
+        "The claim's target id is the binding's approved connectorId (or the connection's service), never an upstream account identifier"
+      ],
+      "notes": "x-ms-capabilities.testConnection.operationId becomes a VerifierCandidate with requiresHostReview true and the two fixed limitations, plus a compiled BoundOperation candidate; import offers it and approves nothing (identity.test-connection-candidate, severity info). When the binding approves it, verify() interprets only what the operation demonstrates: 200 yields exactly one VerificationClaim of kind credential-accepted, target { kind: \"custom-connector-connection\", id: <connector id> }, limitations [\"testConnection demonstrates connectivity only\", \"account identity not established\"], no permissions block and no account-identity or permission-observed claim, even when the provider's body contains a display name and roles. 401/403 -> denied with no claims; 429/5xx/transport failure -> pending; no upstream text ever reaches the result."
+    },
+    {
+      "id": "MS-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/microsoft/read.ts",
+        "src/server/connectors/formats/microsoft/api-properties.ts"
+      ],
+      "tests": [
+        "tests/connectors/microsoft/import.test.ts",
+        "tests/connectors/microsoft/policy.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-12"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "Webhook triggers are described, not subscribed: the adapter implements no events port, and the descriptor's verification is \"unknown\" until a host approves a receiver and a delivery verification method",
+        "Polling triggers have no equivalent trigger state in Ceremony (the Power Platform holds the cursor in a Location header across 202 responses), so they are transport \"unsupported\" with nativeTransport \"polling\" and a blocking diagnostic",
+        "An on-premises gateway requirement is reported under category \"network\" rather than \"policy\": it is a network-path requirement, not code. Custom code uses \"executable-code\" and policy templates use \"policy\" as the brief specifies"
+      ],
+      "notes": "Webhook trigger (x-ms-trigger plus a parameter or body property with x-ms-notification-url true) -> transport http-webhook, verification unknown, messageSchemaRef from the Path Item's x-ms-notification-content, plus structure.webhook-receiver-review; a 201 without a Location header raises structure.webhook-unsubscribe-unknown because the described API then offers no way to withdraw the subscription. Polling trigger -> structure.polling-trigger-unsupported (blocking, blocks-operation). policyTemplateInstances -> policy.template-unsupported per instance, blocking only the operations named by x-ms-apimTemplate-operationName (all operations when unscoped); parameter values are never preserved, only names and JSON types, because a setheader policy value can carry a credential. Custom code -> executable-code.custom-script; an empty scriptOperations list means every operation, as the CLI documentation states. Gateway -> network.gateway-required / network.gateway-capability. All of it stays inert metadata under nativeExtensions with executable: false."
+    },
+    {
+      "id": "MS-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/microsoft/export.ts",
+        "src/server/connectors/formats/microsoft/adapter.ts"
+      ],
+      "tests": [
+        "tests/connectors/microsoft/export.test.ts",
+        "tests/connectors/microsoft/adapter.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-14", "AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "The export reproduces no request or response schema: the description carries pointers, not schemas, and every affected operation gets an explicit loss",
+        "apiProperties.json and script.csx are not produced; connection parameters, client secrets and connection values never leave in an export",
+        "Extensions that lived inside a body or response schema have no reproduced schema to attach to and are reported as unplaced rather than moved somewhere else"
+      ],
+      "notes": "exportCustomConnector(definition, binding?) rebuilds apiDefinition.swagger.json. With a binding it is bounded to approved operations (others become policy.operation-not-bound info losses) and host/schemes/basePath come from the approved destination, with network.host-rebound when that differs from the source host. Security definitions are re-emitted only from the preserved securityDefinitions record, so the OAuth profile that came from apiProperties never becomes an invented security definition. Extensions are placed back on the exact node group they were read from; a test walks both documents and asserts the exported extension-name set is a subset of the source's. dynamicFieldUiContracts(contracts) produces the small JSON contract for the UX surface (field, dependsOn, constants, selection value/title, operationRef, executable, blockedBy), pinned by the fixture tests/connectors/fixtures/microsoft/dynamic-field-ui.json."
+    },
+    {
+      "id": "MS-ADAPTER",
+      "status": "implemented",
+      "files": ["src/server/connectors/formats/microsoft/adapter.ts"],
+      "tests": [
+        "tests/connectors/microsoft/adapter.test.ts",
+        "tests/connectors/microsoft/dynamic.test.ts",
+        "tests/connectors/microsoft/verify.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-10", "AC-EXT-11"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["microsoft-custom-connector-2026-06"],
+      "limitations": [
+        "invoke executes approved dynamic field lookups only; any other bound operation is refused so the adapter cannot become a credentialed fetch(url, headers, body) escape hatch. Ordinary operations belong to the HTTP adapter under their own binding",
+        "No events, authorize, complete, reconnect, disconnect, revoke or delegate: the connector's credential lifecycle belongs to the OAuth and state work, and the adapter reports those dimensions honestly rather than stubbing them",
+        "support defaults to \"provider-backed\" with no adapter-level configuration; a deployment may override it when registering a fixture instance"
+      ],
+      "notes": "createMicrosoftCustomConnectorAdapter(options) with id \"microsoft-custom-connector\", runtime hosted-server, custody host-owned, profiles [\"microsoft-custom-connector-2026-06\", \"swagger-2.0\"]. Destination comes from the binding; credentials are opened only inside credentials.use. MicrosoftAuthorizationHook is the declared seam for the OAUTH swarm: ({kind, placement?, parameterName?, material}) => {headers?, query?}. defaultAuthorizationHook covers api key (header or query), http basic and oauth2 bearer, and refuses a credential that would split a header. Binding settings (connectorId, authentication, dynamicFields, verifier, cacheTtlMs, responseBytes, requestTimeoutMs) are host-approved and schema-validated; a caller supplies only an operation ref and the form's current values."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createMicrosoftCustomConnectorAdapter(options) from src/server/connectors/formats/microsoft/index.ts in the adapter registry. It needs no adapter-level configuration; catalogEntryFor already produces its directory row (verified in tests/connectors/microsoft/adapter.test.ts)."
+    },
+    {
+      "target": "src/server/connectors/formats/openapi (HTTP swarm) + src/server/connectors/formats/microsoft/swagger-walk.ts",
+      "description": "The Swagger 2.0 walk is isolated in swagger-walk.ts as the only file that touches the document. To adopt the shared reader, write an adapter from its ReadResult to SwaggerWalk (info/host/basePath/schemes/securityDefinitions/documentSecurity/operations with per-node extension maps and indexed body/response schema nodes) and delete the local walk. The Microsoft reader needs two things the generic model does not currently expose: extensions indexed per nested schema node with their Power Platform \"path string\" (a JSON pointer without the leading slash), and the Path Item's own extensions kept separate from the operation's (x-ms-notification-content lives on the Path Item). No other Microsoft file changes."
+    },
+    {
+      "target": "OAUTH swarm",
+      "description": "MicrosoftAuthorizationHook in formats/microsoft/adapter.ts is the declared hook type for a generic OAuth2 connection parameter set. Pass it as options.authorization; it receives the connection parameter set's kind and the opened credential material and returns only headers/query for one request. The default implementation stays as the api-key and basic fallback."
+    },
+    {
+      "target": "UX swarm",
+      "description": "dynamicFieldUiContracts(contracts) in formats/microsoft/export.ts returns the renderable contract per dynamic field, pinned by tests/connectors/fixtures/microsoft/dynamic-field-ui.json. A renderer reruns a lookup when any field named in dependsOn changes and calls the adapter with {operationRef: contract.operationRef, input: {contractId: contract.id, values}}; it never calls the provider itself."
+    },
+    {
+      "target": "STATE swarm",
+      "description": "On reconnect, disconnect or revoke, call DynamicOptionCachePort.invalidate with the prefix JSON.stringify([tenantId, ownerId, connectionRef, generation]) + \"|\". Advancing the generation already makes stale entries unreachable; invalidate releases them."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "item": "Live or vendor evidence",
+      "detail": "All evidence is protocol-fixture against loopback servers. No Power Platform environment, no certified connector and no live custom connector credential were used, so nothing here is live-authorized."
+    },
+    {
+      "item": "Webhook delivery",
+      "detail": "Trigger metadata is imported and classified, but no events port is implemented: receiving a Contoso-style notification requires a host-approved receiver destination and a delivery verification method, which belong to the events work."
+    }
+  ],
+  "externalEffectsPerformed": [],
+  "sourceLock": {
+    "profileId": "microsoft-custom-connector-2026-06",
+    "retrievedAt": "2026-09-18",
+    "verified": [
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/openapi-extensions",
+        "msDate": "2026-06-03",
+        "updatedAt": "2026-08-27",
+        "fields": [
+          "x-ms-summary",
+          "x-ms-visibility (important | advanced | internal; internal+required needs a default)",
+          "x-ms-api-annotation",
+          "x-ms-operation-context",
+          "x-ms-capabilities.testConnection.operationId (connector level); x-ms-capabilities.chunkTransfer (operation level)",
+          "x-ms-trigger (single | batch; absent means action)",
+          "x-ms-trigger-hint",
+          "x-ms-notification-content.schema",
+          "x-ms-notification-url (boolean, on parameters and input fields)",
+          "x-ms-url-encoding (single | double)",
+          "x-ms-dynamic-values: operationId, parameters, value-collection, value-path, value-title; parameter entry is a literal or { parameter }",
+          "x-ms-dynamic-list: operationId, parameters, itemsPath, itemValuePath, itemTitlePath; parameter entry is { value } or { parameterReference }",
+          "x-ms-dynamic-schema: operationId, parameters, value-path",
+          "x-ms-dynamic-properties: operationId, parameters, itemValuePath",
+          "\"path string\" is a JSON pointer without the leading slash",
+          "the newer extension is declared alongside the older one when property references are used"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/define-openapi-definition",
+        "msDate": "2026-06-03",
+        "updatedAt": "2026-08-27",
+        "fields": [
+          "OpenAPI 2.0 (Swagger) only; OpenAPI 3.0 documents are not supported",
+          "the definition must be under 1 MB",
+          "with several security definitions the connector picks the top one",
+          "client credentials in an OAuth security definition are not supported"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/paconn-cli",
+        "msDate": "2025-05-28",
+        "updatedAt": "2025-06-11",
+        "fields": [
+          "connector files: apiDefinition.swagger.json, apiProperties.json, optional icon, optional script.csx, plus settings.json as the CLI argument store",
+          "apiProperties.properties: connectionParameters, iconBrandColor, scriptOperations, capabilities, policyTemplateInstances",
+          "an empty scriptOperations list means every operation runs with the script file",
+          "settings.json: connectorId, environment, apiProperties, apiDefinition, icon, script, powerAppsApiVersion, powerAppsUrl",
+          "policyTemplateInstances entry: title, templateId, parameters with x-ms-apimTemplateParameter.* names"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/certification-submission",
+        "msDate": "2026-02-20",
+        "updatedAt": "2026-02-21",
+        "fields": [
+          "connectionParameters basic auth: username and password as securestring with uiDefinition.constraints (tabIndex, clearText, required)",
+          "API key: securestring with uiDefinition.constraints",
+          "generic OAuth: type oAuthSetting with oAuthSettings { identityProvider: \"oauth2\", scopes, redirectMode, customParameters { AuthorizationUrl, TokenUrl, RefreshUrl }, clientId }",
+          "Entra ID: identityProvider \"aad\" with customParameters { LoginUri, TenantId, ResourceUri, EnableOnbehalfOfLogin }",
+          "swagger must comply with OpenAPI 2.0 and the connectors' extended standard"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/create-webhook-trigger",
+        "msDate": "2025-08-12",
+        "updatedAt": "2025-08-13",
+        "fields": [
+          "x-ms-notification-content sits on the Path Item beside the operation",
+          "\"x-ms-trigger\": \"single\" marks the operation as a trigger in the designer",
+          "the definition must include a delete operation for the webhook",
+          "the API must return a Location header in the 201 response so the subscription can be deleted"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/create-polling-trigger",
+        "msDate": "2024-03-22",
+        "updatedAt": "2025-08-13",
+        "fields": [
+          "a polling trigger returns 202 Accepted with a retry interval and a Location header carrying the current state, then 200 with the new data",
+          "state parameters are marked x-ms-visibility internal with default values",
+          "results must be reverse sorted on the trigger parameter"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/write-code",
+        "msDate": "2025-05-14",
+        "updatedAt": "2025-07-25",
+        "fields": [
+          "custom code takes precedence over the codeless definition",
+          "class Script : ScriptBase with ExecuteAsync; one script file per connector",
+          "script must complete within 2 minutes and may not exceed 1 MB (the from-scratch page states a 5 second maximum execution time)",
+          "custom code cannot be used with the on-premises data gateway"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/connection-parameters",
+        "msDate": "2026-02-20",
+        "updatedAt": "2026-02-21",
+        "fields": [
+          "supported authentication types: no authentication, basic, API key, OAuth 2.0",
+          "API key location is header or query string",
+          "client credentials grant type is not supported by custom connectors"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/policy-templates",
+        "msDate": "2022-06-08",
+        "updatedAt": "2025-05-07",
+        "fields": [
+          "policies modify connector behaviour at runtime and are configured as template instances on the Definition page",
+          "environment variables may appear in policy values as @environmentVariables(\"name\")"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/define-blank",
+        "msDate": "2026-06-03",
+        "updatedAt": "2026-08-27",
+        "fields": [
+          "custom code: C#, maximum execution time five seconds, file no larger than 1 MB",
+          "if no operation is selected the code applies to all operations",
+          "visibility values none | advanced | internal | important"
+        ]
+      },
+      {
+        "page": "https://learn.microsoft.com/en-us/connectors/custom-connectors/azure-active-directory-authentication",
+        "msDate": "2026-04-29",
+        "updatedAt": "2026-04-29",
+        "fields": [
+          "Entra ID connectors are configured with client id, client secret and resource URL; the redirect URL is issued per connector",
+          "managed identity is supported instead of a client secret for single-tenant applications"
+        ]
+      },
+      {
+        "page": "https://github.com/microsoft/PowerPlatformConnectors (certified-connectors, branch dev)",
+        "retrievedAt": "2026-09-18",
+        "fields": [
+          "connectionParameterSets.uiDefinition and values[] with name, uiDefinition, metadata.allowSharing and parameters (PushToDisplay/apiProperties.json)",
+          "type \"gatewaySetting\" with gatewaySettings.dataSourceType and capabilities [\"gateway\"] (Connect Bridge/apiProperties.json)",
+          "policyTemplateInstances with x-ms-apimTemplate-operationName as an array of operation ids (Connect Bridge/apiProperties.json)",
+          "x-ms-capabilities.testConnection with an empty parameters object (Pushcut, tyntec-SMS)",
+          "publisher and stackOwner as top-level apiProperties fields"
+        ]
+      }
+    ],
+    "unverified": [
+      {
+        "subject": "policy template id vocabulary",
+        "detail": "The policy overview page describes how templates are configured but publishes no list of templateId values. Template ids are therefore treated as opaque tokens: they are preserved verbatim and always block execution, and no per-template semantics are implemented. The ids used in fixtures (setheader, setqueryparameter, routerequesttoendpoint) come from the open-source connector corpus and the CLI page's example, not from a normative list."
+      },
+      {
+        "subject": "connection parameter constraint \"hidden\"",
+        "detail": "constraints.hidden appears in the connector corpus but is not documented on the connection-parameters page. It is read as a presentation hint only; it never affects classification, and a hidden securestring stays secret."
+      },
+      {
+        "subject": "oauthSetting key spelling",
+        "detail": "The documentation and the corpus use both \"oauthSetting\" and \"oAuthSetting\" for the type and both \"oAuthSettings\" and \"oauthSettings\" for the settings object. Both spellings are accepted, case-insensitively for the type."
+      },
+      {
+        "subject": "custom code execution time limit",
+        "detail": "The write-code FAQ states two minutes; the create-from-blank page states five seconds. The discrepancy is recorded and neither number is relied on: code is never executed here."
+      }
+    ]
+  },
+  "verification": {
+    "commands": [
+      "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/microsoft/*.test.ts",
+      "export NODE_OPTIONS=\"--max-old-space-size=8192\" && npx tsc --noEmit --strict --exactOptionalPropertyTypes --noUncheckedIndexedAccess --target ES2024 --lib ES2024,DOM,DOM.Iterable --module NodeNext --moduleResolution NodeNext --skipLibCheck --resolveJsonModule --esModuleInterop --jsx react-jsx src/server/connectors/formats/microsoft/*.ts tests/connectors/microsoft/*.ts",
+      "npx prettier --check src/server/connectors/formats/microsoft tests/connectors/microsoft tests/connectors/fixtures/microsoft"
+    ],
+    "result": "63 tests, 63 pass, 0 fail; type-check clean over the owned files; formatting clean"
+  }
+}

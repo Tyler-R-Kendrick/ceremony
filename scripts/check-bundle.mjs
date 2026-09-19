@@ -24,27 +24,39 @@ const totals = files.reduce(
 // only fat found while checking (an explainer paragraph, ten state hooks) is
 // gone. The ceiling moves rather than the requirement.
 //
-// Raised a second time for the connector directory and its Add Connection
-// drawer, which replaced a single-column picker with a surface a person can
-// browse: categories, search, a featured strip, 64 rows, and a four-step
-// wizard covering every auth family the project actually carries. Measured per
-// module before moving the number — 10.6 kB of directory data, 7.5 kB of
-// browse page, 14.5 kB of wizard, all of it minified, none of it a new
-// dependency. Tree-shaking was already removing the speculative exports found
-// while checking, so the ~34 kB raw is the feature itself. The rows are static
-// host copy on purpose: moving them behind a fetch would shrink this number
-// without shrinking the download, which is the opposite of what the ceiling is
-// for.
+// Raised twice on main and once here, and then re-measured once the two met,
+// because neither number survived the merge. Recording all three so the next
+// person can see what this ceiling is actually holding.
 //
-// Widened once more when the protocol cards landed. 530000 left 1356 bytes of
-// room, which is 0.26%: a ceiling that close to the measurement stops being a
-// budget and becomes a tripwire for whichever unrelated change happens to go
-// next. Checked for fat first and found none worth taking — the only unused
-// exports are a type and two arrays the catalogue itself references. So the
-// number moves to where it can still catch a real regression: about 3% clear
-// of today's build, which is roughly one careless import, not one sentence of
-// copy.
-const budget = { raw: 545000, gzip: 169000 };
+// main's raises were for the connector directory and its Add Connection
+// drawer: categories, search, a featured strip, 64 rows and a four-step wizard
+// covering every auth family the project carries — measured per module at
+// 10.6 kB of directory data, 7.5 kB of browse page and 14.5 kB of wizard, none
+// of it a new dependency — and then again for the protocol cards, which had
+// left only 1356 bytes of room (0.26%), close enough that the ceiling had
+// stopped being a budget and become a tripwire for whatever change went next.
+// Its rows are static host copy on purpose: moving them behind a fetch would
+// shrink this number without shrinking the download.
+//
+// This branch's raise was for the server-bound directory, drawer, connection
+// surface and import review. The reference page itself grew by 0.77 kB raw and
+// 0.30 kB gzip, because that workspace is lazy — a visitor who never opens it
+// downloads only the nav button. What crossed the ceiling was the on-demand
+// chunks, which this script counts because it measures total download across
+// every chunk rather than first paint. That accounting is deliberate and
+// stays: a ceiling that ignored lazy chunks would let any amount of code in
+// behind an import().
+//
+// So the merged number is larger than either side predicted — 616126 raw
+// against ceilings of 580000 and 545000 — and the reason is not drift. The
+// application now ships TWO connector surfaces: main's catalogue-driven one in
+// examples/web/, and this branch's server-bound one behind the Connectors
+// section. Both are reachable, both are documented in
+// docs/connector-directory.md, and consolidating them is the change that
+// brings this number back down. Until someone decides which survives, the
+// honest ceiling is the measurement plus the same ~3% of headroom the last
+// raise used — roughly one careless import, not one sentence of copy.
+const budget = { raw: 633000, gzip: 196500 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(

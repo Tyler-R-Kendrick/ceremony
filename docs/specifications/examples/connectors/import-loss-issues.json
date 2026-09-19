@@ -1,0 +1,58 @@
+[
+  {
+    "code": "security.unsupported-scheme",
+    "category": "security",
+    "sourcePointer": "#/components/securitySchemes/corporateSso",
+    "normalizedPointer": "#/authentication/1",
+    "dimension": "authorize",
+    "disposition": "unsupported",
+    "severity": "blocking",
+    "executionImpact": "blocks-authorization",
+    "message": "The declared security scheme has no supported authentication profile. The scheme name is preserved so a reviewer can see what was required.",
+    "remediation": "Bind an alternative supported scheme, or add an adapter for this scheme before approving a binding."
+  },
+  {
+    "code": "serialization.unsupported-media-type",
+    "category": "serialization",
+    "sourcePointer": "#/paths/~1reports/post/requestBody/content/multipart~1form-data",
+    "normalizedPointer": "#/capabilities/3",
+    "dimension": "invoke",
+    "disposition": "unsupported",
+    "severity": "warning",
+    "executionImpact": "blocks-operation",
+    "message": "Only JSON request and response bodies are in the executable subset. This one operation cannot be bound; the rest of the document stays discoverable.",
+    "remediation": "Use a JSON operation, or extend the executable subset deliberately with its own conformance result."
+  },
+  {
+    "code": "security.requires-configuration",
+    "category": "security",
+    "sourcePointer": "#/components/securitySchemes/apiKey",
+    "dimension": "authorize",
+    "disposition": "requires-configuration",
+    "severity": "warning",
+    "executionImpact": "blocks-authorization",
+    "message": "The API key this scheme needs is not present in this deployment. The adapter is implemented; it is not usable here until the value is supplied.",
+    "remediation": "Supply the named configuration through the private collection path, then approve a binding."
+  },
+  {
+    "code": "structure.recursive-schema",
+    "category": "structure",
+    "sourcePointer": "#/components/schemas/TreeNode",
+    "dimension": "import",
+    "disposition": "adapted",
+    "severity": "info",
+    "executionImpact": "none",
+    "message": "A recursive schema is preserved by reference rather than expanded. Validation runs to an explicit depth instead of declaring recursion invalid."
+  },
+  {
+    "code": "version.export-downgrade-loss",
+    "category": "version",
+    "sourcePointer": "#/workflows/0/steps/2",
+    "dimension": "export",
+    "disposition": "rejected",
+    "severity": "blocking",
+    "executionImpact": "blocks-definition",
+    "message": "The document uses a construct the requested older export version cannot carry. No document is produced rather than one that silently drops it.",
+    "remediation": "Export at the document's own version, or remove the construct upstream."
+  }
+]

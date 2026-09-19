@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.modelcontextprotocol.anonymous/multi-tenant-server",
+  "description": "MCP server with configurable remote endpoint",
+  "title": "Multi-Tenant Server",
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://anonymous.modelcontextprotocol.io/mcp/{tenant_id}",
+      "variables": {
+        "tenant_id": {
+          "description": "Tenant identifier (e.g., 'us-cell1', 'emea-cell1')",
+          "isRequired": true
+        }
+      }
+    }
+  ]
+}

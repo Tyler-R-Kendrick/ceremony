@@ -49,6 +49,7 @@ import { configuredModel } from "../src/server/agent/model.js";
 import { createModelInterpreter } from "../src/server/isolated-account-interpreter.js";
 import { jiraManifest } from "../src/server/recipes/jira.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
+import { createConnectorRuntime } from "../src/server/connectors/runtime.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
 import { createMcpIdentity } from "../src/server/mcp-identity.js";
 import { createDevIssuer } from "./issuer.js";
@@ -77,6 +78,16 @@ export interface ReferenceOptions {
    * (which refuses anything but HTTPS) can mount.
    */
   mcp?: boolean;
+  /**
+   * Mount the connector route table at `/api/v1/connectors/*`. Default on.
+   *
+   * Everything it serves is local: an in-memory store unless `live` gives it
+   * a file, the default host policy, and the approved fetcher. No adapter is
+   * configured here, so the directory shows its rows as `unconfigured` until
+   * an operator supplies configuration, which is the honest state for a
+   * development server that has signed up for nothing.
+   */
+  connectors?: boolean;
 }
 export async function startReferenceApp(options: ReferenceOptions = {}) {
   if (process.env.NODE_ENV === "production")
@@ -256,15 +267,30 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
     string,
     { expires: number; lastGeneration: number; generating: boolean }
   >();
+  /*
+   * A sibling store for one subsystem, beside the main database.
+   *
+   * `:memory:` is a SQLite keyword, not a path, so appending a suffix to it
+   * produces a real file called `:memory:.connectors` in the working
+   * directory. That is worse than untidy: a caller who asked for an in-memory
+   * store did so to get a clean slate, and a file quietly gives them state
+   * that outlives the process and is shared with the next run. A browser
+   * specification passes `databasePath: ":memory:"` and this is exactly what
+   * it got.
+   *
+   * So an in-memory base stays in memory, and only a real path is suffixed.
+   */
+  const siblingStore = (suffix: string): string =>
+    !options.live || options.live.databasePath === ":memory:"
+      ? ":memory:"
+      : `${options.live.databasePath}.${suffix}`;
+
   const teachingStore =
     options.teaching === true
-      ? new SQLiteCeremonyStore(
-          options.live ? `${options.live.databasePath}.teaching` : ":memory:",
-          {
-            current: "development",
-            keys: { development: options.live?.vaultKey ?? randomBytes(32) },
-          },
-        )
+      ? new SQLiteCeremonyStore(siblingStore("teaching"), {
+          current: "development",
+          keys: { development: options.live?.vaultKey ?? randomBytes(32) },
+        })
       : undefined;
   const teaching =
     options.teaching === true
@@ -374,6 +400,46 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           },
         })
       : options.teaching;
+  const connectorStore =
+    options.connectors === false
+      ? undefined
+      : new SQLiteCeremonyStore(siblingStore("connectors"), {
+          current: "development",
+          keys: { development: options.live?.vaultKey ?? randomBytes(32) },
+        });
+  /*
+   * One composition for the whole connector surface. Two things here are
+   * deliberate rather than convenient.
+   *
+   * The network mode follows the origin. A loopback development server is
+   * the one place a loopback fixture is a legitimate destination, and behind
+   * a tunnel the origin is HTTPS and that permission disappears on its own,
+   * so a demo cannot become a way to reach the local network.
+   *
+   * Configuration is empty. This server has signed up for nothing and holds
+   * no provider credentials, so every adapter that needs one reports itself
+   * `unconfigured` rather than offering a button that fails on use. Reading
+   * environment variables here would make the demo's directory depend on
+   * whatever happens to be exported in the shell that started it.
+   */
+  const connectors = connectorStore
+    ? createConnectorRuntime({
+        origin,
+        store: connectorStore,
+        network: {
+          mode: origin.startsWith("http://") ? "loopback-fixture" : "public",
+          maxRedirects: 3,
+          maxResponseBytes: 8 * 1024 * 1024,
+          timeoutMs: 10_000,
+        },
+        configuration: () => ({
+          read: async () => undefined,
+          present: async () => new Set<string>(),
+          revision: async () => "development",
+        }),
+      })
+    : undefined;
+
   // Built on first use rather than at startup: the issuer lives in this same
   // process, so resolving it eagerly would mean waiting on a listener that is
   // not accepting connections yet.
@@ -404,6 +470,22 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         issuer: origin,
         authenticate,
         serverName: "Ceremony (development)",
+        /*
+         * The connector intents, when this deployment has a connector runtime
+         * at all. Without this the surface still answers, and the tools that
+         * read and run a connector are simply absent -- which is the one
+         * failure mode hardest to notice from the outside, because an assistant
+         * cannot tell a tool that was never registered from a capability this
+         * deployment does not have.
+         *
+         * `agentDependencies` is the unprojected seam on purpose: the intents
+         * narrow every result themselves, so exactly one module decides what an
+         * assistant sees. Handing them an already-projected view would project
+         * twice and quietly hide rows the intents meant to report.
+         */
+        ...(connectors
+          ? { connectorIntents: connectors.agentDependencies }
+          : {}),
       });
       return {
         async fetch(request: Request) {
@@ -499,6 +581,53 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       // Only the built-in demo runtime uses the server-derived anonymous cookie.
       if (options.teaching === true)
         teachingHeaders.set("cookie", `ceremony-session=${owner}`);
+      if (connectors && url.pathname.startsWith("/api/v1/connectors/")) {
+        /*
+         * The demo's actor. The anonymous session cookie above is the only
+         * identity this server has, so it stands in for a signed-in person:
+         * one tenant, the cookie as the subject, and the capabilities a
+         * single-operator development server needs to import, review,
+         * approve and use a connector.
+         *
+         * This is a development identity and nothing more. A deployment
+         * authenticates the actor before the route table sees the request;
+         * that is why the handler takes an actor rather than deriving one.
+         */
+        const actor = {
+          tenantId: "development",
+          subjectId: owner,
+          sessionId: owner,
+          actorKind: "human" as const,
+          capabilities: [
+            "executor",
+            "author",
+            "reviewer",
+            "publisher",
+          ] as const,
+        };
+        const incoming = new Request(url, {
+          method: request.method ?? "GET",
+          headers: teachingHeaders,
+          ...(request.method === "POST"
+            ? { body: await readBody(request) }
+            : {}),
+        });
+        const result = await connectors.http(incoming, {
+          ...actor,
+          capabilities: [...actor.capabilities],
+        });
+        if (result) {
+          response.statusCode = result.status;
+          result.headers.forEach((value, name) =>
+            response.setHeader(name, value),
+          );
+          response.end(
+            result.body ? Buffer.from(await result.arrayBuffer()) : undefined,
+          );
+          return;
+        }
+        return json(response, { error: "not-found" }, 404);
+      }
       if (url.pathname.startsWith("/api/v1/teaching")) {
         if (!teaching) return json(response, { error: "unavailable" }, 503);
         const incoming = new Request(url, {
@@ -1081,6 +1210,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
     demoDatabase.close();
     liveDatabase?.close();
     await teachingStore?.close();
+    await connectorStore?.close();
     throw error;
   }
   return {
@@ -1103,6 +1233,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
       demoDatabase.close();
       liveDatabase?.close();
       await teachingStore?.close();
+      await connectorStore?.close();
     },
   };
 }

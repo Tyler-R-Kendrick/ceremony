@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info:
+  title: Circular
+  version: "1"
+x-loop: &loop
+  again: *loop

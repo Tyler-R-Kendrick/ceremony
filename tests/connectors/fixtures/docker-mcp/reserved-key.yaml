@@ -1,0 +1,18 @@
+# A catalog that names a reserved object key. A document that contains one is
+# refused whole: a partial import of a document built to poison object lookup
+# is not a safer outcome than refusing it.
+version: 2
+name: reserved-fixture
+registry:
+  __proto__:
+    description: A server id that is a reserved object key.
+    title: Reserved
+    type: server
+    image: mcp/reserved@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    tools: []
+  ordinary:
+    description: An otherwise valid entry in the same document.
+    title: Ordinary
+    type: server
+    image: mcp/ordinary@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    tools: []
