@@ -114,6 +114,15 @@
   background: var(--c-rail);
   border-inline-end: 1px solid var(--c-line-soft);
   min-height: 100vh;
+  /* Above the drawer's scrim, which is fixed across the whole viewport at
+     z-index 40. `main.tsx` states the requirement this satisfies: "a directory
+     whose navigation is unreachable on arrival is not a directory". A link
+     naming a connector opens the drawer, and if the scrim covers the rail then
+     arriving by such a link leaves a person with no way out but the browser's
+     back button. The scrim still covers the catalogue behind it, which is what
+     a scrim is for; it no longer covers the way out. */
+  position: relative;
+  z-index: 41;
 }
 .workspace-switch {
   display: flex;

@@ -66,6 +66,11 @@ export async function mountHarness(connectorId = "github") {
 export function mountTeachingHarness(prefix: string) {
   const host = document.createElement("section");
   host.id = `${prefix}-host`;
+  // Same stacking context as the harness above, and for the same reason: this
+  // one is injected into the host page to be driven too, and the connect
+  // surface's drawer scrim covers the viewport.
+  host.style.position = "relative";
+  host.style.zIndex = "50";
   const content = document.createElement("div");
   const unmount = document.createElement("button");
   unmount.textContent = `Unmount ${prefix}`;
