@@ -6,6 +6,7 @@ import {
   type BrowserSessionRecord,
   type LoginEvidence,
 } from "../src/core/browser-session-contracts.js";
+import { managedBackends } from "../src/server/browser-backends.js";
 import {
   createBrowserSessionRegistry,
   LeaseConflict,
@@ -48,23 +49,12 @@ after(async () => store.close());
 function retainable(registry: ReturnType<typeof createBrowserSessionRegistry>) {
   const disposed = { browser: 0, context: 0 };
   const browser = {
-    descriptor: {
-      backendId: "managed-chromium",
-      engine: "chromium" as const,
-      ownership: "managed" as const,
-      engineVersion: "test",
-      capabilities: {
-        retainedSession: true,
-        backendHeldElements: true,
-        documentBinding: true,
-        popupBinding: true,
-        frameBinding: true,
-        strongEgressContainment: false,
-        authenticatorHandoff: true,
-        statePersistence: true,
-        debugExposure: false,
-      },
-    },
+    // The real descriptor, not a copy of it. A hand-written one drifts the
+    // moment the backends change, and this one had: it claimed `popupBinding`,
+    // `frameBinding` and `statePersistence` for managed Chromium after those
+    // were found to have nothing behind them. A stub that keeps making a claim
+    // the thing it stands for has stopped making is worse than no stub.
+    descriptor: managedBackends()[0]!,
     browserGeneration: "bgen_one",
     openContext: async () => {
       throw new Error("unused");

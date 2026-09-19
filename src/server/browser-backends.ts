@@ -88,24 +88,51 @@ const engineTypes: Record<BrowserEngine, () => BrowserTypeLike> = {
  * These are not aspirations and not upstream feature lists. `documentBinding`
  * and `backendHeldElements` are true on all three because the page adapter
  * holds element and document references itself, which works identically
- * everywhere. `strongEgressContainment` and `debugExposure` are Chromium-only
- * because the mechanisms behind them are; declaring them true elsewhere would
- * be the exact false claim this table exists to prevent.
+ * everywhere. `strongEgressContainment` and `debugExposure` are false because
+ * the mechanisms behind them are not here; declaring them true would be the
+ * exact false claim this table exists to prevent.
+ *
+ * That standard is the one this table failed. `popupBinding`, `frameBinding`
+ * and `statePersistence` were each declared true on all three engines with no
+ * implementation behind any of them, which is the same defect as a wizard
+ * showing settings the server never compiled — a value that reads as effective
+ * and is not. A flag here turns true when something enforces it and a test on
+ * a real browser says so, and not before.
  */
 const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
   chromium: {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    popupBinding: true,
-    frameBinding: true,
+    // False on every engine, and this is a correction rather than a
+    // limitation newly discovered.
+    //
+    // Nothing here acts inside a frame: `createBoundTargets` observes through
+    // `page.evaluateHandle`, which is the main frame and nothing else, and no
+    // frame is ever enumerated or held.
+    //
+    // Popups are stronger than unimplemented. `browser-executor.ts` watches
+    // `Page.windowOpen`, aborts the navigation `blockedbyclient` and closes
+    // the context, reporting `blocked` / `popup`, under a comment reading
+    // "the driver owns one page; use native handoff until popup targets can
+    // be securely adopted". So the flag was not running ahead of an absent
+    // feature - it contradicted what the executor deliberately does.
+    //
+    // `unmetCapabilities` believes this table, so a plan that asked for either
+    // was admitted and then run without it, which is worse than refusing:
+    // the caller was told yes.
+    popupBinding: false,
+    frameBinding: false,
     // Chromium's `Fetch` interception in this repository covers Document
     // requests. That is real navigation control, not total resource
     // containment, so the stronger claim stays false until something actually
     // enforces it at the network boundary.
     strongEgressContainment: false,
     authenticatorHandoff: true,
-    statePersistence: true,
+    // Same correction. `ManagedContext` has no `storageState`, and no path in
+    // `src/` serializes or restores one. The evidence matrix called this
+    // "declared, not exercised"; it was not implemented at all.
+    statePersistence: false,
     // A CDP endpoint reachable by the holder of control is debug exposure. The
     // managed backend does not hand one out, so this is false here and true
     // only for the attached/remote-debugging backends that genuinely do.
@@ -115,24 +142,24 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    popupBinding: true,
-    frameBinding: true,
+    popupBinding: false,
+    frameBinding: false,
     strongEgressContainment: false,
     // Firefox surfaces a WebAuthn request to the page the same way, and the
     // driver detects the request rather than answering it.
     authenticatorHandoff: true,
-    statePersistence: true,
+    statePersistence: false,
     debugExposure: false,
   },
   webkit: {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    popupBinding: true,
-    frameBinding: true,
+    popupBinding: false,
+    frameBinding: false,
     strongEgressContainment: false,
     authenticatorHandoff: true,
-    statePersistence: true,
+    statePersistence: false,
     debugExposure: false,
   },
 };
