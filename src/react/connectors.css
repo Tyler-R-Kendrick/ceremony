@@ -1,0 +1,706 @@
+/*
+ * Connector directory, drawer and connection surfaces.
+ *
+ * This sheet follows the same three rules as styles.css, for the same reason:
+ * these components are dropped into somebody else's page. Every selector is
+ * wrapped in :where(), so the whole file has zero specificity and a host's own
+ * rules win without !important; nothing is styled outside a [data-connector]
+ * root; and type is inherited rather than imposed.
+ *
+ * It declares no new palette. The public --ceremony-* tokens are the same ones
+ * styles.css advertises, resolved into private --_ceremony-* properties here so
+ * a nested root recomputes from whatever the host set instead of overriding it.
+ * A host that themed the ceremony has themed this too, and a host that did
+ * nothing gets the same light and dark defaults.
+ */
+
+:where([data-connector]) {
+  --_ceremony-bg: var(--ceremony-bg, #ffffff);
+  --_ceremony-ground: var(--ceremony-ground, #f4f6fa);
+  --_ceremony-fg: var(--ceremony-fg, #0e1621);
+  --_ceremony-muted: var(--ceremony-muted, #5a6679);
+  --_ceremony-border: var(--ceremony-border, #dfe4ec);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #7d8899);
+  --_ceremony-accent: var(--ceremony-accent, #2540d9);
+  --_ceremony-on-accent: var(--ceremony-on-accent, #ffffff);
+  --_ceremony-accent-wash: var(--ceremony-accent-wash, #edf0fe);
+  --_ceremony-focus: var(--ceremony-focus, var(--_ceremony-accent));
+  --_ceremony-ok: var(--ceremony-ok, #0b7a5b);
+  --_ceremony-ok-wash: var(--ceremony-ok-wash, #e6f4ef);
+  --_ceremony-human: var(--ceremony-human, #8a5b06);
+  --_ceremony-human-wash: var(--ceremony-human-wash, #fbf2e0);
+  --_ceremony-stop: var(--ceremony-stop, #a93226);
+  --_ceremony-stop-wash: var(--ceremony-stop-wash, #fbeceb);
+  --_ceremony-radius: var(--ceremony-radius, 10px);
+  --_ceremony-radius-sm: var(--ceremony-radius-sm, 6px);
+  --_ceremony-radius-lg: var(--ceremony-radius-lg, 14px);
+  --_ceremony-gap: var(--ceremony-gap, 1.25rem);
+  --_ceremony-mono: var(
+    --ceremony-mono,
+    ui-monospace,
+    SFMono-Regular,
+    "SF Mono",
+    Menlo,
+    monospace
+  );
+  color: var(--_ceremony-fg);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  min-inline-size: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"]) [data-connector]) {
+    --_ceremony-bg: var(--ceremony-bg, #131a24);
+    --_ceremony-ground: var(--ceremony-ground, #0a0e15);
+    --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
+    --_ceremony-muted: var(--ceremony-muted, #93a0b4);
+    --_ceremony-border: var(--ceremony-border, #232c3a);
+    --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
+    --_ceremony-accent: var(--ceremony-accent, #8296ff);
+    --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
+    --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
+    --_ceremony-ok: var(--ceremony-ok, #46c79c);
+    --_ceremony-ok-wash: var(--ceremony-ok-wash, #10261f);
+    --_ceremony-human: var(--ceremony-human, #e0ac53);
+    --_ceremony-human-wash: var(--ceremony-human-wash, #2a2113);
+    --_ceremony-stop: var(--ceremony-stop, #f08372);
+    --_ceremony-stop-wash: var(--ceremony-stop-wash, #2b1614);
+  }
+}
+
+:where([data-theme="dark"] [data-connector]) {
+  --_ceremony-bg: var(--ceremony-bg, #131a24);
+  --_ceremony-ground: var(--ceremony-ground, #0a0e15);
+  --_ceremony-fg: var(--ceremony-fg, #e7ecf4);
+  --_ceremony-muted: var(--ceremony-muted, #93a0b4);
+  --_ceremony-border: var(--ceremony-border, #232c3a);
+  --_ceremony-border-strong: var(--ceremony-border-strong, #6b7889);
+  --_ceremony-accent: var(--ceremony-accent, #8296ff);
+  --_ceremony-on-accent: var(--ceremony-on-accent, #0a0e15);
+  --_ceremony-accent-wash: var(--ceremony-accent-wash, #1a2140);
+  --_ceremony-ok: var(--ceremony-ok, #46c79c);
+  --_ceremony-ok-wash: var(--ceremony-ok-wash, #10261f);
+  --_ceremony-human: var(--ceremony-human, #e0ac53);
+  --_ceremony-human-wash: var(--ceremony-human-wash, #2a2113);
+  --_ceremony-stop: var(--ceremony-stop, #f08372);
+  --_ceremony-stop-wash: var(--ceremony-stop-wash, #2b1614);
+}
+
+:where([data-connector], [data-connector] *) {
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------- directory --- */
+
+:where([data-connector-directory]) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--_ceremony-gap);
+}
+
+:where([data-connector] .connector-directory-head) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+:where([data-connector] .connector-search) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  flex: 1 1 18rem;
+  min-inline-size: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+:where([data-connector] .connector-facets) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+:where([data-connector] .connector-facet) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 10rem;
+  min-inline-size: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--_ceremony-muted);
+}
+
+:where(
+  [data-connector] input,
+  [data-connector] select,
+  [data-connector] textarea
+) {
+  font: inherit;
+  /* 1rem exactly: a smaller focused field makes iOS Safari zoom the page,
+     which reflows a credential form mid-entry. */
+  font-size: 1rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 0;
+  inline-size: 100%;
+  max-inline-size: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-fg);
+}
+
+:where([data-connector] textarea) {
+  min-block-size: 8rem;
+  font-family: var(--_ceremony-mono);
+  font-size: 0.8125rem;
+  resize: vertical;
+}
+
+:where(
+  [data-connector] input[type="radio"],
+  [data-connector] input[type="checkbox"]
+) {
+  inline-size: auto;
+  min-block-size: auto;
+  margin-inline-end: 0.5rem;
+}
+
+:where([data-connector] .connector-count) {
+  margin: 0;
+  color: var(--_ceremony-muted);
+  font-size: 0.8125rem;
+}
+
+:where([data-connector] .connector-group) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-inline-size: 0;
+}
+
+:where([data-connector] .connector-group-name) {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--_ceremony-fg);
+}
+
+:where([data-connector] .connector-group-name .connector-muted) {
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+}
+
+:where([data-connector] .connector-more) {
+  align-self: flex-start;
+}
+
+:where([data-connector] .connector-empty) {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius);
+  color: var(--_ceremony-muted);
+}
+
+/* A support level is a claim about what can run, so it reads as a state and
+   not as decoration: the card's own edge carries it too. */
+:where([data-ceremony-card][data-support="unconfigured"]) {
+  border-color: color-mix(
+    in srgb,
+    var(--_ceremony-stop) 32%,
+    var(--_ceremony-border)
+  );
+}
+
+:where([data-ceremony-card][data-support="fixture"]) {
+  border-style: dashed;
+}
+
+/* --------------------------------------------------------------- drawer --- */
+
+:where([data-connector-drawer-root]) {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+}
+
+:where([data-connector] .connector-scrim) {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 0;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgb(6 10 16 / 55%);
+  cursor: pointer;
+}
+
+:where([data-connector] .connector-drawer) {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--_ceremony-gap);
+  inline-size: min(44rem, 100%);
+  max-block-size: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1.25rem;
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-fg);
+  border-inline-start: 1px solid var(--_ceremony-border);
+}
+
+:where([data-connector] .connector-drawer-head) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-block-end: 0.75rem;
+  border-block-end: 1px solid var(--_ceremony-border);
+}
+
+:where([data-connector] .connector-drawer-head h2) {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+:where([data-connector] .connector-drawer-body) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--_ceremony-gap);
+  min-inline-size: 0;
+}
+
+:where([data-connector] .connector-drawer-foot) {
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--_ceremony-border);
+  color: var(--_ceremony-muted);
+  font-size: 0.8125rem;
+}
+
+/* A narrow screen has no room for a side panel, so the drawer becomes the
+   page. It is still a dialog: the trap and the restore do not change. */
+@media (max-width: 40rem) {
+  :where([data-connector] .connector-drawer) {
+    inline-size: 100%;
+    border-inline-start: 0;
+    padding: 1rem;
+  }
+}
+
+/* ----------------------------------------------------------- connection --- */
+
+:where([data-connector] .connector-panel) {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+:where([data-connector] .connector-panel-head) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+:where([data-connector] .connector-panel-head h3) {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+:where([data-ceremony-card] .connector-name) {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+:where([data-connector] h4) {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+:where([data-connector] h5) {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-connector] p) {
+  margin: 0;
+  max-inline-size: 70ch;
+  text-wrap: pretty;
+}
+
+:where([data-connector] .connector-muted) {
+  color: var(--_ceremony-muted);
+  font-size: 0.875rem;
+}
+
+:where([data-connector] .connector-error) {
+  color: var(--_ceremony-stop);
+}
+
+:where(
+  [data-connector] .connector-intent,
+  [data-connector] .connector-handoff
+) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: var(--_ceremony-radius);
+  background: var(--_ceremony-ground);
+  min-inline-size: 0;
+}
+
+:where([data-connector] .connector-field) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+:where([data-connector] fieldset.connector-field legend) {
+  padding: 0;
+  font-weight: 500;
+}
+
+:where(
+  [data-connector] fieldset.connector-field label,
+  [data-connector] .connector-confirm label
+) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  font-weight: 400;
+}
+
+:where([data-connector] .connector-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* The scrim is a button so leaving is reachable without a mouse, but it is not
+   a button-shaped control: it is the dim over the page. It is excluded here
+   rather than given more specificity, because every selector in this file is
+   zero-specificity by design and the drawer section above would otherwise lose
+   its background, border, radius and padding to this rule. */
+:where(
+  [data-connector] button:not(.connector-scrim),
+  [data-connector] .button
+) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4375rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  max-inline-size: 100%;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 550;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+  border: 1px solid var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-fg);
+  cursor: pointer;
+}
+
+:where([data-connector] .primary) {
+  color: var(--_ceremony-on-accent);
+  background: var(--_ceremony-accent);
+  border-color: var(--_ceremony-accent);
+}
+
+:where([data-connector] .quiet) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--_ceremony-muted);
+}
+
+:where(
+  [data-connector] button:disabled,
+  [data-connector] [aria-disabled="true"]
+) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+:where([data-connector] :focus-visible) {
+  outline: 2px solid var(--_ceremony-focus);
+  outline-offset: 2px;
+}
+
+:where([data-connector] .connector-notice) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--_ceremony-border);
+  border-inline-start: 3px solid var(--_ceremony-human);
+  border-radius: 0 var(--_ceremony-radius-sm) var(--_ceremony-radius-sm) 0;
+  background: var(--_ceremony-human-wash);
+  color: var(--_ceremony-fg);
+  font-size: 0.875rem;
+}
+
+:where([data-connector] [role="alert"].connector-notice) {
+  border-inline-start-color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+}
+
+:where([data-connector] .connector-confirm) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border: 1px solid var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius);
+  background: var(--_ceremony-bg);
+}
+
+:where([data-connector] .connector-confirm fieldset) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+:where([data-connector] .connector-code output) {
+  display: inline-block;
+  font-family: var(--_ceremony-mono);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.16em;
+  padding: 0.375rem 0.625rem;
+  border: 1px dashed var(--_ceremony-border-strong);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-ground);
+}
+
+/* ------------------------------------------------------- facts and lists --- */
+
+:where([data-connector] .connector-facts) {
+  display: grid;
+  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+:where([data-connector] .connector-facts dt) {
+  color: var(--_ceremony-muted);
+}
+
+:where([data-connector] .connector-facts dd) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+:where(
+  [data-connector] .connector-facts ul,
+  [data-connector] .connector-issue-list
+) {
+  margin: 0;
+  padding-inline-start: 1.125rem;
+}
+
+:where([data-connector] time[data-expired]) {
+  color: var(--_ceremony-stop);
+  font-weight: 600;
+}
+
+:where(
+  [data-connector] .connector-scopes,
+  [data-connector] .connector-configuration
+) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
+:where(
+  [data-connector] .connector-scopes li,
+  [data-connector] .connector-configuration li
+) {
+  font-family: var(--_ceremony-mono);
+  padding: 0.1875rem 0.4375rem;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-bg);
+  color: var(--_ceremony-muted);
+  overflow-wrap: anywhere;
+}
+
+:where([data-connector] .connector-configuration li[data-present]) {
+  color: var(--_ceremony-ok);
+  border-color: color-mix(in srgb, var(--_ceremony-ok) 28%, transparent);
+}
+
+:where([data-connector] .connector-capabilities) {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: start;
+}
+
+:where(
+  [data-connector] .connector-capabilities th,
+  [data-connector] .connector-capabilities td
+) {
+  padding: 0.375rem 0.5rem;
+  border-block-end: 1px solid var(--_ceremony-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+:where([data-connector] .connector-capabilities thead th) {
+  color: var(--_ceremony-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:where(
+  [data-connector] .connector-capabilities tr[data-implementation="unsupported"]
+) {
+  color: var(--_ceremony-muted);
+}
+
+:where([data-connector] .connector-limitations) {
+  margin: 0.25rem 0 0;
+  padding-inline-start: 1rem;
+  color: var(--_ceremony-muted);
+}
+
+:where([data-connector] .connector-output) {
+  margin: 0;
+  padding: 0.75rem;
+  max-block-size: 18rem;
+  overflow: auto;
+  border: 1px solid var(--_ceremony-border);
+  border-radius: var(--_ceremony-radius-sm);
+  background: var(--_ceremony-ground);
+  font-family: var(--_ceremony-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+:where([data-connector] .connector-report summary) {
+  cursor: pointer;
+  min-block-size: 2.75rem;
+  padding-block: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+:where([data-connector] .connector-report) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* -------------------------------------------------------- import review --- */
+
+:where([data-connector-issues]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+:where([data-connector] .connector-issue-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+:where([data-connector] .connector-issue-list li) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--_ceremony-border);
+  border-inline-start: 3px solid var(--_ceremony-border-strong);
+  border-radius: 0 var(--_ceremony-radius-sm) var(--_ceremony-radius-sm) 0;
+  overflow-wrap: anywhere;
+}
+
+:where([data-connector] .connector-issue-list li[data-severity="blocking"]) {
+  border-inline-start-color: var(--_ceremony-stop);
+  background: var(--_ceremony-stop-wash);
+}
+
+:where([data-connector] .connector-issue-list li[data-severity="warning"]) {
+  border-inline-start-color: var(--_ceremony-human);
+}
+
+:where([data-connector] .connector-profile-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+:where([data-connector] code) {
+  font-family: var(--_ceremony-mono);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  :where(
+    [data-connector] .connector-drawer,
+    [data-connector] .connector-panel
+  ) {
+    border-color: CanvasText;
+  }
+  :where([data-connector] :focus-visible) {
+    outline-color: Highlight;
+  }
+}

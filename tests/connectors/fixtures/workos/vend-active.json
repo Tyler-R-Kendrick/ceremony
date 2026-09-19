@@ -1,0 +1,13 @@
+{
+  "_source": "https://workos.com/docs/reference/pipes (Get an access token for a connected account), retrieved 2026-09-18",
+  "_note": "Documented 200 body, with canary values added in fields Ceremony must never project.",
+  "active": true,
+  "access_token": {
+    "object": "access_token",
+    "access_token": "gho_CANARYTOKEN4b2",
+    "expires_at": "2026-12-31T23:59:59.000Z",
+    "scopes": ["repo", "user:email"],
+    "missing_scopes": ["admin:org"],
+    "internal_note": "invalid_grant: CANARY_PROVIDER_MSG_1a9"
+  }
+}

@@ -1,0 +1,133 @@
+import {
+  compatibilityIssueSchema,
+  type CompatibilityIssue,
+} from "../../../../core/connectors/index.js";
+
+/*
+ * Diagnostics for the Microsoft custom-connector reader. Every issue carries a
+ * stable dotted code, a charter category, a JSON pointer into the source and a
+ * sentence written for a person. Source *values* are never echoed: parameter
+ * and operation names appear as bounded tokens, everything else is located by
+ * pointer. A policy parameter, a default or an example can hold a credential,
+ * so none of them ever reaches a message.
+ *
+ * This is a deliberately local copy of the helper the shared OpenAPI reader
+ * carries (../openapi/issues.ts); the integrator may collapse the two once
+ * that reader is complete.
+ */
+
+export type IssueInput = {
+  code: string;
+  category: CompatibilityIssue["category"];
+  pointer: string;
+  dimension: CompatibilityIssue["dimension"];
+  severity: CompatibilityIssue["severity"];
+  message: string;
+  disposition?: CompatibilityIssue["disposition"];
+  executionImpact?: CompatibilityIssue["executionImpact"];
+  remediation?: string;
+  normalizedPointer?: string;
+};
+
+const CONTROL_OR_BIDI = /\p{Cc}|[\u{202A}-\u{202E}\u{2066}-\u{2069}]/gu;
+
+/** Bounded display text: control and bidirectional-override characters are blanked, whitespace collapsed. */
+export function safeText(value: unknown, max = 500): string {
+  if (typeof value !== "string") return "";
+  const cleaned = value
+    .replace(CONTROL_OR_BIDI, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+}
+
+/** A short token (a name, a method, a template id) that may appear inside a message. */
+export function token(value: unknown, max = 64): string {
+  const text = safeText(value, max);
+  return text.length ? text : "?";
+}
+
+/** RFC 6901 pointer construction ("#/paths/~1projects/get"). */
+export function pointer(...segments: Array<string | number>): string {
+  const built =
+    "#" +
+    segments
+      .map(
+        (segment) =>
+          "/" + String(segment).replaceAll("~", "~0").replaceAll("/", "~1"),
+      )
+      .join("");
+  const cleaned = built.replace(CONTROL_OR_BIDI, "");
+  return cleaned.length > 1024 ? cleaned.slice(0, 1024) : cleaned;
+}
+
+/** Appends already-escaped pointer segments to an existing pointer. */
+export function extendPointer(
+  base: string,
+  ...segments: Array<string | number>
+): string {
+  const tail = pointer(...segments).slice(1);
+  const joined = `${base}${tail}`;
+  return joined.length > 1024 ? joined.slice(0, 1024) : joined;
+}
+
+export function makeIssue(input: IssueInput): CompatibilityIssue {
+  const disposition =
+    input.disposition ??
+    (input.severity === "blocking"
+      ? "unsupported"
+      : input.severity === "warning"
+        ? "adapted"
+        : "exact");
+  const executionImpact =
+    input.executionImpact ??
+    (input.severity === "blocking" ? "blocks-operation" : "none");
+  return compatibilityIssueSchema.parse({
+    code: input.code,
+    category: input.category,
+    sourcePointer: input.pointer.length ? input.pointer : "#",
+    ...(input.normalizedPointer
+      ? { normalizedPointer: input.normalizedPointer }
+      : {}),
+    dimension: input.dimension,
+    disposition,
+    severity: input.severity,
+    executionImpact,
+    message: safeText(input.message, 500) || "Import diagnostic.",
+    ...(input.remediation
+      ? { remediation: safeText(input.remediation, 500) }
+      : {}),
+  });
+}
+
+/** Collects issues while de-duplicating identical code+pointer pairs. */
+export class IssueList {
+  private readonly items: CompatibilityIssue[] = [];
+  private readonly seen = new Set<string>();
+  push(input: IssueInput): CompatibilityIssue | undefined {
+    const key = JSON.stringify([input.code, input.pointer, input.severity]);
+    if (this.seen.has(key)) return undefined;
+    this.seen.add(key);
+    const issue = makeIssue(input);
+    this.items.push(issue);
+    return issue;
+  }
+  /** Issues whose pointer starts with the operation's pointer, for per-operation impact. */
+  blockingUnder(prefix: string): CompatibilityIssue[] {
+    return this.items.filter(
+      (issue) =>
+        issue.severity === "blocking" &&
+        (issue.sourcePointer === prefix ||
+          issue.sourcePointer.startsWith(`${prefix}/`)),
+    );
+  }
+  get size(): number {
+    return this.items.length;
+  }
+  toArray(): CompatibilityIssue[] {
+    return [...this.items];
+  }
+}
+
+export const hasBlocking = (issues: readonly CompatibilityIssue[]): boolean =>
+  issues.some((issue) => issue.severity === "blocking");

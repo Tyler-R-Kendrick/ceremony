@@ -1,0 +1,7 @@
+version: 2
+name: first-fixture
+registry: {}
+---
+version: 2
+name: second-fixture
+registry: {}

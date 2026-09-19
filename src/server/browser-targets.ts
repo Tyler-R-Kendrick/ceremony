@@ -142,9 +142,8 @@ function originOf(url: string): string {
 export function createBoundTargets(page: BoundPageLike) {
   let current: Observation | undefined;
 
-  const discard = async () => {
-    const stale = current;
-    current = undefined;
+  /** Let go of one observation's handles. Never touches what is held now. */
+  const dispose = async (stale: Observation | undefined) => {
     if (!stale) return;
     // Disposal is best-effort: after a navigation the handles are already gone,
     // and failing to release them must not turn into a second reported fault.
@@ -156,12 +155,38 @@ export function createBoundTargets(page: BoundPageLike) {
     ]);
   };
 
+  const discard = async () => {
+    const stale = current;
+    current = undefined;
+    await dispose(stale);
+  };
+
+  /**
+   * Read the page, and hold what was read.
+   *
+   * The previous observation stays held until a new one is complete.
+   *
+   * `discard()` used to run first, which left nothing held for the whole of
+   * the read below - several awaited round trips to the browser, and seconds
+   * of them on a loaded machine. Nothing was protected by that window.
+   * An approval's safety comes from the guards in `resolve()`, which compare
+   * the held document against the live one and the held element against the
+   * description that was approved; an empty slot adds no check. What it adds
+   * is a way for anything arriving mid-read to be refused as
+   * `no-observation` - a refusal that names the absence of an approval rather
+   * than anything about the page, and so sends its reader nowhere.
+   *
+   * So the swap happens at the end and the old handles are released after the
+   * new ones are installed. A read that *fails* still clears, because a failed
+   * read is a real loss of confidence in what is held.
+   */
   async function observe(): Promise<PageSnapshot> {
-    await discard();
+    const previous = current;
     let root: JsHandleLike;
     try {
       root = await page.evaluateHandle(boundSnapshotSource());
     } catch (error) {
+      await discard();
       throw new StaleTargetError(
         movedOn(error) ? "stale-document" : "target-unavailable",
       );
@@ -191,6 +216,8 @@ export function createBoundTargets(page: BoundPageLike) {
         destinationsHandle.dispose().catch(() => {}),
         originHandle.dispose().catch(() => {}),
       ]);
+      // Installed before the old one is released, so there is no instant at
+      // which this adapter holds nothing while a page is readable.
       current = {
         origin,
         snapshot,
@@ -200,9 +227,11 @@ export function createBoundTargets(page: BoundPageLike) {
         document: documentHandle,
         destinations,
       };
+      await dispose(previous);
       return snapshot;
     } catch (error) {
       await root.dispose().catch(() => {});
+      await discard();
       throw new StaleTargetError(
         movedOn(error) ? "stale-document" : "target-unavailable",
       );

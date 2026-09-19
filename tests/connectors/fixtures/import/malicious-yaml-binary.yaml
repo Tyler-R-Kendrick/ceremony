@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info:
+  title: Binary
+  version: "1"
+x-blob: !!binary |
+  R0lGODlhDAAMAIQAAP//9/X17unp5WZmZgAAAOfn515eXvPz7Y6OjuDg4J+fn5

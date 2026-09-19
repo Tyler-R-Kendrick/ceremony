@@ -1,0 +1,158 @@
+{
+  "source": "https://openapi.vercel.sh components.schemas (Connect*) and the REST reference pages for the connect group",
+  "retrievedAt": "2026-09-18T00:35:23Z",
+  "note": "Required/optional field names and their JSON types, transcribed from the published response schemas. Where a rendered example disagrees with the schema the schema is authoritative: the authorization-request example prints expiresAt as the string \"123\" while the schema types it as a number.",
+  "schemas": {
+    "ConnectError": {
+      "required": { "error": "object" },
+      "children": {
+        "error": { "required": { "code": "string", "message": "string" } }
+      }
+    },
+    "ConnectPagination": {
+      "required": { "next": "string|null" }
+    },
+    "ConnectConnector": {
+      "required": {
+        "id": "string",
+        "uid": "string",
+        "name": "string",
+        "displayName": "string",
+        "type": "string",
+        "typeName": "string",
+        "service": "string",
+        "supportedSubjectTypes": "array",
+        "supportsInstallation": "boolean",
+        "supportsRevocation": "boolean",
+        "supportsTriggers": "boolean",
+        "supportsIcon": "boolean|string",
+        "createdAt": "number",
+        "updatedAt": "number"
+      },
+      "optional": {
+        "defaultInstallationId": "string",
+        "clientUrl": "string|null",
+        "connectionMethod": "string",
+        "creationMode": "string",
+        "events": "array",
+        "triggers": "object",
+        "triggerDestinations": "array",
+        "appTokens": "object",
+        "userTokens": "object",
+        "redirectUri": "string",
+        "target": "string",
+        "accentColor": "string",
+        "backgroundColor": "string",
+        "icon": "string",
+        "typeIcon": "string",
+        "website": "string",
+        "devsite": "string",
+        "docsite": "string",
+        "managed": "object",
+        "knownStale": "boolean",
+        "reinstallAt": "number",
+        "createdBy": "object",
+        "updatedBy": "object"
+      }
+    },
+    "ConnectConnectorList": {
+      "required": { "connectors": "array", "pagination": "object" }
+    },
+    "ConnectProjectConnection": {
+      "required": {
+        "connectorId": "string",
+        "createdAt": "number",
+        "updatedAt": "number",
+        "enabledEnvironments": "array",
+        "project": "object"
+      },
+      "children": {
+        "project": {
+          "required": { "id": "string", "name": "string" },
+          "optional": { "customEnvironments": "array" }
+        }
+      }
+    },
+    "ConnectConnectorProjectConnectionList": {
+      "required": { "projects": "array", "pagination": "object" }
+    },
+    "ConnectProjectConnectorConnectionList": {
+      "required": { "connectors": "array", "pagination": "object" }
+    },
+    "ConnectConnectorUpdateResult": {
+      "required": { "connector": "object" },
+      "optional": {
+        "reconsentNeeded": "object",
+        "reinstallNeeded": "boolean",
+        "serviceSync": "object"
+      }
+    },
+    "ConnectAuthorizationRequest": {
+      "required": {
+        "connector": "object",
+        "expiresAt": "number",
+        "request": "string",
+        "url": "string",
+        "verifier": "string"
+      },
+      "optional": { "deviceCode": "string" },
+      "children": {
+        "connector": {
+          "required": {
+            "displayName": "string",
+            "id": "string",
+            "name": "string",
+            "type": "string",
+            "uid": "string"
+          },
+          "optional": { "service": "string", "serviceName": "string" }
+        }
+      }
+    },
+    "ConnectTokenResponse": {
+      "required": {
+        "connector": "object",
+        "expiresAt": "number",
+        "token": "string",
+        "tokenId": "string"
+      },
+      "optional": {
+        "authorizationId": "string",
+        "claims": "object",
+        "externalSubject": "string",
+        "installationId": "string",
+        "metadata": "object",
+        "name": "string",
+        "tenantId": "string",
+        "tokenGroupId": "string"
+      },
+      "children": {
+        "connector": {
+          "required": { "id": "string", "type": "string", "uid": "string" }
+        }
+      }
+    }
+  },
+  "errorCodes": {
+    "documented": [
+      "forbidden",
+      "rate_limited",
+      "bad_request",
+      "internal_server_error",
+      "not_found",
+      "method_unknown"
+    ],
+    "sdkObserved": [
+      "no_token",
+      "user_authorization_required",
+      "client_installation_required",
+      "connector_installation_required"
+    ],
+    "modelled": [
+      "client_not_linked_to_project",
+      "client_not_enabled_for_environment",
+      "conflict"
+    ],
+    "note": "documented: docs/rest-api/errors. sdkObserved: the codes @vercel/connect 2.3.0 switches on in createConnectError. modelled: named only as SDK error classes (ClientNotLinkedToProjectError, ClientNotEnabledForEnvironmentError) with no published wire code; the double uses the snake_case spelling of the class name."
+  }
+}

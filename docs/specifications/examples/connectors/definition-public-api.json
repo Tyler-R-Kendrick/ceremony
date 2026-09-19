@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "definitionRef": "definition:example/public-weather",
+  "identity": {
+    "ecosystem": "openapi",
+    "authorityNamespace": "",
+    "nativeId": "example/public-weather",
+    "nativeVersion": "2026-09-01"
+  },
+  "sourceRef": "source:example/public-weather",
+  "normalizedDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "importer": { "id": "openapi-importer", "version": "1.0.0" },
+  "display": {
+    "name": "Public weather",
+    "description": "A public API that requires no credential of any kind.",
+    "ecosystem": "openapi",
+    "service": "public-weather"
+  },
+  "authentication": [
+    {
+      "id": "public",
+      "kind": "none",
+      "label": "No credential",
+      "reason": "public"
+    }
+  ],
+  "configuration": [],
+  "capabilities": [
+    {
+      "kind": "http-operation",
+      "nativeId": "listStations",
+      "label": "List stations",
+      "summary": "Lists public observation stations.",
+      "effect": "read",
+      "dataClassification": "public",
+      "cost": "unknown",
+      "authentication": []
+    }
+  ],
+  "events": [],
+  "declaredServers": [
+    { "url": "https://api.public-weather.example/v1", "status": "declared" }
+  ],
+  "compatibility": {
+    "issues": [],
+    "dimensions": {
+      "discover": "unsupported",
+      "import": "exact",
+      "configure": "unsupported",
+      "authorize": "unsupported",
+      "verify": "unsupported",
+      "invoke": "requires-configuration",
+      "events": "unsupported",
+      "reconnect": "unsupported",
+      "disconnect": "unsupported",
+      "revoke": "unsupported",
+      "export": "exact",
+      "delegate": "unsupported"
+    }
+  },
+  "nativeExtensions": {}
+}

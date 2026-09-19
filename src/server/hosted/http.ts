@@ -9,6 +9,10 @@ import {
   reserveRequest,
 } from "../authorization.js";
 import { teachingHttp } from "../teaching-http.js";
+import {
+  connectorRequestNeedsActor,
+  type ConnectorHttpHandler,
+} from "../connectors/commands/http.js";
 import type { TeachingRuntime } from "../teaching-runtime.js";
 import { validContinuationWorker } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
@@ -84,6 +88,7 @@ export async function hostedHttp(
   startAgent: (runId: string, turnId: string) => Promise<void>,
   worker?: { secret: string | undefined; dispatch(): Promise<void> },
   mcp?: { fetch(request: Request): Promise<Response | undefined> },
+  connectors?: ConnectorHttpHandler,
 ): Promise<Response> {
   try {
     // Before the browser boundary, deliberately. That boundary is a CSRF
@@ -99,6 +104,26 @@ export async function hostedHttp(
     // Teaching owns its boundary, including same-origin private human forms.
     if (path.startsWith("/api/v1/teaching/"))
       return await teachingHttp(request, runtime, startAgent);
+    // Also before the browser boundary, and for two distinct reasons. The
+    // connector handler enforces its own boundary, bounded bodies and rate
+    // limit, so wrapping it here would double-check its mutations; and its
+    // provider callback is a GET top-level navigation, like the existing
+    // installation return, which carries no Origin header and would be
+    // rejected outright by a check meant for ambient-cookie mutations. Its
+    // event route authenticates by signature instead of session, and answers
+    // for itself. Anything it does not own returns undefined and falls
+    // through to the routes below.
+    if (connectors && path.startsWith("/api/v1/connectors/")) {
+      // A provider delivery carries no session, so the event routes are
+      // resolved without one and authenticate by signature inside the handler.
+      // Requiring a session for them would answer 401 before verification ever
+      // ran, which is what made the whole event surface unreachable here.
+      const actor = connectorRequestNeedsActor(path)
+        ? await authenticatedActor(request, runtime.identity)
+        : undefined;
+      const handled = await connectors(request, actor);
+      if (handled) return handled;
+    }
     assertRequestBoundary(request, { origin: runtime.origin });
     if (path === "/api/environment") {
       const actor = await authenticatedActor(request, runtime.identity);

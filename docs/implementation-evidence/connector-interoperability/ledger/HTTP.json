@@ -1,0 +1,192 @@
+{
+  "swarm": "HTTP",
+  "workItems": [
+    {
+      "id": "HTTP-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/openapi/read.ts",
+        "src/server/connectors/formats/openapi/model.ts",
+        "src/server/connectors/formats/openapi/refs.ts",
+        "src/server/connectors/formats/openapi/issues.ts",
+        "src/server/connectors/formats/openapi/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/openapi/read.test.ts",
+        "tests/connectors/openapi/refs.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-05", "AC-IMP-10", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "openapi-3.2.1",
+        "openapi-3.1.2",
+        "openapi-3.0.3",
+        "swagger-2.0"
+      ],
+      "limitations": [
+        "Readers take an already-parsed document; bytes-to-object parsing (JSON/YAML bounds, duplicate keys, dangerous tags) belongs to the IMPORT swarm. The adapter's default parser accepts JSON only and re-serializes to strip prototype keys.",
+        "External $ref resolution happens only through the caller's resolveExternal hook; without one, constructs behind an external reference are reported unresolved and blocked, never guessed.",
+        "Reference fragments are RFC 6901 JSON pointers only; plain-name anchors, $anchor, $dynamicRef and $recursiveRef are refused rather than approximated.",
+        "3.2 additionalOperations and QUERY operations are read and preserved, but no non-standard method can be bound (see HTTP-03).",
+        "Examples, defaults and credential-named vendor keys are dropped from preserved extensions at the import boundary; a vendor extension with a neutral key that embeds a secret in an unnamed field would still be preserved for reviewers."
+      ],
+      "notes": "Dispatch is on the declared version field only. A missing, doubled or unknown version yields a blocking version issue and no definition; explicit per-version readers (readSwagger2, readOpenApi30/31/32) refuse a document of another version. Swagger 2.0 host/basePath/schemes become declared servers; body/formData parameters become a request body; collectionFormat is translated to style/explode. Operation identity uses operationId when it is a usable native identifier and is not already taken, otherwise a deterministic 'METHOD /path'."
+    },
+    {
+      "id": "HTTP-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/formats/openapi/security.ts"],
+      "tests": ["tests/connectors/openapi/security.test.ts"],
+      "acceptanceIds": ["AC-IMP-04", "AC-UX-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "openapi-3.2.1",
+        "openapi-3.1.2",
+        "openapi-3.0.3",
+        "swagger-2.0"
+      ],
+      "limitations": [
+        "An openIdConnect issuer is derived only when openIdConnectUrl ends in the standard /.well-known/openid-configuration suffix; any other spelling becomes an unsupported profile with a blocking issue rather than a guessed issuer.",
+        "mutualTLS is preserved as a mutual-tls profile but blocks authorization: this runtime holds no client certificates.",
+        "The OAuth implicit and password flows are preserved as unsupported profiles with blocking issues (RFC 9700); no usable credential path is invented for them.",
+        "The device authorization flow exists only in 3.2; the same flow object under 3.0/3.1 becomes an unsupported profile with a blocking security.unknown-flow issue."
+      ],
+      "notes": "securityRequirementsFor(operation) returns the normalized alternatives. A requirement list is a disjunction, the names inside one requirement object are a conjunction, an operation-level list replaces the document default, an empty operation-level list removes it, and {} is an anonymous alternative. Scopes, API-key location and HTTP scheme are preserved per requirement. A requirement naming an undeclared scheme is kept (dropping it would widen access) and marked unknown with a blocking issue. One oauth2 scheme yields one profile per flow; a requirement naming that scheme can be satisfied by any of them."
+    },
+    {
+      "id": "HTTP-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/openapi/compile.ts",
+        "src/server/connectors/formats/openapi/schema.ts",
+        "src/server/connectors/formats/openapi/plan.ts"
+      ],
+      "tests": [
+        "tests/connectors/openapi/compile.test.ts",
+        "tests/connectors/openapi/refs.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-05", "AC-IMP-10"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [
+        "openapi-3.2.1",
+        "openapi-3.1.2",
+        "openapi-3.0.3",
+        "swagger-2.0"
+      ],
+      "limitations": [
+        "Executable subset: application/json (and +json) request and response bodies; path and header parameters style simple; query parameters style form with explode honoured and allowReserved respected; primitives and arrays of primitives only.",
+        "Blocked with serialization.* issues: multipart, form-urlencoded, XML, streaming and any other media type; cookie parameters; 3.2 querystring parameters; parameters described by content; deepObject, spaceDelimited, pipeDelimited, matrix and label styles.",
+        "Schema subset validated: type (including 3.1/3.2 type arrays and 3.0 nullable), enum, const, required, properties, items, additionalProperties, min/max length, items, properties, numeric bounds, multipleOf, uniqueItems and basic formats. allOf/anyOf/oneOf/not/if-then-else, pattern, patternProperties, prefixItems, contains, unevaluated*, discriminator and dynamic references block the operation that uses them.",
+        "A pure $ref alias cycle (A -> B -> A with no concrete schema) is reported as an unresolved reference and blocks that operation; a structurally recursive schema (a node containing itself) compiles into a named definitions table and validates to an explicit depth.",
+        "Only the seven methods the binding contract carries can be bound; 3.2 QUERY and additionalOperations entries stay discoverable but block with structure.unsupported-method."
+      ],
+      "notes": "Locality is the invariant: every blocking diagnostic names one operation and leaves the rest of the document discoverable and bindable. Policy defaults are read/read-only replay for GET and HEAD and unknown effect/none replay/confirm consent for everything else; outputClassification defaults to personal and consent to confirm even for GET, so a GET is still policy-gated. A host review may override effect, output classification, cost, consent, replay and target parameters; an inconsistent review (read-only replay on a write, or a target parameter the operation does not declare) blocks the operation. Serialization plans are inert data stored under RuntimeBinding.settings['openapi-http'] and re-validated on every call."
+    },
+    {
+      "id": "HTTP-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/openapi/adapter.ts",
+        "src/server/connectors/formats/openapi/serialize.ts"
+      ],
+      "tests": ["tests/connectors/openapi/invoke.test.ts"],
+      "acceptanceIds": ["AC-IMP-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["openapi-3.1.2"],
+      "limitations": [
+        "A path parameter value containing '/' is refused (openapi.path-parameter-encoded-slash): %2F containment inside the approved prefix cannot be proven across intermediaries.",
+        "Credentials come from ctx.environment.credentials.use only. The adapter reads apiKey/username/password/accessToken (optionally suffixed ':<profileId>' when several profiles are presented together); the integrator's credential layer must write those names.",
+        "Bound authentication profiles are read from binding.settings['openapi-http-profiles']; an alternative naming a profile the binding does not carry fails with configuration-required rather than falling back to another alternative.",
+        "Verification is available only when the host names an approved read operation as verifier, and it claims credential-accepted against the destination origin — never account identity.",
+        "No upstream disconnect or revoke exists in an OpenAPI description; both report local scope only and 'unsupported' upstream.",
+        "Events are unsupported in this adapter: webhooks and callbacks are imported as descriptions, and verified delivery belongs to the events profile."
+      ],
+      "notes": "Real protocol evidence against tests/connectors/doubles/http-fixture.ts, which independently observes method, path, raw query string, headers and body bytes. Input can never supply a header the adapter owns, an undeclared parameter, a URL, an authorization value or a reserved/hop-by-hop header; collisions with credential-placed headers are refused. Every call journals effects.begin with a digest of method + destination + destination-relative target + body (credentials deliberately excluded), fetches with redirect:'error' and an AbortSignal timeout, bounds the response bytes (exceeding is a failure, not a truncation), parses JSON only when the content type says JSON, and classifies output per BoundOperation.outputClassification. A lost or 5xx response on a non-read operation returns indeterminate; the same on a read returns failed. A repeated non-read digest returns the journalled prior outcome instead of re-applying the effect."
+    },
+    {
+      "id": "HTTP-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/overlay/apply.ts",
+        "src/server/connectors/formats/overlay/jsonpath.ts",
+        "src/server/connectors/formats/overlay/diff.ts",
+        "src/server/connectors/formats/overlay/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/overlay/apply.test.ts",
+        "tests/connectors/overlay/diff.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-06", "AC-IMP-16"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["overlay-1.1.0", "overlay-1.0.0"],
+      "limitations": [
+        "The JSONPath subset is: root ($), child by name (.name and ['name'] / [\"name\"]), wildcard (.* and [*]), recursive descent (..name and ..*) and non-negative array index ([0]). RFC 9535 filters, scripts, unions, slices, negative indexes and function extensions are refused with a blocking structure.unsupported-selector issue rather than approximated. The Overlay specification requires full RFC 9535 for interoperability, so this is an explicit, documented subset, not a conformance claim.",
+        "Selection, merge depth, action count and update size are bounded; exceeding a bound refuses the whole overlay rather than applying part of it.",
+        "A document that cannot be serialized within bounds (for example one whose shared references expand exponentially) is refused with structure.document-too-large instead of throwing, and an overlay's own update or copy value that cannot be cloned within bounds -- oversized, or cyclic as a YAML alias cycle produces -- is refused with structure.update-too-large, leaving the input document unchanged."
+      ],
+      "notes": "Dispatch is on the `overlay` field; the patch component is ignored per the specification (1.0.x reads as 1.0.0, 1.1.x as 1.1.0). 1.0.0: update merges into object targets and appends a single entry to array targets, targets must be objects or arrays, remove deletes the target from its container, and primitive array items cannot be removed individually. 1.1.0 adds primitive targets (update replaces, remove deletes), array-to-array concatenation and copy. Actions apply in order to the result of the previous one; a target selecting zero nodes succeeds unchanged; a target selecting mixed shapes, or an update whose property types are incompatible, is an error. `extends` is pinned against the caller's source by digest or identity and can be made mandatory. Each application records an adaptation step with input and output digests. diffOverlay(before, after) classifies changes and flags as category security: server added, server moved to a scope that did not already reach the operations it now covers (an operation's server promoted to the path or the document widens where every request may go), operation added, security requirement changed (document or operation), security scheme added/changed/removed, issuer or token/discovery URL changed, scope widened, parameter location changed and query/header parameter added. Any security change sets approvalReusable=false."
+    },
+    {
+      "id": "HTTP-06",
+      "status": "implemented",
+      "files": ["src/server/connectors/formats/openapi/export.ts"],
+      "tests": ["tests/connectors/openapi/export.test.ts"],
+      "acceptanceIds": ["AC-IMP-14", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["openapi-3.1.2"],
+      "limitations": [
+        "Export emits OpenAPI 3.1 only; a document imported as 2.0, 3.0 or 3.2 is republished in 3.1 spelling and the version change is part of the loss report.",
+        "Response schemas are emitted as permissive (`true`) rather than reproduced: the compiled subset keeps request schemas for validation but does not validate responses, and publishing a response schema the runtime does not enforce would overstate the contract.",
+        "Without a binding the export carries no operations at all, because no executable surface has been approved.",
+        "Native extensions are withheld unless the operator explicitly asks for them."
+      ],
+      "notes": "The export is built by construction, never by copying: no private destination (the server is always relative '/'), no configuration value, no credential, no example, no persistence reference. With a binding, only bound operations are emitted, and unapproved operations are reported as an omission. Security-critical losses — an authentication profile with no OpenAPI spelling, or an unsupported profile the description preserved — are blocking. Effect, consent and replay travel as clearly namespaced x-ceremony-* annotations so a reader cannot mistake host policy for a source fact; re-reading the export yields unknown effect for a write again. read -> import -> export -> read tests assert that methods, paths, security alternatives (OR/AND/anonymous) and the compiled executable subset survive the round trip."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory.ts (INT)",
+      "description": "Register the adapter: `import { createOpenApiHttpAdapter } from './formats/openapi/index.js'` and `registry.register(createOpenApiHttpAdapter())`. The factory takes optional requestTimeoutMs, maxResponseBytes, maxImportBytes, parseDocument (the IMPORT swarm's bounded JSON/YAML parser), resolveExternal (the IMPORT swarm's policy-bound $ref fetcher), evidence and display overrides. It needs no configuration names, so it never reports `unconfigured`; its support level is `fixture` until a deployment binds it to a real destination."
+    },
+    {
+      "target": "RuntimeBinding.settings (INT, binding construction)",
+      "description": "compileOperations returns `settings` already shaped as `{ 'openapi-http': PlanSettings }`; place it verbatim into RuntimeBinding.settings. The adapter additionally reads `settings['openapi-http-profiles']`, which must be the AuthenticationProfile[] from the definition (or the subset the binding approves). Both are inert data validated on every call; a plan that disagrees with its bound operation's method, path template or native id fails with conflict/openapi.plan-binding-mismatch."
+    },
+    {
+      "target": "Destination ids (INT)",
+      "description": "compileOperations takes `destinationId` and the matching ApprovedDestination; every compiled BoundOperation pins that one id, and the path prefix is derived from the document's declared server path (or an explicit pathPrefix / server override from review). The integrator chooses the id freely — the tests use 'api' — but the destination's origin must be the approved upstream origin and its pathPrefix must admit the derived template. A declared server whose origin differs from the approved destination produces a warning (network.destination-differs-from-declared), never a block, and requests still go only to the approved destination."
+    },
+    {
+      "target": "Credential custody material names (INT)",
+      "description": "The adapter reads `apiKey`, `username`/`password` and `accessToken`/`token` from CredentialCustodyPort.use, each optionally suffixed ':<profileId>' when one alternative presents several profiles (for example `apiKey:headerKey` and `apiKey:tenant`). The credential-writing layer should store material under those names."
+    },
+    {
+      "target": "Verifier selection (INT, review UI)",
+      "description": "Pass `verifier: { nativeId, input? }` to compileOperations to name the credential verifier. It must resolve to a compiled read operation or the compile reports policy.verifier-not-read and stores no verifier; adapter.verify then returns state 'pending' with code openapi.no-verifier rather than inventing a check."
+    }
+  ],
+  "dependenciesProposed": [],
+  "testCommand": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/openapi/*.test.ts tests/connectors/overlay/*.test.ts",
+  "testResults": {
+    "total": 146,
+    "passed": 146,
+    "failed": 0,
+    "byFile": {
+      "tests/connectors/openapi/read.test.ts": 19,
+      "tests/connectors/openapi/security.test.ts": 17,
+      "tests/connectors/openapi/compile.test.ts": 20,
+      "tests/connectors/openapi/invoke.test.ts": 27,
+      "tests/connectors/openapi/refs.test.ts": 11,
+      "tests/connectors/openapi/export.test.ts": 15,
+      "tests/connectors/overlay/apply.test.ts": 22,
+      "tests/connectors/overlay/diff.test.ts": 15
+    }
+  },
+  "unmet": [
+    "Live evidence is blocked: there are no authorized upstream credentials in this environment, so every dimension is proven against loopback protocol fixtures only and is recorded as protocol-fixture or unit, never live-authorized.",
+    "Response bodies are bounded, content-type-gated and JSON-parsed but not schema-validated; the export therefore publishes permissive response schemas. Validating responses against the compiled subset is a deliberate follow-up, not a silent gap.",
+    "The Overlay JSONPath implementation is an explicit subset, not full RFC 9535; Overlay 1.1.0 requires full RFC 9535 for interoperable documents, so overlays using filters (including the specification's own filter examples) are refused rather than partially applied."
+  ],
+  "externalEffectsPerformed": []
+}

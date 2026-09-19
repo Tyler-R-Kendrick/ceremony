@@ -1,0 +1,13 @@
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-merge-key
+  labels:
+    camel.apache.org/kamelet.type: "sink"
+spec:
+  definition: &base
+    title: "Base"
+    type: object
+  extra:
+    <<: *base
+    title: "Merged"

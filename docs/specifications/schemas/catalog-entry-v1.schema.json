@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+    },
+    "ecosystem": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "service": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]*$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]*$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    },
+    "support": {
+      "type": "string",
+      "enum": ["provider-backed", "fixture", "unconfigured", "catalog-only"]
+    },
+    "custody": {
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "host-owned",
+          "external-credential-broker",
+          "external-execution-broker",
+          "attended-browser",
+          "no-credential"
+        ]
+      }
+    },
+    "runtimes": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["browser", "hosted-server", "trusted-local-runner"]
+      }
+    },
+    "authentication": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "oauth-authorization-code",
+          "oauth-client-credentials",
+          "oauth-device",
+          "api-key",
+          "http-basic",
+          "http-bearer",
+          "openid-connect",
+          "mutual-tls",
+          "signature",
+          "external-broker",
+          "none",
+          "ceremony-method",
+          "unsupported"
+        ]
+      }
+    },
+    "configuration": {
+      "maxItems": 48,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,95}$" },
+          "required": { "type": "boolean" },
+          "classification": {
+            "type": "string",
+            "enum": ["public", "personal", "secret"]
+          },
+          "present": { "type": "boolean" }
+        },
+        "required": ["name", "required", "classification", "present"],
+        "additionalProperties": false
+      }
+    },
+    "capabilities": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "discover",
+              "import",
+              "configure",
+              "authorize",
+              "verify",
+              "invoke",
+              "events",
+              "reconnect",
+              "disconnect",
+              "revoke",
+              "export",
+              "delegate"
+            ]
+          },
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[^\\p{Cc}]+$"
+          },
+          "adapterVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "allOf": [
+              { "pattern": "^[^\\p{Cc}]+$" },
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
+            ]
+          },
+          "runtime": {
+            "type": "string",
+            "enum": ["browser", "hosted-server", "trusted-local-runner"]
+          },
+          "implementation": {
+            "type": "string",
+            "enum": ["implemented", "unsupported"]
+          },
+          "configuration": {
+            "type": "string",
+            "enum": ["ready", "missing", "not-applicable"]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "not-tested",
+              "unit",
+              "protocol-fixture",
+              "local-integration",
+              "browser-integration",
+              "live-authorized",
+              "deployed-authorized"
+            ]
+          },
+          "evidenceRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "limitations": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 500,
+              "allOf": [
+                { "pattern": "^[^\\p{Cc}]*$" },
+                {
+                  "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "dimension",
+          "profile",
+          "adapterVersion",
+          "runtime",
+          "implementation",
+          "configuration",
+          "evidence",
+          "limitations"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "string",
+      "enum": [
+        "not-tested",
+        "unit",
+        "protocol-fixture",
+        "local-integration",
+        "browser-integration",
+        "live-authorized",
+        "deployed-authorized"
+      ]
+    },
+    "group": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "definitionRef": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+    }
+  },
+  "required": [
+    "id",
+    "ecosystem",
+    "service",
+    "displayName",
+    "description",
+    "support",
+    "custody",
+    "runtimes",
+    "authentication",
+    "configuration",
+    "capabilities",
+    "evidence",
+    "group"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:catalog-entry-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

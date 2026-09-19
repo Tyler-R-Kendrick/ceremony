@@ -1,0 +1,103 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Org Tree 3.1",
+    "version": "1.0.0",
+    "description": "A valid recursive JSON Schema: a node refers to itself through an array of children, and two schemas refer to each other."
+  },
+  "servers": [{ "url": "https://tree.example.test" }],
+  "paths": {
+    "/tree": {
+      "get": {
+        "operationId": "getTree",
+        "responses": {
+          "200": {
+            "description": "Tree",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Node" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "putTree",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Node" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Node" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/people": {
+      "post": {
+        "operationId": "putPerson",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Person" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Person" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Node": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "children": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Node" }
+          }
+        }
+      },
+      "Person": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "manager": { "$ref": "#/components/schemas/Team" }
+        }
+      },
+      "Team": {
+        "type": "object",
+        "properties": {
+          "lead": { "$ref": "#/components/schemas/Person" },
+          "members": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Person" }
+          }
+        }
+      }
+    }
+  }
+}

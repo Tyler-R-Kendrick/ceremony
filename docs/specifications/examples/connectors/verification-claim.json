@@ -1,0 +1,23 @@
+{
+  "kind": "credential-accepted",
+  "evidenceRef": "evidence:example-verify-1",
+  "issuer": "ceremony-verifier",
+  "target": { "kind": "resource", "id": "api.public-weather.example" },
+  "observedAt": "2026-09-18T00:00:00.000Z",
+  "validUntil": "2026-09-18T01:00:00.000Z",
+  "verifierVersion": "1.0.0",
+  "bindingRevision": 1,
+  "policyRevision": "policy:1",
+  "permissions": {
+    "requested": ["read:observations"],
+    "reported": ["read:observations"],
+    "observed": [],
+    "semantics": "provider-scopes"
+  },
+  "limitations": [
+    "Establishes only that the destination origin accepted the credential.",
+    "Does not establish the upstream account identity: the provider exposed no account-identifying response for this operation.",
+    "Does not establish that any other advertised capability is permitted.",
+    "Reported permissions are the provider's own statement; nothing was observed by calling a scoped operation."
+  ]
+}

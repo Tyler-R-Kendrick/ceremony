@@ -1,5 +1,30 @@
 # Connector directory and Add Connection
 
+**The reference application ships two connector surfaces, and they are not the
+same design.** Knowing which one you are looking at is the first thing to
+establish, because they disagree about where a connector's facts come from.
+
+| Surface                | Section                | Lives in        | Where its rows come from                                  |
+| ---------------------- | ---------------------- | --------------- | --------------------------------------------------------- |
+| Catalogue directory    | `/` (Connect)          | `examples/web/` | A static catalogue compiled into the page (`catalog.ts`). |
+| Server-bound workspace | `/?section=connectors` | `src/react/`    | `/api/v1/connectors/*`, parsed before rendering.          |
+
+They arrived from opposite directions. The catalogue directory answers "is the
+service I need here" for a person browsing, and can draw a row for a service
+this deployment cannot actually run — deliberately, because being told a
+protocol is unsupported is more useful than an empty grid. The server-bound
+workspace answers "what can this deployment actually do right now", and by
+construction cannot claim a connector the server does not publish.
+
+Neither is redundant and neither is finished: consolidating them is a decision
+nobody has taken yet, and until it is taken both are documented here rather
+than one of them quietly describing the other. The bundle ceiling in
+`scripts/check-bundle.mjs` carries both, and says so.
+
+---
+
+# Part one — the catalogue directory
+
 The reference application opens on a directory: a category rail, a search
 field, a featured strip and a grid of connector cards. Choosing one opens the
 **Add Connection** drawer, a four-step accordion that ends by running the
@@ -188,3 +213,167 @@ clears it.
 Presentation is host-owned as before. These surfaces live in the reference
 application (`examples/web/`), not in the published component exports; see
 [embedding](integration.md).
+
+---
+
+# Part two — the server-bound workspace
+
+Reached from the **Connectors** section. The surfaces are a directory bound to
+the server's inventory, a drawer that runs one connection, and an import review
+for operators. They live in `src/react/` and are composed for the reference
+application by `examples/web/connectors.tsx`.
+
+Everything on screen comes from `/api/v1/connectors/*`. There is no static
+catalogue in this surface, so nothing in it can claim a connector the
+deployment cannot run, and no control changes state that only the server can
+change. That is the whole difference from part one, and it is why both exist.
+
+## The components
+
+| Module                               | What it is                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `src/core/connectors/client.ts`      | The typed browser client. Parses every response with the core schemas before a component sees it.  |
+| `src/react/connector-directory.tsx`  | The directory: search, facets, service grouping, support and evidence badges, capability reports.  |
+| `src/react/connector-drawer.tsx`     | The modal shell: focus entry, focus trap, focus restoration, Escape.                               |
+| `src/react/connector-connection.tsx` | One connection: intent, handoff, polling, verification, invocation, reconnect, disconnect.         |
+| `src/react/connector-review.tsx`     | Import and review: provenance, diagnostics, mappings, proposed binding. Loaded on demand.          |
+| `src/react/connectors.css`           | Zero-specificity styling scoped to `[data-connector]`, reading the existing `--ceremony-*` tokens. |
+| `examples/web/connectors.tsx`        | The page composition: directory plus drawer, deep links, lazy import surface.                      |
+
+## What a row is allowed to claim
+
+The catalogue separates four things a marketplace usually blurs, and the card
+shows which one it is:
+
+| Support level     | Meaning                                                                          |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `provider-backed` | A real adapter runs this and the deployment holds the configuration it needs.    |
+| `fixture`         | A deterministic local harness drives it. Never a claim about a vendor.           |
+| `unconfigured`    | The adapter exists; this deployment is missing configuration it requires.        |
+| `catalog-only`    | Described here, implemented nowhere. Reviewable and exportable, not connectable. |
+
+Beside it, an evidence chip carries the strongest measured evidence level
+(`not-tested` … `deployed-authorized`), and the per-dimension table inside the
+drawer keeps each dimension's own implementation, configuration readiness and
+evidence. That is the distinction AC-UX-06 asks for: implemented, configured,
+proven against a fixture and proven live are four different statements.
+
+Alternatives for one service are grouped under one heading and never merged.
+A native GitHub adapter and a brokered one differ in custody, evidence and
+grant, so they stay two cards; merging them would be the directory choosing an
+authority on somebody's behalf.
+
+Search and facets run over the whole inventory. Paging is a rendering budget —
+"Show N more" — and never a filter, so a search cannot silently miss a row
+further down the list.
+
+## Deep links
+
+- `/` opens on the directory. Nothing else opens the drawer on arrival;
+  landing inside a modal puts a scrim over the navigation.
+- `/?connector=<id>` opens the drawer on that connector: a link that names one
+  is somebody returning to work they started.
+- `/?connection=<ref>` — what the server's callback route appends — reopens
+  that connection and reads its status from the server before showing it.
+- `&mode=test` and `&section=` are preserved when the page rewrites the query.
+
+## Where this surface deliberately differs
+
+The drawer in part one and the drawer here were designed against different
+contracts, and the differences are not accidents or omissions. Each row below
+is a control the catalogue drawer offers that this one does not, with the
+reason. **The catalogue drawer still offers all of them**; this table says what
+this surface does instead, not what was taken away from the application.
+
+| Catalogue drawer control                                                                                               | What the server-bound surface does instead                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth family radio list ("Flows this connector supports")                                                               | **Authentication method** → `intent.profileId`, populated from the definition's own authentication profiles. The server decides whether the profile is permitted for the binding. |
+| `Managed` / `Custom` configuration source                                                                              | **Environment and authority**, chosen from approved bindings → `bindingRef`. Endpoints are never declared from the browser.                                                       |
+| Per-family endpoint fields (issuer, authorization endpoint, token endpoint, device endpoint, entry origin, claim page) | Not offered. An imported or typed URL is not an approved destination; the binding's destinations are.                                                                             |
+| Environment-name fields (client id, key name, app id, private key)                                                     | Shown as a readiness report (`present` / `missing`). Values are set on the server by an operator.                                                                                 |
+| Service / name / UID                                                                                                   | Not offered. Identity comes from the catalogue entry and the definition.                                                                                                          |
+| Target (account, organization, site)                                                                                   | **Account or workspace** → `intent.target`. Where the provider offers a list, the options arrive from the server as handoff fields.                                               |
+| Identity preference (`personal` / `anonymous` / `either`)                                                              | **Whose access this is** → `ownerKind`. `organization` is offered only when the catalogue's viewer reports that owner kind; otherwise it reads "requires administrator policy".   |
+| Interruption budget (`any` / `at-most-one` / `none`)                                                                   | `intent.interruption` (`allowed` / `none`), with copy saying it is a constraint: "none" may end in `human-required`, and never in another route.                                  |
+| Shared vs per-user API keys                                                                                            | Not a control. Custody is reported from the catalogue entry and stated as server policy: "it cannot be changed from here". A radio button cannot change who owns a grant.         |
+| Capability toggles (teaching, recipes, a2h, prerequisites, arazzo, session environment, webmcp, minted password)       | A read-only capability report of the server's `CapabilityStatus` rows: dimension, profile, implementation, configuration, evidence and limitations.                               |
+| "Verify real access before completing" toggle                                                                          | No switch and no default. Verified status exists only as the server's verification claims.                                                                                        |
+| Expiration select (`30d` / `90d` / `1y`)                                                                               | Reported from the verification claim's `validUntil`, including "the provider did not state an expiry".                                                                            |
+| Step accordion (Service / Configure / Customize / Complete)                                                            | One drawer: intent, then the handoff, then the connection. The four-step shape exists to hold configuration this surface does not collect.                                        |
+| Drawer scrim, Close, Escape                                                                                            | Kept, with focus entry, a focus trap and focus restoration added.                                                                                                                 |
+
+## What the connection surface reports
+
+- **Verification**: the claim kinds, when they were observed, how long they are
+  valid, what they explicitly do not establish, and the exact verified target.
+  With no claim it says so; a completed provider page is not verification.
+- **Custody**: the entry's credential custody, as a badge and as a sentence
+  about who decides it.
+- **Freshness and expiry**: relative observation time and `validUntil`, marked
+  when expired.
+- **Handoffs**: the meter counts how many times this connection has asked a
+  person, which is the cost the directory's meter estimates elsewhere.
+- **Indeterminate outcomes**: named as unknown and being reconciled, never
+  retried silently.
+- **Disconnect**: three separate effects, each with its own sentence, and a
+  result that reports every scope plus the other connections sharing the grant.
+
+## How status is decided
+
+Only a server response changes status. A `postMessage` from the handoff window
+is accepted only when it comes from this origin, from the exact window this
+page opened, and names this connection and handoff; anything else is counted
+and dropped. A closed window and a "I finished in the provider" button do one
+thing each: ask the server again. A callback that returns to the page reopens
+the connection by reference and re-reads it.
+
+The window is opened on the click and navigated once the server answers, so a
+slow authorization does not lose the user activation a browser requires. If the
+browser blocks it anyway, the same authorization continues in the current tab
+and returns to the connection.
+
+## Privacy of inputs
+
+Public names and non-secret settings stay in component state. A field the
+server classifies as `secret` is never mirrored into React state, a draft, the
+URL, analytics or a log: it is read from the form once, sent to the private
+collector, and replaced by the reference the collector returns before the
+handoff is submitted. Dynamic option lists (the Microsoft `dependsOn` shape)
+are fetched by invoking the server operation the field names, with the values
+of the fields it depends on — never with a secret, and never from a cache.
+
+## Accessibility
+
+The drawer is a labelled dialog: focus moves inside on open, Tab and
+Shift+Tab cycle within it, Escape closes it, and focus returns to the control
+that opened it. Field labels carry the field's name only; hints, loading and
+error states are separate elements referenced with `aria-describedby`.
+Status changes are announced through `role="status"`, failures through
+`role="alert"`. Layout is checked at 390px with no horizontal scrolling, and
+controls keep a 40px minimum height at both widths. Axe reports no violations
+on the directory or the drawer.
+
+## Offline and session loss
+
+`navigator.onLine === false` disables connecting and invoking, and says that
+nothing is queued. The client refuses mutations while offline rather than
+buffering them. Connector responses are requested with `cache: "no-store"`,
+and the service worker is unchanged: it caches three static files and never
+touches `/api/`, so no connection status can be served from a cache.
+
+A `401` clears the connection from the screen and asks for sign-in. Nothing
+read under the previous session stays visible.
+
+## Tests
+
+| Command                                                         | What it covers                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `node --import tsx --test tests/connectors/ux/*.test.ts`        | Client contract, directory, connection, review and service-worker guards. |
+| `npx playwright test tests/browser/connector-directory.spec.ts` | The whole browser journey and the message-correlation oracles.            |
+| `npx playwright test tests/browser/connector-drawer.spec.ts`    | Focus, accessibility, dynamic fields and the popup fallback.              |
+
+The browser specs serve themselves: `tests/connectors/ux/harness-server.ts`
+bundles the shipped components with esbuild and serves them, the documented
+route table and a fixture provider from an ephemeral loopback port, with a
+second origin whose only job is to post a completion message that must be
+ignored. They need no reference application and no fixed port.
