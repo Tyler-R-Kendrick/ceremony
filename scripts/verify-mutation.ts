@@ -13,8 +13,8 @@ export async function mutationProgress(
 ) {
   const started = performance.now();
   let initial = true;
-  /** The file the dry run is streaming, so a failure in it can be named. */
-  let running: string | undefined;
+  /** Inside Stryker's list of the files that failed the initial test run. */
+  let dryRunFailed = false;
   const record = (value: Record<string, string | number | null>) =>
     emit({ elapsedMs: Math.round(performance.now() - started), ...value });
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -49,19 +49,41 @@ export async function mutationProgress(
         });
       if (initial && /\bDEBUG TapTestRunner Running: `node /.test(line)) {
         const file = inventory.find((name) => line.includes(`"${name}"\` in `));
-        if (file) {
-          running = file;
-          record({ phase: "initial", file });
-        }
+        if (file) record({ phase: "initial", file });
       }
       // A baseline that fails says only "exit 1" otherwise, and the dry run is
       // where the whole suite runs before a single mutant exists — so a real
       // failure there is invisible in exactly the way a real failure should not
-      // be. The file is the one already being streamed above: an allowlisted
-      // inventory name, never a diagnostic, so nothing leaves here that was not
-      // leaving here already.
-      if (initial && /^not ok /.test(line) && running)
-        record({ phase: "initial-failure", file: running });
+      // be.
+      //
+      // Stryker names the files itself, and that is what is read here:
+      //
+      //     ERROR DryRunExecutor One or more tests failed in the initial test run:
+      //     \ttests/authoring-termination.test.ts
+      //
+      // This used to match `^not ok ` instead, on the assumption that the test
+      // process's TAP stream reaches Stryker's stdout. It does not — the tap
+      // runner consumes it — so the detector never fired on a real failure,
+      // and the case covering it passed because its double printed a line
+      // Stryker does not emit. Established by inducing an ordinary failing
+      // assertion in a baseline file and reading what actually came out.
+      //
+      // Each name is still matched against the inventory before it is
+      // recorded, so what leaves here is an allowlisted filename and never a
+      // diagnostic — the same guarantee as before, now on a line that exists.
+      if (initial && dryRunFailed) {
+        const named = line.trim();
+        if (inventory.includes(named))
+          record({ phase: "initial-failure", file: named });
+        else dryRunFailed = false;
+      }
+      if (
+        initial &&
+        /\bERROR DryRunExecutor One or more tests failed in the initial test run:/.test(
+          line,
+        )
+      )
+        dryRunFailed = true;
     }
   };
   const closed = new Promise<number | null>((done) => {
