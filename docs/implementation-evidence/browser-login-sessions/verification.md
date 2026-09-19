@@ -203,14 +203,27 @@ adapter's own view of the address, the held document node against the live one,
 and any `movedOn` error while asking the page a question - and nothing yet
 distinguishes them in a CI failure.
 
-The leading candidate, unproven: `settle()` waits for `networkidle` with a
-five-second timeout and **swallows the timeout**, so a driver on a loaded
-runner proceeds as though a page had settled when it had not, observes a
-document still being replaced, and finds it replaced at the next action. That
-is the same shape as the `goto` defect already fixed here, in the other place
-an observation is taken after a navigation. It is written down as a candidate
-because it has not been reproduced, and a fix shipped on this reasoning alone
-would be the third guess this section has recorded.
+**One candidate has been eliminated by experiment rather than left plausible.**
+`settle()` waits for `networkidle` with a five-second timeout and swallows the
+timeout, so a driver on a loaded runner proceeds as though a page had settled
+when it had not - the same shape as the `goto` defect already fixed, in the
+other place an observation follows a navigation. If that were the mechanism,
+removing the wait should reproduce the symptom. It does not: with the timeout
+cut to 1ms, the conformance suite passes 34 of 34 serially, and 210 of 210
+alongside `browser-targets.e2e`, `browser-session-lifetime` and
+`browser-executor` at `--test-concurrency=4` under eight CPU burners on four
+cores. Not settling at all, under the harshest conditions reproducible here,
+produces no failure. The candidate is recorded as ruled out.
+
+What remains unreproduced here is the runner itself. This machine has four
+cores and 15 GB; a hosted runner has two and 7, and four concurrent test files
+each driving browsers is the one condition that has never been matched locally.
+Memory pressure is consistent with everything observed - a browser that
+discards and reloads a page under pressure replaces the document, which is
+exactly what the guard reports, and it would explain why only the
+four-way-concurrent job is ever affected, why the victim is arbitrary, and why
+there is never more than one. It is a candidate, not a finding; constraining
+memory to test it is the next experiment, not a fix to ship.
 
 **It fails safe.** Every occurrence is a refusal. The driver declines to act on
 an element it cannot confirm, so the outcome is a login that did not happen
