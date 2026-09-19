@@ -21,6 +21,53 @@ test("mutation profile isolates fixture ports and bounded failures", () => {
   );
 });
 
+test("a dry-run failure is named by the file it happened in, and nothing else", async () => {
+  // Without this the baseline says only "exit 1". The dry run executes the whole
+  // suite before a single mutant exists, so a genuine failure there is invisible
+  // in exactly the way a genuine failure must not be.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("16:00:00 (1) DEBUG TapTestRunner Running: `node \\"tests/one.test.ts\\"` in /private-checkout")',
+    'console.log("not ok 4 - a private assertion message nobody may retain")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", source],
+    ["tests/one.test.ts", "tests/two.test.ts"],
+    (record) => records.push(record),
+  );
+  assert.equal(code, 1);
+  const failure = records.find((r) => r.phase === "initial-failure");
+  assert.deepEqual(failure, {
+    elapsedMs: failure?.elapsedMs,
+    phase: "initial-failure",
+    file: "tests/one.test.ts",
+  });
+  // The allowlist still holds: the failing assertion's own text never appears.
+  assert.equal(
+    JSON.stringify(records).includes("a private assertion message"),
+    false,
+  );
+});
+
+test("a failure before any file is announced names no file at all", async () => {
+  const records: Array<Record<string, string | number | null>> = [];
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", 'console.log("not ok 1 - before any file");process.exit(1)'],
+    ["tests/one.test.ts"],
+    (record) => records.push(record),
+  );
+  assert.equal(code, 1);
+  // Guessing would be worse than silence: naming whichever file ran last in some
+  // previous run is how a diagnostic starts lying.
+  assert.equal(
+    records.some((r) => r.phase === "initial-failure"),
+    false,
+  );
+});
+
 test("mutation progress retains live inventory filenames and exit status, not diagnostics", async () => {
   const records: Array<Record<string, string | number | null>> = [];
   const source = [
