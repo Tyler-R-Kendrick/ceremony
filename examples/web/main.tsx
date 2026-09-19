@@ -89,17 +89,9 @@ const openedOnConnector = entryParams.get("connector") ?? handedOverConnection;
  * `/?teachingRun=…` and nothing else. Recognising just `connector` would land
  * that person in the directory, which is the one place they were not trying
  * to go.
- *
- * Naming a connector is necessary for the drawer to open on the run, and it is
- * not sufficient. A bare `?connector=` is a link *to* a service, not a return
- * to a run already under way, and opening the drawer for it put a fixed
- * full-viewport scrim over the site's own navigation — which is the thing the
- * comment on `open` below warns against, in the same words. A person following
- * such a link could not reach the rail, and neither could anything else on the
- * page.
  */
 const returningToRun = Boolean(
-  handedOverConnection ??
+  openedOnConnector ??
   (entryParams.get("ceremony") || entryParams.get("teachingRun")),
 );
 
@@ -133,9 +125,9 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState<Section>(sectionFromUrl);
   const [connectorId, setConnectorId] = useState(openedOnConnector ?? "github");
-  // Only a link that is returning to a run opens the drawer. Landing inside a
-  // modal would put the scrim over the rail, and a directory whose navigation
-  // is unreachable on arrival is not a directory.
+  // Only a link that already names a connector opens the drawer. Landing
+  // inside a modal would put the scrim over the rail, and a directory whose
+  // navigation is unreachable on arrival is not a directory.
   const [open, setOpen] = useState(returningToRun);
   // A link carrying a connector is a resume link: the service is already
   // chosen, so the drawer opens on the run. Picking one from the directory is
