@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 import { defaultTemplate } from "../../src/core/index.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { manifests, connectorDetails } from "../../examples/manifests.js";
+import {
+  capabilityDetails,
+  catalog,
+  customEntries,
+  isHostSwitchable,
+} from "../../examples/web/catalog.js";
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -41,6 +47,11 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   const found = page
     .getByRole("region", { name: /Results for/ })
     .getByRole("button");
+  // The count carries as much of this as the names do. On its own,
+  // `toContainText(array)` is a subsequence match: it passes just as happily
+  // with unrelated rows wedged between the three named here, which would make
+  // it an assertion about what the search includes rather than what it returns.
+  await expect(found).toHaveCount(3);
   await expect(found).toContainText([
     "Browser Login",
     "Record a Sign-in",
@@ -51,15 +62,24 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   // A category narrows the grid and the featured strip steps aside.
   await page.getByRole("button", { name: /^Commerce/ }).click();
   await expect(page.getByRole("region", { name: "Featured" })).toHaveCount(0);
+  const commerce = page.getByRole("region", { name: "Commerce" });
   await expect(
-    page.getByRole("region", { name: "Commerce" }).getByRole("button"),
-  ).toContainText(["Stripe"]);
+    commerce.getByRole("button", { name: "Stripe", exact: true }),
+  ).toBeVisible();
+  // Narrowing is only narrowing if something is left out, and a fixed count
+  // would go red for adding a payments connector rather than for a broken
+  // filter. A developer-tools row has no business in a commerce grid.
+  await expect(
+    commerce.getByRole("button", { name: "GitHub", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: /^Any category/ }).click();
 
   // Every family this workspace can run is offered as its own card, including
   // the one that records a sign-in rather than collecting a credential.
   const byo = page.getByRole("region", { name: "Bring your own" });
-  await expect(byo.getByRole("button")).toHaveCount(9);
+  // Counted from the catalogue rather than written down, so adding or removing
+  // a protocol keeps this honest instead of merely red.
+  await expect(byo.getByRole("button")).toHaveCount(customEntries.length);
   await byo.getByRole("button", { name: "Record a Sign-in" }).click();
   const recording = page.getByRole("dialog", { name: "Add Connection" });
   await recording
@@ -69,29 +89,68 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   await expect(
     recording.getByRole("checkbox", { name: /Teach this connection/ }),
   ).toBeChecked();
-  await page.keyboard.press("Escape");
+  // Closed by its own control rather than by a key. Escape is asserted on its
+  // own at the end of this test; reaching the directory behind the scrim is a
+  // different claim, and pinning it on a key press is what made this test — and
+  // three others — spend their whole timeout on the runner rather than here.
+  await recording.getByRole("button", { name: "Close", exact: true }).click();
 
   // Opening a service starts on Configure, not on somebody's credentials.
   await all.getByRole("button", { name: "Stripe" }).click();
   const drawer = page.getByRole("dialog", { name: "Add Connection" });
-  await expect(drawer.getByRole("button", { name: "Managed" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(page.getByLabel("Stripe secret key")).toHaveCount(0);
+  await expect(
+    drawer.getByRole("region", { name: "Configure" }),
+  ).toHaveAttribute("data-state", "active");
+  // Stripe is an API key, and nothing about that flow changes with a
+  // configuration source, so it is not offered one. The control appears for
+  // the three families whose form it actually swaps.
+  await expect(
+    drawer.getByRole("group", { name: "Configuration source" }),
+  ).toHaveCount(0);
+  // Hidden rather than absent: the connection stays mounted so its WebMCP
+  // tools outlive the drawer, which is what the surface did before the drawer
+  // existed. What matters here is that nobody is looking at a credential
+  // field on the step that asks how to reach the provider.
+  await expect(page.getByLabel("Stripe secret key")).toBeHidden();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  // Verification is on before anybody asks, because a connection that reads
-  // nothing has not been shown to work.
+  // Verification is not offered as a choice, because a connection that reads
+  // nothing has not been shown to work and nothing on this page can waive
+  // that. It is stated rather than asked.
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
+    drawer.getByText("Verify real access before completing", { exact: true }),
+  ).toBeVisible();
+  await expect(
     drawer.getByRole("checkbox", { name: /Verify real access/ }),
-  ).toBeChecked();
+  ).toHaveCount(0);
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByLabel("Stripe secret key")).toBeVisible();
 
-  // Escape closes the drawer and returns the directory, still navigable.
+  // Continue removes the button that was pressed, so focus has somewhere to
+  // fall. Outside a dialog that declares aria-modal is not it: that puts a
+  // keyboard user at the top of the document with the dialog still over them,
+  // and takes Escape with them, because a document with nothing focused is not
+  // reliably given the key.
+  expect(
+    await page.evaluate(() =>
+      Boolean(document.activeElement?.closest(".connect-drawer")),
+    ),
+  ).toBe(true);
+
+  // Escape closes the drawer and returns the directory, still navigable. Two
+  // claims, deliberately separate: the attribute says this application closed
+  // it, the role says nobody is still being offered it. Together they say
+  // which half is wrong when one of them is — a key that never arrived reads
+  // nothing like a drawer that closed without leaving the accessibility tree.
   await page.keyboard.press("Escape");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.querySelector(".connect-drawer")?.hasAttribute("hidden"),
+      ),
+    )
+    .toBe(true);
   await expect(drawer).toHaveCount(0);
   await expect(all.getByRole("button", { name: "Stripe" })).toBeVisible();
 });
@@ -187,9 +246,15 @@ async function openFromDirectory(page: Page, service: string | RegExp) {
     .click();
   const drawer = page.getByRole("dialog", { name: "Add Connection" });
   // The open step's header is not a button — only the ones you may jump back
-  // to are — so the step is identified by its region instead.
+  // to are — so the step is identified by its region instead. Its visibility
+  // is not the test: every step renders its head on every step, so a drawer
+  // that opened on Complete would satisfy `toBeVisible` for "Configure" too.
+  // `data-state` is the thing that actually distinguishes which one is open.
   for (const step of ["Configure", "Customize"]) {
-    await expect(drawer.getByRole("region", { name: step })).toBeVisible();
+    await expect(drawer.getByRole("region", { name: step })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
     await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   }
 }
@@ -602,4 +667,170 @@ test("isolated presentation editor generates, exports and imports without applyi
     model.close();
     await app.close();
   }
+});
+
+test("what Configure declares reaches the resolver, and says so before the run", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("radio", { name: /OAuth/ }).check();
+
+  // A name the session environment cannot hold is said at the field rather
+  // than dropped in silence — the declaration drops it either way.
+  const name = drawer.getByLabel("Client ID environment name");
+  await name.fill("not-a-valid-name");
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await name.fill("EXAMPLE_CLIENT_ID");
+  await expect(name).not.toHaveAttribute("aria-invalid", "true");
+
+  // Asking for access no route carries is answered before the ceremony
+  // starts, naming the step to go back to rather than failing mid-run.
+  await drawer.getByLabel("Scopes").fill("admin:nothing-carries-this");
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("heading", { name: "This declaration leaves no route" }),
+  ).toBeVisible();
+  await expect(
+    drawer.getByText(/every scope Configure asked for/),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Relaxing it puts the ceremony back, which is what makes the message a
+  // direction rather than a dead end.
+  await drawer.getByRole("button", { name: "Back", exact: true }).click();
+  await drawer.getByRole("button", { name: "Back", exact: true }).click();
+  await drawer.getByLabel("Scopes").fill("");
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("heading", { name: "This declaration leaves no route" }),
+  ).toHaveCount(0);
+  // An `aside` with a name is complementary, not a region.
+  await expect(
+    drawer.getByRole("complementary", { name: "Connection context" }),
+  ).toBeVisible();
+});
+
+test("Customize offers the switches this application has, and describes the rest", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+
+  // Every checkbox is a capability this host can actually act on, counted from
+  // the catalogue so moving one between host and connector ownership shows up
+  // here rather than passing quietly.
+  const switchable = catalog
+    .find((entry) => entry.id === "github")!
+    .capabilities.filter(isHostSwitchable);
+  const boxes = drawer.getByRole("checkbox");
+  await expect(boxes).toHaveCount(switchable.length);
+  for (const capability of switchable)
+    await expect(
+      drawer.getByRole("checkbox", {
+        name: new RegExp(capabilityDetails[capability].label),
+      }),
+    ).toBeVisible();
+
+  // What the connector settles for itself is on screen without a control that
+  // would imply somebody here can change it.
+  for (const capability of catalog
+    .find((entry) => entry.id === "github")!
+    .capabilities.filter((item) => !isHostSwitchable(item))) {
+    const label = capabilityDetails[capability].label;
+    await expect(drawer.getByText(label, { exact: true })).toBeVisible();
+    await expect(
+      drawer.getByRole("checkbox", { name: new RegExp(label) }),
+    ).toHaveCount(0);
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("a service that never claims WebMCP is still offered the switch the host owns", async ({
+  page,
+}) => {
+  // WebMCP is the host's to offer rather than the connector's to claim, and
+  // several listed services never mention it. Now that Customize's answers are
+  // what the run reads, a row that omits one does not show its switch off — it
+  // leaves the answer out, and a missing answer reads as "no", withdrawing the
+  // connection from every WebMCP client watching the page. Studio-authored
+  // rows, described from a manifest alone, claim nothing at all.
+  const entry = catalog.find((item) => item.id === "neon")!;
+  expect(entry.capabilities).not.toContain("webmcp");
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "Neon", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("checkbox", {
+      name: new RegExp(capabilityDetails.webmcp.label),
+    }),
+  ).toBeChecked();
+});
+
+test("the directory asks this host one question on arrival", async ({
+  page,
+}) => {
+  // This host hands a session to the first call that arrives without one, so a
+  // second question asked beside the first comes back as a different person:
+  // two sessions created and stored, and the browser keeping whichever reply
+  // landed last. Whether an account is required is something the host works
+  // out to answer the configuration anyway, so it is answered there.
+  const asked: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) asked.push(url.pathname);
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("region", { name: "All Connectors" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "GitHub", exact: true }).first(),
+  ).toBeVisible();
+  expect(asked).toEqual(["/api/config"]);
+});
+
+test("a link naming nothing this workspace publishes says so on the directory", async ({
+  page,
+}) => {
+  // A stale link lands on the catalogue, which on its own reads as the page
+  // having simply ignored what was asked for. The drawer cannot say it: the
+  // entry is what mounts the drawer, so there is nothing to mount.
+  await page.goto("/?mode=test&connector=not-a-service");
+  await expect(
+    page.getByText("This workspace publishes no connector called"),
+  ).toBeVisible();
+  await expect(page.getByText("not-a-service")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Add Connection" }),
+  ).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Picking a service is the way out of it, and saying it twice would be its
+  // own kind of wrong.
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Add Connection" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This workspace publishes no connector called"),
+  ).toHaveCount(0);
 });

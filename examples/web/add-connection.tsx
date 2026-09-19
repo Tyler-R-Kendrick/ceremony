@@ -2,25 +2,13 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   authFamilyLabels,
   capabilityDetails,
+  isHostSwitchable,
   type AuthFamily,
-  type Capability,
+  type HostCapability,
   type CatalogEntry,
 } from "./catalog.js";
 import { Glyph, initials } from "./connect-catalog.js";
-import {
-  allEngines,
-  compileConnection,
-  engineLabels,
-  notCarriedBy,
-  ownershipLabels,
-  projectDraft,
-  readBackends,
-  type BackendNegotiation,
-  type CompileOutcome,
-  type ConnectionDraft,
-  type KeyScope,
-  type Mode,
-} from "./connection-plan.js";
+import { environmentName } from "./declaration.js";
 
 /**
  * Add Connection: four steps, only one of them open.
@@ -37,7 +25,37 @@ import {
  * server decides what it will actually run.
  */
 
-export type { ConnectionDraft, KeyScope, Mode };
+export type KeyScope = "shared" | "per-user";
+export type Mode = "managed" | "custom";
+
+export interface ConnectionDraft {
+  entryId: string;
+  mode: Mode;
+  family: AuthFamily;
+  /** Free-form per-family configuration; the server re-validates all of it. */
+  values: Record<string, string>;
+  keyScope: KeyScope;
+  capabilities: HostCapability[];
+  interruptions: "any" | "at-most-one" | "none";
+  identity: "personal" | "anonymous" | "either";
+}
+
+/**
+ * The families whose Configure step actually reads `mode`.
+ *
+ * Only these three swap a form when it changes: OAuth and the GitHub App offer
+ * discovery against hand-entered endpoints, and device authorization makes one
+ * field required. For the other five the control moved a highlight, changed
+ * nothing on screen, and still wrote `custom` into the draft — which the
+ * summary then reported as "Configuration: Custom" and the server received.
+ * This branch removes the control where it is inert rather than styling it,
+ * which is what was done to the other three controls like it.
+ */
+const modeAwareFamilies: readonly AuthFamily[] = [
+  "oauth-code",
+  "github-app",
+  "device",
+];
 
 export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
   return {
@@ -46,19 +64,21 @@ export function emptyDraft(entry: CatalogEntry): ConnectionDraft {
     family: entry.auth[0]!,
     values: {},
     keyScope: "shared",
-    // Overwritten by the first browser this host says it actually has. Sending
-    // a guess is still honest — the server rejects an engine it does not run
-    // by name — but the control below never offers one it has not confirmed.
-    engine: "chromium",
-    ownership: "managed",
     // A card that exists for one capability starts with it on. Otherwise just
     // verification, which is not opt-in: a connection that never reads
     // anything has not been shown to work, and the toggle says why.
-    capabilities: entry.defaultCapabilities
-      ? [...entry.defaultCapabilities]
-      : entry.capabilities.includes("verification")
-        ? ["verification"]
-        : [],
+    // Only what this application can actually turn off, starting where the
+    // application already started. A card that exists for one capability names
+    // it; everything else takes the capability's own default, so opening a
+    // drawer never quietly asks for more than the page did before.
+    capabilities: entry.capabilities.filter(isHostSwitchable).filter(
+      (capability) =>
+        capabilityDetails[capability].defaultOn ||
+        // A card that exists for one capability adds it to the defaults
+        // rather than replacing them: "Record a Sign-in" is a reason to
+        // teach, not a reason to stop exposing the connection.
+        entry.defaultCapabilities?.includes(capability),
+    ),
     interruptions: "any",
     identity: "either",
   };
@@ -93,7 +113,11 @@ function Field({
         </span>
       </label>
       {children(id)}
-      {hint && <p className="field-hint">{hint}</p>}
+      {hint && (
+        <p className="field-hint" id={`${id}-hint`}>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -104,6 +128,7 @@ function Text({
   placeholder,
   required,
   hint,
+  invalid,
   onChange,
 }: {
   label: string;
@@ -111,13 +136,16 @@ function Text({
   placeholder?: string;
   required?: boolean;
   hint?: ReactNode;
+  /** Said out loud when the value cannot be used, in place of the hint. */
+  invalid?: string;
   onChange(value: string): void;
 }) {
+  const message = invalid ?? hint;
   return (
     <Field
       label={label}
       {...(required ? { required } : {})}
-      {...(hint ? { hint } : {})}
+      {...(message ? { hint: message } : {})}
     >
       {(id) => (
         <input
@@ -125,10 +153,50 @@ function Text({
           type="text"
           value={value}
           {...(placeholder ? { placeholder } : {})}
+          {...(message ? { "aria-describedby": `${id}-hint` } : {})}
+          {...(invalid ? { "aria-invalid": true } : {})}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
     </Field>
+  );
+}
+
+/**
+ * A field that names a session-environment entry rather than carrying a value.
+ *
+ * The name is the whole point — the secret stays in the encrypted vault — so a
+ * name the vault cannot hold is worth saying immediately. The declaration
+ * drops one silently rather than throwing from inside a render, and silently
+ * is exactly what this stops it being.
+ */
+function EnvironmentName({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange(value: string): void;
+}) {
+  const usable =
+    value.trim().length === 0 || environmentName.test(value.trim());
+  return (
+    <Text
+      label={label}
+      value={value}
+      placeholder={placeholder}
+      hint="Names a session-environment entry. Secrets are never typed into this form; the value stays in the encrypted vault."
+      {...(usable
+        ? {}
+        : {
+            invalid:
+              "Capitals, digits and underscores, starting with a letter — the shape a session-environment entry has. Until it matches, this connection is declared as not holding it.",
+          })}
+      onChange={onChange}
+    />
   );
 }
 
@@ -150,52 +218,61 @@ function FamilyForm({
   const put = (name: string) => (next: string) =>
     set({ values: { ...draft.values, [name]: next } });
   const managed = draft.mode === "managed";
-  if (family === "oauth-code" || family === "oauth-client-credentials")
-    return managed ? (
+  if (family === "oauth-code")
+    return (
       <>
-        <p className="step-note">
-          Enter the OAuth server URL to auto-discover the provider.
-        </p>
-        <Text
-          label="Server URL"
-          required
-          value={value("issuer")}
-          placeholder="https://example.com"
-          hint="Authorization server metadata is read from the origin you enter. Discovery is advisory; the server re-validates every endpoint it is given."
-          onChange={put("issuer")}
-        />
-      </>
-    ) : (
-      <>
-        <p className="step-note">
-          Declare the endpoints yourself when a provider publishes no metadata
-          document.
-        </p>
-        <Text
-          label="Authorization endpoint"
-          required
-          value={value("authorizationEndpoint")}
-          placeholder="https://example.com/oauth/authorize"
-          onChange={put("authorizationEndpoint")}
-        />
-        <Text
-          label="Token endpoint"
-          required
-          value={value("tokenEndpoint")}
-          placeholder="https://example.com/oauth/token"
-          onChange={put("tokenEndpoint")}
-        />
-        <Text
+        {managed ? (
+          <>
+            <p className="step-note">
+              Enter the OAuth server URL to auto-discover the provider.
+            </p>
+            <Text
+              label="Server URL"
+              required
+              value={value("issuer")}
+              placeholder="https://example.com"
+              hint="Authorization server metadata is read from the origin you enter. Discovery is advisory; the server re-validates every endpoint it is given."
+              onChange={put("issuer")}
+            />
+          </>
+        ) : (
+          <>
+            <p className="step-note">
+              Declare the endpoints yourself when a provider publishes no
+              metadata document.
+            </p>
+            <Text
+              label="Authorization endpoint"
+              required
+              value={value("authorizationEndpoint")}
+              placeholder="https://example.com/oauth/authorize"
+              onChange={put("authorizationEndpoint")}
+            />
+            <Text
+              label="Token endpoint"
+              required
+              value={value("tokenEndpoint")}
+              placeholder="https://example.com/oauth/token"
+              onChange={put("tokenEndpoint")}
+            />
+          </>
+        )}
+        {/* Neither of these is an endpoint, so discovery never supplies them:
+            what a connection asks for is a decision, and where its client id
+            lives is this workspace's business. Managed mode was offering only
+            the issuer, which left a discovered provider with nothing to say to
+            the resolver. */}
+        <EnvironmentName
           label="Client ID environment name"
           value={value("clientIdName")}
           placeholder="EXAMPLE_CLIENT_ID"
-          hint="Names a session-environment entry. Secrets are never typed into this form; the value stays in the encrypted vault."
           onChange={put("clientIdName")}
         />
         <Text
           label="Scopes"
           value={value("scopes")}
           placeholder="read:user repo"
+          hint="What this connection is asking to be able to do. A route that cannot carry every one of them is not offered."
           onChange={put("scopes")}
         />
       </>
@@ -254,11 +331,10 @@ function FamilyForm({
           </label>
         </fieldset>
         {draft.keyScope === "shared" ? (
-          <Text
+          <EnvironmentName
             label="Key environment name"
             value={value("keyName")}
             placeholder="EXAMPLE_API_KEY"
-            hint="The key itself is collected privately and held in the encrypted vault. This form stores its name, never its value."
             onChange={put("keyName")}
           />
         ) : (
@@ -296,14 +372,6 @@ function FamilyForm({
           Basic encodes an identifier and a token together. Both are collected
           privately at connect time and sent to the adapter by reference.
         </p>
-        <Text
-          label="Service origin"
-          required
-          value={value("service")}
-          placeholder="https://example.com"
-          hint="The only origin this connection's identifier and token may be sent to. Permission to visit somewhere is not permission to type a credential there."
-          onChange={put("service")}
-        />
         <Text
           label="Identifier label"
           value={value("identifierLabel")}
@@ -363,17 +431,16 @@ function FamilyForm({
       </>
     ) : (
       <>
-        <Text
+        <EnvironmentName
           label="App ID environment name"
           value={value("appIdName")}
           placeholder="GITHUB_APP_ID"
           onChange={put("appIdName")}
         />
-        <Text
+        <EnvironmentName
           label="Private key environment name"
           value={value("appKeyName")}
           placeholder="GITHUB_APP_PRIVATE_KEY"
-          hint="Held in session-scoped encrypted configuration. Never entered in chat or in this form."
           onChange={put("appKeyName")}
         />
       </>
@@ -417,14 +484,6 @@ function FamilyForm({
         <p className="step-note">
           This connection can bring an account into being, not merely use one.
         </p>
-        <Text
-          label="Service origin"
-          required
-          value={value("service")}
-          placeholder="https://example.com"
-          hint="Where registration happens, and the only origin a minted or chosen credential may be typed at."
-          onChange={put("service")}
-        />
         <Field label="What names the account">
           {(id) => (
             <select
@@ -482,7 +541,6 @@ function FamilyForm({
       </p>
       <Text
         label="Claim page"
-        required
         value={value("claimUrl")}
         placeholder="https://example.com/claim"
         hint="A provider-owned transfer page. No email is collected here."
@@ -498,6 +556,7 @@ function Step({
   state,
   onOpen,
   aside,
+  keepMounted,
   children,
 }: {
   index: number;
@@ -505,6 +564,16 @@ function Step({
   state: "active" | "done" | "upcoming";
   onOpen?(): void;
   aside?: ReactNode;
+  /**
+   * Hide this step's body instead of unmounting it.
+   *
+   * Only Complete asks for this, and only because what it hosts is a live
+   * connection: unmounting takes its WebMCP tools with it, so an agent would
+   * lose `ceremony_<connector>_connect` the moment somebody closed a panel.
+   * `hidden` keeps the registration and still takes the step out of the
+   * accessibility tree.
+   */
+  keepMounted?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -534,467 +603,156 @@ function Step({
           {aside}
         </div>
       )}
-      {state === "active" && children && (
-        <div className="step-body">{children}</div>
+      {children && (keepMounted || state === "active") && (
+        <div className="step-body" hidden={state !== "active"}>
+          {children}
+        </div>
       )}
     </section>
-  );
-}
-
-/**
- * Which browser runs this, offered from what the host says it actually has.
- *
- * The list is the runtime's own descriptors, capability booleans and all. An
- * engine this host does not run is shown disabled with that written on it,
- * because a choice that is accepted and then refused by name teaches a person
- * nothing they could have acted on beforehand.
- */
-function BrowserChoice({
-  draft,
-  negotiation,
-  set,
-}: {
-  draft: ConnectionDraft;
-  negotiation: BackendNegotiation | undefined;
-  set(patch: Partial<ConnectionDraft>): void;
-}) {
-  if (!negotiation)
-    return (
-      <p className="step-note" role="status">
-        Asking this workspace which browsers it can run…
-      </p>
-    );
-  if (negotiation.kind === "unavailable")
-    return (
-      <p className="step-note" role="status">
-        {negotiation.message} No browser can be chosen here. This configuration
-        can still be sent, and the server will say plainly that it will not run
-        it.
-      </p>
-    );
-  const backends = negotiation.backends;
-  const chosen = backends.find(
-    (backend) =>
-      backend.engine === draft.engine && backend.ownership === draft.ownership,
-  );
-  const unenforced = chosen
-    ? Object.entries(chosen.capabilities)
-        .filter(([, able]) => able === false)
-        .map(([name]) => name)
-    : [];
-  return (
-    <>
-      <fieldset className="choice-grid">
-        <legend className="fieldset-legend">Browser engine</legend>
-        {allEngines.map((engine) => {
-          const available = backends.some(
-            (backend) => backend.engine === engine,
-          );
-          const version = backends.find(
-            (backend) => backend.engine === engine,
-          )?.engineVersion;
-          return (
-            <label className="choice" key={engine}>
-              <div>
-                <span className="choice-title">{engineLabels[engine]}</span>
-                <span className="choice-note">
-                  {available
-                    ? `Registered here${version && version !== "unknown" ? `, version ${version}` : ""}.`
-                    : "No backend for this engine is registered on this host."}
-                </span>
-              </div>
-              <input
-                type="radio"
-                name="browser-engine"
-                checked={draft.engine === engine}
-                disabled={!available}
-                onChange={() => set({ engine })}
-              />
-            </label>
-          );
-        })}
-      </fieldset>
-      <fieldset className="choice-grid">
-        <legend className="fieldset-legend">Whose browser</legend>
-        {(["managed", "attached-user"] as const).map((ownership) => {
-          const available = backends.some(
-            (backend) =>
-              backend.ownership === ownership &&
-              backend.engine === draft.engine,
-          );
-          return (
-            <label className="choice" key={ownership}>
-              <div>
-                <span className="choice-title">
-                  {ownershipLabels[ownership]}
-                </span>
-                <span className="choice-note">
-                  {available
-                    ? ownership === "managed"
-                      ? "Launched and disposed by this workspace."
-                      : "Driven through an installed companion; your tabs and cookies are left as they were."
-                    : `No ${engineLabels[draft.engine]} backend of this kind is registered on this host.`}
-                </span>
-              </div>
-              <input
-                type="radio"
-                name="browser-ownership"
-                checked={draft.ownership === ownership}
-                disabled={!available}
-                onChange={() => set({ ownership })}
-              />
-            </label>
-          );
-        })}
-      </fieldset>
-      {unenforced.length > 0 && (
-        <p className="field-hint">
-          This browser cannot enforce: {unenforced.join(", ")}. A configuration
-          that requires one of them is refused before anything launches.
-        </p>
-      )}
-    </>
-  );
-}
-
-/** One labelled value of the compiled plan, addressable by tests and readers. */
-function PlanRow({
-  name,
-  field,
-  children,
-}: {
-  name: string;
-  field: string;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      <dt>{name}</dt>
-      <dd data-plan={field}>{children}</dd>
-    </>
-  );
-}
-
-/**
- * What the server decided, and nothing else.
- *
- * Every value in here arrives in a response. There is deliberately no branch
- * that falls back to the draft: an uncompiled configuration says it is
- * uncompiled, a refused one says who refused it, and a rejected field names the
- * reason and offers the step that owns it. The failure this replaces is a
- * summary that read like a settled configuration while the runtime had never
- * been told any of it.
- */
-function EffectiveConfiguration({
-  entry,
-  draft,
-  compiling,
-  compiled,
-  onFix,
-}: {
-  entry: CatalogEntry;
-  draft: ConnectionDraft;
-  compiling: boolean;
-  compiled: CompileOutcome | undefined;
-  onFix(step: 2 | 3): void;
-}) {
-  const projected = projectDraft(entry, draft);
-  const dropped = notCarriedBy(draft);
-  const aside = dropped.length > 0 && (
-    <div className="plan-note">
-      <h4 className="fieldset-legend">
-        Collected here, not carried by the plan
-      </h4>
-      <ul>
-        {dropped.map((item) => (
-          <li key={item.key}>
-            <strong>{item.label}</strong> — {item.reason}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-  if (compiling)
-    return (
-      <>
-        <p role="status">Sending this configuration to be compiled…</p>
-        {aside}
-      </>
-    );
-  if (!compiled)
-    return (
-      <>
-        <p className="step-note" role="status">
-          Nothing has been sent yet. What you chose is a request: until the
-          server compiles it into a plan, none of it is in effect and none of it
-          is shown here as settled.
-        </p>
-        {!projected.ok && (
-          <p role="status" className="field-hint">
-            <strong>{projected.label}</strong> — {projected.reason}{" "}
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => onFix(projected.step)}
-            >
-              Fix in Configure
-            </button>
-          </p>
-        )}
-        {aside}
-      </>
-    );
-  if (compiled.kind === "rejected")
-    return (
-      <>
-        <p role="alert">
-          The server rejected this configuration: <code>{compiled.reason}</code>
-          . {compiled.message}
-        </p>
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={() => onFix(compiled.step)}
-        >
-          {compiled.step === 2 ? "Fix in Configure" : "Fix in Customize"}
-        </button>
-        {aside}
-      </>
-    );
-  if (compiled.kind === "refused")
-    return (
-      <>
-        <p role="alert">
-          {compiled.message} <code>{compiled.code}</code>
-        </p>
-        {aside}
-      </>
-    );
-  const { plan, result, session } = compiled;
-  return (
-    <>
-      {plan ? (
-        <dl className="summary-list">
-          <PlanRow name="Plan digest" field="digest">
-            <code>{plan.digest}</code>
-          </PlanRow>
-          <PlanRow name="Revision" field="revision">
-            {plan.revision}
-          </PlanRow>
-          {plan.backendId && (
-            <PlanRow name="Backend" field="backendId">
-              {plan.backendId}
-            </PlanRow>
-          )}
-          {plan.entryUrl && (
-            <PlanRow name="Entry address" field="entryUrl">
-              <code>{plan.entryUrl}</code>
-            </PlanRow>
-          )}
-          {plan.navigationOrigins && (
-            <PlanRow name="May navigate to" field="navigationOrigins">
-              {plan.navigationOrigins.join(", ")}
-            </PlanRow>
-          )}
-          {plan.credentialRecipients && (
-            <PlanRow
-              name="May receive a credential"
-              field="credentialRecipients"
-            >
-              {Object.entries(plan.credentialRecipients).length
-                ? Object.entries(plan.credentialRecipients)
-                    .map(([role, origins]) => `${role}: ${origins.join(" ")}`)
-                    .join("; ")
-                : "Nowhere. No origin may be typed into."}
-            </PlanRow>
-          )}
-          {plan.account && (
-            <PlanRow name="Account" field="account">
-              {plan.account.kind}
-            </PlanRow>
-          )}
-          {plan.continuation && (
-            <PlanRow name="When the call returns" field="continuation">
-              {plan.continuation}
-            </PlanRow>
-          )}
-          {plan.trustMode && (
-            <PlanRow name="Control" field="trustMode">
-              {plan.trustMode === "trusted-agent"
-                ? "trusted-agent — the controlling client can read the page and use the account"
-                : "constrained-auth — validated authentication operations only"}
-            </PlanRow>
-          )}
-          {plan.interactionRounds !== undefined && (
-            <PlanRow
-              name="Rounds a person may be asked"
-              field="interactionRounds"
-            >
-              {plan.interactionRounds}
-            </PlanRow>
-          )}
-          {plan.requireVerification !== undefined && (
-            <PlanRow name="Verification" field="requireVerification">
-              {plan.requireVerification
-                ? "required before this completes"
-                : "not required by this plan"}
-            </PlanRow>
-          )}
-          {plan.sessionTtlMs !== undefined && (
-            <PlanRow name="Session lifetime" field="sessionTtlMs">
-              {Math.round(plan.sessionTtlMs / 60000)} minutes
-            </PlanRow>
-          )}
-        </dl>
-      ) : (
-        <p className="step-note">
-          This host compiled the configuration and did not echo the plan it
-          produced, so what follows is the outcome it reported rather than the
-          plan itself.
-        </p>
-      )}
-      <dl className="summary-list">
-        <PlanRow name="Outcome" field="status">
-          {result.status}
-        </PlanRow>
-        {result.reason && (
-          <PlanRow name="Reason" field="resultReason">
-            <code>{result.reason}</code>
-          </PlanRow>
-        )}
-        {result.evidenceKind && (
-          <PlanRow name="Evidence" field="evidenceKind">
-            {result.evidenceKind}
-          </PlanRow>
-        )}
-        {session && (
-          <PlanRow name="Session verified" field="sessionVerified">
-            {session.verified ? "yes" : "no"}
-          </PlanRow>
-        )}
-        {session && (
-          <PlanRow name="Session engine" field="sessionEngine">
-            {session.engine} · {session.ownership}
-          </PlanRow>
-        )}
-      </dl>
-      {aside}
-    </>
   );
 }
 
 export interface AddConnectionProps {
   entry: CatalogEntry;
   /**
-   * The live ceremony for this connector.
+   * Whether the drawer is on screen.
    *
-   * It is handed the compiled outcome, not just the draft, because everything
-   * the run surface states about this connection has to come from what the
-   * server resolved. `undefined` means nothing has been compiled yet, and the
-   * surface has to say so rather than describing what was typed.
+   * Closed, it renders nothing a person can see or reach — but it stays
+   * mounted, because Complete hosts a live connection and unmounting it would
+   * take its WebMCP tools with it. Before this surface existed, Connect
+   * rendered that connection whenever Connect was showing, and an agent could
+   * call `ceremony_<connector>_connect` without a human opening a panel first.
    */
-  renderRun(
-    draft: ConnectionDraft,
-    compiled: CompileOutcome | undefined,
-  ): ReactNode;
+  open: boolean;
+  /** The live ceremony for this connector, rendered once the draft is settled. */
+  renderRun(draft: ConnectionDraft, runEpoch: number): ReactNode;
   /**
    * Where to open. A person who clicked a card is configuring; a person who
    * followed a resume link already did, and should land on the run.
    */
   initialStep?: 2 | 4;
-  /**
-   * Page-level controls that have to stay reachable while this dialog is open.
-   *
-   * A modal covers the surface behind it on purpose, so anything a person may
-   * still need — a pending static-shell update, for one — is handed here and
-   * rendered inside the dialog rather than left under the scrim.
-   */
-  utility?: ReactNode;
   onClose(): void;
   onChangeService(): void;
 }
 
 export function AddConnection({
   entry,
+  open,
   renderRun,
   initialStep = 2,
-  utility,
   onClose,
   onChangeService,
 }: AddConnectionProps) {
   const [step, setStep] = useState<number>(initialStep);
   const [draft, setDraft] = useState(() => emptyDraft(entry));
-  const [negotiation, setNegotiation] = useState<BackendNegotiation>();
-  const [compiled, setCompiled] = useState<CompileOutcome>();
-  const [compiling, setCompiling] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
-  const set = (patch: Partial<ConnectionDraft>) => {
+  const opener = useRef<HTMLElement | null>(null);
+  // Held in a ref so the focus effect below does not depend on a callback
+  // identity. onClose is an inline arrow in the host, so a dependency on it
+  // re-runs the effect on every host render and pulls focus back to the panel
+  // from whatever the person was actually using.
+  const dismiss = useRef(onClose);
+  dismiss.current = onClose;
+  const set = (patch: Partial<ConnectionDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
-    // A compiled plan describes the draft it was compiled from. The moment the
-    // draft changes it stops describing anything, and leaving it on screen is
-    // exactly the confusion this whole file exists to remove.
-    setCompiled(undefined);
-  };
+  /**
+   * How many times Complete has been arrived at.
+   *
+   * The run reads the declaration when it mounts and keeps what it read, so a
+   * run mounted on the drawer's first paint is holding the empty draft and
+   * every answer given afterwards is decoration — the summary says one thing
+   * and the resolver is handed another. The fix is not to delay the mount:
+   * mounting is also what registers this connection's WebMCP tools, and those
+   * are expected from page load, whether or not anybody opens the drawer.
+   *
+   * So the run stays mounted throughout and is rebuilt at the one moment the
+   * declaration is finished — arriving at Complete. Going back, changing an
+   * answer and returning arrives again, so the rebuilt run carries the changed
+   * declaration too. A run already under way is handed its resume id, so being
+   * rebuilt returns it to the same ceremony rather than starting another.
+   */
+  const [runEpoch, setRunEpoch] = useState(0);
+  useEffect(() => {
+    if (step === 4) setRunEpoch((count) => count + 1);
+  }, [step]);
   useEffect(() => {
     setDraft(emptyDraft(entry));
     setStep(initialStep);
-    setCompiled(undefined);
-  }, [entry, initialStep]);
-  // `onClose` is written fresh by the parent on every render, so depending on it
-  // re-ran this effect every time: the Escape listener was torn down and added
-  // back constantly, and a keypress landing in that gap was simply lost. Held in
-  // a ref, the effect runs once per drawer and the listener stays put.
-  //
-  // It also fixes where the keyboard goes afterwards. `opener` was re-read on
-  // every re-run, by which point the drawer itself held focus, so closing
-  // returned focus to the drawer rather than to the card that opened it.
-  const close = useRef(onClose);
-  close.current = onClose;
+    // Keyed on the id, not the object: `entries` is rebuilt whenever config
+    // resolves, and a new object identity for the same connector would discard
+    // everything the person had typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, initialStep]);
+  /**
+   * Focus enters once, cycles inside, and goes back where it came from.
+   *
+   * A dialog that declares aria-modal and then leaves the page behind it
+   * tabbable is telling assistive technology something untrue, and dropping
+   * focus on the floor at close leaves a keyboard user at the top of the
+   * document with no idea where they were.
+   */
   useEffect(() => {
-    // Where the keyboard was before the drawer took it, so closing puts it
-    // back on the card that opened it rather than at the top of the document.
-    const opener = document.activeElement;
+    if (!open) return;
+    opener.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     panel.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close.current();
+      if (event.key === "Escape") {
+        dismiss.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panel.current) return;
+      const reachable = [
+        ...panel.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => element.getClientRects().length > 0);
+      const first = reachable[0];
+      const last = reachable[reachable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === panel.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    addEventListener("keydown", onKey);
+    /*
+     * Captured, not bubbled. A modal's dismissal should not be something a
+     * descendant can withhold: on the way down this runs before anything
+     * between the key and here gets a chance to stop it, and the alternative
+     * is a dialog that cannot be closed from the keyboard for reasons no part
+     * of this file can see.
+     */
+    addEventListener("keydown", onKey, true);
     return () => {
-      removeEventListener("keydown", onKey);
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+      removeEventListener("keydown", onKey, true);
+      if (opener.current?.isConnected) opener.current.focus();
     };
-  }, []);
-  // Which browsers this host has, asked once per drawer. Nothing is offered
-  // before the answer arrives, and an answer that says "none" is displayed as
-  // "none" rather than as a full set of choices that will all be refused.
+  }, [open]);
+  /**
+   * The step that replaces this one inherits the focus it held.
+   *
+   * Continue removes the button that was just pressed, so focus falls to the
+   * body — outside a dialog that declares `aria-modal`, which is the thing the
+   * trap above exists to prevent and it happened at every step rather than
+   * only at close. A keyboard user was put at the top of the document with the
+   * dialog still over it, and Escape went with them: the handler is on the
+   * window, and a document with nothing focused is not reliably given the key
+   * at all. That shows up as a modal nobody can dismiss.
+   *
+   * Focus already inside is left alone, so this never takes a field away from
+   * somebody mid-answer.
+   */
   useEffect(() => {
-    let live = true;
-    void readBackends().then((result) => {
-      if (!live) return;
-      setNegotiation(result);
-      const first = result.kind === "offered" ? result.backends[0] : undefined;
-      if (first)
-        setDraft((current) => ({
-          ...current,
-          engine: first.engine,
-          ownership: first.ownership,
-        }));
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const offered = negotiation?.kind === "offered" ? negotiation : undefined;
-  const compile = async () => {
-    setCompiling(true);
-    setCompiled(undefined);
-    try {
-      setCompiled(await compileConnection(entry, draft));
-    } finally {
-      setCompiling(false);
-    }
-  };
-  const toggle = (capability: Capability) =>
+    if (!open || panel.current?.contains(document.activeElement)) return;
+    panel.current?.focus();
+  }, [open, step]);
+  const toggle = (capability: HostCapability) =>
     set({
       capabilities: draft.capabilities.includes(capability)
         ? draft.capabilities.filter((value) => value !== capability)
@@ -1002,18 +760,23 @@ export function AddConnection({
     });
   const state = (index: number) =>
     step === index ? "active" : step > index ? "done" : "upcoming";
-  /** Opened on the run by a resume link, rather than walked to from step one. */
-  const resumed = initialStep === 4;
+  const switchable = entry.capabilities.filter(isHostSwitchable);
+  const described = entry.capabilities.filter(
+    (capability) => !isHostSwitchable(capability),
+  );
   return (
     <>
       <button
         type="button"
         className="drawer-scrim"
         aria-label="Close Add Connection"
+        hidden={!open}
         onClick={onClose}
       />
       <div
         className="connect-drawer"
+        hidden={!open}
+        data-step={step}
         data-wide={step === 4 ? "" : undefined}
         data-theme="dark"
         role="dialog"
@@ -1024,6 +787,15 @@ export function AddConnection({
       >
         <div className="drawer-head">
           <h2>Add Connection</h2>
+          {step === 4 && (
+            <button
+              type="button"
+              className="reopen-setup"
+              onClick={() => setStep(2)}
+            >
+              Back to setup
+            </button>
+          )}
           <button
             type="button"
             className="icon-button"
@@ -1033,17 +805,6 @@ export function AddConnection({
             <Glyph name="close" />
           </button>
         </div>
-        {/*
-          A resume link is not a wizard. Somebody who followed one has already
-          configured this connection and came back to finish it, so the run is
-          the first thing in the drawer and the steps that produced it sit
-          under it, still open to anybody who wants to change something. Put
-          the other way round, four rows of wizard scaffolding push the button
-          the person came to press off the bottom of a phone.
-        */}
-        {resumed && (
-          <div className="run-region">{renderRun(draft, compiled)}</div>
-        )}
         <Step
           index={1}
           title={entry.name}
@@ -1067,26 +828,28 @@ export function AddConnection({
           state={state(2)}
           {...(step > 2 ? { onOpen: () => setStep(2) } : {})}
         >
-          <div
-            className="segmented"
-            role="group"
-            aria-label="Configuration source"
-          >
-            <button
-              type="button"
-              aria-pressed={draft.mode === "managed"}
-              onClick={() => set({ mode: "managed" })}
+          {modeAwareFamilies.includes(draft.family) && (
+            <div
+              className="segmented"
+              role="group"
+              aria-label="Configuration source"
             >
-              Managed
-            </button>
-            <button
-              type="button"
-              aria-pressed={draft.mode === "custom"}
-              onClick={() => set({ mode: "custom" })}
-            >
-              Custom
-            </button>
-          </div>
+              <button
+                type="button"
+                aria-pressed={draft.mode === "managed"}
+                onClick={() => set({ mode: "managed" })}
+              >
+                Managed
+              </button>
+              <button
+                type="button"
+                aria-pressed={draft.mode === "custom"}
+                onClick={() => set({ mode: "custom" })}
+              >
+                Custom
+              </button>
+            </div>
+          )}
           {/*
             Every flow the connector declares, each one selectable and each
             swapping in the form its protocol actually needs. A connector with
@@ -1105,7 +868,17 @@ export function AddConnection({
                     type="radio"
                     name="auth-family"
                     checked={draft.family === family}
-                    onChange={() => set({ family, values: {} })}
+                    onChange={() =>
+                      set({
+                        family,
+                        values: {},
+                        // A family that never reads this must not inherit
+                        // somebody's answer to a question it does not ask.
+                        ...(modeAwareFamilies.includes(family)
+                          ? {}
+                          : { mode: "managed" as const }),
+                      })
+                    }
                   />
                   <div>
                     <span className="choice-title">{title}</span>
@@ -1116,7 +889,6 @@ export function AddConnection({
             })}
           </fieldset>
           <FamilyForm family={draft.family} draft={draft} set={set} />
-          <BrowserChoice draft={draft} negotiation={negotiation} set={set} />
           <div className="step-actions">
             <button
               type="button"
@@ -1142,43 +914,67 @@ export function AddConnection({
           {...(step > 3 ? { onOpen: () => setStep(3) } : {})}
         >
           <p className="step-note">
-            What this connection is allowed to do beyond collecting a
-            credential. Each option names the module that carries it.
+            What this connection should do beyond collecting a credential. Each
+            one names the module that carries it, so the claim is checkable
+            rather than decorative.
           </p>
-          <fieldset className="toggle-list">
-            <legend className="sr-only">Connection capabilities</legend>
-            {entry.capabilities.map((capability) => {
-              const detail = capabilityDetails[capability];
-              // The one capability a host can forbid turning off. When it says
-              // so, the control is fixed on and carries the reason, rather
-              // than accepting a choice the compiler will refuse by name.
-              const pinned =
-                capability === "verification" &&
-                offered?.verificationRequired === true;
-              return (
-                <label className="toggle" key={capability}>
-                  <input
-                    type="checkbox"
-                    checked={pinned || draft.capabilities.includes(capability)}
-                    disabled={pinned}
-                    onChange={() => toggle(capability)}
-                  />
-                  <div>
-                    <span className="choice-title">{detail.label}</span>
-                    <span className="choice-note">
-                      {detail.summary} <code>{detail.module}</code>
-                    </span>
-                    {pinned && (
+          {switchable.length > 0 && (
+            <fieldset className="toggle-list">
+              <legend className="sr-only">Connection capabilities</legend>
+              {switchable.map((capability) => {
+                const detail = capabilityDetails[capability];
+                const on = draft.capabilities.includes(capability);
+                return (
+                  <label className="toggle" key={capability}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggle(capability)}
+                    />
+                    <div>
+                      <span className="choice-title">{detail.label}</span>
                       <span className="choice-note">
-                        This workspace refuses a plan that turns verification
-                        off, so this cannot be unchecked here.
+                        {detail.summary} <code>{detail.module}</code>
                       </span>
-                    )}
-                  </div>
-                </label>
-              );
-            })}
-          </fieldset>
+                      {/* What the connection is without it, said while the
+                          box is still ticked — after it is cleared there is
+                          nothing on screen to explain what changed. */}
+                      {on && "offNote" in detail && (
+                        <span className="choice-note choice-consequence">
+                          {detail.offNote}
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </fieldset>
+          )}
+          {/*
+           * Not checkboxes. These are settled by the connector's manifest and
+           * its adapter, so a box here would be a control that changes
+           * nothing — the same promise the rail's dead switchers used to make.
+           * They still belong on screen: they are most of what separates this
+           * connection from a credential form.
+           */}
+          {described.length > 0 && (
+            <div className="capability-readout">
+              <h3>What this connection does anyway</h3>
+              <ul>
+                {described.map((capability) => {
+                  const detail = capabilityDetails[capability];
+                  return (
+                    <li key={capability}>
+                      <span className="choice-title">{detail.label}</span>
+                      <span className="choice-note">
+                        {detail.summary} <code>{detail.module}</code>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <Field
             label="Interruption budget"
             hint="How often this integration may stop and ask a person. The cheapest route that still satisfies it is the one resolved."
@@ -1238,30 +1034,31 @@ export function AddConnection({
             </button>
           </div>
         </Step>
-        <Step index={4} title="Complete" state={state(4)}>
-          <section className="plan-panel" aria-label="Effective configuration">
-            <h3 className="fieldset-legend">Effective configuration</h3>
-            <EffectiveConfiguration
-              entry={entry}
-              draft={draft}
-              compiling={compiling}
-              compiled={compiled}
-              onFix={(next) => setStep(next)}
-            />
-            <div className="step-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                disabled={compiling}
-                onClick={() => void compile()}
-              >
-                {compiled ? "Check again" : "Check this configuration"}
-              </button>
-            </div>
-          </section>
-          {!resumed && (
-            <div className="run-region">{renderRun(draft, compiled)}</div>
-          )}
+        <Step index={4} title="Complete" state={state(4)} keepMounted>
+          <details className="summary-disclosure">
+            <summary>Connection summary</summary>
+            <dl className="summary-list">
+              <dt>Service</dt>
+              <dd>{entry.name}</dd>
+              {modeAwareFamilies.includes(draft.family) && (
+                <>
+                  <dt>Configuration</dt>
+                  <dd>{draft.mode === "managed" ? "Managed" : "Custom"}</dd>
+                </>
+              )}
+              <dt>Auth family</dt>
+              <dd>{authFamilyLabels[draft.family]}</dd>
+              <dt>Capabilities</dt>
+              <dd>
+                {draft.capabilities.length
+                  ? draft.capabilities
+                      .map((capability) => capabilityDetails[capability].label)
+                      .join(", ")
+                  : "Credential collection only"}
+              </dd>
+            </dl>
+          </details>
+          <div className="run-region">{renderRun(draft, runEpoch)}</div>
           <div className="step-actions">
             <button
               type="button"
@@ -1272,7 +1069,6 @@ export function AddConnection({
             </button>
           </div>
         </Step>
-        {utility}
         <p className="drawer-foot">
           Setup is saved between steps and only verified provider access
           completes a connection. You keep control of account access and

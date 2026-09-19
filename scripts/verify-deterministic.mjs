@@ -6,6 +6,8 @@ import {
   summarizeStage,
   coverageTotals,
   failedTestFiles,
+  failedTestNames,
+  failedBrowserTests,
 } from "./verification-summary.js";
 import {
   profileFingerprint,
@@ -110,13 +112,43 @@ for (const command of commands) {
           ["scripts/test.mjs", "all", "--inventory"],
           {
             encoding: "utf8",
+            maxBuffer: 16 * 1024 * 1024,
           },
         ),
-      ).files;
-      record.failedTestFiles = failedTestFiles(output, inventory);
+      );
+      record.failedTestFiles = failedTestFiles(output, inventory.files);
+      // A file name alone cannot separate the twenty-four cases that share
+      // one browser suite, so a failure reported as the file and nothing else
+      // is a failure nobody can act on.
+      record.failedTests = failedTestNames(output, inventory.names ?? []);
     } catch {
       // Inventory failure must not prevent retaining the original failed stage.
       record.failedTestFiles = [];
+      record.failedTests = [];
+    }
+  }
+  if (command === "test:e2e" && record.exitCode !== 0) {
+    try {
+      // Asked of the same script the node suites are inventoried from, rather
+      // than of Playwright, which would have to load its config and every spec
+      // to answer — work this stage has just finished doing, and work that can
+      // fail for its own reasons on the one path where the answer is needed.
+      const failed = failedBrowserTests(
+        output,
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            ["scripts/test.mjs", "browser", "--inventory"],
+            { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+          ),
+        ),
+      );
+      record.failedTestFiles = failed.files;
+      record.failedTests = failed.names;
+    } catch {
+      // Inventory failure must not prevent retaining the original failed stage.
+      record.failedTestFiles = [];
+      record.failedTests = [];
     }
   }
   if (command === "test:e2e" && record.exitCode === 0) {
@@ -146,6 +178,8 @@ for (const command of commands) {
   if (record.exitCode !== 0) {
     if (record.failedTestFiles?.length)
       console.error(`Failed test files: ${record.failedTestFiles.join(", ")}`);
+    if (record.failedTests?.length)
+      console.error(`Failed tests: ${record.failedTests.join(", ")}`);
     console.error(
       `Run npm run ${command} for local diagnostics. Sanitized attempt retained at ${directory}/commands.json`,
     );

@@ -45,7 +45,6 @@ export type CatalogSupport = "provider-backed" | "fixture" | "declared";
  */
 export const authFamilyLabels = {
   "oauth-code": "OAuth 2.1 · authorization code + PKCE",
-  "oauth-client-credentials": "OAuth 2.0 · client credentials",
   "api-key": "API key",
   basic: "HTTP Basic · identifier + token",
   device: "Device authorization",
@@ -67,56 +66,109 @@ export const capabilityDetails = {
     summary:
       "Record the transitions a provider actually permits, then replay them without a model. Provider DOM and private input are never captured.",
     module: "src/server/teaching.ts",
+    control: "host",
+    defaultOn: true,
+    offNote:
+      "Off runs the plain ceremony instead: the connection is made, the way in is not recorded.",
   },
   recipes: {
     label: "Save as a reusable recipe",
     summary:
       "Publish a whole ceremony or a contiguous fragment. Compatible recipes compose under fresh principal and environment bindings; sharing procedure never shares access.",
     module: "src/core/recipe-contracts.ts",
+    control: "connector",
   },
   a2h: {
     label: "Agent-to-human handoff",
     summary:
       "An agent may prepare a step and hand the approval back to the person who owns the account. Consent stays with them; private input never enters model context.",
     module: "src/server/a2h.ts",
+    control: "host",
+    defaultOn: false,
+    offNote: "Off keeps every approval in this browser.",
   },
   prerequisites: {
     label: "Prerequisite child ceremonies",
     summary:
       "Registration, installation and consent run as their own verified children. A later step cannot start until the one it depends on is proven.",
     module: "src/core/connector-contracts.ts",
-  },
-  arazzo: {
-    label: "Arazzo workflow binding",
-    summary:
-      "Bind host-held workflow documents by identity and version. Remote executable URLs are never fetched.",
-    module: "src/server/arazzo.ts",
+    control: "connector",
   },
   "session-environment": {
     label: "Session environment bindings",
     summary:
       "Client ids, secrets and project URLs resolve from encrypted session-scoped configuration instead of a form somebody retypes per connector.",
     module: "src/server/environment.ts",
+    control: "connector",
   },
   verification: {
     label: "Verify real access before completing",
     summary:
       "A returned token is not a connection. Completion requires the adapter to read something the grant was for.",
     module: "src/server/verification.ts",
+    control: "connector",
   },
   webmcp: {
     label: "Expose to WebMCP and MCP clients",
     summary:
       "The same validated commands drive the UI, native WebMCP and a chat client. Browser source labels are not authority.",
     module: "src/core/webmcp.ts",
+    control: "host",
+    defaultOn: true,
+    offNote: "Off leaves the connection driveable only from this page.",
   },
   "minted-password": {
     label: "Mint the credential",
     summary:
       "Where a provider will hold a password, generate a strong one instead of asking a person to invent and type it.",
     module: "src/core/connector-contracts.ts",
+    control: "connector",
   },
-} satisfies Record<string, { label: string; summary: string; module: string }>;
+} satisfies Record<
+  string,
+  {
+    label: string;
+    summary: string;
+    module: string;
+    /**
+     * Who decides. "host" means this application can turn it off and the
+     * drawer offers a checkbox; "connector" means the manifest and its adapter
+     * settle it, and a checkbox would be a control that changes nothing.
+     */
+    control: "host" | "connector";
+    /**
+     * For a host switch: whether a fresh draft starts with it on. These are
+     * what this application did before any of them was a switch — teaching
+     * wherever the server offered it, WebMCP because the component exposes a
+     * connection unless a host says otherwise, and agent assistance off
+     * because approving in your own browser is the thing you did not ask for
+     * help with.
+     */
+    defaultOn?: boolean;
+    /** For a host switch: what the connection is without it. */
+    offNote?: string;
+  }
+>;
+
+/**
+ * The capabilities this application can switch.
+ *
+ * Derived from the table rather than listed again, so moving one between host
+ * and connector ownership is a single edit and anything that still assumes the
+ * old answer stops compiling.
+ */
+export type HostCapability = {
+  [K in Capability]: (typeof capabilityDetails)[K]["control"] extends "host"
+    ? K
+    : never;
+}[Capability];
+
+/** Capabilities the drawer can actually switch, as opposed to describe. */
+export function isHostSwitchable(
+  capability: Capability,
+): capability is HostCapability {
+  return capabilityDetails[capability].control === "host";
+}
 export type Capability = keyof typeof capabilityDetails;
 
 export interface CatalogEntry {
@@ -128,16 +180,12 @@ export interface CatalogEntry {
   auth: readonly AuthFamily[];
   capabilities: readonly Capability[];
   featured?: boolean;
-  /** Pre-checked in Customize; the reason somebody chose this card. */
-  defaultCapabilities?: readonly Capability[];
   /**
-   * The workspace's registered origin for this service, when it has one.
-   *
-   * Used as the entry address of a compiled plan in Managed mode, so a person
-   * does not have to retype something the workspace already knows. A row
-   * without one has to be told where it lives before a plan can be compiled.
+   * Also pre-checked in Customize: the reason somebody chose this card, on top
+   * of whatever each capability defaults to. Only what the host can switch — a
+   * connector property has no box to pre-check.
    */
-  origin?: string;
+  defaultCapabilities?: readonly HostCapability[];
   /** Brand colour behind fallback initials. Manifests carry no logo, and should not. */
   tint?: string;
   ink?: string;
@@ -165,17 +213,6 @@ export const customEntries: readonly CatalogEntry[] = [
       "a2h",
       "webmcp",
     ],
-    tint: "#2b2b2b",
-  },
-  {
-    id: "custom-client-credentials",
-    name: "OAuth Machine",
-    summary:
-      "Server-to-server access from a client id and secret. Nobody is interrupted.",
-    category: "Developer",
-    support: "declared",
-    auth: ["oauth-client-credentials"],
-    capabilities: ["session-environment", "verification", "webmcp"],
     tint: "#2b2b2b",
   },
   {
@@ -235,7 +272,7 @@ export const customEntries: readonly CatalogEntry[] = [
     support: "declared",
     auth: ["browser-login"],
     capabilities: ["teaching", "recipes", "a2h", "verification", "webmcp"],
-    defaultCapabilities: ["teaching", "recipes", "verification"],
+    defaultCapabilities: ["teaching"],
     tint: "#2b2b2b",
   },
   {
@@ -253,7 +290,6 @@ export const customEntries: readonly CatalogEntry[] = [
       "verification",
       "session-environment",
     ],
-    defaultCapabilities: ["minted-password", "verification"],
     tint: "#2b2b2b",
   },
   {
@@ -274,7 +310,6 @@ export const serviceEntries: readonly CatalogEntry[] = [
   {
     id: "github",
     name: "GitHub",
-    origin: "https://github.com",
     summary: "Automate repos, issues, and pull requests.",
     category: "Developer",
     support: "provider-backed",
@@ -294,7 +329,6 @@ export const serviceEntries: readonly CatalogEntry[] = [
   {
     id: "stripe",
     name: "Stripe",
-    origin: "https://dashboard.stripe.com",
     summary: "Authenticate to the Stripe API with a secret or restricted key.",
     category: "Commerce",
     support: "provider-backed",
@@ -306,7 +340,6 @@ export const serviceEntries: readonly CatalogEntry[] = [
   {
     id: "supabase",
     name: "Supabase",
-    origin: "https://supabase.com",
     summary: "Project setup, project-user sign-in and enrolled TOTP.",
     category: "Data",
     support: "provider-backed",
@@ -325,7 +358,6 @@ export const serviceEntries: readonly CatalogEntry[] = [
   {
     id: "jira",
     name: "Jira",
-    origin: "https://id.atlassian.com",
     summary: "Connect Jira Cloud with 3LO consent or an Atlassian API token.",
     category: "Productivity",
     support: "provider-backed",
@@ -343,7 +375,6 @@ export const serviceEntries: readonly CatalogEntry[] = [
   {
     id: "neon",
     name: "Neon",
-    origin: "https://console.neon.tech",
     summary: "Start anonymously, then transfer ownership at the provider.",
     category: "Data",
     support: "provider-backed",
@@ -514,7 +545,7 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "Zoom",
     "Communication",
     "Schedule meetings and read recordings.",
-    ["oauth-code", "oauth-client-credentials"],
+    ["oauth-code"],
     ["a2h"],
   ),
   declared(
@@ -574,7 +605,7 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "BigQuery",
     "Data",
     "Run queries against your datasets.",
-    ["oauth-code", "oauth-client-credentials"],
+    ["oauth-code"],
   ),
   declared(
     "planetscale",
@@ -698,14 +729,14 @@ export const declaredEntries: readonly CatalogEntry[] = [
     "Okta",
     "Other",
     "Administer users, groups and applications.",
-    ["oauth-client-credentials", "api-key"],
+    ["api-key"],
   ),
   declared(
     "auth0",
     "Auth0",
     "Other",
     "Manage tenants, connections and users.",
-    ["oauth-client-credentials", "api-key"],
+    ["api-key"],
   ),
   declared(
     "salesforce",
