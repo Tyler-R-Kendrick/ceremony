@@ -782,6 +782,29 @@ test("a service that never claims WebMCP is still offered the switch the host ow
   ).toBeChecked();
 });
 
+test("the directory asks this host one question on arrival", async ({
+  page,
+}) => {
+  // This host hands a session to the first call that arrives without one, so a
+  // second question asked beside the first comes back as a different person:
+  // two sessions created and stored, and the browser keeping whichever reply
+  // landed last. Whether an account is required is something the host works
+  // out to answer the configuration anyway, so it is answered there.
+  const asked: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) asked.push(url.pathname);
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("region", { name: "All Connectors" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "GitHub", exact: true }).first(),
+  ).toBeVisible();
+  expect(asked).toEqual(["/api/config"]);
+});
+
 test("a link naming nothing this workspace publishes says so on the directory", async ({
   page,
 }) => {

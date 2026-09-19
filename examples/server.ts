@@ -581,14 +581,29 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
         let authored: Awaited<
           ReturnType<TeachingRuntime["authoring"]["listManifests"]>
         > = [];
-        if (teaching && "authoring" in teaching && owner) {
+        /*
+         * Whether this host has anybody signed in, which it works out here
+         * anyway to decide what to list. The directory needs the same answer —
+         * a host that will demand an account should demand it before anything
+         * is drafted — and asking for it separately is a second call racing
+         * this one for the same session.
+         */
+        let authenticated = false;
+        if (teaching && owner) {
           try {
             const actor = await teaching.identity.authenticate(
               new Request(url, {
                 headers: teachingHeaders,
               }),
             );
-            if (actor) authored = await teaching.authoring.listManifests(actor);
+            if (actor) {
+              // Signed in is signed in, whether or not this runtime can also
+              // author: a host that publishes no authoring would otherwise
+              // report everybody as signed out and ask them all to sign in.
+              authenticated = true;
+              if ("authoring" in teaching)
+                authored = await teaching.authoring.listManifests(actor);
+            }
           } catch {
             authored = [];
           }
@@ -608,6 +623,7 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           ],
           liveAvailable: Boolean(liveController),
           teachingAvailable: Boolean(teaching),
+          teachingAuthenticated: authenticated,
           teachingConnectors: [...(teaching?.connectors ?? []), ...authoredIds],
           generationAvailable: Boolean(options.modelUrl && options.modelName),
           // The catalogue lives here, with the agent that drives it; the page
