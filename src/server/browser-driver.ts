@@ -17,7 +17,7 @@ import type {
   CeremonyInterpreter,
   InterpreterInput,
 } from "./browser-interpreter.js";
-import { StaleTargetError } from "./browser-targets.js";
+import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -74,6 +74,16 @@ export interface CeremonyPage {
   /** Wait for navigation or in-page updates to quiesce, bounded by the adapter. */
   settle(): Promise<void>;
   /**
+   * The origin a click on this control would submit to, or `undefined` when it
+   * submits nothing. Answered from the observation the caller approved, not
+   * from the live page, and an origin rather than a URL because a form action
+   * can carry an identifier or a token in its query string.
+   *
+   * Optional: an adapter that cannot tell simply does not implement it, and the
+   * driver then reports no dispatches rather than inventing them.
+   */
+  submissionTarget?(element: SnapshotElement): Promise<string | undefined>;
+  /**
    * The last response's status and `WWW-Authenticate` header, when the adapter
    * can see them. A 401 challenge has no page to fill, so it is only visible
    * here.
@@ -105,7 +115,13 @@ export type CeremonyOutcome =
   | { status: "exhausted"; steps: number }
   | { status: "stalled"; steps: number }
   /** Completion was claimed but no evidence confirmed it. */
-  | { status: "unverified"; steps: number };
+  | { status: "unverified"; steps: number }
+  /**
+   * Something was dispatched and where it went is not known. Distinct from
+   * every `blocked` reason, all of which mean the step did not happen: a caller
+   * may retry a refusal and must not retry this.
+   */
+  | { status: "indeterminate"; steps: number };
 
 export type CeremonyResult = CeremonyOutcome & {
   /** Ordered, value-free record of what the attempt did. Safe to persist. */
@@ -121,6 +137,17 @@ export interface CeremonyRunOptions {
   secrets: CeremonySecrets;
   /** Origins where the driver may act at all, and type a secret. */
   allowedOrigins: readonly string[];
+  /**
+   * Called immediately *before* a click that submits a form, never after.
+   *
+   * The ordering is the whole point. A caller records the intent to dispatch,
+   * and if this process dies during the click the record survives saying a
+   * submission may have gone out — which is exactly the case that used to be
+   * reported as "nothing happened, safe to retry". A callback that throws stops
+   * the attempt before the click, so a ledger that cannot record cannot be
+   * bypassed by proceeding anyway.
+   */
+  onDispatch?: (info: { destination: string }) => Promise<void> | void;
   /**
    * Redirect target that ends an authorization ceremony. Reaching it captures
    * the code from the browser; the code never enters a snapshot or a prompt.
@@ -426,9 +453,21 @@ export async function runCeremony(
       }
       record(snapshot, "check", action.note ? { note: action.note } : {});
     } else {
+      // A control that belongs to a form is the only thing here that can change
+      // the provider's state, so it is the only thing announced. Clicking a
+      // link or an in-page toggle sends nothing and is not an effect.
+      const destination = options.onDispatch
+        ? await page.submissionTarget?.(element)
+        : undefined;
+      if (destination !== undefined)
+        await options.onDispatch?.({ destination });
       try {
         await page.click(element);
       } catch (error) {
+        if (error instanceof DispatchUncertain) {
+          record(snapshot, "blocked", { reason: "provider-error" });
+          return finish({ status: "indeterminate", steps });
+        }
         const reason = refusalReason(error);
         if (reason === undefined) throw error;
         record(snapshot, "blocked", { reason });

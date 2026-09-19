@@ -373,7 +373,18 @@ export const loginResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("indeterminate"),
     runRef: runRefSchema,
-    effectRef: effectRefSchema,
+    /**
+     * The durable record of what was sent, when a deployment keeps one.
+     *
+     * Optional, and absent rather than invented. A deployment with no effect
+     * ledger can still discover that a submission left the browser and that
+     * nobody learned the answer - that is the part a caller must act on - but
+     * there is nothing to look the attempt up in afterwards. Minting a
+     * reference here so the shape stays uniform would hand back an identifier
+     * that resolves to nothing, which is the same class of false claim as a
+     * capability nothing implements.
+     */
+    effectRef: effectRefSchema.optional(),
   }),
   z.strictObject({
     status: z.literal("blocked"),

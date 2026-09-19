@@ -4,6 +4,11 @@ import {
   managedBackends,
   UnsupportedBackend,
 } from "../src/server/browser-backends.js";
+import {
+  createEffectLedger,
+  effectIsIndeterminate,
+  type EffectLedger,
+} from "../src/server/browser-effects.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import {
@@ -14,6 +19,7 @@ import { compileLoginPlan } from "../src/server/login-plan.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { PageSnapshot } from "../src/core/browser-contracts.js";
+import type { CeremonyPage } from "../src/server/browser-driver.js";
 
 /**
  * The login service's decisions, with the browser replaced by a stub.
@@ -53,8 +59,38 @@ const emptyPage: PageSnapshot = {
   elements: [],
 };
 
+/**
+ * A login page with something to submit, for the cases about what happens when
+ * a submission goes out and its outcome never comes back.
+ */
+const loginPage: PageSnapshot = {
+  path: `${origin}/signin`,
+  title: "Sign in",
+  headings: [],
+  alerts: [],
+  challenge: false,
+  passkey: false,
+  elements: [
+    // Already filled, so the deterministic interpreter's next move is the
+    // submit button rather than the field. The fill itself is not what these
+    // cases are about — what happens after the click is.
+    {
+      index: 0,
+      kind: "input",
+      type: "password",
+      name: "password",
+      label: "Password",
+      filled: true,
+    },
+    { index: 1, kind: "button", text: "Sign in" },
+  ],
+};
+
 /** A managed browser that opens nothing and records whether it was disposed. */
-function stubBackend(answer: { status: number; body: string }) {
+function stubBackend(
+  answer: { status: number; body: string },
+  page: Partial<CeremonyPage> = {},
+) {
   const state = { disposed: 0, contextsClosed: 0 };
   const launch = (async () => ({
     descriptor: managedBackends()[0]!,
@@ -83,6 +119,7 @@ function stubBackend(answer: { status: number; body: string }) {
               click: async () => {},
               check: async () => {},
               settle: async () => {},
+              ...page,
             },
           };
         },
@@ -128,11 +165,18 @@ function planFor(overrides: Record<string, unknown> = {}) {
 
 function serviceWith(
   backend: ReturnType<typeof stubBackend>,
-  options: { verifiers?: boolean } = {},
+  options: {
+    verifiers?: boolean;
+    effects?: boolean;
+    /** Stand in a ledger that fails where a real store can fail. */
+    ledger?: EffectLedger;
+  } = {},
 ) {
   const sessions = createBrowserSessionRegistry({ store });
+  const effects = options.ledger ?? createEffectLedger({ store });
   const service = createBrowserLoginService({
     sessions,
+    ...(options.effects === false ? {} : { effects }),
     verifiers:
       options.verifiers === false
         ? createVerifierRegistry([])
@@ -140,7 +184,7 @@ function serviceWith(
     credentials: { resolve: async () => "correct-horse" },
     launch: backend.launch,
   });
-  return { sessions, service };
+  return { sessions, service, effects };
 }
 
 describe("login service outcomes", () => {
@@ -290,5 +334,240 @@ describe("attestation", () => {
       }),
     );
     await sessions.disposeAll();
+  });
+});
+
+describe("a submission whose outcome never came back", () => {
+  /** A page that submits and then loses the browser out from under itself. */
+  const vanishingPage = (): Partial<CeremonyPage> => ({
+    snapshot: async () => loginPage,
+    submissionTarget: async () => origin,
+    click: async () => {
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+
+  /** A page that submits once, successfully, and then has nothing left to do. */
+  const submittingPage = (): Partial<CeremonyPage> => {
+    let clicked = false;
+    return {
+      snapshot: async () => (clicked ? emptyPage : loginPage),
+      submissionTarget: async () => origin,
+      click: async () => {
+        clicked = true;
+      },
+    };
+  };
+
+  test("EFFECT-LOST: a dispatch with no answer is undetermined, not blocked", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service, effects } = serviceWith(backend);
+    const result = await service.login(actor, {
+      plan: planFor(),
+      idempotencyKey: "lost-1",
+    });
+    try {
+      // The old answer here was `blocked` / `provider-error`, which a caller
+      // reads as "nothing happened, try again". The credential had already gone
+      // to the provider.
+      assert.equal(
+        result.status,
+        "indeterminate",
+        `expected an undetermined outcome, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "indeterminate") return;
+      // A ledger is configured here, so the reference must be present and must
+      // resolve. The case below covers the deployment that has no ledger.
+      assert.ok(
+        result.effectRef,
+        "an attempt recorded in a ledger must say where it was recorded",
+      );
+      assert.match(result.effectRef, /^beff_[0-9a-f]{32}$/);
+      assert.equal(
+        effectIsIndeterminate(await effects.read(actor, result.effectRef)),
+        true,
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("EFFECT-NOLEDGER: uncertainty is reported without inventing a record", async () => {
+    // A deployment with no ledger still has to say that something was
+    // dispatched and nobody learned the answer: that is the part a caller acts
+    // on. What it must not do is hand back an `effectRef` nobody can look up,
+    // which reads as a durable record and is a freshly minted string.
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend, { effects: false });
+    try {
+      const result = await service.login(actor, { plan: planFor() });
+      assert.equal(
+        result.status,
+        "indeterminate",
+        `expected an undetermined outcome, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "indeterminate") return;
+      assert.equal(
+        result.effectRef,
+        undefined,
+        "there is no ledger, so there is no reference to give",
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("EFFECT-UNWRITABLE: a ledger that cannot close the record keeps the answer", async () => {
+    // Closing the record is bookkeeping about an attempt that is already over.
+    // A store failure there must not discard a verified login's `sessionRef`,
+    // because this call has already retained the browser that holds it and
+    // nothing else will ever hand it back.
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      submittingPage(),
+    );
+    const broken: EffectLedger = {
+      ...createEffectLedger({ store }),
+      observed: async () => {
+        throw new Error("store unavailable");
+      },
+    };
+    const { sessions, service: fragile } = serviceWith(backend, {
+      ledger: broken,
+    });
+    try {
+      const result = await fragile.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "unwritable-1",
+      });
+      assert.equal(
+        result.status,
+        "verified",
+        `expected the login's own answer, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "verified") return;
+      assert.ok(result.sessionRef, "the retained session must still be named");
+      // And the record it failed to close stays dispatched, so a replay of the
+      // same key reports uncertainty rather than logging in a second time.
+      const replay = await fragile.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "unwritable-1",
+      });
+      assert.equal(
+        replay.status,
+        "indeterminate",
+        `expected the unclosed record to refuse a replay, got ${JSON.stringify(replay)}`,
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("a retry of an undetermined request is refused, not re-run", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend);
+    try {
+      const first = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "lost-2",
+      });
+      assert.equal(first.status, "indeterminate");
+      const second = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "lost-2",
+      });
+      // The whole point: the second call does not open a browser and does not
+      // submit anything. It reports the uncertainty the first one left behind.
+      assert.equal(second.status, "indeterminate");
+      assert.equal(backend.state.disposed, 1);
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("a failure before anything was sent stays a plain refusal", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      {
+        snapshot: async () => {
+          throw new Error("Target page, context or browser has been closed");
+        },
+      },
+    );
+    const { sessions, service } = serviceWith(backend);
+    try {
+      const result = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "never-sent",
+      });
+      // Nothing left the browser, so a caller may safely try again. Reporting
+      // this as undetermined would be the mirror-image defect: it would make
+      // every transient fault look like a possible double-submission.
+      assert.equal(result.status, "blocked");
+      if (result.status !== "blocked") return;
+      assert.equal(result.reason, "provider-error");
+      const replay = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "never-sent",
+      });
+      assert.equal(replay.status, "blocked");
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("a settled request with no recorded answer is spent, not cancelled", async () => {
+    const backend = stubBackend({ status: 200, body: '{"account":"ada"}' });
+    const { sessions, service, effects } = serviceWith(backend);
+    try {
+      // An effect settled by something that kept no answer — an older record,
+      // or an attempt that ended before answers were stored.
+      const claim = await effects.begin(actor, {
+        runRef: "brun_00000000000000000000000000000009",
+        effectivePlanDigest: planFor().digest,
+        idempotencyKey: "no-answer",
+      });
+      assert.equal(claim.kind, "fresh");
+      await effects.dispatching(actor, claim.record.effectRef, origin);
+      await effects.observed(actor, claim.record.effectRef, "verified");
+
+      const replay = await service.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "no-answer",
+      });
+      assert.equal(replay.status, "blocked");
+      if (replay.status !== "blocked") return;
+      // `expired` says this request is spent. `cancelled` would say it stopped
+      // before dispatch, which is the one thing known to be false here.
+      assert.equal(replay.reason, "expired");
+      assert.equal(backend.state.disposed, 0);
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("without a ledger the uncertainty is still reported, just not persisted", async () => {
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend, { effects: false });
+    try {
+      const result = await service.login(actor, { plan: planFor() });
+      // A deployment with nowhere to write a ledger still must not tell a
+      // caller that a dispatched submission did not happen.
+      assert.equal(result.status, "indeterminate");
+    } finally {
+      await sessions.disposeAll();
+    }
   });
 });

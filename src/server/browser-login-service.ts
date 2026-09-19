@@ -1,4 +1,5 @@
 import {
+  loginResultSchema,
   mintReference,
   type BrowserOperationReason,
   type LoginEvidence,
@@ -26,6 +27,7 @@ import {
   type VerifierRegistry,
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
+import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
 
 /**
  * One authorized browser login, end to end.
@@ -64,6 +66,12 @@ export type LoginServiceOptions = {
   now?: () => number;
   /** How long verified evidence stays fresh before it must be re-established. */
   evidenceFreshnessMs?: number;
+  /**
+   * Records what an attempt sent before it sends it. Without one, a repeated
+   * request is a repeated submission and a lost response is reported as though
+   * nothing was dispatched — so callers that can persist should supply it.
+   */
+  effects?: EffectLedger;
 };
 
 export type LoginRunInput = {
@@ -72,6 +80,13 @@ export type LoginRunInput = {
   human?: HumanParticipation | undefined;
   /** Observed steps, value-free, for a caller's progress display. */
   onStep?: ((step: { path: string; action: string }) => void) | undefined;
+  /**
+   * The caller's name for "this same request". Two calls carrying the same key
+   * under the same plan are one request: the second reports what the first did
+   * instead of logging in again. Omitting it means every call is a new request,
+   * which is the old behaviour and is only safe when the caller knows it.
+   */
+  idempotencyKey?: string | undefined;
 };
 
 export function createBrowserLoginService(options: LoginServiceOptions) {
@@ -95,115 +110,223 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       const { plan } = input;
       const runRef = mintReference("brun");
 
-      let browser: ManagedBrowser;
-      try {
-        browser = await launch(plan.engine, plan.required);
-      } catch (error) {
-        // A backend that cannot provide what the plan requires is reported as
-        // an unsupported capability, not as a browser that failed to start:
-        // the caller's next move is different in each case.
-        return {
-          status: "blocked",
+      // Claim the request before anything is launched. A replay is answered
+      // from the record and never re-executed: a caller retrying a login whose
+      // response it lost must not be the reason a provider sees two attempts.
+      const ledger = options.effects;
+      let effectRef: string | undefined;
+      if (ledger && input.idempotencyKey !== undefined) {
+        const claim = await ledger.begin(actor, {
           runRef,
-          reason:
-            error instanceof UnsupportedBackend
-              ? "unsupported-capability"
-              : "target-unavailable",
-        };
-      }
-
-      let context: ManagedContext | undefined;
-      let retained = false;
-      try {
-        context = await browser.openContext();
-        const { page } = await context.openPage();
-
-        const outcome = await drive(actor, plan, page, input);
-        if (outcome.kind === "blocked")
-          return { status: "blocked", runRef, reason: outcome.reason };
-        if (outcome.kind === "human")
-          return {
-            status: "requires-human",
-            runRef,
-            handoffRef: mintReference("bhof"),
-            reason: outcome.reason,
-          };
-
-        // The drive is over. Whether anyone is logged in is a separate
-        // question, asked of the provider through this context's own cookies.
-        const verifierOrigin = plan.verifierOrigin;
-        const verifier = verifierOrigin
-          ? options.verifiers.find(verifierOrigin)
-          : undefined;
-        const request = context.request;
-
-        if (!verifier || !request) {
-          // No registered verifier means the honest ceiling is "something was
-          // submitted". Retaining the session is still useful and still true;
-          // calling it verified would not be.
-          const sessionRef =
-            plan.continuation === "dispose"
-              ? undefined
-              : await retain(actor, plan, browser, context, undefined);
-          retained = sessionRef !== undefined;
-          return {
-            status: "submitted-unverified",
-            runRef,
-            ...(sessionRef ? { sessionRef } : {}),
-          };
-        }
-
-        const expected =
-          plan.account.kind === "expect"
-            ? { accountRef: plan.account.accountRef }
-            : {};
-        const verification = await verifier.verify(
-          {
-            request,
-            browserGeneration: browser.browserGeneration,
-            browserSessionRef: "pending",
-            effectivePlanDigest: plan.digest,
-          },
-          expected,
-        );
-
-        if (!verification.verified) {
-          // A wrong account is reported. It is never a licence to log that
-          // account out, switch to another, or start a recovery flow.
-          if (verification.reason === "account-mismatch")
-            return { status: "blocked", runRef, reason: "account-mismatch" };
-          return { status: "submitted-unverified", runRef };
-        }
-
-        const sessionRef = await retain(
-          actor,
-          plan,
-          browser,
-          context,
-          undefined,
-        );
-        retained = true;
-        const { evidenceRef, evidence } = mintLoginEvidence({
-          kind: verifier.evidenceKind,
-          verifier,
-          browserSessionRef: sessionRef,
-          browserGeneration: browser.browserGeneration,
-          accountRef: verification.accountRef,
           effectivePlanDigest: plan.digest,
-          now: new Date(now()),
-          freshnessMs: freshness,
+          idempotencyKey: input.idempotencyKey,
         });
-        await options.sessions.recordEvidence(
-          actor,
-          sessionRef,
-          evidence,
-          evidenceRef,
-        );
-        if (plan.continuation === "dispose") {
-          // The caller asked for the old ephemeral behaviour. The account was
-          // still genuinely verified; the session simply does not outlive it.
-          await options.sessions.release(actor, sessionRef, "dispose-managed");
-          retained = false;
+        if (claim.kind === "replay") {
+          const prior = claim.record;
+          // Still dispatched and never observed: the first attempt sent
+          // something and nobody ever learned what came back. Saying "blocked"
+          // here would invite exactly the retry that must not happen.
+          if (effectIsIndeterminate(prior))
+            return {
+              status: "indeterminate",
+              runRef: prior.runRef,
+              effectRef: prior.effectRef,
+            };
+          // An idempotent request answers the same thing twice. Returning the
+          // first call's result verbatim is the only honest reply: there is no
+          // reason in the vocabulary that means "this already ran", and
+          // borrowing one that means something else — `cancelled` says the
+          // operation stopped before dispatch — would tell a caller whose login
+          // succeeded that it did not, and send them back with a fresh key.
+          if (prior.settled)
+            return loginResultSchema.parse(JSON.parse(prior.settled));
+          // Settled without a recorded answer: older record, or an attempt that
+          // ended before one existed. Refusing to re-run it is still right; the
+          // honest reason is that this request is spent, not that it failed.
+          return {
+            status: "blocked",
+            runRef: prior.runRef,
+            reason: "expired",
+          };
+        }
+        effectRef = claim.record.effectRef;
+      }
+      /** Whether anything left the browser. Decides uncertainty from refusal. */
+      let dispatched = false;
+      /** Close the effect honestly, whatever the attempt turned out to be. */
+      const settle = async (outcome: string, serialized?: string) => {
+        if (!ledger || !effectRef) return;
+        // An undetermined attempt is not closed. "Observed" means this process
+        // saw the attempt through, and marking an outcome nobody saw as
+        // observed would erase the exact uncertainty the record exists to
+        // keep — and with it the reason a retry is refused.
+        if (outcome === "indeterminate") return;
+        try {
+          if (dispatched)
+            await ledger.observed(actor, effectRef, outcome, serialized);
+          else await ledger.abandon(actor, effectRef);
+        } catch {
+          // Closing the record is bookkeeping about an attempt that is already
+          // over. Letting it throw would discard the attempt's answer, and for
+          // a verified login that answer is the only way the caller learns the
+          // `sessionRef` of a browser this call has already retained on their
+          // behalf - an authenticated session nobody can reach is the exact
+          // harm this module exists to prevent.
+          //
+          // Swallowing it is safe in the one direction that matters. The
+          // record was written before the click and stays where it was: a
+          // dispatched attempt stays `dispatched`, so a replay of this key
+          // reports uncertainty and refuses to run again, which is the
+          // conservative answer for an attempt whose outcome this process
+          // failed to write down. Nothing here can turn into a second
+          // submission.
+        }
+      };
+
+      const run = async (): Promise<LoginResult> => {
+        let browser: ManagedBrowser;
+        try {
+          browser = await launch(plan.engine, plan.required);
+        } catch (error) {
+          // A backend that cannot provide what the plan requires is reported as
+          // an unsupported capability, not as a browser that failed to start:
+          // the caller's next move is different in each case.
+          return {
+            status: "blocked",
+            runRef,
+            reason:
+              error instanceof UnsupportedBackend
+                ? "unsupported-capability"
+                : "target-unavailable",
+          };
+        }
+
+        let context: ManagedContext | undefined;
+        let retained = false;
+        try {
+          context = await browser.openContext();
+          const { page } = await context.openPage();
+
+          const outcome = await drive(
+            actor,
+            plan,
+            page,
+            input,
+            async ({ destination }) => {
+              // Durable first, then the in-memory flag. A ledger that cannot
+              // record the intent stops the attempt before the click, so the
+              // flag never claims a dispatch that was not written down; and a
+              // record written before a click that never happened is the
+              // conservative error, because it reports uncertainty rather than
+              // inviting a retry.
+              if (ledger && effectRef)
+                await ledger.dispatching(actor, effectRef, destination);
+              dispatched = true;
+            },
+          );
+          if (outcome.kind === "indeterminate")
+            return {
+              status: "indeterminate",
+              runRef,
+              ...(effectRef ? { effectRef } : {}),
+            };
+          if (outcome.kind === "blocked")
+            return { status: "blocked", runRef, reason: outcome.reason };
+          if (outcome.kind === "human")
+            return {
+              status: "requires-human",
+              runRef,
+              handoffRef: mintReference("bhof"),
+              reason: outcome.reason,
+            };
+
+          // The drive is over. Whether anyone is logged in is a separate
+          // question, asked of the provider through this context's own cookies.
+          const verifierOrigin = plan.verifierOrigin;
+          const verifier = verifierOrigin
+            ? options.verifiers.find(verifierOrigin)
+            : undefined;
+          const request = context.request;
+
+          if (!verifier || !request) {
+            // No registered verifier means the honest ceiling is "something was
+            // submitted". Retaining the session is still useful and still true;
+            // calling it verified would not be.
+            const sessionRef =
+              plan.continuation === "dispose"
+                ? undefined
+                : await retain(actor, plan, browser, context, undefined);
+            retained = sessionRef !== undefined;
+            return {
+              status: "submitted-unverified",
+              runRef,
+              ...(sessionRef ? { sessionRef } : {}),
+            };
+          }
+
+          const expected =
+            plan.account.kind === "expect"
+              ? { accountRef: plan.account.accountRef }
+              : {};
+          const verification = await verifier.verify(
+            {
+              request,
+              browserGeneration: browser.browserGeneration,
+              browserSessionRef: "pending",
+              effectivePlanDigest: plan.digest,
+            },
+            expected,
+          );
+
+          if (!verification.verified) {
+            // A wrong account is reported. It is never a licence to log that
+            // account out, switch to another, or start a recovery flow.
+            if (verification.reason === "account-mismatch")
+              return { status: "blocked", runRef, reason: "account-mismatch" };
+            return { status: "submitted-unverified", runRef };
+          }
+
+          const sessionRef = await retain(
+            actor,
+            plan,
+            browser,
+            context,
+            undefined,
+          );
+          retained = true;
+          const { evidenceRef, evidence } = mintLoginEvidence({
+            kind: verifier.evidenceKind,
+            verifier,
+            browserSessionRef: sessionRef,
+            browserGeneration: browser.browserGeneration,
+            accountRef: verification.accountRef,
+            effectivePlanDigest: plan.digest,
+            now: new Date(now()),
+            freshnessMs: freshness,
+          });
+          await options.sessions.recordEvidence(
+            actor,
+            sessionRef,
+            evidence,
+            evidenceRef,
+          );
+          if (plan.continuation === "dispose") {
+            // The caller asked for the old ephemeral behaviour. The account was
+            // still genuinely verified; the session simply does not outlive it.
+            await options.sessions.release(
+              actor,
+              sessionRef,
+              "dispose-managed",
+            );
+            retained = false;
+            return {
+              status: "verified",
+              runRef,
+              sessionRef,
+              evidenceRef,
+              evidenceKind: evidence.kind,
+            };
+          }
           return {
             status: "verified",
             runRef,
@@ -211,25 +334,31 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             evidenceRef,
             evidenceKind: evidence.kind,
           };
+        } catch {
+          // The difference that matters. A failure before anything was sent is a
+          // refusal a caller may retry; a failure after a submission left the
+          // browser is not, because the provider may already have acted on it.
+          if (dispatched)
+            return {
+              status: "indeterminate",
+              runRef,
+              ...(effectRef ? { effectRef } : {}),
+            };
+          return { status: "blocked", runRef, reason: "provider-error" };
+        } finally {
+          // Only an unretained browser is disposed here. Closing a retained one
+          // is the bug this whole module exists to fix: the deliverable of a
+          // login is a browser that is still logged in.
+          if (!retained) {
+            await context?.close().catch(() => {});
+            await browser.dispose().catch(() => {});
+          }
         }
-        return {
-          status: "verified",
-          runRef,
-          sessionRef,
-          evidenceRef,
-          evidenceKind: evidence.kind,
-        };
-      } catch {
-        return { status: "blocked", runRef, reason: "provider-error" };
-      } finally {
-        // Only an unretained browser is disposed here. Closing a retained one
-        // is the bug this whole module exists to fix: the deliverable of a
-        // login is a browser that is still logged in.
-        if (!retained) {
-          await context?.close().catch(() => {});
-          await browser.dispose().catch(() => {});
-        }
-      }
+      };
+
+      const result = await run();
+      await settle(result.status, JSON.stringify(result));
+      return result;
     },
 
     /** Record a person's report. A claim, kept as a claim. */
@@ -299,8 +428,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     plan: EffectiveLoginPlan,
     page: CeremonyPage,
     input: LoginRunInput,
+    onDispatch: (info: { destination: string }) => Promise<void> | void,
   ): Promise<
     | { kind: "done" }
+    | { kind: "indeterminate" }
     | { kind: "blocked"; reason: BrowserOperationReason }
     | { kind: "human"; reason: "human-challenge" | "passkey" | "native-dialog" }
   > {
@@ -325,6 +456,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       // The driver's origin rule is the union of everywhere a secret may go,
       // and its per-role narrowing is applied by the plan before we get here.
       allowedOrigins: plan.navigationOrigins,
+      onDispatch,
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
         : {}),
@@ -336,6 +468,9 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         : {}),
     });
 
+    // Uncertainty travels first: it is the one ending that must never be
+    // rewritten into a cheerier or a more retryable one further down.
+    if (result.status === "indeterminate") return { kind: "indeterminate" };
     if (result.status === "blocked") {
       if (result.reason === "human-challenge")
         return { kind: "human", reason: "human-challenge" };
