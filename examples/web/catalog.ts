@@ -66,50 +66,109 @@ export const capabilityDetails = {
     summary:
       "Record the transitions a provider actually permits, then replay them without a model. Provider DOM and private input are never captured.",
     module: "src/server/teaching.ts",
+    control: "host",
+    defaultOn: true,
+    offNote:
+      "Off runs the plain ceremony instead: the connection is made, the way in is not recorded.",
   },
   recipes: {
     label: "Save as a reusable recipe",
     summary:
       "Publish a whole ceremony or a contiguous fragment. Compatible recipes compose under fresh principal and environment bindings; sharing procedure never shares access.",
     module: "src/core/recipe-contracts.ts",
+    control: "connector",
   },
   a2h: {
     label: "Agent-to-human handoff",
     summary:
       "An agent may prepare a step and hand the approval back to the person who owns the account. Consent stays with them; private input never enters model context.",
     module: "src/server/a2h.ts",
+    control: "host",
+    defaultOn: false,
+    offNote: "Off keeps every approval in this browser.",
   },
   prerequisites: {
     label: "Prerequisite child ceremonies",
     summary:
       "Registration, installation and consent run as their own verified children. A later step cannot start until the one it depends on is proven.",
     module: "src/core/connector-contracts.ts",
+    control: "connector",
   },
   "session-environment": {
     label: "Session environment bindings",
     summary:
       "Client ids, secrets and project URLs resolve from encrypted session-scoped configuration instead of a form somebody retypes per connector.",
     module: "src/server/environment.ts",
+    control: "connector",
   },
   verification: {
     label: "Verify real access before completing",
     summary:
       "A returned token is not a connection. Completion requires the adapter to read something the grant was for.",
     module: "src/server/verification.ts",
+    control: "connector",
   },
   webmcp: {
     label: "Expose to WebMCP and MCP clients",
     summary:
       "The same validated commands drive the UI, native WebMCP and a chat client. Browser source labels are not authority.",
     module: "src/core/webmcp.ts",
+    control: "host",
+    defaultOn: true,
+    offNote: "Off leaves the connection driveable only from this page.",
   },
   "minted-password": {
     label: "Mint the credential",
     summary:
       "Where a provider will hold a password, generate a strong one instead of asking a person to invent and type it.",
     module: "src/core/connector-contracts.ts",
+    control: "connector",
   },
-} satisfies Record<string, { label: string; summary: string; module: string }>;
+} satisfies Record<
+  string,
+  {
+    label: string;
+    summary: string;
+    module: string;
+    /**
+     * Who decides. "host" means this application can turn it off and the
+     * drawer offers a checkbox; "connector" means the manifest and its adapter
+     * settle it, and a checkbox would be a control that changes nothing.
+     */
+    control: "host" | "connector";
+    /**
+     * For a host switch: whether a fresh draft starts with it on. These are
+     * what this application did before any of them was a switch — teaching
+     * wherever the server offered it, WebMCP because the component exposes a
+     * connection unless a host says otherwise, and agent assistance off
+     * because approving in your own browser is the thing you did not ask for
+     * help with.
+     */
+    defaultOn?: boolean;
+    /** For a host switch: what the connection is without it. */
+    offNote?: string;
+  }
+>;
+
+/**
+ * The capabilities this application can switch.
+ *
+ * Derived from the table rather than listed again, so moving one between host
+ * and connector ownership is a single edit and anything that still assumes the
+ * old answer stops compiling.
+ */
+export type HostCapability = {
+  [K in Capability]: (typeof capabilityDetails)[K]["control"] extends "host"
+    ? K
+    : never;
+}[Capability];
+
+/** Capabilities the drawer can actually switch, as opposed to describe. */
+export function isHostSwitchable(
+  capability: Capability,
+): capability is HostCapability {
+  return capabilityDetails[capability].control === "host";
+}
 export type Capability = keyof typeof capabilityDetails;
 
 export interface CatalogEntry {
@@ -121,8 +180,12 @@ export interface CatalogEntry {
   auth: readonly AuthFamily[];
   capabilities: readonly Capability[];
   featured?: boolean;
-  /** Pre-checked in Customize; the reason somebody chose this card. */
-  defaultCapabilities?: readonly Capability[];
+  /**
+   * Also pre-checked in Customize: the reason somebody chose this card, on top
+   * of whatever each capability defaults to. Only what the host can switch — a
+   * connector property has no box to pre-check.
+   */
+  defaultCapabilities?: readonly HostCapability[];
   /** Brand colour behind fallback initials. Manifests carry no logo, and should not. */
   tint?: string;
   ink?: string;
@@ -209,7 +272,7 @@ export const customEntries: readonly CatalogEntry[] = [
     support: "declared",
     auth: ["browser-login"],
     capabilities: ["teaching", "recipes", "a2h", "verification", "webmcp"],
-    defaultCapabilities: ["teaching", "recipes", "verification"],
+    defaultCapabilities: ["teaching"],
     tint: "#2b2b2b",
   },
   {
@@ -227,7 +290,6 @@ export const customEntries: readonly CatalogEntry[] = [
       "verification",
       "session-environment",
     ],
-    defaultCapabilities: ["minted-password", "verification"],
     tint: "#2b2b2b",
   },
   {

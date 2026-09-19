@@ -167,7 +167,6 @@ function App() {
   /** Bumped when a card is chosen again, so the next attempt is a new one. */
   const [attempt, setAttempt] = useState(0);
   const [studioOpened, setStudioOpened] = useState(tab === "studio");
-  const [delegation, setDelegation] = useState(false);
   useEffect(() => {
     void fetch("/api/config")
       .then((response) => response.json())
@@ -209,9 +208,21 @@ function App() {
    * Connectors the server publishes that the static directory has never heard
    * of — anything authored in the studio — still belong in the browse surface
    * that replaced the old picker. They are described from the manifest alone.
+   *
+   * Which host capabilities a row carries is the host's answer, not the
+   * directory's, and it has to be asked for rather than assumed absent. A row
+   * that fails to claim one does not merely show its switch off: Customize
+   * leaves it out of the draft, and the draft is what the run now reads — so
+   * an omission here silently withdraws the feature. A studio-authored row
+   * described from its manifest alone claims none of them, and three of the
+   * listed services claim no WebMCP, which is not a thing any of them decide.
    */
   const rows = useMemo(() => {
     const described = new Set(entries.map((entry) => entry.id));
+    // The same conditions the run itself applies, so a switch appears exactly
+    // where it can act.
+    const teachable =
+      liveMode && config?.teachingAvailable ? config.teachingConnectors : [];
     const authored = manifests
       .filter((manifest) => !described.has(manifest.id))
       .map((manifest): CatalogEntry => ({
@@ -229,8 +240,29 @@ function App() {
         auth: authFamiliesOf(manifest),
         capabilities: ["verification"],
       }));
-    return authored.length ? [...entries, ...authored] : entries;
-  }, [entries, manifests]);
+    /**
+     * What this host offers for a row that can actually run.
+     *
+     * A declared row is left alone: it reaches the studio rather than a
+     * ceremony, so nothing it claims is ever acted on. WebMCP is not
+     * per-connector — any connection this page hosts is driveable from a
+     * WebMCP client — and teaching is the one the server names per connector,
+     * so it is asked for by name rather than assumed either way.
+     */
+    const hosted = (entry: CatalogEntry): CatalogEntry => {
+      if (entry.support === "declared") return entry;
+      const missing = (
+        [
+          ...(teachable.includes(entry.id) ? (["teaching"] as const) : []),
+          "webmcp" as const,
+        ] as const
+      ).filter((capability) => !entry.capabilities.includes(capability));
+      return missing.length
+        ? { ...entry, capabilities: [...entry.capabilities, ...missing] }
+        : entry;
+    };
+    return [...entries, ...authored].map(hosted);
+  }, [entries, manifests, config]);
   /**
    * Point the application at a connector.
    *
@@ -271,6 +303,9 @@ function App() {
 
   /** The connection workspace, unchanged in substance and hosted by the drawer. */
   const renderRun = (draft: ConnectionDraft, runEpoch: number) => {
+    /* Agent assistance is one of Customize's capabilities rather than a
+       separate piece of state, so the checkbox and the run cannot disagree. */
+    const delegation = draft.capabilities.includes("a2h");
     if (loadError) return <p role="alert">{loadError}</p>;
     if (!config) return <p role="status">Loading your workspace…</p>;
     if (!entry)
@@ -382,22 +417,15 @@ function App() {
           {liveMode && (
             <details className="test-details">
               <summary>Session and assistance</summary>
-              <label htmlFor="approval-assistance">Approval assistance</label>
-              <select
-                id="approval-assistance"
-                value={delegation ? "agent" : "browser"}
-                onChange={(event) =>
-                  setDelegation(event.target.value === "agent")
-                }
-              >
-                <option value="browser">I’ll approve in my browser</option>
-                <option value="agent">
-                  Request configured agent assistance
-                </option>
-              </select>
+              {/* Whether an agent may prepare a step is the A2H capability,
+                  answered in Customize. A second control for it here was the
+                  real one and the checkbox was decoration; this says which
+                  answer is in force and where it was given. */}
               <p>
-                Configured agents can assist supported steps. Account consent
-                stays with you; private input never enters model context.
+                {delegation
+                  ? "Agent-to-human handoff is on: configured agents may prepare supported steps. Account consent stays with you; private input never enters model context."
+                  : "Agent-to-human handoff is off, so every approval happens in this browser."}{" "}
+                Change it in Customize.
               </p>
               <button onClick={() => goTo("environment")}>
                 Manage session environment
@@ -425,7 +453,8 @@ function App() {
           </div>
           {liveMode &&
           config.teachingAvailable &&
-          config.teachingConnectors.includes(connector.id) ? (
+          config.teachingConnectors.includes(connector.id) &&
+          draft.capabilities.includes("teaching") ? (
             <TeachingConnection
               key={connector.id}
               connectorId={connector.id}
@@ -437,6 +466,11 @@ function App() {
                  the prop exists for. Signing out in another tab arrives the
                  same way, over the session broadcast channel. */
               onSignedOut={() => setOpen(false)}
+              /* The component exposes the connection to WebMCP unless a host
+                 says otherwise, so the toggle has to say otherwise. */
+              {...(draft.capabilities.includes("webmcp")
+                ? {}
+                : { webmcp: false as const })}
               onDeleted={() => {
                 void fetch("/api/config")
                   .then((response) => response.json())

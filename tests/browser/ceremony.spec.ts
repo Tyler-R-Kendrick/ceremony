@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
 import { defaultTemplate } from "../../src/core/index.js";
 import { startReferenceApp } from "../../examples/server.js";
 import { manifests, connectorDetails } from "../../examples/manifests.js";
-import { customEntries } from "../../examples/web/catalog.js";
+import {
+  capabilityDetails,
+  catalog,
+  customEntries,
+  isHostSwitchable,
+} from "../../examples/web/catalog.js";
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -109,12 +114,16 @@ test("the directory filters, searches and hands a chosen service to the drawer",
   await expect(page.getByLabel("Stripe secret key")).toBeHidden();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
-  // Verification is on before anybody asks, because a connection that reads
-  // nothing has not been shown to work.
+  // Verification is not offered as a choice, because a connection that reads
+  // nothing has not been shown to work and nothing on this page can waive
+  // that. It is stated rather than asked.
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
+    drawer.getByText("Verify real access before completing", { exact: true }),
+  ).toBeVisible();
+  await expect(
     drawer.getByRole("checkbox", { name: /Verify real access/ }),
-  ).toBeChecked();
+  ).toHaveCount(0);
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByLabel("Stripe secret key")).toBeVisible();
 
@@ -706,4 +715,69 @@ test("what Configure declares reaches the resolver, and says so before the run",
   await expect(
     drawer.getByRole("complementary", { name: "Connection context" }),
   ).toBeVisible();
+});
+
+test("Customize offers the switches this application has, and describes the rest", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+
+  // Every checkbox is a capability this host can actually act on, counted from
+  // the catalogue so moving one between host and connector ownership shows up
+  // here rather than passing quietly.
+  const switchable = catalog
+    .find((entry) => entry.id === "github")!
+    .capabilities.filter(isHostSwitchable);
+  const boxes = drawer.getByRole("checkbox");
+  await expect(boxes).toHaveCount(switchable.length);
+  for (const capability of switchable)
+    await expect(
+      drawer.getByRole("checkbox", {
+        name: new RegExp(capabilityDetails[capability].label),
+      }),
+    ).toBeVisible();
+
+  // What the connector settles for itself is on screen without a control that
+  // would imply somebody here can change it.
+  for (const capability of catalog
+    .find((entry) => entry.id === "github")!
+    .capabilities.filter((item) => !isHostSwitchable(item))) {
+    const label = capabilityDetails[capability].label;
+    await expect(drawer.getByText(label, { exact: true })).toBeVisible();
+    await expect(
+      drawer.getByRole("checkbox", { name: new RegExp(label) }),
+    ).toHaveCount(0);
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("a service that never claims WebMCP is still offered the switch the host owns", async ({
+  page,
+}) => {
+  // WebMCP is the host's to offer rather than the connector's to claim, and
+  // several listed services never mention it. Now that Customize's answers are
+  // what the run reads, a row that omits one does not show its switch off — it
+  // leaves the answer out, and a missing answer reads as "no", withdrawing the
+  // connection from every WebMCP client watching the page. Studio-authored
+  // rows, described from a manifest alone, claim nothing at all.
+  const entry = catalog.find((item) => item.id === "neon")!;
+  expect(entry.capabilities).not.toContain("webmcp");
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "Neon", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("checkbox", {
+      name: new RegExp(capabilityDetails.webmcp.label),
+    }),
+  ).toBeChecked();
 });

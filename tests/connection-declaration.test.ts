@@ -6,7 +6,13 @@ import {
   requiredScopesOf,
 } from "../examples/web/declaration.js";
 import { emptyDraft } from "../examples/web/add-connection.js";
-import { customEntries } from "../examples/web/catalog.js";
+import {
+  capabilityDetails,
+  catalog,
+  customEntries,
+  isHostSwitchable,
+  type Capability,
+} from "../examples/web/catalog.js";
 import {
   entryContextSchema,
   explainCeremonySelection,
@@ -207,4 +213,47 @@ test("naming what the host holds promotes the route that would have to ask", () 
       ).candidates.map((item) => item.reason),
       ["eligible", "eligible"],
     );
+});
+
+test("a capability is a switch or a description, never both", () => {
+  // Every capability names an owner, so nothing falls through the split into
+  // neither the toggle list nor the read-out.
+  for (const capability of Object.keys(capabilityDetails) as Capability[])
+    assert.ok(
+      ["host", "connector"].includes(capabilityDetails[capability].control),
+    );
+  // Only a host switch carries the sentence that explains turning it off, and
+  // only a host switch says where it starts.
+  for (const [capability, detail] of Object.entries(capabilityDetails))
+    assert.equal(
+      "offNote" in detail && "defaultOn" in detail,
+      isHostSwitchable(capability as Capability),
+      capability,
+    );
+});
+
+test("a fresh draft only holds capabilities somebody here can change", () => {
+  for (const entry of catalog) {
+    const draft = emptyDraft(entry);
+    for (const capability of draft.capabilities) {
+      assert.ok(isHostSwitchable(capability), `${entry.id}: ${capability}`);
+      // A draft cannot switch on something its connector never offered.
+      assert.ok(entry.capabilities.includes(capability), entry.id);
+    }
+  }
+});
+
+test("a fresh draft starts where the application already started", () => {
+  const github = catalog.find((entry) => entry.id === "github")!;
+  // Teaching wherever it is offered, WebMCP because the component exposes a
+  // connection unless a host says otherwise, and agent assistance off.
+  assert.deepEqual(emptyDraft(github).capabilities.toSorted(), [
+    "teaching",
+    "webmcp",
+  ]);
+  // A card's own default adds to those rather than replacing them: choosing
+  // to record a sign-in is not a reason to stop exposing the connection.
+  const record = customEntries.find((entry) => entry.id === "custom-record")!;
+  assert.deepEqual(record.defaultCapabilities, ["teaching"]);
+  assert.ok(emptyDraft(record).capabilities.includes("webmcp"));
 });
