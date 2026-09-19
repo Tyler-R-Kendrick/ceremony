@@ -173,6 +173,112 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("AUTH-IDENTIFIER: the secret is typed on the second document, not the first", async () => {
+      // The flow every protection in `browser-targets.ts` was written for.
+      //
+      // An identifier-first provider asks for the email on one document and
+      // the password on a *different* one, reached through a redirect. So the
+      // observation that approved the email field is guaranteed dead by the
+      // time the password is typed, and the driver has to notice, re-observe,
+      // and act on the second document rather than on a remembered position
+      // in the first. On a combined form none of that is exercised, because
+      // the document never changes.
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/signin-identifier"),
+          }),
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
+        if (result.status !== "verified") return;
+
+        // The oracle is the provider's own record of what arrived where. Two
+        // submissions, in order, to two different routes - which is what makes
+        // this the two-document flow rather than a combined form that happens
+        // to redirect.
+        const submissions = fixture.submissions();
+        assert.deepEqual(
+          submissions.map((submission) => submission.path),
+          ["/signin-identifier", "/signin-password"],
+          `expected the two-document sequence, got ${JSON.stringify(submissions.map((s) => s.path))}`,
+        );
+
+        // Step one identifies and cannot authenticate: the provider records no
+        // password match for it, because there was no password on that page to
+        // send. If this ever reported true, the secret would have reached the
+        // identifier document.
+        assert.equal(submissions[0]?.account, owner.account);
+        assert.equal(
+          submissions[0]?.passwordMatched,
+          false,
+          "the identifier document must not have received a password",
+        );
+
+        // Step two authenticates, against the account step one established -
+        // not against one the second document was told about.
+        assert.equal(submissions[1]?.account, owner.account);
+        assert.equal(submissions[1]?.passwordMatched, true);
+
+        // And one session, for the right account. Two would mean the flow ran
+        // twice; none would mean the provider never accepted it.
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("AUTH-IDENTIFIER-WRONG: an unknown identifier stops at step one", async () => {
+      // The direction that keeps the case above honest. A provider that never
+      // recognises the identifier never issues the second document, so a
+      // driver that "completed" here would have done so against the page that
+      // rejected it - and the secret must not have gone anywhere at all.
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: "nobody@fixture.test",
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/signin-identifier"),
+          }),
+        });
+        assert.notEqual(
+          result.status,
+          "verified",
+          `an unknown identifier must not verify, got ${JSON.stringify(result)}`,
+        );
+
+        // The provider saw the identifier attempt and nothing else. In
+        // particular it never saw `/signin-password`, so the password was
+        // never typed anywhere.
+        const submissions = fixture.submissions();
+        assert.equal(
+          submissions.every(
+            (submission) => submission.path === "/signin-identifier",
+          ),
+          true,
+          `the password document must never have been reached, got ${JSON.stringify(submissions.map((s) => s.path))}`,
+        );
+        assert.equal(
+          submissions.some((submission) => submission.passwordMatched),
+          false,
+        );
+        assert.equal(fixture.sessionsFor(owner.account).length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
     test("LIFE-RETURN: the session still works after the call returns", async () => {
       fixture.reset();
       const { sessions, service } = serviceFor(engine, {
