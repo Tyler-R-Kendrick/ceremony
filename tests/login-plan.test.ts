@@ -314,6 +314,45 @@ describe("plan identity", () => {
       }
     });
 
+  test("CAP-HONEST: declaring a frame origin requires the capability to act in one", () => {
+    // The field was accepted, canonicalized, digested and read by nothing.
+    // `createBoundTargets` observes through `page.evaluateHandle`, which is
+    // the main frame and nothing else, so a person who configured "the
+    // credential form is in a frame at this origin" got a plan that said so
+    // and a run that never looked.
+    //
+    // Declaring a frame origin *is* declaring that this login happens in a
+    // frame, so the capability is required whether or not the caller named
+    // it - and `frameBinding` is false on every engine, so the answer today
+    // is a refusal rather than silence.
+    for (const engine of ["chromium", "firefox", "webkit"] as const)
+      assert.throws(
+        () =>
+          compileLoginPlan(
+            draft({
+              engine,
+              navigationOrigins: [provider, identity],
+              frameOrigins: [identity],
+            }),
+            options,
+          ),
+        (error: unknown) =>
+          error instanceof PlanRejected &&
+          error.reason === "unsupported-capability" &&
+          error.detail === "frameBinding",
+        `${engine} admitted a plan that acts inside a frame`,
+      );
+  });
+
+  test("a plan that declares no frame origin is unaffected", () => {
+    // The half that keeps the rule from becoming "nothing compiles". An
+    // ordinary login does not touch frames and must not start requiring
+    // anything new.
+    const plan = compileLoginPlan(draft(), options);
+    assert.deepEqual(plan.frameOrigins, []);
+    assert.equal(plan.required.frameBinding, undefined);
+  });
+
   test("an unknown credential reference is rejected before anything runs", () => {
     assert.throws(
       () =>
