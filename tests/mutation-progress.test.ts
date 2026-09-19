@@ -25,10 +25,21 @@ test("a dry-run failure is named by the file it happened in, and nothing else", 
   // Without this the baseline says only "exit 1". The dry run executes the whole
   // suite before a single mutant exists, so a genuine failure there is invisible
   // in exactly the way a genuine failure must not be.
+  //
+  // The line below is Stryker's, copied from a real failed dry run rather than
+  // imagined. That distinction is the whole reason this case is worth having:
+  // it used to feed a `not ok 4 - ...` line on the assumption that the test
+  // process's TAP stream reaches Stryker's stdout. It does not, the tap runner
+  // consumes it, and so the detector never fired on a real failure while this
+  // case passed. A double may stand in for a slow dependency; it may not
+  // invent the output the dependency produces.
   const records: Array<Record<string, string | number | null>> = [];
   const source = [
     'console.log("16:00:00 (1) DEBUG TapTestRunner Running: `node \\"tests/one.test.ts\\"` in /private-checkout")',
     'console.log("not ok 4 - a private assertion message nobody may retain")',
+    'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\ttests/one.test.ts")',
+    'console.log("16:00:01 (612) ERROR Stryker There were failed tests in the initial test run.")',
     "setTimeout(() => process.exit(1), 30)",
   ].join(";");
   const code = await mutationProgress(
@@ -38,34 +49,74 @@ test("a dry-run failure is named by the file it happened in, and nothing else", 
     (record) => records.push(record),
   );
   assert.equal(code, 1);
-  const failure = records.find((r) => r.phase === "initial-failure");
-  assert.deepEqual(failure, {
-    elapsedMs: failure?.elapsedMs,
-    phase: "initial-failure",
-    file: "tests/one.test.ts",
-  });
-  // The allowlist still holds: the failing assertion's own text never appears.
+  const failures = records.filter((r) => r.phase === "initial-failure");
+  assert.deepEqual(failures, [
+    {
+      elapsedMs: failures[0]?.elapsedMs,
+      phase: "initial-failure",
+      file: "tests/one.test.ts",
+    },
+  ]);
+  // The allowlist still holds: the failing assertion's own text never appears,
+  // and neither does the line that follows Stryker's list.
   assert.equal(
     JSON.stringify(records).includes("a private assertion message"),
     false,
   );
+  assert.equal(
+    JSON.stringify(records).includes("There were failed tests"),
+    false,
+  );
 });
 
-test("a failure before any file is announced names no file at all", async () => {
+test("every file in the dry run's failure list is named, not just the first", async () => {
+  // Stryker says "one or more", and means it. Reporting the first would be a
+  // diagnostic that is right often enough to be trusted and wrong exactly when
+  // several suites go at once — which is the shape every intermittent in this
+  // repository has had.
   const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\ttests/one.test.ts")',
+    'console.log("\\ttests/two.test.ts")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
   const code = await mutationProgress(
     process.execPath,
-    ["-e", 'console.log("not ok 1 - before any file");process.exit(1)'],
+    ["-e", source],
+    ["tests/one.test.ts", "tests/two.test.ts"],
+    (record) => records.push(record),
+  );
+  assert.equal(code, 1);
+  assert.deepEqual(
+    records.filter((r) => r.phase === "initial-failure").map((r) => r.file),
+    ["tests/one.test.ts", "tests/two.test.ts"],
+  );
+});
+
+test("a failure naming something outside the inventory names nothing at all", async () => {
+  // Guessing would be worse than silence, and an unrecognised name is the one
+  // case where guessing is tempting: it is right there in the output. It is
+  // also the only thing in that output nobody has allowlisted, so it is
+  // exactly what must not travel.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\t/private-checkout/tests/unlisted-private.test.ts")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", source],
     ["tests/one.test.ts"],
     (record) => records.push(record),
   );
   assert.equal(code, 1);
-  // Guessing would be worse than silence: naming whichever file ran last in some
-  // previous run is how a diagnostic starts lying.
   assert.equal(
     records.some((r) => r.phase === "initial-failure"),
     false,
   );
+  assert.equal(JSON.stringify(records).includes("unlisted-private"), false);
 });
 
 test("mutation progress retains live inventory filenames and exit status, not diagnostics", async () => {

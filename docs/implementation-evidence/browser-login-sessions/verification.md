@@ -402,6 +402,33 @@ So on every head where this fires, `test:workflow`, `test:security:mutation`
 and the full `test:e2e` never run at all - on that branch, and on every branch
 merged while this has been red.
 
+### What stage nine showed the moment it could run
+
+`test:coverage` has now passed on `main` at `d147426` - the first commit
+carrying the re-read - and on two pull request heads, so `verify` reached
+stage nine three times. That is not yet proof the re-read is what changed;
+this defect has been nondeterministic all along and three runs is three runs.
+
+What is not in doubt is what those runs exposed. `test:e2e` failed on both of
+the first two, on **different files each time**:
+
+| Head             | `test:e2e`           | Files                                      |
+| ---------------- | -------------------- | ------------------------------------------ |
+| `main` @ d147426 | 203 passed, 1 failed | `teaching-continuation.spec.ts`            |
+| PR #66 @ 5503891 | 202 passed, 2 failed | `teaching-popup.spec.ts`, `webmcp.spec.ts` |
+
+Three distinct specs across two runs, none of them touched by #62-#66, and
+`teaching-continuation` passes here in 6.4 seconds. That is the same signature
+as the conformance intermittent, in a different suite.
+
+It was invisible rather than absent. `browser-ui` is not a second opinion on
+`test:e2e`: it runs exactly two spec files, `connection-plan.spec.ts` and
+`ceremony.spec.ts`. So the full 204-test Playwright suite only runs inside
+`verify`, behind a stage that had been failing, and the first two times it ran
+it was red in three different places. Recorded rather than chased: it is a
+different subsystem on two runs of evidence, and acting before reproducing is
+the mistake this document already records twice.
+
 Still not reproduced here. Three rounds of `npm run test:coverage` - the exact
 command both failing jobs run, and the one the never-failing `browser-login`
 job does not - passed 3492 of 3492 on the same four-core, 16 GB shape.
@@ -629,6 +656,46 @@ targets can be made safe. And nothing in the wizard produces a frame origin
 yet - every projection still returns `frames: () => []` - so the capability is
 reachable through a hand-built plan and the MCP surface, not through the
 product's own configuration flow.
+
+## A diagnostic that was tested into existence and never worked
+
+Three of today's triages went to a mutation shard, and each time the log said
+which file the dry run was on and nothing about what went wrong in it. That
+looked like a deliberate limit - `scripts/verify-mutation.ts` streams
+allowlisted filenames and phase metadata, never child diagnostics, which is
+the right rule. It was not the limit. The runner already had a detector for
+exactly this:
+
+```ts
+if (initial && /^not ok /.test(line) && running)
+  record({ phase: "initial-failure", file: running });
+```
+
+It has never fired. Established by inducing an ordinary failing assertion in
+a baseline file and running the real thing: the records were `initial`, then
+`exit code 1`, and no `initial-failure` between them - the same shape as the
+`mutation (services)` failure on PR #65. Reading Stryker's raw output then
+said why. The test process's TAP stream is consumed by the tap runner and
+never reaches Stryker's stdout, so `not ok` is a line Stryker does not emit.
+What it does emit is its own summary:
+
+```
+ERROR DryRunExecutor One or more tests failed in the initial test run:
+	tests/authoring-termination.test.ts
+```
+
+The case covering the detector passed throughout, because its double printed
+the line the detector expected rather than the line the dependency produces.
+That is the same fault as the CAP-HONEST cases above, one level further out: a
+test that asserts against an invented world tells you the code matches your
+belief about the dependency, and nothing about the dependency.
+
+The detector now reads Stryker's list, and every name in it is still matched
+against the inventory before being recorded, so what leaves is an allowlisted
+filename and never a diagnostic - the same guarantee, on a line that exists.
+Verified the way the old one was not: the induced failure now produces
+`{"phase":"initial-failure","file":"tests/authoring-termination.test.ts"}`
+against real Stryker, and the cases feed the line copied from that run.
 
 ## What the numbers do not establish
 
