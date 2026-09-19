@@ -940,20 +940,30 @@ export function AddConnection({
     setStep(initialStep);
     setCompiled(undefined);
   }, [entry, initialStep]);
+  // `onClose` is written fresh by the parent on every render, so depending on it
+  // re-ran this effect every time: the Escape listener was torn down and added
+  // back constantly, and a keypress landing in that gap was simply lost. Held in
+  // a ref, the effect runs once per drawer and the listener stays put.
+  //
+  // It also fixes where the keyboard goes afterwards. `opener` was re-read on
+  // every re-run, by which point the drawer itself held focus, so closing
+  // returned focus to the drawer rather than to the card that opened it.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     // Where the keyboard was before the drawer took it, so closing puts it
     // back on the card that opened it rather than at the top of the document.
     const opener = document.activeElement;
     panel.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close.current();
     };
     addEventListener("keydown", onKey);
     return () => {
       removeEventListener("keydown", onKey);
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
-  }, [onClose]);
+  }, []);
   // Which browsers this host has, asked once per drawer. Nothing is offered
   // before the answer arrives, and an answer that says "none" is displayed as
   // "none" rather than as a full set of choices that will all be refused.
