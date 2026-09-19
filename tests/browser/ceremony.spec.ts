@@ -781,3 +781,33 @@ test("a service that never claims WebMCP is still offered the switch the host ow
     }),
   ).toBeChecked();
 });
+
+test("a link naming nothing this workspace publishes says so on the directory", async ({
+  page,
+}) => {
+  // A stale link lands on the catalogue, which on its own reads as the page
+  // having simply ignored what was asked for. The drawer cannot say it: the
+  // entry is what mounts the drawer, so there is nothing to mount.
+  await page.goto("/?mode=test&connector=not-a-service");
+  await expect(
+    page.getByText("This workspace publishes no connector called"),
+  ).toBeVisible();
+  await expect(page.getByText("not-a-service")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Add Connection" }),
+  ).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Picking a service is the way out of it, and saying it twice would be its
+  // own kind of wrong.
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Add Connection" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This workspace publishes no connector called"),
+  ).toHaveCount(0);
+});

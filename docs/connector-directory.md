@@ -180,6 +180,11 @@ straight onto the run, which is what the application writes back as a ceremony
 progresses. Nothing else opens the drawer on arrival: landing inside a modal
 would put its scrim over the rail.
 
+A link naming a connector this workspace does not publish opens nothing, because
+the directory row is what mounts the drawer. The directory says so where that
+link lands, names what was asked for, and offers the studio; picking a service
+clears it.
+
 Presentation is host-owned as before. These surfaces live in the reference
 application (`examples/web/`), not in the published component exports; see
 [embedding](integration.md).

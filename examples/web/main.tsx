@@ -319,6 +319,16 @@ function App() {
     );
   };
   const entry = rows.find((item) => item.id === connectorId);
+  /**
+   * Somebody arrived on a link naming a service this workspace does not
+   * publish.
+   *
+   * Only once the configuration has answered, because until then every name
+   * looks unknown and the directory would accuse a working link of being
+   * stale. Read from the name the page was opened on rather than the current
+   * one, so picking a service from the directory clears it.
+   */
+  const unknownConnector = Boolean(config && openedOnConnector && !entry);
   const connector = manifests.find((value) => value.id === connectorId);
   const goTo = (section: Section) => {
     if (section === "studio") setStudioOpened(true);
@@ -332,17 +342,14 @@ function App() {
     const delegation = draft.capabilities.includes("a2h");
     if (loadError) return <p role="alert">{loadError}</p>;
     if (!config) return <p role="status">Loading your workspace…</p>;
-    if (!entry)
-      return (
-        <div className="ceremony">
-          <h3>No connector by that name</h3>
-          <p>
-            This workspace publishes no connector called{" "}
-            <code>{connectorId}</code>. Close this and pick one from the
-            directory, or author it in the workflow studio.
-          </p>
-        </div>
-      );
+    /*
+     * The entry is what mounts this drawer, so it cannot be missing by the
+     * time the drawer renders — and it never could, going back to the commit
+     * that first wrote a panel for it. A stale link naming nothing lands on
+     * the directory instead, which is where somebody who followed one has to
+     * end up anyway, so the directory is where it is told.
+     */
+    if (!entry) return null;
     if (!connector || entry.support === "declared")
       return (
         <div className="ceremony">
@@ -669,9 +676,11 @@ function App() {
           else goTo(section);
         }}
         /* A directory that cannot reach its server still draws every row it
-           can describe, which reads as a working catalogue. And a host that
-           will demand an account should demand it here, not after two steps
-           of setup that a sign-in round trip then throws away. */
+           can describe, which reads as a working catalogue. A link naming a
+           service this workspace does not publish drops somebody here with no
+           account of why the page they asked for is a catalogue. And a host
+           that will demand an account should demand it here, not after two
+           steps of setup that a sign-in round trip then throws away. */
         {...(loadError
           ? {
               notice: (
@@ -680,42 +689,57 @@ function App() {
                 </p>
               ),
             }
-          : identity === "required"
+          : unknownConnector
             ? {
                 notice: (
                   <div className="catalog-notice" role="status">
                     <p>
-                      This workspace records and replays connections, which
-                      needs an account. Signing in takes you to the identity
-                      provider and back to this page — nothing you set up is
-                      lost, because nothing has been set up yet.
+                      This workspace publishes no connector called{" "}
+                      <code>{connectorId}</code>. Pick one below, or author it
+                      in the workflow studio.
                     </p>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() =>
-                        void beginSignIn().catch((error: unknown) =>
-                          setSignInError(
-                            error instanceof Error
-                              ? error.message
-                              : "Sign-in is unavailable.",
-                          ),
-                        )
-                      }
-                    >
-                      {/* Named apart from the connection component's own
+                    <button type="button" onClick={() => goTo("studio")}>
+                      Open workflow studio
+                    </button>
+                  </div>
+                ),
+              }
+            : identity === "required"
+              ? {
+                  notice: (
+                    <div className="catalog-notice" role="status">
+                      <p>
+                        This workspace records and replays connections, which
+                        needs an account. Signing in takes you to the identity
+                        provider and back to this page — nothing you set up is
+                        lost, because nothing has been set up yet.
+                      </p>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() =>
+                          void beginSignIn().catch((error: unknown) =>
+                            setSignInError(
+                              error instanceof Error
+                                ? error.message
+                                : "Sign-in is unavailable.",
+                            ),
+                          )
+                        }
+                      >
+                        {/* Named apart from the connection component's own
                           gate, which a deep link can still reach: that one
                           signs in to connect a particular service, this one
                           signs in to the workspace before anything has been
                           chosen. Two identical labels for two different asks
                           is a question nobody should have to answer. */}
-                      Sign in to this workspace
-                    </button>
-                    {signInError && <span role="alert">{signInError}</span>}
-                  </div>
-                ),
-              }
-            : {})}
+                        Sign in to this workspace
+                      </button>
+                      {signInError && <span role="alert">{signInError}</span>}
+                    </div>
+                  ),
+                }
+              : {})}
         topbarExtra={
           /* This is a PWA, and the install and update controls belong on
                the page people open rather than behind another section. */
