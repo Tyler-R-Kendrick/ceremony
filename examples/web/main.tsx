@@ -496,9 +496,9 @@ function App() {
                  studio mounted and the scroll position intact, and it is what
                  the prop exists for. Signing out in another tab arrives the
                  same way, over the session broadcast channel. */
-              /* One implementation of sign-in, so the directory's ask and
-                 the drawer's cannot drift apart. */
-              onSignIn={() => beginSignIn()}
+              /* No `onSignIn`: the component's own is the implementation the
+                 directory calls, so overriding it with the same function
+                 would only be a second place for it to stop being true. */
               onSignedOut={() => {
                 setOpen(false);
                 // Back to the directory, which should ask again rather than
