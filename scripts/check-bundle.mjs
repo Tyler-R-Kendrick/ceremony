@@ -56,7 +56,30 @@ const totals = files.reduce(
 // brings this number back down. Until someone decides which survives, the
 // honest ceiling is the measurement plus the same ~3% of headroom the last
 // raise used — roughly one careless import, not one sentence of copy.
-const budget = { raw: 633000, gzip: 196500 };
+//
+// Raised again for the compiled-plan readout, measured on one variable. The
+// same tree was built twice, differing only in whether `add-connection.tsx`
+// imports `connection-plan.ts`:
+//
+//   main                 616126 raw / 191339 gzip
+//   with the wiring      630336 raw / 195536 gzip
+//   ------------------------------------------------
+//   cost                  14210 raw /   4197 gzip
+//
+// Reproduced: the same A/B against the pre-#41 tree gave 13966 / 4142, so the
+// figure is the module rather than the measurement. Nothing else grew and no
+// dependency came along. `connection-plan.ts` reaches into
+// `src/server/login-plan.ts` and `src/core/browser-session-contracts.ts` for
+// *types only*, which erase at build time, so no server code is shipped to a
+// browser and no Node built-in is polyfilled into one - the 14 kB is a zod
+// schema for the plan echo, a projection per auth family, and plain words for
+// every rejection the compiler can name.
+//
+// The number lands about 2.8% clear, which is where the previous ceiling sat
+// against its own build (633000 over 616126). Left at 633000 this would pass
+// with 0.42% to spare, and the paragraph above already says what a ceiling
+// that close becomes.
+const budget = { raw: 648000, gzip: 201000 };
 const passed = totals.raw <= budget.raw && totals.gzip <= budget.gzip;
 mkdirSync("artifacts/bundle", { recursive: true });
 writeFileSync(
