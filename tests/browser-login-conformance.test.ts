@@ -6,6 +6,7 @@ import {
   managedBackends,
   type ManagedBrowser,
 } from "../src/server/browser-backends.js";
+import { createEffectLedger } from "../src/server/browser-effects.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import {
@@ -117,8 +118,10 @@ function planFor(
 /** A service wired to one fresh registry, with the credentials it is allowed. */
 function serviceFor(engine: string, values: Record<string, string>) {
   const sessions = createBrowserSessionRegistry({ store });
+  const effects = createEffectLedger({ store });
   const service = createBrowserLoginService({
     sessions,
+    effects,
     verifiers: createVerifierRegistry([
       createFixtureVerifier({ origin: fixture.origin }),
     ]),
@@ -137,7 +140,7 @@ function serviceFor(engine: string, values: Record<string, string>) {
       return { ...shared, dispose: async () => {} };
     }) as typeof launchManagedBrowser,
   });
-  return { sessions, service };
+  return { sessions, service, effects };
 }
 
 for (const engine of browserEngines) {
@@ -178,7 +181,11 @@ for (const engine of browserEngines) {
       });
       try {
         const result = await service.login(actor, { plan: planFor(engine) });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
 
         // A real authenticated request, through the exact retained context,
@@ -313,7 +320,11 @@ for (const engine of browserEngines) {
       });
       try {
         const result = await service.login(actor, { plan: planFor(engine) });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
 
         const released = await sessions.release(
@@ -347,11 +358,125 @@ for (const engine of browserEngines) {
         const result = await service.login(actor, {
           plan: planFor(engine, { continuation: "dispose" }),
         });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
         // The account really was verified; the session simply does not outlive
         // the call, which is the behaviour existing ephemeral flows rely on.
         await assert.rejects(() => sessions.resolve(actor, result.sessionRef));
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("EFFECT-DUP: the same request twice reaches the provider once", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const first = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "retry-me",
+        });
+        assert.equal(
+          first.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(first)}`,
+        );
+
+        // A client whose connection dropped while the first call was running
+        // does the obvious thing and asks again. The provider must not see a
+        // second login for it.
+        const second = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "retry-me",
+        });
+        // Answered, not re-run: the retry repeats the first call's result.
+        // What proves it did not re-run is the provider's records below, not
+        // the shape of this reply.
+        assert.deepEqual(second, first);
+
+        // The oracle, again the provider's own records: one credential
+        // submission, one session. Not "the service said it deduplicated".
+        assert.equal(fixture.submissions().length, 1);
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("EFFECT-NEW: a different request is not suppressed by an earlier one", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const first = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "first-request",
+        });
+        assert.equal(
+          first.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(first)}`,
+        );
+        const second = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "second-request",
+        });
+        // Deduplication that swallowed a genuinely new request would be a
+        // worse defect than the duplicate it was built to prevent.
+        assert.equal(
+          second.status,
+          "verified",
+          `expected the second request to run, got ${JSON.stringify(second)}`,
+        );
+        assert.equal(fixture.submissions().length, 2);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("EFFECT-LEDGER: a completed login is recorded as settled, not undetermined", async () => {
+      fixture.reset();
+      const { sessions, service } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "settled-request",
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
+
+        // The replay path is the only way to read back the effect a caller
+        // never sees a reference to, and it is exactly what a retrying client
+        // would hit.
+        const replay = await service.login(actor, {
+          plan: planFor(engine),
+          idempotencyKey: "settled-request",
+        });
+        // An idempotent request answers the same thing twice. Anything else —
+        // including a refusal that borrows a reason meaning something it did
+        // not mean — tells a caller whose login worked that it did not, and
+        // sends them back with a fresh key to log in a second time.
+        assert.deepEqual(
+          replay,
+          result,
+          `expected the replay to repeat the first answer, got ${JSON.stringify(replay)}`,
+        );
+        assert.equal(fixture.submissions().length, 1);
       } finally {
         await sessions.disposeAll();
       }

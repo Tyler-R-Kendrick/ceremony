@@ -39,6 +39,22 @@ export class StaleTargetError extends Error {
 }
 
 /**
+ * The action already happened and where it went is genuinely not known.
+ *
+ * Deliberately not a `StaleTargetError`. Every reason in that type means the
+ * ceremony declined to act, which a caller may safely retry. This one means the
+ * opposite: something left the browser and the only honest report is that the
+ * outcome is undetermined. Collapsing the two — in either direction — produces
+ * a claim nobody can act on correctly.
+ */
+export class DispatchUncertain extends Error {
+  constructor() {
+    super("A submission was dispatched and its destination is not confirmed");
+    this.name = "DispatchUncertain";
+  }
+}
+
+/**
  * The parts of a Playwright handle this module uses.
  *
  * Declared structurally, like the existing page adapter, so `playwright-core`
@@ -325,8 +341,10 @@ export function createBoundTargets(page: BoundPageLike) {
   async function act(
     element: SnapshotElement,
     operation: (handle: ElementHandleLike) => Promise<unknown>,
+    options: { dispatches?: boolean } = {},
   ): Promise<void> {
     const handle = await resolve(element);
+    const approved = current?.destinations[element.index];
     try {
       await operation(handle);
     } catch (error) {
@@ -334,11 +352,49 @@ export function createBoundTargets(page: BoundPageLike) {
         movedOn(error) ? "stale-document" : "stale-element",
       );
     }
+    if (!options.dispatches || !approved) return;
+    const observation = current;
+    // The observation being gone is the same answer as the read below failing:
+    // the document moved on, which is what a submission does.
+    if (!observation) return;
+
+    // Read the destination once more, now that the action is over. A page that
+    // re-pointed the form during Playwright's actionability wait would have
+    // passed every check above and still sent the submission somewhere else.
+    let after: ElementDestination;
+    try {
+      after = await page.evaluate(
+        ({ root, index }) => {
+          const bound = root as unknown as {
+            elements: unknown[];
+            destination(element: unknown): ElementDestination;
+          };
+          return bound.destination(bound.elements[index]);
+        },
+        { root: observation.root as never, index: element.index },
+      );
+    } catch {
+      // The document went away, which is what a submission normally does. An
+      // unreadable page after a click is the expected shape of success, not
+      // evidence against it, and reporting every completed login as uncertain
+      // would make the uncertainty signal worthless.
+      return;
+    }
+    if (!sameDestination(approved, after)) throw new DispatchUncertain();
   }
 
   return {
     observe,
     act,
+    /**
+     * The destination approved for one observed control, or `undefined` when
+     * nothing has been observed or the index was never part of it. Read from
+     * the observation, not from the live page: the question is what the caller
+     * was shown and agreed to, which a page must not be able to answer.
+     */
+    destinationOf(element: SnapshotElement): ElementDestination | undefined {
+      return current?.destinations[element.index];
+    },
     /** Release held references; the next action must observe again. */
     async release() {
       await discard();

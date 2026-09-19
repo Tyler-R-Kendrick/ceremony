@@ -133,6 +133,71 @@ different from passing:
   these need authorized live configuration, accounts or devices that this
   environment does not have. No result may be invented for them.
 
+## A known intermittent, stated rather than smoothed over
+
+`browser-login-conformance` intermittently fails on GitHub's runners, under
+`test:coverage` at `--test-concurrency=4`, and has never once failed here. When
+it does, the assertions carry the reason:
+
+```
+expected a verified login, got {"status":"blocked","reason":"no-observation"}
+```
+
+**That reason used to read `stale-document`, and the name was wrong.** One
+branch of `resolve()` raised `stale-document` for "there is no approved
+observation to act against" - a sequencing fault - while every other use of
+that name means "the document you approved has been replaced", which is a
+safety event detected by guards further down. Both refuse, so no guarantee ever
+moved; but the name sent three separate investigations, this one included, to
+read code that had not run. #53 split the two, and this section is corrected
+against what the split revealed rather than against what the old name implied.
+
+An earlier revision of this document said the failure was "the document binding
+refusing to act because the document it observed is not the document in front
+of it - the protection working, on a page nobody swapped". That was inference
+from the name. It is not what happens: in the reproduction that finally caught
+it, all fifteen refusals came from the missing-approval branch and not one from
+either document comparison.
+
+One contributing cause was found and fixed here: the adapter's `goto` returned
+at `domcontentloaded`, which means a document has started rather than that it is
+the one still there a moment later, so an observation taken across that gap was
+of a page still becoming one. Navigation now settles before `goto` returns.
+That was necessary and it was not sufficient - the case recurred on the commit
+carrying it, which is how it was established as insufficient rather than
+assumed to be enough.
+
+What is established:
+
+- Occurrences across LIFE-LEGACY, EFFECT-DUP, EFFECT-NEW, EFFECT-LEDGER and
+  AUTH-COMBINED. One defect, surfacing through whichever case happens to run
+  when the window opens, not five defects.
+- It never fails in the `browser-login` job, which runs the same suite serially
+  and without coverage instrumentation.
+- It does not reproduce here: eight configurations tried, including the
+  coverage harness, c8 over the suite alone, and three rounds at
+  `--test-concurrency=4` under eight CPU burners on four cores with a
+  lifecycle trace recording every clear of the held observation and the stack
+  that asked for it. 102 cases, no failures, and the trace never fired.
+- It is reproducible under heavy enough CPU starvation, and there the refusals
+  are unanimously the missing-approval branch.
+
+What is **not** established: what clears the approval. `current` is set by
+`observe()` and cleared in exactly two places - `release()`, which only `goto()`
+calls, and the top of `observe()` itself, which clears before it spends several
+awaited round trips on the browser and only then sets the new value. The
+driver's path through those is sequential, so neither explains a missing
+approval on its own, and the window has not been caught open with a lifecycle
+trace attached.
+
+**It fails safe.** Every occurrence is a refusal. The driver declines to act on
+an element it cannot confirm, so the outcome is a login that did not happen
+rather than a credential delivered somewhere unintended - which is the direction
+this protection exists to fail in. That is why it is recorded here and not
+treated as a release blocker, and it is not a reason to relax the check: a
+refusal that is sometimes wrong is a cost worth paying for one that is never
+wrong in the other direction.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is

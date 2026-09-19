@@ -26,6 +26,7 @@ import {
 } from "../src/server/browser-interpreter.js";
 import {
   createPlaywrightCeremonyPage,
+  DispatchUncertain,
   StaleTargetError,
   type PlaywrightPageLike,
 } from "../src/server/browser-page.js";
@@ -630,6 +631,8 @@ function handleGraph(
   options: {
     origin?: string;
     controls?: number;
+    /** Runs inside the click, modelling a page that acts during it. */
+    onClick?: (index: number) => void;
   } = {},
 ) {
   const origin = options.origin ?? "https://provider.example";
@@ -670,6 +673,7 @@ function handleGraph(
     },
     click: async () => {
       calls.push(`click ${index}`);
+      options.onClick?.(index);
     },
     check: async () => {
       calls.push(`check ${index}`);
@@ -784,6 +788,11 @@ test("the Playwright adapter acts on the element it observed, not on a selector"
   await page.settle();
   assert.deepEqual(graph.calls, [
     "goto https://provider.example/signin",
+    // Navigation settles before anything observes. `domcontentloaded` means the
+    // document has started, not that it is the one still there a moment later,
+    // and an observation taken across that gap refuses the first action with
+    // `stale-document` on a page nobody swapped.
+    "settle networkidle",
     "observe",
     "fill 0 value-1",
     "click 2",
@@ -1043,4 +1052,108 @@ test("a snapshot stops at the element cap instead of growing without bound", () 
     snapshotSelectors,
   );
   assert.equal(result.elements.length, 60);
+});
+
+test("the adapter names the origin a control would submit to, and nothing more", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // An origin, never the action URL: a login form's action routinely carries a
+  // continuation or an identifier in its query string, and whoever reads an
+  // effect record is not entitled to either.
+  assert.equal(
+    await page.submissionTarget?.({
+      index: 2,
+      kind: "button",
+      text: "Sign in",
+    }),
+    "https://provider.example",
+  );
+});
+
+test("a control that belongs to no form submits nothing", async () => {
+  const graph = handleGraph();
+  graph.state[3]!.destination = { form: false };
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // Clicking a link or an in-page toggle changes nothing at the provider, so
+  // announcing it as an effect would make the uncertainty signal meaningless.
+  assert.equal(
+    await page.submissionTarget?.({ index: 3, kind: "link", text: "Help" }),
+    undefined,
+  );
+});
+
+test("the adapter answers nothing about a control it never observed", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  assert.equal(
+    await page.submissionTarget?.({
+      index: 2,
+      kind: "button",
+      text: "Sign in",
+    }),
+    undefined,
+  );
+});
+
+test("a form re-pointed during the click is uncertainty, not a refusal", async () => {
+  // The window this closes: every check happens before the click, and
+  // Playwright's own actionability wait can run for seconds afterwards. A page
+  // that re-points the form in that window passes every check and still sends
+  // the submission somewhere else.
+  const graph = handleGraph({
+    onClick: (index) => {
+      graph.state[index]!.destination = {
+        form: true,
+        action: "https://collector.example/take",
+        method: "post",
+        target: "",
+      };
+    },
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await assert.rejects(
+    () => page.click({ index: 2, kind: "button", text: "Sign in" }),
+    DispatchUncertain,
+  );
+});
+
+test("a click that navigates is success, not uncertainty", async () => {
+  // The destination cannot be read after a submission that navigated, and that
+  // is the ordinary shape of a working login. Reporting it as uncertain would
+  // make every successful sign-in undetermined.
+  const graph = handleGraph({
+    onClick: () => graph.navigate("https://provider.example/account"),
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await page.click({ index: 2, kind: "button", text: "Sign in" });
+});
+
+test("filling is not a dispatch, so a later re-point is still a plain refusal", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await page.fill(
+    { index: 0, kind: "input", type: "text", label: "Username" },
+    "value-1",
+  );
+  // Nothing left the browser, so the next action's own revalidation is what
+  // catches the change — as a refusal a caller may safely retry.
+  graph.state[0]!.destination = {
+    form: true,
+    action: "https://collector.example/take",
+    method: "post",
+    target: "",
+  };
+  await assert.rejects(
+    () =>
+      page.fill(
+        { index: 0, kind: "input", type: "text", label: "Username" },
+        "value-2",
+      ),
+    StaleTargetError,
+  );
 });

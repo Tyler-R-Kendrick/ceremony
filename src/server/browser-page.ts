@@ -7,7 +7,7 @@ import {
 } from "./browser-targets.js";
 import type { CeremonyPage } from "./browser-driver.js";
 
-export { StaleTargetError } from "./browser-targets.js";
+export { StaleTargetError, DispatchUncertain } from "./browser-targets.js";
 
 /**
  * The part of a Playwright page this adapter uses. Declaring it structurally
@@ -48,11 +48,32 @@ export function createPlaywrightCeremonyPage(
 ): CeremonyPage {
   const settleTimeout = options.settleTimeoutMs ?? 5_000;
   const targets = createBoundTargets(page);
+  const settle = async () => {
+    try {
+      await page.waitForLoadState("networkidle", { timeout: settleTimeout });
+    } catch {
+      // A page that keeps a connection open is not a failed step; the driver's
+      // own stall detection decides whether progress stopped.
+    }
+  };
   return {
     url: async () => page.url(),
     goto: async (target) => {
       await targets.release();
       await page.goto(target, { waitUntil: "domcontentloaded" });
+      // `domcontentloaded` means the document has started, not that it is the
+      // document that will still be here in a moment: a client-side redirect,
+      // a late replacement or a framework's first commit can all follow it.
+      // Whoever observes next holds a reference to whatever was there at this
+      // instant, so observing too early produces a `stale-document` refusal on
+      // the first action — the protection working correctly, on a page that was
+      // never actually swapped underneath anyone.
+      //
+      // WebKit is where this showed up, intermittently and only under load,
+      // which is exactly the shape of a window that is normally too narrow to
+      // hit. Settling here closes it for every engine rather than special-casing
+      // the one that happened to reveal it.
+      await settle();
     },
     snapshot: async (): Promise<PageSnapshot> => targets.observe(),
     fill: async (element, value) => {
@@ -65,15 +86,27 @@ export function createPlaywrightCeremonyPage(
       await targets.act(element, (handle) => handle.check());
     },
     click: async (element) => {
-      await targets.act(element, (handle) => handle.click());
+      // The only action that can send something. `dispatches` turns on the
+      // post-action destination re-read, so a form re-pointed during
+      // Playwright's actionability wait is reported as uncertainty rather than
+      // as a step that went where it was approved to go.
+      await targets.act(element, (handle) => handle.click(), {
+        dispatches: true,
+      });
     },
-    settle: async () => {
+    submissionTarget: async (element) => {
+      const destination = targets.destinationOf(element);
+      if (!destination?.form) return undefined;
+      if (!destination.action) return "unknown";
+      // The origin, never the URL: a login action can carry an identifier, a
+      // continuation or a token in its query string, and an effect record is
+      // read by callers who are not entitled to any of that.
       try {
-        await page.waitForLoadState("networkidle", { timeout: settleTimeout });
+        return new URL(destination.action).origin;
       } catch {
-        // A page that keeps a connection open is not a failed step; the
-        // driver's own stall detection decides whether progress stopped.
+        return "unknown";
       }
     },
+    settle,
   };
 }
