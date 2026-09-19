@@ -15,6 +15,8 @@ import {
   toJsonValue,
   fromJsonValue,
 } from "../../../src/server/connectors/formats/automation/ruby-literals.js";
+import { inertCopy } from "../../../src/server/connectors/formats/automation/common.js";
+import { measureJsonValue } from "../../../src/core/connectors/json-bounds.js";
 
 /*
  * The Workato connector reader's counterpart to the JavaScript one, and the
@@ -252,6 +254,36 @@ test("AUTO-RB-18: wrapping JSON refuses the prototype-polluting keys", () => {
     (rubyEntries(wrapped) ?? []).map((entry) => entry.key),
     ["safe"],
   );
+});
+
+test("AUTO-RB-20: converting to JSON refuses the prototype-polluting keys", () => {
+  /*
+   * A Ruby hash key is written by a stranger, and `out["__proto__"] = x` adds
+   * no property at all -- it calls the setter -- so the object handed back
+   * would no longer be a plain object. Everything downstream refuses such an
+   * object rather than copying it: `inertCopy` answers undefined and
+   * `measureJsonValue` answers `not-json`, which would turn one key in a
+   * connector into a connector nobody can read.
+   */
+  const { value } = connector(
+    `  safe: 1,\n  "__proto__" => { "bad" => true },\n  "constructor" => 2,`,
+  );
+  // The hash tree still records what the source wrote; only the conversion to
+  // plain data drops it, because plain data has no spelling for it.
+  assert.ok(
+    (rubyEntries(value) ?? []).some((entry) => entry.key === "__proto__"),
+  );
+  const json = toJsonValue(value) as Record<string, unknown>;
+  assert.equal(Object.getPrototypeOf(json), Object.prototype);
+  assert.equal(json["safe"], 1);
+  assert.deepEqual(
+    Object.keys(json),
+    ["title", "connection", "safe"],
+    "no reserved key survives the conversion",
+  );
+  assert.equal(json["bad"], undefined, "nothing arrives through a prototype");
+  assert.equal(measureJsonValue(json).ok, true);
+  assert.notEqual(inertCopy(json), undefined);
 });
 
 test("AUTO-RB-19: wrapping JSON is total and round trips", () => {

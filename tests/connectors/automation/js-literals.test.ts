@@ -17,6 +17,8 @@ import {
   toJsonValue,
   fromJsonValue,
 } from "../../../src/server/connectors/formats/automation/js-literals.js";
+import { inertCopy } from "../../../src/server/connectors/formats/automation/common.js";
+import { measureJsonValue } from "../../../src/core/connectors/json-bounds.js";
 
 /*
  * This reader takes a stranger's JavaScript and returns data. It has one job
@@ -282,6 +284,40 @@ test("AUTO-JS-18: wrapping JSON refuses the prototype-polluting keys", () => {
   const keys = (asObject(wrapped) ?? []).map((entry) => entry.key);
   assert.deepEqual(keys, ["safe"]);
   assert.deepEqual(toJsonValue(wrapped), { safe: 1 });
+});
+
+test("AUTO-JS-20: converting to JSON refuses the prototype-polluting keys", () => {
+  /*
+   * The wrapping direction has always refused these keys; the converting
+   * direction is the one a stranger's source text reaches. `out.__proto__ = x`
+   * adds no property at all -- it calls the setter -- so the object handed back
+   * would no longer be a plain object, and every bound downstream refuses such
+   * an object rather than copying it: `inertCopy` answers undefined and
+   * `measureJsonValue` answers `not-json`, which turns one key in a
+   * description into a rejected description.
+   */
+  const { value: read } = exported(
+    `{ safe: 1, "__proto__": { bad: true }, "constructor": 2, "prototype": 3 }`,
+  );
+  // The literal tree still records what the source wrote. Only the conversion
+  // to plain data drops it, because plain data has no spelling for it.
+  assert.deepEqual(
+    (asObject(read) ?? []).map((entry) => entry.key),
+    ["safe", "__proto__", "constructor", "prototype"],
+  );
+  const json = toJsonValue(read) as Record<string, unknown>;
+  assert.equal(Object.getPrototypeOf(json), Object.prototype);
+  assert.equal(json["bad"], undefined, "nothing arrives through a prototype");
+  assert.equal(measureJsonValue(json).ok, true);
+  assert.deepEqual(json, { safe: 1 });
+  assert.deepEqual(inertCopy(json), { safe: 1 });
+  // Nested is the same: an inner object is converted by the same walk.
+  assert.deepEqual(
+    toJsonValue(
+      exported(`{ outer: { "__proto__": { bad: true }, in: 1 } }`).value,
+    ),
+    { outer: { in: 1 } },
+  );
 });
 
 test("AUTO-JS-19: wrapping JSON is total and round trips through conversion", () => {

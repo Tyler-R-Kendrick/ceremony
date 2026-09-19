@@ -293,6 +293,83 @@ test("a diff over a document whose operations moved servers catches the per-oper
   assert.equal(result.approvalReusable, false);
 });
 
+test("promoting an operation's server to the document is a security change", () => {
+  /*
+   * The internal host is already in the approved document, so the set of urls
+   * it declares does not change: what changes is how much of the document may
+   * be sent there. Approved, it was one operation's destination; promoted to
+   * the document it becomes the default for every operation that declares none
+   * of its own, including ones no reviewer looked at against that host. A diff
+   * that compares urls alone reports this as no change at all.
+   */
+  const PUBLIC = "https://api.example.test";
+  const INTERNAL = "https://internal.example.test";
+  /** The same two operations, with the same two urls declared at chosen scopes. */
+  const scoped = (at: { root?: string; admin?: string; debug?: string }) => ({
+    openapi: "3.1.0",
+    info: { title: "Approved", version: "1.0.0" },
+    ...(at.root ? { servers: [{ url: at.root }] } : {}),
+    paths: {
+      "/admin": {
+        post: {
+          ...(at.admin ? { servers: [{ url: at.admin }] } : {}),
+          responses: { "200": { description: "ok" } },
+        },
+      },
+      "/debug": {
+        get: {
+          ...(at.debug ? { servers: [{ url: at.debug }] } : {}),
+          responses: { "200": { description: "ok" } },
+        },
+      },
+    },
+  });
+  const before = scoped({ root: PUBLIC, debug: INTERNAL });
+  const applied = applyOverlay(before, {
+    overlay: "1.0.0",
+    info: { title: "Promote", version: "1.0.0" },
+    actions: [{ target: "$.servers", update: { url: INTERNAL } }],
+  });
+  assert.equal(applied.applied, true);
+  const result = diffOverlay(before, applied.document);
+  const change = result.changes.find((item) => item.kind === "server-changed");
+  assert.ok(change, "the promotion must be reported");
+  assert.equal(change.category, "security");
+  assert.equal(change.security, true);
+  assert.equal(change.path, "#/servers[1]");
+  assert.equal(result.securityAffected, true);
+  assert.equal(result.approvalReusable, false);
+  const issue = result.issues.find(
+    (item) => item.code === "security.server-changed",
+  );
+  assert.equal(issue?.severity, "blocking");
+  assert.equal(issue?.executionImpact, "blocks-operation");
+
+  // The same url moving between two operations is equally invisible to a
+  // url-only comparison, and equally a new destination for the second one.
+  const sideways = diffOverlay(
+    before,
+    scoped({ root: PUBLIC, admin: INTERNAL }),
+  );
+  assert.ok(
+    sideways.changes.some(
+      (item) => item.kind === "server-changed" && item.security,
+    ),
+  );
+  assert.equal(sideways.approvalReusable, false);
+
+  // Narrowing is the mirror image: the document-scope server becomes one
+  // operation's, which is reported without invalidating the approval, the way
+  // a removed server is.
+  const narrowing = diffOverlay(
+    before,
+    scoped({ admin: PUBLIC, debug: INTERNAL }),
+  );
+  assert.deepEqual(kinds(narrowing), ["server-changed"]);
+  assert.equal(narrowing.securityAffected, false);
+  assert.equal(narrowing.approvalReusable, true);
+});
+
 test("the diff never echoes a document value into its messages", () => {
   const before = document();
   const after = document();

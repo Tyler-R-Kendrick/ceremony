@@ -370,6 +370,7 @@ export function isEvaluableReference(expression: RuntimeExpression): boolean {
 }
 
 export type EvaluationFailure =
+  | "syntax"
   | "unresolved-reference"
   | "unsupported-reference"
   | "incomparable"
@@ -592,9 +593,14 @@ export function evaluateCondition(
   condition: ParsedCondition | string,
   context: EvaluationContext,
 ): ConditionResult {
-  const parsed =
-    typeof condition === "string" ? parseCondition(condition) : condition;
   try {
+    // A condition given as text is document content, so parsing it belongs
+    // inside the guard: a malformed condition is a criterion that cannot pass,
+    // not an exception a host has to be ready to catch. The position and code
+    // the parser carries stay out of the result, because they describe the
+    // document's own text.
+    const parsed =
+      typeof condition === "string" ? parseCondition(condition) : condition;
     const result = evaluate(parsed.ast, context);
     // A bare value is only a condition when it is boolean; `truthy` reports
     // anything else rather than guessing at JavaScript truthiness.
@@ -608,6 +614,12 @@ export function evaluateCondition(
         satisfied: false,
         classification: "unclassified",
         reason: error.reason,
+      };
+    if (error instanceof ConditionSyntaxError)
+      return {
+        satisfied: false,
+        classification: "unclassified",
+        reason: "syntax",
       };
     throw error;
   }

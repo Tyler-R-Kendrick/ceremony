@@ -173,6 +173,40 @@ describe("reading a declarative n8n node", () => {
     assert.equal(result.definition.compatibility.dimensions.import, "adapted");
   });
 
+  test("a property key that aliases prototype machinery reads like any other key", async () => {
+    // `'__proto__': {...}` is a key a node's source may simply contain.
+    // Assigning it while converting the literal tree to plain data would call
+    // the prototype setter instead of adding a property, and the description
+    // that came out would then be refused as "not JSON" by the definition
+    // schema: one key in the source turning the whole read into an exception
+    // rather than a description plus diagnostics.
+    const hostile = declarativeNodeSource.replace(
+      "displayName: 'Limit',",
+      `displayName: 'Limit',\n\t\t\t\t'__proto__': { polluted: true },`,
+    );
+    const result = await readN8nNode({
+      sourceText: hostile,
+      packageJson: declarativePackageJson,
+      identity: declarativeIdentity,
+    });
+    const benign = await readN8nNode({
+      sourceText: declarativeNodeSource,
+      packageJson: declarativePackageJson,
+      identity: declarativeIdentity,
+    });
+    assert.deepEqual(
+      result.definition.capabilities.map((capability) => capability.nativeId),
+      benign.definition.capabilities.map((capability) => capability.nativeId),
+    );
+    assert.deepEqual(codes(result.issues), codes(benign.issues));
+    // Nothing reached Object.prototype on the way through.
+    assert.equal(
+      ({} as Record<string, unknown>)["polluted"],
+      undefined,
+      "no global prototype was touched",
+    );
+  });
+
   test("capability rows never claim portability the reader does not have", async () => {
     const result = await readN8nNode({
       json: declarativeNodeDescription,

@@ -65,17 +65,35 @@ const METHODS = new Set([
 const at = (path: string, key: string | number): string =>
   typeof key === "number" ? `${path}[${key}]` : `${path}/${key}`;
 
-function serverUrls(document: unknown, path: string): Map<string, string> {
-  const found = new Map<string, string>();
+/**
+ * Where a server is declared, which is what decides how much of the document
+ * may be sent there: a document-scope server is inherited by every operation
+ * that does not override it, a path-scope server by every method on that path,
+ * and an operation-scope server by that one operation.
+ */
+type ServerScope =
+  | { kind: "document" }
+  | { kind: "path"; route: string }
+  | { kind: "operation"; route: string; method: string };
+
+interface DeclaredServer {
+  /** Pointer to the declaration itself, so a change names where it was found. */
+  pointer: string;
+  scope: ServerScope;
+  url: string;
+}
+
+function declaredServers(document: unknown, path: string): DeclaredServer[] {
+  const found: DeclaredServer[] = [];
   if (!isRecord(document)) return found;
-  const collect = (value: unknown, where: string) => {
+  const collect = (value: unknown, where: string, scope: ServerScope) => {
     if (!Array.isArray(value)) return;
     value.forEach((server, index) => {
       if (isRecord(server) && typeof server.url === "string")
-        found.set(`${where}[${index}]`, server.url);
+        found.push({ pointer: `${where}[${index}]`, scope, url: server.url });
     });
   };
-  collect(document.servers, `${path}/servers`);
+  collect(document.servers, `${path}/servers`, { kind: "document" });
   // Swagger 2.0 spells its single server across three fields.
   if (
     typeof document.host === "string" ||
@@ -86,24 +104,82 @@ function serverUrls(document: unknown, path: string): Map<string, string> {
           (item): item is string => typeof item === "string",
         )
       : [""];
-    for (const scheme of schemes)
-      found.set(
-        `${path}/host:${scheme}`,
-        `${scheme ? `${scheme}://` : ""}${typeof document.host === "string" ? document.host : ""}${typeof document.basePath === "string" ? document.basePath : ""}`,
-      );
+    // One entry per distinct scheme: a repeated scheme is one destination, and
+    // the pointer that names it would otherwise be reported twice.
+    for (const scheme of new Set(schemes))
+      found.push({
+        pointer: `${path}/host:${scheme}`,
+        scope: { kind: "document" },
+        url: `${scheme ? `${scheme}://` : ""}${typeof document.host === "string" ? document.host : ""}${typeof document.basePath === "string" ? document.basePath : ""}`,
+      });
   }
   if (isRecord(document.paths))
     for (const [route, item] of entriesOf(document.paths)) {
       if (!isRecord(item)) continue;
-      collect(item.servers, `${path}/paths/${route}/servers`);
+      collect(item.servers, `${path}/paths/${route}/servers`, {
+        kind: "path",
+        route,
+      });
       for (const [method, operation] of entriesOf(item))
         if (METHODS.has(method) && isRecord(operation))
           collect(
             operation.servers,
             `${path}/paths/${route}/${method}/servers`,
+            { kind: "operation", route, method },
           );
     }
   return found;
+}
+
+/** Every scope one url is declared at, so "was it already reachable here?" is a lookup. */
+interface ServerReach {
+  document: boolean;
+  paths: Set<string>;
+  operations: Set<string>;
+}
+
+// A method name never contains a space, so this key cannot be ambiguous.
+const operationKey = (route: string, method: string): string =>
+  `${method} ${route}`;
+
+function serverReach(
+  declarations: readonly DeclaredServer[],
+): Map<string, ServerReach> {
+  const reach = new Map<string, ServerReach>();
+  for (const declaration of declarations) {
+    let entry = reach.get(declaration.url);
+    if (!entry) {
+      entry = { document: false, paths: new Set(), operations: new Set() };
+      reach.set(declaration.url, entry);
+    }
+    if (declaration.scope.kind === "document") entry.document = true;
+    else if (declaration.scope.kind === "path")
+      entry.paths.add(declaration.scope.route);
+    else
+      entry.operations.add(
+        operationKey(declaration.scope.route, declaration.scope.method),
+      );
+  }
+  return reach;
+}
+
+/**
+ * Whether a declaration at `scope` adds no reach the url did not already have.
+ * Document scope covers every path and every operation and a path covers its
+ * own methods, so a url declared inside a scope it already applied to is the
+ * same destination for the same requests, while a url that moves outwards
+ * becomes reachable from operations that could not reach it before.
+ */
+function alreadyReaches(
+  reach: ServerReach | undefined,
+  scope: ServerScope,
+): boolean {
+  if (!reach) return false;
+  if (reach.document) return true;
+  if (scope.kind === "document") return false;
+  if (reach.paths.has(scope.route)) return true;
+  if (scope.kind === "path") return false;
+  return reach.operations.has(operationKey(scope.route, scope.method));
 }
 
 interface OperationView {
@@ -235,29 +311,66 @@ export function diffOverlay(before: unknown, after: unknown): OverlayDiff {
     });
   };
 
-  const beforeServers = new Set(serverUrls(before, "#").values());
-  const afterServersByPath = serverUrls(after, "#");
-  const afterServers = new Set(afterServersByPath.values());
-  for (const [path, url] of afterServersByPath)
-    if (!beforeServers.has(url))
+  /*
+   * Servers are compared by scope and url together, never by url alone. A url
+   * the approved document declared on one operation and the candidate declares
+   * on the document is the same string in both, so a comparison of bare urls
+   * calls that no change at all — while every other operation, none of which
+   * was reviewed against that host, may now be sent there. Where a request
+   * goes is the first thing this diff exists to notice, so a url that widens
+   * its scope is reported as a security change, and one that narrows is
+   * reported the way a removed server is: visible, but not an escalation.
+   */
+  const beforeDeclared = declaredServers(before, "#");
+  const afterDeclared = declaredServers(after, "#");
+  const beforeReach = serverReach(beforeDeclared);
+  const afterReach = serverReach(afterDeclared);
+  for (const declaration of afterDeclared) {
+    const reach = beforeReach.get(declaration.url);
+    if (!reach) {
       record({
-        path,
+        path: declaration.pointer,
         kind: "server-added",
         category: "security",
         security: true,
         detail:
           "The transformation introduces a server the approved document did not declare; an overlay cannot authorize a new destination, so the approval no longer covers this document.",
       });
-  for (const [path, url] of serverUrls(before, "#"))
-    if (!afterServers.has(url))
+      continue;
+    }
+    if (alreadyReaches(reach, declaration.scope)) continue;
+    record({
+      path: declaration.pointer,
+      kind: "server-changed",
+      category: "security",
+      security: true,
+      detail:
+        "The transformation declares a server the approved document confined to a narrower scope, so operations the approval reviewed against another destination may now be sent to it; an overlay cannot widen where a request goes.",
+    });
+  }
+  for (const declaration of beforeDeclared) {
+    const reach = afterReach.get(declaration.url);
+    if (!reach) {
       record({
-        path,
+        path: declaration.pointer,
         kind: "server-removed",
         category: "network",
         security: false,
         detail:
           "The transformation removes a declared server; operations pinned to it lose their declared destination.",
       });
+      continue;
+    }
+    if (alreadyReaches(reach, declaration.scope)) continue;
+    record({
+      path: declaration.pointer,
+      kind: "server-changed",
+      category: "network",
+      security: false,
+      detail:
+        "The transformation withdraws a declared server from a scope the approved document applied it to; the operations that reached it through that scope lose their declared destination, though the server is still declared elsewhere.",
+    });
+  }
 
   const beforeOperations = operations(before);
   const afterOperations = operations(after);

@@ -269,6 +269,38 @@ describe("reading Workato Ruby source", () => {
       ),
     );
   });
+
+  test("a hash key that aliases prototype machinery reads like any other key", async () => {
+    // `"__proto__" => {...}` is a key a connector may simply contain. Assigning
+    // it while converting the hash to plain data would call the prototype
+    // setter instead of adding a property, and the description that came out
+    // would then be refused as "not JSON" by the definition schema: one key in
+    // the source turning the whole read into an exception rather than a
+    // description plus diagnostics.
+    const hostile = nativeConnectorRuby.replace(
+      "name: 'api_key',",
+      `name: 'api_key',\n        "__proto__" => { "polluted" => true },`,
+    );
+    const result = await readWorkatoConnector({
+      rubySource: hostile,
+      identity: nativeConnectorIdentity,
+    });
+    const benign = await readWorkatoConnector({
+      rubySource: nativeConnectorRuby,
+      identity: nativeConnectorIdentity,
+    });
+    assert.deepEqual(
+      result.definition.configuration.map((item) => item.name),
+      benign.definition.configuration.map((item) => item.name),
+    );
+    assert.deepEqual(codes(result.issues), codes(benign.issues));
+    // Nothing reached Object.prototype on the way through.
+    assert.equal(
+      ({} as Record<string, unknown>)["polluted"],
+      undefined,
+      "no global prototype was touched",
+    );
+  });
 });
 
 describe("an adversarial connector never executes", () => {

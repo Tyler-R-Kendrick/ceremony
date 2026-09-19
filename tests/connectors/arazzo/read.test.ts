@@ -387,6 +387,70 @@ function duplicatesWorkflow(document: Record<string, unknown>) {
   return (document.workflows as Record<string, unknown>[])[0]!;
 }
 
+test("a component reference naming a prototype member is dangling, not resolved", () => {
+  /*
+   * A component name is an identifier the document chose, and the identifier
+   * grammar admits `__proto__` and `constructor` as readily as `storeId`. The
+   * components map itself can never hold such a key, so a reference to one is
+   * always dangling and must be refused with the same blocking diagnostic as
+   * `$components.parameters.absent` — a plain property read would answer with
+   * a member of `Object.prototype` instead, and the reader would carry that
+   * forward as a reviewed parameter with no name and no location.
+   */
+  for (const name of ["__proto__", "constructor", "prototype", "toString"]) {
+    const document = full110();
+    (
+      (
+        (document.workflows as Record<string, unknown>[])[0]!.steps as Record<
+          string,
+          unknown
+        >[]
+      )[0]!.parameters as Record<string, unknown>[]
+    )[1] = { reference: `$components.parameters.${name}` };
+    const read = readArazzo(document);
+    assert.equal(
+      find(read.issues, "arazzo.reference.unknown-component").length,
+      1,
+      name,
+    );
+
+    const action = full110();
+    (
+      (action.workflows as Record<string, unknown>[])[0]!.steps as Record<
+        string,
+        unknown
+      >[]
+    )[0]!.onSuccess = [{ reference: `$components.successActions.${name}` }];
+    assert.equal(
+      find(readArazzo(action).issues, "arazzo.reference.unknown-component")
+        .length,
+      1,
+      name,
+    );
+
+    const failure = full110();
+    (
+      (failure.workflows as Record<string, unknown>[])[0]!.steps as Record<
+        string,
+        unknown
+      >[]
+    )[0]!.onFailure = [{ reference: `$components.failureActions.${name}` }];
+    assert.equal(
+      find(readArazzo(failure).issues, "arazzo.reference.unknown-component")
+        .length,
+      1,
+      name,
+    );
+  }
+
+  // The components the document does declare still resolve.
+  assert.equal(
+    find(readArazzo(full110()).issues, "arazzo.reference.unknown-component")
+      .length,
+    0,
+  );
+});
+
 test("AC-IMP-08 step reference counts, action targets and parameter rules are enforced", () => {
   const both = storeWorkflow101();
   (

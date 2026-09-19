@@ -377,6 +377,40 @@ test("a document that cannot be serialized within bounds is refused, not thrown"
   assert.equal(result.issues[0]?.severity, "blocking");
 });
 
+test("an update value the applier cannot clone is refused, not thrown", () => {
+  // The document clone above is guarded; the clone of the value an action
+  // applies is the other half of the same promise. A hostile overlay carries
+  // either more than the budget allows or, from a YAML alias cycle, a
+  // structure that cannot be serialized at all, and both must arrive as the
+  // documented blocking diagnostic with the input document handed back
+  // unchanged. Thrown out of `applyOverlay`, either one would reach a caller
+  // that was told failure looks like a result.
+  const oversized = applyOverlay(
+    base(),
+    overlay("1.1.0", [
+      { target: "$.paths['/a']", update: { blob: "x".repeat(5000) } },
+    ]),
+    // 64 nodes buys a 4096-character budget: past the update, short of the
+    // 364-character document, so the update is what exceeds it.
+    { limits: { maxUpdateNodes: 64 } },
+  );
+  assert.equal(oversized.applied, false);
+  assert.equal(oversized.issues[0]?.code, "structure.update-too-large");
+  assert.equal(oversized.issues[0]?.severity, "blocking");
+  assert.equal(oversized.issues[0]?.sourcePointer, "#/actions/0/update");
+  assert.deepEqual(oversized.document, base());
+
+  const cyclic: Record<string, unknown> = { name: "loop" };
+  cyclic["self"] = cyclic;
+  const circular = applyOverlay(
+    base(),
+    overlay("1.1.0", [{ target: "$.paths['/a']", update: cyclic }]),
+  );
+  assert.equal(circular.applied, false);
+  assert.equal(circular.issues[0]?.code, "structure.update-too-large");
+  assert.deepEqual(circular.document, base());
+});
+
 test("an update whose property types are incompatible is an error, not an overwrite", () => {
   const result = applyOverlay(
     base(),

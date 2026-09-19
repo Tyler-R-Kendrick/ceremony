@@ -3,7 +3,12 @@ import {
   canonicalConnectorJson,
   type CompatibilityIssue,
 } from "../../../../core/connectors/index.js";
-import { IssueCollector, safeText, token } from "../openapi/issues.js";
+import {
+  IssueCollector,
+  safeText,
+  token,
+  type IssueInput,
+} from "../openapi/issues.js";
 import { entriesOf, isRecord } from "../openapi/refs.js";
 import {
   SUPPORTED_SELECTOR_SYNTAX,
@@ -114,6 +119,38 @@ function cloneJson(value: unknown, limit: number): unknown {
   if (text.length > limit * 64) throw new SelectionBudgetExceeded();
   return JSON.parse(text);
 }
+
+/**
+ * The same clone for a value the overlay supplies rather than one the applier
+ * has already vetted. An `update` may be larger than the applier's budget, and
+ * a YAML alias cycle produces a structure `JSON.stringify` refuses outright;
+ * both are the overlay's problem to report, so they arrive here as a failed
+ * outcome and become a blocking diagnostic, exactly as an unservable target
+ * document does.
+ */
+function tryCloneJson(
+  value: unknown,
+  limit: number,
+): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: cloneJson(value, limit) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** The diagnostic a value the applier cannot clone earns, at the pointer that carried it. */
+const updateTooLarge = (pointer: string): IssueInput => ({
+  code: "structure.update-too-large",
+  category: "structure",
+  pointer,
+  dimension: "import",
+  severity: "blocking",
+  disposition: "rejected",
+  executionImpact: "blocks-definition",
+  message:
+    "The value this action would apply exceeds the applier's size budget or cannot be serialized at all; nothing is applied.",
+});
 
 type MergeOutcome =
   { ok: true; value: unknown } | { ok: false; reason: string };
@@ -603,8 +640,20 @@ export function applyOverlay(
         });
         return { ...fail(), extends: extendsInfo };
       }
-      updateValue = cloneJson(sources[0]!.value, limits.maxUpdateNodes);
-    } else updateValue = cloneJson(raw.update, limits.maxUpdateNodes);
+      const copied = tryCloneJson(sources[0]!.value, limits.maxUpdateNodes);
+      if (!copied.ok) {
+        issues.add(updateTooLarge(`${pointer}/copy`));
+        return { ...fail(), extends: extendsInfo };
+      }
+      updateValue = copied.value;
+    } else {
+      const cloned = tryCloneJson(raw.update, limits.maxUpdateNodes);
+      if (!cloned.ok) {
+        issues.add(updateTooLarge(`${pointer}/update`));
+        return { ...fail(), extends: extendsInfo };
+      }
+      updateValue = cloned.value;
+    }
 
     // Every selected node must be the same shape, so one action cannot mean
     // "merge here, append there" depending on what the document happened to hold.
@@ -647,6 +696,10 @@ export function applyOverlay(
       return { ...fail(), extends: extendsInfo };
     }
 
+    // Every selected node gets its own copy so two targets never end up
+    // sharing one subtree. Re-cloning what was already cloned above cannot
+    // fail: it is JSON by construction, within the same budget, and no longer
+    // holds the cycle a document may have carried in.
     for (const match of matches) {
       if (shape === "array") {
         const array = match.value as unknown[];

@@ -169,6 +169,26 @@ function criterionExpressions(
     });
 }
 
+/*
+ * A component reference names its target with an identifier the document
+ * chose, and an identifier may be `__proto__` or `constructor` as easily as
+ * `retry`. Plain indexing would then answer with a member of
+ * `Object.prototype`, and a dangling reference would resolve to something that
+ * is not a component at all: the reader would lose its blocking diagnostic and
+ * the compiler would carry an inherited function forward as a parameter. Every
+ * component lookup therefore goes through an own-property check. The map
+ * cannot hold such a key — `measureJsonValue` refuses a reserved key outright
+ * — so the only question that matters is whether the *reference* names one.
+ */
+function ownComponent<T>(
+  components: Readonly<Record<string, T>> | undefined,
+  name: string,
+): T | undefined {
+  return components !== undefined && Object.hasOwn(components, name)
+    ? components[name]
+    : undefined;
+}
+
 /** Resolves a reusable parameter against components; undefined when the reference is dangling. */
 export function resolveParameter(
   item: PreservedParameter | PreservedReusable,
@@ -182,7 +202,7 @@ export function resolveParameter(
     expression.component !== "parameters"
   )
     return undefined;
-  const parameter = components?.parameters?.[expression.name];
+  const parameter = ownComponent(components?.parameters, expression.name);
   if (!parameter) return undefined;
   return item.value === undefined
     ? parameter
@@ -201,7 +221,7 @@ export function resolveSuccessAction(
     expression.component !== "successActions"
   )
     return undefined;
-  return components?.successActions?.[expression.name];
+  return ownComponent(components?.successActions, expression.name);
 }
 
 export function resolveFailureAction(
@@ -216,7 +236,7 @@ export function resolveFailureAction(
     expression.component !== "failureActions"
   )
     return undefined;
-  return components?.failureActions?.[expression.name];
+  return ownComponent(components?.failureActions, expression.name);
 }
 
 /** Every expression a step uses, with the pointer of the site that uses it. */

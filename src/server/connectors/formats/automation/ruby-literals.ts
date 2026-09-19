@@ -1,3 +1,5 @@
+import { isReservedObjectKey } from "../../../../core/connectors/json-bounds.js";
+
 /*
  * A bounded, purely syntactic reader for Ruby *source text*.
  *
@@ -855,7 +857,18 @@ export function rubyEntries(
   return value?.kind === "hash" ? value.entries : undefined;
 }
 
-/** Converts a literal tree into plain JSON data; opaque nodes disappear. */
+/**
+ * Converts a literal tree into plain JSON data; opaque nodes disappear.
+ *
+ * A hash key is a key a stranger wrote, and `out[key] = value` for `__proto__`
+ * does not add a property at all — it calls the prototype setter, so the object
+ * this returns would no longer be a plain object. Everything downstream refuses
+ * such an object rather than copying it: `inertCopy` returns undefined for it,
+ * `measureJsonValue` calls it `not-json`, and the schema then rejects the whole
+ * description. One reserved key would therefore cost the reader its entire
+ * answer, so the reserved keys are dropped here, exactly as `fromJsonValue`
+ * drops them on the way in.
+ */
 export function toJsonValue(value: RubyValue | undefined): unknown {
   switch (value?.kind) {
     case "string":
@@ -874,7 +887,7 @@ export function toJsonValue(value: RubyValue | undefined): unknown {
     case "hash": {
       const out: Record<string, unknown> = {};
       for (const entry of value.entries) {
-        if (!entry.key) continue;
+        if (!entry.key || isReservedObjectKey(entry.key)) continue;
         const converted = toJsonValue(entry.value);
         if (converted !== undefined) out[entry.key] = converted;
       }
@@ -911,7 +924,7 @@ export function fromJsonValue(
       return { kind: "opaque", reason: "lambda", loc };
     const entries: RubyEntry[] = [];
     for (const key of Object.keys(source)) {
-      if (["__proto__", "prototype", "constructor"].includes(key)) continue;
+      if (isReservedObjectKey(key)) continue;
       entries.push({ key, value: fromJsonValue(source[key], loc), loc });
     }
     return { kind: "hash", entries, loc };

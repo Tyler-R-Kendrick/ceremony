@@ -290,6 +290,45 @@ test("the parser is bounded and rejects anything outside the simple grammar", ()
     assert.throws(() => parseCondition(attempt), ConditionSyntaxError, attempt);
 });
 
+test("a malformed condition fails closed rather than throwing at its caller", () => {
+  /*
+   * `parseCondition` throwing is the point of it: a host that pre-parses wants
+   * the position and the code. `evaluateCondition` promises the opposite, and
+   * the condition it is handed is document content like any other, so a
+   * criterion nobody can parse is a criterion that does not pass — never an
+   * exception a caller of the evaluator has to be ready for.
+   */
+  for (const condition of [
+    "$statusCode ==",
+    "$$$ &&&",
+    "$statusCode == 200 == 300",
+    "",
+    "constructor.constructor('return 1')()",
+  ]) {
+    const result = evaluateCondition(condition, context);
+    assert.equal(result.satisfied, false, condition);
+    assert.equal(result.reason, "syntax", condition);
+    assert.equal(result.classification, "unclassified", condition);
+  }
+
+  // One unparsable criterion must not cost the caller the ones that did
+  // evaluate: the joint answer is still false, with every result reported.
+  const joint = evaluateCriteria(
+    ["$statusCode == 200", "$statusCode =="],
+    context,
+  );
+  assert.equal(joint.satisfied, false);
+  assert.equal(joint.results.length, 2);
+  assert.equal(joint.results[0]?.satisfied, true);
+  assert.equal(joint.results[1]?.reason, "syntax");
+
+  // A condition parsed ahead of time still evaluates exactly as before.
+  assert.equal(
+    evaluateCondition(parseCondition("$statusCode == 200"), context).satisfied,
+    true,
+  );
+});
+
 test("the evaluator reads only own plain-data properties through JSON pointers", () => {
   assert.deepEqual(resolveJsonPointer({ a: { b: [1, 2] } }, "/a/b/1"), 2);
   assert.deepEqual(resolveJsonPointer({ "a/b": 1 }, "/a~1b"), 1);
