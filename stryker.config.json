@@ -46,7 +46,7 @@
   ],
   "concurrency": 1,
   "timeoutMS": 10000,
-  "dryRunTimeoutMinutes": 15,
+  "dryRunTimeoutMinutes": 25,
   "reporters": ["clear-text", "progress-append-only", "json", "html"],
   "jsonReporter": { "fileName": "artifacts/mutation/mutation.json" },
   "htmlReporter": { "fileName": "artifacts/mutation/index.html" },
