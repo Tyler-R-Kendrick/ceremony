@@ -242,10 +242,11 @@ test("OPS: an actual Playwright failure names its file and case, retaining no di
     assert.equal(result.error, undefined);
     assert.notEqual(result.status, 0);
     assert.match(result.stdout, /CEREMONY_EXPECTED_ASSERTION_FAILURE/);
-    const inventory = {
-      files: [join(directory, "sentinel.spec.ts")],
-      names: [name],
-    };
+    // Playwright spells the file relative to the directory its config is in,
+    // which for this repository's own config is the repository root — the same
+    // spelling the inventory uses. The fixture's config is in the fixture, so
+    // its spelling is relative to that.
+    const inventory = { files: ["sentinel.spec.ts"], names: [name] };
     assert.deepEqual(failedBrowserTests(result.stdout, inventory), inventory);
     // The fixture's own failure text is in that output and stays there.
     assert.deepEqual(
@@ -274,6 +275,11 @@ test("OPS: every inventoried browser case name is verbatim repository content", 
   assert.ok(inventory.files.length > 0, "browser suites must be discovered");
   assert.ok(inventory.names.length > 0, "the inventory must carry case names");
   assert.deepEqual(inventory.files, [...inventory.files].sort());
+  // The spelling has to be the reporter's, or a failure names a case and no
+  // file: Playwright prints paths relative to the directory holding its
+  // config, which for this repository is the root this inventory is built at.
+  for (const file of inventory.files)
+    assert.match(file, /^tests\/browser\/[^/]+\.spec\.ts$/);
   assert.deepEqual(inventory.names, [...new Set(inventory.names)].sort());
   // A suite title is not a case title, and a failure is never reported under
   // one, so `test.describe` must not reach the inventory.
