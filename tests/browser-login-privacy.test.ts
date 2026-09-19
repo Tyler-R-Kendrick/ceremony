@@ -281,6 +281,64 @@ describe("PRIV-PROMPT: a credential never reaches what reads the page", () => {
     }
   });
 
+  test("a code that has not been sent yet is never asked for early", async () => {
+    // The defect this case exists for was in the fix above, not in the
+    // original code, and it is the kind that passes every privacy assertion
+    // while breaking every flow that uses a mailbox.
+    //
+    // Arming the guard means asking the credential source for values before
+    // the drive starts. That is free for a password, which sits in the
+    // collector. It is not free for a verification code: resolving one means
+    // waiting until the provider sends it, and the provider sends it in
+    // response to a submission that has not happened. Asking early does not
+    // get an early answer - it blocks, or polls until it gives up, on a code
+    // that cannot exist yet.
+    //
+    // So the roles a caller *holds* are asked for and the roles that are
+    // *delivered* are not. The hole does not apply to them anyway: a page
+    // cannot display a value the provider has not issued.
+    const asked: string[] = [];
+    const sessions = createBrowserSessionRegistry({ store });
+    const service = createBrowserLoginService({
+      sessions,
+      verifiers: createVerifierRegistry([createFixtureVerifier({ origin })]),
+      credentials: {
+        resolve: async (_actor, _plan, role) => {
+          asked.push(role);
+          if (role === "verification-code")
+            // A mailbox that never delivers. If anything asks for this before
+            // the flow needs it, the login hangs and this case times out
+            // rather than failing politely - which is the right shape of
+            // failure for a defect that would hang a real login.
+            await new Promise(() => {});
+          return CANARY;
+        },
+      },
+      launch: stubBackend(),
+    });
+    try {
+      const result = await service.login(actor, {
+        plan: planFor({
+          credentialRecipients: { password: [origin] },
+          credentialRefs: {
+            password: "ref-password",
+            "verification-code": "ref-code",
+          },
+        }),
+      });
+      assert.equal(result.status, "verified");
+      assert.equal(
+        asked.includes("verification-code"),
+        false,
+        "a delivered code was resolved before the flow asked for it",
+      );
+      // The held secret still is asked for, or the guard is not armed at all.
+      assert.ok(asked.includes("password"));
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
   test("a value nobody declared secret is not guarded, and an address still shows", async () => {
     // Deliberate, and worth pinning so it is a decision rather than a gap.
     // `email`, `username` and `display-name` are not secret roles: providers

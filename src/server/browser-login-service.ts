@@ -6,7 +6,10 @@ import {
   type LoginResult,
 } from "../core/browser-session-contracts.js";
 import type { ActorContext } from "../core/operation-contracts.js";
-import { secretRoles, type CeremonyRole } from "../core/browser-contracts.js";
+import {
+  heldSecretRoles,
+  type CeremonyRole,
+} from "../core/browser-contracts.js";
 import {
   launchManagedBrowser,
   UnsupportedBackend,
@@ -537,16 +540,28 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     // This is the layer that can close it. The plan says which roles are
     // authorized and the credential source is the only thing that can turn
     // them into values, so the values are asked for here and handed to the
-    // driver as the things no surface may carry. Only the secret roles: an
-    // address or a display name is shown by legitimate providers on their own
-    // pages, and guarding one would make an ordinary login look like a leak.
+    // driver as the things no surface may carry.
+    //
+    // Only the *held* secrets, and the restriction is not a nicety. A
+    // password sits in the collector and reading it early costs nothing. A
+    // verification code does not exist until a submission causes the provider
+    // to send one, and resolving it means waiting on a mailbox — so asking
+    // before the drive starts would block every flow that uses one, on a code
+    // that cannot arrive, for as long as that mailbox waits. The hole this
+    // closes cannot apply to those roles anyway: a page cannot display a value
+    // the provider has not issued, and once the driver types one the driver's
+    // own guard covers every snapshot after it, exactly as before.
+    //
+    // Not the non-secret roles either. An address or a display name is shown
+    // by legitimate providers on their own pages, and guarding one would make
+    // an ordinary login look like a leak.
     //
     // Resolution is best-effort by design. A role the flow never reaches may
     // have no value, and a collector that cannot answer for it must not turn
     // into a failed login — that role simply resolves at fill time as before.
     const guarded: string[] = [];
     for (const role of roles) {
-      if (!secretRoles.includes(role)) continue;
+      if (!heldSecretRoles.includes(role)) continue;
       const value = await options.credentials
         .resolve(actor, plan, role)
         .catch(() => undefined);
