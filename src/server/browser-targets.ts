@@ -27,6 +27,7 @@ import {
 export type StaleTargetReason =
   | "stale-document"
   | "stale-element"
+  | "no-observation"
   | "unapproved-recipient"
   | "target-unavailable";
 
@@ -202,7 +203,11 @@ export function createBoundTargets(page: BoundPageLike) {
    */
   async function resolve(element: SnapshotElement): Promise<ElementHandleLike> {
     const observation = current;
-    if (!observation) throw new StaleTargetError("stale-document");
+    // Nothing held. The document-comparison guards below are what detect a page
+    // that moved on; reaching here means no approval was ever taken, or one was
+    // released and not replaced, which is a different fault with a different
+    // fix and so a different name.
+    if (!observation) throw new StaleTargetError("no-observation");
 
     // The page navigating is the common case and the cheapest to detect: the
     // adapter's own view of the address is authoritative, unlike anything the
