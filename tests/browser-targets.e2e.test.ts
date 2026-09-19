@@ -200,6 +200,47 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("TARGET-REREAD: a read in flight does not un-approve what was approved", async () => {
+      const context = await browsers.get(engine)!.openContext();
+      try {
+        const { page } = await context.openPage();
+        await page.goto(`${provider.origin}/race`);
+        const snapshot = await page.snapshot();
+        const field = snapshot.elements.find(
+          (element) => element.type === "password",
+        );
+        assert.ok(field, "the fixture must present a password field");
+
+        // A second read is started and deliberately not awaited yet, so the
+        // action below lands while it is in flight. Reading the page is not an
+        // event that un-approves anything: this document has not moved and
+        // this element is still exactly what was approved.
+        //
+        // It used to be. The old observation was dropped at the *start* of a
+        // read, leaving nothing held for several awaited round trips to the
+        // browser, and an action arriving in that window was refused as
+        // `no-observation` - which names the absence of an approval, not
+        // anything about the page, and so tells its reader nothing they can
+        // act on. The swap happens at the end now.
+        const reading = page.snapshot();
+        let refusal: StaleTargetError | undefined;
+        try {
+          await page.fill(field, canary);
+        } catch (error) {
+          if (!(error instanceof StaleTargetError)) throw error;
+          refusal = error;
+        }
+        await reading;
+        assert.equal(
+          refusal?.reason,
+          undefined,
+          `a concurrent read must not refuse an approved element, got ${refusal?.reason}`,
+        );
+      } finally {
+        await context.close();
+      }
+    });
+
     test("TARGET-ASYNC: a same-origin navigation mid-race refuses", async () => {
       const before = provider.received.length;
       const refusal = await raceFill(engine, async (raw) => {
