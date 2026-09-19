@@ -659,3 +659,51 @@ test("isolated presentation editor generates, exports and imports without applyi
     await app.close();
   }
 });
+
+test("what Configure declares reaches the resolver, and says so before the run", async ({
+  page,
+}) => {
+  await page.goto("/?mode=test");
+  await page
+    .getByRole("region", { name: "All Connectors" })
+    .getByRole("button", { name: "GitHub", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Add Connection" });
+  await drawer.getByRole("radio", { name: /OAuth/ }).check();
+
+  // A name the session environment cannot hold is said at the field rather
+  // than dropped in silence — the declaration drops it either way.
+  const name = drawer.getByLabel("Client ID environment name");
+  await name.fill("not-a-valid-name");
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await name.fill("EXAMPLE_CLIENT_ID");
+  await expect(name).not.toHaveAttribute("aria-invalid", "true");
+
+  // Asking for access no route carries is answered before the ceremony
+  // starts, naming the step to go back to rather than failing mid-run.
+  await drawer.getByLabel("Scopes").fill("admin:nothing-carries-this");
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("heading", { name: "This declaration leaves no route" }),
+  ).toBeVisible();
+  await expect(
+    drawer.getByText(/every scope Configure asked for/),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  // Relaxing it puts the ceremony back, which is what makes the message a
+  // direction rather than a dead end.
+  await drawer.getByRole("button", { name: "Back", exact: true }).click();
+  await drawer.getByRole("button", { name: "Back", exact: true }).click();
+  await drawer.getByLabel("Scopes").fill("");
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await drawer.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    drawer.getByRole("heading", { name: "This declaration leaves no route" }),
+  ).toHaveCount(0);
+  // An `aside` with a name is complementary, not a region.
+  await expect(
+    drawer.getByRole("complementary", { name: "Connection context" }),
+  ).toBeVisible();
+});

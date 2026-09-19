@@ -1,7 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
-import { browserModelContext, manifestSchema } from "../../src/core/index.js";
+import {
+  browserModelContext,
+  explainCeremonySelection,
+  manifestSchema,
+} from "../../src/core/index.js";
 import {
   Ceremony,
   CeremonyView,
@@ -24,6 +28,7 @@ import {
 } from "./catalog.js";
 import { ConnectCatalog } from "./connect-catalog.js";
 import { AddConnection, type ConnectionDraft } from "./add-connection.js";
+import { declarationOf, refusals } from "./declaration.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
 
@@ -305,6 +310,32 @@ function App() {
           </button>
         </div>
       );
+    /*
+     * A declaration can narrow this connector down to nothing: a scope no
+     * route carries, an ownership no route offers. The client would find that
+     * out a moment later and report it as "no available authentication
+     * method", which is true and tells nobody which answer to change. Said
+     * here, before the run, it names the step to go back to.
+     */
+    const selection = explainCeremonySelection(connector, declarationOf(draft));
+    if (!selection.selectedMethodId)
+      return (
+        <div className="ceremony">
+          <h3>This declaration leaves no route</h3>
+          <p>
+            Nothing {connector.name} offers satisfies what Configure and
+            Customize asked for, so there is no ceremony to run. Go back and
+            relax one of them.
+          </p>
+          <ul className="refusals">
+            {[...new Set(selection.candidates.map((item) => item.reason))].map(
+              (reason) => (
+                <li key={reason}>{refusals[reason] ?? reason}</li>
+              ),
+            )}
+          </ul>
+        </div>
+      );
     return (
       <div className="connect-grid" data-live={liveMode || undefined}>
         <aside className="connector-list" aria-label="Available services">
@@ -434,12 +465,11 @@ function App() {
               key={`${connector.id}:${delegation}:${runEpoch}`}
               manifest={connector}
               transport={transport}
-              /* What Customize declared actually reaches the resolver, so the
-                 cheapest route that still satisfies it is the one that runs. */
-              context={{
-                interruptions: draft.interruptions,
-                identity: draft.identity,
-              }}
+              /* What the drawer declared actually reaches the resolver, so
+                 the cheapest route that still satisfies it is the one that
+                 runs — the scopes and environment-entry names from Configure
+                 as much as the budget and ownership from Customize. */
+              context={declarationOf(draft)}
               {...(delegation ? { delegation: "agent" as const } : {})}
               {...(resumeId ? { resumeId } : {})}
               onInstance={(id) => {

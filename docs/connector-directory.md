@@ -73,15 +73,43 @@ the row's own name.
 1. **Service** — collapsed once chosen; reopening it returns to the directory.
 2. **Configure** — `Managed` discovers a provider from an issuer URL;
    `Custom` declares endpoints by hand for providers that publish no metadata.
-   The form asks only what the chosen family needs: a device flow has no
-   redirect URI and an API key has no scopes worth discovering. Secrets are
-   named, never typed here — the value stays in session-scoped encrypted
+   Either way the form asks only what the chosen family needs: a device flow
+   has no redirect URI and an API key has no scopes worth discovering. Secrets
+   are named, never typed here — the value stays in session-scoped encrypted
    configuration and reaches the adapter by reference.
 3. **Customize** — the capabilities below, plus an interruption budget and
-   whose access this is. Both feed route resolution, so the cheapest route that
-   still satisfies the declaration is the one a person gets.
+   whose access this is.
 4. **Complete** — a summary and the live ceremony, in the same connection
    workspace the application has always rendered.
+
+## What the drawer declares
+
+Configure and Customize are not a form that gets filed somewhere. Every answer
+either narrows which routes are eligible or changes which eligible route is
+cheapest, through the `EntryContext` the application hands the resolver
+([`src/core/resolution.ts`](../src/core/resolution.ts)):
+
+| Answer                  | Field               | What it does                                                    |
+| ----------------------- | ------------------- | --------------------------------------------------------------- |
+| Scopes                  | `requiredScopes`    | A route that cannot carry all of them is not offered.           |
+| Environment-entry names | `heldConfiguration` | A route that would stop and ask for one it holds ranks higher.  |
+| Whose access this is    | `identity`          | Excludes routes that complete for the wrong owner.              |
+| Interruption budget     | `interruptions`     | Excludes routes that stop for a person more often than allowed. |
+
+The two are different in kind, and the difference matters when something goes
+wrong: scopes and ownership **gate** a route, held configuration only **ranks**
+one. Naming an entry no route wants changes nothing rather than looking like a
+route that is ready.
+
+An environment name is a name, never a value. It must be the shape a session
+environment can hold — capitals, digits and underscores, starting with a letter
+— and the field says so as you type, because a name silently dropped is a
+connection that quietly asks for something it was told it already had.
+
+A declaration can also narrow a connector down to nothing. Complete resolves it
+before running anything and, when no route survives, names the answer
+responsible rather than reporting that no authentication method was available:
+the first is a step to go back to, the second is a dead end.
 
 ## Auth families
 
