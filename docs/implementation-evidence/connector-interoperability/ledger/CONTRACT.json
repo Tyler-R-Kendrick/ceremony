@@ -1,0 +1,174 @@
+{
+  "swarm": "CONTRACT",
+  "workItems": [
+    {
+      "id": "CON-01",
+      "status": "implemented",
+      "files": [
+        "src/core/connectors/identity.ts",
+        "src/core/connectors/contracts.ts",
+        "src/core/connectors/json-bounds.ts"
+      ],
+      "tests": [
+        "tests/connectors/contracts/identity.test.ts",
+        "tests/connectors/contracts/contracts.test.ts",
+        "tests/connectors/contracts/properties.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector/2"],
+      "limitations": [
+        "Contracts validate description shape only; no adapter, transport or persistence behaviour is proven here"
+      ],
+      "notes": "Source, definition, authentication-profile, capability, binding-reference, compatibility, evidence, lifecycle and catalog-projection contracts verified rule by rule. Gaps closed: bidirectional-control and blank-value rejection on identifiers/versions/safe text; reserved-key and traversal rejection on connectorReferenceSchema; bounded canonicalization (RangeError past depth 256) instead of stack overflow; declared endpoints and source origins now refuse query strings and fragments so signed URLs cannot enter a description; declared server URLs refuse userinfo while still allowing {variables}; adaptation steps must form a digest chain; a URL origin must record its location; duplicate capability identity (kind + nativeId), duplicate event identity, and per-definition extension byte budget; catalog entries cannot outrank measured evidence, hide missing configuration, claim live proof as a fixture, or list duplicates; connection summaries check instants rather than strings and fence handoffs to the current generation; lifecycleTransitions/canTransitionLifecycle added so `active` is reachable only from verifying, degraded or reconciled indeterminate; parseNormalizedDefinition enforces the 4 MiB UTF-8 ceiling before JSON.parse."
+    },
+    {
+      "id": "CON-02",
+      "status": "implemented",
+      "files": ["src/core/connectors/envelope.ts"],
+      "tests": [
+        "tests/connectors/contracts/envelope.test.ts",
+        "tests/connectors/contracts/properties.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-01", "AC-IMP-02", "AC-IMP-14"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector/1", "ceremony-connector/2"],
+      "limitations": [
+        "Round trips are exercised against real v1 projects built in-process; no HTTP import/export route is involved at this layer"
+      ],
+      "notes": "Round trip v1 -> upgrade -> v2 JSON -> parse -> downgrade returns a deeply equal project (and identical exportConnectorFiles output) for the five examples/manifests.ts fixtures, both src/server/services.ts live-adapter manifests, three newConnectorProject/attachGenericCeremony projects including one covering all eight flow kinds, and a fast-check generator over kinds and hostile text. Re-upgrading a downgraded project reproduces the same envelope. Added: normalizedDigestOf/verifyNormalizedDigest (digest excludes persistence refs and the digest field, so stored and exported definitions agree); safe derivation of profile ids and display text from v1 spellings a v2 field cannot carry, leaving the embedded project byte-identical; eight new coded downgrade diagnostics (profiles, configuration, capabilities, events, extensions, servers, diagnostics, identity, provenance). A public API keeps an explicit `none` profile with no project and downgrades to one blocking diagnostic naming it as public/no-credential."
+    },
+    {
+      "id": "CON-03",
+      "status": "implemented",
+      "files": ["src/core/connectors/contracts.ts"],
+      "tests": [
+        "tests/connectors/contracts/contracts.test.ts",
+        "tests/connectors/contracts/properties.test.ts"
+      ],
+      "acceptanceIds": [],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector/2"],
+      "limitations": [
+        "The schema proves a claim's shape and internal consistency; whether an issuer actually observed what it reports is an adapter and command-layer obligation"
+      ],
+      "notes": "verificationClaimSchema is strict, so a source claiming `verified: true` (or `trusted`, `granted`, `inferred`, `issuer: \"source\"`) is rejected outright; dropping any of issuer, target, verifierVersion, evidenceRef, observedAt, policyRevision, bindingRevision or kind is also rejected. requested/reported/observed permissions stay distinct with explicit semantics, and empty means unknown. Added refinements: a permission-observed claim must list an observed permission, host-policy cannot issue credential-accepted or permission-observed claims, and validity windows compare instants so a UTC offset cannot fake a window."
+    },
+    {
+      "id": "CON-04",
+      "status": "implemented",
+      "files": ["src/core/connectors/projections.ts"],
+      "tests": [
+        "tests/connectors/contracts/projections.test.ts",
+        "tests/connectors/contracts/properties.test.ts"
+      ],
+      "acceptanceIds": ["AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector/2"],
+      "limitations": [
+        "Canaries are asserted absent from projection output; server-side logging, error bodies and storage are other swarms' surfaces"
+      ],
+      "notes": "Added agentDefinitionProjection (identifiers, kinds and declared classifications only; blocking issues reduced to code/dimension/impact). Canary suite injects CANARY_SECRET_9f3, a token, a userinfo URL, a signed URL, an artifactRef, a configuration value, a provider message and a personal email into every extension point of definitions, sources, connection summaries, catalog entries and audit events, including nested nativeExtensions, and asserts exact output key lists for each projection. Only humanConnectionProjection carries a URL or device code, and only an HTTPS/loopback URL with no userinfo or fragment. Export drops definitionRef/sourceRef always and extensions unless the operator opts in."
+    },
+    {
+      "id": "CON-05",
+      "status": "implemented",
+      "files": ["src/core/connectors/contracts.ts"],
+      "tests": ["tests/connectors/contracts/contracts.test.ts"],
+      "acceptanceIds": [],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connector/2"],
+      "limitations": [
+        "The refinement constrains how an issue may be reported; it cannot verify that an importer classified a construct correctly"
+      ],
+      "notes": "compatibilityIssueSchema keeps source pointer, normalized pointer, dimension, disposition, severity, execution impact and remediation. Refinement extended from three rules to seven and tested over 11 accepted and 12 refused combinations: unsupported/rejected security is blocking; unmapped security is never informational; security + requires-configuration must name what it blocks; blocking must block something; info must block nothing; blocks-definition implies blocking severity; exact/adapted cannot be blocking; rejected cannot be informational."
+    },
+    {
+      "id": "CON-06",
+      "status": "implemented",
+      "files": [
+        "scripts/specifications.ts",
+        "docs/specifications/schemas/connector-source-v1.schema.json",
+        "docs/specifications/schemas/connector-definition-v1.schema.json",
+        "docs/specifications/schemas/connector-envelope-v2.schema.json",
+        "docs/specifications/schemas/capability-status-v1.schema.json",
+        "docs/specifications/schemas/verification-claim-v1.schema.json",
+        "docs/specifications/schemas/compatibility-issue-v1.schema.json",
+        "docs/specifications/schemas/catalog-entry-v1.schema.json",
+        "docs/specifications/schemas/connection-summary-v1.schema.json",
+        "docs/specifications/schemas/binding-reference-v1.schema.json",
+        "tests/connectors/fixtures/builders.ts"
+      ],
+      "tests": ["tests/connectors/contracts/schemas.test.ts"],
+      "acceptanceIds": [],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["json-schema-draft-2020-12"],
+      "limitations": [
+        "JSON Schema checks structure only; every cross-field refinement is runtime-only and is asserted as such in CON-06-04"
+      ],
+      "notes": "Nine schemas added to specificationSchemas (20 total); npm run specs:generate run once and npm run specs:check passes. Agreement is tested with the installed ajv@8.20.0 through its own draft-2020-12 entry point (ajv/dist/2020.js) with strictRequired disabled and two inline format definitions (date-time, uri); no plugin was needed and ajv-formats is not installed, so no dependency is proposed. Fixture builders export buildIdentity, buildProfile (all 13 kinds), buildCapability, buildDefinition, buildPublicDefinition, buildSourceRecord, buildEnvelope, buildCapabilityStatus, buildClaim, buildCompatibilityIssue, buildBindingReference, buildBinding (server RuntimeBinding), buildHandoffSummary, buildConnectionSummary, buildCatalogEntry, buildAuditEvent, portableDefinition/portableSource/withNormalizedDigest helpers and the shared canary set; each builder parses its result so a fixture cannot drift from the runtime schema."
+    }
+  ],
+  "contractChanges": [
+    {
+      "target": "src/core/connectors/identity.ts",
+      "change": "Added IDENTIFIER_LIMITS; identifiers, versions and safe text now also reject bidirectional controls and blank-only values; connectorReferenceSchema rejects reserved object keys and traversal; canonicalConnectorJson throws RangeError past depth 256.",
+      "compatibility": "Additive and strictly narrowing on inputs that were never valid upstream data. Every previously exported name keeps its shape; no accepted realistic identifier changed. Callers that constructed a reference from an attacker-controlled path now get a parse error instead of a path-shaped key."
+    },
+    {
+      "target": "src/core/connectors/json-bounds.ts (new)",
+      "change": "New module: JSON_VALUE_LIMITS, measureJsonValue, boundedJsonGuard, isReservedObjectKey. Exported from the connectors barrel.",
+      "compatibility": "New file, new exports only."
+    },
+    {
+      "target": "src/core/connectors/contracts.ts",
+      "change": "nativeExtensionsSchema is now a z.preprocess guard over the raw value (depth/nodes/bytes/string/reserved-key bounds) rather than two post-parse refinements; added EXTENSION_LIMITS, liveEvidenceLevels, compatibilitySeverities, claimIssuers, lifecycleTransitions, canTransitionLifecycle, parseNormalizedDefinition, sourceRecordShape and refineSourceRecord; DEFINITION_LIMITS gained declaredServers and extensionBytes; refineNormalizedDefinition now also takes events and nativeExtensions; several refinements added (listed per work item).",
+      "compatibility": "Additive exports plus narrowing refinements. nativeExtensionsSchema keeps the same inferred type (Record<string, unknown>) and the same JSON Schema output; it now refuses a reserved key instead of silently dropping it. sourceRecordSchema was split into shape + refinement because Zod 4 forbids .omit() on a refined object and envelope.ts needs the portable variant; sourceRecordSchema itself is unchanged in shape and behaviour. refineNormalizedDefinition's parameter type widened, which affects only callers inside this directory."
+    },
+    {
+      "target": "src/core/connectors/envelope.ts",
+      "change": "Added normalizedDigestOf and verifyNormalizedDigest; portableSourceSchema built from sourceRecordShape; upgrade derives profile ids and display text safely from v1 spellings; downgrade emits eight further coded diagnostics.",
+      "compatibility": "Additive. Envelopes produced before this change still parse; the digest helper is new, so nothing depended on the previous (identical for the v1 path) digest input. Existing diagnostics keep their codes and severities."
+    },
+    {
+      "target": "src/core/connectors/projections.ts",
+      "change": "Added agentDefinitionProjection.",
+      "compatibility": "Additive; no existing projection changed."
+    },
+    {
+      "target": "scripts/specifications.ts",
+      "change": "Nine connector schema entries added to specificationSchemas.",
+      "compatibility": "Entries only; the eleven existing schemas and their generated documents are untouched."
+    },
+    {
+      "target": "src/core/connectors/contracts.ts (eventDescriptorSchema, made by another swarm)",
+      "change": "Found on disk during this swarm's run: eventDescriptorSchema gained optional `authentication` and `nativeExtensions`, with matching checks in refineNormalizedDefinition.",
+      "compatibility": "Additive and consistent with this profile, so it was kept rather than reverted; it changed connector-definition-v1 and connector-envelope-v2, which were regenerated. Noted here because src/core/connectors/** is CONTRACT-owned and the change did not come through a ledger patch."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "docs/specifications/README.md (integrator)",
+      "description": "Add the new profile page to the contract-stack table and mention the nine new schemas: | [Connector interoperability](connector-interoperability.md) | Source provenance, normalized definitions, the v2 envelope, evidence, lifecycle and projections | Server-approved runtime bindings and verified provider evidence |. The sentence 'The complete schema set is ...' should also name connector-source-v1, connector-definition-v1, connector-envelope-v2, capability-status-v1, verification-claim-v1, compatibility-issue-v1, catalog-entry-v1, connection-summary-v1 and binding-reference-v1."
+    },
+    {
+      "target": "docs/specifications/conformance.md (integrator)",
+      "description": "Add CON-01..CON-06 to the executable-mapping table pointing at tests/connectors/contracts/*.test.ts, and note that connector structural drift is covered by CON-06-01 in addition to SPEC-10."
+    },
+    {
+      "target": "docs/README.md (integrator)",
+      "description": "Link docs/specifications/connector-interoperability.md from the documentation index beside the existing formal-specifications entry."
+    },
+    {
+      "target": "tests/specifications.test.ts (integrator, optional)",
+      "description": "SPEC-10 iterates specificationSchemas and therefore already covers the nine new documents; no change is required. If a focused connector drift case is wanted, CON-06-01 in tests/connectors/contracts/schemas.test.ts already asserts it."
+    },
+    {
+      "target": "package.json (integrator)",
+      "description": "If a focused script is wanted: \"test:connectors\": \"node --import tsx --test tests/connectors/**/*.test.ts\". Not added here (package.json is integrator-owned and this swarm must not edit it)."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": []
+}

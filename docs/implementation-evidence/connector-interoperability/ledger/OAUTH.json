@@ -1,0 +1,199 @@
+{
+  "swarm": "OAUTH",
+  "workItems": [
+    {
+      "id": "OA-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/auth/discovery.ts",
+        "src/server/connectors/auth/policy.ts"
+      ],
+      "tests": ["tests/connectors/auth/discovery.test.ts"],
+      "acceptanceIds": ["AC-AUTH-04", "AC-AUTH-17"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc8414",
+        "rfc9728",
+        "openid-connect-discovery-1.0",
+        "mcp-2026-07-28-authorization"
+      ],
+      "limitations": [
+        "Exact issuer comparison only: no trailing-slash or case tolerance, by design.",
+        "Signed metadata (`signed_metadata`) is not verified; documents are trusted only through transport plus the exact issuer match.",
+        "Metadata cache is in-process per deployment; the STATE swarm owns any shared-cache variant."
+      ],
+      "notes": "discoverAuthorizationServer / discoverProtectedResource / resolveAuthorizationServer. Path-insertion order per MCP 2026-07-28; RFC 9728 well-known insertion preserves a terminating slash. Cross-origin endpoints need an issuer-metadata declaration or a host-listed origin; the registration endpoint never accepts a bare issuer declaration."
+    },
+    {
+      "id": "OA-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/auth/authorization-code.ts",
+        "src/server/connectors/auth/device.ts",
+        "src/server/connectors/auth/wire.ts"
+      ],
+      "tests": [
+        "tests/connectors/auth/authorization-code.test.ts",
+        "tests/connectors/auth/device.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-AUTH-03",
+        "AC-AUTH-04",
+        "AC-AUTH-06",
+        "AC-AUTH-07",
+        "AC-STATE-01"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc7636",
+        "rfc9207",
+        "rfc9700",
+        "rfc8628",
+        "rfc9126",
+        "oauth-2.1-draft-16"
+      ],
+      "limitations": [
+        "S256 PKCE only; an issuer advertising only `plain` is reported unsupported rather than downgraded.",
+        "DPoP is not applied by this module; src/server/authored-oauth.ts holds the existing DPoP seam and the two are not yet joined.",
+        "Device poll state is returned in CompletionResult.adapterState; the command layer must persist it for the interval and slow_down backoff to hold across calls."
+      ],
+      "notes": "beginAuthorizationCode/completeAuthorizationCode/refreshAccessToken/beginDeviceAuthorization/pollDeviceAuthorization. State, verifier, device code and authorization URL live only in HandoffIssue.private. The effect journal is written before the token request, so a repeated code is answered from the journal and never re-sent. Rotating refresh runs inside CredentialCustodyPort.refresh single-flight."
+    },
+    {
+      "id": "OA-03",
+      "status": "implemented",
+      "files": ["src/server/connectors/auth/client.ts"],
+      "tests": ["tests/connectors/auth/registration.test.ts"],
+      "acceptanceIds": ["AC-AUTH-17", "AC-AUTH-18"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc7591",
+        "draft-ietf-oauth-client-id-metadata-document-03"
+      ],
+      "limitations": [
+        "CIMD revision implemented: draft-ietf-oauth-client-id-metadata-document-03 (observed 2026-09-17). The document body is produced by the existing clientMetadataDocument() in src/server/authored-oauth.ts and is not duplicated here.",
+        "The CIMD document must be served by the host at the returned clientId; this module returns the artifact and its storage key but does not mount the route (integrator-owned).",
+        "DCR uses client_secret_basic/post or none; private_key_jwt registration is not requested dynamically.",
+        "Registration-access-token lifecycle (RFC 7592 update/delete) is stored but not exercised."
+      ],
+      "notes": "resolveClientRegistration + selectClientRegistrationProfile. Profile is chosen by host policy order, never by what the issuer advertises; a requested profile outside policy is denied. DCR requires the author capability (an executor is refused), registers once per tenant+issuer+redirect+host-origin, reuses the persisted record, and refuses a registration endpoint on an origin the issuer metadata does not own."
+    },
+    {
+      "id": "OA-04",
+      "status": "implemented",
+      "files": ["src/server/connectors/auth/handoff.ts"],
+      "tests": ["tests/connectors/auth/handoff.test.ts"],
+      "acceptanceIds": ["AC-AUTH-14", "AC-AUTH-15"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["ceremony-connector-v2"],
+      "limitations": [
+        "validatePopupCompletion is the server-side rule only; the UX swarm owns the browser listener that feeds it an event's origin and the opener's window id.",
+        "Accepting a popup message authorizes exactly one thing: a server verification call. It is never itself completion."
+      ],
+      "notes": "issueHandoff, humanHandoffPresentation, validatePopupCompletion, assertHandoffCurrent, plus connectWidgetHandoff/privateCollectorHandoff/inputRequiredHandoff builders for hosted links, widget tokens, native collectors and mid-operation input. The public ConnectorHandoffSummary is re-parsed through the strict core schema so private material cannot reach it."
+    },
+    {
+      "id": "OA-05",
+      "status": "implemented",
+      "files": ["src/server/connectors/auth/permissions.ts"],
+      "tests": [
+        "tests/connectors/auth/authorization-code.test.ts",
+        "tests/connectors/auth/token-exchange.test.ts"
+      ],
+      "acceptanceIds": ["AC-AUTH-10", "AC-AUTH-11"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["rfc8707", "rfc9396"],
+      "limitations": [
+        "VerificationClaim.permissions.observed is always [] here: observation belongs to a verifier that calls a real operation, not to the grant.",
+        "Introspection-sourced `reported` scopes are produced only on the token-exchange path; the code path uses the token response `scope`.",
+        "reviewPermissionEscalation compares against the previously *requested* set, so a provider grant wider than the review never silently becomes the new baseline."
+      ],
+      "notes": "permissionRecord, scopeEnforcement (broker-enforced vs ceremony-enforced vs unknown), reviewPermissionEscalation, resourceParameters (RFC 8707), authorizationDetailsParameter/reportedAuthorizationDetails (RFC 9396), credentialAcceptedClaim and accountIdentityClaim. A provider returning no scope yields semantics \"unknown\", never an echo of the request."
+    },
+    {
+      "id": "OA-06",
+      "status": "implemented",
+      "files": ["src/server/connectors/auth/token-exchange.ts"],
+      "tests": ["tests/connectors/auth/token-exchange.test.ts"],
+      "acceptanceIds": ["AC-AUTH-05", "AC-EXT-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "rfc8693",
+        "rfc7662",
+        "mcp-enterprise-managed-authorization"
+      ],
+      "limitations": [
+        "ID-JAG (urn:ietf:params:oauth:token-type:id-jag) is unsupported by default and requires tokenExchange.idJag in host policy; the code is oauth.exchange.id-jag-not-negotiated.",
+        "An opaque issued token is verified only when the issuer publishes an introspection endpoint; otherwise the exchange is refused as unverifiable rather than trusted.",
+        "JWT verification requires an asymmetric alg and the issuer's jwks_uri; symmetric-signed tokens are refused."
+      ],
+      "notes": "hostAuthorizedTokenExchange + exchangeToken. The port cannot be constructed unless host policy enables exchange for that issuer, so arbitrary exchange has no code path. The returned token is verified (exact iss, aud must include the intended audience/resource, sub must match the expected subject, act.sub must match a presented actor token) through jose against the AS JWKS before anything is stored."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/index.ts (INT)",
+      "description": "Re-export the auth module: add `export * from \"./auth/index.js\";`. It is server-only (node:crypto, jose, oauth4webapi) and must not enter the browser bundle."
+    },
+    {
+      "target": "State/persistence layer (STATE swarm)",
+      "description": "Implement ClientRegistrationStorePort (src/server/connectors/auth/client.ts) over the encrypted store. `create` must be insert-only so two workers cannot register two clients at one issuer; `get`/`create` are keyed by tenant plus the opaque key from registrationKey()."
+    },
+    {
+      "target": "Connector command layer (COMMAND swarm)",
+      "description": "Authorization: issuerPolicyFromBinding(binding) -> resolveAuthorizationServer(policy, {fetch}) -> resolveClientRegistration({...}) -> beginAuthorizationCode(ctx, ...) or beginDeviceAuthorization(ctx, ...), then issueHandoff(ctx, start.handoff). Completion: resolve the handoff via HandoffPort.resolveCorrelation(tenantId, state) then completeAuthorizationCode(ctx, {url, handoff, server, client, policy}) or pollDeviceAuthorization(ctx, {...}). Persist CompletionResult.adapterState (it carries devicePoll for RFC 8628 backoff and the scope enforcement mode). Refresh: refreshAccessToken(ctx, {credentialRef, scope, ...}) — call it for every token use; it is single-flight and rotation-safe."
+    },
+    {
+      "target": "Connector command layer (COMMAND swarm) — review gate",
+      "description": "Before binding credentials, call reviewPermissionEscalation(previousClaim, requested); decision \"review-required\" must block until re-reviewed (AC-AUTH-10). Report scopeEnforcement(permissions).enforcement in connection status so broker-enforced and ceremony-enforced scope are distinguishable (AC-AUTH-11)."
+    },
+    {
+      "target": "Provider swarms (VERCEL / SUPABASE / NANGO / MCP)",
+      "description": "Build an oauth section into RuntimeBinding.settings.oauth matching issuerPolicySchema, then use the same entry points. Supabase Management OAuth: set registration.clientIdConfiguration/clientSecretConfiguration and do NOT send a request scope. Vercel/MCP resource-scoped tokens: set policy.resource for the RFC 8707 indicator. Brokered providers (Nango, Pipedream, Composio, WorkOS) should use connectWidgetHandoff() rather than inventing a handoff shape."
+    },
+    {
+      "target": "src/server/teaching-http.ts (INT) — CIMD route",
+      "description": "connectorClientMetadata() returns {clientId, document, storageKey} shaped for the existing GET /api/v1/teaching/oauth-clients/:connectorId/:runId route and the `oauth-client:<connectorId>:<runId>` public artifact key. The document must be persisted before an authorization request that uses the CIMD client id."
+    },
+    {
+      "target": "UX swarm (browser popup channel)",
+      "description": "Consume validatePopupCompletion({origin, sourceWindowId, correlation}) from src/server/connectors/auth. accepted:true means \"call the server to verify\" and nothing else; a window close, a Done button or an unmatched message must leave the flow pending (AC-AUTH-14, AC-AUTH-15). Render only humanHandoffPresentation(record) to the initiating human."
+    },
+    {
+      "target": "Other swarms — shared fixture",
+      "description": "tests/connectors/doubles/authorization-server.ts exports startAuthorizationServer(options). It is a real loopback AS: discovery, PRM, DCR, PAR, code+S256 PKCE, refresh with rotation, device flow, RFC 8693 exchange, ES256 JWTs via jose, plus opt-in misbehaviours (issuerMismatch, callbackIssuer, registrationEndpointOrigin, tokenEndpointOrigin, reusableCode, slowDown, pending, denyConsent, expiredCode, expiredDeviceCode, grantScopes, omitScope, mintAudience, noRefreshRotation, tokenError, tokenDelayMs). oauth4webapi needs allowInsecureRequests for http://127.0.0.1, which the policy's allowLoopbackHttp flag carries."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "OA-02-dpop",
+      "description": "DPoP (RFC 9449) is not bound into the connector authorization-code path. The existing seam in src/server/authored-oauth.ts covers the authored flow; joining them needs a custody-held key per connection, which belongs with the STATE swarm's credential records."
+    },
+    {
+      "id": "OA-01-signed-metadata",
+      "description": "RFC 8414 `signed_metadata` and RFC 9728 signed resource metadata are read but not signature-verified."
+    },
+    {
+      "id": "OA-06-introspection-scope",
+      "description": "Introspection is used to verify an opaque exchanged token, but periodic re-introspection to refresh VerificationClaim validity is left to the verification/state layer."
+    }
+  ],
+  "externalEffectsPerformed": [],
+  "verification": {
+    "command": "node --import tsx --test tests/connectors/auth/*.test.ts",
+    "tests": 83,
+    "pass": 83,
+    "fail": 0,
+    "files": [
+      "tests/connectors/auth/discovery.test.ts (24)",
+      "tests/connectors/auth/authorization-code.test.ts (19)",
+      "tests/connectors/auth/registration.test.ts (12)",
+      "tests/connectors/auth/token-exchange.test.ts (11)",
+      "tests/connectors/auth/handoff.test.ts (9)",
+      "tests/connectors/auth/device.test.ts (8)"
+    ],
+    "networkIsolation": "Every test runs against loopback fixture servers on ephemeral ports; no test reaches the internet, and no test asserts on provider prose or model claims."
+  }
+}

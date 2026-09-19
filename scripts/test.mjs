@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 function discover(directory, suffix) {
@@ -79,7 +79,22 @@ function inventory(profile, discovered) {
   };
 }
 if (process.argv.includes("--inventory")) {
-  console.log(JSON.stringify(inventory(mode, files)));
+  /*
+   * Written synchronously, not with `console.log`. Writing to a pipe is
+   * asynchronous and `process.exit` does not wait for the queue to drain, so a
+   * payload larger than one pipe buffer reaches the reader cut off mid-string.
+   * Once the case names joined the file list this document passed 140 kB and
+   * every caller that parses it -- the mutation runner and the verification
+   * runner both do -- died on an unterminated string rather than on anything
+   * about the tests.
+   *
+   * The payload is `inventory()`'s, so whatever that grows to is written whole.
+   * That matters more than it looks: this document only gets bigger, and the
+   * defect appears when it crosses a buffer boundary rather than when the code
+   * changes, so the two halves of it can be written months apart by people who
+   * never see each other's failure.
+   */
+  writeSync(1, `${JSON.stringify(inventory(mode, files))}\n`);
   process.exit(0);
 }
 const probe = spawnSync(

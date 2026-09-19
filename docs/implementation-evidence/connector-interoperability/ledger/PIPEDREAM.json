@@ -1,0 +1,257 @@
+{
+  "swarm": "PIPEDREAM",
+  "adapter": {
+    "id": "pipedream-connect",
+    "factory": "createPipedreamConnectAdapter(options)",
+    "entry": "src/server/connectors/providers/pipedream/index.ts",
+    "adapterVersion": "1.0.0",
+    "ecosystem": "pipedream",
+    "service": "pipedream",
+    "runtime": "hosted-server",
+    "support": "provider-backed",
+    "custody": ["external-credential-broker", "external-execution-broker"],
+    "profiles": ["external-broker", "oauth-client-credentials"],
+    "configuration": [
+      "PIPEDREAM_PROJECT_ID (public, required)",
+      "PIPEDREAM_ENVIRONMENT (public, required: development|production)",
+      "PIPEDREAM_CLIENT_ID (public, required)",
+      "PIPEDREAM_CLIENT_SECRET (secret, required)"
+    ],
+    "destinations": ["api = https://api.pipedream.com"]
+  },
+  "sourceProfiles": [
+    {
+      "id": "pipedream-connect-rest-2026-09",
+      "retrievedAt": "2026-09-18",
+      "pages": [
+        "https://pipedream.com/docs/connect",
+        "https://pipedream.com/docs/connect/api-reference/introduction",
+        "https://pipedream.com/docs/connect/api-reference/authentication",
+        "https://pipedream.com/docs/connect/api-reference/rate-limits",
+        "https://pipedream.com/docs/rest-api/auth",
+        "https://pipedream.com/docs/rest-api/api-reference/oauth/get-a-new-access-token",
+        "https://pipedream.com/docs/connect/api-reference/create-connect-token",
+        "https://pipedream.com/docs/connect/api-reference/list-apps",
+        "https://pipedream.com/docs/connect/api-reference/retrieve-app",
+        "https://pipedream.com/docs/connect/api-reference/list-accounts",
+        "https://pipedream.com/docs/connect/api-reference/list-accounts-for-external-user",
+        "https://pipedream.com/docs/connect/api-reference/retrieve-account",
+        "https://pipedream.com/docs/connect/api-reference/delete-account",
+        "https://pipedream.com/docs/connect/api-reference/delete-external-user",
+        "https://pipedream.com/docs/connect/api-reference/delete-accounts-by-app",
+        "https://pipedream.com/docs/connect/api-proxy",
+        "https://pipedream.com/docs/connect/api-reference/run-action",
+        "https://pipedream.com/docs/connect/api-reference/list-components",
+        "https://pipedream.com/docs/connect/api-reference/retrieve-component",
+        "https://pipedream.com/docs/connect/api-reference/list-triggers",
+        "https://pipedream.com/docs/connect/api-reference/deploy-trigger",
+        "https://pipedream.com/docs/connect/api-reference/list-deployed-triggers",
+        "https://pipedream.com/docs/connect/api-reference/get-deployed-trigger",
+        "https://pipedream.com/docs/connect/api-reference/update-deployed-trigger",
+        "https://pipedream.com/docs/connect/api-reference/delete-deployed-trigger",
+        "https://pipedream.com/docs/connect/api-reference/list-trigger-webhooks",
+        "https://pipedream.com/docs/connect/api-reference/update-trigger-webhooks",
+        "https://pipedream.com/docs/connect/api-reference/list-trigger-events",
+        "https://pipedream.com/docs/connect/api-reference/regenerate-trigger-webhook-signing-key",
+        "https://pipedream.com/docs/connect/api-reference/set-project-environment-webhook",
+        "https://pipedream.com/docs/connect/webhooks",
+        "https://pipedream.com/docs/connect/managed-auth/quickstart",
+        "https://pipedream.com/docs/connect/managed-auth/tokens",
+        "https://pipedream.com/docs/connect/managed-auth/connect-link",
+        "https://pipedream.com/docs/connect/managed-auth/environments",
+        "https://pipedream.com/docs/connect/managed-auth/users",
+        "https://pipedream.com/docs/connect/components",
+        "https://pipedream.com/docs/connect/components/actions",
+        "https://pipedream.com/docs/connect/components/triggers"
+      ],
+      "verified": [
+        "POST https://api.pipedream.com/v1/oauth/token, JSON body {grant_type: client_credentials, client_id, client_secret, scope?}; response {access_token, token_type: Bearer, expires_in: 3600, created_at}; tokens expire after one hour; Authorization: Bearer <token>",
+        "Base URL https://api.pipedream.com/v1/connect/{project_id}; project ids match ^proj_[a-zA-Z0-9]+$",
+        "x-pd-environment header (development|production) required on project-scoped endpoints; accounts and credentials are isolated per environment; development is limited to 10 external users and requires a pipedream.com session in the same browser",
+        "external_user_id is limited to 250 characters",
+        "POST /v1/connect/{project_id}/tokens body {external_user_id (required), allowed_origins[], success_redirect_uri, error_redirect_uri, webhook_uri, expires_in (max 14400), scope (default connect:*), allow_progressive_scopes}; response {token: ctok_[0-9a-f]{32}, expires_at, connect_link_url}; connect tokens expire in 4 hours and are single-use",
+        "Connect Link format https://pipedream.com/_static/connect.html?token=...&connectLink=true&app=<slug>; the app is appended as a query parameter",
+        "GET /v1/connect/apps (NOT project-scoped) with q, limit, after, before, sort_key, sort_direction, category_ids, has_components/has_actions/has_triggers; response {data[], page_info{count, total_count, start_cursor, end_cursor}}",
+        "GET /v1/connect/apps/{app_id} accepts a name slug or an id; app fields id (nullable, OAuth app id), name_slug, name, auth_type (keys|oauth|none), description, img_src, custom_fields_json, categories, featured_weight, scope_profiles, connect{proxy_enabled, allowed_domains, base_proxy_target_url}",
+        "GET /v1/connect/{project_id}/accounts with app, external_user_id, oauth_app_id, include_credentials, limit, after, before; response {data[], page_info}",
+        "GET /v1/connect/{project_id}/users/{external_user_id}/accounts with app and include_credentials; documented as a bare array of Account",
+        "GET /v1/connect/{project_id}/accounts/{account_id} returns the bare Account schema (no data wrapper); DELETE returns 204",
+        "Account fields id (apn_...), name, external_id, healthy, dead, app{...}, created_at, updated_at, authorized_scopes, credentials{oauth_client_id, oauth_access_token, oauth_refresh_token, oauth_uid, oauth_signer_uri} only with include_credentials, expires_at, error, last_refreshed_at, next_refresh_at",
+        "{METHOD} /v1/connect/{project_id}/proxy/{url_64} where url_64 is the URL-safe base64 of the target URL; required query external_user_id and account_id; x-pd-proxy-* headers are forwarded; blocked headers (Accept-Encoding, Connection, Content-Length, Cookie, Host, Origin, Referer, Date, DNT, Expect, Keep-Alive, Permissions-Policy, TE, Trailer, Transfer-Encoding, Upgrade, Via, Proxy-*, Sec-*, Access-Control-Request-*) are rejected with 400; 30-second timeout returns 504; only apps with proxy_enabled and hosts in allowed_domains may be reached",
+        "POST /v1/connect/{project_id}/actions/run body {id, external_user_id, configured_props (app props carry {authProvisionId: apn_...}), version, dynamic_props_id, stash_id}; response {exports, os[], ret, stash_id}; 202 means an accepted asynchronous run; error attribution values component_code, upstream_api, network_io, response_parsing",
+        "GET /v1/connect/{project_id}/components and /components/{component_id} (also /actions, /triggers) with q, app, limit, after, before, component_type, registry; component fields key, name, version, description, component_type, configurable_props[], stash, annotations{readOnlyHint, destructiveHint, idempotentHint, openWorldHint, title}",
+        "POST /v1/connect/{project_id}/triggers/deploy body {id, external_user_id, version, configured_props, dynamic_props_id, workflow_id, webhook_url, emit_on_deploy}; response data{id: dc_..., owner_id, component_id, component_key, configurable_props, configured_props, active, created_at, updated_at, name, name_slug, emit_on_deploy, type, webhook_signing_key (only for OAuth-authenticated requests that passed a webhook_url)}",
+        "GET /v1/connect/{project_id}/deployed-triggers requires external_user_id; GET/PUT/DELETE /deployed-triggers/{id} require external_user_id; DELETE returns 204",
+        "GET /deployed-triggers/{id}/webhooks and PUT with {webhook_urls[]}; POST /deployed-triggers/{id}/webhooks/{webhook_id}/regenerate_signing_key; PUT /v1/connect/{project_id}/webhook sets a project environment webhook",
+        "Trigger webhook deliveries are signed HMAC-SHA256: header x-pd-signature: t=<unix seconds>,v1=<hex digest> over the payload `${timestamp}.${raw body}`; constant-time comparison and a max age (suggested 300s) are documented",
+        "Connection webhooks (webhook_uri on a connect token) send CONNECTION_SUCCESS / CONNECTION_ERROR payloads {event, connect_token, environment, connect_session_id, account | error} and are NOT signed; credentials are not included",
+        "Documented error body is {\"error\": \"...\"}; 429 carries Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset; documented limits include 100 connect tokens per minute per external user, 2000 account-management requests per 5 minutes per project, 3000 component listings per 5 minutes per project"
+      ],
+      "unverified": [
+        "The exact query parameters Pipedream appends to success_redirect_uri / error_redirect_uri are not documented on the pages retrieved. The adapter therefore treats the return purely as a correlation signal: it carries the adapter's own `state` (generated here, placed on the deployment origin) and never reads a broker-supplied account id from the redirect. The account is always established by a trusted server query.",
+        "No documented idempotency key exists for POST /actions/run or POST /triggers/deploy, and the documentation does not say whether a repeated deploy creates a duplicate. The double therefore models the conservative case (every deploy creates a new trigger) and the adapter deduplicates on the host side.",
+        "The bare-vs-wrapped shape of GET /accounts/{account_id} is documented as bare; the adapter accepts either.",
+        "`/docs/connect/api-reference/errors` and `/docs/connect/api-reference/make-proxy-request` returned 404; error shapes were taken from the individual endpoint pages and the api-proxy guide."
+      ],
+      "sdkCorrespondence": "@pipedream/sdk is NOT installed and is not used. The documented HTTP API is implemented directly with fetch + zod. Correspondence: client.tokens.create -> POST /v1/connect/{project_id}/tokens; client.accounts.list / client.users.accounts -> GET /accounts and /users/{external_user_id}/accounts; client.accounts.retrieve/delete -> GET/DELETE /accounts/{account_id}; client.proxy.get/post/... -> {METHOD} /proxy/{url_64}; client.actions.run -> POST /actions/run; client.components.retrieve -> GET /components/{component_id}; client.triggers.deploy -> POST /triggers/deploy; client.deployedTriggers.list/retrieve/delete -> the /deployed-triggers endpoints. SDK camelCase inputs (externalUserId, configuredProps, webhookUrl, projectEnvironment) map to the snake_case wire fields and the x-pd-environment header used here."
+    }
+  ],
+  "workItems": [
+    {
+      "id": "PD-01",
+      "title": "App and connected-account inventory with a host-derived external user id",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/pipedream/identity.ts",
+        "src/server/connectors/providers/pipedream/client.ts",
+        "src/server/connectors/providers/pipedream/context.ts",
+        "src/server/connectors/providers/pipedream/inventory.ts",
+        "src/server/connectors/providers/pipedream/wire.ts"
+      ],
+      "tests": ["tests/connectors/pipedream/inventory.test.ts"],
+      "acceptanceIds": ["AC-EXT-01", "AC-AUTH-01", "AC-AUTH-02"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["pipedream-connect-rest-2026-09"],
+      "limitations": [
+        "Live account evidence blocked: no authorized Pipedream project credentials in this environment.",
+        "The external user id is a server-side HMAC/SHA-256 digest of tenant + owner kind + owner id, prefixed cer_. It is never accepted from input, and an optional host key (options.externalUserKey) makes it unguessable outside the deployment.",
+        "An unavailable account listing is reported as connectedAccounts: \"unknown\" plus a compatibility issue, never as zero."
+      ],
+      "notes": "Discovery exposes one entry per app slug (identity.nativeId = slug, authorityNamespace = project:environment) and keeps the slug distinct from the display name. Pagination uses the documented after/end_cursor cursors. The project access token is obtained through credentials.use/refresh with a single-flight mint and is never returned."
+    },
+    {
+      "id": "PD-02",
+      "title": "Restricted hosted connect, correlated completion and account-switch policy",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/pipedream/connect.ts",
+        "src/server/connectors/providers/pipedream/context.ts"
+      ],
+      "tests": ["tests/connectors/pipedream/authorize.test.ts"],
+      "acceptanceIds": [
+        "AC-EXT-01",
+        "AC-AUTH-09",
+        "AC-AUTH-07",
+        "AC-AUTH-08",
+        "AC-AUTH-14",
+        "AC-AUTH-15",
+        "AC-AUTH-16"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["pipedream-connect-rest-2026-09"],
+      "limitations": [
+        "Pipedream's connect token cannot be restricted to one app at the API level; the documented restriction point is the Connect Link / SDK `app` parameter, which the adapter sets from the binding. The host-side guarantee is that a completion only ever binds an account whose app equals the binding's app; any other account is refused.",
+        "Connection webhooks are unsigned, so they are accepted only as untrusted hints (CompletionInput 'input') that trigger a trusted server query; they are never accepted as verified events.",
+        "Account-identity evidence is the broker's record for the derived external user; Ceremony does not query the third-party provider, and the claim's limitations say so."
+      ],
+      "notes": "allowed_origins is exactly [ctx.environment.origin]; success/error redirect URIs are built on that origin with a 32-byte state; webhook_uri is the deployment origin plus an opaque tenant route. Token, link and state are HandoffIssue.private (kind connect-widget); the correlation index holds sha256(token), not the token."
+    },
+    {
+      "id": "PD-03",
+      "title": "Approved proxy and action execution with an effect journal",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/pipedream/execute.ts",
+        "src/server/connectors/providers/pipedream/guards.ts",
+        "src/server/connectors/providers/pipedream/settings.ts"
+      ],
+      "tests": ["tests/connectors/pipedream/invoke.test.ts"],
+      "acceptanceIds": ["AC-EXT-02", "AC-EXT-01", "AC-STATE-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["pipedream-connect-rest-2026-09"],
+      "limitations": [
+        "A host-supplied idempotencyKey is refused: Pipedream documents no idempotency key for /actions/run or /triggers/deploy, so accepting one would claim evidence that does not exist.",
+        "A lost or 5xx/504 response to a write is reported indeterminate and must be reconciled; the adapter never retries it automatically.",
+        "Component descriptions are imported as inert NativeCapability descriptors; no component source is fetched or evaluated. File Stash components are execution-blocked with a precise diagnostic.",
+        "Dynamic props (configure/reload) are not bound: props whose reloadProps is true must be fixed in the binding, reported as a requires-configuration issue on import."
+      ],
+      "notes": "Destination, method and upstream URL come from the bound operation; the account comes from the connection record through credentials.use (with an accountId match check); the external user is derived. Caller input can only fill declared path placeholders, allowlisted query names and allowlisted body fields or props; target-selecting parameters are checked against permittedTargets via a binding-declared target kind. Upstream headers are host settings only and are forwarded under x-pd-proxy-."
+    },
+    {
+      "id": "PD-04",
+      "title": "Trigger deploy/list/delete, signed deliveries and disconnect scopes",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/pipedream/triggers.ts",
+        "src/server/connectors/providers/pipedream/events.ts",
+        "src/server/connectors/providers/pipedream/index.ts"
+      ],
+      "tests": ["tests/connectors/pipedream/triggers.test.ts"],
+      "acceptanceIds": ["AC-EXT-02", "AC-STATE-03", "AC-STATE-07"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["pipedream-connect-rest-2026-09"],
+      "limitations": [
+        "Deduplication is host-side: a stable digest of tenant + connection + external user + project + environment + component + version + configured props keys the effect journal, and before deploying the adapter looks for an equivalent trigger already held for that external user. Equivalence compares the component key and the canonical JSON of configured props with the app prop removed; a broker that normalizes prop values differently would not match, and the adapter would then deploy (the journal still prevents a repeat of the same command).",
+        "A deploy whose outcome cannot be reconciled stays indeterminate and is never retried automatically; an operator must resolve the journal entry.",
+        "The signing key returned by a deploy is stored in credential custody, and the reference is returned in the invoke output as output.delivery.signingKeyRef. EventPort.verify reads references from connection.state.pipedreamTriggerKeys, so the command layer must copy that reference onto the connection (see integrationPatches).",
+        "EventPort.subscribe/unsubscribe are not implemented: deploying a trigger needs configured props, so it is an approved operation rather than a generic subscription.",
+        "revoke() reports upstream: unsupported. Pipedream documents no endpoint that revokes the end user's grant at the third-party provider; the adapter does not silently delete the broker account instead."
+      ],
+      "notes": "The delivery URL is always an approved destination of the binding plus a deterministic per-intent segment; a caller cannot supply a webhook URL. Deliveries are authenticated with the documented x-pd-signature HMAC-SHA256 scheme over `${t}.${raw body}` with a bounded replay window (default 300s, configurable 30-3600)."
+    }
+  ],
+  "tests": {
+    "command": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/pipedream/*.test.ts",
+    "files": {
+      "tests/connectors/pipedream/authorize.test.ts": 15,
+      "tests/connectors/pipedream/invoke.test.ts": 14,
+      "tests/connectors/pipedream/triggers.test.ts": 10,
+      "tests/connectors/pipedream/inventory.test.ts": 11
+    },
+    "total": 50,
+    "double": "tests/connectors/doubles/pipedream.ts (independent, written from the documentation; imports no adapter code)",
+    "fixtures": [
+      "tests/connectors/fixtures/pipedream/apps.json",
+      "tests/connectors/fixtures/pipedream/components.json"
+    ]
+  },
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT) — adapter registration",
+      "description": "registry.register(createPipedreamConnectAdapter({ returnPath, connectionWebhookPath, externalUserKey })) from src/server/connectors/providers/pipedream/index.ts. The factory takes only injected options; every per-call dependency arrives through AdapterCallContext."
+    },
+    {
+      "target": "Configuration names (session-environment)",
+      "description": "PIPEDREAM_PROJECT_ID (public, required, proj_...), PIPEDREAM_ENVIRONMENT (public, required, development|production), PIPEDREAM_CLIENT_ID (public, required), PIPEDREAM_CLIENT_SECRET (secret, required). The environment is part of the connection key: a connection recorded in one environment is refused under the other."
+    },
+    {
+      "target": "RuntimeBinding destinations",
+      "description": "Every Pipedream binding needs a destination with id \"api\" and origin https://api.pipedream.com (network \"public\"; loopback-fixture in tests). A binding that deploys triggers also needs an approved destination for deliveries, named by settings.operations[ref].webhookDestinationId with webhookPath under that destination's pathPrefix."
+    },
+    {
+      "target": "RuntimeBinding settings (inert, host-approved)",
+      "description": "{ app: \"<pipedream app slug>\", connectLinkOrigin?: \"https://pipedream.com\", operations: { <operationRef>: { path?, query?, body?, bodyFields?, targets?, headers?, timeoutMs?, version?, appProp?, props?, fixedProps?, emitOnDeploy?, webhookDestinationId?, webhookPath? } } }. Operation transports: proxy = delegated route \"proxy:<METHOD>:<https URL with {placeholders}>\"; action = broker-action with the component key; trigger lifecycle = delegated route \"trigger:<deploy|list|delete>:<component key>\"."
+    },
+    {
+      "target": "HTTP routes (integrator mounts)",
+      "description": "Two routes on the deployment origin: (1) the Connect Link return, default /api/v1/connectors/pipedream/return, which reads ?state and ?outcome and calls adapter.complete with {kind:\"redirect\", url}; (2) optional unsigned connection webhooks, default prefix /api/v1/connectors/pipedream/connections/<tenant route>, whose body is passed to adapter.complete as {kind:\"input\", values:{connect_token, event, account_id?}} — untrusted hints only. Trigger deliveries go to the binding's approved events destination and must be passed to adapter.events.verify with the raw body bytes before any parsing."
+    },
+    {
+      "target": "Connection persistence",
+      "description": "After a completion, persist CompletionResult.externalIds (accountId, externalUserId, app, projectId, environment, oauthAppId?) and credentialRef. After a trigger deploy, copy output.delivery.signingKeyRef into connection.state.pipedreamTriggerKeys[triggerId] (used by events.verify) and the trigger id into connection.state.pipedreamTriggers (used by broker-scope disconnect)."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "PD-EXPORT",
+      "description": "adapter.export is not implemented; the dimension reports implementation: unsupported with a stated limitation. Component descriptions can be imported but are not re-exported as a ceremony-connector envelope by this adapter."
+    },
+    {
+      "id": "PD-DELEGATE",
+      "description": "Pipedream workflow delegation (/docs/connect/workflows) is not bound; the delegate dimension reports unsupported."
+    },
+    {
+      "id": "PD-DYNAMIC-PROPS",
+      "description": "POST /components/configure and /components/props (remote options and dynamic props) are not called; props with remoteOptions or reloadProps must be fixed in the reviewed binding. Import reports a requires-configuration issue for such components."
+    },
+    {
+      "id": "PD-LIVE",
+      "description": "Live-authorized evidence is blocked: no Pipedream account, project or OAuth client is available in this environment, and none was created. All evidence is protocol-fixture against the independent double."
+    }
+  ],
+  "externalEffectsPerformed": [
+    "None. No Pipedream account, project, OAuth client, connect token, connected account or deployed trigger was created. All traffic in tests goes to a loopback fixture on 127.0.0.1. Documentation pages were read over HTTPS."
+  ]
+}

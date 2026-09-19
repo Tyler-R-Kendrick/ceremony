@@ -1,0 +1,38 @@
+apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: fixture-insert-header-action
+  annotations:
+    camel.apache.org/kamelet.support.level: "Preview"
+    camel.apache.org/catalog.version: "4.22.0"
+    camel.apache.org/provider: "Ceremony fixtures"
+    camel.apache.org/kamelet.group: "Actions"
+  labels:
+    camel.apache.org/kamelet.type: "action"
+spec:
+  definition:
+    title: "Fixture insert header action"
+    description: Adds a header with a constant value to the message in flight.
+    required:
+      - name
+      - value
+    type: object
+    properties:
+      name:
+        title: Name
+        description: The name of the header to add.
+        type: string
+      value:
+        title: Value
+        description: The value of the header to add.
+        type: string
+  dependencies:
+    - "camel:core"
+    - "camel:kamelet"
+  template:
+    from:
+      uri: "kamelet:source"
+      steps:
+        - setHeader:
+            name: "{{name}}"
+            constant: "{{value}}"

@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: partner-webhook
+spec:
+  type: bindings.http
+  version: v1
+  metadata:
+    - name: url
+      value: https://partner.fixture.invalid/hook
+    - name: securityToken
+      value: CANARY_INLINE_TOKEN_4b7
+    - name: securityTokenHeader
+      value: X-Partner-Token

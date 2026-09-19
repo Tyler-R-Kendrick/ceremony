@@ -34,6 +34,18 @@ export * from "./templates.js";
 export * from "./webmcp.js";
 export * from "./teaching.js";
 export * from "./connectors.js";
+export * from "./connector-directory.js";
+export * from "./connector-drawer.js";
+export * from "./connector-connection.js";
+// Named rather than a barrel: the review surface is the author's and
+// reviewer's side of a connector, and a host that only shows a directory
+// should not pull it into the package entry.
+export {
+  ConnectorImport,
+  DefinitionReviewPanel,
+  IssueList,
+  DimensionTable,
+} from "./connector-review.js";
 export { createHttpTransport } from "../core/index.js";
 
 /** Use the exact same client with host-owned React components instead of OpenUI. */

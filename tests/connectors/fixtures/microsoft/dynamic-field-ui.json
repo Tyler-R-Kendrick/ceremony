@@ -1,0 +1,69 @@
+{
+  "$comment": "Dynamic-field UI contract for the Contoso Projects fixture connector, as dynamicFieldUiContracts() produces it. A renderer needs nothing else: `field` says which input to decorate, `dependsOn` says which other inputs must be filled first (and therefore when to re-run the lookup), `constants` are inputs the lookup always sends, `selection` says where the option value and title live in the response, and `operationRef` is the approved bound operation the host calls. Values are fetched server-side through the adapter; a renderer never calls the provider itself. Only the preferred form of a field appears, so a field that declares both the older and the newer Power Platform extension is rendered once.",
+  "connector": "contoso-projects-9f21",
+  "fields": [
+    {
+      "id": "values:CreateItem:path:projectId",
+      "kind": "values",
+      "field": {
+        "location": "path",
+        "name": "projectId",
+        "pathString": ""
+      },
+      "operationRef": "msdyn:GetProjects",
+      "operationId": "GetProjects",
+      "dependsOn": [],
+      "constants": [],
+      "selection": {
+        "collection": "value",
+        "value": "name",
+        "title": "properties/displayName"
+      },
+      "executable": true,
+      "blockedBy": []
+    },
+    {
+      "id": "properties:CreateItem:body:payload/details",
+      "kind": "properties",
+      "field": {
+        "location": "body",
+        "name": "payload",
+        "pathString": "details"
+      },
+      "operationRef": "msdyn:GetItemSchema",
+      "operationId": "GetItemSchema",
+      "dependsOn": ["projectId"],
+      "constants": [
+        {
+          "target": "version",
+          "value": "2.0"
+        }
+      ],
+      "selection": {
+        "value": "schema"
+      },
+      "executable": true,
+      "blockedBy": []
+    },
+    {
+      "id": "list:CreateItem:body:payload/region",
+      "kind": "list",
+      "field": {
+        "location": "body",
+        "name": "payload",
+        "pathString": "region"
+      },
+      "operationRef": "msdyn:GetRegions",
+      "operationId": "GetRegions",
+      "dependsOn": ["projectId"],
+      "constants": [],
+      "selection": {
+        "collection": "regions",
+        "value": "code",
+        "title": "label"
+      },
+      "executable": true,
+      "blockedBy": []
+    }
+  ]
+}

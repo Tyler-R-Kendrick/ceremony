@@ -1,0 +1,9 @@
+{
+  "connectorId": "contoso-projects-9f21",
+  "environment": "Default-00000000-0000-0000-0000-000000000000",
+  "apiProperties": "apiProperties.json",
+  "apiDefinition": "apiDefinition.swagger.json",
+  "icon": "icon.png",
+  "powerAppsApiVersion": "2016-11-01",
+  "powerAppsUrl": "https://api.powerapps.com"
+}

@@ -34,6 +34,7 @@ import { AddConnection, type ConnectionDraft } from "./add-connection.js";
 import { declarationOf, refusals } from "./declaration.js";
 const ExtensionSetup = lazy(() => import("./extension-setup.js"));
 const WorkflowStudio = lazy(() => import("./workflow-studio.js"));
+const ConnectorWorkspace = lazy(() => import("./connectors.js"));
 
 // Simulated providers are an explicit test harness, never the default product.
 const entryParams = new URLSearchParams(location.search);
@@ -88,7 +89,7 @@ const configSchema = z.object({
   agentProviders: z.array(agentProviderSchema).default([]),
 });
 type Config = z.infer<typeof configSchema>;
-type Section = "connect" | "studio" | "environment";
+type Section = "connect" | "studio" | "environment" | "connectors";
 
 function sectionFromUrl(): Section {
   const section = new URLSearchParams(location.search).get("section");
@@ -96,7 +97,9 @@ function sectionFromUrl(): Section {
     ? "environment"
     : section === "studio"
       ? "studio"
-      : "connect";
+      : section === "connectors"
+        ? "connectors"
+        : "connect";
 }
 
 /**
@@ -838,6 +841,12 @@ function App() {
             >
               Environment
             </button>
+            <button
+              aria-current={tab === "connectors" ? "page" : undefined}
+              onClick={() => goTo("connectors")}
+            >
+              Connectors
+            </button>
           </nav>
           <InstallControls install={install} />
           <span className="header-note">
@@ -851,6 +860,11 @@ function App() {
               the server down got an empty editor and no reason for it. */}
           {tab !== "connect" && loadError && <p role="alert">{loadError}</p>}
           {tab === "environment" && <Environment />}
+          {tab === "connectors" && (
+            <Suspense fallback={<p role="status">Loading connectors…</p>}>
+              <ConnectorWorkspace />
+            </Suspense>
+          )}
           {studioOpened && (
             <div hidden={tab !== "studio"}>
               <Suspense

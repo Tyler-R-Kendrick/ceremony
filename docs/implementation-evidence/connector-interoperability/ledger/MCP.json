@@ -1,0 +1,269 @@
+{
+  "swarm": "MCP",
+  "sourceProfiles": [
+    {
+      "id": "mcp-2026-07-28",
+      "revision": "2026-07-28",
+      "pinnedAt": "2026-09-18",
+      "pages": [
+        "https://modelcontextprotocol.io/specification/2026-07-28/changelog",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/index",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery",
+        "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration",
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/discover",
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/tools",
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/resources",
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/prompts",
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching",
+        "https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation"
+      ],
+      "verifiedAgainstSpecText": [
+        "Sessions and the Mcp-Session-Id header are removed; GET and DELETE on the MCP endpoint answer 405 (streamable-http#earlier-streamable-http-revisions).",
+        "initialize/notifications/initialized are removed; every request carries io.modelcontextprotocol/protocolVersion (required), io.modelcontextprotocol/clientCapabilities (required) and io.modelcontextprotocol/clientInfo (SHOULD) in _meta (basic/index#meta).",
+        "server/discover request shape (params._meta only) and DiscoverResult fields supportedVersions, capabilities, instructions, _meta['io.modelcontextprotocol/serverInfo'], ttlMs, cacheScope (server/discover).",
+        "Mirrored headers MCP-Protocol-Version, Mcp-Method and Mcp-Name, their agreement with the body, the =?base64?...?= value encoding, Mcp-Param-{Name} from x-mcp-header, and the HeaderMismatch -32020 / MissingRequiredClientCapability -32021 / UnsupportedProtocolVersion -32022 codes (streamable-http#request-metadata, basic/index#error-codes).",
+        "x-mcp-header constraints: non-empty RFC 9110 token, case-insensitively unique, primitive types only (number excluded), statically reachable through properties chains only; a violating tool is excluded from tools/list (server/tools#x-mcp-header).",
+        "resultType discrimination: 'complete' and 'input_required'; an absent resultType from an earlier-revision server is treated as complete; an unrecognized value is invalid (basic/index#resulttype).",
+        "InputRequiredResult shape: inputRequests keyed by server-assigned ids with {method, params} limited to elicitation/create, sampling/createMessage and roots/list; opaque requestState echoed verbatim; at least one of the two present; the retry is the original request plus inputResponses under a new JSON-RPC id (basic/patterns/mrtr).",
+        "Servers MUST NOT send an inputRequest for a capability the client did not declare; clients MUST NOT inspect requestState (basic/patterns/mrtr#server-requirements-basic-workflow).",
+        "subscriptions/listen replaces the GET stream and resources/subscribe; notifications/subscriptions/acknowledged is first; every notification carries io.modelcontextprotocol/subscriptionId equal to the listen request id (basic/patterns/subscriptions).",
+        "Streamable HTTP cancellation is closing the response stream; notifications/cancelled is stdio-only in this revision (basic/patterns/cancellation#transport-specific-cancellation).",
+        "No SSE resumability: Last-Event-ID and event ids are removed; a broken stream loses the in-flight request and it must be re-issued as a new request (changelog major change 9).",
+        "Cache hints ttlMs and cacheScope are required on complete results of server/discover, tools/list, prompts/list, resources/list, resources/templates/list and resources/read; cacheScope 'private' must not be shared across authorization contexts; MRTR retries are not cacheable (server/utilities/caching).",
+        "Resource not found moved from -32002 to -32602, with -32002 still accepted from earlier revisions (server/resources#error-handling).",
+        "401 challenge with resource_metadata and scope; the well-known path-inserted and root fallbacks and their order; metadata resource must match; authorization_servers required (basic/authorization, .../authorization-server-discovery).",
+        "Client registration priority: pre-registered, then Client ID Metadata Documents when client_id_metadata_document_supported, then Dynamic Client Registration (deprecated in this revision), then prompting (basic/authorization/client-registration).",
+        "Tasks are an extension (io.modelcontextprotocol/tasks) advertised under capabilities.extensions and negotiated, never assumed (basic/versioning#extension-negotiation).",
+        "Backward compatibility: a 400 whose body is not a recognized modern JSON-RPC error identifies a legacy server; a recognized modern error means retry, not fall back (basic/versioning#backward-compatibility-with-initialization-based-versions, streamable-http#backward-compatibility)."
+      ],
+      "inferredNotVerified": [
+        "The unauthenticated probe used to read a challenge is a read-only tools/list; the specification does not prescribe which request a client should use to obtain a 401.",
+        "Treating an HTTP 202 in answer to a JSON-RPC request as 'no response will arrive' (the specification defines 202 only for notifications).",
+        "Clamping a server's ttlMs to a host maximum, and treating a negative or absent ttlMs as 0, follows the caching page's client guidance but the clamp itself is a host policy choice.",
+        "Bounding SSE streams by frame count and bytes, and bounding list pagination, are host policies; the specification sets no numeric limits."
+      ]
+    },
+    {
+      "id": "mcp-2025-11-25",
+      "revision": "2025-11-25",
+      "pinnedAt": "2026-09-18",
+      "pages": [
+        "https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle",
+        "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports",
+        "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization",
+        "https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation"
+      ],
+      "verifiedAgainstSpecText": [
+        "initialize carries protocolVersion, capabilities and clientInfo; the server answers with its own; notifications/initialized completes the handshake (basic/lifecycle).",
+        "MCP-Session-Id is assigned on the InitializeResult response, must be echoed on later requests, 400 when required and missing, 404 when expired (client must re-initialize), DELETE terminates, 405 when termination is not offered (basic/transports#session-management).",
+        "MCP-Protocol-Version on all requests after initialization; 400 on an unsupported value; absent means 2025-03-26 (basic/transports#protocol-version-header).",
+        "A POST response may be application/json or an SSE stream that carries server requests and notifications before the response; 202 acknowledges a notification or response; GET opens a standalone stream or answers 405 (basic/transports).",
+        "elicitation/create is a server-to-client request with form and url modes; the client answers action accept/decline/cancel; -32042 URLElicitationRequiredError and notifications/elicitation/complete exist in this revision only (client/elicitation).",
+        "Client ID Metadata Documents are SHOULD and Dynamic Client Registration is MAY, with the same four-step selection priority (basic/authorization)."
+      ],
+      "inferredNotVerified": [
+        "Reissuing a read-only request once after a 404 session expiry is a host policy; the specification only says the client must start a new session."
+      ]
+    },
+    {
+      "id": "mcp-2025-06-18",
+      "revision": "2025-06-18",
+      "pinnedAt": "2026-09-18",
+      "pages": [
+        "https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle",
+        "https://modelcontextprotocol.io/specification/2025-06-18/basic/transports"
+      ],
+      "verifiedAgainstSpecText": [
+        "Same handshake, session and protocol-version header rules as 2025-11-25, with capabilities limited to roots, sampling, elicitation and experimental on the client side.",
+        "Authorization in this revision documents pre-registration and Dynamic Client Registration; Client ID Metadata Documents are not part of it, which is what the capability rows report."
+      ],
+      "inferredNotVerified": [
+        "Negotiating 2025-06-18 from a 2025-11-25 request (and the reverse) is treated as staying inside the legacy era; the specification describes version negotiation without naming eras."
+      ]
+    }
+  ],
+  "workItems": [
+    {
+      "id": "MCP-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/profiles.ts",
+        "src/server/connectors/mcp/client.ts",
+        "src/server/connectors/mcp/http.ts",
+        "src/server/connectors/mcp/wire.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/current-profile.test.ts",
+        "tests/connectors/mcp/legacy-profile.test.ts",
+        "tests/connectors/mcp/wire.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-01"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "mcp-2026-07-28",
+        "mcp-2025-11-25",
+        "mcp-2025-06-18"
+      ],
+      "limitations": [
+        "The profile is selected by the binding's settings, never by the installed SDK version; the SDK is used only to build the legacy fixture server.",
+        "Auto-detection is off unless a binding sets compatibility to auto-detect; a pinned client refuses a server of the other era rather than accommodating it.",
+        "stdio transports are unsupported by design: a hosted connector launches no local process."
+      ],
+      "notes": "Wire-log assertions in both fixture suites prove each profile's traffic contains only its own profile's messages, and that no single message carries both eras."
+    },
+    {
+      "id": "MCP-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/client.ts",
+        "src/server/connectors/mcp/cache.ts",
+        "src/server/connectors/mcp/adapter.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/current-profile.test.ts",
+        "tests/connectors/mcp/legacy-profile.test.ts",
+        "tests/connectors/mcp/adapter.test.ts",
+        "tests/connectors/mcp/wire.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-05"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25"],
+      "limitations": [
+        "Completion (completion/complete) and logging are not implemented; they are not needed to bind an approved operation.",
+        "Resource subscriptions are read through a bounded listen stream; there is no durable event pipeline (that belongs to the events module)."
+      ],
+      "notes": "Cache keys are digests of tenant, owner, connection, generation, profile, era, negotiated version and credential reference, so a list a server labelled public is still never served to another principal."
+    },
+    {
+      "id": "MCP-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/input.ts",
+        "src/server/connectors/mcp/adapter.ts",
+        "src/server/connectors/mcp/client.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/adapter.test.ts",
+        "tests/connectors/mcp/current-profile.test.ts",
+        "tests/connectors/mcp/legacy-profile.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-02"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25"],
+      "limitations": [
+        "Only form-mode elicitation is answered with values; URL mode produces a browser handoff for the initiating human and the client never fetches the URL.",
+        "A sampling request is refused rather than suspended, in either era.",
+        "Rounds are bounded (three by default); a server that keeps asking is failed, not looped."
+      ],
+      "notes": "The pending request id, requested schema, opaque requestState, original arguments and round live in HandoffIssue.private; resumeInput re-checks binding revision, generation, destination, profile and handoff state, consumes the handoff one-use before calling, and returns no answer values."
+    },
+    {
+      "id": "MCP-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/http.ts",
+        "src/server/connectors/mcp/client.ts",
+        "src/server/connectors/mcp/adapter.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/adapter.test.ts",
+        "tests/connectors/mcp/current-profile.test.ts",
+        "tests/connectors/mcp/legacy-profile.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-03", "AC-MCP-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25"],
+      "limitations": [
+        "Reconciliation of an indeterminate effect is the command layer's: this adapter records the uncertainty and refuses to repeat the call.",
+        "Retries exist only for reads and only for a request that was not delivered or whose response was lost; there is no retry budget for writes at all.",
+        "Protocol retries, HTTP retries and business reconciliation are separate: a repeated effect digest is answered from the journal without touching the network."
+      ],
+      "notes": "sampling/createMessage is answered with a method-not-found error, roots/list with an empty list, unknown server requests with method-not-found; extensions are reported unsupported; header suggestions in _meta or annotations are ignored and flagged."
+    },
+    {
+      "id": "MCP-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/server-tools.ts",
+        "src/server/mcp.ts"
+      ],
+      "tests": [
+        "tests/connectors/mcp/server-tools.test.ts",
+        "tests/mcp-server.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-2025-11-25"],
+      "limitations": [
+        "The four tools are a transport over a service the command swarm owns; they enforce projection and output policy, not authorization, which the service re-checks.",
+        "connector_invoke returns output only when the binding classified it public; personal and secret results are withheld from this transport and remain readable in the application."
+      ],
+      "notes": "Registered only when createCeremonyMcpHandler is given the optional connectors option; the five existing tools and their tests are unchanged."
+    },
+    {
+      "id": "MCP-06",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/mcp/adapter.ts",
+        "src/server/connectors/mcp/authorization.ts"
+      ],
+      "tests": ["tests/connectors/mcp/adapter.test.ts"],
+      "acceptanceIds": ["AC-AUTH-18"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "mcp-2026-07-28",
+        "mcp-2025-11-25",
+        "mcp-2025-06-18"
+      ],
+      "limitations": [
+        "Live authorized evidence is blocked: no credentials for a deployed MCP server are available in this environment.",
+        "verify establishes that the credential was accepted by the origin and says explicitly that server identity is not attested beyond TLS.",
+        "authorize delegates to the OAuth swarm's beginOAuth hook; with a bearer already in custody it returns verify without contacting an authorization server.",
+        "disconnect is local only and revoke is unsupported: MCP defines no such operation."
+      ],
+      "notes": "Capability rows report each revision's documented client-registration order, so a provider that requires legacy Dynamic Client Registration is served by the configured profile without claiming universal current behaviour."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/mcp.ts (INT)",
+      "description": "Applied additively in this branch: an optional `connectors?: ConnectorToolDependencies` option on CeremonyMcpOptions, and, inside build(), `if (options.connectors) registerConnectorServerTools(server, options.connectors, { actor: () => actor, ...(options.onerror ? { onerror: options.onerror } : {}) });`. Three insertions, no existing line changed; tests/mcp-server.test.ts passes unchanged (10/10)."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createMcpRemoteAdapter({ beginOAuth, broker, cache }) from src/server/connectors/mcp/index.ts. Pass the shared McpResultCache so one cache serves every connection, keyed per principal."
+    },
+    {
+      "target": "COMMAND service",
+      "description": "Implement ConnectorToolDependencies (catalog(actor), status(actor, connectionRef), connect(actor, input), invoke(actor, input)) and pass it as the connectors option. Call the adapter's resumeInput(ctx, handoffRecord, values, action?) to continue a suspended MCP input; the handoff is consumed one-use inside it."
+    },
+    {
+      "target": "OAUTH swarm",
+      "description": "Provide BeginMcpOAuth: (ctx, { challenge, intent, resource, profile }) => Promise<AuthorizationStart>. The challenge carries the validated RFC 9728 metadata, the scopes the server named, the canonical resource identifier and the revision's client-registration order."
+    },
+    {
+      "target": "src/core/index.ts / src/server/connectors/index.ts (INT)",
+      "description": "Optional: re-export src/server/connectors/mcp/index.ts from the server barrel. It is server-only (node:crypto, node:http-free but Buffer-using) and must not enter the browser bundle."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "AC-MCP-01 live",
+      "reason": "Live-authorized evidence against a deployed MCP server is blocked: no authorized credentials exist in this environment. All rows are protocol-fixture."
+    },
+    {
+      "id": "registry interaction",
+      "reason": "AC-MCP-07 to AC-MCP-10 belong to the registry swarm; this ledger covers the runtime client, the adapter and the server tools only."
+    }
+  ],
+  "externalEffectsPerformed": []
+}

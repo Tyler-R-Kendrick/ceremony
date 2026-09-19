@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "structure",
+        "security",
+        "serialization",
+        "schema",
+        "network",
+        "policy",
+        "identity",
+        "version",
+        "executable-code",
+        "license"
+      ]
+    },
+    "sourcePointer": {
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^[^\\p{Cc}]*$"
+    },
+    "normalizedPointer": {
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^[^\\p{Cc}]*$"
+    },
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "discover",
+        "import",
+        "configure",
+        "authorize",
+        "verify",
+        "invoke",
+        "events",
+        "reconnect",
+        "disconnect",
+        "revoke",
+        "export",
+        "delegate"
+      ]
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "adapted",
+        "native-extension",
+        "requires-configuration",
+        "unsupported",
+        "rejected"
+      ]
+    },
+    "severity": { "type": "string", "enum": ["info", "warning", "blocking"] },
+    "executionImpact": {
+      "type": "string",
+      "enum": [
+        "none",
+        "blocks-operation",
+        "blocks-authorization",
+        "blocks-definition"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]*$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    },
+    "remediation": {
+      "type": "string",
+      "maxLength": 500,
+      "allOf": [
+        { "pattern": "^[^\\p{Cc}]*$" },
+        {
+          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+        }
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "category",
+    "sourcePointer",
+    "dimension",
+    "disposition",
+    "severity",
+    "executionImpact",
+    "message"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:compatibility-issue-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

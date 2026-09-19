@@ -1,0 +1,160 @@
+{
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.modelcontextprotocol.anonymous/brave-search",
+        "description": "MCP server for Brave Search API integration",
+        "title": "Brave Search",
+        "websiteUrl": "https://anonymous.modelcontextprotocol.io/examples",
+        "repository": {
+          "url": "https://github.com/modelcontextprotocol/servers",
+          "source": "github"
+        },
+        "version": "1.0.2",
+        "packages": [
+          {
+            "registryType": "npm",
+            "registryBaseUrl": "https://registry.npmjs.org",
+            "identifier": "@modelcontextprotocol/server-brave-search",
+            "version": "1.0.2",
+            "transport": {
+              "type": "stdio"
+            },
+            "environmentVariables": [
+              {
+                "name": "BRAVE_API_KEY",
+                "description": "Brave Search API Key",
+                "isRequired": true,
+                "isSecret": true
+              }
+            ]
+          }
+        ],
+        "_meta": {
+          "io.modelcontextprotocol.registry/publisher-provided": {
+            "tool": "npm-publisher",
+            "version": "1.0.1",
+            "build_info": {
+              "timestamp": "2023-12-01T10:30:00Z"
+            }
+          }
+        }
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "publishedAt": "2026-02-01T00:00:00Z",
+          "updatedAt": "2026-02-01T00:00:00Z",
+          "statusChangedAt": "2026-02-01T00:00:00Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.modelcontextprotocol.anonymous/hybrid-mcp",
+        "description": "MCP server available as both local package and remote service",
+        "title": "Hybrid",
+        "repository": {
+          "url": "https://github.com/example/hybrid-mcp",
+          "source": "github",
+          "id": "klm012no-pqrs-3456-tuvw-xyz789abcdef"
+        },
+        "version": "1.5.0",
+        "packages": [
+          {
+            "registryType": "npm",
+            "registryBaseUrl": "https://registry.npmjs.org",
+            "identifier": "@example/hybrid-mcp-server",
+            "version": "1.5.0",
+            "runtimeHint": "npx",
+            "transport": {
+              "type": "stdio"
+            },
+            "packageArguments": [
+              {
+                "type": "named",
+                "name": "--mode",
+                "description": "Operation mode",
+                "default": "local",
+                "choices": ["local", "cached", "proxy"]
+              }
+            ]
+          }
+        ],
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://mcp.anonymous.modelcontextprotocol.io/http",
+            "headers": [
+              {
+                "name": "X-API-Key",
+                "description": "API key for authentication",
+                "isRequired": true,
+                "isSecret": true
+              },
+              {
+                "name": "X-Region",
+                "description": "Service region",
+                "default": "us-east-1",
+                "choices": ["us-east-1", "eu-west-1", "ap-southeast-1"]
+              }
+            ]
+          },
+          {
+            "type": "sse",
+            "url": "https://mcp.anonymous.modelcontextprotocol.io/sse"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "deprecated",
+          "publishedAt": "2026-02-01T00:00:00Z",
+          "updatedAt": "2026-02-01T00:00:00Z",
+          "statusChangedAt": "2026-02-01T00:00:00Z",
+          "isLatest": true,
+          "statusMessage": "Use v2"
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.modelcontextprotocol/text-editor",
+        "description": "MCP Bundle server for advanced text editing capabilities",
+        "title": "Text Editor",
+        "repository": {
+          "url": "https://github.com/modelcontextprotocol/text-editor-mcpb",
+          "source": "github"
+        },
+        "version": "1.0.1",
+        "packages": [
+          {
+            "registryType": "mcpb",
+            "identifier": "https://github.com/modelcontextprotocol/text-editor-mcpb/releases/download/v1.0.2/text-editor.mcpb",
+            "fileSha256": "fe333e598595000ae021bd27117db32ec69af6987f507ba7a63c90638ff633ce",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "deleted",
+          "publishedAt": "2026-02-01T00:00:00Z",
+          "updatedAt": "2026-02-01T00:00:00Z",
+          "statusChangedAt": "2026-02-01T00:00:00Z",
+          "isLatest": false
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "count": 3,
+    "nextCursor": "io.modelcontextprotocol/text-editor:1.0.1"
+  }
+}

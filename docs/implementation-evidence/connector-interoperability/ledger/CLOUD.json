@@ -1,0 +1,179 @@
+{
+  "swarm": "CLOUD",
+  "workItems": [
+    {
+      "id": "CLOUD-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/aws-agentcore/sigv4.ts",
+        "src/server/connectors/providers/aws-agentcore/control.ts",
+        "src/server/connectors/providers/aws-agentcore/gateway.ts",
+        "src/server/connectors/providers/aws-agentcore/adapter.ts",
+        "src/server/connectors/providers/aws-agentcore/schemas.ts",
+        "src/server/connectors/providers/aws-agentcore/json.ts",
+        "src/server/connectors/providers/aws-agentcore/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/aws-agentcore/sigv4.test.ts",
+        "tests/connectors/aws-agentcore/control.test.ts",
+        "tests/connectors/aws-agentcore/adapter.test.ts",
+        "tests/connectors/aws-agentcore/ac-ext-17.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-17"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "aws-agentcore-control-2023-06-05",
+        "aws-agentcore-gateway-mcp-2026-07-28"
+      ],
+      "limitations": [
+        "Live account evidence blocked: no authorized AWS credentials and no gateway in this environment",
+        "MCP 2026-07-28 only; the gateway's legacy revisions (2025-11-25, 2025-06-18, 2025-03-26) use the initialize handshake and belong to the MCP runtime client, reported as a blocking version issue rather than downgraded",
+        "The control-plane endpoint host is never composed: the adapter uses the binding's approved destination, because the AWS General Reference endpoint table could not be retrieved (JS-rendered)",
+        "The SigV4 signing service name defaults to bedrock-agentcore and is overridable in binding settings; it is unverified against a published endpoint table"
+      ],
+      "notes": "Discovery uses only the four documented read operations (ListGateways, GetGateway, ListGatewayTargets, GetGatewayTarget); the control client has no code path that can send anything but a signed GET, so discovery and testing cannot create a gateway, IAM role, target or resource policy. Management credentials, the gateway caller credential (JWT from configuration or connection custody, or a separate SigV4 principal) and the target's outbound credentials are three separate things: agentCoreSettingsSchema rejects a binding whose caller leg reuses a management configuration name, and the tests assert the control plane only ever sees the management identity while the gateway only ever sees the caller identity. Outbound target credentials live in AgentCore Identity and are reported (credentialProviderType) but never held or sent. Gateway ARNs are never emitted, so an AWS account number cannot leave the adapter."
+    },
+    {
+      "id": "CLOUD-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/aws-agentcore/compatibility.ts",
+        "src/server/connectors/providers/aws-agentcore/adapter.ts"
+      ],
+      "tests": [
+        "tests/connectors/aws-agentcore/adapter.test.ts",
+        "tests/connectors/aws-agentcore/compatibility.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-17", "AC-IMP-05"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["aws-agentcore-control-2023-06-05"],
+      "limitations": [
+        "Schemas stored in Amazon S3 are not fetched (S3 is not an approved destination); such targets are reported as unverifiable rather than assumed compatible",
+        "Smithy model, MCP server, API Gateway and built-in connector targets are synchronized by the gateway, so tool identities must come from tools/list; they are reported as requires-configuration, not invented",
+        "Swagger 2.0 is rejected outright, matching the documented support for OpenAPI 3.0 and 3.1 only"
+      ],
+      "notes": "analyzeTarget maps each documented constraint to a compatibility issue: missing operationId, oneOf/anyOf/allOf composition, parameter serializers, unsupported media types, specification-level security schemes (blocking, security category), templated server hosts (SSRF), callbacks, and Lambda tool definitions missing a name, a description or an object-typed inputSchema. Only operations that survive become capabilities; an incompatible operation blocks itself while the rest of the gateway stays discoverable. A gateway with authorizerType NONE raises a blocking authorization issue, and a gateway that does not list MCP 2026-07-28 in supportedVersions raises a blocking version issue naming the legacy alternative."
+    },
+    {
+      "id": "CLOUD-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/google-integration-connectors/resources.ts",
+        "src/server/connectors/providers/google-integration-connectors/client.ts",
+        "src/server/connectors/providers/google-integration-connectors/schemas.ts",
+        "src/server/connectors/providers/google-integration-connectors/compatibility.ts",
+        "src/server/connectors/providers/google-integration-connectors/adapter.ts",
+        "src/server/connectors/providers/google-integration-connectors/json.ts",
+        "src/server/connectors/providers/google-integration-connectors/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/google-integration-connectors/client.test.ts",
+        "tests/connectors/google-integration-connectors/adapter.test.ts",
+        "tests/connectors/google-integration-connectors/ac-ext-17.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-17"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "google-connectors-v1-20260907",
+        "google-connectors-v2-20260907"
+      ],
+      "limitations": [
+        "Live account evidence blocked: no authorized Google Cloud project, connection or token in this environment",
+        "Entity writes (create, patch, delete, updateEntitiesWithConditions, deleteEntitiesWithConditions), executeSqlQuery, executeHttpRequest, the v2 tools surface and eventing are deliberately not bound; only entity list/get, action execute and the metadata reads are",
+        "Long-running results: the connection-level asyncOperationsEnabled flag is surfaced and an action result on such a connection is returned with code google-connectors.async-result-unreconciled, never as settled work. The completion/poll mechanism for an async action is connector-specific and could not be verified from the discovery documents or the public docs: marked unverified",
+        "Connections are never created, updated, suspended or deleted; endUserAuthentication resources are not written"
+      ],
+      "notes": "Existing connection discovery (v1 connections.list/get and connectionSchemaMetadata:listEntityTypes/:listActions) plus runtime entity types, actions, entity list/get and action execute (v2). Operation arguments, paging (pageSize/pageToken/nextPageToken), ordering (sortBy/sortOrder) and conditions are preserved on the wire and asserted by the double. Native capability availability is reported per connection: entity types with an empty operations list are not offered, and the connector's own unsupportedTypeNames/unsupportedActionNames become blocking schema issues. Identity is service identity (configuration) or the end user's token (connection custody), selected by the binding and never substituted."
+    },
+    {
+      "id": "CLOUD-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/aws-agentcore/adapter.ts",
+        "src/server/connectors/providers/aws-agentcore/control.ts",
+        "src/server/connectors/providers/google-integration-connectors/adapter.ts",
+        "src/server/connectors/providers/google-integration-connectors/resources.ts"
+      ],
+      "tests": [
+        "tests/connectors/aws-agentcore/control.test.ts",
+        "tests/connectors/aws-agentcore/adapter.test.ts",
+        "tests/connectors/aws-agentcore/ac-ext-17.test.ts",
+        "tests/connectors/google-integration-connectors/client.test.ts",
+        "tests/connectors/google-integration-connectors/adapter.test.ts",
+        "tests/connectors/google-integration-connectors/ac-ext-17.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-17", "AC-STATE-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "aws-agentcore-control-2023-06-05",
+        "aws-agentcore-gateway-mcp-2026-07-28",
+        "google-connectors-v1-20260907",
+        "google-connectors-v2-20260907"
+      ],
+      "limitations": [
+        "Region and location confusion is enforced against the documented public host patterns (bedrock-agentcore-control.<region>.amazonaws.com, connectors.<region>.rep.googleapis.com); a private or loopback host takes its region from the binding, which the fixtures exercise",
+        "Private-endpoint policy is enforced at the binding boundary (approved-private destination required); Ceremony never creates the VPC, Lattice or Service Directory resources involved"
+      ],
+      "notes": "Host-approved resource boundaries tested on both providers: caller-supplied gateway identifiers and connection names are refused before any request; region/location mismatch against a regional host is denied; expired workload credentials fail locally (configured expiry) and upstream (ExpiredTokenException, UNAUTHENTICATED) with the expired code; target permission failure maps to denied with no fallback to another credential; retry ambiguity goes through the effect journal (a dropped tools/call or actions:execute is journaled indeterminate and a repeated digest returns the recorded outcome instead of calling again); private-endpoint targets and connections are rejected unless the destination's network policy is approved-private."
+    },
+    {
+      "id": "CLOUD-ACCEPT",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/aws-agentcore/adapter.ts",
+        "src/server/connectors/providers/google-integration-connectors/adapter.ts"
+      ],
+      "tests": [
+        "tests/connectors/aws-agentcore/adapter.test.ts",
+        "tests/connectors/google-integration-connectors/adapter.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-17", "AC-UX-06", "AC-PKG-03"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [],
+      "limitations": [],
+      "notes": "Independent acceptance: with no runtime credentials, authorize returns configuration-required with the missing names, and verify, invoke and discover throw ConnectorError('configuration-required') while the loopback fixtures record zero requests, so no path can simulate success. Neither adapter can grant itself management permissions or deploy anything (the AWS control client is read-only by construction; the Google client has no create/update/delete path), and neither reads an ambient credential chain: every credential is named by the binding and resolved through the configuration or custody port. Both report provider-backed support with each unimplemented dimension marked unsupported and given a limitation, and both fall to 'unconfigured' in the catalog when required configuration is absent."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createAgentCoreGatewayAdapter() from src/server/connectors/providers/aws-agentcore/index.js and createGoogleConnectorsAdapter() from src/server/connectors/providers/google-integration-connectors/index.js on the ConnectorAdapterRegistry. Both take no options; each reads everything else from its binding settings and the configuration port. Adapter ids: 'aws-agentcore-gateway', 'google-integration-connectors'."
+    },
+    {
+      "target": "src/core/connectors/identity.ts knownEcosystems (INT, optional)",
+      "description": "'aws-agentcore' and 'google-integration-connectors' are already listed in knownEcosystems; no change needed. Recorded here so the integrator does not add duplicates."
+    },
+    {
+      "target": "host binding authoring (INT/UX)",
+      "description": "Both adapters read one settings block. AWS: settings.awsAgentCore = { management?: { destinationId, region, signingService?, credentials: { accessKeyId, secretAccessKey, sessionToken?, expiresAt? } }, gateway?: { destinationId, gatewayIdentifier, endpointPath?, inbound: {kind:'oauth-jwt', source?:'configuration'|'connection', configurationName?, materialField?} | {kind:'iam-sigv4', region, signingService?, credentials} | {kind:'none'}, privateTargets? } }; the schema refuses a caller leg that reuses a management configuration name. Operations use transport {kind:'mcp-tool', toolName:'<Target>___<tool>'} and permittedTargets entries {kind:'agentcore-target', id:'<Target>'} plus {kind:'gateway', id:'<gatewayId>'}. Google: settings.googleConnectors = { admin:{destinationId}, runtime:{destinationId}, resource:{project,location,connection}, identity:{kind:'service-identity',configurationName,expiresAtName?} | {kind:'end-user',materialField?,requireNoAdminFallback?} }; operations use transport {kind:'http', method, pathTemplate} where nativeId is one of entityTypes.list, entities.list, entities.get, actions.list, actions.execute, connection.checkStatus and the pathTemplate must equal expectedOperation(kind, resource, name).path, with permittedTargets entries {kind:'entity-type'|'action'|'connection', id}."
+    },
+    {
+      "target": "docs/implementation-evidence (INT)",
+      "description": "Source lock entries to record: bedrock-agentcore-control API version 2023-06-05 (docs retrieved 2026-09-18); AgentCore Gateway MCP revisions 2026-07-28, 2025-11-25, 2025-06-18, 2025-03-26 (gateway-using.html, retrieved 2026-09-18); Google Connectors discovery documents v1 and v2 both at revision 20260907 (retrieved 2026-09-18)."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    {
+      "id": "CLOUD-01/03 live evidence",
+      "reason": "Live and deployed evidence levels are blocked: no authorized AWS account, gateway, Google Cloud project or Integration Connectors connection is available, and creating any of them is forbidden. Every capability row reports protocol-fixture or unit evidence."
+    },
+    {
+      "id": "CLOUD-01 legacy MCP revisions",
+      "reason": "Intentional boundary, not a gap: the gateway's 2025-11-25 and earlier revisions use the initialize handshake and a session. Implementing them here would duplicate the MCP runtime client; the adapter reports a blocking version issue and names the alternative instead."
+    },
+    {
+      "id": "CLOUD-03 async action completion",
+      "reason": "Unverified documentation: Google documents that asyncOperationsEnabled lets customers 'initiate async long running operations using the actions API', but neither the v2 discovery document nor the public documentation describes how completion is observed. The adapter surfaces the flag and marks such results unreconciled rather than inventing a poll."
+    },
+    {
+      "id": "SigV4 known-answer vector",
+      "reason": "No published end-to-end SigV4 signature vector could be retrieved (the S3 worked example and the AWS SigV4 test suite were not reachable from this environment). Interoperability is instead evidenced by a loopback double that recomputes the canonical request, string to sign and signature with its own implementation written from the signing documentation, plus the one documented constant that was retrievable (the empty-payload SHA-256)."
+    }
+  ],
+  "externalEffectsPerformed": [
+    "Read-only documentation retrieval over HTTPS on 2026-09-18: AWS Bedrock AgentCore developer guide and control-plane API reference pages, the IAM SigV4 signing pages, and the Google Integration Connectors documentation plus the public discovery documents at https://connectors.googleapis.com/$discovery/rest?version=v1 and ?version=v2 (unauthenticated GETs).",
+    "No account was created, no resource was provisioned, no credential was created or used, no package was installed, no image was pulled and no container was launched. All tests run against loopback fixtures on ephemeral ports."
+  ]
+}

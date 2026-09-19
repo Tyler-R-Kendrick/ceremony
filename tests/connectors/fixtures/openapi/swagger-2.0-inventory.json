@@ -1,0 +1,133 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Inventory 2.0",
+    "version": "1.4.2",
+    "description": "A Swagger 2.0 description used to exercise host/basePath/schemes, body and formData parameters, collectionFormat and securityDefinitions."
+  },
+  "host": "inventory.example.test",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "api_key": { "type": "apiKey", "name": "X-Api-Key", "in": "header" },
+    "basic_auth": { "type": "basic" },
+    "legacy_oauth": {
+      "type": "oauth2",
+      "flow": "accessCode",
+      "authorizationUrl": "https://auth.example.test/authorize",
+      "tokenUrl": "https://auth.example.test/token",
+      "scopes": {
+        "inventory:read": "Read inventory",
+        "inventory:write": "Change inventory"
+      }
+    },
+    "implicit_oauth": {
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "https://auth.example.test/authorize",
+      "scopes": { "inventory:read": "Read inventory" }
+    }
+  },
+  "security": [{ "api_key": [] }],
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List inventory items",
+        "parameters": [
+          {
+            "name": "tags",
+            "in": "query",
+            "type": "array",
+            "items": { "type": "string" },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Items",
+            "schema": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/Item" }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createItem",
+        "summary": "Create an inventory item",
+        "security": [
+          { "legacy_oauth": ["inventory:write"] },
+          { "api_key": [], "basic_auth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        }
+      }
+    },
+    "/items/{itemId}": {
+      "parameters": [
+        { "name": "itemId", "in": "path", "required": true, "type": "string" }
+      ],
+      "get": {
+        "operationId": "getItem",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Item",
+            "schema": { "$ref": "#/definitions/Item" }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteItem",
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/items/{itemId}/photo": {
+      "parameters": [
+        { "name": "itemId", "in": "path", "required": true, "type": "string" }
+      ],
+      "post": {
+        "operationId": "uploadPhoto",
+        "consumes": ["multipart/form-data"],
+        "parameters": [
+          { "name": "file", "in": "formData", "required": true, "type": "file" }
+        ],
+        "responses": { "200": { "description": "Stored" } }
+      }
+    }
+  },
+  "definitions": {
+    "Item": {
+      "type": "object",
+      "required": ["sku", "quantity"],
+      "properties": {
+        "sku": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "quantity": { "type": "integer", "minimum": 0 },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

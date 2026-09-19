@@ -200,6 +200,57 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("TARGET-REREAD: a read in flight does not un-approve what was approved", async () => {
+      const context = await browsers.get(engine)!.openContext();
+      try {
+        const { page } = await context.openPage();
+        await page.goto(`${provider.origin}/race`);
+        const snapshot = await page.snapshot();
+        const field = snapshot.elements.find(
+          (element) => element.type === "password",
+        );
+        assert.ok(field, "the fixture must present a password field");
+
+        // A second read is started and deliberately not awaited yet, so the
+        // action below lands while it is in flight. Reading the page is not an
+        // event that un-approves anything: this document has not moved and
+        // this element is still exactly what was approved.
+        //
+        // It used to be. The old observation was dropped at the *start* of a
+        // read, leaving nothing held for several awaited round trips to the
+        // browser, and an action arriving in that window was refused as
+        // `no-observation` - which names the absence of an approval, not
+        // anything about the page, and so tells its reader nothing they can
+        // act on. The swap happens at the end now.
+        const reading = page.snapshot();
+        let refusal: StaleTargetError | undefined;
+        try {
+          await page.fill(field, canary);
+        } catch (error) {
+          if (!(error instanceof StaleTargetError)) throw error;
+          refusal = error;
+        }
+        await reading;
+        // Specifically not "must not refuse". A machine under real pressure
+        // can replace a document or lose a handle while this runs, and
+        // `stale-document` or `stale-element` is the right answer when it
+        // does - refusing those is the protection working. Asserting their
+        // absence would make this case fail for the very conditions the
+        // adapter exists to survive, which is what it did at 2GB free.
+        //
+        // The claim is narrower and is the one the change is about: a read in
+        // flight is not by itself a reason to report that nothing was
+        // approved.
+        assert.notEqual(
+          refusal?.reason,
+          "no-observation",
+          "a concurrent read must not un-approve what was approved",
+        );
+      } finally {
+        await context.close();
+      }
+    });
+
     test("TARGET-ASYNC: a same-origin navigation mid-race refuses", async () => {
       const before = provider.received.length;
       const refusal = await raceFill(engine, async (raw) => {
