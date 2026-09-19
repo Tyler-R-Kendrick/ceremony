@@ -127,8 +127,12 @@ function serviceFor(engine: string, values: Record<string, string>) {
   const service = createBrowserLoginService({
     sessions,
     effects,
+    // Both origins. A login completed inside a cross-origin frame establishes
+    // a session on the *frame's* server, so the verifier that can answer
+    // "whose session is this?" is the partner's, not the embedding page's.
     verifiers: createVerifierRegistry([
       createFixtureVerifier({ origin: fixture.origin }),
+      createFixtureVerifier({ origin: fixture.partner.origin }),
     ]),
     credentials: {
       // Roles resolve inside the trusted path. The value never appears in a
@@ -720,6 +724,64 @@ for (const engine of browserEngines) {
           "passkey",
         );
         assert.equal(fixture.sessionsFor(owner.account).length, 0);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("TARGET-FRAME: the credential form belongs to another origin's frame", async () => {
+      // The shape `frameOrigins` exists for, and the one nothing could drive.
+      // `/framed` has no fields of its own: the form is the partner origin's,
+      // inside an iframe. A driver bound to the main frame observes a
+      // document with nothing to fill, so this login is unreachable rather
+      // than merely awkward - and until #62 the plan describing it compiled
+      // clean and was then ignored.
+      //
+      // The partner is a separate server with its own cookies, which is what
+      // makes the assertions below about *which* origin signed the account in
+      // rather than merely that something did. It is also the first browser
+      // case to use that second origin at all: it has existed since the
+      // fixture did and only its own self-test ever reached it.
+      fixture.reset();
+      fixture.partner.reset();
+      const { sessions, service, shown } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/framed"),
+            navigationOrigins: [fixture.origin, fixture.partner.origin],
+            frameOrigins: [fixture.partner.origin],
+            // The secret may reach the frame's origin and nowhere else. The
+            // embedding page is not a recipient just because it is the page.
+            credentialRecipients: {
+              email: [fixture.partner.origin],
+              password: [fixture.partner.origin],
+            },
+            verifierOrigin: fixture.partner.origin,
+          }),
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login inside the frame, got ${shown(result)}`,
+        );
+        if (result.status !== "verified") return;
+
+        // The oracle is the partner's own record, and the embedding origin's
+        // silence is half of it: a credential typed into the frame must reach
+        // the frame's server and no other.
+        const submissions = fixture.partner.submissions();
+        assert.deepEqual(
+          submissions.map((submission) => submission.path),
+          ["/signin"],
+        );
+        assert.equal(submissions[0]?.account, owner.account);
+        assert.equal(submissions[0]?.passwordMatched, true);
+        assert.equal(fixture.partner.sessionsFor(owner.account).length, 1);
+        assert.deepEqual(fixture.submissions(), []);
       } finally {
         await sessions.disposeAll();
       }

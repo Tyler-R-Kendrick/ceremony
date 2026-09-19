@@ -30,6 +30,7 @@ import {
   StaleTargetError,
   type PlaywrightPageLike,
 } from "../src/server/browser-page.js";
+import type { BoundPageLike } from "../src/server/browser-targets.js";
 
 /**
  * Boundary checks for the ceremony driver that the scenario catalog cannot
@@ -820,6 +821,11 @@ function handleGraph(
     waitForLoadState: async (state) => {
       calls.push(`settle ${state}`);
     },
+    // One document, so one frame, and it is the main one. A double that
+    // claimed otherwise would let a frame-bound plan pass here and fail on a
+    // browser, which is the direction this repository refuses to fail in.
+    frames: () => [page],
+    mainFrame: () => page,
   };
   return {
     page,
@@ -1175,6 +1181,90 @@ test("a page that keeps moving still ends the attempt", async () => {
     1,
   );
   assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+/**
+ * A frame that only has to be findable. Both cases below refuse during
+ * selection, before anything is read, so a frame that threw on being read
+ * would be proving the wrong thing.
+ */
+function frameAt(url: string): BoundPageLike {
+  return {
+    url: () => url,
+    evaluateHandle: async () => {
+      throw new Error("a refused frame must never be read");
+    },
+    evaluate: async () => {
+      throw new Error("a refused frame must never be read");
+    },
+  };
+}
+
+test("a declared frame that is not on the page is refused, not fallen back from", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page, {
+    frameOrigins: ["https://frame.example"],
+  });
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "frame-missing",
+  );
+  // The page itself is right there and has a form on it. Reading that is the
+  // failure being refused: a different origin, a different document, and a
+  // credential typed into neither of the things the plan described. Naming
+  // the frame was the statement that the page is not it.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("two frames at the declared origin do not identify a document", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(
+    {
+      ...graph.page,
+      frames: () => [
+        graph.page,
+        frameAt("https://frame.example/one"),
+        frameAt("https://frame.example/two"),
+      ],
+      mainFrame: () => graph.page,
+    },
+    { frameOrigins: ["https://frame.example"] },
+  );
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "frame-ambiguous",
+  );
+  // Choosing between them would approve a position rather than a thing, one
+  // level up from the element guards: a page that can add a second frame at
+  // an origin could choose which document a credential is typed into.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("a frame is chosen by origin, and the page is not read instead", async () => {
+  const graph = handleGraph();
+  let framesRead = 0;
+  const frame: BoundPageLike = {
+    url: () => "https://frame.example/signin",
+    evaluateHandle: async (source: string) => {
+      framesRead += 1;
+      return graph.page.evaluateHandle(source);
+    },
+    evaluate: ((fn: never, arg: never) =>
+      graph.page.evaluate(fn, arg)) as BoundPageLike["evaluate"],
+  };
+  const page = createPlaywrightCeremonyPage(
+    {
+      ...graph.page,
+      frames: () => [graph.page, frame],
+      mainFrame: () => graph.page,
+    },
+    { frameOrigins: ["https://frame.example"] },
+  );
+  const snapshot = await page.snapshot();
+  assert.ok(snapshot.elements.length > 0);
+  assert.equal(framesRead, 1);
 });
 
 test("a page that never settles is the driver's problem, not the adapter's", async () => {

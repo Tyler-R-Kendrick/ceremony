@@ -562,6 +562,74 @@ still reported as `indeterminate` rather than by the new name: uncertainty
 outranks the tripwire, because relabelling a dispatch nobody observed as a
 refusal would invite exactly the retry the effect record exists to prevent.
 
+## A capability that went true because something enforces it
+
+`frameBinding` was declared true on all three engines with nothing behind it,
+corrected to false in #51, and made to refuse a plan that declares
+`frameOrigins` in #62 - each step honest, and each one leaving the same hole:
+a provider that serves its credential form in a frame could not be signed into
+at all.
+
+It can now. `createPlaywrightCeremonyPage` resolves the declared frame on
+every read and every action rather than choosing one once, which is the whole
+design rather than an implementation detail. A frame is not a stable thing to
+hold: it can be removed, replaced, or navigated somewhere else between an
+observation and the action that observation authorized. Because every read
+goes through the same resolution, the origin is rechecked at observation time
+_and_ again at action time without a second rule saying so, and the document
+guards then compare the held document against whatever it returns, exactly as
+they do for a page.
+
+Neither way selection can fail falls back to the page. `frame-missing` is no
+frame at a declared origin - using the embedding document instead would type a
+credential into a different origin's form, and naming the frame was the
+statement that the page is not it. `frame-ambiguous` is more than one, so
+"the frame" does not identify a document; choosing would approve a position
+rather than a thing, one level up from the element guards, and a page that can
+add a second frame at an origin could otherwise choose which document receives
+a credential.
+
+Evidence, on the table's own standard that a flag goes true only once
+something enforces it:
+
+- TARGET-FRAME drives `/framed` on all three engines: the embedding page has
+  no fields of its own, the form belongs to the partner origin inside an
+  iframe, and the oracle is the partner server's record of one submission for
+  the right account with the password matched - plus the embedding origin
+  having received nothing. Restoring the defect, so that a declared frame is
+  resolved back to the page, fails it 3 for 3.
+- Three unit cases pin selection itself: a declared frame that is absent
+  refuses without reading the page, two frames at one origin refuse without
+  reading either, and a single match is read while the page is not.
+
+One fault was found by writing those cases rather than by reasoning about
+them. `observe()` wrapped _every_ failure from the page in a fresh
+`StaleTargetError`, so a selection refusal that already knew its own name
+arrived at the caller as `target-unavailable`. A precise name replaced by a
+guess is the same defect as a missing one, and it is the second time this
+module has produced it - #53 split `no-observation` out of `stale-document`
+for the same reason. Classification now returns an already-named refusal
+unchanged, and restoring the re-labelling fails both selection cases.
+
+Two cases had to change, and how they changed is the point. CAP-HONEST proved
+"declaring a frame origin requires the capability" by watching every engine
+_refuse_ such a plan - which was true only while nothing implemented frames.
+The moment one did, a case about the compiler failed for a reason that had
+nothing to do with the compiler. It now asserts the rule directly, that the
+requirement is derived from the declaration, and a second case proves the
+refusal against a backend table built to say no rather than against whatever
+the real one happens to say this month. A case that asserts a consequence
+instead of a rule passes for the wrong reason and then fails for the wrong
+reason, and both halves cost a run to find out.
+
+What is **not** built: `popupBinding`, which stays false. `browser-executor.ts`
+deliberately aborts a popup and closes the context, so that flag is not
+waiting on an implementation but on a decision about whether adopting popup
+targets can be made safe. And nothing in the wizard produces a frame origin
+yet - every projection still returns `frames: () => []` - so the capability is
+reachable through a hand-built plan and the MCP surface, not through the
+product's own configuration flow.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is

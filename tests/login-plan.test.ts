@@ -268,7 +268,7 @@ describe("plan identity", () => {
     assert.equal(plan.required.retainedSession, true);
   });
 
-  for (const capability of ["popupBinding", "frameBinding"] as const)
+  for (const capability of ["popupBinding"] as const)
     test(`CAP-HONEST: a plan requiring ${capability} is refused, on every engine`, () => {
       // These were declared true on all three backends with nothing
       // implementing either, so `unmetCapabilities` admitted a plan that
@@ -276,10 +276,15 @@ describe("plan identity", () => {
       // worse than being refused: a caller that hears "no" can choose something
       // else, and a caller that hears "yes" proceeds on a promise.
       //
-      // `statePersistence` was the third and has left this list, which is the
-      // only way anything should: something implements it now, and
-      // LIFE-STATE drives the round trip on a real browser of each engine.
-      // The case below is what keeps that honest from this side.
+      // `statePersistence` was the third and `frameBinding` the fourth, and
+      // both have left this list the only way anything should: something
+      // implements them now, and a case on a real browser of each engine
+      // drives it - LIFE-STATE for one, TARGET-FRAME for the other. The
+      // cases below are what keep that honest from this side.
+      //
+      // `popupBinding` is not waiting on an implementation. `browser-executor`
+      // deliberately aborts a popup and closes the context, so it waits on a
+      // decision about whether adopting popup targets can be made safe.
       for (const engine of ["chromium", "firefox", "webkit"] as const)
         assert.throws(
           () =>
@@ -294,16 +299,20 @@ describe("plan identity", () => {
         );
     });
 
-  for (const capability of ["retainedSession", "statePersistence"] as const)
+  for (const capability of [
+    "retainedSession",
+    "statePersistence",
+    "frameBinding",
+  ] as const)
     test(`CAP-HONEST: ${capability} is real, and still granted on every engine`, () => {
       // The other half of the claim. A correction that quietly turned
       // everything false would satisfy the cases above and break every real
       // login, so each capability that *is* implemented must still compile.
       //
-      // Five capabilities can be required of a backend at all. These two are
-      // the ones any engine offers: `strongEgressContainment` is false
-      // everywhere and truthfully so, and the other two are false because
-      // nothing implements them yet.
+      // Five capabilities can be required of a backend at all. These three
+      // are the ones every engine offers: `strongEgressContainment` is false
+      // everywhere and truthfully so, and `popupBinding` is false because
+      // the executor deliberately does not adopt popups.
       for (const engine of ["chromium", "firefox", "webkit"] as const) {
         const plan = compileLoginPlan(
           draft({ engine, required: { [capability]: true } }),
@@ -315,16 +324,45 @@ describe("plan identity", () => {
     });
 
   test("CAP-HONEST: declaring a frame origin requires the capability to act in one", () => {
-    // The field was accepted, canonicalized, digested and read by nothing.
-    // `createBoundTargets` observes through `page.evaluateHandle`, which is
-    // the main frame and nothing else, so a person who configured "the
-    // credential form is in a frame at this origin" got a plan that said so
-    // and a run that never looked.
+    // The field was accepted, canonicalized, digested and read by nothing
+    // until the adapter learned to resolve a declared frame on every read and
+    // every action. Declaring a frame origin *is* declaring that this login
+    // happens in a frame, so the capability is required whether or not the
+    // caller named it.
     //
-    // Declaring a frame origin *is* declaring that this login happens in a
-    // frame, so the capability is required whether or not the caller named
-    // it - and `frameBinding` is false on every engine, so the answer today
-    // is a refusal rather than silence.
+    // Asserted as the rule rather than as its consequence today. This case
+    // used to prove the requirement by watching every engine refuse, which
+    // was true only while nothing implemented frames: the moment one did, a
+    // case about the compiler started failing for a reason that had nothing
+    // to do with the compiler. What has to hold either way is that the
+    // requirement is derived from the declaration.
+    for (const engine of ["chromium", "firefox", "webkit"] as const) {
+      const plan = compileLoginPlan(
+        draft({
+          engine,
+          navigationOrigins: [provider, identity],
+          frameOrigins: [identity],
+        }),
+        options,
+      );
+      assert.equal(
+        plan.required.frameBinding,
+        true,
+        `${engine} compiled a framed plan without requiring the capability`,
+      );
+    }
+  });
+
+  test("CAP-HONEST: a backend that cannot act in a frame refuses a framed plan", () => {
+    // The half that makes the rule above worth having, and it is measured
+    // against a backend table that says no rather than against whatever the
+    // real one happens to say this month. A future engine without frame
+    // support must still be refused, and this case fails if the requirement
+    // stops being derived or stops being checked.
+    const incapable = managedBackends().map((backend) => ({
+      ...backend,
+      capabilities: { ...backend.capabilities, frameBinding: false },
+    }));
     for (const engine of ["chromium", "firefox", "webkit"] as const)
       assert.throws(
         () =>
@@ -334,13 +372,13 @@ describe("plan identity", () => {
               navigationOrigins: [provider, identity],
               frameOrigins: [identity],
             }),
-            options,
+            { ...options, backends: incapable },
           ),
         (error: unknown) =>
           error instanceof PlanRejected &&
           error.reason === "unsupported-capability" &&
           error.detail === "frameBinding",
-        `${engine} admitted a plan that acts inside a frame`,
+        `${engine} admitted a framed plan on a backend that cannot act in one`,
       );
   });
 

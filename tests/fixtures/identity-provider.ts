@@ -464,6 +464,30 @@ async function startOrigin(
       // there is no password input anywhere, so the page classifies as passkey.
       return html(response, page("Passkey", passkeyBody()));
 
+    if (path === "/framed") {
+      // A credential form served by a *different* origin, embedded. This is
+      // the shape `frameOrigins` exists for and the one nothing could drive:
+      // the outer page has no fields at all, so a driver bound to the main
+      // frame sees an empty document and the login is unreachable rather
+      // than merely awkward.
+      //
+      // The partner is a separate server with its own cookies, so a session
+      // established in the frame is the partner's, which is what makes the
+      // assertion about *which* origin signed the account in meaningful.
+      const target = peer();
+      if (!target)
+        return html(response, page("Framed", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Framed",
+          `<h1>Sign in to continue</h1><iframe id="credentials" title="Sign in" src="${escapeHtml(
+            target,
+          )}/signin" width="420" height="320"></iframe>`,
+        ),
+      );
+    }
+
     if (path === "/sso") {
       const target = peer();
       if (!target)

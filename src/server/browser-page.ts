@@ -1,6 +1,7 @@
 import { type PageSnapshot } from "../core/browser-contracts.js";
 import {
   createBoundTargets,
+  originOf,
   StaleTargetError,
   type BoundPageLike,
   type JsHandleLike,
@@ -29,6 +30,20 @@ export interface PlaywrightPageLike extends BoundPageLike {
     state?: "load" | "domcontentloaded" | "networkidle",
     options?: { timeout?: number },
   ): Promise<void>;
+  /**
+   * Every frame currently in the page, main frame included, as Playwright
+   * reports them. A Playwright `Frame` already satisfies `BoundPageLike`
+   * exactly — `url`, `evaluateHandle`, `evaluate` — which is why observing
+   * inside one needs no second implementation of anything below.
+   */
+  frames(): readonly BoundPageLike[];
+  /**
+   * The top-level document. Named separately rather than inferred from
+   * position, because "is this the page itself?" is the one question the
+   * frame rule below has to answer exactly, and a same-origin frame would
+   * make any guess about it wrong.
+   */
+  mainFrame(): BoundPageLike;
 }
 
 /**
@@ -44,10 +59,59 @@ export interface PlaywrightPageLike extends BoundPageLike {
  */
 export function createPlaywrightCeremonyPage(
   page: PlaywrightPageLike,
-  options: { settleTimeoutMs?: number } = {},
+  options: {
+    settleTimeoutMs?: number;
+    /**
+     * Origins whose frame this login happens inside. Empty — the ordinary
+     * case — means the top-level document and nothing else.
+     */
+    frameOrigins?: readonly string[];
+  } = {},
 ): CeremonyPage {
   const settleTimeout = options.settleTimeoutMs ?? 5_000;
-  const targets = createBoundTargets(page);
+  const frameOrigins = [...(options.frameOrigins ?? [])];
+
+  /**
+   * Which document this attempt observes and acts in.
+   *
+   * Resolved freshly on every call rather than chosen once, and that is the
+   * whole design. A frame is not a stable thing to hold: it can be removed,
+   * replaced, or navigated to somewhere else entirely between an observation
+   * and the action it authorized. Because every read below goes through here,
+   * the origin is rechecked at observation time *and* again at action time
+   * without a second rule saying so — and the guards in `browser-targets.ts`
+   * then compare the held document against whatever this returns, exactly as
+   * they do for a page.
+   *
+   * A declared frame that is not here refuses rather than falling back to the
+   * page. Falling back would type a credential into the embedding document,
+   * which is a different origin with a different form; naming the frame was
+   * the statement that it is not that one.
+   */
+  const target = (): BoundPageLike => {
+    if (frameOrigins.length === 0) return page;
+    const main = page.mainFrame();
+    const matches = page
+      .frames()
+      .filter(
+        (frame) =>
+          frame !== main && frameOrigins.includes(originOf(frame.url())),
+      );
+    if (matches.length === 0) throw new StaleTargetError("frame-missing");
+    if (matches.length > 1) throw new StaleTargetError("frame-ambiguous");
+    return matches[0] as BoundPageLike;
+  };
+
+  /**
+   * What the observation machinery binds to. Every method defers, so nothing
+   * downstream holds a frame across the gap where it could stop being one.
+   */
+  const bound: BoundPageLike = {
+    url: () => target().url(),
+    evaluateHandle: (source) => target().evaluateHandle(source),
+    evaluate: (fn, arg) => target().evaluate(fn, arg),
+  };
+  const targets = createBoundTargets(bound);
   const settle = async () => {
     try {
       await page.waitForLoadState("networkidle", { timeout: settleTimeout });

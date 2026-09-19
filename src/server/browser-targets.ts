@@ -29,7 +29,9 @@ export type StaleTargetReason =
   | "stale-element"
   | "no-observation"
   | "unapproved-recipient"
-  | "target-unavailable";
+  | "target-unavailable"
+  | "frame-missing"
+  | "frame-ambiguous";
 
 export class StaleTargetError extends Error {
   constructor(
@@ -137,7 +139,35 @@ function movedOn(error: unknown): boolean {
   );
 }
 
-function originOf(url: string): string {
+/**
+ * The origin of an address, or the empty string when there isn't one.
+ *
+ * Exported so that frame selection in the adapter compares origins the same
+ * way the document guard here does. Two spellings of "same origin" in one
+ * attempt is how a check starts disagreeing with the thing it protects.
+ */
+/**
+ * Classify a failure that happened while talking to the page.
+ *
+ * A `StaleTargetError` arriving here was raised by a guard that already knows
+ * exactly what went wrong — frame selection is the one that does, because it
+ * runs inside every read and every action rather than before them. Re-reading
+ * that as "the target is unavailable" would replace a precise name with a
+ * guess, and send whoever reads it looking at the wrong thing.
+ */
+function classify(
+  error: unknown,
+  settled: StaleTargetReason,
+  begun = false,
+): StaleTargetError {
+  if (error instanceof StaleTargetError) return error;
+  return new StaleTargetError(
+    movedOn(error) ? "stale-document" : settled,
+    begun,
+  );
+}
+
+export function originOf(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
@@ -201,9 +231,7 @@ export function createBoundTargets(page: BoundPageLike) {
       root = await page.evaluateHandle(boundSnapshotSource());
     } catch (error) {
       await discard();
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "target-unavailable",
-      );
+      throw classify(error, "target-unavailable");
     }
     try {
       const [
@@ -246,9 +274,7 @@ export function createBoundTargets(page: BoundPageLike) {
     } catch (error) {
       await root.dispose().catch(() => {});
       await discard();
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "target-unavailable",
-      );
+      throw classify(error, "target-unavailable");
     }
   }
 
@@ -289,9 +315,7 @@ export function createBoundTargets(page: BoundPageLike) {
           index,
         });
       } catch (error) {
-        throw new StaleTargetError(
-          movedOn(error) ? "stale-document" : "stale-element",
-        );
+        throw classify(error, "stale-element");
       }
     };
 
@@ -367,9 +391,7 @@ export function createBoundTargets(page: BoundPageLike) {
       return handle;
     } catch (error) {
       if (error instanceof StaleTargetError) throw error;
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "stale-element",
-      );
+      throw classify(error, "stale-element");
     }
   }
 
@@ -393,10 +415,7 @@ export function createBoundTargets(page: BoundPageLike) {
     } catch (error) {
       // Marked begun only for a dispatching action. A fill that threw put
       // nothing on the wire whatever else went wrong; a click may have.
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "stale-element",
-        options.dispatches === true,
-      );
+      throw classify(error, "stale-element", options.dispatches === true);
     }
     if (!options.dispatches || !approved) return;
     const observation = current;
