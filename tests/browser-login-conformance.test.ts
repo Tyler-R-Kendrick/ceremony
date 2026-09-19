@@ -181,7 +181,11 @@ for (const engine of browserEngines) {
       });
       try {
         const result = await service.login(actor, { plan: planFor(engine) });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
 
         // A real authenticated request, through the exact retained context,
@@ -316,7 +320,11 @@ for (const engine of browserEngines) {
       });
       try {
         const result = await service.login(actor, { plan: planFor(engine) });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
 
         const released = await sessions.release(
@@ -350,7 +358,11 @@ for (const engine of browserEngines) {
         const result = await service.login(actor, {
           plan: planFor(engine, { continuation: "dispose" }),
         });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
         if (result.status !== "verified") return;
         // The account really was verified; the session simply does not outlive
         // the call, which is the behaviour existing ephemeral flows rely on.
@@ -406,7 +418,11 @@ for (const engine of browserEngines) {
           plan: planFor(engine),
           idempotencyKey: "first-request",
         });
-        assert.equal(first.status, "verified");
+        assert.equal(
+          first.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(first)}`,
+        );
         const second = await service.login(actor, {
           plan: planFor(engine),
           idempotencyKey: "second-request",
@@ -435,7 +451,11 @@ for (const engine of browserEngines) {
           plan: planFor(engine),
           idempotencyKey: "settled-request",
         });
-        assert.equal(result.status, "verified");
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${JSON.stringify(result)}`,
+        );
 
         // The replay path is the only way to read back the effect a caller
         // never sees a reference to, and it is exactly what a retrying client
@@ -444,7 +464,11 @@ for (const engine of browserEngines) {
           plan: planFor(engine),
           idempotencyKey: "settled-request",
         });
-        assert.equal(replay.status, "blocked");
+        assert.equal(
+          replay.status,
+          "blocked",
+          `expected the replay to be refused, got ${JSON.stringify(replay)}`,
+        );
         if (replay.status !== "blocked") return;
         // A settled effect is reported as a request that will not run again,
         // never as an undetermined one: this login is known to have worked.
