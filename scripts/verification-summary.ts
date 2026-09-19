@@ -44,6 +44,31 @@ export function failedTestFiles(output: string, inventory: readonly string[]) {
   );
 }
 
+/**
+ * Retain known test names only, never diagnostic messages or interpolated values.
+ *
+ * The file a failure lived in is rarely enough to act on: a suite that runs the
+ * same eight cases against three browser engines reports "1 failed" in one file
+ * and leaves every one of the twenty-four indistinguishable. The name is the
+ * missing half, and it is authored repository content exactly as the file
+ * inventory is — so it is matched the same way. Nothing from `output` is ever
+ * returned; the output decides only which inventory entries are named, which is
+ * what keeps a provider error, a stack frame or a credential echoed into a
+ * failure message out of the retained record.
+ */
+export function failedTestNames(output: string, inventory: readonly string[]) {
+  const reported = new Set(
+    [
+      ...output
+        .replace(/\u001b\[[0-9;]*m/g, "")
+        .matchAll(
+          /^[ \t]*(?:not ok \d+ - |\u2716 )(.+?)(?: \(\d+(?:\.\d+)?ms\))?[ \t]*$/gm,
+        ),
+    ].map((match) => match[1]!),
+  );
+  return inventory.filter((name) => reported.has(name));
+}
+
 export function coverageTotals(value: unknown) {
   if (
     !value ||
