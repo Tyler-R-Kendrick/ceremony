@@ -174,8 +174,11 @@ What is established:
   when the window opens, not five defects.
 - It never fails in the `browser-login` job, which runs the same suite serially
   and without coverage instrumentation.
-- It does not reproduce here: five configurations tried, including the coverage
-  harness, six concurrent CPU burners, and c8 over the suite alone.
+- It does not reproduce here: eight configurations tried, including the
+  coverage harness, c8 over the suite alone, and three rounds at
+  `--test-concurrency=4` under eight CPU burners on four cores with a
+  lifecycle trace recording every clear of the held observation and the stack
+  that asked for it. 102 cases, no failures, and the trace never fired.
 - It is reproducible under heavy enough CPU starvation, and there the refusals
   are unanimously the missing-approval branch.
 

@@ -161,9 +161,26 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         // observed would erase the exact uncertainty the record exists to
         // keep — and with it the reason a retry is refused.
         if (outcome === "indeterminate") return;
-        if (dispatched)
-          await ledger.observed(actor, effectRef, outcome, serialized);
-        else await ledger.abandon(actor, effectRef);
+        try {
+          if (dispatched)
+            await ledger.observed(actor, effectRef, outcome, serialized);
+          else await ledger.abandon(actor, effectRef);
+        } catch {
+          // Closing the record is bookkeeping about an attempt that is already
+          // over. Letting it throw would discard the attempt's answer, and for
+          // a verified login that answer is the only way the caller learns the
+          // `sessionRef` of a browser this call has already retained on their
+          // behalf - an authenticated session nobody can reach is the exact
+          // harm this module exists to prevent.
+          //
+          // Swallowing it is safe in the one direction that matters. The
+          // record was written before the click and stays where it was: a
+          // dispatched attempt stays `dispatched`, so a replay of this key
+          // reports uncertainty and refuses to run again, which is the
+          // conservative answer for an attempt whose outcome this process
+          // failed to write down. Nothing here can turn into a second
+          // submission.
+        }
       };
 
       const run = async (): Promise<LoginResult> => {
@@ -211,7 +228,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             return {
               status: "indeterminate",
               runRef,
-              effectRef: effectRef ?? mintReference("beff"),
+              ...(effectRef ? { effectRef } : {}),
             };
           if (outcome.kind === "blocked")
             return { status: "blocked", runRef, reason: outcome.reason };
@@ -325,7 +342,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             return {
               status: "indeterminate",
               runRef,
-              effectRef: effectRef ?? mintReference("beff"),
+              ...(effectRef ? { effectRef } : {}),
             };
           return { status: "blocked", runRef, reason: "provider-error" };
         } finally {

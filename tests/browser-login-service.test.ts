@@ -7,6 +7,7 @@ import {
 import {
   createEffectLedger,
   effectIsIndeterminate,
+  type EffectLedger,
 } from "../src/server/browser-effects.js";
 import { createBrowserLoginService } from "../src/server/browser-login-service.js";
 import { createBrowserSessionRegistry } from "../src/server/browser-sessions.js";
@@ -164,10 +165,15 @@ function planFor(overrides: Record<string, unknown> = {}) {
 
 function serviceWith(
   backend: ReturnType<typeof stubBackend>,
-  options: { verifiers?: boolean; effects?: boolean } = {},
+  options: {
+    verifiers?: boolean;
+    effects?: boolean;
+    /** Stand in a ledger that fails where a real store can fail. */
+    ledger?: EffectLedger;
+  } = {},
 ) {
   const sessions = createBrowserSessionRegistry({ store });
-  const effects = createEffectLedger({ store });
+  const effects = options.ledger ?? createEffectLedger({ store });
   const service = createBrowserLoginService({
     sessions,
     ...(options.effects === false ? {} : { effects }),
@@ -341,6 +347,18 @@ describe("a submission whose outcome never came back", () => {
     },
   });
 
+  /** A page that submits once, successfully, and then has nothing left to do. */
+  const submittingPage = (): Partial<CeremonyPage> => {
+    let clicked = false;
+    return {
+      snapshot: async () => (clicked ? emptyPage : loginPage),
+      submissionTarget: async () => origin,
+      click: async () => {
+        clicked = true;
+      },
+    };
+  };
+
   test("EFFECT-LOST: a dispatch with no answer is undetermined, not blocked", async () => {
     const backend = stubBackend(
       { status: 200, body: '{"account":"ada"}' },
@@ -361,10 +379,90 @@ describe("a submission whose outcome never came back", () => {
         `expected an undetermined outcome, got ${JSON.stringify(result)}`,
       );
       if (result.status !== "indeterminate") return;
+      // A ledger is configured here, so the reference must be present and must
+      // resolve. The case below covers the deployment that has no ledger.
+      assert.ok(
+        result.effectRef,
+        "an attempt recorded in a ledger must say where it was recorded",
+      );
       assert.match(result.effectRef, /^beff_[0-9a-f]{32}$/);
       assert.equal(
         effectIsIndeterminate(await effects.read(actor, result.effectRef)),
         true,
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("EFFECT-NOLEDGER: uncertainty is reported without inventing a record", async () => {
+    // A deployment with no ledger still has to say that something was
+    // dispatched and nobody learned the answer: that is the part a caller acts
+    // on. What it must not do is hand back an `effectRef` nobody can look up,
+    // which reads as a durable record and is a freshly minted string.
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      vanishingPage(),
+    );
+    const { sessions, service } = serviceWith(backend, { effects: false });
+    try {
+      const result = await service.login(actor, { plan: planFor() });
+      assert.equal(
+        result.status,
+        "indeterminate",
+        `expected an undetermined outcome, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "indeterminate") return;
+      assert.equal(
+        result.effectRef,
+        undefined,
+        "there is no ledger, so there is no reference to give",
+      );
+    } finally {
+      await sessions.disposeAll();
+    }
+  });
+
+  test("EFFECT-UNWRITABLE: a ledger that cannot close the record keeps the answer", async () => {
+    // Closing the record is bookkeeping about an attempt that is already over.
+    // A store failure there must not discard a verified login's `sessionRef`,
+    // because this call has already retained the browser that holds it and
+    // nothing else will ever hand it back.
+    const backend = stubBackend(
+      { status: 200, body: '{"account":"ada"}' },
+      submittingPage(),
+    );
+    const broken: EffectLedger = {
+      ...createEffectLedger({ store }),
+      observed: async () => {
+        throw new Error("store unavailable");
+      },
+    };
+    const { sessions, service: fragile } = serviceWith(backend, {
+      ledger: broken,
+    });
+    try {
+      const result = await fragile.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "unwritable-1",
+      });
+      assert.equal(
+        result.status,
+        "verified",
+        `expected the login's own answer, got ${JSON.stringify(result)}`,
+      );
+      if (result.status !== "verified") return;
+      assert.ok(result.sessionRef, "the retained session must still be named");
+      // And the record it failed to close stays dispatched, so a replay of the
+      // same key reports uncertainty rather than logging in a second time.
+      const replay = await fragile.login(actor, {
+        plan: planFor(),
+        idempotencyKey: "unwritable-1",
+      });
+      assert.equal(
+        replay.status,
+        "indeterminate",
+        `expected the unclosed record to refuse a replay, got ${JSON.stringify(replay)}`,
       );
     } finally {
       await sessions.disposeAll();
