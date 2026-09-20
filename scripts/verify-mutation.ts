@@ -4,17 +4,37 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
-/** Stream only known filenames and phase/status metadata, never child diagnostics. */
+/**
+ * Inventory case names present in a line, and none that is only part of
+ * another that is: "a window" inside "a window that closes" is not a second
+ * case that failed, it is the same one, and reporting both would be a
+ * diagnostic that reads as two failures.
+ */
+function namedCases(line: string, cases: readonly string[]): string[] {
+  const found = cases.filter((name) => name.length > 0 && line.includes(name));
+  return found.filter(
+    (name) => !found.some((other) => other !== name && other.includes(name)),
+  );
+}
+
+/**
+ * Stream only known filenames, known case names and phase/status metadata,
+ * never child diagnostics.
+ */
 export async function mutationProgress(
   command: string,
   args: string[],
   inventory: readonly string[],
   emit: (record: Record<string, string | number | null>) => void,
+  /** The case names the repository authors, for naming which case failed. */
+  cases: readonly string[] = [],
 ) {
   const started = performance.now();
   let initial = true;
   /** Inside Stryker's list of the files that failed the initial test run. */
   let dryRunFailed = false;
+  /** The last file Stryker named in that list, when the inventory knows it. */
+  let failedFile: string | undefined;
   const record = (value: Record<string, string | number | null>) =>
     emit({ elapsedMs: Math.round(performance.now() - started), ...value });
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -71,11 +91,41 @@ export async function mutationProgress(
       // Each name is still matched against the inventory before it is
       // recorded, so what leaves here is an allowlisted filename and never a
       // diagnostic — the same guarantee as before, now on a line that exists.
+      //
+      // The list has a second kind of line, captured from the same real run:
+      //
+      //     \ttests/browser-snapshot.test.ts
+      //     \t\tsynthetic probe: a case that fails: synthetic probe: a case that fails
+      //
+      // The tap runner names each file as the test, and gives as its failure
+      // message the TAP failures as `fullname: name` — which is the only place
+      // the *case* that failed is named. A hang that the profile's bound turns
+      // into a failure lands here with the hung test's name, and a shard that
+      // said only "browser-executor.test.ts" for a day could have said which
+      // of its forty-three cases never settled. The name is matched against
+      // the case inventory, never quoted: the same rule as for files, and a
+      // line that also carries something nobody listed carries it no further.
+      // A file the inventory does not know gets no case attributed to it
+      // either; a case without a file it belongs to is half a diagnostic.
       if (initial && dryRunFailed) {
-        const named = line.trim();
-        if (inventory.includes(named))
-          record({ phase: "initial-failure", file: named });
-        else dryRunFailed = false;
+        if (!line.startsWith("\t")) {
+          dryRunFailed = false;
+          failedFile = undefined;
+        } else if (line.startsWith("\t\t")) {
+          if (failedFile !== undefined)
+            for (const name of namedCases(line, cases))
+              record({
+                phase: "initial-failure",
+                file: failedFile,
+                case: name,
+              });
+        } else {
+          const named = line.trim();
+          if (inventory.includes(named)) {
+            failedFile = named;
+            record({ phase: "initial-failure", file: named });
+          } else failedFile = undefined;
+        }
       }
       if (
         initial &&
@@ -112,11 +162,11 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const inventory = JSON.parse(
+  const { files, names } = JSON.parse(
     execFileSync(process.execPath, ["scripts/test.mjs", "all", "--inventory"], {
       encoding: "utf8",
     }),
-  ).files as string[];
+  ) as { files: string[]; names: string[] };
   process.exitCode = await mutationProgress(
     process.execPath,
     [
@@ -133,7 +183,8 @@ if (
       "--fileLogLevel",
       "off",
     ],
-    inventory,
+    files,
     (record) => console.log(JSON.stringify(record)),
+    names,
   );
 }

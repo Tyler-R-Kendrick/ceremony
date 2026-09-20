@@ -74,11 +74,20 @@ test("every file in the dry run's failure list is named, not just the first", as
   // diagnostic that is right often enough to be trusted and wrong exactly when
   // several suites go at once — which is the shape every intermittent in this
   // repository has had.
+  //
+  // The list is two lines per file, and this case used to feed only the first
+  // kind: file after file, no message lines between. Under that invented
+  // shape the detector named both files; under the real one - captured below
+  // from a run with an induced failure - the message line ended the list and
+  // the second file went unnamed. The shape is Stryker's now.
   const records: Array<Record<string, string | number | null>> = [];
   const source = [
     'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
     'console.log("\\ttests/one.test.ts")',
+    'console.log("\\t\\tone case: one case")',
     'console.log("\\ttests/two.test.ts")',
+    'console.log("\\t\\ttwo case: two case")',
+    'console.log("16:00:01 (612) ERROR Stryker There were failed tests in the initial test run.")',
     "setTimeout(() => process.exit(1), 30)",
   ].join(";");
   const code = await mutationProgress(
@@ -91,6 +100,98 @@ test("every file in the dry run's failure list is named, not just the first", as
   assert.deepEqual(
     records.filter((r) => r.phase === "initial-failure").map((r) => r.file),
     ["tests/one.test.ts", "tests/two.test.ts"],
+  );
+  // With no case inventory given, the message lines name nothing.
+  assert.equal(JSON.stringify(records).includes("one case"), false);
+});
+
+test("a dry-run failure names the case that failed, from the inventory and nothing else", async () => {
+  // The line is Stryker's, captured from a dry run of the one-file profile
+  // with a failing case induced: the tap runner names the file as the test
+  // and gives the TAP failures as `fullname: name`, so the case that failed
+  // is on the second line and nowhere else. A hang the profile's bound turns
+  // into a failure lands here with the hung test's name. The same line is
+  // made to carry a name nobody listed, which must not travel.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("20:42:01 (13202) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\ttests/browser-snapshot.test.ts")',
+    'console.log("\\t\\tsynthetic probe: a case that fails on purpose: synthetic probe: a case that fails on purpose, private case nobody listed: private case nobody listed")',
+    'console.log("20:42:01 (13202) ERROR Stryker There were failed tests in the initial test run.")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", source],
+    ["tests/browser-snapshot.test.ts"],
+    (record) => records.push(record),
+    ["synthetic probe: a case that fails on purpose", "some other listed case"],
+  );
+  assert.equal(code, 1);
+  const failures = records.filter((r) => r.phase === "initial-failure");
+  assert.deepEqual(
+    failures.map(({ elapsedMs: _elapsed, ...rest }) => rest),
+    [
+      { phase: "initial-failure", file: "tests/browser-snapshot.test.ts" },
+      {
+        phase: "initial-failure",
+        file: "tests/browser-snapshot.test.ts",
+        case: "synthetic probe: a case that fails on purpose",
+      },
+    ],
+  );
+  assert.equal(JSON.stringify(records).includes("nobody listed"), false);
+});
+
+test("a case is not attributed to a file the inventory does not know", async () => {
+  // Half a diagnostic is worse than none: a case name with no file it belongs
+  // to reads as a claim about the wrong suite, and the file on that line is
+  // the one thing there nobody allowlisted.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\t/private-checkout/tests/unlisted-private.test.ts")',
+    'console.log("\\t\\tlisted case: listed case")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", source],
+    ["tests/one.test.ts"],
+    (record) => records.push(record),
+    ["listed case"],
+  );
+  assert.equal(code, 1);
+  assert.equal(
+    records.some((r) => r.phase === "initial-failure"),
+    false,
+  );
+  assert.equal(JSON.stringify(records).includes("unlisted-private"), false);
+});
+
+test("of two nested inventory names only the one that failed is reported", async () => {
+  // "a window" is part of "a window that closes"; when the longer one fails,
+  // reporting the shorter too would read as a second failure that never
+  // happened.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("16:00:01 (612) ERROR DryRunExecutor One or more tests failed in the initial test run:")',
+    'console.log("\\ttests/one.test.ts")',
+    'console.log("\\t\\ta window that closes: a window that closes")',
+    "setTimeout(() => process.exit(1), 30)",
+  ].join(";");
+  await mutationProgress(
+    process.execPath,
+    ["-e", source],
+    ["tests/one.test.ts"],
+    (record) => records.push(record),
+    ["a window", "a window that closes"],
+  );
+  assert.deepEqual(
+    records
+      .filter((r) => r.phase === "initial-failure" && r.case !== undefined)
+      .map((r) => r.case),
+    ["a window that closes"],
   );
 });
 
