@@ -778,7 +778,7 @@ build has no external bridge" and sends its reader to check the wrong thing.
 `http://127.0.0.1:4173.evil.example` is exactly such an address, because the
 URL parser reads the rest as a port, so the refusal a probing origin got was
 the one describing a misconfigured artifact. Sender origins parse through one
-helper now, at all five sites, and unreadable is `unapproved-origin`.
+helper now, at all four sites, and unreadable is `unapproved-origin`.
 Restoring the throw fails the case.
 
 ## What the numbers do not establish
