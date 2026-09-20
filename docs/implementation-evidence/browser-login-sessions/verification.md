@@ -843,6 +843,23 @@ profile says per-test coverage still works: 25 mutants, 23 killed, 2
 survived, none without coverage - the numbers the shard produced on CI
 before the change.
 
+The bound fired on `main`'s next run, in two of nine shards, both at
+`browser-executor.test.ts` about 390 seconds after the file started: its
+ordinary ninety, then the five-minute bound. A named failure at six and a
+half minutes where there had been twenty-five silent ones - and still only a
+file name, because the progress script surfaces inventory names alone and
+the case that failed is on a line it discarded. Stryker's failure record,
+captured from a real run with a failing case induced, is two lines per file:
+the file the tap runner names as the test, then `fullname: name` for each
+TAP failure, which is the only place the case is named. The script now reads
+that second line and names the case from the case inventory - repository
+content, never quoted output - so a shard that could only say
+`browser-executor.test.ts` says which of its forty-three cases never settled.
+Capturing the real shape also found the detector's multi-file case passing on
+an invented one: file line after file line, no message lines between, where
+the real message line ended the list after the first file. The case feeds
+Stryker's shape now, and fails on the old detector.
+
 ## popupBinding: the rule first, then the flag
 
 The last capability this table refused is true on every engine now, and by
