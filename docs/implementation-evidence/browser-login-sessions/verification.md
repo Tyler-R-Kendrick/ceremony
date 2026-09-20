@@ -697,6 +697,47 @@ Verified the way the old one was not: the induced failure now produces
 `{"phase":"initial-failure","file":"tests/authoring-termination.test.ts"}`
 against real Stryker, and the cases feed the line copied from that run.
 
+## Three gaps closed, and the one that was a defect
+
+**TARGET-CLOSED was not a missing case, it was a wrong answer.** `movedOn()`
+classified `Target closed` and `Target page, context or browser has been
+closed` alongside `Execution context was destroyed` and `navigat`, so a tab
+that went away reported `stale-document`. The two call for opposite responses
+and had been sharing one. A document that moved on leaves a document to read,
+which is exactly why a refusal naming it is now worth re-reading once; a
+target that closed leaves nothing, so that re-read is spent on a page that
+cannot come back, and the attempt then tells its reader the _document_ moved -
+sending them to the guards that compare documents, for a tab that is not
+there. The re-read landing is what turned a merely imprecise name into a
+wasted step. `target-closed` is its own refusal now, it is not re-readable,
+and restoring the shared answer fails both cases.
+
+**ORIGIN-REDIRECT nearly shipped as a case that passed for the wrong reason.**
+`/sso?redirect=1` answers 302 to an origin the plan does not declare; the
+attempt stops and the undeclared origin receives nothing, on all three
+engines. The comment first said this pinned the navigation guard. Removing
+that guard left the case green - the recipient check at the fill stops it too,
+and end to end the two are indistinguishable. That is the same fault as the
+CAP-HONEST cases and the mutation detector, caught this time before it landed,
+by the habit of restoring the defect rather than trusting the green.
+
+So the navigation guard is pinned separately, by the one difference that
+shows: the undeclared page is never _read_. The nearest existing case does not
+cover that - `inertPage` never records `snapshot`, so its "nothing is done on
+an unpermitted origin" has never included "nothing is read". Reading is the
+part worth pinning, because an observation is what the interpreter is shown,
+and on a host model that means a page nobody declared leaving the deployment.
+
+**ORIGIN-RESOURCE pins a limit rather than a protection.** `/resourced` is an
+ordinary sign-in page on a declared origin that also pulls one image from an
+undeclared one, as most real sign-in pages do. The login completes, the
+credential reaches only the declared origin, and the undeclared origin records
+the fetch. `strongEgressContainment` is false on every engine and this is what
+that costs, measured rather than implied. It is written as a _passing_ case on
+purpose: a gap nobody has measured is remembered as smaller than it is, and
+the day something does enforce containment this case fails and has to be
+rewritten - which is the notification that the claim changed.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is

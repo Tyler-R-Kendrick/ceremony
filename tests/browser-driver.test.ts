@@ -1267,6 +1267,95 @@ test("a frame is chosen by origin, and the page is not read instead", async () =
   assert.equal(framesRead, 1);
 });
 
+test("ORIGIN-REDIRECT: an undeclared origin is refused before it is read", async () => {
+  // Two separate protections refuse a credential on an undeclared origin: the
+  // navigation check at the top of the loop, and the recipient check at the
+  // fill. End to end they are indistinguishable - remove either and
+  // ORIGIN-REDIRECT in the conformance suite stays green - so the refusal
+  // needs pinning somewhere that can tell them apart.
+  //
+  // "The driver leaves an origin it was never permitted to act on" above is
+  // the nearest existing case, and it does not cover this: `inertPage` never
+  // records `snapshot`, so its "nothing is done" has never included "nothing
+  // is read". `handleGraph` records every observation, which is what makes
+  // the distinction visible here.
+  //
+  // And reading is the part worth pinning. An observation is what the
+  // interpreter is shown, so a page nobody declared would reach whatever is
+  // doing the reasoning - on a host model, that means leaving the deployment
+  // entirely. The navigation guard is what makes "not admitted" mean "not
+  // looked at" rather than merely "not typed into".
+  const graph = handleGraph({ origin: "https://provider.example" });
+  graph.navigate("https://elsewhere.example/signin");
+  const page = createPlaywrightCeremonyPage(graph.page);
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({ action: "fill", element: 0, role: "username" }),
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "untrusted-origin",
+  );
+  assert.ok(
+    !graph.calls.includes("observe"),
+    "an origin nobody declared must not be read, let alone acted on",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+test("TARGET-CLOSED: a tab that went away is not a document that moved on", async () => {
+  // These shared an answer until now, and they call for opposite responses.
+  // A document that moved leaves a document to read, which is why one re-read
+  // is worth spending. A closed target leaves nothing: the re-read is spent on
+  // a page that cannot come back, and `stale-document` then sends whoever
+  // reads it to the guards that compare documents, for a tab that is not
+  // there.
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    evaluateHandle: async () => {
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "target-closed",
+  );
+});
+
+test("a closed target ends the attempt instead of being read again", async () => {
+  // The bound on re-reading is what makes it safe, and a target that cannot
+  // come back must not consume it. One attempt, one refusal, no second look.
+  const graph = handleGraph();
+  let reads = 0;
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    evaluateHandle: async () => {
+      reads += 1;
+      throw new Error("Target closed");
+    },
+  });
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({ action: "done" }),
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "target-closed",
+  );
+  assert.equal(reads, 1);
+});
+
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
   const graph = handleGraph();
   const page = createPlaywrightCeremonyPage({

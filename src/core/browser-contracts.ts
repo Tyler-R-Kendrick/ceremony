@@ -180,6 +180,17 @@ export const blockedReasons = [
    */
   "unapproved-recipient",
   /**
+   * The page, tab or browser this attempt was driving is gone.
+   *
+   * Distinct from `stale-document` on purpose, and the distinction is the
+   * whole value: a document that moved on leaves a document to read, so the
+   * attempt reads it again once before giving up. A closed target leaves
+   * nothing, so re-reading is a wasted step and "the document moved" is a
+   * report that sends its reader to the wrong place — the guards that compare
+   * documents, for a tab that no longer exists.
+   */
+  "target-closed",
+  /**
    * The plan says this login happens in a frame at a named origin, and no
    * such frame is on the page. Failing closed matters more here than most
    * places: the alternative is quietly acting in the embedding document,
