@@ -282,10 +282,10 @@ export function compileLoginPlan(
     // this compiler exists to prevent, one step further along than a wizard
     // rendering a setting the server never compiled.
     //
-    // `frameBinding` is false on every engine, so this is a refusal today.
-    // That is the point: being told no leaves a person free to choose
-    // something else, and the day something enforces frames this same line
-    // starts admitting them instead.
+    // `frameBinding` was false on every engine when this was written, so
+    // this was a refusal, and being told no leaves a person free to choose
+    // something else. Then #66 enforced frames and this same line started
+    // admitting them - the route a requirement here is meant to take.
     ...((draft.frameOrigins ?? []).length > 0 ? { frameBinding: true } : {}),
   };
   const unmet = unmetCapabilities(backend, required);

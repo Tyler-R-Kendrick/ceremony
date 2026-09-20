@@ -268,23 +268,22 @@ describe("plan identity", () => {
     assert.equal(plan.required.retainedSession, true);
   });
 
-  for (const capability of ["popupBinding"] as const)
+  for (const capability of ["strongEgressContainment"] as const)
     test(`CAP-HONEST: a plan requiring ${capability} is refused, on every engine`, () => {
-      // These were declared true on all three backends with nothing
-      // implementing either, so `unmetCapabilities` admitted a plan that
-      // asked for one and the login then ran without it. Being told yes is
-      // worse than being refused: a caller that hears "no" can choose something
-      // else, and a caller that hears "yes" proceeds on a promise.
+      // `popupBinding`, `frameBinding` and `statePersistence` were declared
+      // true on all three backends with nothing implementing any of them, so
+      // `unmetCapabilities` admitted a plan that asked for one and the login
+      // then ran without it. Being told yes is worse than being refused: a
+      // caller that hears "no" can choose something else, and a caller that
+      // hears "yes" proceeds on a promise.
       //
-      // `statePersistence` was the third and `frameBinding` the fourth, and
-      // both have left this list the only way anything should: something
-      // implements them now, and a case on a real browser of each engine
-      // drives it - LIFE-STATE for one, TARGET-FRAME for the other. The
-      // cases below are what keep that honest from this side.
-      //
-      // `popupBinding` is not waiting on an implementation. `browser-executor`
-      // deliberately aborts a popup and closes the context, so it waits on a
-      // decision about whether adopting popup targets can be made safe.
+      // All three have left this list the only way anything should: something
+      // implements each now, and a case on a real browser of every engine
+      // drives it - LIFE-STATE, TARGET-FRAME and TARGET-POPUP. What remains
+      // is the one capability nothing here provides, and it is refused for
+      // the same reason the others once were: ORIGIN-RESOURCE measures the
+      // subresource that leaves, and a plan asking for containment is asking
+      // for something no engine in this table can promise.
       for (const engine of ["chromium", "firefox", "webkit"] as const)
         assert.throws(
           () =>
@@ -303,16 +302,16 @@ describe("plan identity", () => {
     "retainedSession",
     "statePersistence",
     "frameBinding",
+    "popupBinding",
   ] as const)
     test(`CAP-HONEST: ${capability} is real, and still granted on every engine`, () => {
       // The other half of the claim. A correction that quietly turned
       // everything false would satisfy the cases above and break every real
       // login, so each capability that *is* implemented must still compile.
       //
-      // Five capabilities can be required of a backend at all. These three
-      // are the ones every engine offers: `strongEgressContainment` is false
-      // everywhere and truthfully so, and `popupBinding` is false because
-      // the executor deliberately does not adopt popups.
+      // Five capabilities can be required of a backend at all. These four
+      // are the ones every engine offers; `strongEgressContainment` is false
+      // everywhere and truthfully so.
       for (const engine of ["chromium", "firefox", "webkit"] as const) {
         const plan = compileLoginPlan(
           draft({ engine, required: { [capability]: true } }),

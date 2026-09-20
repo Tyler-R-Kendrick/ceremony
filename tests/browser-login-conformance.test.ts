@@ -787,6 +787,84 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("TARGET-POPUP: the sign-in happens in a window the page opens, and comes back", async () => {
+      // The shape `popupBinding` exists for. `/popup` has no fields of its
+      // own: a button opens the provider's form in a window, the credential
+      // is typed there, and the window reports back and closes. A driver
+      // bound to the page would press the button and then watch a page that
+      // never changes; one that adopted any window the page opened would
+      // type wherever the page pointed it. This adopts a window only at an
+      // origin the plan admits, only while it is the one such window, and
+      // hands the attempt back to the page when the window closes.
+      fixture.reset();
+      const { sessions, service, shown } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/popup"),
+            required: { popupBinding: true },
+          }),
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login through the window, got ${shown(result)}`,
+        );
+        if (result.status !== "verified") return;
+        // The provider's own record says the credential went through the
+        // window's form and nowhere else, and the session is the one the
+        // window opened - shared with the page that verification reads
+        // through, which is what "comes back" means.
+        const submissions = fixture.submissions();
+        assert.deepEqual(
+          submissions.map((submission) => submission.path),
+          ["/signin-window"],
+        );
+        assert.equal(submissions[0]?.account, owner.account);
+        assert.equal(submissions[0]?.passwordMatched, true);
+        assert.equal(fixture.sessionsFor(owner.account).length, 1);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("TARGET-POPUP: a window somewhere undeclared stops the attempt", async () => {
+      // Same page, same button, and the window opens at the partner origin,
+      // which this plan does not admit. It is refused before it is read - an
+      // observation is what an interpreter is shown - and the partner's
+      // silence says no credential followed it there.
+      fixture.reset();
+      fixture.partner.reset();
+      const { sessions, service, shown } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/popup-elsewhere"),
+            required: { popupBinding: true },
+          }),
+        });
+        assert.equal(
+          result.status,
+          "blocked",
+          `a window outside the declared origins must stop, got ${shown(result)}`,
+        );
+        assert.equal(
+          result.status === "blocked" ? result.reason : undefined,
+          "popup-undeclared",
+        );
+        assert.deepEqual(fixture.partner.submissions(), []);
+        assert.equal(fixture.partner.canary.sawValue(owner.password), false);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
     test("ORIGIN-REDIRECT: a redirect somewhere undeclared stops the attempt", async () => {
       // Navigation scope is not a hint. `/sso?redirect=1` answers 302 to the
       // partner origin, which this plan does not declare, so the attempt has

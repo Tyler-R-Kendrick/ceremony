@@ -350,8 +350,10 @@ const projections: Record<AuthFamily, FamilyProjection> = {
     // says so, rather than leaving a demand nothing can meet.
     //
     // The rows that genuinely do hand off through a window - OAuth, the GitHub
-    // App, provider-run registration - keep requiring `popupBinding` and are
-    // now correctly refused until something implements it. That refusal is the
+    // App, provider-run registration - keep requiring `popupBinding`, and the
+    // engines now enforce it: a window the page opens is acted in only at an
+    // origin the plan admits, and the attempt comes back to the page when it
+    // closes. Until that landed they were refused by name, which was the
     // point: being told no leaves a person free to choose something else.
     required: () => ({}),
     notCarried: [],
