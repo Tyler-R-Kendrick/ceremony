@@ -1,4 +1,9 @@
-import { test, expect, type Page } from "../fixtures/browser-test.js";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+} from "../fixtures/browser-test.js";
 import { AxeBuilder } from "@axe-core/playwright";
 
 /**
@@ -148,7 +153,7 @@ const verifiedAnswer = (
 });
 
 /** The first QA-PR configuration: one page, nobody interrupted, a personal account. */
-async function configureFirst(drawer: ReturnType<Page["getByRole"]>) {
+async function configureFirst(drawer: Locator) {
   await drawer.getByLabel("Entry origin").fill("https://first.example");
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await drawer.getByLabel("Interruption budget").selectOption("none");

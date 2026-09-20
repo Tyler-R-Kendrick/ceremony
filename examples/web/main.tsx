@@ -278,15 +278,6 @@ function App() {
         capabilities: ["verification"],
       }));
     /**
-     * What this host offers for a row that can actually run.
-     *
-     * A declared row is left alone: it reaches the studio rather than a
-     * ceremony, so nothing it claims is ever acted on. WebMCP is not
-     * per-connector — any connection this page hosts is driveable from a
-     * WebMCP client — and teaching is the one the server names per connector,
-     * so it is asked for by name rather than assumed either way.
-     */
-    /**
      * Rows the directory itself declares. No manifest carries their id, so
      * they stay declared once the host answers: a guess made for one of them
      * before the answer is never confirmed, and never withdrawn either.
@@ -296,6 +287,15 @@ function App() {
         .filter((entry) => entry.support === "declared")
         .map((entry) => entry.id),
     );
+    /**
+     * What this host offers for a row that can actually run.
+     *
+     * A declared row is left alone: it reaches the studio rather than a
+     * ceremony, so nothing it claims is ever acted on. WebMCP is not
+     * per-connector — any connection this page hosts is driveable from a
+     * WebMCP client — and teaching is the one the server names per connector,
+     * so it is asked for by name rather than assumed either way.
+     */
     const hosted = (entry: CatalogEntry): CatalogEntry => {
       // Only when the host has actually answered. `support` is derived from
       // the manifests in `config`, and before that request lands `manifests`
