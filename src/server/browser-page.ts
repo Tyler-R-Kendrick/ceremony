@@ -11,6 +11,23 @@ import type { CeremonyPage } from "./browser-driver.js";
 export { StaleTargetError, DispatchUncertain } from "./browser-targets.js";
 
 /**
+ * A window the page opened, as Playwright reports one. A popup `Page` already
+ * satisfies `BoundPageLike`; the additions are what adopting a window needs -
+ * whether it is still there, when its first document has arrived, and the
+ * windows *it* opens, which are the page's doing one step removed and are
+ * bound by the same rule.
+ */
+export interface PopupLike extends BoundPageLike {
+  isClosed(): boolean;
+  waitForLoadState(
+    state?: "load" | "domcontentloaded" | "networkidle",
+    options?: { timeout?: number },
+  ): Promise<void>;
+  on(event: "close", listener: () => void): unknown;
+  on(event: "popup", listener: (popup: PopupLike) => void): unknown;
+}
+
+/**
  * The part of a Playwright page this adapter uses. Declaring it structurally
  * keeps `playwright-core` out of the driver's type surface and lets unit tests
  * substitute a recording page while the browser suite passes a real one.
@@ -44,6 +61,13 @@ export interface PlaywrightPageLike extends BoundPageLike {
    * make any guess about it wrong.
    */
   mainFrame(): BoundPageLike;
+  /**
+   * Windows this page opens, as it opens them, in the shape Playwright's
+   * `popup` event delivers them. Optional: a page that cannot report them can
+   * still be driven, only never with `popupOrigins`, which refuses at
+   * construction rather than binding to windows it would never hear about.
+   */
+  on?(event: "popup", listener: (popup: PopupLike) => void): unknown;
 }
 
 /**
@@ -66,10 +90,73 @@ export function createPlaywrightCeremonyPage(
      * case — means the top-level document and nothing else.
      */
     frameOrigins?: readonly string[];
+    /**
+     * Origins at which a window the page opens is where this login continues.
+     * Empty - the ordinary case - means a window the page opens is not this
+     * attempt's concern: the page stays the target, whatever it opened.
+     */
+    popupOrigins?: readonly string[];
   } = {},
 ): CeremonyPage {
   const settleTimeout = options.settleTimeoutMs ?? 5_000;
   const frameOrigins = [...(options.frameOrigins ?? [])];
+  const popupOrigins = [...(options.popupOrigins ?? [])];
+
+  /**
+   * Windows the page opened - or a window it opened did - while they are
+   * open. Tracked from the page's own report rather than enumerated from the
+   * context, so a window nobody here opened is never a candidate: being in
+   * the same browser is not the same as being this page's doing.
+   */
+  const windows = new Set<PopupLike>();
+  const watch = (opened: PopupLike) => {
+    windows.add(opened);
+    opened.on("close", () => windows.delete(opened));
+    opened.on("popup", watch);
+  };
+  if (popupOrigins.length > 0) {
+    if (!page.on)
+      throw new Error(
+        "popupOrigins needs a page that reports the windows it opens",
+      );
+    page.on("popup", watch);
+  }
+  /** The window the latest resolution chose, for the click that closes it. */
+  let adopted: PopupLike | undefined;
+
+  /**
+   * The window this attempt acts in, when a window is where it is.
+   *
+   * This is the rule frames did not need. A frame is there to be found: name
+   * it, resolve it on every read, refuse when it is absent. A window is not
+   * there until the page opens it, so "act in the declared window" would
+   * refuse the attempt before it pressed the button that opens one. The rule
+   * is therefore: act in the page until a window at an admitted origin
+   * exists, then act in that, and act in the page again once it has closed.
+   *
+   * What makes that safe is the same discipline as the frame rule, applied
+   * on every read and every action. Only a window the page itself opened is a
+   * candidate. One at an origin the plan does not admit ends the attempt -
+   * the page has chosen where the next document lives, and nothing in it is
+   * read, let alone acted in. Two at admitted origins identify no document,
+   * and refuse for the reason two frames do. A window that has not committed
+   * its first document is at `about:blank` and is not anything yet: neither
+   * adopted nor refused, and `settle` is what waits for it.
+   */
+  const windowOf = (): PopupLike | undefined => {
+    adopted = undefined;
+    if (popupOrigins.length === 0) return undefined;
+    const arrived = [...windows].filter(
+      (opened) => !opened.isClosed() && opened.url() !== "about:blank",
+    );
+    if (
+      arrived.some((opened) => !popupOrigins.includes(originOf(opened.url())))
+    )
+      throw new StaleTargetError("popup-undeclared");
+    if (arrived.length > 1) throw new StaleTargetError("popup-ambiguous");
+    adopted = arrived[0];
+    return adopted;
+  };
 
   /**
    * Which document this attempt observes and acts in.
@@ -89,6 +176,10 @@ export function createPlaywrightCeremonyPage(
    * the statement that it is not that one.
    */
   const target = (): BoundPageLike => {
+    // A window comes first: inside one, the attempt acts in the window's own
+    // document, and a frame named for the page is not looked for there.
+    const opened = windowOf();
+    if (opened) return opened;
     if (frameOrigins.length === 0) return page;
     const main = page.mainFrame();
     const matches = page
@@ -119,9 +210,33 @@ export function createPlaywrightCeremonyPage(
       // A page that keeps a connection open is not a failed step; the driver's
       // own stall detection decides whether progress stopped.
     }
+    // A window that has just opened is at `about:blank` until its first
+    // document commits. Waiting here, bounded the same way, is what lets the
+    // next read see where the window went instead of reading past it.
+    await Promise.all(
+      [...windows]
+        .filter((opened) => !opened.isClosed())
+        .map((opened) =>
+          opened
+            .waitForLoadState("domcontentloaded", { timeout: settleTimeout })
+            .catch(() => {}),
+        ),
+    );
   };
   return {
-    url: async () => page.url(),
+    url: async () => {
+      // The window's address when a window is where the attempt is, so the
+      // driver's own origin guard and callback check apply to the document
+      // being acted in. A refusal belongs to the read that follows, under
+      // its own name; until then the address reported is the page's.
+      let opened: PopupLike | undefined;
+      try {
+        opened = windowOf();
+      } catch {
+        opened = undefined;
+      }
+      return opened ? opened.url() : page.url();
+    },
     goto: async (target) => {
       await targets.release();
       await page.goto(target, { waitUntil: "domcontentloaded" });
@@ -154,9 +269,24 @@ export function createPlaywrightCeremonyPage(
       // post-action destination re-read, so a form re-pointed during
       // Playwright's actionability wait is reported as uncertainty rather than
       // as a step that went where it was approved to go.
-      await targets.act(element, (handle) => handle.click(), {
-        dispatches: true,
-      });
+      try {
+        await targets.act(element, (handle) => handle.click(), {
+          dispatches: true,
+        });
+      } catch (error) {
+        // A window that closed under the click it was given is the ordinary
+        // end of a window's job - the submission went, the window reported
+        // back and left - and not a tab that vanished under the attempt. The
+        // page that opened it is still here, and the next read is of it.
+        if (
+          error instanceof StaleTargetError &&
+          error.reason === "target-closed" &&
+          adopted !== undefined &&
+          adopted.isClosed()
+        )
+          return;
+        throw error;
+      }
     },
     submissionTarget: async (element) => {
       const destination = targets.destinationOf(element);

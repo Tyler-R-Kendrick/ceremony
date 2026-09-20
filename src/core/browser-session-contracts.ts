@@ -183,6 +183,10 @@ export const browserOperationReasons = [
   "frame-missing",
   /** Two or more frames at the named origin, so none of them is "the frame". */
   "frame-ambiguous",
+  /** The page opened a window at an origin the plan does not admit. */
+  "popup-undeclared",
+  /** Two or more windows at admitted origins, so none of them is "the window". */
+  "popup-ambiguous",
   /** The element that was approved is not the element now in the page. */
   "stale-element",
   /** No approval was held to act against; none was taken, or it was released. */

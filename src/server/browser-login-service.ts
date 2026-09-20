@@ -235,15 +235,24 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         let retained = false;
         try {
           context = await browser.openContext();
-          const { page } = await context.openPage(
+          const { page } = await context.openPage({
             // What the plan said about frames, and the only route it has to
             // the adapter. A plan that declares a frame origin requires the
             // `frameBinding` capability, so reaching here with one means the
             // backend claims to observe inside a frame.
-            plan.frameOrigins.length > 0
+            ...(plan.frameOrigins.length > 0
               ? { frameOrigins: plan.frameOrigins }
-              : {},
-          );
+              : {}),
+            // A plan that requires `popupBinding` admits a window the page
+            // opens at an origin it may navigate to, and nowhere else: the
+            // navigation scope is the statement of where this login may go,
+            // and a window is one more way of going there. Without the
+            // requirement a window the page opens is not the attempt's
+            // concern, which is what every plan got before there was a rule.
+            ...(plan.required.popupBinding === true
+              ? { popupOrigins: plan.navigationOrigins }
+              : {}),
+          });
 
           const outcome = await drive(
             actor,
@@ -639,6 +648,18 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         return { kind: "blocked", reason: "unapproved-recipient" };
       if (result.reason === "untrusted-origin")
         return { kind: "blocked", reason: "unapproved-recipient" };
+      // A document the plan did not describe - no frame where one was named,
+      // two where one was, a window somewhere undeclared, or two windows -
+      // stopped the attempt before a secret reached anything it approved.
+      // Each is carried under its own name because each sends its reader
+      // somewhere different: to the page, or to the plan's origins.
+      if (
+        result.reason === "frame-missing" ||
+        result.reason === "frame-ambiguous" ||
+        result.reason === "popup-undeclared" ||
+        result.reason === "popup-ambiguous"
+      )
+        return { kind: "blocked", reason: result.reason };
       if (
         result.reason === "consent-denied" ||
         result.reason === "human-declined"

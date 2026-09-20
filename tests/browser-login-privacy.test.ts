@@ -452,7 +452,7 @@ describe("PRIV-ERROR: a refusal names the field, never the value", () => {
     assert.throws(
       () =>
         compileLoginPlan(
-          { ...rawDraft(), required: { popupBinding: true } },
+          { ...rawDraft(), required: { strongEgressContainment: true } },
           {
             backends: managedBackends(),
             knownConnectors: new Set(["owned-fixture-login"]),
@@ -462,7 +462,7 @@ describe("PRIV-ERROR: a refusal names the field, never the value", () => {
       (error: unknown) =>
         error instanceof PlanRejected &&
         error.reason === "unsupported-capability" &&
-        error.detail === "popupBinding",
+        error.detail === "strongEgressContainment",
     );
   });
 

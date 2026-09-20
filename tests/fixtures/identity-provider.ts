@@ -297,6 +297,17 @@ async function startOrigin(
       return redirect(response, "/account", [openSession(match.account)]);
     }
 
+    if (path === "/signin-window") {
+      // `/signin`, in a window. Recorded under its own path so a case can say
+      // the credential went through the window and not through the page.
+      const match = byIdentifier(identifier);
+      const passwordMatched = !!match && match.password === password;
+      record(path, match?.account ?? identifier, passwordMatched);
+      if (!match || !passwordMatched)
+        return redirect(response, "/signin-window?error=invalid");
+      return redirect(response, "/window-done", [openSession(match.account)]);
+    }
+
     if (path === "/signin-identifier") {
       const match = byIdentifier(identifier);
       record(path, match?.account ?? identifier, false);
@@ -509,6 +520,82 @@ async function startOrigin(
         ),
       );
     }
+
+    if (path === "/popup") {
+      // A sign-in that happens in a window the page opens, which is the shape
+      // OAuth, the GitHub App and provider-run registration all take: the
+      // page has no fields of its own, a button opens the provider's form in
+      // a window, and the page learns the outcome when the window reports
+      // back and closes. A driver has to follow the credential into the
+      // window and then come back to the page that opened it.
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><p>Continue in a window.</p>` +
+            `<button id="open" type="button">Sign in</button>` +
+            `<script>
+document.getElementById("open").addEventListener("click", () => {
+  window.open("/signin-window", "signin", "popup,width=480,height=560");
+});
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data !== "signed-in") return;
+  document.body.innerHTML =
+    '<h1>Signed in</h1><p id="banner">The window has finished.</p>';
+});
+</script>`,
+        ),
+      );
+    }
+
+    if (path === "/popup-elsewhere") {
+      // The same page, opening its window somewhere the plan never admitted.
+      // Nothing about the click is different; what is different is where the
+      // next document lives, and the plan is the only thing entitled to say
+      // whether a credential may go there.
+      const target = peer();
+      if (!target)
+        return html(response, page("Sign in", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><p>Continue in a window.</p>` +
+            `<button id="open" type="button">Sign in</button>` +
+            `<script>
+document.getElementById("open").addEventListener("click", () => {
+  window.open(${JSON.stringify(`${target}/signin`)}, "signin", "popup,width=480,height=560");
+});
+</script>`,
+        ),
+      );
+    }
+
+    if (path === "/signin-window")
+      return html(
+        response,
+        page(
+          "Sign in",
+          signInForm(
+            "/signin-window",
+            identifierField + passwordField,
+            url.searchParams.get("error"),
+          ),
+        ),
+      );
+
+    if (path === "/window-done")
+      // The window's last act: tell the page that opened it, then leave.
+      return html(
+        response,
+        page(
+          "Signed in",
+          `<h1>Signed in</h1><script>
+if (window.opener) window.opener.postMessage("signed-in", location.origin);
+window.close();
+</script>`,
+        ),
+      );
 
     if (path === "/framed") {
       // A credential form served by a *different* origin, embedded. This is

@@ -32,7 +32,9 @@ export type StaleTargetReason =
   | "target-unavailable"
   | "target-closed"
   | "frame-missing"
-  | "frame-ambiguous";
+  | "frame-ambiguous"
+  | "popup-undeclared"
+  | "popup-ambiguous";
 
 export class StaleTargetError extends Error {
   constructor(
