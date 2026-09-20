@@ -8,7 +8,7 @@
       "tests/authoring-composition.test.ts",
       "tests/authoring-disambiguation.test.ts",
       "tests/authoring-origins.test.ts",
-      "tests/*.test.ts",
+      "tests/!(browser-*|extension-*|chaos|cloudflare|*.e2e).test.ts",
       "tests/contracts/*.test.ts"
     ],
     "nodeArgs": [
