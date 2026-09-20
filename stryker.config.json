@@ -16,7 +16,9 @@
       "tsx",
       "--test",
       "--experimental-test-isolation=none",
-      "--test-reporter=tap"
+      "--test-reporter=tap",
+      "--test-timeout=300000",
+      "--test-force-exit"
     ],
     "forceBail": true
   },
