@@ -649,13 +649,12 @@ the real one happens to say this month. A case that asserts a consequence
 instead of a rule passes for the wrong reason and then fails for the wrong
 reason, and both halves cost a run to find out.
 
-What is **not** built: `popupBinding`, which stays false. `browser-executor.ts`
-deliberately aborts a popup and closes the context, so that flag is not
-waiting on an implementation but on a decision about whether adopting popup
-targets can be made safe. And nothing in the wizard produces a frame origin
-yet - every projection still returns `frames: () => []` - so the capability is
-reachable through a hand-built plan and the MCP surface, not through the
-product's own configuration flow.
+What was **not** built then: `popupBinding`, which stayed false until the
+rule below was settled. And nothing in the wizard produces a frame origin yet
+
+- every projection still returns `frames: () => []` - so `frameBinding` is
+  reachable through a hand-built plan and the MCP surface, not through the
+  product's own configuration flow.
 
 ## A diagnostic that was tested into existence and never worked
 
@@ -815,6 +814,81 @@ loses every time; it fails on the old directory with the CI assertion.
 
 Both fixes are ported onto this branch so its CI runs on them; each no-ops
 once `main` carries it.
+
+## popupBinding: the rule first, then the flag
+
+The last capability this table refused is true on every engine now, and by
+the one route the table allows: something enforces it, and TARGET-POPUP
+drives it on a real browser of each engine against the provider's own record.
+
+**The rule frames did not need.** A frame is there to be found - name it,
+resolve it on every read, refuse when it is absent. A window is not there
+until the page opens it, so "act in the declared window" would refuse the
+attempt before it pressed the button that opens one. The rule is: act in the
+page until a window at an admitted origin exists, then act in that, and act
+in the page again once it has closed. Each clause is checked on every read
+and every action, exactly as the frame rule is.
+
+- Only a window the page itself opened is a candidate: reported by the page's
+  own `popup` event, never enumerated from the context, so being in the same
+  browser is not the same as being this page's doing. A window a window opens
+  is bound the same way, one step removed. The bond is to the opener, not to
+  the click that opened it: a page may open its window from a handler that
+  runs after a request completes, so "during the action" is a duration again,
+  and the case this file keeps finding is a duration standing in for an
+  event. What the click bond would add - that the window is the page's doing
+  and not a stranger's - the opener bond already says, and what it would not
+  add is anything about where the window went, which is the origin check's.
+- Admitted origins are the plan's navigation scope and nothing more. A plan
+  that requires `popupBinding` gets `popupOrigins = navigationOrigins`; a plan
+  that does not gets what every plan got before there was a rule - the page,
+  whatever it opens. No new plan field: the navigation scope is already the
+  statement of where this login may go, and a window is one more way of going
+  there.
+- A window at an origin the plan does not admit ends the attempt,
+  `popup-undeclared`, before it is read - and the page is not read instead.
+  Two at admitted origins identify no document, `popup-ambiguous`, for the
+  reason two frames do.
+- A window that has not committed its first document is at `about:blank` and
+  is not anything yet: neither adopted nor refused, and `settle` waits for it.
+- The address the driver checks is the window's while a window is where the
+  attempt is, so its navigation guard and callback check apply to the
+  document being acted in.
+- A window that closes under the click it was given is the ordinary end of a
+  window's job, not `target-closed`: the page that opened it is still there,
+  and the next read is of it.
+
+**What the cases pin.** Eight `browser-driver` cases, each red before the
+adapter knew about windows and green after: adoption at an admitted origin,
+with the page read before the window opens, the window after, and the page
+not again; an undeclared window refused before it is read, and the page too;
+two windows; a closing window handing the attempt back; `about:blank`
+neither adopted nor refused; no adoption without popup origins, the default
+pinned; construction refused for a page that cannot report its windows; and
+a click that closes the window landing as a step rather than a refusal.
+TARGET-POPUP on chromium, firefox and webkit: `/popup` has no fields, a
+button opens the provider's form in a window, the credential is typed there,
+the window reports back and closes, and the provider's record names
+`/signin-window` as the only form that received it, with one session
+opened. Its second case opens the window at the partner origin and asserts
+`popup-undeclared` and the partner's silence.
+
+**What moved with it.** CAP-HONEST's refusal list is down to
+`strongEgressContainment`, the one capability nothing here provides, and
+`popupBinding` joins the granted list. The privacy case that used
+`popupBinding` as its example of a server-derived detail uses containment.
+The service carries `frame-missing`, `frame-ambiguous`, `popup-undeclared`
+and `popup-ambiguous` under their own names rather than falling through to
+"ask the verifier": a caller told the window was undeclared goes looking at
+the plan's origins, which "unverified" would never have told them. And the
+three wizard rows that require `popupBinding` - OAuth, the GitHub App,
+provider-run registration - compile again, which was the live gap.
+
+**What is still not built.** `browser-executor.ts` keeps aborting a popup
+and closing the context; it serves authored connectors, never reads this
+table, and its protection stays as it is. Inside an adopted window, frames
+are not resolved - the attempt acts in the window's own document. And nothing
+in the wizard produces a frame origin yet.
 
 ## What the numbers do not establish
 
