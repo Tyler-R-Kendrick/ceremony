@@ -822,7 +822,10 @@ lines said only that `tests/browser-executor.test.ts` had started. Twelve
 direct runs of the file passed in about a hundred seconds each, and three
 runs of the four Playwright-heavy files in one process, in CI's order, passed
 too; the hang has only been seen under Stryker's instrumented dry run on a CI
-runner, and its cause is still open.
+runner. Its exact deadlock stayed unreproduced, but its shape did not: it
+lands only on a file that drives a real browser, and never on a unit test.
+The fix below removes that whole class of file from the dry run, on the
+evidence that none of them earns its place there.
 
 What was closed is the twenty-five minutes. The profile runs every file in
 one process, so a single test that never settles holds the whole dry run, and
@@ -859,6 +862,46 @@ Capturing the real shape also found the detector's multi-file case passing on
 an invented one: file line after file line, no message lines between, where
 the real message line ended the list after the first file. The case feeds
 Stryker's shape now, and fails on the old detector.
+
+**The fix: the dry run runs unit tests only.** Bounding and naming a hang is
+worth doing, but neither makes the shard green - a bounded hang is a failed
+dry-run test, and Stryker fails the whole run on it, faster and with a name
+rather than silently at twenty-five minutes. The shard is red either way. The
+next `main` run bore this out: the bound fired in two of nine shards at
+`browser-executor.test.ts`, and a third stalled at `chaos.test.ts` - real
+Chromium in its last case - where the bound does not reach, because it hung in
+a hook and `--test-timeout` bounds only test bodies (a hanging `before` /
+`after` / `t.after` is unbounded; established directly). Different shards, the
+same instrumented dry run, hanging on whichever browser-driving file lost the
+event-loop race under load. No unit file has ever hung.
+
+So the question was never which case - it was why a mutation run of
+`src/core/execution.ts` launches Chromium at all. It does because the profile
+runs `tests/*.test.ts` in one process to take a baseline and per-test
+coverage, and that glob sweeps in every `browser-*`, `extension-*`, `chaos`
+and `cloudflare` file. Those cover `src/server/browser-*.ts`, which no
+mutation target names. The claim that they can leave is not an assertion: it
+is read off the last green run's own `mutation.json`. Across all nine sharded
+targets - 2583 mutants - thirty-three of the thirty-four heavy files are the
+sole killer of nothing: dropping them cannot move a score, and a local run
+confirms it. The thirty-fourth, `chaos`, is the sole killer of exactly one
+mutant - the `serverEventSchema` object literal in `storage.ts` - and a
+`storage` run with `chaos` gone leaves that mutant alive. That is the finding,
+not a snag to route around: a core schema was gated only by a browser-outage
+test that happened to read a delivered event back whole. So the schema now has
+a unit test that asserts its shape directly - `deliverEvents` hands back every
+field, and refuses a record the schema rejects - and the same `storage` run,
+with that test present, kills the mutant with no browser in the room. The gate
+is stronger for it, not weaker: an incidental kill became a named one. The
+heavy tests are not lost either; they still run and still gate in the
+`coverage` and `browser-login` jobs, where a real browser belongs.
+
+The profile's `testFiles` glob excludes the heavy families by an extended-glob
+negation group - `browser-*`, `extension-*`, `chaos`, `cloudflare` and any
+`*.e2e` - so the dry run runs the ninety-nine unit and contract files that
+carry the coverage. A test resolves that glob exactly as the tap runner does
+and fails if any browser-launching file re-enters the dry run, or if the
+negation group grows greedy enough to drop a unit test that covers a target.
 
 ## popupBinding: the rule first, then the flag
 

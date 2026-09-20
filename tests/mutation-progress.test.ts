@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { findTestyLookingFiles } from "../node_modules/@stryker-mutator/tap-runner/dist/src/tap-helper.js";
 import { mutationProgress } from "../scripts/verify-mutation.js";
 
 test("mutation profile isolates fixture ports and bounded failures", () => {
@@ -18,6 +19,60 @@ test("mutation profile isolates fixture ports and bounded failures", () => {
     /--concurrency\b/.test(workflow),
     false,
     "CI must retain the profile's fixture isolation",
+  );
+});
+
+test("the mutation dry run runs unit tests only, never a real browser", async () => {
+  // The dry run runs every one of the profile's test files once, in one
+  // process, to establish a green baseline and record per-test coverage. A
+  // file that launches a real browser engine has no business there: it covers
+  // `src/server/browser-*.ts`, which nothing in the mutation targets, and it
+  // is the one kind of file that has ever held the whole dry run. Three
+  // shards in one day died after such a file started - `browser-executor`
+  // twice under the five-minute bound, `chaos` (real Chromium) once in a hook
+  // the bound does not reach. The gate is not weakened by leaving them out.
+  // Thirty-three of the heavy files are the sole killer of no target mutant,
+  // read off the last green run's per-test coverage; the one that was -
+  // `chaos`, for the `serverEventSchema` object literal - is replaced by a
+  // direct unit test (`storage-events.test.ts`) that kills the same mutant
+  // without a browser. They still run and still gate in the coverage and
+  // browser-login jobs. This resolves the profile's globs exactly as the tap
+  // runner does, so a glob that let a browser file back in fails here.
+  const profile = JSON.parse(
+    readFileSync(new URL("../stryker.config.json", import.meta.url), "utf8"),
+  ) as { tap: { testFiles: string[] } };
+  const files = await findTestyLookingFiles(profile.tap.testFiles);
+  const launchesABrowser = files
+    .filter((file) =>
+      /(^|\/)(browser-|extension-)|(^|\/)(chaos|cloudflare)\.test\.ts$|\.e2e\.test\.ts$/.test(
+        file,
+      ),
+    )
+    .sort();
+  assert.deepEqual(
+    launchesABrowser,
+    [],
+    "no browser-launching test file may enter the mutation dry run",
+  );
+  // The unit and contract tests that actually cover the mutation targets are
+  // still there - a negation group that excluded too much would empty the
+  // baseline.
+  for (const present of [
+    "tests/execution.test.ts",
+    "tests/resolution.test.ts",
+    "tests/services.test.ts",
+    "tests/arazzo.test.ts",
+    "tests/environment.test.ts",
+    "tests/connector-authoring.test.ts",
+    "tests/contracts/services.test.ts",
+  ])
+    assert.ok(
+      files.includes(present),
+      `${present} covers a mutation target and must stay in the dry run`,
+    );
+  assert.ok(
+    files.length >= 90,
+    `the dry run kept only ${files.length} files; the negation group is too greedy`,
   );
 });
 
