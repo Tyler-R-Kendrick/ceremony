@@ -781,6 +781,41 @@ the one describing a misconfigured artifact. Sender origins parse through one
 helper now, at all four sites, and unreadable is `unapproved-origin`.
 Restoring the throw fails the case.
 
+## Two timing defects, found by this branch's own CI runs
+
+Neither is in code this branch touches, and both are recorded here because
+they are the fault this file keeps finding in different clothes: a case that
+asserted race semantics on a race it had not staged. This branch's CI ran
+three times, which is how each got the chance to show.
+
+**AC-STATE-01, fixed in #70.** `tests/connectors/state/concurrency.test.ts`
+started a second PostgreSQL worker's refresh while the first held the lease,
+slept 50ms and took it on faith that the second had asked by then. On a runner
+where that worker's cold pool needed longer, it asked after the first had
+committed, was admitted to a fresh credential, and rotated it - a late
+arrival, by design, which the case reported as the double rotation it exists
+to rule out. The case now waits for the refused lease claim, which is the
+event. Reproduced deterministically by making every one of the second
+worker's transactions wait 40ms: the old case fails with the CI assertion and
+the new one passes.
+
+**The host-answer race, fixed in #71.** Before `/api/config` lands every
+directory row reads as declared, and the directory guessed "hosted" for all
+of them so that a hosted row's WebMCP switch would not go missing from a
+drawer opened early - on the premise that a declared row's draft is never
+acted on. Browser Login is declared and its drawer compiles the draft into a
+plan, and continuation, trust mode and lifetime all follow from whether WebMCP
+is in it. A drawer opened in that window was seeded with the guess, kept it,
+and asked to retain the session for a trusted agent, for an hour, when the
+person had configured neither. That is the F-POLICY property failing in
+miniature - what runs was not what was configured - and it was decided by a
+race. A row the directory itself declares now takes no guess, since no
+manifest would ever confirm one, and the case delays the answer so the race
+loses every time; it fails on the old directory with the CI assertion.
+
+Both fixes are ported onto this branch so its CI runs on them; each no-ops
+once `main` carries it.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
