@@ -177,7 +177,11 @@ export const browserOperationReasons = [
   "target-unavailable",
   /** The document that was observed is not the document now in front of us. */
   "stale-document",
+  /** The target being driven closed; there is no document left to read. */
+  "target-closed",
+  /** The plan names a frame at an origin; no frame on the page is at it. */
   "frame-missing",
+  /** Two or more frames at the named origin, so none of them is "the frame". */
   "frame-ambiguous",
   /** The element that was approved is not the element now in the page. */
   "stale-element",

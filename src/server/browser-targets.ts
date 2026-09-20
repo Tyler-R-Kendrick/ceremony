@@ -30,6 +30,7 @@ export type StaleTargetReason =
   | "no-observation"
   | "unapproved-recipient"
   | "target-unavailable"
+  | "target-closed"
   | "frame-missing"
   | "frame-ambiguous";
 
@@ -131,11 +132,29 @@ function movedOn(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return (
     text.includes("Execution context was destroyed") ||
-    text.includes("Target closed") ||
-    text.includes("Target page, context or browser has been closed") ||
     text.includes("frame was detached") ||
     text.includes("Frame was detached") ||
     text.includes("navigat")
+  );
+}
+
+/**
+ * The page, tab or browser is gone, as opposed to showing something else.
+ *
+ * Split out of `movedOn` because the two call for opposite responses and had
+ * been sharing an answer. A document that moved on leaves a document to read,
+ * which is why a refusal naming one is worth re-reading once. A target that
+ * closed leaves nothing, so the re-read is spent on a page that cannot come
+ * back and the attempt then reports that the *document* moved - sending
+ * whoever reads it to the guards that compare documents, for a tab that is not
+ * there. Naming it is the fix; the same split #53 made between a document that
+ * moved and an approval that was never taken.
+ */
+function closed(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return (
+    text.includes("Target closed") ||
+    text.includes("Target page, context or browser has been closed")
   );
 }
 
@@ -161,6 +180,7 @@ function classify(
   begun = false,
 ): StaleTargetError {
   if (error instanceof StaleTargetError) return error;
+  if (closed(error)) return new StaleTargetError("target-closed", begun);
   return new StaleTargetError(
     movedOn(error) ? "stale-document" : settled,
     begun,

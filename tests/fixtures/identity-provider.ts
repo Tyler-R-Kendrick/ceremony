@@ -87,6 +87,15 @@ export type IdentityOrigin = {
     /** Whether `value` ever reached this origin in a submitted field. */
     sawValue(value: string): boolean;
   };
+  /**
+   * Subresource requests this origin served, oldest first.
+   *
+   * Separate from `submissions` because they answer different questions. A
+   * submission is a credential arriving; a subresource is the browser fetching
+   * something a page asked for. ORIGIN-RESOURCE is about the second, and the
+   * honest answer there is that nothing contains it.
+   */
+  resourceHits(): readonly string[];
   /** Drop sessions and recordings so one server can serve independent cases. */
   reset(): void;
   close(): Promise<void>;
@@ -195,6 +204,7 @@ async function startOrigin(
   const identified = new Map<string, string>();
   const submissions: CredentialSubmission[] = [];
   const echoes: EchoedField[] = [];
+  const resources: string[] = [];
   let origin = "";
 
   const byIdentifier = (value: string) =>
@@ -464,6 +474,42 @@ async function startOrigin(
       // there is no password input anywhere, so the page classifies as passkey.
       return html(response, page("Passkey", passkeyBody()));
 
+    if (path === "/pixel") {
+      // A subresource, recorded. Nothing about it is a credential; what it
+      // establishes is only that the browser fetched it from here.
+      resources.push(path);
+      response.writeHead(200, {
+        "content-type": "image/gif",
+        "cache-control": "no-store",
+      });
+      return response.end(
+        Buffer.from(
+          "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+          "base64",
+        ),
+      );
+    }
+
+    if (path === "/resourced") {
+      // A perfectly ordinary login page that also pulls one image from another
+      // origin, which is what almost every real sign-in page does. The point
+      // of the route is the gap it exposes: navigation is controlled, and
+      // subresources are not.
+      const target = peer();
+      if (!target)
+        return html(response, page("Resourced", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><img id="badge" alt="" src="${escapeHtml(
+            target,
+          )}/pixel" width="1" height="1">` +
+            `<form method="post" action="/signin">${identifierField}${passwordField}${submitField}</form>`,
+        ),
+      );
+    }
+
     if (path === "/framed") {
       // A credential form served by a *different* origin, embedded. This is
       // the shape `frameOrigins` exists for and the one nothing could drive:
@@ -570,6 +616,7 @@ async function startOrigin(
       const match = /(?:^|;\s*)ceremony_session=([^;]*)/.exec(cookie);
       return sessions.get((match?.[1] ?? cookie).trim());
     },
+    resourceHits: () => [...resources],
     canary: {
       url: new URL("/echo", origin).href,
       received: () => [...echoes],
@@ -581,6 +628,7 @@ async function startOrigin(
       identified.clear();
       submissions.length = 0;
       echoes.length = 0;
+      resources.length = 0;
     },
     async close() {
       const closed = new Promise<void>((resolve, reject) =>

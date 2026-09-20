@@ -787,6 +787,92 @@ for (const engine of browserEngines) {
       }
     });
 
+    test("ORIGIN-REDIRECT: a redirect somewhere undeclared stops the attempt", async () => {
+      // Navigation scope is not a hint. `/sso?redirect=1` answers 302 to the
+      // partner origin, which this plan does not declare, so the attempt has
+      // been carried somewhere its configuration never admitted - and the
+      // interesting half is that it happened without anybody choosing it. A
+      // provider can redirect wherever it likes; what must not follow is a
+      // credential.
+      //
+      // End to end, on a real browser, and deliberately not claiming *which*
+      // guard stops it: two do, and removing either one leaves this case
+      // green. The navigation guard is pinned on its own by "an undeclared
+      // origin is refused before it is read" in `browser-driver`, which is
+      // the one that can tell them apart.
+      fixture.reset();
+      fixture.partner.reset();
+      const { sessions, service, shown } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, {
+            entryUrl: fixture.url("/sso?redirect=1"),
+          }),
+        });
+        assert.equal(
+          result.status,
+          "blocked",
+          `a redirect outside the declared origins must stop, got ${shown(result)}`,
+        );
+        assert.equal(
+          result.status === "blocked" ? result.reason : undefined,
+          "unapproved-recipient",
+        );
+        // The oracle is the partner's silence. "Blocked" would be worth little
+        // if the password had already gone there.
+        assert.deepEqual(fixture.partner.submissions(), []);
+        assert.equal(fixture.partner.canary.sawValue(owner.password), false);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
+    test("ORIGIN-RESOURCE: a subresource is not contained, and nothing claims it is", async () => {
+      // The limit, pinned rather than implied. `strongEgressContainment` is
+      // false on every engine, and this is what that costs: `/resourced` is an
+      // ordinary sign-in page on a declared origin that also pulls one image
+      // from an undeclared one, exactly as most real sign-in pages do. The
+      // login completes and the image is fetched.
+      //
+      // Written as a passing case on purpose. A gap nobody has measured tends
+      // to be remembered as smaller than it is, and the day something does
+      // enforce containment this case fails and has to be rewritten - which is
+      // the notification that the claim changed.
+      fixture.reset();
+      fixture.partner.reset();
+      const { sessions, service, shown } = serviceFor(engine, {
+        email: owner.identifier,
+        password: owner.password,
+      });
+      try {
+        const result = await service.login(actor, {
+          plan: planFor(engine, { entryUrl: fixture.url("/resourced") }),
+        });
+        assert.equal(
+          result.status,
+          "verified",
+          `expected a verified login, got ${shown(result)}`,
+        );
+
+        // Document control held: the credential went to the declared origin
+        // and the undeclared one received none.
+        assert.deepEqual(
+          fixture.submissions().map((submission) => submission.path),
+          ["/signin"],
+        );
+        assert.deepEqual(fixture.partner.submissions(), []);
+
+        // And resource control does not exist: the browser fetched the image
+        // from an origin this plan never declared.
+        assert.deepEqual(fixture.partner.resourceHits(), ["/pixel"]);
+      } finally {
+        await sessions.disposeAll();
+      }
+    });
+
     test("LIFE-MANAGED: disposal ends this session and leaves the provider's alone", async () => {
       fixture.reset();
       const { sessions, service, shown } = serviceFor(engine, {

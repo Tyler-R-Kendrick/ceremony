@@ -697,6 +697,125 @@ Verified the way the old one was not: the induced failure now produces
 `{"phase":"initial-failure","file":"tests/authoring-termination.test.ts"}`
 against real Stryker, and the cases feed the line copied from that run.
 
+## Three gaps closed, and the one that was a defect
+
+**TARGET-CLOSED was not a missing case, it was a wrong answer.** `movedOn()`
+classified `Target closed` and `Target page, context or browser has been
+closed` alongside `Execution context was destroyed` and `navigat`, so a tab
+that went away reported `stale-document`. The two call for opposite responses
+and had been sharing one. A document that moved on leaves a document to read,
+which is exactly why a refusal naming it is now worth re-reading once; a
+target that closed leaves nothing, so that re-read is spent on a page that
+cannot come back, and the attempt then tells its reader the _document_ moved -
+sending them to the guards that compare documents, for a tab that is not
+there. The re-read landing is what turned a merely imprecise name into a
+wasted step. `target-closed` is its own refusal now, it is not re-readable,
+and restoring the shared answer fails both cases.
+
+**ORIGIN-REDIRECT nearly shipped as a case that passed for the wrong reason.**
+`/sso?redirect=1` answers 302 to an origin the plan does not declare; the
+attempt stops and the undeclared origin receives nothing, on all three
+engines. The comment first said this pinned the navigation guard. Removing
+that guard left the case green - the recipient check at the fill stops it too,
+and end to end the two are indistinguishable. That is the same fault as the
+CAP-HONEST cases and the mutation detector, caught this time before it landed,
+by the habit of restoring the defect rather than trusting the green.
+
+So the navigation guard is pinned separately, by the one difference that
+shows: the undeclared page is never _read_. The nearest existing case does not
+cover that - `inertPage` never records `snapshot`, so its "nothing is done on
+an unpermitted origin" has never included "nothing is read". Reading is the
+part worth pinning, because an observation is what the interpreter is shown,
+and on a host model that means a page nobody declared leaving the deployment.
+
+**ORIGIN-RESOURCE pins a limit rather than a protection.** `/resourced` is an
+ordinary sign-in page on a declared origin that also pulls one image from an
+undeclared one, as most real sign-in pages do. The login completes, the
+credential reaches only the declared origin, and the undeclared origin records
+the fetch. `strongEgressContainment` is false on every engine and this is what
+that costs, measured rather than implied. It is written as a _passing_ case on
+purpose: a gap nobody has measured is remembered as smaller than it is, and
+the day something does enforce containment this case fails and has to be
+rewritten - which is the notification that the claim changed.
+
+## The companion bridge: a decision, not an omission
+
+F-EXTERNAL's own heading is "the extension is not an agent execution service",
+and every previous pass recorded the unbuilt bridge as a gap. It is better
+described as a boundary, and this records the reasoning so the next person
+inherits a decision rather than an unfinished row.
+
+What the product requirement asks for - an authorized coding harness able to
+request a login in a specifically selected browser session - **is met**, by the
+managed-browser path this work order built. What the companion bridge would
+add is driving a login in the person's _own_ browser from outside it. The
+existing answer to that is native handoff: a person acts, and the extension's
+external surface stays at `ceremony.ping` and `ceremony.open`.
+
+Building the bridge means deliberately making an extension that runs in
+somebody's personal browser accept privileged instructions from a remote
+caller. The safer answer is already implemented, the requirement is named
+after the property that would be given up, and "close the gap" is not a reason
+to weaken the boundary the requirement exists to state. So it stays unbuilt,
+and it stays unbuilt on purpose.
+
+**What that leaves is not untested.** The bridge that exists has the two
+properties the cases name, and both are now driven:
+
+- BRIDGE-ORIGIN. The Gecko relay's admission was already covered. The Chromium
+  `externally_connectable` path - the primary bridge - had no case at all;
+  `extension-platform` covers the facade's registration plumbing, which is a
+  different question, and the primary bridge's admission was resting on
+  `answerApp` being shared with the relay. True today, and not a test.
+- BRIDGE-REPLAY. Reserve-before-dispatch was covered. Its other half was not:
+  an admitted origin still reaches only the two external verbs, because
+  admission is not authority. That case is what keeps the heading true from
+  the inside.
+
+Writing the first found a defect. An unparseable sender URL threw out of the
+external listener and was answered `unavailable` - a name that means "this
+build has no external bridge" and sends its reader to check the wrong thing.
+`http://127.0.0.1:4173.evil.example` is exactly such an address, because the
+URL parser reads the rest as a port, so the refusal a probing origin got was
+the one describing a misconfigured artifact. Sender origins parse through one
+helper now, at all four sites, and unreadable is `unapproved-origin`.
+Restoring the throw fails the case.
+
+## Two timing defects, found by this branch's own CI runs
+
+Neither is in code this branch touches, and both are recorded here because
+they are the fault this file keeps finding in different clothes: a case that
+asserted race semantics on a race it had not staged. This branch's CI ran
+three times, which is how each got the chance to show.
+
+**AC-STATE-01, fixed in #70.** `tests/connectors/state/concurrency.test.ts`
+started a second PostgreSQL worker's refresh while the first held the lease,
+slept 50ms and took it on faith that the second had asked by then. On a runner
+where that worker's cold pool needed longer, it asked after the first had
+committed, was admitted to a fresh credential, and rotated it - a late
+arrival, by design, which the case reported as the double rotation it exists
+to rule out. The case now waits for the refused lease claim, which is the
+event. Reproduced deterministically by making every one of the second
+worker's transactions wait 40ms: the old case fails with the CI assertion and
+the new one passes.
+
+**The host-answer race, fixed in #71.** Before `/api/config` lands every
+directory row reads as declared, and the directory guessed "hosted" for all
+of them so that a hosted row's WebMCP switch would not go missing from a
+drawer opened early - on the premise that a declared row's draft is never
+acted on. Browser Login is declared and its drawer compiles the draft into a
+plan, and continuation, trust mode and lifetime all follow from whether WebMCP
+is in it. A drawer opened in that window was seeded with the guess, kept it,
+and asked to retain the session for a trusted agent, for an hour, when the
+person had configured neither. That is the F-POLICY property failing in
+miniature - what runs was not what was configured - and it was decided by a
+race. A row the directory itself declares now takes no guess, since no
+manifest would ever confirm one, and the case delays the answer so the race
+loses every time; it fails on the old directory with the CI assertion.
+
+Both fixes are ported onto this branch so its CI runs on them; each no-ops
+once `main` carries it.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
