@@ -114,47 +114,59 @@ async function openBrowserLogin(page: Page) {
 
 const digestOf = (index: number) => `${index}`.repeat(64).slice(0, 64);
 
-test("QA-PR: two wizard configurations put two different plans on the wire", async ({
-  page,
-}) => {
-  await serveBackends(page, [managedBackend("chromium")]);
-  const sent = await serveLogin(page, (draft, connectorId, index) => ({
-    status: 200,
-    body: {
-      status: "verified",
-      runRef: `brun_${"0".repeat(32)}`,
-      evidenceKind: "fixture-verified",
-      // Canonical values, and deliberately not the ones that were asked for:
-      // if the interface renders these, it is rendering the server's answer.
-      plan: {
-        digest: digestOf(index + 1),
-        revision: 7,
-        backendId: "managed-chromium",
-        engine: "chromium",
-        ownership: "managed",
-        entryUrl: draft.entryUrl,
-        navigationOrigins: draft.navigationOrigins,
-        credentialRecipients: draft.credentialRecipients ?? {},
-        account: draft.account,
-        continuation: draft.continuation,
-        trustMode: draft.trustMode,
-        interactionRounds: 3,
-        requireVerification: true,
-        sessionTtlMs: 600_000,
-      },
-      connectorId,
+/** The host's answer to a draft it accepted, in the shape the drawer renders. */
+const verifiedAnswer = (
+  draft: SentDraft,
+  connectorId: string,
+  index: number,
+) => ({
+  status: 200,
+  body: {
+    status: "verified",
+    runRef: `brun_${"0".repeat(32)}`,
+    evidenceKind: "fixture-verified",
+    // Canonical values, and deliberately not the ones that were asked for:
+    // if the interface renders these, it is rendering the server's answer.
+    plan: {
+      digest: digestOf(index + 1),
+      revision: 7,
+      backendId: "managed-chromium",
+      engine: "chromium",
+      ownership: "managed",
+      entryUrl: draft.entryUrl,
+      navigationOrigins: draft.navigationOrigins,
+      credentialRecipients: draft.credentialRecipients ?? {},
+      account: draft.account,
+      continuation: draft.continuation,
+      trustMode: draft.trustMode,
+      interactionRounds: 3,
+      requireVerification: true,
+      sessionTtlMs: 600_000,
     },
-  }));
+    connectorId,
+  },
+});
 
-  const drawer = await openBrowserLogin(page);
-
-  // ---- first configuration -------------------------------------------------
+/** The first QA-PR configuration: one page, nobody interrupted, a personal account. */
+async function configureFirst(drawer: ReturnType<Page["getByRole"]>) {
   await drawer.getByLabel("Entry origin").fill("https://first.example");
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await drawer.getByLabel("Interruption budget").selectOption("none");
   await drawer.getByLabel("Whose access this is").selectOption("personal");
   await drawer.getByRole("button", { name: "Continue", exact: true }).click();
   await drawer.getByRole("button", { name: /^Check/ }).click();
+}
+
+test("QA-PR: two wizard configurations put two different plans on the wire", async ({
+  page,
+}) => {
+  await serveBackends(page, [managedBackend("chromium")]);
+  const sent = await serveLogin(page, verifiedAnswer);
+
+  const drawer = await openBrowserLogin(page);
+
+  // ---- first configuration -------------------------------------------------
+  await configureFirst(drawer);
   await expect.poll(() => sent.length).toBe(1);
 
   const first = sent[0]!;
@@ -221,6 +233,38 @@ test("QA-PR: two wizard configurations put two different plans on the wire", asy
   // The whole point: two configurations, two genuinely different requests.
   expect(second).not.toEqual(first);
   await expect(panel.locator('[data-plan="digest"]')).toHaveText(digestOf(2));
+});
+
+test("QA-PR: a drawer opened before the host answers compiles the plan that was configured", async ({
+  page,
+}) => {
+  // Continuation, trust mode and lifetime all follow from whether WebMCP is in
+  // the draft, and the draft is seeded once, when the drawer opens. Before
+  // `/api/config` lands every row reads as declared, and the directory guessed
+  // "hosted" for all of them so that a hosted row's switch would not go
+  // missing - on the premise that a declared row's draft is never acted on.
+  // This row is declared and its draft is compiled. A drawer opened in that
+  // window therefore asked to retain the session for a trusted agent, for an
+  // hour, when the person had configured neither: a different plan from the
+  // one on screen, decided by a race. Nobody sees it on a fast machine; it
+  // arrived as an intermittent `browser-ui` failure on an unrelated pull
+  // request. Delaying the answer makes the race lose every time instead of
+  // rarely, which is what makes this a case rather than a retry.
+  await page.route("**/api/config*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await serveBackends(page, [managedBackend("chromium")]);
+  const sent = await serveLogin(page, verifiedAnswer);
+
+  const drawer = await openBrowserLogin(page);
+  await configureFirst(drawer);
+  await expect.poll(() => sent.length).toBe(1);
+
+  const plan = sent[0]!;
+  expect(plan.continuation).toBe("dispose");
+  expect(plan.trustMode).toBe("constrained-auth");
+  expect(plan.sessionTtlMs).toBe(300_000);
 });
 
 test("a configuration the server rejects shows the reason it named", async ({

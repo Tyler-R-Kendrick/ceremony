@@ -286,6 +286,16 @@ function App() {
      * WebMCP client — and teaching is the one the server names per connector,
      * so it is asked for by name rather than assumed either way.
      */
+    /**
+     * Rows the directory itself declares. No manifest carries their id, so
+     * they stay declared once the host answers: a guess made for one of them
+     * before the answer is never confirmed, and never withdrawn either.
+     */
+    const declared = new Set(
+      catalog
+        .filter((entry) => entry.support === "declared")
+        .map((entry) => entry.id),
+    );
     const hosted = (entry: CatalogEntry): CatalogEntry => {
       // Only when the host has actually answered. `support` is derived from
       // the manifests in `config`, and before that request lands `manifests`
@@ -293,20 +303,34 @@ function App() {
       // early return, so no row carries a host capability at all.
       //
       // That window is not harmless, because the drawer seeds its draft once
-      // with `useState(() => emptyDraft(entry))` and never re-seeds. A drawer
-      // opened inside it keeps a draft with WebMCP missing for the rest of its
-      // life, and a missing answer is not a neutral one: it reads as "no" and
-      // withdraws the connection from every WebMCP client watching the page -
-      // the exact harm the comment above describes, arriving through the one
-      // route it did not consider.
+      // with `useState(() => emptyDraft(entry))` and re-seeds only when the
+      // row's id changes. A drawer opened inside it keeps a draft with WebMCP
+      // missing for the rest of its life, and a missing answer is not a
+      // neutral one: it reads as "no" and withdraws the connection from every
+      // WebMCP client watching the page - the exact harm the comment above
+      // describes, arriving through the one route it did not consider.
       //
       // So "we have not been told yet" is separated from "there is no
-      // manifest". Unknown is treated as hosted, and the trade is deliberate:
-      // a genuinely declared row may briefly offer a switch, on a row that
-      // reaches the studio rather than a ceremony, where by the comment above
-      // nothing it claims is ever acted on. Silently dropping a real
-      // capability is the worse of the two by a distance.
-      if (config !== undefined && entry.support === "declared") return entry;
+      // manifest", and unknown is treated as hosted - for the rows the answer
+      // will confirm. That is every row the directory does not itself declare:
+      // WebMCP is not per-connector, so once the manifest lands the switch is
+      // one the row was always going to carry.
+      //
+      // A row the directory declares is the other case, and it is not the
+      // harmless one it was taken for. The trade used to read "a genuinely
+      // declared row may briefly offer a switch, where nothing it claims is
+      // ever acted on" - but Browser Login is declared and its drawer compiles
+      // the draft into a plan, and continuation, trust mode and lifetime all
+      // follow from whether WebMCP is in it. A drawer opened before the answer
+      // was seeded with the guess, kept it, and asked to retain the session
+      // for a trusted agent, for an hour, when the person had configured
+      // neither. So such a row takes no guess at all: what it carries before
+      // the answer is what it carries after.
+      if (
+        entry.support === "declared" &&
+        (config !== undefined || declared.has(entry.id))
+      )
+        return entry;
       const missing = (
         [
           ...(teachable.includes(entry.id) ? (["teaching"] as const) : []),
