@@ -122,12 +122,30 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     // `page.evaluateHandle`, which is the main frame and nothing else, and no
     // frame is ever enumerated or held.
     //
-    // Popups are stronger than unimplemented. `browser-executor.ts` watches
+    // Popups are unimplemented here, and the reason given for that used to be
+    // the wrong one. It cited `browser-executor.ts`, which watches
     // `Page.windowOpen`, aborts the navigation `blockedbyclient` and closes
-    // the context, reporting `blocked` / `popup`, under a comment reading
-    // "the driver owns one page; use native handoff until popup targets can
-    // be securely adopted". So the flag was not running ahead of an absent
-    // feature - it contradicted what the executor deliberately does.
+    // the context. That is real and deliberate, and it is a different
+    // subsystem: the executor serves authored connectors and never reads this
+    // table, which `unmetCapabilities` consults for a login plan. So the
+    // honest reason is the same one `frameBinding` had before #66 - nothing
+    // in the login path adopts a popup - and the executor's abort stays as
+    // what it is, a protection on its own path.
+    //
+    // It is also a live gap rather than a theoretical one, which the frame
+    // work was not: `examples/web/connection-plan.ts` genuinely produces
+    // `popupBinding: true` for OAuth, the GitHub App and provider-run
+    // registration, so those configurations are refused today by name.
+    //
+    // What has to be settled before the flag can move is one rule, and it is
+    // not the one frames needed. A frame is there to be found: resolve it on
+    // every read, refuse when absent. A popup is not there until the page
+    // opens it, so "always act in the declared popup" would refuse the attempt
+    // before it ever clicked the button that opens one. The rule is therefore
+    // "act in the page until a popup at a declared origin exists, then act in
+    // that" - which means a page opening a window silently moves where a
+    // credential goes. Frames refuse ambiguity for exactly that reason, and
+    // popups need an answer of the same quality before this says true.
     //
     // `unmetCapabilities` believes this table, so a plan that asked for either
     // was admitted and then run without it, which is worse than refusing:
