@@ -206,6 +206,20 @@ export const blockedReasons = [
    * could choose which document a credential is typed into.
    */
   "frame-ambiguous",
+  /**
+   * The page opened a window somewhere the plan does not admit. Nothing in
+   * it is read, let alone acted in. A window is the page choosing where the
+   * next document lives, and an origin the plan never named does not become
+   * admitted by being opened rather than navigated to.
+   */
+  "popup-undeclared",
+  /**
+   * More than one window the page opened answers to an admitted origin, so
+   * "the window" does not identify a document. The refusal frames make, one
+   * level up: a page that can open two windows could choose which one a
+   * credential is typed into.
+   */
+  "popup-ambiguous",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;

@@ -102,55 +102,44 @@ const engineTypes: Record<BrowserEngine, () => BrowserTypeLike> = {
  * showing settings the server never compiled — a value that reads as effective
  * and is not. All three were corrected to false.
  *
- * `statePersistence` has since gone back to true, which is the only route a
- * flag here may take: `ManagedContext.saveState()` and
- * `openContext({ storageState })` implement it, and LIFE-STATE drives the
- * round trip on a real browser of every engine, asking the provider - not
- * this process - whether the restored context is recognised. The other two
- * stay false until something enforces them and a test on a real browser says
- * so.
+ * All three have since gone back to true, each by the only route a flag here
+ * may take: something enforces it, and a case on a real browser of every
+ * engine says so. `ManagedContext.saveState()` and
+ * `openContext({ storageState })` implement `statePersistence`, and
+ * LIFE-STATE asks the provider - not this process - whether the restored
+ * context is recognised. `createPlaywrightCeremonyPage` resolves a declared
+ * frame on every read and action for `frameBinding`, and adopts a window the
+ * page opens under the rule described at `popupBinding`; TARGET-FRAME and
+ * TARGET-POPUP drive each against the provider's own record.
  */
 const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
   chromium: {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    // False on every engine, and this is a correction rather than a
-    // limitation newly discovered.
+    // True by the only route this table allows: something enforces it.
     //
-    // Nothing here acts inside a frame: `createBoundTargets` observes through
-    // `page.evaluateHandle`, which is the main frame and nothing else, and no
-    // frame is ever enumerated or held.
+    // Popups needed a rule frames did not. A frame is there to be found -
+    // resolve it on every read, refuse when absent - but a window is not
+    // there until the page opens it, so "always act in the declared window"
+    // would refuse the attempt before it pressed the button that opens one.
+    // `createPlaywrightCeremonyPage` therefore acts in the page until a
+    // window at an origin the plan admits exists, then in that, and in the
+    // page again once it closes; only a window the page itself opened is a
+    // candidate, one at an undeclared origin ends the attempt unread, and
+    // two at admitted origins identify no document. Every clause is checked
+    // on every read and every action, exactly as the frame rule is.
     //
-    // Popups are unimplemented here, and the reason given for that used to be
-    // the wrong one. It cited `browser-executor.ts`, which watches
-    // `Page.windowOpen`, aborts the navigation `blockedbyclient` and closes
-    // the context. That is real and deliberate, and it is a different
-    // subsystem: the executor serves authored connectors and never reads this
-    // table, which `unmetCapabilities` consults for a login plan. So the
-    // honest reason is the same one `frameBinding` had before #66 - nothing
-    // in the login path adopts a popup - and the executor's abort stays as
-    // what it is, a protection on its own path.
+    // TARGET-POPUP drives it on this engine: a page whose only control opens
+    // the provider's form in a window, a credential typed there, the window
+    // reporting back and closing, and the provider's own record naming the
+    // window's form as the one that received it. Its second case opens the
+    // window somewhere undeclared and asserts the partner's silence.
     //
-    // It is also a live gap rather than a theoretical one, which the frame
-    // work was not: `examples/web/connection-plan.ts` genuinely produces
-    // `popupBinding: true` for OAuth, the GitHub App and provider-run
-    // registration, so those configurations are refused today by name.
-    //
-    // What has to be settled before the flag can move is one rule, and it is
-    // not the one frames needed. A frame is there to be found: resolve it on
-    // every read, refuse when absent. A popup is not there until the page
-    // opens it, so "always act in the declared popup" would refuse the attempt
-    // before it ever clicked the button that opens one. The rule is therefore
-    // "act in the page until a popup at a declared origin exists, then act in
-    // that" - which means a page opening a window silently moves where a
-    // credential goes. Frames refuse ambiguity for exactly that reason, and
-    // popups need an answer of the same quality before this says true.
-    //
-    // `unmetCapabilities` believes this table, so a plan that asked for either
-    // was admitted and then run without it, which is worse than refusing:
-    // the caller was told yes.
-    popupBinding: false,
+    // `browser-executor.ts` still aborts a popup and closes the context. That
+    // is a different subsystem - it serves authored connectors and never
+    // reads this table - and its protection stays as it is.
+    popupBinding: true,
     // True now, and true by the only route this table allows: something
     // enforces it. `createPlaywrightCeremonyPage` resolves the declared
     // frame on every read and every action, so the origin is rechecked at
@@ -183,7 +172,7 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    popupBinding: false,
+    popupBinding: true,
     frameBinding: true,
     strongEgressContainment: false,
     // Firefox surfaces a WebAuthn request to the page the same way, and the
@@ -196,7 +185,7 @@ const engineCapabilities: Record<BrowserEngine, BrowserCapabilities> = {
     retainedSession: true,
     backendHeldElements: true,
     documentBinding: true,
-    popupBinding: false,
+    popupBinding: true,
     frameBinding: true,
     strongEgressContainment: false,
     authenticatorHandoff: true,
@@ -245,9 +234,14 @@ export type ManagedContext = {
    * frame this login happens inside. It has to arrive here because the
    * adapter is built here: nothing further down knows what the plan said, and
    * a frame chosen anywhere else would be chosen without it.
+   *
+   * `popupOrigins` is the same statement about windows the page opens: where
+   * one may be where this login continues. Absent, a window the page opens is
+   * not the attempt's concern and the page stays the target.
    */
   openPage(options?: {
     frameOrigins?: readonly string[];
+    popupOrigins?: readonly string[];
   }): Promise<{ targetRef: string; page: CeremonyPage; raw: PageLike }>;
   /** Whether the context still holds any cookie at all, for liveness checks. */
   alive(): Promise<boolean>;
@@ -356,7 +350,12 @@ export async function launchManagedBrowser(
       return {
         contextRef,
         request: context.request,
-        async openPage(open: { frameOrigins?: readonly string[] } = {}) {
+        async openPage(
+          open: {
+            frameOrigins?: readonly string[];
+            popupOrigins?: readonly string[];
+          } = {},
+        ) {
           const raw = await context.newPage();
           return {
             targetRef: mintReference("btgt"),
@@ -364,9 +363,14 @@ export async function launchManagedBrowser(
               raw as unknown as Parameters<
                 typeof createPlaywrightCeremonyPage
               >[0],
-              open.frameOrigins && open.frameOrigins.length > 0
-                ? { frameOrigins: open.frameOrigins }
-                : {},
+              {
+                ...(open.frameOrigins && open.frameOrigins.length > 0
+                  ? { frameOrigins: open.frameOrigins }
+                  : {}),
+                ...(open.popupOrigins && open.popupOrigins.length > 0
+                  ? { popupOrigins: open.popupOrigins }
+                  : {}),
+              },
             ),
             raw,
           };

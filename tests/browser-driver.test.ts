@@ -1356,6 +1356,225 @@ test("a closed target ends the attempt instead of being read again", async () =>
   assert.equal(reads, 1);
 });
 
+/**
+ * A window the page opened, standing on its own recording graph. The page
+ * double reports it through `on("popup")` exactly as Playwright does, and it
+ * closes the way a real window does: a flag the adapter can read at once, and
+ * a `close` event for whoever asked to be told.
+ */
+function windowAt(url: string, graph: ReturnType<typeof handleGraph>) {
+  let closed = false;
+  let current = url;
+  const closers: (() => void)[] = [];
+  return {
+    url: () => current,
+    evaluateHandle: (source: string) => graph.page.evaluateHandle(source),
+    evaluate: ((fn: never, arg: never) =>
+      graph.page.evaluate(fn, arg)) as BoundPageLike["evaluate"],
+    isClosed: () => closed,
+    waitForLoadState: async () => {},
+    on: (event: "close" | "popup", listener: (...args: never[]) => void) => {
+      if (event === "close") closers.push(listener as () => void);
+    },
+    close: () => {
+      closed = true;
+      for (const listener of closers) listener();
+    },
+    navigate: (next: string) => {
+      current = next;
+    },
+  };
+}
+type WindowDouble = ReturnType<typeof windowAt>;
+
+/** A page double that reports the windows it opens, as Playwright's does. */
+function openerOf(graph: ReturnType<typeof handleGraph>) {
+  const listeners: ((popup: WindowDouble) => void)[] = [];
+  return {
+    page: {
+      ...graph.page,
+      on: (event: "popup", listener: (popup: WindowDouble) => void) => {
+        if (event === "popup") listeners.push(listener);
+      },
+    },
+    open: (popup: WindowDouble) => {
+      for (const listener of listeners) listener(popup);
+    },
+  };
+}
+
+const observations = (calls: readonly string[]) =>
+  calls.filter((call) => call === "observe").length;
+
+test("TARGET-POPUP: a window at an admitted origin is where the next read happens", async () => {
+  // The rule frames did not need. A frame is there to be found; a window is
+  // not there until the page opens it, so the attempt acts in the page until
+  // a window at an admitted origin exists, and then in that. Both halves are
+  // pinned: the page is read before the window opens, the window after, and
+  // the page not again.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  await page.snapshot();
+  assert.equal(observations(graph.calls), 1);
+
+  const inside = handleGraph();
+  opener.open(windowAt("https://provider.example/window", inside));
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/window");
+  assert.equal(observations(inside.calls), 1);
+  assert.equal(observations(graph.calls), 1);
+});
+
+test("TARGET-POPUP: a window somewhere undeclared is refused before it is read", async () => {
+  // A window is the page choosing where the next document lives. An origin
+  // the plan never named does not become admitted by being opened rather
+  // than navigated to, and nothing in it is shown to an interpreter.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph({ origin: "https://elsewhere.example" });
+  opener.open(windowAt("https://elsewhere.example/signin", inside));
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "popup-undeclared",
+  );
+  assert.ok(!inside.calls.includes("observe"));
+  // Nor is the page read instead. The attempt has been carried somewhere its
+  // plan does not admit, whichever document a read would have landed on.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: two windows at admitted origins do not identify a document", async () => {
+  // The same refusal frames make, one level up from the element guards: a
+  // page that can open two windows could choose which one a credential is
+  // typed into.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  opener.open(windowAt("https://provider.example/one", handleGraph()));
+  opener.open(windowAt("https://provider.example/two", handleGraph()));
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "popup-ambiguous",
+  );
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: a window that closes hands the attempt back to its opener", async () => {
+  // How every window flow ends: the window reports back and leaves, and the
+  // page that opened it is where the attempt continues and is verified.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph();
+  const popup = windowAt("https://provider.example/window", inside);
+  opener.open(popup);
+  await page.snapshot();
+  assert.equal(observations(inside.calls), 1);
+  popup.close();
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/signin");
+  assert.equal(observations(inside.calls), 1);
+  assert.equal(observations(graph.calls), 1);
+});
+
+test("TARGET-POPUP: a window that has not arrived is neither adopted nor refused", async () => {
+  // Between `window.open` and the first document there is a window at
+  // `about:blank`, which is not anything yet. Refusing it would end attempts
+  // on slow networks; adopting it would read an empty document. The read
+  // goes to the page, and `settle` is what waits for the window to become
+  // something.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph();
+  const popup = windowAt("about:blank", inside);
+  opener.open(popup);
+  await page.snapshot();
+  assert.equal(observations(graph.calls), 1);
+  assert.ok(!inside.calls.includes("observe"));
+  popup.navigate("https://provider.example/window");
+  await page.snapshot();
+  assert.equal(observations(inside.calls), 1);
+});
+
+test("TARGET-POPUP: without popup origins a window is not adopted", async () => {
+  // The default, pinned. A plan that did not require `popupBinding` gets
+  // what it always got: the page, whatever the page opens.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page);
+  const inside = handleGraph();
+  opener.open(windowAt("https://provider.example/window", inside));
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/signin");
+  assert.ok(!inside.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: popup origins need a page that reports its windows", () => {
+  // A page that cannot say what it opened cannot be bound to it. Refusing at
+  // construction is the honest answer; adopting nothing while the table
+  // claims the capability is the dishonest one it was corrected for.
+  const graph = handleGraph();
+  assert.throws(() =>
+    createPlaywrightCeremonyPage(graph.page, {
+      popupOrigins: ["https://provider.example"],
+    }),
+  );
+});
+
+test("TARGET-POPUP: a click that closes the window it was given is a step, not a closed target", async () => {
+  // The ordinary end of a window's job: the click submits, the window
+  // reports back and closes under the click. `target-closed` is the right
+  // answer for a tab that vanished under an attempt and the wrong one here -
+  // the opener is still there, and the next read is of it.
+  let open: (popup: WindowDouble) => void = () => {};
+  let popup: WindowDouble | undefined;
+  const graph = handleGraph({ onClick: () => open(popup!) });
+  const opener = openerOf(graph);
+  open = opener.open;
+  const inside = handleGraph({
+    onClick: () => {
+      popup?.close();
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+  popup = windowAt("https://provider.example/window", inside);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  let turn = 0;
+  const result = await runCeremony({
+    page,
+    interpreter: async () => {
+      turn += 1;
+      return turn <= 2 ? { action: "click", element: 2 } : { action: "done" };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "completed");
+  // Turn one clicked in the page and opened the window; turn two clicked in
+  // the window and closed it. Both are on record as steps that landed.
+  assert.ok(graph.calls.includes("click 2"));
+  assert.ok(inside.calls.includes("click 2"));
+});
+
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
   const graph = handleGraph();
   const page = createPlaywrightCeremonyPage({
