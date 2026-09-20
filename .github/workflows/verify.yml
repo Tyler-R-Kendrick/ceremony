@@ -5,6 +5,28 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  # A push supersedes its own predecessor instead of queueing behind it. The
+  # eight jobs below expand to sixteen check runs, `mutation (schema)` alone
+  # measured at 79 to 83 minutes across three runs, so pushing three times in
+  # eleven minutes meant three full fleets competing for the same runners while
+  # two of them verified commits nobody would ever merge. That happened during
+  # the connect-drawer cascade and cost most of an afternoon's capacity.
+  #
+  # Keyed on the ref, so a pull request and a push to main never share a group:
+  # `github.ref` is `refs/pull/N/merge` for one and `refs/heads/main` for the
+  # other, and the only push trigger here is main.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Only a pull request's runs are cancelled. A push to main has to finish —
+  # that commit is what a release is cut from, and an unverified main is a far
+  # worse trade than a duplicated run.
+  #
+  # A superseded run ends "cancelled" rather than "failed", which is what it
+  # is: it never finished, so it is not evidence either way. The head commit
+  # that replaced it gets its own full run and is judged on that. The thing to
+  # watch for is reading a cancellation as a pass — it is not one, and a commit
+  # whose only run was cancelled has not been verified at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   # `onnxruntime-node`'s postinstall downloads a CUDA execution-provider package
   # from api.nuget.org. No runner here has a GPU, nothing in the suite uses that
