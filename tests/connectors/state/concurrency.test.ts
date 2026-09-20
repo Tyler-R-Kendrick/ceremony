@@ -5,6 +5,10 @@ import {
   PostgresCeremonyStore,
   SQLiteCeremonyStore,
 } from "../../../src/server/persistence/index.js";
+import type {
+  AsyncCeremonyStore,
+  AsyncTransaction,
+} from "../../../src/server/persistence/index.js";
 import { createConnectorPorts } from "../../../src/server/connectors/state/index.js";
 import { credentialKey } from "../../../src/server/connectors/state/keys.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
@@ -42,9 +46,55 @@ after(async () => {
   await database.close();
 });
 
+/**
+ * The store, reporting the moment one of its transactions is refused a lease.
+ *
+ * The race staged below is "the second worker asks while the first still holds
+ * the lease", and that is an event, not a duration. The case used to wait
+ * 50ms and take it on faith that the second worker had asked by then. On a
+ * runner where that worker's cold pool needed longer, it asked after the first
+ * had already committed, was admitted to a credential nobody held, and rotated
+ * the fresh one - a second upstream call the case then reported as the double
+ * rotation it exists to rule out, when what it had staged was not a race. The
+ * refused claim is the event, so the case waits for the claim to be refused.
+ */
+function refusing(
+  store: AsyncCeremonyStore,
+  refused: PromiseWithResolvers<void>,
+): AsyncCeremonyStore {
+  const watched = (tx: AsyncTransaction): AsyncTransaction =>
+    new Proxy(tx, {
+      get(target, property) {
+        if (property === "claim")
+          return async (...args: Parameters<AsyncTransaction["claim"]>) => {
+            try {
+              return await target.claim(...args);
+            } catch (error) {
+              refused.resolve();
+              throw error;
+            }
+          };
+        const member = Reflect.get(target, property, target);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+  return new Proxy(store, {
+    get(target, property) {
+      if (property === "transaction")
+        return <T>(work: (tx: AsyncTransaction) => Promise<T>) =>
+          target.transaction((tx) => work(watched(tx)));
+      const member = Reflect.get(target, property, target);
+      return typeof member === "function" ? member.bind(target) : member;
+    },
+  });
+}
+
 test("AC-STATE-01: two PostgreSQL workers rotating one credential make exactly one upstream call", async () => {
   const a = createConnectorPorts(workerA, { worker: "worker-a" });
-  const b = createConnectorPorts(workerB, { worker: "worker-b" });
+  const refused = Promise.withResolvers<void>();
+  const b = createConnectorPorts(refusing(workerB, refused), {
+    worker: "worker-b",
+  });
   const scope = credentialScope("tenant-rotate");
   const ref = await a.credentials.store(
     scope,
@@ -69,8 +119,9 @@ test("AC-STATE-01: two PostgreSQL workers rotating one credential make exactly o
   const first = a.credentials.refresh(scope, ref, rotate);
   await entered.promise;
   const second = b.credentials.refresh(scope, ref, rotate);
-  // The second worker must not present the same rotating refresh token.
-  await delay(50);
+  // The second worker has asked and been refused the lease; it must not have
+  // presented the same rotating refresh token.
+  await refused.promise;
   assert.equal(upstream, 1);
   release.resolve();
   const [one, two] = await Promise.all([first, second]);
