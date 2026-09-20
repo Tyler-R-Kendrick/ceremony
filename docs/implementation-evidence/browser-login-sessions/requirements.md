@@ -132,7 +132,22 @@ shared `browser-login` tool endpoint rather than to a surface of its own.
 **Unchanged and deliberately so.** External messaging still accepts only
 `ceremony.ping` and `ceremony.open`; internal privileged commands still require
 the extension's own UI as sender. No authenticated companion bridge was built,
-so nothing new was exposed. This is a gap, not a fix.
+so nothing new was exposed.
+
+Recorded since as a decision rather than a gap. The product requirement — an
+authorized harness able to request a login in a specifically selected browser
+session — is met by the managed-browser path. What a companion bridge adds is
+driving a login in the person's _own_ browser from outside it, and the safer
+answer to that is already implemented: native handoff, where a person acts.
+Building it would mean an extension in somebody's personal browser accepting
+privileged instructions from a remote caller, which is the property this
+heading names. `verification.md` carries the reasoning.
+
+The bridge that does exist is now driven on both its paths. BRIDGE-ORIGIN was
+covered for the Gecko relay and not for Chromium's `externally_connectable`,
+the primary one; BRIDGE-REPLAY was covered for reserve-before-dispatch and not
+for the half that matters most here — an admitted origin still reaches only
+the two external verbs, because admission is not authority.
 
 ## F-COVERAGE — Firefox/WebKit projects only ran UI specs
 

@@ -738,6 +738,49 @@ purpose: a gap nobody has measured is remembered as smaller than it is, and
 the day something does enforce containment this case fails and has to be
 rewritten - which is the notification that the claim changed.
 
+## The companion bridge: a decision, not an omission
+
+F-EXTERNAL's own heading is "the extension is not an agent execution service",
+and every previous pass recorded the unbuilt bridge as a gap. It is better
+described as a boundary, and this records the reasoning so the next person
+inherits a decision rather than an unfinished row.
+
+What the product requirement asks for - an authorized coding harness able to
+request a login in a specifically selected browser session - **is met**, by the
+managed-browser path this work order built. What the companion bridge would
+add is driving a login in the person's _own_ browser from outside it. The
+existing answer to that is native handoff: a person acts, and the extension's
+external surface stays at `ceremony.ping` and `ceremony.open`.
+
+Building the bridge means deliberately making an extension that runs in
+somebody's personal browser accept privileged instructions from a remote
+caller. The safer answer is already implemented, the requirement is named
+after the property that would be given up, and "close the gap" is not a reason
+to weaken the boundary the requirement exists to state. So it stays unbuilt,
+and it stays unbuilt on purpose.
+
+**What that leaves is not untested.** The bridge that exists has the two
+properties the cases name, and both are now driven:
+
+- BRIDGE-ORIGIN. The Gecko relay's admission was already covered. The Chromium
+  `externally_connectable` path - the primary bridge - had no case at all;
+  `extension-platform` covers the facade's registration plumbing, which is a
+  different question, and the primary bridge's admission was resting on
+  `answerApp` being shared with the relay. True today, and not a test.
+- BRIDGE-REPLAY. Reserve-before-dispatch was covered. Its other half was not:
+  an admitted origin still reaches only the two external verbs, because
+  admission is not authority. That case is what keeps the heading true from
+  the inside.
+
+Writing the first found a defect. An unparseable sender URL threw out of the
+external listener and was answered `unavailable` - a name that means "this
+build has no external bridge" and sends its reader to check the wrong thing.
+`http://127.0.0.1:4173.evil.example` is exactly such an address, because the
+URL parser reads the rest as a port, so the refusal a probing origin got was
+the one describing a misconfigured artifact. Sender origins parse through one
+helper now, at all five sites, and unreadable is `unapproved-origin`.
+Restoring the throw fails the case.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
