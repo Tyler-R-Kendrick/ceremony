@@ -816,6 +816,34 @@ loses every time; it fails on the old directory with the CI assertion.
 Both fixes are ported onto this branch so its CI runs on them; each no-ops
 once `main` carries it.
 
+**A third, which the dry run could not name.** Three mutation shards in one
+day - two on `main`, one on a pull request - died with
+`{"phase":"initial-timeout"}` after twenty-five minutes, and the progress
+lines said only that `tests/browser-executor.test.ts` had started. Twelve
+direct runs of the file passed in about a hundred seconds each, and three
+runs of the four Playwright-heavy files in one process, in CI's order, passed
+too; the hang has only been seen under Stryker's instrumented dry run on a CI
+runner, and its cause is still open.
+
+What was closed is the twenty-five minutes. The profile runs every file in
+one process, so a single test that never settles holds the whole dry run, and
+nothing bounded it: bail-out ends a hang that follows a failure, and this one
+followed none. Two flags in the profile's own node arguments bound it now,
+and it takes both. `--test-timeout` fails a test that never settles after
+five minutes and names it. Under the single-process mode a leaked handle
+keeps the process alive afterwards - a timer was enough, and a browser is a
+bigger handle than a timer - and the failure record was still being written
+out eight seconds later, cut mid-line, when the process was killed, so the
+runner's own reader never saw a parseable failure. `--test-force-exit` ends
+the process once the tests are done, which is what delivers the record. The
+case reads both flags from the profile rather than restating them, so a
+profile that lost either fails in seconds, and it shortens the bound to show
+the runner turning a fixture that never settles into a failure that names
+the test. A real mutation run of the `execution` target against the changed
+profile says per-test coverage still works: 25 mutants, 23 killed, 2
+survived, none without coverage - the numbers the shard produced on CI
+before the change.
+
 ## What the numbers do not establish
 
 - No live provider was contacted. Every "verified" result above is
