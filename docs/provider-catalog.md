@@ -115,7 +115,13 @@ from Nango.
    `createConnectorRegistry({ providerCatalog: { entries, nangoYaml } })`, also
    reachable through `createConnectorRuntime({ inventory })`. Each registered
    provider appears in the directory as its own `catalog-<id>` connector,
-   labelled `fixture`, or `catalog-only` when it cannot execute.
+   labelled `fixture`, or `catalog-only` when it cannot execute. Its
+   `supportLabel` comes from dated evidence naming its own adapter id, so a
+   registered entry nobody has exercised reads `unverified`; the generic
+   `catalog-http` adapter reads `local` from the loopback suites its
+   [ledger](implementation-evidence/connector-interoperability/ledger/PROVIDER-CATALOG.json)
+   cites. A host that certifies an entry against the real provider supplies
+   its own entry through `createConnectorRuntime({ support: { evidence } })`.
 2. **Review.** A reviewer approves a binding like any other: the proxy base URL
    as the destination (an exact origin; for a templated host, the concrete
    tenant origin, which is not a declared server, so host policy must admit

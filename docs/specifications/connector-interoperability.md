@@ -32,6 +32,14 @@ CIP-08: A `CapabilityStatus` reports implementation, configuration readiness and
 
 CIP-09: A catalog entry's `evidence` MUST NOT exceed the strongest evidence among its own capability rows. `fixture` and `catalog-only` entries MUST NOT carry live evidence; `catalog-only` entries MUST NOT report an implemented dimension. A `provider-backed` entry missing required configuration is `unconfigured`, and an `unconfigured` entry MUST actually lack some required configuration.
 
+## Support labels
+
+CIP-09a: A catalog entry's `supportLabel` (`unverified`, `fixture`, `local`, `live`, `certified`, weakest to strongest) MUST be computed from dated evidence entries by `computeSupportLabel`, never from the adapter family, a registration or a model's suggestion. An entry names one adapter, one check (a repository path or a `scheme:identifier`, never a URL), the target it ran against (`in-process-fixture`, `local-double`, `recorded-live`, `attended-live`) and the UTC day it was recorded; an `attended-live` entry MUST name who attended it. The label is the strongest one any fresh, admissible entry earns, with the minimum evidence and freshness windows in `supportLabelRules` (365 days for fixture and local evidence, 90 for a recorded live run, 180 for an attended certification). An expired entry earns nothing. `live` and `certified` evidence is admissible only where the configuration it was measured with is present. An entry dated after the evaluation day MUST be refused where entries are accepted (the ledger generator, a host's own entries) and MUST NOT count where labels are computed.
+
+CIP-09b: Only a `provider-backed` entry may carry a `live` or `certified` label. A `fixture`-family adapter whose evidence earns `live` or `certified` with its configuration present is shown `provider-backed`; without that evidence it stays `fixture`, however well it is exercised locally, and the label says how well. A registration derived from such an adapter is `live-adapter` only on the same condition.
+
+CIP-09c: A label gates nothing unless the host opts in. With `support.minimumForProduction`, a binding that can reach any destination other than a `loopback-fixture` (or names none) MUST be refused with `support.below-minimum` at approval, connect and invoke while its adapter's label is below the minimum.
+
 ## Compatibility issues
 
 CIP-10: A `CompatibilityIssue` names where (`sourcePointer`, optional `normalizedPointer`), what (a dotted `code`), which dimension, its disposition, a severity (`info`, `warning`, `blocking`) and its execution impact (`none`, `blocks-operation`, `blocks-authorization`, `blocks-definition`). `message` and `remediation` are bounded display text and MUST NOT echo a credential or an arbitrary source fragment.
