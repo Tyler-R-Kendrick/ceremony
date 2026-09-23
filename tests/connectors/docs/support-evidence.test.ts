@@ -44,6 +44,7 @@ const adapter = (
   service: id,
   displayName: id,
   support: "fixture",
+  evidenceScope: "adapter",
   custody: [],
   profiles: [],
   configuration,
@@ -168,7 +169,7 @@ test("explicit entries are admitted only when well formed, dated, about a known 
   assert.equal(collection.asOf, "2026-09-23");
 });
 
-test("undated work items become dated entries by their ledger's day, at the weakest target their level could mean", () => {
+test("undated work items become dated entries by their ledger's day, never above an in-process fixture", () => {
   const collection = collectSupportEvidence(
     [
       ledger({
@@ -214,14 +215,46 @@ test("undated work items become dated entries by their ledger's day, at the weak
         "in-process-fixture",
         "2026-09-19",
       ],
-      ["openapi-http", "ledger:HTTP/HTTP-09", "local-double", "2026-09-19"],
+      [
+        "openapi-http",
+        "ledger:HTTP/HTTP-09",
+        "in-process-fixture",
+        "2026-09-19",
+      ],
     ],
   );
   assert.deepEqual(collection.notes, [
     "ledger UNDATED has no `recordedAt`, so its work items earn no support label",
   ]);
-  assert.equal(labelFor(openapi, collection).label, "local");
+  // Regression: a legacy local-integration item used to earn `local`.
+  assert.equal(labelFor(openapi, collection).label, "fixture");
   assert.equal(labelFor(vendor, collection).label, "unverified");
+});
+
+test("a legacy live evidence level is refused, not counted", () => {
+  const collection = collectSupportEvidence(
+    [
+      ledger({
+        workItems: [
+          item("TEST-01", "live-authorized", [
+            "src/server/connectors/formats/openapi/adapter.ts",
+          ]),
+          item("TEST-02", "deployed-authorized", [
+            "src/server/connectors/formats/openapi/adapter.ts",
+          ]),
+        ],
+      }),
+    ],
+    [openapi],
+    { today: TODAY, exists: () => true },
+  );
+  assert.equal(collection.entries.length, 0);
+  assert.equal(collection.refused.length, 2);
+  for (const line of collection.refused)
+    assert.match(
+      line,
+      /a live level needs an explicit, dated, attributed entry/,
+    );
 });
 
 test("a ledger dated in the future is refused rather than earning a label", () => {
@@ -286,11 +319,11 @@ test("the published matrix and the runtime's recorded evidence are exactly what 
     assert.ok(row, id);
     return row.split("|")[5]!.trim();
   };
-  // The generic OpenAPI and catalog paths are exercised against local
+  // The generic OpenAPI and catalog code paths are exercised against local
   // doubles by the suites their ledgers cite: above the family default,
-  // never live.
-  assert.equal(labelOf("openapi-http"), "local");
-  assert.equal(labelOf("catalog-http"), "local");
+  // never live, and marked as describing the code path, not a definition.
+  assert.equal(labelOf("openapi-http"), "local (code path)");
+  assert.equal(labelOf("catalog-http"), "local (code path)");
   // The adapters whose ledgers used to be dropped now have a label.
   for (const id of ["camel-kamelet", "dapr", "open-service-broker"])
     assert.equal(labelOf(id), "fixture", id);
@@ -298,7 +331,7 @@ test("the published matrix and the runtime's recorded evidence are exactly what 
   for (const line of matrix.split("\n"))
     if (line.startsWith("| `") && line.includes("hosted-server"))
       assert.ok(
-        !["live", "certified"].includes(line.split("|")[5]!.trim()),
+        !/^(live|certified)\b/.test(line.split("|")[5]!.trim()),
         line.slice(0, 60),
       );
   // Every explicit entry the runtime ships cites a check a reader can open.
