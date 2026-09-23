@@ -14,14 +14,12 @@ import { PersistenceConflict } from "./persistence/index.js";
 import { recipeDefinitionSchema } from "../core/recipe-contracts.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
-import { readFile } from "node:fs/promises";
 import {
   authoredAccountRegistrationRecipe,
   authoredAccountStored,
   publicAuthoredIdentity,
   readAuthoredAccountIntent,
   readAuthoredBlocker,
-  readAuthoredCapture,
   readAuthoredLog,
   saveAuthoredAccountIntent,
 } from "./authored-operations.js";
@@ -48,7 +46,6 @@ async function presentRun(
   run: Awaited<ReturnType<TeachingRuntime["commands"]["snapshot"]>>,
 ) {
   const identity = await publicAuthoredIdentity(runtime.store, actor, run.id);
-  const capture = await readAuthoredCapture(runtime.store, actor, run.id);
   const blocker = await readAuthoredBlocker(runtime.store, actor, run.id);
   const accountIntent = await readAuthoredAccountIntent(
     runtime.store,
@@ -66,7 +63,6 @@ async function presentRun(
   return {
     ...run,
     ...(identity ? { identity } : {}),
-    ...(capture ? { capture: true } : {}),
     ...(account ? { account: "stored" as const } : {}),
     ...(blocker
       ? {
@@ -505,27 +501,6 @@ async function runHttp(
     return await startRunHttp(request, runtime, actor, body);
   const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
   const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
-  const captureRoute = /^\/runs\/([^/]+)\/capture$/.exec(path);
-  if (captureRoute && !post) {
-    const runId = id.parse(decodeURIComponent(captureRoute[1]!));
-    await runtime.commands.snapshot(actor, runId);
-    const pathOnDisk = await readAuthoredCapture(runtime.store, actor, runId);
-    if (!pathOnDisk) return reply({ error: "unavailable" }, 404);
-    try {
-      const bytes = await readFile(pathOnDisk);
-      return new Response(bytes, {
-        status: 200,
-        headers: {
-          "content-type": "video/webm",
-          "cache-control": "no-store",
-          "referrer-policy": "no-referrer",
-          "x-content-type-options": "nosniff",
-        },
-      });
-    } catch {
-      return reply({ error: "unavailable" }, 404);
-    }
-  }
   if (activeDemo && !post) {
     const runId = id.parse(decodeURIComponent(activeDemo[1]!));
     await runtime.commands.snapshot(actor, runId);

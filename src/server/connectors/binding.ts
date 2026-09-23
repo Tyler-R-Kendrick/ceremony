@@ -133,6 +133,12 @@ export const runtimeBindingSchema = bindingReferenceSchema
       .max(256),
     /** Digest of the exact transitive artifact set this approval reviewed. */
     reviewedDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    /**
+     * A person's explicit consent, given at binding approval, that an
+     * assistant may read outputs classified personal. Absent means withheld.
+     * Secret outputs have no consent: they never reach an assistant.
+     */
+    agentOutputConsent: z.literal("personal").optional(),
     /** Adapter-owned, host-approved settings; never caller-supplied. Values are inert configuration, never secrets. */
     settings: z
       .record(z.string().max(120), z.unknown())

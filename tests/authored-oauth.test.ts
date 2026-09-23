@@ -14,6 +14,7 @@ import {
   authoredVocabulary,
   registerAuthoredOperations,
   saveAuthoredAccountIntent,
+  issueAuthoredHandle,
 } from "../src/server/authored-operations.js";
 
 const provider = "https://provider.example";
@@ -280,7 +281,13 @@ for (const required of [false, true])
     });
     const result = await registry
       .require("authored.authorize-user", "1.0.0")
-      .handler(context, { app: "fixture-app" });
+      .handler(context, {
+        app: await issueAuthoredHandle(
+          store,
+          { ...context, nodeId: "app" },
+          "app",
+        ),
+      });
     assert.equal(result.state, "awaiting-human");
     assert.equal(parCalls, 1);
     assert.equal(browserCalls, required ? 0 : 1);

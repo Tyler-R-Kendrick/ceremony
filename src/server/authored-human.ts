@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
@@ -9,10 +9,14 @@ import {
   type AuthorizationBrowser,
 } from "./browser-executor.js";
 import type { AsyncCeremonyStore, StoredRecord } from "./persistence/index.js";
+import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
 import type { RunRecord } from "./commands.js";
 import type { OperationContext } from "./recipes/registry.js";
 import {
   authoredLoginStatus,
+  authoredCredentialFields,
+  authoredCredentialStored,
+  writeAuthoredCredential,
   accountBrowserKey,
   authoredNativeKey,
   readAccountBrowser,
@@ -38,11 +42,20 @@ import {
   isProviderOwnedAuth,
 } from "./provider-discovery.js";
 import { originCandidatesFromProvider } from "../core/connector-authoring.js";
-import { ensureAuthoredApp, readAuthoredApp } from "./authored-app.js";
 import {
+  authoredClientAuthentication,
+  authoredClientSecretNeeded,
+  ensureAuthoredApp,
+  humanRedirectUri,
+  readAuthoredApp,
+  saveAuthoredClientSecret,
+} from "./authored-app.js";
+import {
+  applyClientAuthentication,
   exchangeAuthorizationCode,
   beginAuthorization,
   requestedScopes,
+  type ClientAuthentication,
 } from "./authored-oauth.js";
 
 const escape = (text: string) =>
@@ -91,16 +104,20 @@ async function startDeviceAuthorization(
   clientId: string,
   scope: string,
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  const body = new URLSearchParams({ client_id: clientId, scope });
+  applyClientAuthentication(clientId, headers, body, clientAuth);
   const response = await fetcher(endpoint, {
     method: "POST",
     redirect: "error",
     signal: AbortSignal.timeout(15_000),
-    headers: {
-      accept: "application/json",
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ client_id: clientId, scope }),
+    headers,
+    body,
   });
   if (!response.ok) return;
   const json = z
@@ -128,7 +145,12 @@ function consoleHints(origin: string) {
   }
 }
 
-/** Generic A2H for authored ceremonies. Credentials are never collected on this host. */
+/**
+ * Generic A2H for authored ceremonies. Secrets this host does collect (an API
+ * key, a password, a confidential client's secret) arrive only through the
+ * native private forms here, go straight to server-side custody and are
+ * never echoed into a page, a run snapshot, an event or a model.
+ */
 export async function authoredHuman(
   store: AsyncCeremonyStore,
   context: OperationContext,
@@ -294,6 +316,14 @@ export async function authoredHuman(
     )
       throw new AuthorizationError("denied");
     discovery = discoveredAuthSchema.parse(prior.value.discovery);
+    const clientAuth = await authoredClientAuthentication(
+      store,
+      context.actor,
+      options.connectorId,
+      prior.value.session,
+      discovery.tokenEndpointAuthMethod,
+    );
+    if (!clientAuth) throw new AuthorizationError("denied");
     // Consume before exchanging a single-use code. An uncertain exchange is never replayed.
     await store.transaction((tx) => tx.delete(oauthKey, prior.revision));
     if (url.searchParams.has("error")) {
@@ -335,6 +365,7 @@ export async function authoredHuman(
         verifier: prior.value.verifier,
         state,
         ...(prior.value.dpopJwk ? { dpopJwk: prior.value.dpopJwk } : {}),
+        clientAuth,
         fetch: fetcher,
       });
       created = await saveAuthoredGrantSession(
@@ -359,6 +390,7 @@ export async function authoredHuman(
           clientId: prior.value.session,
         },
         fetcher,
+        clientAuth,
       );
     if (!created) throw new AuthorizationError("denied");
     await options.browser?.close?.(browserKey);
@@ -457,6 +489,104 @@ export async function authoredHuman(
     await advance();
     return Response.redirect(returnUrl, 303);
   };
+  /**
+   * The native private entry for an API key or a username and password. The
+   * value is collected through the private collection broker bound to this
+   * run, node and revision, consumed in the same transaction that writes it
+   * into custody, and never written anywhere else.
+   */
+  const submitCredential = async () => {
+    const form = new URLSearchParams(await boundedText(request, 16_384));
+    const fields = authoredCredentialFields(installed ?? {});
+    const values: Record<string, string> = {};
+    for (const field of fields) {
+      const value = form.get(field) ?? "";
+      if (!value || value.length > (field === "username" ? 254 : 4096))
+        throw new AuthorizationError("invalid_request");
+      values[field] = value;
+    }
+    const credentialContext = { ...context, nodeId: pending.node.id };
+    const binding = {
+      purpose: "authored-credential",
+      provider: "authored",
+      operationId: "authored.collect-credential",
+      operationVersion: "1.0.0",
+      runId: context.runId,
+      nodeId: pending.node.id,
+      revision: record.revision,
+      fields: [...fields],
+    };
+    const broker = new AsyncPrivateCollectionBroker(store);
+    const reference = await broker.collect(context.actor, binding, values);
+    const commandId = `authored-credential-${randomUUID()}`;
+    await store.transaction(async (tx) => {
+      const run = await tx.get<RunRecord>({
+        tenant: context.actor.tenantId,
+        kind: "run",
+        id: context.runId,
+      });
+      const node = await tx.get<{ state: string; verified: boolean }>({
+        tenant: context.actor.tenantId,
+        kind: "node",
+        id: `${context.runId}:${pending.node.id}`,
+      });
+      if (
+        !run ||
+        run.revision !== record.revision ||
+        run.value.status !== "active" ||
+        run.value.subjectId !== context.actor.subjectId ||
+        run.value.sessionId !== context.actor.sessionId ||
+        node?.value.state !== "awaiting-human" ||
+        node.value.verified
+      )
+        throw new AuthorizationError("denied");
+      const collected = await broker.consumeIn(
+        tx,
+        context.actor,
+        binding,
+        reference,
+        commandId,
+      );
+      await writeAuthoredCredential(tx, credentialContext, collected);
+    });
+    await broker.complete(context.actor, binding, reference, commandId);
+    await saveAuthoredBlocker(store, context.actor, context.runId, "");
+    await advance();
+    return Response.redirect(returnUrl, 303);
+  };
+  /** The integration owner's confidential client secret, straight into custody for the declared client. */
+  const submitClientSecret = async () => {
+    const form = new URLSearchParams(await boundedText(request, 16_384));
+    const secret = form.get("client_secret") ?? "";
+    if (
+      !discovery.clientId ||
+      !(await authoredClientSecretNeeded(
+        store,
+        context.actor,
+        options.connectorId,
+        discovery,
+      )) ||
+      !secret ||
+      secret.length > 2048
+    )
+      throw new AuthorizationError("denied");
+    await saveAuthoredClientSecret(store, context.actor, options.connectorId, {
+      clientId: discovery.clientId,
+      secret,
+    });
+    await advance();
+    return Response.redirect(returnUrl, 303);
+  };
+  if (
+    request.method === "POST" &&
+    pending.node.operationId === "authored.collect-credential"
+  )
+    return submitCredential();
+  if (
+    request.method === "POST" &&
+    pending.node.operationId === "authored.prepare-app"
+  )
+    return submitClientSecret();
   if (
     request.method === "POST" &&
     ["authored.authorize-user", "authored.register-account"].includes(
@@ -504,7 +634,8 @@ export async function authoredHuman(
       } else if (found.retryable) discovery = { ...discovery, retryable: true };
     }
   };
-  await refreshDiscovery();
+  if (pending.node.operationId !== "authored.collect-credential")
+    await refreshDiscovery();
   const presentation = () => {
     const ceremonyKind =
       pending.node.operationId === "authored.prepare-app"
@@ -512,7 +643,9 @@ export async function authoredHuman(
         : pending.node.operationId === "authored.register-account"
           ? "Account registration"
           : pending.node.operationId === "authored.collect-credential"
-            ? "API key"
+            ? authoredCredentialFields(installed ?? {}).includes("token")
+              ? "API key"
+              : "Account credentials"
             : discovery.deviceAuthorizationEndpoint &&
                 !discovery.authorizationEndpoint
               ? "OAuth device code"
@@ -566,6 +699,35 @@ export async function authoredHuman(
   };
   const recoveryResponse = accountRecovery();
   if (recoveryResponse) return recoveryResponse;
+  if (pending.node.operationId === "authored.collect-credential") {
+    if (
+      await authoredCredentialStored(store, context.actor, context.runId, {
+        nodeId: pending.node.id,
+      })
+    ) {
+      await advance();
+      return Response.redirect(returnUrl, 303);
+    }
+    const verification = discovery.credentialVerification;
+    const token = authoredCredentialFields(installed ?? {}).includes("token");
+    const inputs = token
+      ? `<label>API key <input name="token" type="password" autocomplete="off" maxlength="4096" required></label>`
+      : `<label>Username <input name="username" autocomplete="username" maxlength="254" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" maxlength="4096" required></label>`;
+    return page(
+      `<h1>${escape(title)}</h1>
+  <p>Enter the ${token ? "key" : "credentials"} for ${escape(name)} here, not in chat. The value goes straight to this host's encrypted custody for this connection. It is not shown to the assistant and is not written to the run history.</p>
+  ${
+    verification
+      ? `<p>It is checked with one request to <code>${escape(new URL(verification.url).origin)}</code> and used for nothing else here.</p>`
+      : `<p>This connector declares no verification request yet, so the connection cannot be verified after you save. The author must declare one first.</p>`
+  }
+  <form method="post">
+    ${inputs}
+    <button>Save and verify</button>
+  </form>`,
+    );
+  }
   const isolatedBrowserHandoff = async () => {
     if (
       !native &&
@@ -610,6 +772,23 @@ export async function authoredHuman(
         next.hash = "";
         return Response.redirect(next.href, 303);
       }
+      if (
+        await authoredClientSecretNeeded(
+          store,
+          context.actor,
+          options.connectorId,
+          discovery,
+        )
+      )
+        return page(
+          `<h1>Finish the ${escape(name)} integration</h1>
+  <p>This connector uses a confidential client registered at the provider. Register this redirect URI for that client, then enter its client secret. The secret goes straight to this host's encrypted custody for this connector. It is not shown to the assistant and is used only to authenticate token requests for this client.</p>
+  <p>Redirect URI: <code>${escape(humanRedirectUri(context.origin, context.target, context.runId))}</code></p>
+  <form method="post">
+    <label>Client secret <input name="client_secret" type="password" autocomplete="off" maxlength="2048" required></label>
+    <button>Save client secret</button>
+  </form>`,
+        );
       const consoles = discovery.origin ? consoleHints(discovery.origin) : [];
       const links = consoles
         .map(
@@ -672,9 +851,19 @@ export async function authoredHuman(
         () => undefined,
       ));
     const scope = app?.scope || requestedScopes(discovery.scopes).join(" ");
+    const clientAuth = app?.clientId
+      ? await authoredClientAuthentication(
+          store,
+          context.actor,
+          options.connectorId,
+          app.clientId,
+          app.tokenEndpointAuthMethod ?? discovery.tokenEndpointAuthMethod,
+        )
+      : undefined;
     const supportedFlows = () => {
       const canCode = Boolean(
         app?.clientId &&
+        clientAuth &&
         discovery.authorizationEndpoint &&
         discovery.tokenEndpoint &&
         app.redirectRegistered &&
@@ -684,6 +873,7 @@ export async function authoredHuman(
       );
       const canDevice = Boolean(
         app?.clientId &&
+        clientAuth &&
         discovery.deviceAuthorizationEndpoint &&
         discovery.tokenEndpoint &&
         !app.dpopRequired &&
@@ -716,6 +906,7 @@ export async function authoredHuman(
         app.clientId,
         scope,
         fetcher,
+        clientAuth,
       ).catch(() => undefined);
       if (!device) return;
       const verificationUri =
@@ -782,6 +973,10 @@ export async function authoredHuman(
         clientId: app.clientId,
         redirectUri: redirectUri.href,
         scope,
+        ...(discovery.authorizationParams
+          ? { authorizationParams: discovery.authorizationParams }
+          : {}),
+        ...(clientAuth ? { clientAuth } : {}),
         fetch: fetcher,
       }).catch(() => undefined);
       if (!started) return;
@@ -829,6 +1024,15 @@ export async function authoredHuman(
           prior.value.verificationUri!,
           Math.ceil((prior.value.nextPoll! - Date.now()) / 1000),
         );
+      // A confidential client never falls back to an unauthenticated poll.
+      const pollAuth = await authoredClientAuthentication(
+        store,
+        context.actor,
+        options.connectorId,
+        prior.value.session,
+        prior.value.discovery.tokenEndpointAuthMethod,
+      );
+      if (!pollAuth) throw new AuthorizationError("denied");
       const reserved = await store.transaction((tx) =>
         tx.put(
           oauthKey,
@@ -846,6 +1050,7 @@ export async function authoredHuman(
           clientId: prior.value.session,
         },
         fetcher,
+        pollAuth,
       );
       if (poll.status === "ready") {
         await store.transaction((tx) => tx.delete(oauthKey, reserved));

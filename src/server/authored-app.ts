@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ActorContext } from "../core/operation-contracts.js";
 import type { OperationContext } from "./recipes/registry.js";
@@ -7,6 +8,8 @@ import {
   metadataDocumentClientId,
   requestedScopes,
   useDpop,
+  type ClientAuthentication,
+  type TokenEndpointAuthMethod,
 } from "./authored-oauth.js";
 
 export type AuthoredApp = {
@@ -16,6 +19,8 @@ export type AuthoredApp = {
   redirectUri?: string;
   scope?: string;
   dpopRequired?: boolean;
+  /** How the token endpoint authenticates this client; the secret itself is in custody, never here. */
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
 };
 
 const appSchema = z.object({
@@ -25,6 +30,9 @@ const appSchema = z.object({
   redirectUri: z.string().url().optional(),
   scope: z.string().max(400).optional(),
   dpopRequired: z.boolean().optional(),
+  tokenEndpointAuthMethod: z
+    .enum(["none", "client_secret_basic", "client_secret_post"])
+    .optional(),
 });
 
 type DiscoveryView = {
@@ -40,7 +48,95 @@ type DiscoveryView = {
   grantTypes?: string[] | undefined;
   dpopRequired?: boolean | undefined;
   dpopSigningAlgorithms?: string[] | undefined;
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod | undefined;
 };
+
+const confidential = (method: TokenEndpointAuthMethod | undefined) =>
+  method === "client_secret_basic" || method === "client_secret_post";
+
+/**
+ * Custody for a confidential client's secret. A person who registered the
+ * integration at the provider supplies it once through the native
+ * app-registration page; it is bound to the author's subject, the connector
+ * and the exact client ID it was issued with, so a changed client ID cannot
+ * borrow it. It is read only to authenticate one token-endpoint request.
+ */
+export function authoredClientSecretKey(
+  actor: ActorContext,
+  connectorId: string,
+) {
+  return {
+    tenant: actor.tenantId,
+    kind: "handoff" as const,
+    id: `authored-client-secret:${createHash("sha256")
+      .update(JSON.stringify([actor.subjectId, connectorId]))
+      .digest("hex")
+      .slice(0, 32)}`,
+  };
+}
+
+const clientSecretSchema = z.strictObject({
+  clientId: z.string().min(1).max(2048),
+  secret: z.string().min(1).max(2048),
+});
+
+export async function saveAuthoredClientSecret(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  value: { clientId: string; secret: string },
+) {
+  const parsed = clientSecretSchema.parse(value);
+  const key = authoredClientSecretKey(actor, connectorId);
+  await store.transaction(async (tx) => {
+    const current = await tx.get(key);
+    await tx.put(key, parsed, current?.revision ?? null);
+  });
+}
+
+/**
+ * The token-endpoint authentication for one client. Undefined means a
+ * confidential client whose secret is not in custody (or was issued for a
+ * different client ID); the caller must not fall back to a public request.
+ */
+export async function authoredClientAuthentication(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  clientId: string,
+  method: TokenEndpointAuthMethod | undefined,
+): Promise<ClientAuthentication | undefined> {
+  if (!confidential(method)) return { method: "none" };
+  const record = await store.transaction((tx) =>
+    tx.get(authoredClientSecretKey(actor, connectorId)),
+  );
+  const parsed = clientSecretSchema.safeParse(record?.value);
+  if (!parsed.success || parsed.data.clientId !== clientId) return undefined;
+  return {
+    method: method as "client_secret_basic" | "client_secret_post",
+    secret: parsed.data.secret,
+  };
+}
+
+/** Whether this discovery names a confidential client that still needs its secret. */
+export async function authoredClientSecretNeeded(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  discovery: DiscoveryView | undefined,
+) {
+  return Boolean(
+    discovery?.clientId &&
+    confidential(discovery.tokenEndpointAuthMethod) &&
+    !(await authoredClientAuthentication(
+      store,
+      actor,
+      connectorId,
+      discovery.clientId,
+      discovery.tokenEndpointAuthMethod,
+    )),
+  );
+}
 
 export function availableAuthFlows(discovery: DiscoveryView) {
   const flows: string[] = [];
@@ -143,7 +239,12 @@ export function humanRedirectUri(
   return `${origin.replace(/\/$/, "")}/api/v1/teaching/${encodeURIComponent(connectorId)}/${encodeURIComponent(runId)}/human`;
 }
 
-/** Register or reuse a public client. Never asks a human for a client secret. */
+/**
+ * Register or reuse a client. A public client needs nothing from a person. A
+ * declared confidential client is usable only once its secret is in custody;
+ * until then this returns nothing and the app-registration page asks the
+ * integration owner for it in a native private form.
+ */
 export async function ensureAuthoredApp(
   store: AsyncCeremonyStore,
   context: OperationContext,
@@ -163,7 +264,22 @@ export async function ensureAuthoredApp(
   let dpopRequired = discovery.dpopRequired ?? false;
   let redirectRegistered = false;
   let clientId = discovery.clientId;
-  if (discovery.registrationEndpoint) {
+  const confidentialClient =
+    Boolean(clientId) && confidential(discovery.tokenEndpointAuthMethod);
+  if (confidentialClient) {
+    if (
+      await authoredClientSecretNeeded(
+        store,
+        context.actor,
+        context.target,
+        discovery,
+      )
+    )
+      return;
+    // The owner registered this client for the redirect URI the page showed.
+    redirectRegistered = true;
+  }
+  if (discovery.registrationEndpoint && !confidentialClient) {
     // Registration is not idempotent. A lost response requires reconciliation,
     // not another client registration on every refresh of the human handoff.
     const attemptKey = {
@@ -224,6 +340,9 @@ export async function ensureAuthoredApp(
     redirectUri,
     scope,
     ...(dpopRequired ? { dpopRequired: true } : {}),
+    ...(confidentialClient
+      ? { tokenEndpointAuthMethod: discovery.tokenEndpointAuthMethod }
+      : {}),
   };
   await store.transaction(async (tx) => {
     const key = authoredAppKey(context.actor, context.runId);

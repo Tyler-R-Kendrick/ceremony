@@ -25,6 +25,129 @@ export function useDpop(
   return supported;
 }
 
+/**
+ * Extra authorization-request parameters an author may declare for a
+ * provider (an `audience` for Auth0, `access_type=offline` for Google,
+ * `prompt=consent`). Positive allowlist: every name here only shapes what the
+ * provider shows or issues. The protocol parameters that bind the request to
+ * this run (client, redirect, state, PKCE, scope, request object) are not on
+ * it and are refused by name, so a declaration can never replace them.
+ */
+export const authorizationParamNames = [
+  "audience",
+  "resource",
+  "prompt",
+  "access_type",
+  "include_granted_scopes",
+  "approval_prompt",
+  "display",
+  "ui_locales",
+  "max_age",
+  "acr_values",
+  "duration",
+] as const;
+export const reservedAuthorizationParams = [
+  "response_type",
+  "client_id",
+  "redirect_uri",
+  "scope",
+  "state",
+  "code_challenge",
+  "code_challenge_method",
+  "request",
+  "request_uri",
+  "response_mode",
+  "nonce",
+  "dpop_jkt",
+  "client_secret",
+] as const;
+export const authorizationParamsSchema = z
+  .record(
+    z.string().max(40),
+    z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^[\x21-\x7e ]+$/, "Printable ASCII only"),
+  )
+  .superRefine((params, ctx) => {
+    const names = Object.keys(params);
+    if (names.length > 8)
+      ctx.addIssue({ code: "custom", message: "At most 8 parameters" });
+    for (const name of names)
+      if (
+        (reservedAuthorizationParams as readonly string[]).includes(name) ||
+        !(authorizationParamNames as readonly string[]).includes(name)
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: `Authorization parameter ${name} is not allowed`,
+          path: [name],
+        });
+  });
+
+/** Applied before the protocol parameters, which are then set last and win. */
+function applyAuthorizationParams(
+  target: URLSearchParams,
+  params: Record<string, string> | undefined,
+) {
+  for (const [name, value] of Object.entries(params ?? {}))
+    if (
+      (authorizationParamNames as readonly string[]).includes(name) &&
+      !(reservedAuthorizationParams as readonly string[]).includes(name)
+    )
+      target.set(name, value);
+}
+
+export const tokenEndpointAuthMethods = [
+  "none",
+  "client_secret_basic",
+  "client_secret_post",
+] as const;
+export type TokenEndpointAuthMethod = (typeof tokenEndpointAuthMethods)[number];
+/**
+ * How this host authenticates to a token endpoint. A confidential method
+ * carries the secret from server custody for the duration of one request; it
+ * is never stored on a ticket, an app record or anything a page renders.
+ */
+export type ClientAuthentication =
+  | { method: "none" }
+  | { method: "client_secret_basic" | "client_secret_post"; secret: string };
+
+function oauthClient(
+  clientId: string,
+  auth: ClientAuthentication | undefined,
+): [oauth.Client, oauth.ClientAuth] {
+  const method = auth?.method ?? "none";
+  const client: oauth.Client = {
+    client_id: clientId,
+    token_endpoint_auth_method: method,
+  };
+  if (auth?.method === "client_secret_basic")
+    return [client, oauth.ClientSecretBasic(auth.secret)];
+  if (auth?.method === "client_secret_post")
+    return [client, oauth.ClientSecretPost(auth.secret)];
+  return [client, oauth.None()];
+}
+
+/** RFC 6749 section 2.3.1 client authentication on a hand-built form request. */
+export function applyClientAuthentication(
+  clientId: string,
+  headers: Record<string, string>,
+  body: URLSearchParams,
+  auth: ClientAuthentication | undefined,
+) {
+  if (auth?.method === "client_secret_basic") {
+    const encode = (value: string) =>
+      encodeURIComponent(value).replace(/%20/g, "+");
+    headers.authorization = `Basic ${Buffer.from(
+      `${encode(clientId)}:${encode(auth.secret)}`,
+    ).toString("base64")}`;
+    body.delete("client_secret");
+  } else if (auth?.method === "client_secret_post")
+    body.set("client_secret", auth.secret);
+}
+
 export function requestedScopes(supported?: string[]) {
   if (!supported?.length) return ["openid", "profile", "email"];
   if (supported.includes("atproto"))
@@ -160,17 +283,18 @@ export async function pushedAuthorizationLocation(input: {
   state: string;
   challenge: string;
   dpopJwk?: JsonWebKey;
+  authorizationParams?: Record<string, string>;
+  clientAuth?: ClientAuthentication;
   fetch?: typeof fetch;
 }) {
   const as = asMetadata(input.discovery);
-  const client: oauth.Client = {
-    client_id: input.clientId,
-    token_endpoint_auth_method: "none",
-  };
+  const [client, clientAuth] = oauthClient(input.clientId, input.clientAuth);
   const DPoP = input.dpopJwk
     ? oauth.DPoP(client, await importDpopPair(input.dpopJwk))
     : undefined;
-  const parameters = new URLSearchParams({
+  const parameters = new URLSearchParams();
+  applyAuthorizationParams(parameters, input.authorizationParams);
+  for (const [name, value] of Object.entries({
     response_type: "code",
     client_id: input.clientId,
     redirect_uri: input.redirectUri,
@@ -178,9 +302,10 @@ export async function pushedAuthorizationLocation(input: {
     state: input.state,
     code_challenge: input.challenge,
     code_challenge_method: "S256",
-  });
+  }))
+    parameters.set(name, value);
   const execute = () =>
-    oauth.pushedAuthorizationRequest(as, client, oauth.None(), parameters, {
+    oauth.pushedAuthorizationRequest(as, client, clientAuth, parameters, {
       ...(DPoP ? { DPoP } : {}),
       [oauth.customFetch]: input.fetch ?? publicAuthFetch,
     });
@@ -225,6 +350,10 @@ export async function beginAuthorization(input: {
   redirectUri: string;
   scope: string;
   dpop?: boolean;
+  /** Declared, allowlisted extras; the protocol parameters below always win. */
+  authorizationParams?: Record<string, string>;
+  /** Needed only when a pushed authorization request authenticates the client. */
+  clientAuth?: ClientAuthentication;
   fetch?: typeof fetch;
 }): Promise<{
   location: string;
@@ -254,6 +383,10 @@ export async function beginAuthorization(input: {
           state,
           challenge,
           ...(dpopJwk ? { dpopJwk } : {}),
+          ...(input.authorizationParams
+            ? { authorizationParams: input.authorizationParams }
+            : {}),
+          ...(input.clientAuth ? { clientAuth: input.clientAuth } : {}),
           ...(input.fetch ? { fetch: input.fetch } : {}),
         }),
         state,
@@ -266,6 +399,7 @@ export async function beginAuthorization(input: {
     }
   }
   const authorize = new URL(input.discovery.authorizationEndpoint);
+  applyAuthorizationParams(authorize.searchParams, input.authorizationParams);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", input.clientId);
   authorize.searchParams.set("redirect_uri", input.redirectUri);
@@ -295,13 +429,11 @@ export async function exchangeAuthorizationCode(input: {
   verifier: string;
   state: string;
   dpopJwk?: JsonWebKey;
+  clientAuth?: ClientAuthentication;
   fetch?: typeof fetch;
 }) {
   const as = asMetadata(input.discovery);
-  const client: oauth.Client = {
-    client_id: input.clientId,
-    token_endpoint_auth_method: "none",
-  };
+  const [client, clientAuth] = oauthClient(input.clientId, input.clientAuth);
   const callback = oauth.validateAuthResponse(
     as,
     client,
@@ -315,7 +447,7 @@ export async function exchangeAuthorizationCode(input: {
     oauth.authorizationCodeGrantRequest(
       as,
       client,
-      oauth.None(),
+      clientAuth,
       callback,
       input.redirectUri,
       input.verifier,
