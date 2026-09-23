@@ -1093,6 +1093,68 @@ test("compound provider names discover client-metadata OAuth without a human for
 });
 
 /**
+ * Discovery reports more than the tool result declares (userinfo, revocation,
+ * PKCE methods). The tool result is a positive allowlist, so those are left
+ * out of what a model reads — but leaving them out must not turn a successful
+ * draft into a refusal, which is what a strict parse of the whole report did.
+ */
+test("the authoring tool narrows a rich discovery report instead of refusing it", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  try {
+    const drafts = new ConnectorDrafts(store, {
+      allowLoopbackHttp: true,
+      fetch: async (input) =>
+        String(input).startsWith("http://127.0.0.1:4179/") &&
+        String(input).endsWith("/.well-known/oauth-authorization-server")
+          ? Response.json({
+              authorization_endpoint: "https://auth.example/authorize",
+              token_endpoint: "https://auth.example/token",
+              userinfo_endpoint: "https://auth.example/userinfo",
+              revocation_endpoint: "https://auth.example/revoke",
+              code_challenge_methods_supported: ["S256"],
+              grant_types_supported: ["authorization_code"],
+            })
+          : new Response("", { status: 404 }),
+    });
+    const [fromProvider] = createAuthoringTools("ceremony_author", {
+      fromProvider: (input) =>
+        drafts.fromProvider(
+          actor(),
+          input.provider,
+          input.openApiUrl,
+          input.intent,
+          input.origin,
+        ),
+      compose: (input) =>
+        drafts.compose(actor(), input.draftId, input.revision, input.childIds),
+      read: (id) => drafts.read(actor(), id),
+    });
+    const result = (await fromProvider!.execute({
+      provider: "rich-saas",
+      origin: "http://127.0.0.1:4179",
+    })) as {
+      ok: boolean;
+      error?: string;
+      discovery?: Record<string, unknown>;
+    };
+    assert.equal(result.error, undefined);
+    assert.equal(result.ok, true);
+    assert.equal(result.discovery?.tokenEndpoint, "https://auth.example/token");
+    for (const undeclared of [
+      "userinfoEndpoint",
+      "revocationEndpoint",
+      "codeChallengeMethods",
+    ])
+      assert.equal(undeclared in (result.discovery ?? {}), false, undeclared);
+  } finally {
+    await store.close();
+  }
+});
+
+/**
  * The installed record is keyed by connector id across the whole tenant, while
  * reads are scoped to the author who installed it. Overwriting another
  * author's record would silently take their connector away from them: they
