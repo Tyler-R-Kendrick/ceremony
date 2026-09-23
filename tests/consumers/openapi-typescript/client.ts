@@ -130,15 +130,15 @@ export function connectorClient(options: ConnectorClientOptions) {
     async connection(
       connectionRef: string,
     ): Promise<
-      { found: true; connection: Connection } | { found: false; code: string }
+      | { found: true; connection: Connection }
+      | { found: false; code: string | undefined }
     > {
       const { data, error, response } = await client.GET(
         "/api/v1/connectors/connections/{connectionRef}",
         { params: { path: { connectionRef } } },
       );
       if (data) return { found: true, connection: data };
-      if (response.status === 404)
-        return { found: false, code: error?.error ?? "not-found" };
+      if (response.status === 404) return { found: false, code: error?.error };
       refused(response, error ?? {});
     },
 

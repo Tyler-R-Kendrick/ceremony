@@ -88,4 +88,7 @@ jobs:
             *-*) dist_tag=next ;;
             *) dist_tag=latest ;;
           esac
-          npm publish --provenance --access public --tag "${dist_tag}"
+          # --ignore-scripts: prepublishOnly would re-run check, build and
+          # test:package here, with the publish token in their environment.
+          # The steps above already ran the guard and all three without it.
+          npm publish --ignore-scripts --provenance --access public --tag "${dist_tag}"

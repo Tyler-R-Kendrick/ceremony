@@ -169,10 +169,11 @@ test("REL-03: the release workflow cannot publish from a pull request, a fork, o
   assert.equal(publish, job.steps.length - 1, "publishing is the last step");
   assert.match(
     job.steps[publish]!.run!,
-    /npm publish --provenance --access public/,
+    /npm publish --ignore-scripts --provenance --access public/,
   );
 
-  // The token is handed only to the steps that talk to the registry.
+  // The token is handed only to the steps that talk to the registry, and
+  // the publish runs no lifecycle scripts (so no build tool sees it).
   const holders = job.steps
     .filter((step) =>
       Object.values(step.env ?? {}).some((value) =>

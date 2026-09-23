@@ -84,7 +84,8 @@ type ConsumerModule = {
     connection(
       ref: string,
     ): Promise<
-      { found: true; connection: View } | { found: false; code: string }
+      | { found: true; connection: View }
+      | { found: false; code: string | undefined }
     >;
     invoke(
       connectionRef: string,
