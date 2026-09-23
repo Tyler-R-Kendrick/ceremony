@@ -315,6 +315,16 @@ test("inbox steps carry only opaque run-bound handles; the address, code and lin
   );
   for (const secret of [mail.address, code, link, "provider.example/verify"])
     assert.equal(visible.includes(secret), false, "secret escaped");
+  // Handles live in node outputs only; snapshots and audit events omit them.
+  const projected = await r.store.transaction(async (tx) =>
+    JSON.stringify([
+      snapshot,
+      ...(await tx.list(actor.tenantId, "audit", 100)),
+      ...(await tx.list(actor.tenantId, "event", 100)),
+    ]),
+  );
+  for (const handle of [inboxHandle, verificationHandle])
+    assert.equal(projected.includes(handle), false, "handle escaped");
 
   // Handles resolve only for the run that minted them, and a code is single use.
   const other = await r.executeRecipe(actor, inboxRecipe, {}, "stripe");
