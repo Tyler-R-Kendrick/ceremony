@@ -13,7 +13,7 @@ import {
   handlerFetch,
   human,
   ORIGIN,
-} from "./connectors/commands/harness.js";
+} from "../connectors/commands/harness.js";
 
 /*
  * The same claim as tests/openapi-client.test.ts, in a second language.
@@ -36,7 +36,7 @@ import {
  * which turns that skip into a failure so the job cannot pass vacuously.
  */
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "../..");
 const consumer = join(root, "tests/consumers/openapi-python");
 const generated = join(consumer, "generated", "ceremony_connectors");
 const python = process.env.CEREMONY_PYTHON ?? "python3";
