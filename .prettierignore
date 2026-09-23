@@ -1,0 +1,15 @@
+# Fixtures that are deliberately malformed.
+#
+# A hostile-input fixture has to stay exactly as written: its whole purpose is
+# to be rejected by a parser, and several of them are not valid JSON or YAML at
+# all. Prettier cannot parse such a file, so it reports an error and fails the
+# whole format:check run rather than reporting a style difference. Listing them
+# here keeps the check meaningful for the code around them.
+#
+# New hostile fixtures SHOULD use a `.malformed.` infix (for example
+# `oversized.malformed.json`) so they are ignored by the pattern below without
+# a further edit here. Only add an explicit path when a fixture cannot follow
+# that convention.
+
+tests/connectors/fixtures/**/*.malformed.*
+tests/connectors/fixtures/import/canary-invalid.json

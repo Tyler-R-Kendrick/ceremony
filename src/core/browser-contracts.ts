@@ -58,6 +58,27 @@ export const secretRoles: readonly CeremonyRole[] = [
   "totp-code",
 ];
 
+/**
+ * The secret roles a caller already *holds* when an attempt starts.
+ *
+ * The distinction is when the value comes into existence, and it matters to
+ * anything that wants a secret's value before the flow asks for one. A
+ * password sits in the private collector and is there to be read. A
+ * verification code does not exist yet: resolving one means waiting on a
+ * mailbox until the provider sends it, which cannot happen before the
+ * submission that causes it. Asking early does not get an early answer — it
+ * blocks, or polls until it gives up, before anything has been submitted.
+ *
+ * So a caller that wants to know a secret's value up front may ask for these
+ * and must not ask for the others. The two lists are deliberately separate
+ * rather than one list with a flag, because a role added to `secretRoles`
+ * without a thought about this one is the mistake worth making visible.
+ */
+export const heldSecretRoles: readonly CeremonyRole[] = [
+  "password",
+  "password-confirm",
+];
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
@@ -125,7 +146,14 @@ export const blockedReasons = [
    * driver. A page is free to navigate or re-render while an interpreter is
    * thinking or a credential is being fetched; acting on what was seen before
    * that would deliver a secret under an approval that no longer describes the
-   * page. The attempt stops instead of filling a replacement.
+   * page. Nothing is filled into the replacement.
+   *
+   * Reaching a *caller* under this name means it happened twice in a row. The
+   * first time, the attempt reads the page again and decides on what is
+   * actually there — a submit whose navigation commits late leaves a perfectly
+   * drivable signed-in page behind the dead approval, and ending there would
+   * report a login that succeeded as one that never happened. A page that
+   * moves under two reads running cannot be driven, and says so.
    */
   "stale-document",
   /**
@@ -135,11 +163,63 @@ export const blockedReasons = [
    */
   "stale-element",
   /**
+   * There was no observation to act against at all — not a document that moved
+   * on, but an approval that was never taken or was already released.
+   *
+   * Both refuse, so nothing is delivered either way, and for a long time both
+   * said `stale-document`. That reads as the page having changed under the
+   * attempt, which sends whoever is reading it to the guards that compare
+   * documents — and those guards never ran. It is a fault in the caller's own
+   * sequencing, and it says so.
+   */
+  "no-observation",
+  /**
    * The submission would now reach somewhere the approval never covered —
    * a changed `action`, a `formaction` override, a different method or a
    * different target.
    */
   "unapproved-recipient",
+  /**
+   * The page, tab or browser this attempt was driving is gone.
+   *
+   * Distinct from `stale-document` on purpose, and the distinction is the
+   * whole value: a document that moved on leaves a document to read, so the
+   * attempt reads it again once before giving up. A closed target leaves
+   * nothing, so re-reading is a wasted step and "the document moved" is a
+   * report that sends its reader to the wrong place — the guards that compare
+   * documents, for a tab that no longer exists.
+   */
+  "target-closed",
+  /**
+   * The plan says this login happens in a frame at a named origin, and no
+   * such frame is on the page. Failing closed matters more here than most
+   * places: the alternative is quietly acting in the embedding document,
+   * which is a different origin with a different form, and the whole point
+   * of naming the frame was that it is not that one.
+   */
+  "frame-missing",
+  /**
+   * More than one frame answers to the named origin, so "the frame" does not
+   * identify a document. Choosing one would approve a position rather than a
+   * thing, which is the failure every guard in `browser-targets.ts` exists to
+   * prevent, one level up: a page that can add a second frame at an origin
+   * could choose which document a credential is typed into.
+   */
+  "frame-ambiguous",
+  /**
+   * The page opened a window somewhere the plan does not admit. Nothing in
+   * it is read, let alone acted in. A window is the page choosing where the
+   * next document lives, and an origin the plan never named does not become
+   * admitted by being opened rather than navigated to.
+   */
+  "popup-undeclared",
+  /**
+   * More than one window the page opened answers to an admitted origin, so
+   * "the window" does not identify a document. The refusal frames make, one
+   * level up: a page that can open two windows could choose which one a
+   * credential is typed into.
+   */
+  "popup-ambiguous",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -172,7 +252,14 @@ export type CeremonyCallback = { code: string; state?: string };
  * Steps a transcript can record. `handoff` is the driver's own, never an
  * interpreter's: asking a person to take part is not an inference decision.
  */
-export type CeremonyStepAction = DriverAction["action"] | "handoff";
+/**
+ * What a transcript entry records. `handoff` is a person being brought in;
+ * `reobserve` is the page having been replaced under an approval, so the
+ * attempt read it again instead of ending. Neither is something an
+ * interpreter proposed, which is why they are not `DriverAction`s.
+ */
+export type CeremonyStepAction =
+  DriverAction["action"] | "handoff" | "reobserve";
 
 /** One transcript entry. Values are excluded, so this is safe to persist. */
 export type CeremonyStep = {

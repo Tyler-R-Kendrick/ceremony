@@ -1,0 +1,220 @@
+{
+  "swarm": "UX",
+  "workItems": [
+    {
+      "id": "UX-01",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-directory.tsx",
+        "src/react/connectors.css",
+        "examples/web/connectors.tsx",
+        "src/core/connectors/client.ts"
+      ],
+      "tests": [
+        "tests/connectors/ux/directory.test.ts",
+        "tests/connectors/ux/client.test.ts",
+        "tests/browser/connector-directory.spec.ts"
+      ],
+      "acceptanceIds": ["AC-UX-06", "AC-UX-05"],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "The directory renders whatever GET /api/v1/connectors/catalog returns; it was exercised against the loopback double of that route table, not against the server implementation."
+      ],
+      "notes": "Rows come only from the server catalogue. Search and facets (service, ecosystem, custody, capability dimension, runtime, evidence, support level) run over the whole inventory; paging is a rendering budget ('Show N more') and never a filter, asserted with a row 26 pages deep. Alternatives share a group heading and stay separate cards with their own support badge, custody badges, evidence chip and configuration readiness. Deep links preserved: / opens the directory, ?connector= opens the drawer, ?connection= resumes, mode/section are kept when the query is rewritten. StatusChip and HandoffMeter are reused from src/react/connectors.tsx."
+    },
+    {
+      "id": "UX-02",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-review.tsx",
+        "src/core/connectors/client.ts"
+      ],
+      "tests": ["tests/connectors/ux/review.test.ts"],
+      "acceptanceIds": ["AC-UX-03", "AC-IMP-13"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "Publish/activate is a 'propose a runtime binding' call to POST /bindings; whatever richer activation the server ends up offering is not yet surfaced.",
+        "The viewer field it reads is a proposal (see contractChanges); with nothing reported, operator controls stay hidden."
+      ],
+      "notes": "Import review shows provenance (format and version, origin, capture time, exact-byte digest, normalized digest, native identity and version, importer, licence, overlays), diagnostics grouped by category with blocking first, the per-dimension mapping table, proposed authentication profiles with their declared endpoints and scopes, declared servers marked declared-not-approved, and runtime configuration requirements. Only issue codes, pointers and the importer's sanitized messages are rendered: a canary key in an uploaded document never reaches the review region. Binding stays disabled while a blocking issue stands."
+    },
+    {
+      "id": "UX-03",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-connection.tsx",
+        "src/core/connectors/client.ts"
+      ],
+      "tests": [
+        "tests/connectors/ux/connection.test.ts",
+        "tests/browser/connector-drawer.spec.ts"
+      ],
+      "acceptanceIds": ["AC-UX-02", "AC-EXT-10"],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "Dynamic options are fetched by invoking the operation the field names; a server that describes dynamic fields some other way is not covered.",
+        "POST /connections/:ref/collect is a proposed route (see contractChanges); without it a secret field cannot be submitted."
+      ],
+      "notes": "Non-secret values live in component state; a field the server classifies as secret is never mirrored into state, a draft, the URL or a log. It is read from the form once on submit, sent to the private collector, and replaced by the returned reference before the handoff input is posted — asserted with a canary that appears in exactly one request body. Dynamic fields render dependsOn-driven selects with their own loading, blocked and error states, fetched through an invoke of the named operation with the dependency values."
+    },
+    {
+      "id": "UX-04",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-connection.tsx",
+        "docs/connector-directory.md"
+      ],
+      "tests": ["tests/connectors/ux/connection.test.ts"],
+      "acceptanceIds": ["AC-UX-02", "AC-AUTH-12", "AC-AUTH-16"],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "Organization ownership is offered only when the catalogue's viewer reports that owner kind; until the server reports it, the control is permanently disabled and says so."
+      ],
+      "notes": "Every PR #39 drawer control was audited against the route table and the audit table is in docs/connector-directory.md. Kept and mapped: auth family to intent.profileId, environment to bindingRef (approved bindings only), target to intent.target, identity preference to ownerKind, interruption budget to intent.interruption. Removed: managed/custom endpoint declaration, per-family endpoint and environment-name fields, shared/per-user key mode, every capability toggle, the verification off-switch and the expiry select. Capability toggles became a read-only CapabilityStatus report; a unit test asserts no control inside it and no control label mentioning verification or key sharing."
+    },
+    {
+      "id": "UX-05",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-connection.tsx",
+        "src/core/connectors/client.ts"
+      ],
+      "tests": [
+        "tests/connectors/ux/connection.test.ts",
+        "tests/connectors/ux/client.test.ts",
+        "tests/browser/connector-directory.spec.ts"
+      ],
+      "acceptanceIds": [
+        "AC-UX-02",
+        "AC-AUTH-09",
+        "AC-AUTH-15",
+        "AC-STATE-03",
+        "AC-STATE-04",
+        "AC-STATE-05"
+      ],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "Target options are offered by the server as handoff fields once a flow is under way; before connecting, the target is typed and the copy says the server must observe it."
+      ],
+      "notes": "The connection reports claim kinds, observation time, validity (including 'the provider stated no expiry'), limitations and the exact verified target, plus the custody badge, evidence freshness and a handoff meter counting distinct handoffs. Reconnect requires ticking an explicit account-change intent and sends expectedRevision; a stale revision is refused. Disconnect asks for a scope, explains all three in their own words, and renders the DisconnectResult per scope with the sharedWith impact list. Indeterminate outcomes are named as unknown and reconciling. A closed popup, a postMessage and the 'I finished' button only trigger a poll."
+    },
+    {
+      "id": "UX-06",
+      "status": "implemented",
+      "files": [
+        "src/react/connector-drawer.tsx",
+        "src/react/connector-connection.tsx",
+        "src/react/connectors.css",
+        "examples/web/connectors.tsx"
+      ],
+      "tests": [
+        "tests/browser/connector-drawer.spec.ts",
+        "tests/browser/connector-directory.spec.ts",
+        "tests/connectors/ux/service-worker.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-UX-04",
+        "AC-UX-05",
+        "AC-AUTH-14",
+        "AC-AUTH-15",
+        "AC-AG-03"
+      ],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "Axe covers the directory and drawer of the harness page; the reference application's own shell is audited by its existing specs."
+      ],
+      "notes": "Focus enters the drawer, Tab and Shift+Tab cycle inside it, Escape closes it and focus returns to the card — verified in Chromium, Firefox and WebKit. Field labels carry the field name only; hints, loading and error states are separate aria-describedby elements. The handoff window is opened on the click and navigated when the server answers; a blocked window falls back to same-window navigation and the callback returns to the connection, which is re-read from the server. Offline disables connecting and invoking and says nothing is queued; 401 clears the surface and asks for sign-in. The service worker is untouched and a test asserts it never names a connector route or /api/, and that the client always sends cache: no-store. No WebMCP dependency exists in these surfaces."
+    },
+    {
+      "id": "UX-07",
+      "status": "partial",
+      "files": [
+        "examples/web/connectors.tsx",
+        "tests/browser/connector-harness.tsx"
+      ],
+      "tests": [
+        "tests/connectors/ux/harness-server.ts",
+        "tests/browser/connector-drawer.spec.ts"
+      ],
+      "acceptanceIds": ["AC-PKG-02"],
+      "evidenceLevel": "browser-integration",
+      "sourceProfileIds": ["ceremony-connectors-http-v1"],
+      "limitations": [
+        "scripts/check-bundle.mjs enforces a total-download ceiling across every chunk, so mounting these surfaces in the reference application fails it even though the reference page itself grows by 0.77 kB raw / 0.30 kB gzip. The ceiling needs a deliberate raise (see integrationPatches); I did not change the script.",
+        "Splitting the connection surface into its own chunk was tried and reverted: Rollup keeps it in the same chunk as the directory, so it bought nothing."
+      ],
+      "notes": "The components take a host-supplied client (any transport implementing the typed interface) and host-supplied window management, so a host embedding them from @ceremony/auth/react supplies both. Browser tests run against a harness that esbuild-bundles the shipped components and serves them, the route table and a fixture provider from an ephemeral loopback port, with a second origin for the untrusted-message case; no dev server and no fixed port. Screenshots are written only to testInfo.outputPath from fixture data."
+    }
+  ],
+  "contractChanges": [
+    {
+      "change": "src/core/connectors/client.ts adds a browser client with no changes to existing contracts.",
+      "compatibility": "Additive module. Nothing existing imports it yet."
+    },
+    {
+      "change": "Proposed additive field on GET /api/v1/connectors/catalog: `viewer: { capabilities: string[], ownerKinds: OwnerKind[] }`, equivalently the headers `x-ceremony-capabilities` and `x-ceremony-owner-kinds` (the client reads either).",
+      "compatibility": "Optional. Absent, the client defaults to { capabilities: [], ownerKinds: ['user'] }: operator controls stay hidden and organization ownership stays disabled with 'requires administrator policy'. This mirrors the existing /api/v1/teaching/capabilities pattern."
+    },
+    {
+      "change": "Proposed additive field on the human connection projection's `presentation`: `fields?: FieldDescriptor[]`, where a descriptor is { name, label, type, required, classification, description?, options?, dynamic?: { operationRef, dependsOn[] } }.",
+      "compatibility": "Optional; only an in-app handoff carries it. Without it the drawer renders the url/userCode/instructions it already renders. It is how a server asks for input in the app (MCP input_required, Microsoft dynamic fields) without the browser inventing a form."
+    },
+    {
+      "change": "Proposed additive route: POST /api/v1/connectors/connections/:ref/collect { values } -> { secretRef }, the connector equivalent of the existing /collect on ceremonies.",
+      "compatibility": "Additive. Required before a secret-classified handoff field can be submitted; the UI sends only the returned reference to /handoffs/:ref/input."
+    },
+    {
+      "change": "Observed: POST /bindings returns either the binding or { binding }. The client accepts both.",
+      "compatibility": "No server change needed; noted so the shape can be settled."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/react/index.tsx (INT)",
+      "description": "Add, after `export * from \"./connectors.js\";`:\nexport * from \"./connector-directory.js\";\nexport * from \"./connector-drawer.js\";\nexport * from \"./connector-connection.js\";\nexport { ConnectorImport, DefinitionReviewPanel, IssueList, DimensionTable } from \"./connector-review.js\";\nNote: connector-directory.tsx and connector-connection.tsx both export `dimensionLabels`/`evidencePresentation` only from the directory module, so a flat re-export is collision-free. If the review surface should stay out of the package entry (bundle), export only the first three lines."
+    },
+    {
+      "target": "src/core/connectors/index.ts (INT)",
+      "description": "Add `export * from \"./client.js\";` so hosts get the typed client from @ceremony/auth. It is browser-safe (zod only) and pulls in nothing from src/server."
+    },
+    {
+      "target": "package.json exports (INT)",
+      "description": "Optional: expose the stylesheet as \"./connectors.css\": \"./src/react/connectors.css\" beside the existing styles.css and teaching.css entries, and add src/react/connectors.css to `files`."
+    },
+    {
+      "target": "examples/web/main.tsx (INT)",
+      "description": "Three additive edits, measured with this exact patch:\n1) after `const ExtensionSetup = lazy(() => import(\"./extension-setup.js\"));` add\n   const ConnectorWorkspace = lazy(() => import(\"./connectors.js\"));\n2) in the nav, before the Environment button, add\n   <button aria-current={tab === \"connectors\" ? \"page\" : undefined} onClick={() => setTab(\"connectors\")}>Connectors</button>\n3) in <main>, after `{config && tab === \"environment\" && <Environment />}` add\n   {tab === \"connectors\" && (<Suspense fallback={<p role=\"status\">Loading connectors…</p>}><ConnectorWorkspace /></Suspense>)}\nThe workspace needs no props: it builds its own client against /api/v1/connectors and reads location.search itself. `?section=connectors` can be added to the initial tab resolver if a deep link to the section is wanted."
+    },
+    {
+      "target": "scripts/check-bundle.mjs (INT)",
+      "description": "The budget is a total-download ceiling across every chunk, so the new on-demand chunks fail it even though the reference page is unchanged. Measured with the mount patch above: index 471.53 kB raw / 145.87 kB gzip (from 470.76 / 145.57), connectors chunk 66.46 kB raw / 20.75 kB gzip, connector-review chunk 12.13 kB raw / 3.93 kB gzip, totals 570986 raw / 178663 gzip against a budget of 495000 / 154000. Either raise the ceiling deliberately (suggest 580000 raw / 182000 gzip, with the reason written beside the previous raise) or leave these surfaces out of the reference build."
+    },
+    {
+      "target": "playwright.config.ts (INT)",
+      "description": "Add \"**/connector-drawer.spec.ts\" to the firefox and webkit projects' testMatch so the drawer's cross-engine coverage runs in CI. The chromium project picks up both new specs already. Both specs start their own loopback harness and never use the 4173/4174 dev server."
+    },
+    {
+      "target": "docs/README.md (INT)",
+      "description": "Link docs/connector-directory.md from the documentation index."
+    },
+    {
+      "target": "host system (INT/CI)",
+      "description": "WebKit could not launch until `npx playwright install-deps webkit` was run in this container (libgtk-4, libgraphene, libevent, libopus, gstreamer plugins). It passes now; CI images need the same."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "AC-UX-01 is proven against the loopback double of the route table, not against the command swarm's server. The integrator should re-run tests/browser/connector-directory.spec.ts against the real /api/v1/connectors once it is mounted; only the harness's base URL changes.",
+    "Live-authorized evidence for any provider: not attempted, and no fixture is labelled as such."
+  ],
+  "externalEffectsPerformed": [
+    "Installed Playwright browser builds and WebKit's host libraries in this container (npx playwright install chromium firefox webkit, npx playwright install-deps webkit). No repository file, package.json or lockfile was changed.",
+    "Ran `npx vite build` to measure the bundle; examples/web/main.tsx was patched for the measurement and restored byte-for-byte (git reports it unmodified)."
+  ]
+}

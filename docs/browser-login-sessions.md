@@ -93,6 +93,42 @@ before every action — after every await — the adapter rechecks that:
 Any of these failing ends the step with a named refusal —`stale-document`,
 `stale-element`, `unapproved-recipient` — and nothing is typed.
 
+### Acting inside a frame
+
+A plan may say the credential form belongs to another origin, embedded. That
+is what `frameOrigins` declares, and declaring it requires the `frameBinding`
+capability — a plan that names a frame on a backend that cannot observe inside
+one is refused before launch rather than run in the wrong document.
+
+Where a capable backend is used, the frame is resolved **on every read and
+every action**, never chosen once and held. A frame is not a stable thing:
+it can be removed, replaced, or navigated somewhere else between an
+observation and the action that observation authorized. Resolving it each
+time is what makes the origin check happen at both moments without a second
+rule saying so, and the document guards above then compare the held document
+against whatever that resolution returns, exactly as they do for a page.
+
+Two ways selection can fail, and neither falls back to the page:
+
+- **`frame-missing`** — no frame on the page answers to a declared origin.
+  Using the embedding document instead would type a credential into a
+  different origin's form; naming the frame was the statement that the page
+  is not it.
+- **`frame-ambiguous`** — more than one does, so "the frame" does not
+  identify a document. Choosing would approve a position rather than a thing,
+  one level up from the element guards: a page that can add a second frame at
+  an origin could otherwise choose which document receives a credential.
+
+`stale-document` is the one of the three the attempt does not give up on
+first time. A page replaced under an approval leaves a page that can be read;
+a submit whose navigation commits after the read that followed it leaves the
+_signed-in_ page there, and ending the attempt would report a login that
+succeeded as one that never happened. So the page is read again and decided
+on from scratch — approvals, origins and recipients all re-derived from the
+document actually in front of the driver — and only a second move in a row
+ends the attempt. The other two mean the page rearranged itself under an
+approval rather than replacing itself, and stay terminal.
+
 **What this does not do.** It does not protect a password from the site it was
 typed into. Entering a credential means trusting that site as its recipient;
 DOM isolation does not hide a filled value from the page's own scripts. What is

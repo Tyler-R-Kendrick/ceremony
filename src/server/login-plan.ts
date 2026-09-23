@@ -4,6 +4,7 @@ import {
   accountPolicySchema,
   browserEngineSchema,
   browserOwnershipSchema,
+  browserReasoningModeSchema,
   browserTrustModeSchema,
   loginContinuationSchema,
   requiredCapabilitySchema,
@@ -86,6 +87,15 @@ export const connectionDraftSchema = z
     continuation: loginContinuationSchema,
     trustMode: browserTrustModeSchema,
     /**
+     * Whether this login may consult the host's model, and nothing wider.
+     *
+     * Absent means `deterministic`. A default that reached for a model would
+     * make "I did not fill this in" mean "send the page to inference", which
+     * is the wrong direction for the one field here that decides whether
+     * anything about somebody's sign-in page leaves the deployment.
+     */
+    reasoning: browserReasoningModeSchema.optional(),
+    /**
      * How many times this ceremony may ask a person to take part. It counts
      * rounds Ceremony requests, cumulatively across retries, resumes and
      * interpreter fallback. It is not, and cannot be, a promise about the
@@ -119,10 +129,29 @@ export const planRejectionReasons = [
   "verification-required",
   "unknown-credential-reference",
   "ambiguous-account",
+  /** Inference was asked for and this host has no model to do it with. */
+  "reasoning-unavailable",
 ] as const;
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
 
+/**
+ * Why a draft was refused, and — only where it is safe — which value did it.
+ *
+ * A rejection is the one object here that routinely leaves the process by a
+ * route nobody planned: it is thrown, logged, attached to a report, and on a
+ * model-facing surface it is rendered into a transcript. Every other surface
+ * in this system has a written rule about what it may carry. This is that
+ * rule.
+ *
+ * `detail` may hold something the *server* worked out — which capabilities a
+ * backend lacks — or a token from a closed set the schema already validated:
+ * an engine, an ownership, a role name, a canonical origin. It may not hold a
+ * free-form string the caller sent. `connectorId` is the one such field, 128
+ * characters of anything, and echoing it back bought nothing: a caller
+ * already knows what it asked for, so the echo was only ever a second,
+ * unredacted copy travelling somewhere the first one was not going to go.
+ */
 export class PlanRejected extends Error {
   constructor(
     readonly reason: PlanRejectionReason,
@@ -148,6 +177,8 @@ export type EffectiveLoginPlan = {
   account: AccountPolicy;
   continuation: z.infer<typeof loginContinuationSchema>;
   trustMode: z.infer<typeof browserTrustModeSchema>;
+  /** Who may decide the next action. Resolved, never absent, always digested. */
+  reasoning: z.infer<typeof browserReasoningModeSchema>;
   interactionRounds: number;
   requireVerification: boolean;
   verifierOrigin: string | undefined;
@@ -190,6 +221,14 @@ export type CompileOptions = {
   availableCredentialRefs?: ReadonlySet<string>;
   /** Whether this deployment permits a deliberately unverified attempt. */
   allowUnverified?: boolean;
+  /**
+   * Whether this host has a model configured at all, from the runtime rather
+   * than from the client. A draft asking for inference on a host without one
+   * is refused here — the alternative is running the deterministic rules
+   * under a plan that says a model decided, which is the same defect as a
+   * wizard rendering a setting the server never compiled.
+   */
+  modelAvailable?: boolean;
   revision: number;
 };
 
@@ -207,8 +246,10 @@ export function compileLoginPlan(
 ): EffectiveLoginPlan {
   const draft = connectionDraftSchema.parse(input);
 
+  // No detail. The connector id is the only unbounded caller string the
+  // compiler reads, and the reason alone names the field it belongs to.
   if (!options.knownConnectors.has(draft.connectorId))
-    throw new PlanRejected("unknown-connector", draft.connectorId);
+    throw new PlanRejected("unknown-connector");
 
   const backend = options.backends.find(
     (candidate) =>
@@ -227,6 +268,25 @@ export function compileLoginPlan(
     // a backend that cannot retain must refuse rather than return a browser it
     // is about to close.
     ...(draft.continuation === "dispose" ? {} : { retainedSession: true }),
+    // Nor is acting inside a frame. Declaring a frame origin *is* declaring
+    // that this login happens in a frame, so the capability that makes that
+    // possible is required whether or not the caller thought to name it.
+    //
+    // Without this the field was accepted, canonicalized, digested and then
+    // read by nothing: `createBoundTargets` observes through
+    // `page.evaluateHandle`, which is the main frame and nothing else. A
+    // person who configured "the credential form is at https://auth.example
+    // in a frame" got a plan that said so and a run that never looked. It
+    // failed closed - the driver simply never found the field - but a
+    // configuration that reads as supported and cannot work is the defect
+    // this compiler exists to prevent, one step further along than a wizard
+    // rendering a setting the server never compiled.
+    //
+    // `frameBinding` was false on every engine when this was written, so
+    // this was a refusal, and being told no leaves a person free to choose
+    // something else. Then #66 enforced frames and this same line started
+    // admitting them - the route a requirement here is meant to take.
+    ...((draft.frameOrigins ?? []).length > 0 ? { frameBinding: true } : {}),
   };
   const unmet = unmetCapabilities(backend, required);
   if (unmet.length > 0)
@@ -266,6 +326,14 @@ export function compileLoginPlan(
   if (!draft.requireVerification && options.allowUnverified !== true)
     throw new PlanRejected("verification-required");
 
+  // Asking for a model this host does not have is a refusal, never a quiet
+  // downgrade. Both answers run a login; only one of them runs the login the
+  // plan describes, and a caller told "no model here" can choose a host that
+  // has one, while a caller told nothing believes a model looked at the page.
+  const reasoning = draft.reasoning ?? "deterministic";
+  if (reasoning === "host-model" && options.modelAvailable !== true)
+    throw new PlanRejected("reasoning-unavailable");
+
   const credentialRefs: Record<string, string> = {};
   for (const [role, reference] of Object.entries(draft.credentialRefs ?? {})) {
     if (
@@ -296,6 +364,7 @@ export function compileLoginPlan(
     account: draft.account,
     continuation: draft.continuation,
     trustMode: draft.trustMode,
+    reasoning,
     interactionRounds: draft.interactionRounds,
     requireVerification: draft.requireVerification,
     verifierOrigin: draft.verifierOrigin,

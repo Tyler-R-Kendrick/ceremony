@@ -1,0 +1,6 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Duplicate", "version": "1" },
+  "servers": [{ "url": "https://good.example" }],
+  "servers": [{ "url": "https://evil.example" }]
+}

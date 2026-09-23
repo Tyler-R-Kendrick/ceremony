@@ -85,7 +85,24 @@ const clientDraftSchema = connectionDraftSchema
   });
 
 export const browserLoginToolInputs = {
-  login: z.strictObject({ connectorId: identifier, draft: clientDraftSchema }),
+  login: z.strictObject({
+    connectorId: identifier,
+    draft: clientDraftSchema,
+    /**
+     * The client's name for "this same request".
+     *
+     * A client whose connection drops mid-login has no way to tell whether the
+     * credential reached the provider, and the obvious thing to do — ask again
+     * — used to log in a second time. Sending the same key with the retry makes
+     * the two calls one request: the second reports what the first did.
+     *
+     * Opaque to the server and scoped to this subject and this compiled plan,
+     * so one client's key cannot collide with another's and a revised plan is
+     * never treated as a replay of the plan it replaced. Omitting it keeps the
+     * old behaviour, in which every call is a new request.
+     */
+    idempotencyKey: z.string().min(1).max(200).optional(),
+  }),
   sessionStatus: z.strictObject({ sessionRef: browserSessionRefSchema }),
   release: z.strictObject({
     sessionRef: browserSessionRefSchema,
@@ -229,7 +246,8 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
      */
     async login(actor: ActorContext, input: unknown): Promise<LoginResult> {
       requireCapability(actor, "executor");
-      const { connectorId, draft } = browserLoginToolInputs.login.parse(input);
+      const { connectorId, draft, idempotencyKey } =
+        browserLoginToolInputs.login.parse(input);
       const usable = await deps.credentialRefs?.(actor);
       const plan = compileLoginPlan(
         { ...draft, connectorId },
@@ -245,7 +263,10 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
       );
 
       const result = loginResultSchema.parse(
-        await deps.service.login(actor, { plan }),
+        await deps.service.login(actor, {
+          plan,
+          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        }),
       );
 
       const sessionRef =

@@ -685,9 +685,16 @@ fieldset label:last-child input {
     padding-inline: 18px;
   }
   .site-header {
-    gap: 20px;
+    /*
+     * Compact, because this header is three lines at a phone width -- brand,
+     * navigation, install -- and what follows it has to fit in what is left.
+     * With the navigation row restored to one line the primary action cleared
+     * the fold by about two pixels, which is a pass that any change in font
+     * metrics turns into a failure. These two values buy it sixteen more.
+     */
+    gap: 16px;
     flex-wrap: wrap;
-    padding-block: 16px;
+    padding-block: 12px;
   }
   .brand {
     font-size: 22px;
@@ -697,10 +704,48 @@ fieldset label:last-child input {
   }
   .site-header nav {
     margin-left: auto;
+    /*
+     * One row that scrolls itself, rather than a second line or a wider page.
+     *
+     * A fourth entry does not fit here: at 390px the row has 354px and the
+     * four buttons measure 439.5px. Both obvious answers are asserted against.
+     * Letting the row wrap gives the header a third line, and the header is
+     * already 250px tall at this width, so every page's primary action moved
+     * 52px down and landed below the fold -- the teaching specifications check
+     * that a Connect button's bottom is inside the viewport. Not wrapping
+     * makes the document 439px wide, and the accessibility specifications
+     * check `scrollWidth <= innerWidth`.
+     *
+     * So the row keeps one line's height and scrolls inside its own box. The
+     * document stays 390px wide, the header stays the height it was, and every
+     * entry is still reachable: a focused button is scrolled into view, so
+     * keyboard order is unchanged.
+     *
+     * `min-width: 0` is what allows it. Without it the flex item refuses to
+     * shrink below its content and the overflow moves back up to the page.
+     */
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    /* No scrollbar gutter: this box is one button tall and cannot spare it. */
+    scrollbar-width: none;
+  }
+  .site-header nav::-webkit-scrollbar {
+    display: none;
   }
   nav button {
     padding-inline: 10px;
     font-size: 12px;
+    /* A label that wraps would grow the row it was just kept out of. */
+    white-space: nowrap;
+    /*
+     * Keep each entry its natural size. Allowed to shrink, the four of them
+     * compressed to exactly the 354px available and clipped their own labels
+     * instead of scrolling -- a row that fits by becoming unreadable. Let the
+     * row overflow and scroll; a legible label the reader can reach beats a
+     * truncated one that is always on screen.
+     */
+    flex: 0 0 auto;
   }
   .page-heading {
     padding-block: 28px 24px;

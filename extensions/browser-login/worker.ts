@@ -112,6 +112,25 @@ const appRequest = z.strictObject({
   protocol: z.literal(1),
 });
 /**
+ * The origin the browser attests for a sender, or nothing at all.
+ *
+ * A URL that will not parse is not a reason to report the bridge unavailable.
+ * That name means "this build has no external bridge", and answering it to a
+ * sender whose origin merely cannot be read sends them to check the wrong
+ * thing — while `http://127.0.0.1:4173.evil.example` is exactly the kind of
+ * address that fails to parse, because the parser reads the rest as a port.
+ * Unreadable is not admitted, and "not admitted" already has a name.
+ */
+function senderOrigin(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * One admission test for both bridges. The origin is the one the browser
  * attests for the sender, never one the message claims, and it is compared for
  * equality against the exact configured origins — scheme, host and port.
@@ -134,11 +153,7 @@ platform.runtime.onMessageExternal((message, sender, reply) => {
     if (config.appBridge !== "externally-connectable")
       return reply({ error: "unavailable" });
     reply(
-      await answerApp(
-        sender.url ? new URL(sender.url).origin : undefined,
-        message,
-        config.appOrigins,
-      ),
+      await answerApp(senderOrigin(sender.url), message, config.appOrigins),
     );
   })().catch(() => reply({ error: "unavailable" }));
   return true;
@@ -162,7 +177,7 @@ function admitHandoffPort(port: HandoffPort) {
 platform.runtime.onConnectExternal((port) => {
   void (async () => {
     const config = await bridgeConfig();
-    const origin = port.sender?.url && new URL(port.sender.url).origin;
+    const origin = senderOrigin(port.sender?.url);
     if (
       config.appBridge !== "externally-connectable" ||
       !origin ||
@@ -179,7 +194,7 @@ platform.runtime.onConnectExternal((port) => {
 platform.runtime.onConnect((port) => {
   void (async () => {
     const config = await bridgeConfig();
-    const origin = port.sender?.url && new URL(port.sender.url).origin;
+    const origin = senderOrigin(port.sender?.url);
     if (
       config.appBridge !== "content-relay" ||
       port.sender?.id !== platform.runtime.id ||
@@ -204,7 +219,7 @@ platform.runtime.onMessage((raw, sender, reply) => {
       return reply({ error: "unavailable" });
     reply(
       await answerApp(
-        sender.url ? new URL(sender.url).origin : undefined,
+        senderOrigin(sender.url),
         relayed.data.request,
         config.appOrigins,
       ),

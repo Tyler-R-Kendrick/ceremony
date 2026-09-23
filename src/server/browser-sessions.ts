@@ -284,8 +284,33 @@ export function createBrowserSessionRegistry(options: {
         throw new AuthorizationError("denied");
 
       if (kind === "dispose-managed") {
+        // The context is this session's and always goes.
         await session?.context?.close().catch(() => {});
-        await session?.browser?.dispose().catch(() => {});
+        // The browser is not. `ManagedBrowser.dispose()` closes every context
+        // the backend ever created and then the process, so calling it to end
+        // *one* session ends every session sharing that browser - and the
+        // harm is the one this module exists to prevent, read the other way
+        // round: an authenticated session nobody can reach.
+        //
+        // A managed browser is built to hold several contexts; `openContext`
+        // exists and the backend keeps a set of them. Nothing in production
+        // shares one yet, because the login service launches a browser per
+        // login, so this was latent rather than live. It was not invisible:
+        // the conformance suite shares a browser per engine and had to stub
+        // `dispose` to a no-op so one case ending would not take the engine
+        // away from the cases after it.
+        //
+        // So the last one out disposes it. Counted over the live sessions
+        // rather than declared by the caller, because a caller that has to
+        // remember gets it wrong, and the registry is the only thing that
+        // knows who else is still holding the same object.
+        const stillInUse = [...live].some(
+          ([ref, other]) =>
+            ref !== sessionRef &&
+            session?.browser !== undefined &&
+            other.browser === session.browser,
+        );
+        if (!stillInUse) await session?.browser?.dispose().catch(() => {});
       }
       // Dropping the live entry is what actually revokes automation: without
       // it every later operation fails to resolve, for every controller.
@@ -355,11 +380,18 @@ export function createBrowserSessionRegistry(options: {
 
     /** Test and shutdown seam: forget live entries without touching records. */
     async disposeAll(): Promise<void> {
+      // Every context, then each distinct browser once. Tearing the registry
+      // down does dispose browsers - that is what this is for, unlike a
+      // single release - but two sessions sharing one must not dispose it
+      // twice, so the same invariant holds on both paths: a browser is
+      // disposed when the last thing using it lets go, exactly once.
+      const browsers = new Set<ManagedBrowser>();
       for (const session of live.values()) {
         if (session.ownership !== "managed") continue;
         await session.context?.close().catch(() => {});
-        await session.browser?.dispose().catch(() => {});
+        if (session.browser) browsers.add(session.browser);
       }
+      for (const browser of browsers) await browser.dispose().catch(() => {});
       live.clear();
     },
   };

@@ -1,0 +1,218 @@
+{
+  "swarm": "SUPABASE",
+  "workItems": [
+    {
+      "id": "SB-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/supabase/management.ts",
+        "src/server/connectors/providers/supabase/common.ts",
+        "src/server/connectors/providers/supabase/lifecycle.ts",
+        "src/server/connectors/providers/supabase/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/supabase/management.test.ts",
+        "tests/connectors/doubles/supabase-management.ts",
+        "tests/connectors/fixtures/supabase/harness.ts"
+      ],
+      "acceptanceIds": ["AC-SB-02", "AC-SB-03"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "supabase-management-api-v1",
+        "supabase-oauth-2026-09"
+      ],
+      "limitations": [
+        "Live account evidence blocked: no authorized Supabase OAuth app or dashboard account in this environment",
+        "The Management API documents no pagination for GET /v1/organizations or GET /v1/projects; the adapter windows one bounded response and reports that as a discover issue rather than inventing page parameters",
+        "Access-token and refresh-token lifetimes are not documented; expiry is taken from the token response expires_in only",
+        "Organization-owned connections are out of scope: only ownerKind \"user\" is accepted, because an organization tag is not an organization grant",
+        "account-identity evidence depends on GET /v1/profile being permitted for the grant; when it is refused the connection keeps resource-access evidence and records the gap as a claim limitation"
+      ],
+      "notes": "createSupabaseManagementAdapter, id \"supabase-management\", custody host-owned, support provider-backed. Authorize: GET /v1/oauth/authorize with client_id, redirect_uri, response_type=code, state, code_challenge, code_challenge_method=S256 and optional organization_slug; the deprecated scope request parameter is never sent and the double rejects any request that carries one. State and the PKCE verifier live in HandoffIssue.private. Token: POST /v1/oauth/token, application/x-www-form-urlencoded, confidential client via oauth4webapi ClientSecretPost; refresh with rotation through the custody single-flight, each refresh journaled so a lost outcome becomes reconnect rather than a replayed refresh token. Target: exactly one { kind: \"supabase-project\" | \"supabase-organization\", id } chosen by the human from the inventory (GET /v1/organizations, GET /v1/projects) and checked against binding.permittedTargets; a target the grant cannot reach ends the flow denied with no credential stored. Bound read operations: v1-list-all-projects, v1-get-project, v1-list-all-organizations, v1-get-an-organization, v1-list-organization-members, all output classification personal."
+    },
+    {
+      "id": "SB-02",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/supabase/hosted-mcp.ts"],
+      "tests": ["tests/connectors/supabase/hosted-mcp.test.ts"],
+      "acceptanceIds": ["AC-SB-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["mcp-2026-07-28", "mcp-2025-11-25"],
+      "limitations": [
+        "Protocol execution is delegated to the MCP swarm's client through McpClientPort; this profile owns the binding, the pinned URL and what may be asked, not the wire protocol",
+        "Token acquisition is delegated to McpAuthorizationPort; without a registered profile authorize reports unsupported instead of improvising a registration",
+        "No revoke: a dynamically registered client holds no secret for POST /v1/oauth/revoke, so the documented alternative (the user revokes the app in the Supabase dashboard) is recorded as a capability limitation",
+        "The per-tool feature-group table is taken from the published available-tools list; a server that adds a tool later is simply not in an approved binding"
+      ],
+      "notes": "createSupabaseHostedMcpProfile, id \"supabase-mcp\", ecosystem \"mcp\", custody host-owned. Destination pinned to https://mcp.supabase.com with path /mcp. Restrictions are binding settings validated by resolveSupabaseHostedMcpBinding: project_ref (20 lowercase letters, must be a permitted target), read_only, features (account, database, debugging, development, docs, functions, branching, storage; documented default is every group except storage), plus authorization mode (dynamic-client-registration by default, oauth-app, personal-access-token) and protocol profile. The server URL is built only from validated settings, so a caller cannot supply an arbitrary URL carrying read_only=true; a loopback double asserts the exact URL and query the binding produces. A read-only binding cannot bind or invoke a mutating tool, and account tools cannot be combined with project scope. Verification refuses a server whose advertised tool set does not honour the approved restrictions, and records what it advertises as credential-accepted with reported permissions, never as observed access."
+    },
+    {
+      "id": "SB-03",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/supabase/data-api.ts"],
+      "tests": [
+        "tests/connectors/supabase/data-api.test.ts",
+        "tests/connectors/doubles/supabase-project.ts"
+      ],
+      "acceptanceIds": ["AC-SB-05", "AC-SB-01"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["postgrest-select-v1"],
+      "limitations": [
+        "Reads only: bounded GET /rest/v1/<table> selects on approved tables, columns and filters; no insert, update, delete, RPC or embedded resource",
+        "Only the default exposed schema (public); another schema would need Accept-Profile and its own review",
+        "Row Level Security is the project's, not the adapter's; a table whose RLS review is unverified is flagged on every result and in the verification claim rather than being assumed safe",
+        "No revoke: the session belongs to the existing project sign-in ceremony, so signing out happens there",
+        "Live project evidence blocked: no authorized Supabase project in this environment"
+      ],
+      "notes": "The existing project-user authentication is untouched (src/server/supabase-auth.ts, src/server/recipes/supabase.ts, src/server/supabase-human.ts, src/server/services.ts); createSupabaseDataApiAdapter, id \"supabase-data-api\", only consumes the verified session through a ProjectSessionPort the host implements. Requests carry apikey: <publishable key> and Authorization: Bearer <project user access token>, the documented pairing. Credential kinds are distinct with distinct custody scopes: a service-role secret or a management token presented to this adapter is refused before any request is built, by kind metadata (assertCredentialKind) and by documented key format (classifyProjectKey) — never by parsing a secret into a log. AC-SB-01 is exercised with both adapters present: a project session smuggled into the Management adapter's custody is refused before a request reaches api.supabase.com, and management access still requires its own provider authorization."
+    },
+    {
+      "id": "SB-04",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/supabase/wrappers.ts"],
+      "tests": ["tests/connectors/supabase/wrappers.test.ts"],
+      "acceptanceIds": ["AC-SB-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["supabase-wrappers-catalog-v1"],
+      "limitations": [
+        "Foreign tables have no Row Level Security; the documented limitation is attached to every capability row, every descriptor table and every read result",
+        "readWrappersDescriptor never executes SQL: it reads catalog-style metadata, or parses migration DDL text statically under byte and statement ceilings",
+        "import foreign schema creates tables the migration text does not describe; the gap is reported as an issue and catalog metadata is required for column review",
+        "Reads run under the host's database role through ApprovedQueryPort, so there is no end-user grant and the authorize dimension is unsupported by design",
+        "Option values (including Vault key ids and API keys) are classified secret and dropped; only option names are retained"
+      ],
+      "notes": "readWrappersDescriptor(sqlOrCatalogMetadata) returns wrappers, servers and foreign tables with column names/types and option names only. createSupabaseWrappersAdapter exposes host-approved narrow reads: parameterized, table- and column-allowlisted, filter-operator-allowlisted, row-capped, composed by the port from validated identifiers so no SQL string crosses the boundary. A foreign table in the catalog with no approved read is denied and the port is never asked. A canary API key and Vault id in the migration text are absent from the descriptor, the imported definition and the export."
+    },
+    {
+      "id": "SB-05",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/supabase/lifecycle.ts",
+        "src/server/connectors/providers/supabase/management.ts",
+        "src/server/connectors/providers/supabase/data-api.ts"
+      ],
+      "tests": [
+        "tests/connectors/supabase/management.test.ts",
+        "tests/connectors/supabase/data-api.test.ts"
+      ],
+      "acceptanceIds": ["AC-SB-01", "AC-SB-03"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["supabase-management-api-v1"],
+      "limitations": [
+        "Advancing the connection generation is the command layer's effect; the adapter reports what it superseded (supersedeTarget) and the integrator advances the generation on that report",
+        "POST /v1/oauth/revoke needs the stored refresh token; a grant issued without one (the documented jwt-bearer case) reports upstream \"unsupported\" with the dashboard as the recorded alternative"
+      ],
+      "notes": "Changing the target project or organization calls evidence.invalidate, cancels the handoffs issued for the old target and returns a supersede report so the generation advances; without explicit accountSwitch intent the change is refused outright. A delayed callback for an older generation cannot complete, and a replayed callback is refused without a second token request. Token expiry and a rejected refresh map to reconnect-required; an applied POST /v1/oauth/revoke maps to upstream-revoked; a local disconnect maps to locally-disconnected and is shown not to contact the provider or to end the upstream grant."
+    },
+    {
+      "id": "SB-06",
+      "status": "implemented",
+      "files": [],
+      "tests": [
+        "tests/connectors/doubles/supabase-management.ts",
+        "tests/connectors/doubles/supabase-project.ts",
+        "tests/connectors/fixtures/supabase/harness.ts",
+        "tests/connectors/supabase/management.test.ts",
+        "tests/connectors/supabase/hosted-mcp.test.ts",
+        "tests/connectors/supabase/data-api.test.ts",
+        "tests/connectors/supabase/wrappers.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-SB-01",
+        "AC-SB-02",
+        "AC-SB-03",
+        "AC-SB-04",
+        "AC-SB-05",
+        "AC-SB-06"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "supabase-management-api-v1",
+        "postgrest-select-v1",
+        "supabase-wrappers-catalog-v1"
+      ],
+      "limitations": [
+        "All fixtures are loopback doubles on ephemeral ports (listen(0, \"127.0.0.1\")); no test contacts the internet and none binds a fixed port"
+      ],
+      "notes": "Both doubles are written from the vendor documentation and the published OpenAPI document, never from the adapter, and they enforce the documented contract rather than accepting what arrives: the management double rejects a deprecated scope parameter, a non-S256 PKCE method, an unregistered redirect_uri, a mismatched redirect_uri at the token endpoint, a wrong PKCE verifier, a replayed authorization code, a replayed rotated refresh token and a missing client secret, and it gates every REST route on the grant's scopes. Covered fixtures: management OAuth authorize redirect, token, refresh with rotation, wrong-project target, organization listing; project Auth existing session; project Data access allowed vs disallowed table and the missing-RLS warning path; hosted MCP overbroad feature request and arbitrary URL rejection; Wrappers metadata boundaries; privilege-token confusion in both directions."
+    }
+  ],
+  "contractChanges": [
+    {
+      "target": "src/server/connectors/adapter.ts (INT, proposal only — no shared file was edited)",
+      "description": "SupabaseAuthorizationStart in providers/supabase/lifecycle.ts is structurally AuthorizationStart plus an optional `supersedes: { reason, invalidatedClaims, cancelledHandoffs }`. A command layer that does not know the field still works (the adapter has already invalidated evidence and cancelled handoffs); one that does should advance the connection generation when it is present. If the integrator wants this shared, the smallest additive change is an optional `supersedes?: SupersedeReport` on AuthorizationStart's handoff variant. Nothing in the existing shape changes."
+    }
+  ],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register four separate adapters from src/server/connectors/providers/supabase/index.ts — never one blended adapter: createSupabaseManagementAdapter(options?) as \"supabase-management\"; createSupabaseHostedMcpProfile({ client, authorization?, policy? }) as \"supabase-mcp\" (ecosystem \"mcp\"); createSupabaseDataApiAdapter({ sessions }) as \"supabase-data-api\"; createSupabaseWrappersAdapter({ query }) as \"supabase-wrappers\". All four share service \"supabase\" so the directory groups them without merging their grants."
+    },
+    {
+      "target": "configuration names (INT)",
+      "description": "supabase-management requires SUPABASE_OAUTH_CLIENT_ID (public, required, a UUID) and SUPABASE_OAUTH_CLIENT_SECRET (secret, required); with either absent the directory shows it unconfigured and authorize returns configuration-required. supabase-data-api reads the existing SUPABASE_PUBLISHABLE_KEY or SUPABASE_ANON_KEY (public, optional — at least one needed at call time) and SUPABASE_URL; these are the names the existing project sign-in already uses, so nothing is renamed. supabase-mcp and supabase-wrappers need no configuration of their own."
+    },
+    {
+      "target": "runtime binding destinations (INT)",
+      "description": "supabase-management: destination id \"api\", origin https://api.supabase.com, network public. supabase-mcp: destination id \"mcp\", origin https://mcp.supabase.com, pathPrefix /mcp, network public. supabase-data-api: destination id \"project\", origin https://<project ref>.supabase.co, network public. supabase-wrappers has no HTTP destination (its operations use transport { kind: \"delegated\", route: \"wrappers-select\" }). Each profile refuses a destination that is not its documented origin; network \"loopback-fixture\" is the only exception and exists for the test doubles."
+    },
+    {
+      "target": "callback route (INT)",
+      "description": "Mount the Management OAuth return route at /api/v1/connectors/supabase-management/callback (override with createSupabaseManagementAdapter({ callbackPath })). The adapter builds the redirect_uri from ctx.environment.origin plus that path and compares the incoming callback's origin and pathname exactly before touching the state index. The same URL must be registered as the OAuth app's redirect URI."
+    },
+    {
+      "target": "ports the MCP swarm must satisfy (INT/MCP)",
+      "description": "McpClientPort { listTools(session), callTool(session, { name, arguments }) } where McpServerSession carries { url, resource, protocol: \"mcp-2026-07-28\" | \"mcp-2025-11-25\", authorization: { kind: \"bearer\", use(work) } | { kind: \"none\" }, fetch, signal }. The bearer handle only lends the token inside a callback and refuses any credential that is not kind \"hosted-mcp-access-token\", so a management token cannot be forwarded to the MCP server. McpAuthorizationPort { begin(ctx, { serverUrl, resource, registration, protocol, credentialKind, intent }), complete(ctx, input, { serverUrl, resource }) } is the OAUTH swarm's registration profile (dynamic client registration is the documented default for the hosted server); it must store the token under credential kind \"hosted-mcp-access-token\"."
+    },
+    {
+      "target": "ports the COMMAND/state layer must satisfy (INT/COMMAND)",
+      "description": "ProjectSessionPort { resolve({ actor, connectionRef, projectRef, signal }) } returns the verified project-user session from the existing sign-in ceremony as { kind: \"project-user-session\", projectRef, userId, expiresAt, assurance?, use(work) }; the access token is lent inside the callback and never returned. Any other kind is refused as credential-kind confusion. ApprovedQueryPort { catalog({ signal }), select({ schema, table, columns, filters, order?, limit, offset, signal }) } executes the host's parameterized, allowlisted foreign-table read; it must refuse anything it cannot parameterize and must never accept a SQL string. The command layer also owns: issuing the proposed handoffs, persisting connections, and advancing the connection generation when an authorize/reconnect result carries a supersede report."
+    },
+    {
+      "target": "catalog presentation (INT/UI)",
+      "description": "The four profiles are alternatives for one service and must be grouped, never merged: Management OAuth is a dashboard-user authority, the hosted MCP server is a separate OAuth resource, the Data API acts as a project user, and Wrappers runs under the host's database role with no end-user grant. Capability rows already carry the per-profile limitations (no pagination, unknown scopes, no foreign-table RLS, delegated protocol execution, no revoke route) for display."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [
+    "None. No Supabase account, OAuth app, project or token was used or created. The only network access was reading public vendor documentation and the public OpenAPI document at https://api.supabase.com/api/v1-json; all tests run against loopback doubles."
+  ],
+  "verifiedDocumentation": [
+    {
+      "source": "https://supabase.com/docs/guides/integrations/build-a-supabase-oauth-integration",
+      "verified": "GET https://api.supabase.com/v1/oauth/authorize with client_id, redirect_uri, response_type=code, state, code_challenge, code_challenge_method; organization_slug pre-selects an organization; redirect_uri and state together cannot exceed 4kB; scope is marked [Deprecated] because scopes are configured when the OAuth app is created; POST https://api.supabase.com/v1/oauth/token with content-type application/x-www-form-urlencoded and grant_type=authorization_code, code, redirect_uri (exactly the one used in the first step) and code_verifier; the example authenticates the client with an Authorization: Basic header; a revoked user grant makes refresh fail.",
+      "unverified": "Access-token and refresh-token lifetimes; whether refresh tokens always rotate (the adapter keeps the presented refresh token when the response omits a new one, and the double exercises both)."
+    },
+    {
+      "source": "https://api.supabase.com/api/v1-json (OpenAPI 3.0.0, \"Supabase API (v1)\", fetched 2026-09-18)",
+      "verified": "OAuthTokenBody accepts grant_type authorization_code | refresh_token | urn:ietf:params:oauth:grant-type:jwt-bearer with client_id, client_secret, code, code_verifier, redirect_uri, refresh_token, resource and scope; OAuthTokenResponse is { access_token, refresh_token?, expires_in, token_type: \"Bearer\" } with no scope member required; POST /v1/oauth/revoke takes JSON { client_id, client_secret, refresh_token } and returns 204, and the jwt-bearer grant is documented as not revocable there; code_challenge_method enum is plain | sha256 | S256; project ref is ^[a-z]+$ with minLength and maxLength 20; organization slug is ^[\\w-]+$; GET /v1/organizations returns [{ id (deprecated), slug, name }]; GET /v1/organizations/{slug} returns { id, name, plan, opt_in_tags, allowed_release_channels }; GET /v1/organizations/{slug}/members returns [{ user_id, user_name, email?, role_name?, mfa_enabled, avatar_url }]; GET /v1/projects and /v1/projects/{ref} return project objects with id (deprecated), ref, organization_id (deprecated), organization_slug, name, region, created_at, status and database { host, version, postgres_engine, release_channel }; GET /v1/profile returns { gotrue_id, primary_email, username }; the oauth2 security scheme lists the scope vocabulary including projects:read and organizations:read; every listed route is bearer-authenticated and documents 401, 403 and 429.",
+      "unverified": "Pagination: no page, cursor or per_page parameter is documented for the organization or project listings, so the adapter windows one bounded response and reports the absence as a discover issue."
+    },
+    {
+      "source": "https://supabase.com/docs/reference/api/introduction",
+      "verified": "Base URL https://api.supabase.com; all requests carry Authorization: Bearer <access_token>; tokens are personal access tokens or OAuth2 tokens; rate limit 120 requests per minute per user with 429 and X-RateLimit-Limit / X-RateLimit-Remaining / X-RateLimit-Reset headers.",
+      "unverified": ""
+    },
+    {
+      "source": "https://supabase.com/docs/guides/ai-tools/mcp and https://supabase.com/mcp",
+      "verified": "The hosted server is https://mcp.supabase.com/mcp; query parameters are project_ref=<id> (\"Scope to a specific project (disables account tools)\"), read_only=true (\"Execute all queries as a read-only Postgres user\") and features=<groups> (\"Enable only specific tool groups (comma-separated)\"); feature groups are account, database, debugging, development, docs, functions, branching and storage, and \"All groups except Storage are enabled by default\"; dynamic client registration is the default authentication, with a manually created OAuth app or a personal access token on an Authorization: Bearer header as alternatives; the available-tools list per group (account: list_projects, get_project, create_project, pause_project, restore_project, list_organizations, get_organization, get_cost, confirm_cost; database: list_tables, list_extensions, list_migrations, apply_migration, execute_sql; debugging: query_logs, get_advisors; development: get_project_url, get_publishable_keys, generate_typescript_types; docs: search_docs; functions: list_edge_functions, get_edge_function, deploy_edge_function; branching: create_branch, list_branches, delete_branch, merge_branch, reset_branch, rebase_branch; storage: list_storage_buckets, get_storage_config, update_storage_config); the README states project_ref \"omits project_id from tool input schemas and excludes account-level tools\" and read_only \"excludes mutating tools\".",
+      "unverified": "Which MCP protocol revision the hosted server currently negotiates; the profile carries the revision as a binding setting (default mcp-2026-07-28, legacy mcp-2025-11-25) rather than assuming one."
+    },
+    {
+      "source": "https://supabase.com/docs/guides/database/extensions/wrappers/overview and .../wrappers/stripe",
+      "verified": "Verbatim: \"Foreign Data Wrappers do not provide Row Level Security, thus it is not advised to expose them via your API.\" Recommended mitigations are private schemas, security-definer functions with filters, and GRANT/REVOKE. DDL shapes: create extension if not exists wrappers with schema extensions; create foreign data wrapper <name> handler <h> validator <v>; select vault.create_secret(...); create server <name> foreign data wrapper <w> options (api_key_id '<key_id>', api_url '...', api_version '...'); create foreign table <schema>.<name> (...) server <server> options (object '...', rowid_column '...'); import foreign schema <s> from server <server> into <schema>.",
+      "unverified": "The overview page reachable here did not list pg_foreign_server / pg_foreign_table / pg_foreign_data_wrapper explicitly; the catalog shape the descriptor consumes is modelled on those standard Postgres catalogs and is supplied by the host's ApprovedQueryPort rather than read by this module."
+    },
+    {
+      "source": "https://supabase.com/docs/guides/api/api-keys and https://supabase.com/docs/guides/api/creating-routes",
+      "verified": "Publishable keys are sb_publishable_... and legacy anon keys are JWTs with role anon; both are browser-safe. Secret keys are sb_secret_... and legacy service_role keys are JWTs with role service_role; both must never appear in a browser, and a secret key \"doesn't work in a browser\" (Supabase matches the User-Agent header and returns HTTP 401). Secret keys authorize through the service_role Postgres role, which has BYPASSRLS and skips every Row Level Security policy. Keys travel on the apikey header. The Data API is https://<project_ref>.supabase.co/rest/v1/<table>, called with an apikey header and an Authorization: Bearer header; the public schema is exposed by default.",
+      "unverified": ""
+    },
+    {
+      "source": "https://docs.postgrest.org/en/v13/references/api/tables_views.html and .../pagination_count.html",
+      "verified": "Vertical filtering with ?select=col1,col2; horizontal filtering with ?column=operator.value; operators eq, neq, gt, gte, lt, lte, like, ilike, is, in among others; in takes ?a=in.(1,2,3) and values containing reserved characters such as commas are surrounded by percent-encoded double quotes; ordering with ?order=col.asc; ?limit=N and ?offset=M, with Range-Unit: items and Range: 0-19 as the header form; Prefer: count=exact returns Content-Range with the exact total; a ranged response is 206 Partial Content.",
+      "unverified": ""
+    }
+  ]
+}

@@ -17,6 +17,8 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The separate local protocol
 
 ## Connect, teach, and reuse
 
+- **The connector directory** opens on categories, search and cards. A card claims only what can run — provider-backed, local fixture, or a described protocol with no adapter yet — and **Add Connection** then configures the family, the capabilities and the interruption budget before running the ceremony. See [connector directory](docs/connector-directory.md).
+- **The Connectors section** is the same job done against the server's own inventory: every row, badge and capability report comes from `/api/v1/connectors/*`, so it cannot offer a connector this deployment cannot run, and it adds operator import review. It is a second surface alongside the directory, not a replacement; [connector directory](docs/connector-directory.md) says which is which.
 - **Connect GitHub** keeps app registration, installation and access verification in one parent ceremony; compatible setup is reused.
 - **Workflow studio** creates new connector definitions, authentication methods, Arazzo workflows and A2H fallbacks, with draft save/reopen and isolated OpenUI presentation authoring. It does not run Connect or access Environment.
 - **Teach this connection / Teach this step** on Connect capture permitted semantic transitions, not provider DOM or secret input.

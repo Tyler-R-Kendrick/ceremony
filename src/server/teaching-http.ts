@@ -11,21 +11,13 @@ import {
   reserveRequest,
 } from "./authorization.js";
 import { PersistenceConflict } from "./persistence/index.js";
-import {
-  recipeDefinitionSchema,
-  parseRecipeImport,
-} from "../core/recipe-contracts.js";
-import {
-  accountIdentifierSchema,
-  demonstrationConsentSchema,
-  type DemonstrationEvent,
-} from "../core/teaching-contracts.js";
+import { recipeDefinitionSchema } from "../core/recipe-contracts.js";
+import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
 import { readFile } from "node:fs/promises";
 import {
   authoredAccountRegistrationRecipe,
   authoredAccountStored,
-  deleteAuthoredSession,
   publicAuthoredIdentity,
   readAuthoredAccountIntent,
   readAuthoredBlocker,
@@ -34,8 +26,15 @@ import {
   saveAuthoredAccountIntent,
 } from "./authored-operations.js";
 import { ceremonyAgentTools } from "./agent-tools.js";
+import {
+  compileDemonstrationDraft,
+  deleteAuthoredConnection,
+  executePublishedRecipe,
+  importRecipeDraft,
+  listPublishedRecipes,
+  teachingInputs,
+} from "./teaching-operations.js";
 import { browserToolFailure } from "./browser-login-tools.js";
-import type { PublishedRecipe } from "./recipes/index.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
@@ -200,24 +199,11 @@ async function authoringHttp(
   }
   if (path === "/authoring/delete") {
     if (!post) return reply({ error: "unavailable" }, 405);
-    const input = z
-      .strictObject({
-        connectorId: z.string().min(1).max(64),
-        runId: z.string().min(1).max(120).optional(),
-        revision: revision.optional(),
-      })
-      .parse(body);
-    requireCapability(actor, "executor");
-    if (input.runId) {
-      try {
-        if (input.revision)
-          await runtime.commands.cancel(actor, input.runId, input.revision);
-      } catch {
-        /* Already complete or cancelled. */
-      }
-      await deleteAuthoredSession(runtime.store, actor, input.runId);
-    }
-    const removed = await runtime.authoring.uninstall(actor, input.connectorId);
+    const removed = await deleteAuthoredConnection(
+      runtime,
+      actor,
+      teachingInputs.authoringDelete.parse(body),
+    );
     return reply({ ok: true, human: null, removed });
   }
   const installedRoute = /^\/authoring\/installed\/([a-z0-9-]{1,64})$/.exec(
@@ -608,9 +594,7 @@ async function demonstrationHttp(
   body: unknown,
 ): Promise<Response> {
   if (path === "/demonstrations" && post) {
-    const input = z
-      .strictObject({ runId: id, scope: z.array(id).max(32).optional() })
-      .parse(body);
+    const input = teachingInputs.demonstrationStart.parse(body);
     return reply(
       await runtime.demonstrations.start(actor, input.runId, input.scope),
     );
@@ -619,9 +603,7 @@ async function demonstrationHttp(
   if (demoRoute) {
     const demoId = id.parse(decodeURIComponent(demoRoute[1]!));
     if (post) {
-      const input = z
-        .strictObject({ revision, consent: demonstrationConsentSchema })
-        .parse(body);
+      const input = teachingInputs.demonstrationConsent.parse(body);
       return reply(
         await runtime.demonstrations.change(
           actor,
@@ -651,53 +633,22 @@ async function draftHttp(
   post: boolean,
   body: unknown,
 ): Promise<Response> {
-  if (path === "/drafts/compile" && post) {
-    const input = z
-      .strictObject({
-        demonstrationId: id,
-        first: z.number().int().nonnegative(),
-        last: z.number().int().nonnegative(),
-      })
-      .parse(body);
-    if (
-      input.first < 1 ||
-      input.last < input.first ||
-      input.last - input.first >= 1000
-    )
-      throw new AuthorizationError("invalid_request");
-    const events: DemonstrationEvent[] = [];
-    let after = input.first - 1;
-    while (after < input.last) {
-      const page = await runtime.demonstrations.timeline(
-        actor,
-        input.demonstrationId,
-        after,
-        Math.min(100, input.last - after),
-      );
-      if (!page.events.length) break;
-      events.push(
-        ...page.events.filter((event) => event.sequence <= input.last),
-      );
-      after = page.events.at(-1)!.sequence;
-    }
+  if (path === "/drafts/compile" && post)
     return reply(
-      await runtime.recipes.compileDraft(actor, events, {
-        first: input.first,
-        last: input.last,
-      }),
-    );
-  }
-  if (path === "/drafts/import" && post) {
-    const input = z
-      .strictObject({ definition: z.string().max(262144) })
-      .parse(body);
-    return reply(
-      await runtime.recipes.createDraft(
+      await compileDemonstrationDraft(
+        runtime,
         actor,
-        parseRecipeImport(input.definition),
+        teachingInputs.draftCompile.parse(body),
       ),
     );
-  }
+  if (path === "/drafts/import" && post)
+    return reply(
+      await importRecipeDraft(
+        runtime,
+        actor,
+        teachingInputs.draftImport.parse(body),
+      ),
+    );
   const draftRoute =
     /^\/drafts\/([^/]+)(?:\/(edit|review|publish|suggest))?$/.exec(path);
   if (draftRoute) {
@@ -705,9 +656,7 @@ async function draftHttp(
     if (!post && !draftRoute[2])
       return reply(await runtime.recipes.getDraft(actor, draftId));
     if (post && draftRoute[2] === "edit") {
-      const input = z
-        .strictObject({ revision, definition: recipeDefinitionSchema })
-        .parse(body);
+      const input = teachingInputs.draftEdit.parse(body);
       return reply(
         await runtime.recipes.editDraft(
           actor,
@@ -762,23 +711,8 @@ async function recipeHttp(
   post: boolean,
   body: unknown,
 ): Promise<Response> {
-  if (path === "/recipes" && !post) {
-    requireCapability(actor, "executor");
-    const rows = await runtime.store.transaction((tx) =>
-      tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
-    );
-    return reply({
-      recipes: rows
-        .filter((x) => x.value.definition && !x.value.retired)
-        .map((x) => ({
-          id: x.value.definition.id,
-          title: x.value.definition.title,
-          version: x.value.version,
-          digest: x.value.digest,
-          definition: x.value.definition,
-        })),
-    });
-  }
+  if (path === "/recipes" && !post)
+    return reply({ recipes: await listPublishedRecipes(runtime, actor) });
   const publishedRoute = /^\/recipes\/([^/]+)\/(export|retire)$/.exec(path);
   if (publishedRoute) {
     const recipeId = id.parse(decodeURIComponent(publishedRoute[1]!));
@@ -810,56 +744,21 @@ async function recipeHttp(
     return reply(
       await runtime.recipes.preview(actor, recipeDefinitionSchema.parse(body)),
     );
-  if (path === "/recipes/compose" && post) {
-    const input = z
-      .strictObject({
-        references: z
-          .array(
-            z.strictObject({ id, version: z.string(), digest: z.string() }),
-          )
-          .min(2)
-          .max(32),
-      })
-      .parse(body);
+  if (path === "/recipes/compose" && post)
     return reply(
-      await runtime.recipes.composePublished(actor, input.references),
-    );
-  }
-  if (path === "/recipes/execute" && post) {
-    const input = z
-      .strictObject({
-        connectorId: id.default("github"),
-        sourceRunId: id.optional(),
-        id,
-        version: z.string(),
-        digest: z.string(),
-        inputs: z.record(
-          id,
-          z.union([
-            z.string().max(512),
-            z.number().finite(),
-            z.boolean(),
-            z.null(),
-          ]),
-        ),
-      })
-      .parse(body);
-    const published = await runtime.recipes.getPublished(
-      actor,
-      input.id,
-      input.version,
-      input.digest,
-    );
-    return reply(
-      await runtime.executeRecipe(
+      await runtime.recipes.composePublished(
         actor,
-        published.definition,
-        input.inputs,
-        input.connectorId,
-        input.sourceRunId,
+        teachingInputs.recipeCompose.parse(body).references,
       ),
     );
-  }
+  if (path === "/recipes/execute" && post)
+    return reply(
+      await executePublishedRecipe(
+        runtime,
+        actor,
+        teachingInputs.recipeExecute.parse(body),
+      ),
+    );
   return reply({ error: "unavailable" }, 404);
 }
 

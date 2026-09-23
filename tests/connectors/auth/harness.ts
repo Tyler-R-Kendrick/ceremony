@@ -1,0 +1,235 @@
+import type { TestContext } from "node:test";
+import type { ActorContext } from "../../../src/core/operation-contracts.js";
+import type {
+  AdapterCallContext,
+  ConnectionRecord,
+  RuntimeBinding,
+} from "../../../src/server/connectors/index.js";
+import {
+  issuerPolicy,
+  resolveAuthorizationServer,
+  resolveClientRegistration,
+  type ClientRegistrationStorePort,
+  type IssuerPolicyInput,
+  type ResolvedAuthorizationServer,
+  type ResolvedClient,
+  type StoredClientRegistration,
+} from "../../../src/server/connectors/auth/index.js";
+import { fixtureActor, memoryPorts } from "../doubles/ports.js";
+import {
+  startAuthorizationServer,
+  type AuthorizationServerDouble,
+  type AuthorizationServerOptions,
+} from "../doubles/authorization-server.js";
+
+/*
+ * Shared scaffolding for the OAuth adapter tests: a real fixture authorization
+ * server, the in-memory connector ports, and a call context shaped exactly
+ * like the one the command layer builds. Nothing here produces protocol
+ * messages; the fixture server and the module under test do that
+ * independently of each other.
+ */
+
+export const HOST_ORIGIN = "https://app.example";
+export const CALLBACK_URI = `${HOST_ORIGIN}/api/v1/connectors/callback`;
+
+/** Length-prefixed so no tenant id or key spelling can forge the separator. */
+function storeKey(tenantId: string, key: string): string {
+  return `${tenantId.length}:${tenantId}:${key}`;
+}
+
+export function memoryRegistrationStore(): ClientRegistrationStorePort & {
+  readonly writes: number;
+} {
+  const records = new Map<string, StoredClientRegistration>();
+  let writes = 0;
+  return {
+    get writes() {
+      return writes;
+    },
+    async get(tenantId, key) {
+      return records.get(storeKey(tenantId, key));
+    },
+    async create(tenantId, key, record) {
+      const id = storeKey(tenantId, key);
+      if (records.has(id)) return false;
+      records.set(id, record);
+      writes++;
+      return true;
+    },
+  };
+}
+
+export function testBinding(
+  overrides: Partial<RuntimeBinding> = {},
+): RuntimeBinding {
+  return {
+    bindingRef: "binding:oauth-1",
+    definitionRef: "definition:oauth-1",
+    revision: 1,
+    adapterId: "fixture-oauth",
+    adapterVersion: "1.0.0",
+    runtime: "hosted-server",
+    custody: "host-owned",
+    authorityInstance: "fixture",
+    status: "approved",
+    approvedAt: "2026-09-18T00:00:00.000Z",
+    policyRevision: "policy-1",
+    tenantId: fixtureActor.tenantId,
+    destinations: [],
+    operations: [],
+    configuration: [],
+    permittedTargets: [],
+    reviewedDigest: "a".repeat(64),
+    settings: {},
+    ...overrides,
+  };
+}
+
+export function testConnection(
+  overrides: Partial<ConnectionRecord> = {},
+): ConnectionRecord {
+  return {
+    connectionRef: "connection:oauth-1",
+    bindingRef: "binding:oauth-1",
+    definitionRef: "definition:oauth-1",
+    ecosystem: "openapi",
+    service: "fixture",
+    displayName: "Fixture connection",
+    ownerKind: "user",
+    custody: "host-owned",
+    runtime: "hosted-server",
+    lifecycle: "authorization-required",
+    generation: 0,
+    revision: 1,
+    createdAt: "2026-09-18T00:00:00.000Z",
+    updatedAt: "2026-09-18T00:00:00.000Z",
+    tenantId: fixtureActor.tenantId,
+    ownerId: fixtureActor.subjectId,
+    authorityInstance: "fixture",
+    bindingRevision: 1,
+    policyRevision: "policy-1",
+    configurationRevision: "cfg:1",
+    externalIds: {},
+    evidenceRefs: [],
+    state: {},
+    ...overrides,
+  };
+}
+
+export type AuthHarness = {
+  server: AuthorizationServerDouble;
+  ports: ReturnType<typeof memoryPorts>;
+  policy: ReturnType<typeof issuerPolicy>;
+  resolved: ResolvedAuthorizationServer;
+  client: ResolvedClient;
+  registrations: ReturnType<typeof memoryRegistrationStore>;
+  binding: RuntimeBinding;
+  connection: ConnectionRecord;
+  /** Requests the adapter actually made, for independent wire assertions. */
+  fetchLog: Array<{ url: string; method: string }>;
+  ctx(overrides?: {
+    actor?: ActorContext;
+    generation?: number;
+    connection?: ConnectionRecord | undefined;
+    binding?: RuntimeBinding;
+    signal?: AbortSignal;
+  }): AdapterCallContext;
+  now(): number;
+  advance(ms: number): void;
+};
+
+export async function authHarness(
+  t: TestContext,
+  options: {
+    server?: AuthorizationServerOptions;
+    policy?: Partial<IssuerPolicyInput>;
+    configuration?: Record<string, string>;
+    requestedProfile?:
+      "pre-registered" | "client-id-metadata-document" | "dynamic";
+    actor?: ActorContext;
+  } = {},
+): Promise<AuthHarness> {
+  const server = await startAuthorizationServer({
+    redirectUris: [CALLBACK_URI],
+    ...options.server,
+  });
+  t.after(() => server.close());
+  let clock = Date.parse("2026-09-18T12:00:00.000Z");
+  const ports = memoryPorts({ now: () => clock });
+  for (const [name, value] of Object.entries(options.configuration ?? {}))
+    ports.configuration.set(name, value);
+  const fetchLog: Array<{ url: string; method: string }> = [];
+  const loggingFetch: typeof fetch = (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    fetchLog.push({ url, method: (init as RequestInit)?.method ?? "GET" });
+    return fetch(input, init);
+  };
+  const policy = issuerPolicy({
+    issuer: server.issuer,
+    allowLoopbackHttp: true,
+    registration: {
+      allowed: ["pre-registered"],
+      clientIdConfiguration: "OAUTH_CLIENT_ID",
+      ...(options.policy?.registration ?? {}),
+    },
+    ...options.policy,
+  });
+  const resolved = await resolveAuthorizationServer(policy, {
+    fetch: loggingFetch,
+  });
+  const binding = testBinding({ settings: { oauth: policy } });
+  const connection = testConnection();
+  const actor = options.actor ?? fixtureActor;
+  const registrations = memoryRegistrationStore();
+  const client = await resolveClientRegistration({
+    actor,
+    policy,
+    server: resolved,
+    redirectUri: CALLBACK_URI,
+    hostOrigin: HOST_ORIGIN,
+    configuration: ports.configuration,
+    fetch: loggingFetch,
+    registrations,
+    effects: ports.effects,
+    now: () => clock,
+    ...(options.requestedProfile
+      ? { requested: options.requestedProfile }
+      : {}),
+  });
+  return {
+    server,
+    ports,
+    policy,
+    resolved,
+    client,
+    registrations,
+    binding,
+    connection,
+    fetchLog,
+    now: () => clock,
+    advance: (ms) => {
+      clock += ms;
+    },
+    ctx(overrides = {}) {
+      const useConnection =
+        "connection" in overrides ? overrides.connection : connection;
+      return {
+        actor: overrides.actor ?? actor,
+        binding: overrides.binding ?? binding,
+        ...(useConnection ? { connection: useConnection } : {}),
+        generation: overrides.generation ?? useConnection?.generation ?? 0,
+        signal: overrides.signal ?? new AbortController().signal,
+        environment: ports.environment({
+          fetch: loggingFetch,
+          origin: HOST_ORIGIN,
+        }),
+      };
+    },
+  };
+}

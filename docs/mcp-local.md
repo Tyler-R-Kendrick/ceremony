@@ -38,11 +38,13 @@ Then add `https://your-tunnel.trycloudflare.com/mcp` as a connector in your chat
 | `ceremony_advance`    | Advance one step, at the revision you last read                                               |
 | `ceremony_cancel`     | Cancel a run; this does not revoke access an earlier ceremony already granted                 |
 
+Depending on the signed-in actor's capabilities, the client also gets the recording, authoring and chaining tools (`ceremony_author_*`, `ceremony_demonstration_*`, `ceremony_draft_*`, `ceremony_recipe*`); review and publication stay in the application. The four `connector_catalog`, `connector_status`, `connector_connect` and `connector_invoke` tools are registered only when the host passes the optional `connectors` option, which the reference application does not; it passes `connectorIntents` when it has a connector runtime, which adds the seven `connector_*` intents. [The MCP endpoint page](mcp-endpoint.md#what-the-endpoint-registers) lists every tool and who is offered it.
+
 `ceremony_connectors` reports `privateCollection`, which tells a client where credential entry happens: `in-chat` when the collector is mounted, `web-application-only` when it is not. That is not cosmetic — a client that assumes the wrong one will either ask for a credential where it cannot be collected, or offer to collect one in a place that is not carrying it.
 
 ## What is not wired yet
 
-The in-chat collector is **not mounted by the reference application**, even behind a tunnel, so `privateCollection` reports `web-application-only` and credential entry stays in the browser. Mounting it needs the MCP App resource bundled as HTML, which has no build step yet. The gate itself is real and tested in both directions; what is missing is the bundle it would serve.
+The in-chat collector is **not mounted by the reference application**, even behind a tunnel, so `privateCollection` reports `web-application-only` and credential entry stays in the browser. The bundle it would serve now exists: `npm run build:mcp-app` builds `src/mcp-app/entry.ts` into one self-contained HTML document at `artifacts/mcp-app/collector.html`, `npm run check:mcp-app` checks it for drift, and `npm run build` runs the first of those. What is still missing is the wiring — the reference server never passes that document to `createCeremonyMcpHandler` as `collectorOrigins.appHtml`, so the collector stays unmounted. The gate itself is real and tested in both directions.
 
 Generation and discovery are not exposed over MCP either. `/api/config` reports `generationAvailable: false` on the hosted server, and `discoverCeremony` is not yet connected to an endpoint or a tool.
 

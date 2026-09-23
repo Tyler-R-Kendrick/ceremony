@@ -110,27 +110,44 @@ and accounts are rejected rather than defaulted.
 **Evidence:** `tests/login-plan.test.ts` — 30 cases, including nine that each
 change one operative field and assert the canonical digest changes.
 
-**Not complete.** The PR #39 wizard is **not wired** to this compiler on this
-branch. Integration was attempted and reached a substantially working state —
-the draft compiles against the real `browser-login` tool endpoint — but it
-stopped with directory-UX regressions from PR #39 itself still outstanding, so
-shipping it would have put known-broken UI on a branch whose other work is
-verified. The attempt is preserved rather than discarded or
-half-merged: `claude/pr39-wizard-wip` carries the changes to tracked files and
-`claude/pr39-wizard-wip-newfiles` carries the new ones (the wizard, the catalog,
-the connect surface and its plan client).
+**UI half repaired in:** `examples/web/connection-plan.ts` (new) and
+`examples/web/add-connection.tsx`. The catalogue and the directory grid are
+unchanged: what was missing was never a row or a card, it was that nothing the
+wizard collected ever reached the compiler.
 
-What this means today: the compiler is reachable through the authenticated
-server surface and is fully tested there, and the wizard still renders its own
-draft. The half of F-POLICY that made configuration _effective_ is done; the
-half that makes the wizard _use_ it is not.
+`connection-plan.ts` is the only place a draft is allowed to leave the browser
+and the only place a compiled plan is read out of a response. Every value the
+wizard's Complete step presents as settled comes from the server's answer, never
+from the draft that asked for it, and a rejection carries the reason the
+compiler named rather than the page's guess at one.
+
+**Evidence:** `tests/browser/connection-plan.spec.ts` — four cases in a real
+browser: two wizard configurations put two different plans on the wire, a
+configuration the server rejects shows the reason it named, a browser this host
+does not run is disabled with that reason on it, and the wizard posts to the
+shared `browser-login` tool endpoint rather than to a surface of its own.
 
 ## F-EXTERNAL — the extension is not an agent execution service
 
 **Unchanged and deliberately so.** External messaging still accepts only
 `ceremony.ping` and `ceremony.open`; internal privileged commands still require
 the extension's own UI as sender. No authenticated companion bridge was built,
-so nothing new was exposed. This is a gap, not a fix.
+so nothing new was exposed.
+
+Recorded since as a decision rather than a gap. The product requirement — an
+authorized harness able to request a login in a specifically selected browser
+session — is met by the managed-browser path. What a companion bridge adds is
+driving a login in the person's _own_ browser from outside it, and the safer
+answer to that is already implemented: native handoff, where a person acts.
+Building it would mean an extension in somebody's personal browser accepting
+privileged instructions from a remote caller, which is the property this
+heading names. `verification.md` carries the reasoning.
+
+The bridge that does exist is now driven on both its paths. BRIDGE-ORIGIN was
+covered for the Gecko relay and not for Chromium's `externally_connectable`,
+the primary one; BRIDGE-REPLAY was covered for reserve-before-dispatch and not
+for the half that matters most here — an admitted origin still reaches only
+the two external verbs, because admission is not authority.
 
 ## F-COVERAGE — Firefox/WebKit projects only ran UI specs
 
@@ -142,5 +159,59 @@ Node test suites (`tests/browser-login-conformance.test.ts`,
 
 ## F-MODEL — extension and server inference paths differ
 
-**Not addressed.** No change was made to either inference path. The new login
-service runs the deterministic interpreter and makes **zero model calls**.
+**Half addressed: the seam exists; the two paths are still two paths.**
+
+What was actually wrong is narrower than the heading suggested and worse than
+"no change was made". `createModelInterpreter` has existed in
+`browser-interpreter.ts` since the driver did — bounded, schema-checked,
+telemetry off, a refusal or timeout returning `undefined` — and there was no
+way to reach it from an authorized login. `browser-login-service.ts` named
+`createHeuristicInterpreter()` in its own body. So "use an interchangeable
+model or external harness for permitted reasoning" was true of the driver and
+false of the product: a host that had configured a model could not use it, and
+a host that had not could not be told so.
+
+The plan now carries `reasoning`, compiled and digested like every other
+operative field.
+
+- `deterministic` is what an absent field compiles to. A model reading
+  somebody's sign-in page is a disclosure, and the one field that decides
+  whether anything about that page leaves the deployment must not be switched
+  on by an omission.
+- `host-model` permits the model this host configured. It is refused at
+  compile time when the host declares none — a refusal rather than a quiet
+  downgrade, because both answers run a login and only one runs the login the
+  plan describes. It is refused again at run time, before anything launches,
+  when the host can no longer supply one: a plan compiles against the host
+  that compiled it and can be run later, or elsewhere, after a model endpoint
+  was removed.
+
+Nothing about authority changed, and the cases say so rather than assuming it.
+An interpreter proposes; the driver disposes. A model asking for a role the
+plan never authorized types nothing, an element the page does not have is
+refused rather than invented, a fill on a page outside the declared origins
+stops the attempt, and a model claiming `done` on a browser the provider does
+not recognise gets `submitted-unverified` and no session. What the two
+interpreters differ in is which page-reading rules run, not how much is
+trusted.
+
+The canary from the privacy sweep is what makes the seam safe to open: a
+provider echoing a credential into its own page now stops the attempt with
+`protected-value-exposed` **before** any observation reaches the interpreter,
+which is asserted end to end with a model plugged in.
+
+### What is still open
+
+**A caller-driven external harness.** The product requirement says "an
+interchangeable model _or external harness_", and only the first half is
+here. A harness doing the reasoning needs a protocol this does not have — a
+proposal, a validation, and the next snapshot, round-tripped through a client
+— so there is deliberately no enum value for it. A name that reads as
+effective and is not is the defect this repository keeps finding.
+
+**The extension path is still separate.** `src/browser-login/inference.ts`
+infers a _form mapping_ from an observation using a local in-browser model,
+and `src/server/isolated-account-interpreter.ts` is a third
+`createModelInterpreter` for a different flow. Neither was touched. They read
+different inputs and answer different questions, so reconciling them is a
+real piece of design rather than a rename, and it is not started.

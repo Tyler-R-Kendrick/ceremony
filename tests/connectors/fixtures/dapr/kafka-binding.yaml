@@ -1,0 +1,27 @@
+# A Dapr binding component shaped as the component reference documents
+# (dapr.io/v1alpha1, kind Component). bindings.kafka supports both directions.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: orders-topic
+  namespace: fixtures
+spec:
+  type: bindings.kafka
+  version: v1
+  metadata:
+    - name: topics
+      value: orders
+    - name: brokers
+      value: kafka.fixture.invalid:9092
+    - name: consumerGroup
+      value: ceremony-fixture
+    - name: publishTopic
+      value: orders
+    - name: authType
+      value: password
+    - name: saslPassword
+      secretKeyRef:
+        name: kafka-secret
+        key: saslPassword
+scopes:
+  - ceremony-fixture-app

@@ -23,7 +23,32 @@ export const recordKinds = [
   "continuation",
   "budget",
   "session",
+  // A browser's saved storage state. Encrypted at rest like every other
+  // record here, which is the point: the value is a bearer credential.
+  "browser-state",
   "audit",
+  "connector-registry-snapshot",
+  // Connector interoperability state (STATE swarm). Additive: the encrypted
+  // record table is generic, so new kinds need no SQL migration; every value
+  // under these kinds carries `schemaVersion` for forward-compatible reads.
+  "connector-source",
+  "connector-definition",
+  "connector-binding",
+  "connector-connection",
+  "connector-connection-index",
+  "connector-evidence",
+  "connector-handoff",
+  "connector-effect",
+  "connector-credential",
+  "connector-artifact",
+  "connector-budget",
+  "connector-support",
+  // Verified inbound events (EVENT swarm). The inbox holds one first-writer
+  // record per (tenant, authority, delivery id) plus per-connection ordering
+  // watermarks; subscriptions hold approved delivery destinations and their
+  // route index. Both are additive and carry `schemaVersion`.
+  "connector-event-inbox",
+  "connector-event-subscription",
 ] as const;
 export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };

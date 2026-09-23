@@ -27,13 +27,49 @@ import {
 export type StaleTargetReason =
   | "stale-document"
   | "stale-element"
+  | "no-observation"
   | "unapproved-recipient"
-  | "target-unavailable";
+  | "target-unavailable"
+  | "target-closed"
+  | "frame-missing"
+  | "frame-ambiguous"
+  | "popup-undeclared"
+  | "popup-ambiguous";
 
 export class StaleTargetError extends Error {
-  constructor(readonly reason: StaleTargetReason) {
+  constructor(
+    readonly reason: StaleTargetReason,
+    /**
+     * Whether the refused action had already begun.
+     *
+     * Every reason here means nothing was *approved*, and almost always that
+     * the operation never ran either - the guards refuse before it does. The
+     * exception is a dispatching click that threw while the page was being
+     * replaced: Playwright can lose the execution context between sending the
+     * submission and returning, so the throw is not evidence that nothing was
+     * sent. A caller that would otherwise act again must not act again on
+     * that one.
+     */
+    readonly begun = false,
+  ) {
     super(`Refused: ${reason}`);
     this.name = "StaleTargetError";
+  }
+}
+
+/**
+ * The action already happened and where it went is genuinely not known.
+ *
+ * Deliberately not a `StaleTargetError`. Every reason in that type means the
+ * ceremony declined to act, which a caller may safely retry. This one means the
+ * opposite: something left the browser and the only honest report is that the
+ * outcome is undetermined. Collapsing the two — in either direction — produces
+ * a claim nobody can act on correctly.
+ */
+export class DispatchUncertain extends Error {
+  constructor() {
+    super("A submission was dispatched and its destination is not confirmed");
+    this.name = "DispatchUncertain";
   }
 }
 
@@ -98,15 +134,62 @@ function movedOn(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return (
     text.includes("Execution context was destroyed") ||
-    text.includes("Target closed") ||
-    text.includes("Target page, context or browser has been closed") ||
     text.includes("frame was detached") ||
     text.includes("Frame was detached") ||
     text.includes("navigat")
   );
 }
 
-function originOf(url: string): string {
+/**
+ * The page, tab or browser is gone, as opposed to showing something else.
+ *
+ * Split out of `movedOn` because the two call for opposite responses and had
+ * been sharing an answer. A document that moved on leaves a document to read,
+ * which is why a refusal naming one is worth re-reading once. A target that
+ * closed leaves nothing, so the re-read is spent on a page that cannot come
+ * back and the attempt then reports that the *document* moved - sending
+ * whoever reads it to the guards that compare documents, for a tab that is not
+ * there. Naming it is the fix; the same split #53 made between a document that
+ * moved and an approval that was never taken.
+ */
+function closed(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return (
+    text.includes("Target closed") ||
+    text.includes("Target page, context or browser has been closed")
+  );
+}
+
+/**
+ * The origin of an address, or the empty string when there isn't one.
+ *
+ * Exported so that frame selection in the adapter compares origins the same
+ * way the document guard here does. Two spellings of "same origin" in one
+ * attempt is how a check starts disagreeing with the thing it protects.
+ */
+/**
+ * Classify a failure that happened while talking to the page.
+ *
+ * A `StaleTargetError` arriving here was raised by a guard that already knows
+ * exactly what went wrong — frame selection is the one that does, because it
+ * runs inside every read and every action rather than before them. Re-reading
+ * that as "the target is unavailable" would replace a precise name with a
+ * guess, and send whoever reads it looking at the wrong thing.
+ */
+function classify(
+  error: unknown,
+  settled: StaleTargetReason,
+  begun = false,
+): StaleTargetError {
+  if (error instanceof StaleTargetError) return error;
+  if (closed(error)) return new StaleTargetError("target-closed", begun);
+  return new StaleTargetError(
+    movedOn(error) ? "stale-document" : settled,
+    begun,
+  );
+}
+
+export function originOf(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
@@ -125,9 +208,8 @@ function originOf(url: string): string {
 export function createBoundTargets(page: BoundPageLike) {
   let current: Observation | undefined;
 
-  const discard = async () => {
-    const stale = current;
-    current = undefined;
+  /** Let go of one observation's handles. Never touches what is held now. */
+  const dispose = async (stale: Observation | undefined) => {
     if (!stale) return;
     // Disposal is best-effort: after a navigation the handles are already gone,
     // and failing to release them must not turn into a second reported fault.
@@ -139,15 +221,39 @@ export function createBoundTargets(page: BoundPageLike) {
     ]);
   };
 
+  const discard = async () => {
+    const stale = current;
+    current = undefined;
+    await dispose(stale);
+  };
+
+  /**
+   * Read the page, and hold what was read.
+   *
+   * The previous observation stays held until a new one is complete.
+   *
+   * `discard()` used to run first, which left nothing held for the whole of
+   * the read below - several awaited round trips to the browser, and seconds
+   * of them on a loaded machine. Nothing was protected by that window.
+   * An approval's safety comes from the guards in `resolve()`, which compare
+   * the held document against the live one and the held element against the
+   * description that was approved; an empty slot adds no check. What it adds
+   * is a way for anything arriving mid-read to be refused as
+   * `no-observation` - a refusal that names the absence of an approval rather
+   * than anything about the page, and so sends its reader nowhere.
+   *
+   * So the swap happens at the end and the old handles are released after the
+   * new ones are installed. A read that *fails* still clears, because a failed
+   * read is a real loss of confidence in what is held.
+   */
   async function observe(): Promise<PageSnapshot> {
-    await discard();
+    const previous = current;
     let root: JsHandleLike;
     try {
       root = await page.evaluateHandle(boundSnapshotSource());
     } catch (error) {
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "target-unavailable",
-      );
+      await discard();
+      throw classify(error, "target-unavailable");
     }
     try {
       const [
@@ -174,6 +280,8 @@ export function createBoundTargets(page: BoundPageLike) {
         destinationsHandle.dispose().catch(() => {}),
         originHandle.dispose().catch(() => {}),
       ]);
+      // Installed before the old one is released, so there is no instant at
+      // which this adapter holds nothing while a page is readable.
       current = {
         origin,
         snapshot,
@@ -183,12 +291,12 @@ export function createBoundTargets(page: BoundPageLike) {
         document: documentHandle,
         destinations,
       };
+      await dispose(previous);
       return snapshot;
     } catch (error) {
       await root.dispose().catch(() => {});
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "target-unavailable",
-      );
+      await discard();
+      throw classify(error, "target-unavailable");
     }
   }
 
@@ -202,7 +310,11 @@ export function createBoundTargets(page: BoundPageLike) {
    */
   async function resolve(element: SnapshotElement): Promise<ElementHandleLike> {
     const observation = current;
-    if (!observation) throw new StaleTargetError("stale-document");
+    // Nothing held. The document-comparison guards below are what detect a page
+    // that moved on; reaching here means no approval was ever taken, or one was
+    // released and not replaced, which is a different fault with a different
+    // fix and so a different name.
+    if (!observation) throw new StaleTargetError("no-observation");
 
     // The page navigating is the common case and the cheapest to detect: the
     // adapter's own view of the address is authoritative, unlike anything the
@@ -225,9 +337,7 @@ export function createBoundTargets(page: BoundPageLike) {
           index,
         });
       } catch (error) {
-        throw new StaleTargetError(
-          movedOn(error) ? "stale-document" : "stale-element",
-        );
+        throw classify(error, "stale-element");
       }
     };
 
@@ -303,9 +413,7 @@ export function createBoundTargets(page: BoundPageLike) {
       return handle;
     } catch (error) {
       if (error instanceof StaleTargetError) throw error;
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "stale-element",
-      );
+      throw classify(error, "stale-element");
     }
   }
 
@@ -320,20 +428,60 @@ export function createBoundTargets(page: BoundPageLike) {
   async function act(
     element: SnapshotElement,
     operation: (handle: ElementHandleLike) => Promise<unknown>,
+    options: { dispatches?: boolean } = {},
   ): Promise<void> {
     const handle = await resolve(element);
+    const approved = current?.destinations[element.index];
     try {
       await operation(handle);
     } catch (error) {
-      throw new StaleTargetError(
-        movedOn(error) ? "stale-document" : "stale-element",
-      );
+      // Marked begun only for a dispatching action. A fill that threw put
+      // nothing on the wire whatever else went wrong; a click may have.
+      throw classify(error, "stale-element", options.dispatches === true);
     }
+    if (!options.dispatches || !approved) return;
+    const observation = current;
+    // The observation being gone is the same answer as the read below failing:
+    // the document moved on, which is what a submission does.
+    if (!observation) return;
+
+    // Read the destination once more, now that the action is over. A page that
+    // re-pointed the form during Playwright's actionability wait would have
+    // passed every check above and still sent the submission somewhere else.
+    let after: ElementDestination;
+    try {
+      after = await page.evaluate(
+        ({ root, index }) => {
+          const bound = root as unknown as {
+            elements: unknown[];
+            destination(element: unknown): ElementDestination;
+          };
+          return bound.destination(bound.elements[index]);
+        },
+        { root: observation.root as never, index: element.index },
+      );
+    } catch {
+      // The document went away, which is what a submission normally does. An
+      // unreadable page after a click is the expected shape of success, not
+      // evidence against it, and reporting every completed login as uncertain
+      // would make the uncertainty signal worthless.
+      return;
+    }
+    if (!sameDestination(approved, after)) throw new DispatchUncertain();
   }
 
   return {
     observe,
     act,
+    /**
+     * The destination approved for one observed control, or `undefined` when
+     * nothing has been observed or the index was never part of it. Read from
+     * the observation, not from the live page: the question is what the caller
+     * was shown and agreed to, which a page must not be able to answer.
+     */
+    destinationOf(element: SnapshotElement): ElementDestination | undefined {
+      return current?.destinations[element.index];
+    },
     /** Release held references; the next action must observe again. */
     async release() {
       await discard();

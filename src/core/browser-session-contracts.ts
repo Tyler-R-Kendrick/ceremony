@@ -62,6 +62,16 @@ export const runRefSchema = opaqueReferenceSchema("brun");
 export const evidenceRefSchema = opaqueReferenceSchema("bevd");
 export const handoffRefSchema = opaqueReferenceSchema("bhof");
 export const effectRefSchema = opaqueReferenceSchema("beff");
+/**
+ * A saved browser storage state.
+ *
+ * The reference is the only thing that travels. A storage-state export is not
+ * a description of a session - it *is* the session, cookies any client
+ * presenting them can use - so it is handled the way this project handles a
+ * credential rather than the way it handles a record: the bytes stay in the
+ * encrypted store, and nothing hands them back across a tool boundary.
+ */
+export const browserStateRefSchema = opaqueReferenceSchema("bstt");
 export const leaseRefSchema = opaqueReferenceSchema("blse");
 export const grantRefSchema = opaqueReferenceSchema("bgrt");
 
@@ -105,6 +115,37 @@ export const browserTrustModes = ["constrained-auth", "trusted-agent"] as const;
 export const browserTrustModeSchema = z.enum(browserTrustModes);
 export type BrowserTrustMode = z.infer<typeof browserTrustModeSchema>;
 
+/**
+ * Who is allowed to decide the next action, and what a decision discloses.
+ *
+ * `trustMode` is about what the holder of control may do *after* a login.
+ * This is about the login itself, and the two are genuinely separate: a
+ * deployment can delegate broad authority over the resulting session while
+ * refusing to send anybody's sign-in page to a model, and it can permit
+ * inference on the page while keeping the session constrained afterwards.
+ *
+ * `deterministic` is the rules in `createHeuristicInterpreter`. Nothing about
+ * the page leaves the process, which is why it is the value a draft that says
+ * nothing compiles to: a plan should not acquire an inference call because
+ * somebody omitted a field.
+ *
+ * `host-model` permits the model this host configured. What it discloses is
+ * exactly one sanitized snapshot per step — no markup, no values, no
+ * credentials, the same object the deterministic rules read — and it grants no
+ * authority at all: the driver validates every action that comes back, owns
+ * origin policy and secret substitution, and a malformed or refused answer is
+ * a step that made no progress rather than an outcome.
+ *
+ * There is deliberately no value for a caller-driven external harness. It is
+ * the other half of the product requirement and it needs a protocol this does
+ * not have — a proposal, a validation, and the next snapshot, round-tripped
+ * through a client — so offering a name for it here would be a setting that
+ * reads as effective and is not.
+ */
+export const browserReasoningModes = ["deterministic", "host-model"] as const;
+export const browserReasoningModeSchema = z.enum(browserReasoningModes);
+export type BrowserReasoningMode = z.infer<typeof browserReasoningModeSchema>;
+
 /** What happens to the session when the login call returns. */
 export const loginContinuations = [
   /** Hand the authenticated browser back to the person who asked for it. */
@@ -136,8 +177,20 @@ export const browserOperationReasons = [
   "target-unavailable",
   /** The document that was observed is not the document now in front of us. */
   "stale-document",
+  /** The target being driven closed; there is no document left to read. */
+  "target-closed",
+  /** The plan names a frame at an origin; no frame on the page is at it. */
+  "frame-missing",
+  /** Two or more frames at the named origin, so none of them is "the frame". */
+  "frame-ambiguous",
+  /** The page opened a window at an origin the plan does not admit. */
+  "popup-undeclared",
+  /** Two or more windows at admitted origins, so none of them is "the window". */
+  "popup-ambiguous",
   /** The element that was approved is not the element now in the page. */
   "stale-element",
+  /** No approval was held to act against; none was taken, or it was released. */
+  "no-observation",
   /** The form would now deliver to somewhere the approval never covered. */
   "unapproved-recipient",
   /** A backend cannot do what the effective plan requires of it. */
@@ -166,6 +219,27 @@ export const browserOperationReasons = [
   "human-declined",
   /** Nobody could be reached to take part. */
   "human-unavailable",
+  /**
+   * A value the attempt was holding privately appeared on a surface that must
+   * never carry one - a page snapshot bound for an interpreter, or a note an
+   * interpreter proposed. The attempt stops.
+   *
+   * It has its own name rather than folding into `provider-error` because the
+   * two call for opposite responses. A provider error is something to retry or
+   * report upstream; this is a privacy tripwire, and a host that cannot tell
+   * them apart cannot alarm on the one that matters. The name says what
+   * happened and carries nothing about the value, which is the point.
+   */
+  "protected-value-exposed",
+  /**
+   * The plan says a model decides the next action and this host has none.
+   *
+   * A plan compiles against the host that compiled it; it can be run later,
+   * or on a different host, after a model endpoint was removed. Running the
+   * deterministic rules instead would produce an attempt whose digest claims
+   * a model read the page when nothing did, so it refuses under its own name.
+   */
+  "reasoning-unavailable",
   /** The provider reported an error the ceremony cannot act on. */
   "provider-error",
 ] as const;
@@ -371,7 +445,18 @@ export const loginResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("indeterminate"),
     runRef: runRefSchema,
-    effectRef: effectRefSchema,
+    /**
+     * The durable record of what was sent, when a deployment keeps one.
+     *
+     * Optional, and absent rather than invented. A deployment with no effect
+     * ledger can still discover that a submission left the browser and that
+     * nobody learned the answer - that is the part a caller must act on - but
+     * there is nothing to look the attempt up in afterwards. Minting a
+     * reference here so the shape stays uniform would hand back an identifier
+     * that resolves to nothing, which is the same class of false claim as a
+     * capability nothing implements.
+     */
+    effectRef: effectRefSchema.optional(),
   }),
   z.strictObject({
     status: z.literal("blocked"),

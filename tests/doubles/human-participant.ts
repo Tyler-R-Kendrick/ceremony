@@ -67,9 +67,15 @@ export function createHumanParticipant(
         // A browser dialog has no page to fill. The person answers it, which
         // leaves the credentials with the browser; the agent then resumes at
         // whatever the provider serves, never holding the values itself.
+        //
+        // The address comes from the page, not from the request. A person
+        // acting in the browser is holding the browser, so it can be asked;
+        // the request carries origin and pathname precisely so that the one
+        // thing hosts display and log is not a URL with a code in it.
         if (!options.credentials || !page.authenticate) return "unavailable";
-        await page.authenticate(request.url, options.credentials);
-        await page.goto(request.url);
+        const here = await page.url();
+        await page.authenticate(here, options.credentials);
+        await page.goto(here);
         return "completed";
       }
 

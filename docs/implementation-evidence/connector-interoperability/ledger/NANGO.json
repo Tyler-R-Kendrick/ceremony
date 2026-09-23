@@ -1,0 +1,205 @@
+{
+  "swarm": "NANGO",
+  "sourceProfile": {
+    "id": "nango-http-api-2026-09",
+    "retrievedAt": "2026-09-18T00:37:47Z",
+    "apiOrigin": "https://api.nango.dev",
+    "connectOrigin": "https://connect.nango.dev",
+    "notes": "Wire facts taken from the OpenAPI 3.1 fragments embedded in each nango.dev/docs reference page (fetched as raw markdown) plus the auth, webhook and Zero YAML guides. The documented API document version string is 'Nango API 1.0.0'; individual endpoints are not separately versioned and the paths carry no version prefix.",
+    "verified": [
+      "POST /connect/sessions -> 201 { data: { token, expires_at, connect_link? } }; body fields tags (<=10 keys, values <=255 chars, keys lowercased), allowed_integrations, integrations_config_defaults, overrides, webhook_url_override; end_user and organization are marked deprecated in favour of tags; session lifetime documented as 30 minutes; requires environment:connect_sessions:write",
+      "POST /connect/sessions/reconnect -> 201 same ConnectSession envelope; required body connection_id + integration_id; documented restriction: only connections created with a connect session are compatible",
+      "GET /integrations -> 200 { data: Integration[] } with unique_key, display_name, provider, logo, created_at, updated_at, forward_webhooks; no pagination parameters documented",
+      "GET /integrations/{uniqueKey} -> 200 { data: IntegrationFull }; include=webhook|credentials query controls disclosure of webhook_url and client credentials",
+      "GET /integrations/{uniqueKey}/functions -> 200 { data: ListedNangoFunction[], pagination: { total, page, limit } }; page default 0, limit default 20 max 100; type filter sync|action|on-event; sync rows carry runs, auto_start, track_deletes; all rows carry id, enabled, last_deployed, source",
+      "GET /connections -> 200 { connections: [...] } explicitly 'without credentials'; filters connectionId, search, tags[key] (deepObject), limit, page; endUserId/endUserOrganizationId deprecated in favour of tag filtering",
+      "GET /connections/{connectionId}?provider_config_key=... -> 200 ConnectionFull WITH credentials; documented side effect: 'Every time you fetch the connection with this API endpoint, Nango will check if the access token has expired. If it has, it will refresh it.'; force_refresh and refresh_token query flags (both default false); 424 documented as 'Connection refresh exhausted'",
+      "DELETE /connections/{connectionId}?provider_config_key=... -> 200 { success }",
+      "PATCH /connections/{connectionId} accepts webhook_url_override (empty string clears it)",
+      "{GET,POST,PUT,PATCH,DELETE} /proxy/{anyPath}: required headers Connection-Id and Provider-Config-Key; optional Retries, Retry-On, Base-Url-Override, Decompress, nango-proxy-$ANY_HEADER; upstream status, headers and body passed through verbatim",
+      "POST /action/trigger: required headers Connection-Id and Provider-Config-Key; body { action_name, input }; optional X-Async and X-Max-Retries (0-5); async response { id, statusUrl }; documented errors 400, 424 (action http error) and 500 (action error)",
+      "POST /sync/trigger, /sync/start, /sync/pause -> 200 { success }; body provider_config_key + syncs (names or {name, variant}); connection_id optional and, when omitted, applies to ALL relevant connections; /sync/trigger opts.reset and opts.emptyCache clear checkpoints and the record cache",
+      "GET /sync/status -> 200 { syncs: [...] } with id, connection_id, name, variant, status (RUNNING|PAUSED|STOPPED|SUCCESS|ERROR), finishedAt, nextScheduledSyncAt, frequency, latestResult, recordCount, checkpoint; syncs parameter required, '*' means all, variants use syncName::variantName",
+      "GET /records: required headers Connection-Id and Provider-Config-Key; query model (required), cursor, limit, filter, modified_after, ids, variant; delta deprecated in favour of modified_after; records carry _nango_metadata { deleted_at, last_action, first_seen_at, last_modified_at, cursor, pruned_at } and the page carries next_cursor",
+      "Webhook signature: header X-Nango-Hmac-Sha256 is an HMAC-SHA256 of the raw request body keyed with the environment webhook signing key (hex). The docs explicitly warn that the legacy X-Nango-Signature header uses plain SHA-256, is sent only for backwards compatibility and 'should not be used'; the signing key is distinct from the Environment API key",
+      "Webhook types: auth (operations creation, override, refresh, deletion; fields connectionId, providerConfigKey, provider, authMode, environment, success, tags, error), sync (syncName, model, success, modifiedAfter, responseResults{added,updated,deleted}, checkpoints{from,to} which may be missing or null, deprecated syncType), forward ({ from, type, connectionId, providerConfigKey, payload }, with unattributed events forwarded as the raw provider payload)",
+      "Webhook delivery: retried twice with exponential backoff on non-2xx, 20 second timeout; webhook_url_override replaces (does not add to) the environment's primary and secondary URLs and is settable only by a trusted actor - a webhook_url passed to nango.auth() params from the client is explicitly ignored",
+      "Authentication: 'Authorization: Bearer <NANGO-API-KEY>'; Environment vs Account API keys are not interchangeable; missing scope yields 403; error bodies follow StdError { error: { code, message?, errors? } }",
+      "Rate limits: 429 with Retry-After; X-RateLimit-Limit/Remaining/Reset on every response",
+      "Zero YAML: nango.yaml is deprecated; syncs/actions/on-event functions are defined in TypeScript via createSync/createAction/createOnEvent and their deployed metadata is served by the functions endpoints above (no YAML parser is needed)"
+    ],
+    "unverified": [
+      "Whether GET /integrations paginates for large environments: the reference page documents no pagination parameters, so the adapter pages the already-returned array client-side and records the limitation",
+      "The exact upstream behaviour when a reconnect session is created for a connection that was not created through a connect session: the restriction is documented in prose but no specific error code is published",
+      "Asynchronous action polling (GET of the returned statusUrl) is documented only as a path template on the action page; no response schema is published, so the adapter does not use X-Async and treats an unexpected async envelope as indeterminate",
+      "No endpoint is documented for revoking a provider grant upstream, and none for cancelling an in-flight sync run (only pause); both are reported as native limitations rather than approximated"
+    ]
+  },
+  "workItems": [
+    {
+      "id": "NG-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/nango/discover.ts",
+        "src/server/connectors/providers/nango/schemas.ts",
+        "src/server/connectors/providers/nango/api.ts",
+        "src/server/connectors/providers/nango/context.ts"
+      ],
+      "tests": ["tests/connectors/nango/discover.test.ts"],
+      "acceptanceIds": ["AC-NG-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "GET /integrations documents no pagination parameters; the adapter pages the returned array client-side with an opaque cursor that carries its own page size.",
+        "Integration client credentials are never requested (include=credentials is never sent), so discovery cannot report OAuth client ids or scopes configured in Nango.",
+        "Per-integration auth requirements are reported as the two external-broker profiles plus the function metadata Nango exposes; Nango does not publish a per-integration auth-mode field on these endpoints."
+      ],
+      "notes": "Identity is environment + API origin (authorityNamespace) plus unique_key; the provider slug is only a display/grouping key, so two GitHub integrations in one environment stay distinct directory rows grouped under one service. Native capability metadata (sync runs/auto_start/track_deletes, action schemas, on-event events, enabled/last_deployed/source) is carried through as inert nativeExtensions."
+    },
+    {
+      "id": "NG-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/nango/sessions.ts",
+        "src/server/connectors/providers/nango/context.ts"
+      ],
+      "tests": ["tests/connectors/nango/sessions.test.ts"],
+      "acceptanceIds": [
+        "AC-NG-01",
+        "AC-NG-02",
+        "AC-NG-05",
+        "AC-AUTH-01",
+        "AC-AUTH-08",
+        "AC-AUTH-09"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "A connect session alone proves only that Nango holds a connection for the bound integration. Exact-account intents require an approved read-only verification operation in the binding; without one an exact-account intent is denied rather than relabelled verified (AC-AUTH-08).",
+        "Reconnect completion needs either an HMAC-verified auth/override webhook or a prior auth error that clears in GET /connections; Nango publishes no reconnect-specific server state to poll.",
+        "The connect_link is accepted only when its origin equals the approved connect destination."
+      ],
+      "notes": "allowed_integrations is always exactly the one integration the binding names. Tags are derived from the authenticated actor through the host owner mapping and are digests, never raw subject ids; the deprecated end_user/organization inputs are never sent. token, expires_at and connect_link go only to HandoffIssue.private, and the session expiry is bounded by the documented 30-minute ceiling. webhook_url_override is default-deny: only an administrator-approved destination recorded in binding settings can set it, and the strict intent schema rejects any caller-supplied attempt."
+    },
+    {
+      "id": "NG-03",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/nango/inspect.ts"],
+      "tests": ["tests/connectors/nango/inspect.test.ts"],
+      "acceptanceIds": ["AC-NG-03", "AC-STATE-01"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "Reading this endpoint can refresh the upstream token as a documented side effect; the adapter cannot make it side-effect free, so it records refreshMayHaveOccurred: true on every inspection and serialises the call through the custody port's single-flight refresh.",
+        "Bounded metadata only: metadata deeper or larger than the configured bounds is dropped and reported as metadataOmitted rather than stored."
+      ],
+      "notes": "inspectConnection is exposed on the provider-specific NangoAdapter type, not on ConnectorAdapter, so a generic read-only agent route cannot dispatch it; agent actors are refused outright. The response passes through a strict allowlist (connection_id, provider_config_key, provider, created_at, updated_at, last_fetched_at, tags, metadata, errors) plus only the credential scheme and expiry; access and refresh tokens and the raw provider block never leave the parser and the stored broker reference is never replaced by a token. force_refresh=false and refresh_token=false are sent explicitly."
+    },
+    {
+      "id": "NG-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/nango/invoke.ts",
+        "src/server/connectors/providers/nango/schemas.ts"
+      ],
+      "tests": ["tests/connectors/nango/invoke.test.ts"],
+      "acceptanceIds": ["AC-NG-04", "AC-NG-06", "AC-STATE-06"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "Base-Url-Override, Retries, Retry-On and Decompress are never sent from caller input; Retries is set only from the approved contract and only for read-only operations.",
+        "X-Async is not used: the async action result schema is not published, so an unexpected async envelope is treated as indeterminate rather than parsed.",
+        "A 5xx from Nango on a non-read operation whose replay policy is 'none' is reported indeterminate, because Nango may already have forwarded the request upstream."
+      ],
+      "notes": "Provider-Config-Key and Connection-Id come only from the connection's protected broker reference, which is re-checked against the stored credential material inside credentials.use. Operations are BoundOperations with explicit destination, path template, input/output subset schemas, deadline, response ceiling, per-connection rate limit and retry budget. An input carrying baseUrlOverride, headers, connection_id, provider_config_key, action_name, retries or credentials is refused with nango.input.override-rejected before any credential is touched. Action names come only from the BoundOperation."
+    },
+    {
+      "id": "NG-05",
+      "status": "implemented",
+      "files": ["src/server/connectors/providers/nango/syncs.ts"],
+      "tests": [
+        "tests/connectors/nango/syncs.test.ts",
+        "tests/connectors/nango/invoke.test.ts"
+      ],
+      "acceptanceIds": ["AC-NG-07", "AC-NG-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "Nango documents no endpoint to cancel a running sync execution; 'cancel' maps to POST /sync/pause (pausing the schedule) and the result says so explicitly via nango.sync.cancel-maps-to-pause.",
+        "opts.reset and opts.emptyCache are refused: they clear Nango's checkpoints and record cache, which is a data-destroying operation this adapter does not expose.",
+        "Sync execution, scheduling and checkpointing remain Nango's; nothing here reimplements them."
+      ],
+      "notes": "Every sync command carries an explicit connection_id, because Nango applies a command to all relevant connections when it is omitted. Status rows (including Nango's own checkpoint object) are passed through verbatim. Records are read through GET /records with cursor/modified_after. Function metadata comes from the API, never from nango.yaml, which import refuses with a blocking diagnostic."
+    },
+    {
+      "id": "NG-06",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/nango/webhooks.ts",
+        "src/server/connectors/providers/nango/disconnect.ts"
+      ],
+      "tests": [
+        "tests/connectors/nango/webhooks.test.ts",
+        "tests/connectors/nango/syncs.test.ts"
+      ],
+      "acceptanceIds": [
+        "AC-NG-07",
+        "AC-AUTH-01",
+        "AC-STATE-03",
+        "AC-STATE-04",
+        "AC-STATE-07"
+      ],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["nango-http-api-2026-09"],
+      "limitations": [
+        "The legacy X-Nango-Signature header is ignored even when correct, per the documentation's own guidance; NANGO_WEBHOOK_SIGNING_KEY is required for the events dimension and the Environment API key is never used as a fallback.",
+        "No shared event inbox was available from the EVENT swarm at implementation time, so dedupe uses a bounded in-process inbox (authority-scoped, 4096 entries, 1 hour window). The adapter accepts an injected inbox through NangoAdapterOptions.eventInbox and the integrator should supply the durable one.",
+        "Nango documents no upstream grant revocation endpoint, so revoke reports 'unsupported' rather than deleting the broker connection and calling it revocation."
+      ],
+      "notes": "X-Nango-Hmac-Sha256 is verified in constant time over the exact raw bytes before parsing; bodies are bounded and prototype-polluting keys refused. Auth webhooks map to lifecycle only after re-reading GET /connections, so a replayed deletion cannot unbind a live connection and a transient refresh failure Nango already recovered is degraded rather than reconnect-required. Local unlink is the default disconnect; DELETE /connections/{id} runs only under scope 'broker', and a shared Nango connection referenced by another local connection blocks it until an administrator approves the shared impact."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register createNangoAdapter(options) from src/server/connectors/providers/nango/index.ts. Signature: createNangoAdapter(options?: NangoAdapterOptions): NangoAdapter, where NangoAdapter extends ConnectorAdapter with the privileged-internal methods inspectConnection, reconcileEvent, deleteBrokerConnection, captureIntegration and catalogEntries. Adapter id 'nango', ecosystem 'nango', service 'nango', runtime hosted-server, support provider-backed, custody [external-credential-broker, external-execution-broker]. The base adapter's service key is 'nango'; per-integration directory rows come from adapter.catalogEntries(ctx, present), which needs a call context because it reads the Nango API."
+    },
+    {
+      "target": "NangoAdapterOptions wiring (INT/STATE/EVENT)",
+      "description": "Supply ownerMapping (authenticated actor -> owner id / organization id per host policy; the default maps only ownerKind 'user' to the subject and refuses organization and workload), resolveConnection (tenant + authorityInstance + providerConfigKey + connectionId -> local connectionRef, used to attribute non-creation webhooks), sharedReferences (other local connections referencing the same Nango connection id, which gates broker deletion) and eventInbox (the durable authority-scoped dedupe inbox once the EVENT swarm's inbox exists)."
+    },
+    {
+      "target": "Configuration names (INT)",
+      "description": "NANGO_SECRET_KEY (secret, required), NANGO_ENVIRONMENT (public, required; lowercase token such as prod or dev), NANGO_HOST (public, optional, self-hosted API origin which must equal the approved 'api' destination origin) and NANGO_WEBHOOK_SIGNING_KEY (secret, optional but required for the events dimension; distinct from the API key)."
+    },
+    {
+      "target": "Runtime binding destinations (INT)",
+      "description": "Every Nango binding needs destination id 'api' (default https://api.nango.dev, or the NANGO_HOST origin) and, for connect/reconnect, destination id 'connect' (default https://connect.nango.dev). The helper nangoDestinations({ apiOrigin?, connectOrigin?, network? }) from providers/nango/index.ts builds both. Binding.settings must parse against nangoBindingSettingsSchema: integration { uniqueKey, provider }, presentation, optional administrator-approved webhookUrlOverride, optional verification { operationRef, identityPointer, targetKind } and per-operation contracts keyed by operationRef."
+    },
+    {
+      "target": "Webhook mount (INT)",
+      "description": "Mount a POST route (suggested /api/v1/connectors/nango/events) that reads the RAW body bytes before any JSON parsing, calls adapter.events.verify(ctx, { headers, body, receivedAt }) and, on a verified envelope, calls adapter.reconcileEvent(ctx, event) to obtain { duplicate, ordering, code, lifecycle?, adapterState?, syncStatus? } and persists lifecycle/adapterState through the connection store. Verification returns undefined for anything unverifiable, which must be answered without disclosing why. Auth webhooks with operation 'creation' complete a pending handoff through adapter.complete(ctx, { kind: 'event', event }) instead."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [],
+  "verification": {
+    "command": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/nango/*.test.ts",
+    "tests": 94,
+    "pass": 94,
+    "fail": 0,
+    "files": {
+      "tests/connectors/nango/discover.test.ts": 11,
+      "tests/connectors/nango/sessions.test.ts": 22,
+      "tests/connectors/nango/invoke.test.ts": 18,
+      "tests/connectors/nango/inspect.test.ts": 10,
+      "tests/connectors/nango/webhooks.test.ts": 20,
+      "tests/connectors/nango/syncs.test.ts": 13
+    },
+    "typecheck": "npx tsc --noEmit, filtered to Nango-owned paths: clean",
+    "format": "npx prettier --check on all Nango-owned files: clean",
+    "liveEvidence": "blocked: no Nango account, Environment API key or authorized integration is available in this environment. All evidence is protocol-fixture against an independently written loopback double of the documented HTTP API; nothing here is live or vendor-certified."
+  }
+}

@@ -22,7 +22,15 @@ const identifier = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
 const revision = z.number().int().positive();
 
 export const agentToolInputs = {
-  connect: z.strictObject({ connectorId: identifier }),
+  connect: z.strictObject({
+    connectorId: identifier,
+    /**
+     * Record this ceremony as a demonstration from its first step, so the
+     * steps that run without a person are part of what can be compiled into
+     * a recipe draft. Recording requires the `author` capability.
+     */
+    teach: z.boolean().optional(),
+  }),
   snapshot: z.strictObject({ runId: identifier }),
   advance: z.strictObject({
     runId: identifier,
@@ -57,9 +65,17 @@ export function ceremonyAgentTools(runtime: TeachingRuntime) {
   return {
     async connect(actor: ActorContext, input: unknown) {
       requireCapability(actor, "executor");
-      const { connectorId } = agentToolInputs.connect.parse(input);
+      const { connectorId, teach } = agentToolInputs.connect.parse(input);
+      // Refused before a run exists, rather than after one was started for a
+      // recording this caller was never allowed to make.
+      if (teach) requireCapability(actor, "author");
       const delegated = await runtime.connectForAgent(actor, connectorId);
       let run = delegated.run;
+      // The recording starts before the first step is advanced, as the
+      // browser's teach mode does, so nothing the run does goes unrecorded.
+      const demonstration = teach
+        ? await runtime.demonstrations.start(actor, run.id)
+        : undefined;
       // Prepared steps run to the first one that cannot complete on its own;
       // that step is what the caller is being asked to deal with.
       for (const node of run.nodes) {
@@ -74,7 +90,7 @@ export function ceremonyAgentTools(runtime: TeachingRuntime) {
         run = await runtime.commands.snapshot(delegated.actor, run.id);
         if (result.state !== "complete") break;
       }
-      return run;
+      return demonstration ? { ...run, demonstration } : run;
     },
 
     async snapshot(actor: ActorContext, input: unknown) {

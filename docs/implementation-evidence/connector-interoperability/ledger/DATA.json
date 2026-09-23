@@ -1,0 +1,164 @@
+{
+  "swarm": "DATA",
+  "workItems": [
+    {
+      "id": "DATA-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/airbyte/contracts.ts",
+        "src/server/connectors/providers/airbyte/protocol.ts",
+        "src/server/connectors/providers/airbyte/api.ts",
+        "src/server/connectors/providers/airbyte/adapter.ts",
+        "src/server/connectors/providers/airbyte/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/airbyte/catalog.test.ts",
+        "tests/connectors/airbyte/adapter.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-13"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["airbyte-protocol-v0", "airbyte-api-v1-2026-09"],
+      "limitations": [
+        "The public Airbyte API documents no source check_connection operation; verify() infers reachability from a live (ignoreCache=true) stream-properties discovery and records that limitation on the claim. The deprecated Configuration API (/api/v1/sources/check_connection, discover_schema) is deliberately not called: Airbyte documents it as internal and unsupported.",
+        "Documented job types are sync and reset only; the job type comes from the approved operation and can never be supplied by input.",
+        "Live account evidence blocked: no authorized Airbyte deployment credentials in this environment.",
+        "Records never flow through Ceremony; the adapter delegates jobs and reads status, it does not move data."
+      ],
+      "notes": "readAirbyteCatalog imports ConnectorSpecification + (Configured)AirbyteCatalog into a NormalizedDefinition (ecosystem airbyte, one nativeCapability kind 'sync' per stream) preserving name/namespace/json_schema/supported_sync_modes/source_defined_cursor/default_cursor_field/source_defined_primary_key and, for configured streams, sync_mode/destination_sync_mode/cursor_field/primary_key/generation_id/minimum_generation_id/sync_id verbatim. Protocol message formats (AirbyteMessage: RECORD/STATE/LOG/SPEC/CONNECTION_STATUS/CATALOG/TRACE) live in protocol.ts and are kept strictly separate from the deployment-management API formats in api.ts. airbyteCheckpoints/planAirbyteRestart fold STREAM, GLOBAL and LEGACY state into frozen, read-only checkpoints and report the replay window per stream; nothing rewrites a checkpoint and no state is ever sent upstream."
+    },
+    {
+      "id": "DATA-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/hasura-ndc/spec.ts",
+        "src/server/connectors/providers/hasura-ndc/discover.ts",
+        "src/server/connectors/providers/hasura-ndc/policy.ts",
+        "src/server/connectors/providers/hasura-ndc/adapter.ts",
+        "src/server/connectors/providers/hasura-ndc/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/hasura-ndc/discover.test.ts",
+        "tests/connectors/hasura-ndc/policy.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-14"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["hasura-ndc-0.2"],
+      "limitations": [
+        "Pinned to ndc-spec ^0.2.0, implemented against 0.2.5 (latest in the published changelog on 2026-09-18). A connector declaring 0.1.x is blocked with a version diagnostic rather than downgraded.",
+        "POST /query/explain, POST /mutation/explain, GET /metrics, query variables and grouping (Grouping/dimensions) are not exercised by the bounded adapter; they are declared capabilities the policy simply never requests.",
+        "Relational query/mutation capabilities introduced in 0.2.1-0.2.3 are preserved as declarations but not executed.",
+        "Live evidence blocked: no authorized NDC connector deployment."
+      ],
+      "notes": "discoverNdc reads GET /capabilities and GET /schema, validates the declared version string against the caret rule the spec states, and preserves collections, functions, procedures, scalar types (representations, comparison_operators, aggregate_functions), object types with foreign_keys and the version-specific capability declarations in nativeExtensions/nativeCapabilities (kind query for collections and functions, action for procedures). The BoundOperation's approved surface lives in the binding's inert settings ('ndc.operations'): target, fields, arguments, requestArguments, predicates with per-column operators, relationships with target fields, aggregates, orderBy, maxRows and an optional host rowFilter. buildNdcQueryRequest/buildNdcMutationRequest emit the connector's own QueryRequest/MutationRequest shapes (no SQL); row/field/argument/target policy is enforced before submission, and undeclared capabilities, unapproved fields/relationships/predicates/aggregates and operators absent from the column's scalar type are rejected without provoking a 501. Mutations are journaled through effects.begin/complete; an interrupted mutation becomes indeterminate."
+    },
+    {
+      "id": "DATA-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/merge/contracts.ts",
+        "src/server/connectors/providers/merge/adapter.ts",
+        "src/server/connectors/providers/merge/index.ts"
+      ],
+      "tests": ["tests/connectors/merge/adapter.test.ts"],
+      "acceptanceIds": ["AC-EXT-15"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["merge-unified-2026-09"],
+      "limitations": [
+        "Merge documents passthrough as a Professional/Enterprise plan feature and per-integration (passthrough_available); the adapter honours the binding's fixed route and reports the upstream refusal rather than working around it.",
+        "Merge documents no operation that revokes the end user's upstream grant, so disconnect(upstream) reports 'unsupported'; POST /{category}/v1/delete-account is wired as the separate 'broker' scope only.",
+        "Write operations (POST/PATCH of category models) are not implemented; only bounded reads plus separately governed passthrough. /meta/post is read for field availability, not to perform writes.",
+        "Live account evidence blocked: no authorized Merge account, no real Link session."
+      ],
+      "notes": "Two type errors the integrator reported in adapter.ts are fixed: the verification-claim helper now takes only the linked-account id (a linked account and an account-details record agree on that field and disagree on `integration`, which is an object in one and a name string in the other), and the passthrough failure path omits the effect outcome code instead of passing an explicit undefined under exactOptionalPropertyTypes. createMergeAdapter has custody external-credential-broker (Merge holds the upstream credentials). Onboarding: POST /api/integrations/create-link-token with end_user_origin_id/organization/email derived from the host owner mapping in binding.settings['merge.endUsers'] (never from input), returning the link token and Merge Link URL as HandoffIssue.private of kind connect-widget; the public token is exchanged once through GET /api/integrations/account-token/{public_token} and the account token is stored in custody and only ever used inside credentials.use. Status comes from GET /{category}/v1/account-details and GET /{category}/v1/linked-accounts (COMPLETE/INCOMPLETE/RELINK_NEEDED/IDLE mapped to complete/pending/human-required). Account-specific supported operations and fields come from GET /{category}/v1/{model}/meta/post per account. Approved normalized reads project exactly the approved fields with the account token header plus the API key and output classification personal; a field the account did not return is reported in unsupportedFields rather than manufactured. Passthrough is a BoundOperation of transport 'delegated' whose upstream path and method are fixed in the binding and cross-checked against the transport route; path/url/base_url_override/method/headers supplied by a caller are rejected."
+    },
+    {
+      "id": "DATA-04",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/retrieval/descriptor.ts",
+        "src/server/connectors/formats/retrieval/access.ts",
+        "src/server/connectors/formats/retrieval/cloud-search.ts",
+        "src/server/connectors/formats/retrieval/index.ts"
+      ],
+      "tests": ["tests/connectors/retrieval/acl.test.ts"],
+      "acceptanceIds": ["AC-EXT-16"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["cloud-search-acl-2026-09"],
+      "limitations": [
+        "No indexer and no crawler: Ceremony describes and evaluates ACLs, it does not build a retrieval index.",
+        "MembershipPort is an interface with in-memory conformance doubles; binding it to a real directory or identity connector is host work.",
+        "Cloud Search's own query-time serving is not reimplemented; this is an ACL-preserving descriptor and a conservative evaluator informed by the documented model."
+      ],
+      "notes": "retrievalDescriptorSchema carries the source document id, source/indexing identity (datasource, system, ingestion principal, container, itemType), ACL entries (readers/deniedReaders/owners with principal kinds user/group/domain plus inheritFrom/inheritanceType NOT_APPLICABLE|CHILD_OVERRIDE|PARENT_OVERRIDE|BOTH_PERMIT), membership assumptions, the end-user identity binding and freshness. evaluateAccess denies on unknown or incomplete membership, stale membership, a stale ACL capture, an unresolved or cyclic inheritance parent, an over-deep chain, an unresolved end-user binding and an unmapped identity source; denied readers beat readers at every level; the chain is resolved root-to-leaf by the declared inheritance type. The ingestion principal is refused as an end-user reader and the descriptor schema itself rejects an ACL that lists its own indexer as a reader (AC-EXT-16). accessCacheKey binds a decision to document + principal + identity source + ACL capture + membership snapshot, so no cache entry can cross principals or survive a revocation. readCloudSearchStyleAcl normalizes the documented ItemAcl/Principal shapes (gsuiteUserEmail/gsuiteGroupEmail/gsuiteDomain, identitysources/{source}/{users|groups}/{id}) and rejects ambiguous, unrecognized or unnamed-domain principals rather than dropping them."
+    },
+    {
+      "id": "DATA-05",
+      "status": "implemented",
+      "files": [
+        "tests/connectors/doubles/airbyte-api.ts",
+        "tests/connectors/doubles/ndc-connector.ts",
+        "tests/connectors/doubles/merge-api.ts",
+        "tests/connectors/fixtures/airbyte/catalogs.ts",
+        "tests/connectors/fixtures/airbyte/deployment.ts",
+        "tests/connectors/fixtures/hasura-ndc/connector.ts",
+        "tests/connectors/fixtures/merge/accounts.ts",
+        "tests/connectors/fixtures/retrieval/acl-cases.json",
+        "tests/connectors/fixtures/retrieval/cloud-search-items.json"
+      ],
+      "tests": [
+        "tests/connectors/airbyte/catalog.test.ts",
+        "tests/connectors/airbyte/adapter.test.ts",
+        "tests/connectors/hasura-ndc/discover.test.ts",
+        "tests/connectors/hasura-ndc/policy.test.ts",
+        "tests/connectors/merge/adapter.test.ts",
+        "tests/connectors/retrieval/acl.test.ts"
+      ],
+      "acceptanceIds": ["AC-EXT-13", "AC-EXT-14", "AC-EXT-15", "AC-EXT-16"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "airbyte-protocol-v0",
+        "airbyte-api-v1-2026-09",
+        "hasura-ndc-0.2",
+        "merge-unified-2026-09",
+        "cloud-search-acl-2026-09"
+      ],
+      "limitations": [
+        "All doubles are loopback HTTP fixtures on ephemeral ports written from published documentation; none is vendor certification and none contacts a real service.",
+        "The doubles implement the documented routes only; an undocumented path answers 404 exactly as an unknown route would."
+      ],
+      "notes": "Airbyte fixtures cover checks (SUCCEEDED/FAILED with prose that must not surface), complete and partial syncs with per-stream, global and legacy state, cursor replay windows, job restart, a noisy transcript with a non-protocol line, unsupported and unknown sync modes, and namespace collisions. The NDC double independently validates every QueryRequest/MutationRequest against the specification and its own declared capabilities, answering 501 for undeclared capabilities and 400 for unknown collections/columns/arguments, so a green policy test proves the request never left rather than that the double was lenient; fixtures cover undeclared capability, unauthorized field/relationship and version mismatch. Merge fixtures model two linked accounts with genuinely different available fields (work_email present on one, absent on the other) and different supported operations (groups model and passthrough on one only), plus INCOMPLETE and RELINK_NEEDED accounts. Retrieval fixtures are JSON files covering role changes, deletion, revoked group membership, denied readers overriding readers, inheritance chains of three levels with each inheritance type, missing and cyclic parents, stale membership and stale ACL captures, and cross-principal cache separation keyed by principal plus freshness."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createAirbyteAdapter() from src/server/connectors/providers/airbyte/index.ts. Adapter id 'airbyte', ecosystem 'airbyte', service 'airbyte', support provider-backed, custody ['host-owned']; required configuration AIRBYTE_API_URL (public) and AIRBYTE_API_KEY (secret), optional AIRBYTE_CLIENT_ID/AIRBYTE_CLIENT_SECRET. With the required names absent the directory already reports 'unconfigured' through the existing catalogEntryFor logic."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createHasuraNdcAdapter() from src/server/connectors/providers/hasura-ndc/index.ts. Adapter id 'hasura-ndc', ecosystem 'hasura-ndc', custody ['host-owned'], optional configuration HASURA_NDC_SERVICE_TOKEN (secret). Its bindings must carry settings['ndc.reviewed'] = { version, capabilities, schema } captured by discoverNdc at review time, and settings['ndc.operations'] keyed by operationRef (see ndcOperationPolicySchema)."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "register createMergeAdapter() from src/server/connectors/providers/merge/index.ts. Adapter id 'merge', ecosystem 'merge', custody ['external-credential-broker'], required configuration MERGE_API_KEY (secret), optional MERGE_API_ORIGIN (public, one of the documented regional origins). Bindings need settings['merge.categories'], settings['merge.endUsers'] (host owner mapping subjectId -> {originId, organization, email}), settings['merge.reads'] and settings['merge.passthrough']."
+    },
+    {
+      "target": "src/core/index.ts / src/server/connectors/index.ts barrels (INT)",
+      "description": "Optional: re-export src/server/connectors/formats/retrieval/index.ts (retrievalDescriptorSchema, evaluateAccess, readCloudSearchStyleAcl, accessCacheKey, MembershipPort) for the state and command layers. It is server-only and Zod-only; nothing in it belongs in the browser bundle."
+    },
+    {
+      "target": "state/commands swarm",
+      "description": "MembershipPort (src/server/connectors/formats/retrieval/access.ts) needs a real implementation over the host directory or an identity connector. Contract: membershipOf returns undefined when it cannot answer authoritatively, sets complete:false for a partial answer, and always reports resolvedAt; aclOf returns undefined for an unresolvable inheritance parent. Both are denials by construction."
+    },
+    {
+      "target": "commands layer",
+      "description": "Airbyte delegate('start') and Merge passthrough/complete journal their effects through ctx.environment.effects; the command layer should surface an 'indeterminate' InvokeResult for reconciliation against the connection's job list (Airbyte GET /jobs?connectionId=) rather than retrying."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [
+    "Read-only documentation fetches over the agent proxy: docs.airbyte.com, reference.airbyte.com, hasura.github.io/ndc-spec, docs.merge.dev, developers.google.com (Cloud Search). No vendor account was used, created or modified; no API key was exercised against any live service."
+  ]
+}

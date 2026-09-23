@@ -1,0 +1,24 @@
+openapi: 3.1.0
+info:
+  title: Private references
+  version: "1"
+components:
+  schemas:
+    Metadata:
+      $ref: "http://169.254.169.254/latest/meta-data/iam/security-credentials/#/role"
+    Intranet:
+      $ref: "https://10.0.0.5/schemas/internal.json#/Secret"
+    LocalFile:
+      $ref: "file:///etc/passwd"
+    Loopback:
+      $ref: "https://[::1]/schema.json#/x"
+    Mapped:
+      $ref: "https://[::ffff:127.0.0.1]/schema.json#/x"
+    Credentialed:
+      $ref: "https://user:CANARY_SECRET_9f3@schemas.example/x.json#/x"
+    Anchor:
+      $ref: "#Pet"
+    Missing:
+      $ref: "#/components/schemas/DoesNotExist"
+    Public:
+      $ref: "https://schemas.example/public.json#/components/schemas/Thing"

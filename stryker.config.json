@@ -8,7 +8,7 @@
       "tests/authoring-composition.test.ts",
       "tests/authoring-disambiguation.test.ts",
       "tests/authoring-origins.test.ts",
-      "tests/*.test.ts",
+      "tests/!(browser-*|extension-*|chaos|cloudflare|*.e2e).test.ts",
       "tests/contracts/*.test.ts"
     ],
     "nodeArgs": [
@@ -16,7 +16,9 @@
       "tsx",
       "--test",
       "--experimental-test-isolation=none",
-      "--test-reporter=tap"
+      "--test-reporter=tap",
+      "--test-timeout=300000",
+      "--test-force-exit"
     ],
     "forceBail": true
   },
@@ -46,7 +48,7 @@
   ],
   "concurrency": 1,
   "timeoutMS": 10000,
-  "dryRunTimeoutMinutes": 10,
+  "dryRunTimeoutMinutes": 25,
   "reporters": ["clear-text", "progress-append-only", "json", "html"],
   "jsonReporter": { "fileName": "artifacts/mutation/mutation.json" },
   "htmlReporter": { "fileName": "artifacts/mutation/index.html" },

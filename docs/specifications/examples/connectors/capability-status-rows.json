@@ -1,0 +1,51 @@
+[
+  {
+    "dimension": "import",
+    "profile": "openapi-3.1",
+    "adapterVersion": "1.0.0",
+    "runtime": "hosted-server",
+    "implementation": "implemented",
+    "configuration": "not-applicable",
+    "evidence": "protocol-fixture",
+    "limitations": [
+      "Readers take an already-parsed document; bytes-to-object parsing belongs to the import pipeline"
+    ]
+  },
+  {
+    "dimension": "invoke",
+    "profile": "openapi-http-executable/1",
+    "adapterVersion": "1.0.0",
+    "runtime": "hosted-server",
+    "implementation": "implemented",
+    "configuration": "missing",
+    "evidence": "protocol-fixture",
+    "limitations": [
+      "A path parameter value containing a slash is refused: containment inside the approved prefix cannot be proven across intermediaries",
+      "Credentials come from the custody port only; the host's credential layer must write the expected names"
+    ]
+  },
+  {
+    "dimension": "revoke",
+    "profile": "openapi-http-executable/1",
+    "adapterVersion": "1.0.0",
+    "runtime": "hosted-server",
+    "implementation": "unsupported",
+    "configuration": "not-applicable",
+    "evidence": "not-tested",
+    "limitations": [
+      "An OpenAPI description declares no upstream revocation operation. Local disconnect is available and does not establish upstream revocation."
+    ]
+  },
+  {
+    "dimension": "events",
+    "profile": "vercel-connect-triggers-2026-08-20",
+    "adapterVersion": "1.0.0",
+    "runtime": "hosted-server",
+    "implementation": "implemented",
+    "configuration": "missing",
+    "evidence": "protocol-fixture",
+    "limitations": [
+      "The forwarder's outbound signature header and algorithm are not published, so the verifier is injected; the test verifier is a stand-in, not a claim about the forwarder's wire format"
+    ]
+  }
+]

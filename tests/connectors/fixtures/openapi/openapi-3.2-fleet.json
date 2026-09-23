@@ -1,0 +1,154 @@
+{
+  "openapi": "3.2.0",
+  "$self": "https://fleet.example.test/openapi.json",
+  "info": {
+    "title": "Fleet 3.2",
+    "version": "1.0.0",
+    "description": "An OpenAPI 3.2 description exercising the device authorization flow, oauth2MetadataUrl, querystring parameters, QUERY and additionalOperations."
+  },
+  "servers": [{ "url": "https://fleet.example.test/api" }],
+  "security": [{ "deviceOauth": ["fleet:read"] }],
+  "paths": {
+    "/vehicles": {
+      "get": {
+        "operationId": "listVehicles",
+        "parameters": [
+          { "name": "region", "in": "query", "schema": { "type": "string" } },
+          { "name": "active", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vehicles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Vehicle" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "query": {
+        "operationId": "queryVehicles",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      },
+      "additionalOperations": {
+        "PURGE": {
+          "operationId": "purgeVehicles",
+          "responses": { "204": { "description": "Purged" } }
+        }
+      }
+    },
+    "/vehicles/{vehicleId}": {
+      "patch": {
+        "operationId": "updateVehicle",
+        "parameters": [
+          {
+            "name": "vehicleId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Vehicle" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Vehicle" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "operationId": "searchRaw",
+        "parameters": [
+          {
+            "name": "rawQuery",
+            "in": "querystring",
+            "content": {
+              "application/x-www-form-urlencoded": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Results",
+            "content": {
+              "application/json": { "schema": { "type": "object" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "vehicleMoved": {
+      "post": {
+        "operationId": "vehicleMovedWebhook",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": { "204": { "description": "Acknowledged" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceOauth": {
+        "type": "oauth2",
+        "oauth2MetadataUrl": "https://auth.example.test/.well-known/oauth-authorization-server",
+        "flows": {
+          "deviceAuthorization": {
+            "deviceAuthorizationUrl": "https://auth.example.test/device",
+            "tokenUrl": "https://auth.example.test/token",
+            "scopes": {
+              "fleet:read": "Read the fleet",
+              "fleet:write": "Change the fleet"
+            }
+          }
+        }
+      },
+      "fleetKey": { "type": "apiKey", "name": "X-Fleet-Key", "in": "header" }
+    },
+    "schemas": {
+      "Vehicle": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "plate": { "type": "string" },
+          "active": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

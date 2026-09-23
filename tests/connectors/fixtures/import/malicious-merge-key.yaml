@@ -1,0 +1,6 @@
+base: &base
+  servers:
+    - url: https://good.example
+child:
+  <<: *base
+  title: merged

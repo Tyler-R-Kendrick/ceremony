@@ -1,0 +1,5 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Proto", "version": "1" },
+  "components": { "schemas": { "__proto__": { "polluted": true } } }
+}

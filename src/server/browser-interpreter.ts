@@ -24,8 +24,16 @@ export type InterpreterInput = {
   snapshot: PageSnapshot;
   /** Roles the driver can substitute. Requesting any other role is rejected. */
   available: readonly CeremonyRole[];
-  /** Earlier actions, oldest first, so a failed approach is not repeated. */
-  history: readonly { action: string; note?: string }[];
+  /**
+   * Earlier actions, oldest first, so a failed approach is not repeated.
+   *
+   * Each entry carries the document it happened on. Without that, "have I
+   * pressed this already?" can only be asked of a button's label, and a label
+   * is not an identity: an identifier-first provider puts a button reading
+   * "Sign in" on the email page and another reading "Sign in" on the password
+   * page, and they are different buttons on different documents.
+   */
+  history: readonly { action: string; note?: string; path?: string }[];
 };
 
 export type CeremonyInterpreter = (
@@ -176,9 +184,25 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     );
     if (unchecked) return { action: "check", element: unchecked.index };
 
+    // Only what was pressed on *this* document counts as already tried.
+    //
+    // Scoped by label alone, a second step that reuses the first step's button
+    // label was unreachable: the driver filled the password and then declined
+    // to submit it, because something called "Sign in" had been pressed on the
+    // page before. Most real providers reuse "Continue", "Next" or "Sign in"
+    // across steps, so that was not an edge case - it was every
+    // identifier-first flow.
+    //
+    // An entry with no recorded document is treated as elsewhere rather than
+    // here, so an interpreter given a history from before this distinction
+    // existed errs toward offering the button rather than withholding it. The
+    // driver's own stall detection is what stops a genuine loop, and it can
+    // see something this cannot: whether the page changed.
     const pressed = new Set(
       history
-        .filter((entry) => entry.action === "click")
+        .filter(
+          (entry) => entry.action === "click" && entry.path === snapshot.path,
+        )
         .map((entry) => entry.note),
     );
     const submit = snapshot.elements.find(

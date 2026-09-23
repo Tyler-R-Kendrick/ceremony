@@ -1,0 +1,47 @@
+{
+  "_source": "https://auth0.com/docs/secure/tokens/token-vault/* and https://auth0.com/docs/oas/authentication/authentication-api-oas.json, retrieved 2026-09-18",
+  "_note": "Documented OAuth error bodies. Descriptions are provider text and never become a Ceremony code.",
+  "missing_refresh_token": {
+    "status": 403,
+    "body": {
+      "error": "invalid_grant",
+      "error_description": "The connection does not have a refresh token; the user must re-consent. CANARY_SECRET_9f3"
+    }
+  },
+  "consent_required": {
+    "status": 400,
+    "body": {
+      "error": "consent_required",
+      "error_description": "Consent required for the requested scopes"
+    }
+  },
+  "unknown_user": {
+    "status": 401,
+    "body": {
+      "error": "invalid_grant",
+      "error_description": "No connected account for this user on the requested connection"
+    }
+  },
+  "unsupported_grant": {
+    "status": 400,
+    "body": {
+      "error": "unsupported_grant_type",
+      "error_description": "Grant type 'urn:auth0:params:oauth:grant-type:token-exchange:federated-connection-access-token' not allowed for the client."
+    }
+  },
+  "invalid_client": {
+    "status": 401,
+    "body": {
+      "error": "invalid_client",
+      "error_description": "Client authentication failed"
+    }
+  },
+  "mfa_required": {
+    "status": 401,
+    "body": {
+      "error": "mfa_required",
+      "error_description": "Multifactor authentication required",
+      "mfa_token": "Fe26.CANARY_SECRET_9f3"
+    }
+  }
+}

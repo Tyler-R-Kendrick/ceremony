@@ -1,0 +1,32 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "api_key": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "API Key",
+          "description": "The API key for the Contoso Projects API.",
+          "constraints": {
+            "tabIndex": 2,
+            "clearText": false,
+            "required": "true"
+          }
+        }
+      }
+    },
+    "scriptOperations": [],
+    "policyTemplateInstances": [
+      {
+        "templateId": "routerequesttoendpoint",
+        "title": "Send every request to the regional endpoint",
+        "parameters": {
+          "x-ms-apimTemplateParameter.newPath": "https://eu.contoso.example/v1"
+        }
+      }
+    ],
+    "iconBrandColor": "#0058a9",
+    "capabilities": ["actions"],
+    "publisher": "Contoso",
+    "stackOwner": "Contoso"
+  }
+}

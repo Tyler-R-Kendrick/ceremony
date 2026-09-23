@@ -5,6 +5,28 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  # A push supersedes its own predecessor instead of queueing behind it. The
+  # eight jobs below expand to sixteen check runs, `mutation (schema)` alone
+  # measured at 79 to 83 minutes across three runs, so pushing three times in
+  # eleven minutes meant three full fleets competing for the same runners while
+  # two of them verified commits nobody would ever merge. That happened during
+  # the connect-drawer cascade and cost most of an afternoon's capacity.
+  #
+  # Keyed on the ref, so a pull request and a push to main never share a group:
+  # `github.ref` is `refs/pull/N/merge` for one and `refs/heads/main` for the
+  # other, and the only push trigger here is main.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Only a pull request's runs are cancelled. A push to main has to finish —
+  # that commit is what a release is cut from, and an unverified main is a far
+  # worse trade than a duplicated run.
+  #
+  # A superseded run ends "cancelled" rather than "failed", which is what it
+  # is: it never finished, so it is not evidence either way. The head commit
+  # that replaced it gets its own full run and is judged on that. The thing to
+  # watch for is reading a cancellation as a pass — it is not one, and a commit
+  # whose only run was cancelled has not been verified at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   # `onnxruntime-node`'s postinstall downloads a CUDA execution-provider package
   # from api.nuget.org. No runner here has a GPU, nothing in the suite uses that
@@ -16,7 +38,30 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # 45 rather than 25, measured from both directions and both reasons kept,
+    # because they are different measurements of the same job.
+    #
+    # From main's side: at d741eed this job finished in 22m03s against the old
+    # 25-minute cap; at 96b43e9 `npm run verify` took 23m05s and finished with
+    # 21 seconds to spare — but only because 23 browser tests aborted early on
+    # a failed above-the-fold assertion. Fixing that assertion made those tests
+    # run their bodies and the next run was cancelled at 25m18s with webkit
+    # still going. ~12m17s goes before the browsers start at all (npm ci and
+    # three engine downloads, then format/check, test:coverage at 2m16s and
+    # test:security:mutation at 7m20s), leaving the four-project Playwright
+    # suite the remainder.
+    #
+    # From connector interoperability's side: that change roughly doubles the
+    # suite `test:coverage` instruments, from about 1200 tests to 2899, and
+    # that stage is the longest of the nine run in series. Locally the stages
+    # measure format:check 22s, check 25s, test:coverage 196s, test:workflow
+    # 10s, build 60s, build:hosted 60s, build:vercel 90s, with the mutation and
+    # browser stages on top.
+    #
+    # A cap that trips at stage three of nine wastes a whole CI cycle and tells
+    # you nothing about stages four to nine, which is worse than a generous
+    # cap: this number is a guard against a hang, not a performance target.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -115,6 +160,28 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: node --import tsx --test --test-concurrency=1 tests/browser-login-conformance.test.ts tests/browser-targets.e2e.test.ts tests/browser-session-lifetime.test.ts tests/browser-login-service.test.ts
+  connector-mutation:
+    # The connector guards: identifier rules and approved-path containment.
+    # Separate from the `mutation` matrix because those entries mutate a whole
+    # file with the base configuration, and these are narrow line ranges pinned
+    # to particular guards with their own measured threshold. Roughly two
+    # minutes: a hundred mutants over nine fast test files, no database, no
+    # network and no browser.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:connectors:mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-connector-guards
+          path: artifacts/connector-mutation/
   coverage:
     # `verify`'s largest stage is `test:coverage`, and the wrapper reports it as
     # counts plus the file a failure lived in — by design, because the retained
@@ -137,7 +204,49 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
+      # What machine this actually ran on.
+      #
+      # `verification.md` carried "four browser-driving files at once on a
+      # two-core, 7 GB runner" as the leading explanation for an intermittent
+      # refusal in this job, and that was inference — the same document
+      # admitted nobody had instrumented the machine. This repository is
+      # public, so a standard `ubuntu-24.04` runner is four vCPUs and 16 GB,
+      # and the inference was wrong on both numbers.
+      #
+      # Four lines of output are cheaper than being wrong twice, and they sit
+      # in the log beside the failure they would be needed to explain.
+      - name: Runner shape
+        run: |
+          echo "cpus: $(nproc)"
+          free -m | sed -n '1,2p'
+          df -h / | sed -n '1,2p'
       - run: npm run test:coverage
+  browser-ui:
+    # Two chromium specs fail here on every run and pass locally on every run —
+    # five configurations, including with CI=1 set. `verify` runs `test:e2e` and
+    # captures its output, and the retained artifact keeps allowlisted
+    # coordinates only, so the assertion itself has never been visible.
+    #
+    # Printing Playwright's own output is safe by this repository's own
+    # standard, and AC-24 is the proof: it drives a nested run with a canary in
+    # the DOM, in a textarea, in the title and in a dataset attribute, and
+    # asserts the process output does not contain it. The fixture strips
+    # matcher snapshots and `PLAYWRIGHT_NO_COPY_PROMPT` stops the ARIA dump. So
+    # what reaches this log is assertions and locators, never page content.
+    #
+    # Chromium only: that is where both failures are, and a narrower job is a
+    # faster answer.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=chromium tests/browser/connection-plan.spec.ts tests/browser/ceremony.spec.ts
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04

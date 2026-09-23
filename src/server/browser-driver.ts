@@ -17,7 +17,7 @@ import type {
   CeremonyInterpreter,
   InterpreterInput,
 } from "./browser-interpreter.js";
-import { StaleTargetError } from "./browser-targets.js";
+import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -36,14 +36,29 @@ export {
 
 /**
  * What a host is asked for. It carries no value and no secret: the person acts
- * at `url` in their own browser, or through whatever the host's delegation
+ * where the ceremony already is, or through whatever the host's delegation
  * offers. `attempt` lets a host stop asking rather than prompt forever.
+ *
+ * This request is the one thing in an attempt that is *meant* to leave the
+ * process. A host shows it to a person, puts it in a notification, writes it
+ * to an activity log — so it is held to the same rule as a snapshot rather
+ * than to the rule for something only the driver sees.
+ *
+ * That is why `path` is origin and pathname and the full URL is not here. The
+ * driver already refuses to put a submission's URL in the effect ledger, for
+ * exactly this reason: a query string carries authorization codes, login
+ * hints, session identifiers and one-time tokens, and the same string that
+ * tells a person which page to look at would carry all of it into wherever
+ * the host displays it. A host that genuinely needs to navigate holds the
+ * live page already and can ask it — see `CeremonyPage.url()`, which is
+ * reachable only from something that can already drive the browser.
  */
 export type HumanParticipationRequest = {
   reason: HumanStepReason;
   surface: HumanHandoffContract["surface"];
   recipient: HumanHandoffContract["recipient"];
-  url: string;
+  /** Origin and pathname of the page awaiting a person. Never the query. */
+  path: string;
   attempt: number;
 };
 
@@ -73,6 +88,16 @@ export interface CeremonyPage {
   check(element: SnapshotElement): Promise<void>;
   /** Wait for navigation or in-page updates to quiesce, bounded by the adapter. */
   settle(): Promise<void>;
+  /**
+   * The origin a click on this control would submit to, or `undefined` when it
+   * submits nothing. Answered from the observation the caller approved, not
+   * from the live page, and an origin rather than a URL because a form action
+   * can carry an identifier or a token in its query string.
+   *
+   * Optional: an adapter that cannot tell simply does not implement it, and the
+   * driver then reports no dispatches rather than inventing them.
+   */
+  submissionTarget?(element: SnapshotElement): Promise<string | undefined>;
   /**
    * The last response's status and `WWW-Authenticate` header, when the adapter
    * can see them. A 401 challenge has no page to fill, so it is only visible
@@ -105,7 +130,13 @@ export type CeremonyOutcome =
   | { status: "exhausted"; steps: number }
   | { status: "stalled"; steps: number }
   /** Completion was claimed but no evidence confirmed it. */
-  | { status: "unverified"; steps: number };
+  | { status: "unverified"; steps: number }
+  /**
+   * Something was dispatched and where it went is not known. Distinct from
+   * every `blocked` reason, all of which mean the step did not happen: a caller
+   * may retry a refusal and must not retry this.
+   */
+  | { status: "indeterminate"; steps: number };
 
 export type CeremonyResult = CeremonyOutcome & {
   /** Ordered, value-free record of what the attempt did. Safe to persist. */
@@ -121,6 +152,17 @@ export interface CeremonyRunOptions {
   secrets: CeremonySecrets;
   /** Origins where the driver may act at all, and type a secret. */
   allowedOrigins: readonly string[];
+  /**
+   * Called immediately *before* a click that submits a form, never after.
+   *
+   * The ordering is the whole point. A caller records the intent to dispatch,
+   * and if this process dies during the click the record survives saying a
+   * submission may have gone out — which is exactly the case that used to be
+   * reported as "nothing happened, safe to retry". A callback that throws stops
+   * the attempt before the click, so a ledger that cannot record cannot be
+   * bypassed by proceeding anyway.
+   */
+  onDispatch?: (info: { destination: string }) => Promise<void> | void;
   /**
    * Redirect target that ends an authorization ceremony. Reaching it captures
    * the code from the browser; the code never enters a snapshot or a prompt.
@@ -246,12 +288,14 @@ export async function runCeremony(
   if (allowed.size === 0 || allowed.has(""))
     throw new Error("A ceremony requires at least one allowed origin");
   const transcript: CeremonyStep[] = [];
-  const history: { action: string; note?: string }[] = [];
+  const history: { action: string; note?: string; path?: string }[] = [];
   /** Values actually substituted into the page, plus any caller-declared ones. */
   const guarded: string[] = [...(options.protectedValues ?? [])];
   let steps = 0;
   let unchanged = 0;
   let refusals = 0;
+  /** Consecutive times the page moved on under an approval. */
+  let moved = 0;
   let unverifiedClaims = 0;
   let previous = "";
   let followed: string | undefined;
@@ -261,14 +305,34 @@ export async function runCeremony(
   const record = (
     snapshot: PageSnapshot,
     action: CeremonyStepAction,
-    extra: { role?: CeremonyRole; reason?: BlockedReason; note?: string } = {},
+    extra: {
+      role?: CeremonyRole;
+      reason?: BlockedReason;
+      note?: string;
+      /**
+       * Whether the interpreter should see this step. Everything it *did* to
+       * the page belongs in its history; a re-read is not something it did,
+       * and its `wait` heuristic reads the last entry, so recording one there
+       * would change the next proposal for a reason that has nothing to do
+       * with the page.
+       */
+      remembered?: boolean;
+    } = {},
   ) => {
     const step: CeremonyStep = { path: snapshot.path, action };
     if (extra.role) step.role = extra.role;
     if (extra.reason) step.reason = extra.reason;
     if (extra.note) step.note = redact(extra.note, guarded);
     transcript.push(step);
-    history.push(step.note ? { action, note: step.note } : { action });
+    // The document goes into the history too. An interpreter asking "have I
+    // tried this already?" has to be able to tell one page's button from
+    // another's with the same label, and a label is not an identity.
+    if (extra.remembered !== false)
+      history.push(
+        step.note
+          ? { action, note: step.note, path: step.path }
+          : { action, path: step.path },
+      );
     options.onStep?.(step);
   };
   const finish = (outcome: CeremonyOutcome): CeremonyResult => ({
@@ -278,34 +342,79 @@ export async function runCeremony(
   });
 
   /**
+   * Whether a refusal is one to read the page again over rather than give up
+   * on.
+   *
+   * `stale-document` says the page was replaced between the observation that
+   * approved something and the use of that observation. The guard did its
+   * job: nothing was typed, nothing was sent, and the approval is gone. But
+   * ending the attempt there throws away a login that may have *just
+   * succeeded* — a submit whose navigation commits after the read that
+   * followed it produces exactly this, and the page waiting to be read is the
+   * signed-in one. Re-reading is already how this driver copes with a
+   * document changing; AUTH-IDENTIFIER depends on it. The only reason a race
+   * was fatal is that the change landed inside the window between the read
+   * and the action, and nothing looked again.
+   *
+   * Looking again is not a weaker check. The new observation is read,
+   * approved and origin-checked from scratch, and every recipient rule is
+   * applied to it, so a page that really was swapped by someone hostile is
+   * refused on its own merits rather than on a memory of the page before it.
+   *
+   * Bounded, because a page that keeps moving cannot be driven and re-reading
+   * it forever would turn a refusal into a spin. The second move in a row
+   * ends the attempt under the name it would have carried immediately, so
+   * nothing is hidden — only retried once.
+   *
+   * Only this reason. `stale-element` means the control was replaced inside a
+   * document that stayed and `unapproved-recipient` means the form was
+   * re-pointed; both are a page rearranging itself under an approval rather
+   * than replacing itself, and both stay terminal.
+   */
+  const rereadable = (reason: BlockedReason): boolean =>
+    reason === "stale-document" && ++moved < 2;
+
+  /**
    * Read the page, tolerating the one thing that legitimately stops a read: the
    * browser or tab going away. A fresh observation after an action is expected
    * to describe a *different* document — that is what the action was for — so
    * only an unreadable page ends the attempt here.
+   *
+   * A read that failed *because* the page moved under it is the one case with
+   * nothing to report and nothing to undo: no snapshot was produced, so there
+   * is no document to name in the transcript, and reading again is the whole
+   * remedy. It is counted against the same budget as a refused action, so a
+   * page thrashing is bounded however the driver notices.
    */
   const observe = async (): Promise<
     { snapshot: PageSnapshot } | { blocked: CeremonyResult }
   > => {
-    try {
-      return { snapshot: await page.snapshot() };
-    } catch (error) {
-      const reason = refusalReason(error);
-      if (reason === undefined) throw error;
-      return { blocked: finish({ status: "blocked", reason, steps }) };
+    for (;;) {
+      try {
+        return { snapshot: await page.snapshot() };
+      } catch (error) {
+        const reason = refusalReason(error);
+        if (reason === undefined) throw error;
+        if (!rereadable(reason))
+          return { blocked: finish({ status: "blocked", reason, steps }) };
+        steps++;
+        if (steps >= maxSteps)
+          return { blocked: finish({ status: "exhausted", steps }) };
+      }
     }
   };
 
   /**
    * Bring a person into a step the browser cannot complete. The declared
-   * handoff contract says where they act and who they are; the driver supplies
-   * the live page so an own-browser fallback always exists. A person's "done"
-   * is a claim: the attempt resumes and re-reads the page, and completion still
-   * requires the same provider evidence it always did.
+   * handoff contract says where they act and who they are; the request names
+   * the page by origin and pathname, and a host that drives the browser holds
+   * the live page already. A person's "done" is a claim: the attempt resumes
+   * and re-reads the page, and completion still requires the same provider
+   * evidence it always did.
    */
   const handOff = async (
     snapshot: PageSnapshot,
     reason: HumanStepReason,
-    url: string,
   ): Promise<BlockedReason | undefined> => {
     const fallback: BlockedReason =
       reason === "passkey"
@@ -320,7 +429,12 @@ export async function runCeremony(
       reason,
       surface: options.human.contract.surface,
       recipient: options.human.contract.recipient,
-      url,
+      // The observation's own path, which is already origin and pathname.
+      // Taking it from here rather than re-deriving it from the live URL is
+      // deliberate: there is then no place in this function where the query
+      // string exists at all, so no later edit can reintroduce it by
+      // forgetting to strip something.
+      path: snapshot.path,
       attempt: handoffs,
     });
     if (outcome === "declined") return "human-declined";
@@ -353,6 +467,32 @@ export async function runCeremony(
     snapshot: PageSnapshot,
     url: string,
   ): Promise<CeremonyResult | undefined> {
+    /**
+     * The one ending shared by every action the adapter refused.
+     *
+     * Returning `undefined` is this function's "carry on", and carrying on is
+     * what a re-readable refusal asks for: the main loop's next thing is to
+     * read the page, which is precisely the remedy. A refusal that is not
+     * re-readable ends the attempt under its own name, as before.
+     */
+    const refused = (error: unknown): CeremonyResult | undefined => {
+      const reason = refusalReason(error);
+      if (reason === undefined) throw error;
+      // Reading the page again is always safe. *Acting* again on what is read
+      // is not, if the refused action had already begun: a click that threw
+      // while the page was being replaced may still have sent the submission
+      // it was for, and nothing here can tell. That one ends the attempt, as
+      // it did before - uncertainty is never rewritten into something more
+      // retryable.
+      const begun = error instanceof StaleTargetError && error.begun;
+      if (!begun && rereadable(reason)) {
+        record(snapshot, "reobserve", { reason, remembered: false });
+        steps++;
+        return undefined;
+      }
+      record(snapshot, "blocked", { reason });
+      return finish({ status: "blocked", reason, steps });
+    };
     const element =
       action.element === undefined
         ? undefined
@@ -406,10 +546,7 @@ export async function runCeremony(
       try {
         await page.fill(element, value);
       } catch (error) {
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        return refused(error);
       }
       record(snapshot, "fill", {
         role,
@@ -419,25 +556,36 @@ export async function runCeremony(
       try {
         await page.check(element);
       } catch (error) {
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        return refused(error);
       }
       record(snapshot, "check", action.note ? { note: action.note } : {});
     } else {
+      // A control that belongs to a form is the only thing here that can change
+      // the provider's state, so it is the only thing announced. Clicking a
+      // link or an in-page toggle sends nothing and is not an effect.
+      const destination = options.onDispatch
+        ? await page.submissionTarget?.(element)
+        : undefined;
+      if (destination !== undefined)
+        await options.onDispatch?.({ destination });
       try {
         await page.click(element);
       } catch (error) {
-        const reason = refusalReason(error);
-        if (reason === undefined) throw error;
-        record(snapshot, "blocked", { reason });
-        return finish({ status: "blocked", reason, steps });
+        if (error instanceof DispatchUncertain) {
+          record(snapshot, "blocked", { reason: "provider-error" });
+          return finish({ status: "indeterminate", steps });
+        }
+        return refused(error);
       }
       record(snapshot, "click", action.note ? { note: action.note } : {});
     }
 
     refusals = 0;
+    // An action that landed means the page in front of the attempt is one it
+    // can act on, so whatever moved before this is behind it. The budget
+    // counts documents moving *in a row*, not over a whole login: a flow that
+    // legitimately redirects twice is not a page thrashing.
+    moved = 0;
     await page.settle();
     steps++;
     const observed = await observe();
@@ -571,7 +719,7 @@ export async function runCeremony(
           ? "native-dialog"
           : undefined;
     if (humanStep) {
-      const refused = await handOff(snapshot, humanStep, url);
+      const refused = await handOff(snapshot, humanStep);
       if (refused) {
         record(snapshot, "blocked", { reason: refused });
         return finish({ status: "blocked", reason: refused, steps });

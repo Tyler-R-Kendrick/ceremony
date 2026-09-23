@@ -87,6 +87,15 @@ export type IdentityOrigin = {
     /** Whether `value` ever reached this origin in a submitted field. */
     sawValue(value: string): boolean;
   };
+  /**
+   * Subresource requests this origin served, oldest first.
+   *
+   * Separate from `submissions` because they answer different questions. A
+   * submission is a credential arriving; a subresource is the browser fetching
+   * something a page asked for. ORIGIN-RESOURCE is about the second, and the
+   * honest answer there is that nothing contains it.
+   */
+  resourceHits(): readonly string[];
   /** Drop sessions and recordings so one server can serve independent cases. */
   reset(): void;
   close(): Promise<void>;
@@ -145,6 +154,18 @@ const passwordField =
   '<label for="password">Password</label>' +
   '<input id="password" name="password" type="password" autocomplete="current-password">';
 const submitField = '<button id="submit" type="submit">Sign in</button>';
+/**
+ * The same identifier control, carrying the WebAuthn autocomplete hint.
+ *
+ * This is what conditional passkey UI actually looks like on a real provider:
+ * the browser may offer a passkey in the identifier field, and the form still
+ * accepts a password for everyone who does not have one. It is the common
+ * shape now, not an edge case, which is why telling it apart from a page that
+ * can *only* be answered by an authenticator matters so much.
+ */
+const conditionalIdentifierField =
+  '<label for="identifier">Email</label>' +
+  '<input id="identifier" name="identifier" type="text" autocomplete="username webauthn">';
 
 /** Alert markup matching `snapshotSelectors.alerts`, so a refusal is observable. */
 const alert = (message: string) =>
@@ -183,6 +204,7 @@ async function startOrigin(
   const identified = new Map<string, string>();
   const submissions: CredentialSubmission[] = [];
   const echoes: EchoedField[] = [];
+  const resources: string[] = [];
   let origin = "";
 
   const byIdentifier = (value: string) =>
@@ -262,6 +284,30 @@ async function startOrigin(
       return redirect(response, "/account", [openSession(match.account)]);
     }
 
+    if (path === "/signin-conditional") {
+      // Identical to `/signin` in every way that matters: the password is
+      // what completes it. The only difference is the hint on the identifier,
+      // which must not change the outcome.
+      const match = accounts.find(
+        (candidate) => candidate.identifier === identifier,
+      );
+      record(path, match?.account ?? identifier, match?.password === password);
+      if (!match || match.password !== password)
+        return redirect(response, "/signin-conditional?error=1");
+      return redirect(response, "/account", [openSession(match.account)]);
+    }
+
+    if (path === "/signin-window") {
+      // `/signin`, in a window. Recorded under its own path so a case can say
+      // the credential went through the window and not through the page.
+      const match = byIdentifier(identifier);
+      const passwordMatched = !!match && match.password === password;
+      record(path, match?.account ?? identifier, passwordMatched);
+      if (!match || !passwordMatched)
+        return redirect(response, "/signin-window?error=invalid");
+      return redirect(response, "/window-done", [openSession(match.account)]);
+    }
+
     if (path === "/signin-identifier") {
       const match = byIdentifier(identifier);
       record(path, match?.account ?? identifier, false);
@@ -323,6 +369,19 @@ async function startOrigin(
         page(
           "Sign in",
           signInForm("/signin", identifierField + passwordField, error),
+        ),
+      );
+
+    if (path === "/signin-conditional")
+      return html(
+        response,
+        page(
+          "Sign in",
+          signInForm(
+            "/signin-conditional",
+            conditionalIdentifierField + passwordField,
+            error,
+          ),
         ),
       );
 
@@ -426,6 +485,142 @@ async function startOrigin(
       // there is no password input anywhere, so the page classifies as passkey.
       return html(response, page("Passkey", passkeyBody()));
 
+    if (path === "/pixel") {
+      // A subresource, recorded. Nothing about it is a credential; what it
+      // establishes is only that the browser fetched it from here.
+      resources.push(path);
+      response.writeHead(200, {
+        "content-type": "image/gif",
+        "cache-control": "no-store",
+      });
+      return response.end(
+        Buffer.from(
+          "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+          "base64",
+        ),
+      );
+    }
+
+    if (path === "/resourced") {
+      // A perfectly ordinary login page that also pulls one image from another
+      // origin, which is what almost every real sign-in page does. The point
+      // of the route is the gap it exposes: navigation is controlled, and
+      // subresources are not.
+      const target = peer();
+      if (!target)
+        return html(response, page("Resourced", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><img id="badge" alt="" src="${escapeHtml(
+            target,
+          )}/pixel" width="1" height="1">` +
+            `<form method="post" action="/signin">${identifierField}${passwordField}${submitField}</form>`,
+        ),
+      );
+    }
+
+    if (path === "/popup") {
+      // A sign-in that happens in a window the page opens, which is the shape
+      // OAuth, the GitHub App and provider-run registration all take: the
+      // page has no fields of its own, a button opens the provider's form in
+      // a window, and the page learns the outcome when the window reports
+      // back and closes. A driver has to follow the credential into the
+      // window and then come back to the page that opened it.
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><p>Continue in a window.</p>` +
+            `<button id="open" type="button">Sign in</button>` +
+            `<script>
+document.getElementById("open").addEventListener("click", () => {
+  window.open("/signin-window", "signin", "popup,width=480,height=560");
+});
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data !== "signed-in") return;
+  document.body.innerHTML =
+    '<h1>Signed in</h1><p id="banner">The window has finished.</p>';
+});
+</script>`,
+        ),
+      );
+    }
+
+    if (path === "/popup-elsewhere") {
+      // The same page, opening its window somewhere the plan never admitted.
+      // Nothing about the click is different; what is different is where the
+      // next document lives, and the plan is the only thing entitled to say
+      // whether a credential may go there.
+      const target = peer();
+      if (!target)
+        return html(response, page("Sign in", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Sign in",
+          `<h1>Sign in</h1><p>Continue in a window.</p>` +
+            `<button id="open" type="button">Sign in</button>` +
+            `<script>
+document.getElementById("open").addEventListener("click", () => {
+  window.open(${JSON.stringify(`${target}/signin`)}, "signin", "popup,width=480,height=560");
+});
+</script>`,
+        ),
+      );
+    }
+
+    if (path === "/signin-window")
+      return html(
+        response,
+        page(
+          "Sign in",
+          signInForm(
+            "/signin-window",
+            identifierField + passwordField,
+            url.searchParams.get("error"),
+          ),
+        ),
+      );
+
+    if (path === "/window-done")
+      // The window's last act: tell the page that opened it, then leave.
+      return html(
+        response,
+        page(
+          "Signed in",
+          `<h1>Signed in</h1><script>
+if (window.opener) window.opener.postMessage("signed-in", location.origin);
+window.close();
+</script>`,
+        ),
+      );
+
+    if (path === "/framed") {
+      // A credential form served by a *different* origin, embedded. This is
+      // the shape `frameOrigins` exists for and the one nothing could drive:
+      // the outer page has no fields at all, so a driver bound to the main
+      // frame sees an empty document and the login is unreachable rather
+      // than merely awkward.
+      //
+      // The partner is a separate server with its own cookies, so a session
+      // established in the frame is the partner's, which is what makes the
+      // assertion about *which* origin signed the account in meaningful.
+      const target = peer();
+      if (!target)
+        return html(response, page("Framed", "<h1>No partner origin</h1>"));
+      return html(
+        response,
+        page(
+          "Framed",
+          `<h1>Sign in to continue</h1><iframe id="credentials" title="Sign in" src="${escapeHtml(
+            target,
+          )}/signin" width="420" height="320"></iframe>`,
+        ),
+      );
+    }
+
     if (path === "/sso") {
       const target = peer();
       if (!target)
@@ -508,6 +703,7 @@ async function startOrigin(
       const match = /(?:^|;\s*)ceremony_session=([^;]*)/.exec(cookie);
       return sessions.get((match?.[1] ?? cookie).trim());
     },
+    resourceHits: () => [...resources],
     canary: {
       url: new URL("/echo", origin).href,
       received: () => [...echoes],
@@ -519,6 +715,7 @@ async function startOrigin(
       identified.clear();
       submissions.length = 0;
       echoes.length = 0;
+      resources.length = 0;
     },
     async close() {
       const closed = new Promise<void>((resolve, reject) =>

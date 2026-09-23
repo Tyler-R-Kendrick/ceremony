@@ -26,9 +26,11 @@ import {
 } from "../src/server/browser-interpreter.js";
 import {
   createPlaywrightCeremonyPage,
+  DispatchUncertain,
   StaleTargetError,
   type PlaywrightPageLike,
 } from "../src/server/browser-page.js";
+import type { BoundPageLike } from "../src/server/browser-targets.js";
 
 /**
  * Boundary checks for the ceremony driver that the scenario catalog cannot
@@ -537,6 +539,7 @@ test("the heuristic stops at provider walls and does not fill unavailable or cro
 
 test("the heuristic follows the goal's alternative link without repeating a clicked action", async () => {
   const interpret = createHeuristicInterpreter();
+  const here = "https://provider.example/signin";
   for (const [goal, label] of [
     ["sign-in", "Already have an account? Log in"],
     ["registration", "Create an account"],
@@ -561,20 +564,78 @@ test("the heuristic follows the goal's alternative link without repeating a clic
       element: 0,
       note: "Continue",
     });
-    input.history = [{ action: "fill" }, { action: "click", note: "Continue" }];
+    // The history the driver actually records: each entry says which document
+    // it happened on, because that is what makes "already pressed" mean
+    // anything.
+    input.history = [
+      { action: "fill", path: here },
+      { action: "click", note: "Continue", path: here },
+    ];
     assert.deepEqual(await interpret(input), {
       action: "click",
       element: 3,
       note: label,
     });
-    input.history = [...input.history, { action: "click", note: label }];
+    input.history = [
+      ...input.history,
+      { action: "click", note: label, path: here },
+    ];
     assert.deepEqual(await interpret(input), { action: "wait" });
-    input.history = [...input.history, { action: "wait" }];
+    input.history = [...input.history, { action: "wait", path: here }];
     assert.deepEqual(await interpret(input), {
       action: "blocked",
       reason: "unsupported-page",
     });
   }
+});
+
+test("a button with the same label on the next document is not already pressed", async () => {
+  // The defect this pins cost every identifier-first provider. Step one and
+  // step two of such a flow both carry a button reading "Sign in" - so did
+  // "Continue" and "Next" everywhere else - and the interpreter suppressed the
+  // second because it remembered the label rather than the button. The driver
+  // filled the password and then declined to submit it.
+  const interpret = createHeuristicInterpreter();
+  const first = "https://provider.example/signin-identifier";
+  const second = "https://provider.example/signin-password";
+  const elements: PageSnapshot["elements"] = [
+    {
+      index: 0,
+      kind: "input",
+      type: "password",
+      label: "Password",
+      filled: true,
+    },
+    { index: 1, kind: "button", text: "Sign in" },
+  ];
+  const history = [
+    { action: "fill", path: first },
+    { action: "click", note: "Sign in", path: first },
+    { action: "fill", path: second },
+  ];
+
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["password"],
+      history,
+      snapshot: snapshot({ path: second, elements }),
+    }),
+    { action: "click", element: 1, note: "Sign in" },
+    "the second document's submit button must be offered",
+  );
+
+  // And the guard it replaces still holds: pressed on *this* document, it is
+  // not offered again, so a dead button is still not pressed twice.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["password"],
+      history: [...history, { action: "click", note: "Sign in", path: second }],
+      snapshot: snapshot({ path: second, elements }),
+    }),
+    { action: "click", element: 1, note: "Sign in" },
+  );
 });
 
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
@@ -630,6 +691,8 @@ function handleGraph(
   options: {
     origin?: string;
     controls?: number;
+    /** Runs inside the click, modelling a page that acts during it. */
+    onClick?: (index: number) => void;
   } = {},
 ) {
   const origin = options.origin ?? "https://provider.example";
@@ -670,6 +733,7 @@ function handleGraph(
     },
     click: async () => {
       calls.push(`click ${index}`);
+      options.onClick?.(index);
     },
     check: async () => {
       calls.push(`check ${index}`);
@@ -757,6 +821,11 @@ function handleGraph(
     waitForLoadState: async (state) => {
       calls.push(`settle ${state}`);
     },
+    // One document, so one frame, and it is the main one. A double that
+    // claimed otherwise would let a frame-bound plan pass here and fail on a
+    // browser, which is the direction this repository refuses to fail in.
+    frames: () => [page],
+    mainFrame: () => page,
   };
   return {
     page,
@@ -784,6 +853,11 @@ test("the Playwright adapter acts on the element it observed, not on a selector"
   await page.settle();
   assert.deepEqual(graph.calls, [
     "goto https://provider.example/signin",
+    // Navigation settles before anything observes. `domcontentloaded` means the
+    // document has started, not that it is the one still there a moment later,
+    // and an observation taken across that gap refuses the first action with
+    // `stale-document` on a page nobody swapped.
+    "settle networkidle",
     "observe",
     "fill 0 value-1",
     "click 2",
@@ -888,8 +962,29 @@ test("acting before any observation is refused rather than guessed", async () =>
   await assert.rejects(
     page.click({ index: 2, kind: "button", text: "Sign in" }),
     (error: unknown) =>
-      error instanceof StaleTargetError && error.reason === "stale-document",
+      // Not `stale-document`: nothing was ever approved, so no document was
+      // compared and none moved on. The case below is the one where a page
+      // really does change under an attempt, and it still says so — which is
+      // the whole point of the two names being different.
+      error instanceof StaleTargetError && error.reason === "no-observation",
   );
+});
+
+test("a released observation is not a page that moved on", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  const snapshot = await page.snapshot();
+  assert.ok(snapshot.elements.length > 0);
+  // Navigating releases the approval. What follows has nothing behind it, and
+  // blaming the document for that is what sent three runs' worth of failures
+  // looking at guards that had not run.
+  await page.goto("https://provider.example/second");
+  await assert.rejects(
+    page.click({ index: 2, kind: "button", text: "Sign in" }),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "no-observation",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("click")));
 });
 
 test("the driver reports a stale document instead of failing the run", async () => {
@@ -918,6 +1013,566 @@ test("the driver reports a stale document instead of failing the run", async () 
     "stale-document",
   );
   assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+/**
+ * A page whose navigation lands late, which is the shape a loaded runner
+ * produces and the shape CI has been reporting as `stale-document`.
+ *
+ * The submit goes through. `settle()` returns, the read that follows it and
+ * the next main-loop read both still describe the page that is about to be
+ * replaced, and the replacement commits while the interpreter is deciding
+ * what to do with what it was shown. The approval the next action would use
+ * is then against a document that no longer exists.
+ */
+function lateNavigation(destination: string) {
+  let submitted = false;
+  let reads = 0;
+  const graph = handleGraph({
+    onClick: () => {
+      submitted = true;
+      reads = 0;
+    },
+  });
+  const page: PlaywrightPageLike = {
+    ...graph.page,
+    evaluateHandle: async (source: string) => {
+      const handle = await graph.page.evaluateHandle(source);
+      // The two reads are the post-action one and the main loop's, so the
+      // document survives exactly long enough to be read and approved and
+      // no longer.
+      if (submitted && source.includes("destinations") && ++reads === 2) {
+        submitted = false;
+        graph.navigate(destination);
+      }
+      return handle;
+    },
+  };
+  return { graph, page: createPlaywrightCeremonyPage(page) };
+}
+
+test("a submit whose navigation lands late is read again, not given up on", async () => {
+  const { graph, page } = lateNavigation("https://provider.example/account");
+  let verified = 0;
+  let step = 0;
+  const result = await runCeremony({
+    page,
+    // What a real interpreter does with a page it has just submitted and is
+    // still being shown: try it again. That is the proposal that meets the
+    // dead approval.
+    interpreter: async () => {
+      step += 1;
+      if (step === 1) return { action: "fill", element: 0, role: "username" };
+      if (step === 2) return { action: "click", element: 2 };
+      if (step === 3) return { action: "fill", element: 0, role: "username" };
+      return { action: "done" };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => {
+      verified += 1;
+      return true;
+    },
+  });
+
+  // The point of the case. Before the attempt learned to look again this
+  // ended `blocked` / `stale-document` with `verified` still zero: a login
+  // that had in fact succeeded, reported as one that never happened, and
+  // the provider never asked.
+  assert.equal(result.status, "completed");
+  assert.equal(verified, 1);
+
+  // The refusal is not swallowed. It is in the transcript under its own
+  // name, against the document that went stale, so a recovered attempt is
+  // distinguishable from one that never raced.
+  const reread = result.transcript.filter(
+    (entry) => entry.action === "reobserve",
+  );
+  assert.equal(reread.length, 1);
+  assert.equal(reread[0]?.reason, "stale-document");
+  assert.equal(reread[0]?.path, "https://provider.example/signin");
+
+  // And nothing was typed at the page that replaced it. Looking again is not
+  // acting anyway: the value went in once, before the submit.
+  assert.deepEqual(
+    graph.calls.filter((call) => call.startsWith("fill")),
+    ["fill 0 person@example.com"],
+  );
+});
+
+test("a submit that threw while the page moved is not tried again", async () => {
+  // The one refusal that must stay terminal. Playwright can lose the
+  // execution context between sending a submission and returning, so a click
+  // that threw is not evidence that nothing was sent. Reading the page again
+  // would be safe; acting on what is read could submit twice, and nothing in
+  // the attempt can tell which happened.
+  const graph = handleGraph({
+    onClick: () => {
+      graph.navigate("https://provider.example/account");
+      throw new Error(
+        "Execution context was destroyed, most likely because of a navigation",
+      );
+    },
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  let clicks = 0;
+  const result = await runCeremony({
+    page,
+    interpreter: async () => {
+      clicks += 1;
+      return { action: "click", element: 2 };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "stale-document",
+  );
+  // Proposed once, refused once, and never proposed again: no second submit.
+  assert.equal(clicks, 1);
+  assert.equal(
+    result.transcript.filter((entry) => entry.action === "reobserve").length,
+    0,
+  );
+});
+
+test("a page that keeps moving still ends the attempt", async () => {
+  const graph = handleGraph();
+  let moves = 0;
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    // Replaced under every single read. Re-reading cannot help, and the
+    // budget is what stops the attempt spinning on it.
+    evaluateHandle: async (source: string) => {
+      const handle = await graph.page.evaluateHandle(source);
+      if (source.includes("destinations")) {
+        moves += 1;
+        graph.navigate(`https://provider.example/moved-${moves}`);
+      }
+      return handle;
+    },
+  });
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({
+      action: "fill",
+      element: 0,
+      role: "username",
+    }),
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "stale-document",
+  );
+  // One re-read, then the name it would have carried immediately. A wider
+  // budget would show up here as a second entry.
+  assert.equal(
+    result.transcript.filter((entry) => entry.action === "reobserve").length,
+    1,
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+/**
+ * A frame that only has to be findable. Both cases below refuse during
+ * selection, before anything is read, so a frame that threw on being read
+ * would be proving the wrong thing.
+ */
+function frameAt(url: string): BoundPageLike {
+  return {
+    url: () => url,
+    evaluateHandle: async () => {
+      throw new Error("a refused frame must never be read");
+    },
+    evaluate: async () => {
+      throw new Error("a refused frame must never be read");
+    },
+  };
+}
+
+test("a declared frame that is not on the page is refused, not fallen back from", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page, {
+    frameOrigins: ["https://frame.example"],
+  });
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "frame-missing",
+  );
+  // The page itself is right there and has a form on it. Reading that is the
+  // failure being refused: a different origin, a different document, and a
+  // credential typed into neither of the things the plan described. Naming
+  // the frame was the statement that the page is not it.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("two frames at the declared origin do not identify a document", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(
+    {
+      ...graph.page,
+      frames: () => [
+        graph.page,
+        frameAt("https://frame.example/one"),
+        frameAt("https://frame.example/two"),
+      ],
+      mainFrame: () => graph.page,
+    },
+    { frameOrigins: ["https://frame.example"] },
+  );
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "frame-ambiguous",
+  );
+  // Choosing between them would approve a position rather than a thing, one
+  // level up from the element guards: a page that can add a second frame at
+  // an origin could choose which document a credential is typed into.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("a frame is chosen by origin, and the page is not read instead", async () => {
+  const graph = handleGraph();
+  let framesRead = 0;
+  const frame: BoundPageLike = {
+    url: () => "https://frame.example/signin",
+    evaluateHandle: async (source: string) => {
+      framesRead += 1;
+      return graph.page.evaluateHandle(source);
+    },
+    evaluate: ((fn: never, arg: never) =>
+      graph.page.evaluate(fn, arg)) as BoundPageLike["evaluate"],
+  };
+  const page = createPlaywrightCeremonyPage(
+    {
+      ...graph.page,
+      frames: () => [graph.page, frame],
+      mainFrame: () => graph.page,
+    },
+    { frameOrigins: ["https://frame.example"] },
+  );
+  const snapshot = await page.snapshot();
+  assert.ok(snapshot.elements.length > 0);
+  assert.equal(framesRead, 1);
+});
+
+test("ORIGIN-REDIRECT: an undeclared origin is refused before it is read", async () => {
+  // Two separate protections refuse a credential on an undeclared origin: the
+  // navigation check at the top of the loop, and the recipient check at the
+  // fill. End to end they are indistinguishable - remove either and
+  // ORIGIN-REDIRECT in the conformance suite stays green - so the refusal
+  // needs pinning somewhere that can tell them apart.
+  //
+  // "The driver leaves an origin it was never permitted to act on" above is
+  // the nearest existing case, and it does not cover this: `inertPage` never
+  // records `snapshot`, so its "nothing is done" has never included "nothing
+  // is read". `handleGraph` records every observation, which is what makes
+  // the distinction visible here.
+  //
+  // And reading is the part worth pinning. An observation is what the
+  // interpreter is shown, so a page nobody declared would reach whatever is
+  // doing the reasoning - on a host model, that means leaving the deployment
+  // entirely. The navigation guard is what makes "not admitted" mean "not
+  // looked at" rather than merely "not typed into".
+  const graph = handleGraph({ origin: "https://provider.example" });
+  graph.navigate("https://elsewhere.example/signin");
+  const page = createPlaywrightCeremonyPage(graph.page);
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({ action: "fill", element: 0, role: "username" }),
+    goal: "sign-in",
+    secrets: createSecrets({ username: async () => "person@example.com" }),
+    allowedOrigins: ["https://provider.example"],
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "untrusted-origin",
+  );
+  assert.ok(
+    !graph.calls.includes("observe"),
+    "an origin nobody declared must not be read, let alone acted on",
+  );
+  assert.ok(!graph.calls.some((call) => call.startsWith("fill")));
+});
+
+test("TARGET-CLOSED: a tab that went away is not a document that moved on", async () => {
+  // These shared an answer until now, and they call for opposite responses.
+  // A document that moved leaves a document to read, which is why one re-read
+  // is worth spending. A closed target leaves nothing: the re-read is spent on
+  // a page that cannot come back, and `stale-document` then sends whoever
+  // reads it to the guards that compare documents, for a tab that is not
+  // there.
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    evaluateHandle: async () => {
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "target-closed",
+  );
+});
+
+test("a closed target ends the attempt instead of being read again", async () => {
+  // The bound on re-reading is what makes it safe, and a target that cannot
+  // come back must not consume it. One attempt, one refusal, no second look.
+  const graph = handleGraph();
+  let reads = 0;
+  const page = createPlaywrightCeremonyPage({
+    ...graph.page,
+    evaluateHandle: async () => {
+      reads += 1;
+      throw new Error("Target closed");
+    },
+  });
+  const result = await runCeremony({
+    page,
+    interpreter: async () => ({ action: "done" }),
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(
+    result.status === "blocked" ? result.reason : undefined,
+    "target-closed",
+  );
+  assert.equal(reads, 1);
+});
+
+/**
+ * A window the page opened, standing on its own recording graph. The page
+ * double reports it through `on("popup")` exactly as Playwright does, and it
+ * closes the way a real window does: a flag the adapter can read at once, and
+ * a `close` event for whoever asked to be told.
+ */
+function windowAt(url: string, graph: ReturnType<typeof handleGraph>) {
+  let closed = false;
+  let current = url;
+  const closers: (() => void)[] = [];
+  return {
+    url: () => current,
+    evaluateHandle: (source: string) => graph.page.evaluateHandle(source),
+    evaluate: ((fn: never, arg: never) =>
+      graph.page.evaluate(fn, arg)) as BoundPageLike["evaluate"],
+    isClosed: () => closed,
+    waitForLoadState: async () => {},
+    on: (event: "close" | "popup", listener: (...args: never[]) => void) => {
+      if (event === "close") closers.push(listener as () => void);
+    },
+    close: () => {
+      closed = true;
+      for (const listener of closers) listener();
+    },
+    navigate: (next: string) => {
+      current = next;
+    },
+  };
+}
+type WindowDouble = ReturnType<typeof windowAt>;
+
+/** A page double that reports the windows it opens, as Playwright's does. */
+function openerOf(graph: ReturnType<typeof handleGraph>) {
+  const listeners: ((popup: WindowDouble) => void)[] = [];
+  return {
+    page: {
+      ...graph.page,
+      on: (event: "popup", listener: (popup: WindowDouble) => void) => {
+        if (event === "popup") listeners.push(listener);
+      },
+    },
+    open: (popup: WindowDouble) => {
+      for (const listener of listeners) listener(popup);
+    },
+  };
+}
+
+const observations = (calls: readonly string[]) =>
+  calls.filter((call) => call === "observe").length;
+
+test("TARGET-POPUP: a window at an admitted origin is where the next read happens", async () => {
+  // The rule frames did not need. A frame is there to be found; a window is
+  // not there until the page opens it, so the attempt acts in the page until
+  // a window at an admitted origin exists, and then in that. Both halves are
+  // pinned: the page is read before the window opens, the window after, and
+  // the page not again.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  await page.snapshot();
+  assert.equal(observations(graph.calls), 1);
+
+  const inside = handleGraph();
+  opener.open(windowAt("https://provider.example/window", inside));
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/window");
+  assert.equal(observations(inside.calls), 1);
+  assert.equal(observations(graph.calls), 1);
+});
+
+test("TARGET-POPUP: a window somewhere undeclared is refused before it is read", async () => {
+  // A window is the page choosing where the next document lives. An origin
+  // the plan never named does not become admitted by being opened rather
+  // than navigated to, and nothing in it is shown to an interpreter.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph({ origin: "https://elsewhere.example" });
+  opener.open(windowAt("https://elsewhere.example/signin", inside));
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "popup-undeclared",
+  );
+  assert.ok(!inside.calls.includes("observe"));
+  // Nor is the page read instead. The attempt has been carried somewhere its
+  // plan does not admit, whichever document a read would have landed on.
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: two windows at admitted origins do not identify a document", async () => {
+  // The same refusal frames make, one level up from the element guards: a
+  // page that can open two windows could choose which one a credential is
+  // typed into.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  opener.open(windowAt("https://provider.example/one", handleGraph()));
+  opener.open(windowAt("https://provider.example/two", handleGraph()));
+  await assert.rejects(
+    page.snapshot(),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "popup-ambiguous",
+  );
+  assert.ok(!graph.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: a window that closes hands the attempt back to its opener", async () => {
+  // How every window flow ends: the window reports back and leaves, and the
+  // page that opened it is where the attempt continues and is verified.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph();
+  const popup = windowAt("https://provider.example/window", inside);
+  opener.open(popup);
+  await page.snapshot();
+  assert.equal(observations(inside.calls), 1);
+  popup.close();
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/signin");
+  assert.equal(observations(inside.calls), 1);
+  assert.equal(observations(graph.calls), 1);
+});
+
+test("TARGET-POPUP: a window that has not arrived is neither adopted nor refused", async () => {
+  // Between `window.open` and the first document there is a window at
+  // `about:blank`, which is not anything yet. Refusing it would end attempts
+  // on slow networks; adopting it would read an empty document. The read
+  // goes to the page, and `settle` is what waits for the window to become
+  // something.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  const inside = handleGraph();
+  const popup = windowAt("about:blank", inside);
+  opener.open(popup);
+  await page.snapshot();
+  assert.equal(observations(graph.calls), 1);
+  assert.ok(!inside.calls.includes("observe"));
+  popup.navigate("https://provider.example/window");
+  await page.snapshot();
+  assert.equal(observations(inside.calls), 1);
+});
+
+test("TARGET-POPUP: without popup origins a window is not adopted", async () => {
+  // The default, pinned. A plan that did not require `popupBinding` gets
+  // what it always got: the page, whatever the page opens.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page);
+  const inside = handleGraph();
+  opener.open(windowAt("https://provider.example/window", inside));
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/signin");
+  assert.ok(!inside.calls.includes("observe"));
+});
+
+test("TARGET-POPUP: popup origins need a page that reports its windows", () => {
+  // A page that cannot say what it opened cannot be bound to it. Refusing at
+  // construction is the honest answer; adopting nothing while the table
+  // claims the capability is the dishonest one it was corrected for.
+  const graph = handleGraph();
+  assert.throws(() =>
+    createPlaywrightCeremonyPage(graph.page, {
+      popupOrigins: ["https://provider.example"],
+    }),
+  );
+});
+
+test("TARGET-POPUP: a click that closes the window it was given is a step, not a closed target", async () => {
+  // The ordinary end of a window's job: the click submits, the window
+  // reports back and closes under the click. `target-closed` is the right
+  // answer for a tab that vanished under an attempt and the wrong one here -
+  // the opener is still there, and the next read is of it.
+  let open: (popup: WindowDouble) => void = () => {};
+  let popup: WindowDouble | undefined;
+  const graph = handleGraph({ onClick: () => open(popup!) });
+  const opener = openerOf(graph);
+  open = opener.open;
+  const inside = handleGraph({
+    onClick: () => {
+      popup?.close();
+      throw new Error("Target page, context or browser has been closed");
+    },
+  });
+  popup = windowAt("https://provider.example/window", inside);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+  });
+  let turn = 0;
+  const result = await runCeremony({
+    page,
+    interpreter: async () => {
+      turn += 1;
+      return turn <= 2 ? { action: "click", element: 2 } : { action: "done" };
+    },
+    goal: "sign-in",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    verify: async () => true,
+  });
+  assert.equal(result.status, "completed");
+  // Turn one clicked in the page and opened the window; turn two clicked in
+  // the window and closed it. Both are on record as steps that landed.
+  assert.ok(graph.calls.includes("click 2"));
+  assert.ok(inside.calls.includes("click 2"));
 });
 
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
@@ -1022,4 +1677,108 @@ test("a snapshot stops at the element cap instead of growing without bound", () 
     snapshotSelectors,
   );
   assert.equal(result.elements.length, 60);
+});
+
+test("the adapter names the origin a control would submit to, and nothing more", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // An origin, never the action URL: a login form's action routinely carries a
+  // continuation or an identifier in its query string, and whoever reads an
+  // effect record is not entitled to either.
+  assert.equal(
+    await page.submissionTarget?.({
+      index: 2,
+      kind: "button",
+      text: "Sign in",
+    }),
+    "https://provider.example",
+  );
+});
+
+test("a control that belongs to no form submits nothing", async () => {
+  const graph = handleGraph();
+  graph.state[3]!.destination = { form: false };
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  // Clicking a link or an in-page toggle changes nothing at the provider, so
+  // announcing it as an effect would make the uncertainty signal meaningless.
+  assert.equal(
+    await page.submissionTarget?.({ index: 3, kind: "link", text: "Help" }),
+    undefined,
+  );
+});
+
+test("the adapter answers nothing about a control it never observed", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  assert.equal(
+    await page.submissionTarget?.({
+      index: 2,
+      kind: "button",
+      text: "Sign in",
+    }),
+    undefined,
+  );
+});
+
+test("a form re-pointed during the click is uncertainty, not a refusal", async () => {
+  // The window this closes: every check happens before the click, and
+  // Playwright's own actionability wait can run for seconds afterwards. A page
+  // that re-points the form in that window passes every check and still sends
+  // the submission somewhere else.
+  const graph = handleGraph({
+    onClick: (index) => {
+      graph.state[index]!.destination = {
+        form: true,
+        action: "https://collector.example/take",
+        method: "post",
+        target: "",
+      };
+    },
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await assert.rejects(
+    () => page.click({ index: 2, kind: "button", text: "Sign in" }),
+    DispatchUncertain,
+  );
+});
+
+test("a click that navigates is success, not uncertainty", async () => {
+  // The destination cannot be read after a submission that navigated, and that
+  // is the ordinary shape of a working login. Reporting it as uncertain would
+  // make every successful sign-in undetermined.
+  const graph = handleGraph({
+    onClick: () => graph.navigate("https://provider.example/account"),
+  });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await page.click({ index: 2, kind: "button", text: "Sign in" });
+});
+
+test("filling is not a dispatch, so a later re-point is still a plain refusal", async () => {
+  const graph = handleGraph();
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await page.fill(
+    { index: 0, kind: "input", type: "text", label: "Username" },
+    "value-1",
+  );
+  // Nothing left the browser, so the next action's own revalidation is what
+  // catches the change — as a refusal a caller may safely retry.
+  graph.state[0]!.destination = {
+    form: true,
+    action: "https://collector.example/take",
+    method: "post",
+    target: "",
+  };
+  await assert.rejects(
+    () =>
+      page.fill(
+        { index: 0, kind: "input", type: "text", label: "Username" },
+        "value-2",
+      ),
+    StaleTargetError,
+  );
 });

@@ -1,0 +1,217 @@
+{
+  "swarm": "AGENT-SURFACES",
+  "workItems": [
+    {
+      "id": "AG-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/a2a/schemas.ts",
+        "src/server/connectors/providers/a2a/card.ts",
+        "src/server/connectors/providers/a2a/index.ts"
+      ],
+      "tests": ["tests/connectors/a2a/card.test.ts"],
+      "acceptanceIds": ["AC-AG-01"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["a2a-1.0", "a2a-0.3"],
+      "limitations": [
+        "Bounded Agent Card import for both published card shapes: 1.0 `supportedInterfaces` and 0.3 `url`/`preferredTransport`/`additionalInterfaces`. Version, agent identity, every declared interface, declared security schemes, skills and task capabilities are preserved.",
+        "Import never performs network access of any kind: it receives bytes. A card naming a private, loopback, link-local or metadata URL is stored verbatim in declaredServers and nativeExtensions with a network diagnostic, and is never fetched.",
+        "JWS `signatures` are preserved and counted, never verified: no signer trust policy exists here. Reported as a warning rather than silently.",
+        "Connector identity is taken from the first interface that is a reachable HTTPS endpoint. When no interface is, the native id becomes `a2a-card:<digest>` and the card's URLs stay out of agentDefinitionProjection, which carries native ids to models.",
+        "A skill's effect, data classification and cost are recorded as `unknown`: A2A declares none of them, and guessing from a name or a tag would be an invented claim.",
+        "Only the JSONRPC protocol binding is executable; GRPC and HTTP+JSON interfaces import with an explicit unsupported diagnostic."
+      ],
+      "notes": "A card whose interfaces, extensions or security schemes cannot be executed still imports; the affected dimension is blocked with a precise diagnostic rather than the description disappearing."
+    },
+    {
+      "id": "AG-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/a2a/client.ts",
+        "src/server/connectors/providers/a2a/context.ts",
+        "src/server/connectors/providers/a2a/delegate.ts",
+        "src/server/connectors/providers/a2a/sessions.ts",
+        "src/server/connectors/providers/a2a/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/a2a/delegate.test.ts",
+        "tests/connectors/a2a/security.test.ts",
+        "tests/connectors/doubles/a2a-agent.ts"
+      ],
+      "acceptanceIds": ["AC-AG-01", "AC-AG-02"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": ["a2a-1.0", "a2a-0.3"],
+      "limitations": [
+        "Task identity is owner-bound: the caller holds `a2atask:<sha256>`, a digest correlation key; the upstream task id lives only in protected handoff material. Resolution checks tenant, subject, connection, binding and connection generation, so a leaked reference cannot cancel or continue another principal's task.",
+        "Only skills listed in the binding's approvedSkills may be delegated, and each must map to a bound operation whose transport is `delegated` with route `a2a-skill:<id>` on the agent's destination. Card claims never widen this.",
+        "start, input and cancel are journaled through the effect journal before the call; a repeated command id returns the journaled outcome instead of a second task, and a lost response on a non-read delegation is `indeterminate`, not a retryable failure.",
+        "Artifacts are described, never fetched. A URL part is reported as `retrieval: not-fetched` with the URL withheld from the caller entirely. `retrieveArtifact` is privileged-internal, off unless a host enables it, requires an explicit approval object, and refuses any origin that is not an approved destination of the binding.",
+        "Streaming (message/stream, SSE) and push-notification configuration are not implemented; progress is polled through an approved status operation. Reported unsupported with the reason.",
+        "Verification compares the served card with the reviewed one (name, profile, interface URL, protocol version) and records `credential-accepted` plus `resource-access`. It deliberately asserts no account identity: an Agent Card is the agent's own statement.",
+        "A2A publishes no connection resource and no revocation operation, so disconnect is local-only and revoke is unsupported; both report the exact native limitation.",
+        "Owner kinds `user` and `organization` are accepted; `workload` is refused rather than silently mapped to the signed-in subject."
+      ],
+      "notes": "The two profiles never mix: 1.0 uses PascalCase JSON-RPC methods, ProtoJSON enums, member-discriminated parts and `returnImmediately`; 0.3 uses `category/action` methods, lower-hyphen enums, `kind`-tagged parts and `blocking`. The independent agent double validates both and records a violation if either is crossed."
+    },
+    {
+      "id": "AG-03",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/agents/intents.ts",
+        "src/server/connectors/agents/mcp-intents.ts",
+        "src/server/connectors/agents/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/agent-tools/intents.test.ts",
+        "tests/connectors/agent-tools/surfaces.test.ts"
+      ],
+      "acceptanceIds": ["AC-MCP-06"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": [],
+      "limitations": [
+        "Seven transport-neutral intents (list, inspect, status, connect, operations, reconnect, disconnect) over a narrow dependency interface; the command service supplies it and rechecks capability, ownership, generation and policy itself.",
+        "Connections leave through agentConnectorProjection and definitions through agentDefinitionProjection. Approved operations have no core projection, so they leave through a local positive allowlist (agentOperationProjection) that omits transport, method, path template, tool name, destination id and authentication profile.",
+        "Additive on the MCP server: registerAgentConnectorTools skips any name already registered, so the MCP swarm's connector_catalog/status/connect/invoke are untouched and only five names are added.",
+        "The service wiring (an AgentConnectorDependencies built over ConnectorCommandService) is the integrator's mount; these tests exercise the intents against an in-memory dependency and a fake MCP server, so the evidence level is unit rather than local-integration."
+      ],
+      "notes": "A reference argument is refused if it is shaped like a URL (`//` or a scheme), which the core reference alphabet would otherwise admit."
+    },
+    {
+      "id": "AG-04",
+      "status": "implemented",
+      "files": ["src/server/connectors/agents/webmcp.ts"],
+      "tests": ["tests/connectors/agent-tools/webmcp.test.ts"],
+      "acceptanceIds": ["AC-AG-03"],
+      "evidenceLevel": "unit",
+      "sourceProfileIds": ["webmcp-cg-draft-2026-09-17"],
+      "limitations": [
+        "Feature detection reuses the existing browserModelContext() unchanged, so the connector tools and the ceremony tools cannot drift apart; the mount also reports which spelling was found (document or navigator).",
+        "No native model context means no registration and no installation of anything: the absent API stays absent, there is no polyfill, and the application's ordinary controls are the whole experience.",
+        "Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.",
+        "`exposedTo` is never passed, so nothing here claims to drive an iframe or another origin; the mount reports crossOriginExposure: \"not-requested\".",
+        "Annotations are hints. The dispatcher is never told about them and the server never sees them; a rewritten readOnlyHint changes nothing.",
+        "Supported-native-browser evidence here is a spec-shaped model-context double in Node, NOT a real browser. Real-browser (Playwright) evidence is not claimed; browser suites cannot be run while other swarms hold the fixed ports."
+      ],
+      "notes": "Fallback-browser evidence and native-API-double evidence are separate tests and are named as such; the fallback test additionally asserts that document and navigator are left untouched."
+    },
+    {
+      "id": "AG-05",
+      "status": "implemented",
+      "files": ["src/server/connectors/agents/continuations.ts"],
+      "tests": [
+        "tests/connectors/agent-tools/continuations.test.ts",
+        "tests/connectors/agent-tools/surfaces.test.ts"
+      ],
+      "acceptanceIds": ["AC-AG-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [],
+      "limitations": [
+        "One decision function for HTTP, MCP, WebMCP and A2A. Every test asks the same question on all four surfaces and asserts one answer, so a surface with its own opinion fails rather than becoming the deployment's real policy.",
+        "A WebMCP call is delegated work by construction: it runs inside the person's own browser session, so the session alone cannot distinguish it from that person clicking a button, and the surface is used instead.",
+        "A stop halts connect, operate, delegate and administer; read and disconnect stay possible so a stop does not strand the person. It is evaluated before any lookup, so it cannot be used to probe for a connection's existence.",
+        "Covered denials: assistant-stopped, role-revoked, connection-not-owned, connection-missing, connection-inactive, generation-fenced, binding-revised, policy-revised, configuration-revised. Each maps to one connector error code on every transport.",
+        "DelegationStopRegistry is an in-process default with length-prefixed composite keys; a deployment backs the same `readStop` shape with the shared encrypted store. That durable implementation is the state swarm's / integrator's.",
+        "The A2A leg of AC-AG-04 is exercised against the real adapter and the loopback agent double; the HTTP and MCP legs are exercised through the guard, not through a mounted route table."
+      ],
+      "notes": "The cross-surface test asserts that nothing reached the agent after the stop, not only that the call returned an error."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [
+    {
+      "target": "src/server/mcp.ts (INT)",
+      "description": "Purely additive: mount the five safe connector intents beside the four connector tools already registered. registerAgentConnectorTools skips any name already taken (it knows connectorServerToolNames), so mounting both is safe and the five ceremony tools are untouched. Exact patch: (1) after the existing `import { registerConnectorServerTools } from \"./connectors/mcp/server-tools.js\";` line add `import { registerAgentConnectorTools } from \"./connectors/agents/mcp-intents.js\";` and `import type { AgentConnectorDependencies } from \"./connectors/agents/intents.js\";`. (2) in `CeremonyMcpOptions`, after the `connectors?: ConnectorToolDependencies;` field add:\n\n  /**\n   * Safe connector intents (list, inspect, operations, reconnect,\n   * disconnect), when this deployment offers them. Names already registered\n   * are skipped, so this only ever adds.\n   */\n  connectorIntents?: AgentConnectorDependencies;\n\n(3) in `build(context)`, immediately after the existing block\n\n    if (options.connectors)\n      registerConnectorServerTools(server, options.connectors, {\n        actor: () => actor,\n        ...(options.onerror ? { onerror: options.onerror } : {}),\n      });\n\nadd\n\n    if (options.connectorIntents)\n      registerAgentConnectorTools(server, options.connectorIntents, {\n        actor: () => actor,\n        ...(options.onerror ? { onerror: options.onerror } : {}),\n      });\n\nNo other line changes. Leaving `connectorIntents` unset changes nothing."
+    },
+    {
+      "target": "src/server/connectors/index.ts (INT)",
+      "description": "Add `export * from \"./agents/index.js\";` to the barrel so the intents, the WebMCP mount and the continuation gate are reachable on one path, as the other connector modules are."
+    },
+    {
+      "target": "src/server/connectors/inventory (INT)",
+      "description": "Register `createA2aAdapter()` from `src/server/connectors/providers/a2a/index.ts` in the deployment's ConnectorAdapterRegistry. `a2aDestinations({ agentOrigin, pathPrefix?, artifactOrigin? })` builds the approved destinations a host binding needs; the binding's `settings` must satisfy `a2aBindingSettingsSchema` and its `authorityInstance` must equal `authorityInstanceFor(profile, destinationOrigin, agentName)`."
+    },
+    {
+      "target": "AgentConnectorDependencies wiring (INT)",
+      "description": "Build the dependency object over ConnectorCommandService: list -> listConnections (raw summaries, not the ConnectionView), status -> status, connect -> connect, reconnect -> reconnect, disconnect -> disconnect, operations -> the approved binding's operations for that connection, definition -> the stored NormalizedDefinition for that ref under executor capability (the service's getDefinition requires author/reviewer and uses authorReviewProjection, which is the wrong projection for an agent). The intents apply agentConnectorProjection, agentDefinitionProjection and agentOperationProjection themselves, so the dependency must hand over the unprojected records."
+    },
+    {
+      "target": "Browser mount for WebMCP connector tools (INT, optional)",
+      "description": "In the React connector surface, call `detectConnectorWebmcp()`; when unavailable render exactly what is rendered today and do nothing else. When available, `mountConnectorWebmcpTools(createConnectorWebmcpTools(dispatch), { signal })` where `dispatch` performs the same authenticated request the drawer's own controls perform, and call `mount.unmount()` on teardown. Do not pass `exposedTo`."
+    },
+    {
+      "target": "Continuation gate wiring (INT)",
+      "description": "Give every transport one `createContinuationGuard({ stops, now, capabilities, connection })` and call `guard.assert(...)` with the surface literal for that transport before any connect/operate/delegate/administer work. Back `stops` with the shared store behind the same `readStop(actor): number | undefined` shape; DelegationStopRegistry is the in-process default."
+    }
+  ],
+  "dependenciesProposed": [],
+  "unmet": [
+    "Real-browser evidence for AG-04. The native WebMCP path is proven against a specification-shaped model-context double in Node; no Playwright run was made, because browser suites use fixed ports and other swarms are working concurrently. Nothing here is labelled browser-integration.",
+    "A2A streaming (SendStreamingMessage / SubscribeToTask over SSE) and push-notification configuration are not implemented; both are reported unsupported with the native reason rather than approximated by polling that claims to be streaming.",
+    "Live A2A evidence is blocked: no authorized third-party A2A agent. All A2A evidence is protocol-fixture against an independently written loopback agent.",
+    "The gRPC and HTTP+JSON A2A bindings are import-only. A card declaring them imports with a precise unsupported diagnostic; no request is ever made on them."
+  ],
+  "externalEffectsPerformed": [],
+  "sourceLock": [
+    {
+      "id": "a2a-1.0",
+      "document": "A2A Protocol Specification, version 1.0.0",
+      "url": "https://a2a-protocol.org/latest/specification/",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "AgentCard fields: name, description, supportedInterfaces, provider{url,organization}, version, documentationUrl, capabilities{streaming,pushNotifications,extensions,extendedAgentCard}, securitySchemes, securityRequirements, defaultInputModes, defaultOutputModes, skills, signatures, iconUrl (section 4.4.1)",
+        "AgentInterface fields: url, protocolBinding, tenant, protocolVersion (section 4.4.6)",
+        "AgentSkill fields: id, name, description, tags, examples, inputModes, outputModes, securityRequirements (section 4.4.5)",
+        "TaskState enum values TASK_STATE_UNSPECIFIED/SUBMITTED/WORKING/COMPLETED/FAILED/CANCELED/INPUT_REQUIRED/REJECTED/AUTH_REQUIRED (section 4.1.3)",
+        "Part is a one-of discriminated by member presence: text | raw | url | data, with filename and mediaType (section 4.1.6)",
+        "Artifact fields artifactId, name, description, parts, metadata, extensions (section 4.1.7)",
+        "SendMessageConfiguration fields acceptedOutputModes, taskPushNotificationConfig, historyLength, returnImmediately (section 3.2.2)",
+        "JSON-RPC binding uses PascalCase method names SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask, GetExtendedAgentCard (sections 5.3, 9.4)",
+        "Error code mappings -32001 TaskNotFound, -32002 TaskNotCancelable, -32003 PushNotificationNotSupported, -32004 UnsupportedOperation, -32005 ContentTypeNotSupported, -32006 InvalidAgentResponse, -32007 ExtendedAgentCardNotConfigured, -32008 ExtensionSupportRequired, -32009 VersionNotSupported (section 5.4)",
+        "Well-known card path https://{server_domain}/.well-known/agent-card.json (section 8.2)",
+        "Agent Cards MAY be JWS-signed; signature verification requires a trust policy the specification does not define (section 8.4)"
+      ],
+      "unverified": [
+        "gRPC and HTTP+JSON binding behaviour beyond the method-mapping table: not implemented, so not exercised.",
+        "SSE stream framing for SendStreamingMessage and SubscribeToTask: not implemented.",
+        "Push-notification webhook delivery and its authentication: not implemented."
+      ]
+    },
+    {
+      "id": "a2a-0.3",
+      "document": "A2A Protocol Specification, version 0.3.0",
+      "url": "https://a2a-protocol.org/v0.3.0/specification/",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "AgentCard interface with protocolVersion, url, preferredTransport, additionalInterfaces, security, supportsAuthenticatedExtendedCard (section 5.5)",
+        "TaskState string values submitted, working, input-required, completed, canceled, failed, rejected, auth-required, unknown (section 6.3)",
+        "JSON-RPC method naming {category}/{action}: message/send, tasks/get, tasks/cancel, agent/authenticatedExtendedCard (sections 3.2.1, 3.5.1, 6.x)",
+        "MessageSendParams { message, configuration, metadata } and MessageSendConfiguration { acceptedOutputModes, historyLength, pushNotificationConfig, blocking } (sections 7.1.1, 7.1.2)",
+        "TaskQueryParams extends TaskIdParams with historyLength; TaskIdParams carries id (sections 7.x)",
+        "Parts carry an explicit kind: text | file | data, with FilePart.file as FileWithBytes{bytes} or FileWithUri{uri} plus name and mimeType (sections 6.5.1-6.6.2)",
+        "Error codes -32001..-32007 with -32007 spelled AuthenticatedExtendedCardNotConfigured (section 8.2)"
+      ],
+      "unverified": [
+        "0.3 streaming and push-notification behaviour: not implemented."
+      ]
+    },
+    {
+      "id": "webmcp-cg-draft-2026-09-17",
+      "document": "WebMCP API, Draft Community Group Report",
+      "url": "https://webmachinelearning.github.io/webmcp/",
+      "retrievedAt": "2026-09-18",
+      "verified": [
+        "Draft Community Group Report published 17 September 2026; not a W3C Recommendation",
+        "document.modelContext exposes a ModelContext EventTarget with registerTool(tool, options), getTools(options) and executeTool(tool, input, options)",
+        "ModelContextTool: name, description, execute required; title, inputSchema, annotations optional",
+        "ToolAnnotations: readOnlyHint, untrustedContentHint, consequentialHint, debugging - all hints",
+        "Unregistration is by aborting the AbortSignal passed to registerTool; ModelContextRegisterToolOptions also carries exposedTo for cross-origin exposure",
+        "Secure context and a `tools` permissions policy defaulting to ['self']"
+      ],
+      "unverified": [
+        "Behaviour of the toolchange / toolactivated / toolcancel events, getTools and executeTool: this deployment registers tools and does not consume them, so none of that surface is used or asserted.",
+        "How a specific browser implements the draft: no real browser was exercised.",
+        "The older navigator.modelContext spelling is not in the current draft; it is retained because the existing Ceremony integration detects it, and it is kept behind the same detection."
+      ]
+    }
+  ]
+}

@@ -6,6 +6,8 @@ import {
   summarizeStage,
   coverageTotals,
   failedTestFiles,
+  failedTestNames,
+  failedBrowserTests,
 } from "./verification-summary.js";
 import {
   profileFingerprint,
@@ -110,13 +112,90 @@ for (const command of commands) {
           ["scripts/test.mjs", "all", "--inventory"],
           {
             encoding: "utf8",
+            maxBuffer: 16 * 1024 * 1024,
           },
         ),
-      ).files;
-      record.failedTestFiles = failedTestFiles(output, inventory);
+      );
+      record.failedTestFiles = failedTestFiles(output, inventory.files);
+      // A file name alone cannot separate the twenty-four cases that share
+      // one browser suite, so a failure reported as the file and nothing else
+      // is a failure nobody can act on.
+      record.failedTests = failedTestNames(output, inventory.names ?? []);
     } catch {
       // Inventory failure must not prevent retaining the original failed stage.
       record.failedTestFiles = [];
+      record.failedTests = [];
+    }
+    /*
+     * Say which gate was missed and by how much.
+     *
+     * This stage fails for two quite different reasons -- a test failed, or
+     * every test passed and a coverage threshold was not met -- and the counts
+     * alone cannot tell them apart. Reported as "FAIL (3261 passed, 0 failed)"
+     * it reads like a contradiction, and finding out which metric fell short
+     * meant re-running the whole stage somewhere else. The measurement is
+     * already on disk by the time the thresholds are enforced, so print it: the
+     * percentages, the gates they are compared against, and the shortfall.
+     *
+     * Percentages only, from the summary the run just wrote. Nothing here
+     * reaches into diagnostics, which is the one thing this script must not
+     * retain.
+     */
+    try {
+      const summary = coverageTotals(
+        JSON.parse(
+          readFileSync("artifacts/coverage/coverage-summary.json", "utf8"),
+        ),
+      );
+      const script =
+        JSON.parse(readFileSync("package.json", "utf8")).scripts?.[command] ??
+        "";
+      let missed = false;
+      for (const metric of ["lines", "statements", "branches", "functions"]) {
+        const pct = summary[metric]?.pct;
+        const gate = new RegExp(`--${metric}\\s+([0-9.]+)`).exec(script)?.[1];
+        if (pct === undefined || gate === undefined) continue;
+        const short = pct < Number(gate);
+        missed ||= short;
+        console.log(
+          `  ${metric}: ${pct} against a gate of ${gate}` +
+            (short ? ` -- short by ${(Number(gate) - pct).toFixed(2)}` : ""),
+        );
+      }
+      if (!missed)
+        console.log(
+          record.tests?.skipped
+            ? `  Every coverage gate is met and nothing failed, so this stage failed on ${record.tests.skipped} skipped test(s): a stage passes only when none were skipped.`
+            : "  Every coverage gate is met, so this stage failed on a test rather than on coverage.",
+        );
+    } catch {
+      console.log(
+        "  No coverage summary was written, so this stage failed before the gates were reached.",
+      );
+    }
+  }
+  if (command === "test:e2e" && record.exitCode !== 0) {
+    try {
+      // Asked of the same script the node suites are inventoried from, rather
+      // than of Playwright, which would have to load its config and every spec
+      // to answer — work this stage has just finished doing, and work that can
+      // fail for its own reasons on the one path where the answer is needed.
+      const failed = failedBrowserTests(
+        output,
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            ["scripts/test.mjs", "browser", "--inventory"],
+            { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+          ),
+        ),
+      );
+      record.failedTestFiles = failed.files;
+      record.failedTests = failed.names;
+    } catch {
+      // Inventory failure must not prevent retaining the original failed stage.
+      record.failedTestFiles = [];
+      record.failedTests = [];
     }
   }
   if (command === "test:e2e" && record.exitCode === 0) {
@@ -146,6 +225,8 @@ for (const command of commands) {
   if (record.exitCode !== 0) {
     if (record.failedTestFiles?.length)
       console.error(`Failed test files: ${record.failedTestFiles.join(", ")}`);
+    if (record.failedTests?.length)
+      console.error(`Failed tests: ${record.failedTests.join(", ")}`);
     console.error(
       `Run npm run ${command} for local diagnostics. Sanitized attempt retained at ${directory}/commands.json`,
     );
