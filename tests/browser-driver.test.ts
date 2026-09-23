@@ -2375,6 +2375,62 @@ test("TARGET-POPUP: a click that closes the window it was given is a step, not a
   assert.ok(inside.calls.includes("click 2"));
 });
 
+test("TARGET-POPUP: a window reported after the opener settles is still where the next read happens", async () => {
+  // The race TARGET-POPUP lost on a loaded CI runner. Playwright reports a
+  // window once it has set it up, after the click that opened it returned -
+  // and the opener, which had nothing to load, is idle already. Read then,
+  // and the read is of the opener, whose only button has been pressed; an
+  // interpreter shown that has nothing to do but wait and give up. Here the
+  // report is held until the opener has said it is idle, so a `settle` that
+  // stops at the opener loses every time rather than sometimes.
+  let report: (() => void) | undefined;
+  const inside = handleGraph();
+  const popup = windowAt("https://provider.example/window", inside);
+  const graph = handleGraph({
+    onClick: () => {
+      report = () => opener.open(popup);
+    },
+  });
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(
+    {
+      ...opener.page,
+      waitForLoadState: async (state) => {
+        await graph.page.waitForLoadState(state);
+        const late = report;
+        report = undefined;
+        if (late) setTimeout(late, 0);
+      },
+    },
+    { popupOrigins: ["https://provider.example"] },
+  );
+  await page.snapshot();
+  await page.click({ index: 2, kind: "button", text: "Sign in" });
+  await page.settle();
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/window");
+  assert.equal(observations(inside.calls), 1);
+  assert.equal(observations(graph.calls), 1);
+});
+
+test("TARGET-POPUP: a click that opens no window costs a bounded wait, then the page is read", async () => {
+  // The other side of waiting for a window: a click on a plan that admits
+  // windows need not open one, and the wait for it ends at the settle
+  // timeout (capped) with the read going to the page, as it always did.
+  const graph = handleGraph();
+  const opener = openerOf(graph);
+  const page = createPlaywrightCeremonyPage(opener.page, {
+    popupOrigins: ["https://provider.example"],
+    settleTimeoutMs: 1,
+  });
+  await page.snapshot();
+  await page.click({ index: 2, kind: "button", text: "Sign in" });
+  await page.settle();
+  await page.snapshot();
+  assert.equal(await page.url(), "https://provider.example/signin");
+  assert.equal(observations(graph.calls), 2);
+});
+
 test("a page that never settles is the driver's problem, not the adapter's", async () => {
   const graph = handleGraph();
   const page = createPlaywrightCeremonyPage({
