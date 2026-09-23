@@ -143,8 +143,11 @@ export async function record(session: DemoSession) {
         "birth-date": "person-profile",
         "verification-code": "inbox-message",
       },
-      phase: (previous, observed) =>
-        providerPhase(previous, observed, provider.signupPath),
+      // On this run the sign-in page is where the missing account is found.
+      phase: (previous, observed) => {
+        const phase = providerPhase(previous, observed, provider.signupPath);
+        return phase === "sign-in" ? "no-account" : phase;
+      },
     });
     let consentShown = false;
     let decided = false;
@@ -154,7 +157,7 @@ export async function record(session: DemoSession) {
       // registers rather than trying to sign in.
       if (!decided && pathnameOf(input.snapshot.path) === "/signin") {
         decided = true;
-        session.step("sign-in");
+        session.step("no-account");
         session.say({
           kind: "decision",
           what: "no-account-register",

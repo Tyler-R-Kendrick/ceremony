@@ -24,18 +24,22 @@ export function providerPhase(
 ): Phase | undefined {
   const { pathname, action, role } = observed;
   if (pathname === "/authorize") return "consent";
+  // A code field says which step this is wherever the provider serves it:
+  // confirmation and two-factor forms are often answered from the URL of
+  // the form that led to them, so the path alone cannot tell.
+  if (role === "verification-code") return "verify-email";
+  if (role === "totp-code") return "second-factor";
+  // Submitting the code keeps the step it was entered in.
+  if (
+    (previous === "verify-email" || previous === "second-factor") &&
+    action !== "fill"
+  )
+    return previous;
   if (pathname === "/mfa") return "second-factor";
   if (pathname.startsWith("/confirm")) return "verify-email";
-  if (pathname === "/signin")
-    return role === "totp-code" ? "second-factor" : "sign-in";
-  if (pathname === signupPath) {
-    // The confirmation form is served from the sign-up URL itself, so the
-    // path alone cannot tell the two apart; asking for the emailed code can.
-    if (role === "verification-code") return "verify-email";
-    return previous === "verify-email" && action !== "fill"
-      ? "verify-email"
-      : "register";
-  }
+  if (pathname === "/signin" || pathname.startsWith("/signin/"))
+    return "sign-in";
+  if (pathname === signupPath) return "register";
   return previous;
 }
 

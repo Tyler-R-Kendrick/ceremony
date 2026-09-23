@@ -79,6 +79,19 @@ test("DEMO-PHASES: the chain position follows the driver's page and proposal", (
   assert.equal(at("verify-email", signup, "click"), "verify-email");
   assert.equal(at("verify-email", "/authorize", "click"), "consent");
   assert.equal(at(undefined, "/signin", "fill", "totp-code"), "second-factor");
+  // A two-factor form answered from the identifier-first password URL.
+  assert.equal(
+    at("sign-in", "/signin/password", "fill", "totp-code"),
+    "second-factor",
+  );
+  assert.equal(
+    at("second-factor", "/signin/password", "click"),
+    "second-factor",
+  );
+  assert.equal(
+    at(undefined, "/signin/password", "fill", "password"),
+    "sign-in",
+  );
   // A page the map does not know leaves the phase where it was.
   assert.equal(at("consent", "/elsewhere", "wait"), "consent");
 });

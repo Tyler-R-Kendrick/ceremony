@@ -72,7 +72,7 @@ const events: CaptionEvent[] = [
   },
   { kind: "fill", actor: "person", role: "totp-code" },
   { kind: "click", actor: "agent", control: "button", phase: "consent" },
-  { kind: "click", actor: "agent", control: "link", phase: "sign-in" },
+  { kind: "click", actor: "agent", control: "link", phase: "no-account" },
   { kind: "check", actor: "agent" },
   { kind: "wait", actor: "agent" },
   { kind: "claim-done", actor: "agent" },

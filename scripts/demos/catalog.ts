@@ -75,7 +75,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     interpreter: "heuristic",
     chain: [
       "authorize",
-      "sign-in",
+      "no-account",
       "register",
       "verify-email",
       "consent",

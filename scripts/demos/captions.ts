@@ -20,6 +20,7 @@ export const phases = [
   "open-signup",
   "authorize",
   "sign-in",
+  "no-account",
   "register",
   "verify-email",
   "second-factor",
@@ -33,7 +34,8 @@ export type Phase = (typeof phases)[number];
 const phaseNames: Record<Phase, string> = {
   "open-signup": "open the sign-up page",
   authorize: "authorize (PKCE S256)",
-  "sign-in": "sign-in page, no account",
+  "sign-in": "sign in",
+  "no-account": "sign-in page, no account",
   register: "register a new account",
   "verify-email": "verify email via inbox",
   "second-factor": "second factor",
@@ -74,7 +76,7 @@ const sourceNames: Record<ValueSource, string> = {
   "person-profile": "synthetic profile",
   "person-address": "the person's usual address",
   "private-collector": "private collector",
-  "totp-seed": "derived from the held seed",
+  "totp-seed": "from held seed",
 };
 
 /** Named ceremony walls the driver reports; the reason list is closed. */
@@ -212,7 +214,7 @@ function whole(value: unknown, fallback: number): number {
 
 function clickTarget(control: unknown, phase: Phase | undefined): string {
   if (control === "link")
-    return phase === "sign-in" || phase === "register"
+    return phase === "no-account" || phase === "register"
       ? "follow the create-account link"
       : "follow a link";
   if (control === "checkbox") return "tick a checkbox";
