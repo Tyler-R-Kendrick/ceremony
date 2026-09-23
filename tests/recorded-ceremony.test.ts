@@ -340,6 +340,19 @@ describe("REPLAY: a recording runs again with no model in the loop", () => {
     assert.equal(result.drift?.kind, "missing-role");
     assert.equal(result.drift?.role, "totp-code");
     assert.deepEqual(page.history(), []);
+
+    // A login that keeps the seed an enrolment page shows answers the code
+    // from that seed, so the same recording is not refused for it.
+    const enrolling = createHttpCeremonyPage();
+    const kept = await runRecordedCeremony({
+      page: enrolling,
+      recording,
+      goal: "sign-in",
+      secrets: createSecrets({ username: USERNAME, password: PASSWORD }),
+      allowedOrigins: [double.origin],
+      issued: { fields: { "totp-seed": "Setup key" }, keep: async () => {} },
+    });
+    assert.notEqual(kept.drift?.kind, "missing-role");
   });
 
   test("a branch stops the replay under its own reason, as recorded", async (t) => {

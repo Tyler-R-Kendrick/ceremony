@@ -6,6 +6,7 @@ import {
   ceremonyRoles,
   deviceVerificationField,
   driverActionSchema,
+  issuedDeclarationSchema,
   secretRoles,
   snapshotDocument,
   snapshotSelectors,
@@ -37,6 +38,7 @@ import {
   type PlaywrightPageLike,
 } from "../src/server/browser-page.js";
 import type { BoundPageLike } from "../src/server/browser-targets.js";
+import { totpCode, totpSeedSpellings } from "../src/server/totp.js";
 
 /**
  * Boundary checks for the ceremony driver that the scenario catalog cannot
@@ -2894,7 +2896,201 @@ test("ISSUED-STALE: a read the adapter refuses takes nothing, and undeclared fie
   assert.deepEqual(undeclared.reads, []);
 });
 
-test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on the observed document", async () => {
+/** A synthetic enrolment seed, and the grouped form a setup page prints. */
+const enrolmentSeed = "JBSWY3DPEHPK3PXPKRSXG5CTMVRXEZLU";
+const groupedSeed = enrolmentSeed.match(/.{4}/g)!.join(" ");
+
+/**
+ * "Set up an authenticator app": a read-only setup key, a field for the code
+ * the app then shows, and a button that turns the factor on. Pressing it
+ * leads to a signed-in page.
+ */
+function enrolmentPage(
+  options: {
+    /** What the setup key field displays. */
+    setupKey?: string;
+    /** Print the key into an alert as well, once it has been read. */
+    echo?: string;
+  } = {},
+): CeremonyPage & { typed: string[]; reads: string[] } {
+  const typed: string[] = [];
+  const reads: string[] = [];
+  let enrolled = false;
+  const path = "https://provider.example/mfa/setup";
+  const setupKey = options.setupKey ?? groupedSeed;
+  return {
+    ...inertPage(path),
+    typed,
+    reads,
+    snapshot: async () =>
+      enrolled
+        ? snapshot({
+            path: "https://provider.example/",
+            title: "Account",
+            headings: ["You are signed in"],
+            elements: [],
+          })
+        : snapshot({
+            path,
+            title: "Set up two-factor authentication",
+            headings: ["Set up two-factor authentication"],
+            alerts: options.echo && reads.length ? [options.echo] : [],
+            elements: [
+              {
+                index: 0,
+                kind: "input",
+                type: "text",
+                label: "Setup key",
+                readOnly: true,
+                filled: true,
+              },
+              {
+                index: 1,
+                kind: "input",
+                type: "text",
+                label: "Authentication code",
+                autocomplete: "one-time-code",
+                filled: typed.length > 0,
+              },
+              { index: 2, kind: "button", text: "Verify and turn on" },
+            ],
+          }),
+    fill: async (_element, value) => {
+      typed.push(value);
+    },
+    click: async (element) => {
+      if (element.text === "Verify and turn on") enrolled = true;
+    },
+    readIssued: async (element) => {
+      reads.push(element.label ?? "");
+      return element.label === "Setup key" ? setupKey : undefined;
+    },
+  };
+}
+
+/** Whether `code` is the seed's code for some period in [from, to]. */
+function codeBetween(code: string, from: number, to: number): boolean {
+  for (let at = from - 30_000; at <= to + 30_000; at += 15_000)
+    if (totpCode(enrolmentSeed, at) === code) return true;
+  return false;
+}
+
+test("ISSUED-SEED: an enrolment page's setup key goes to custody, and its confirmation code comes from the seed inside the driver", async () => {
+  const page = enrolmentPage();
+  const inputs: InterpreterInput[] = [];
+  const kept: unknown[] = [];
+  const heuristic = createHeuristicInterpreter();
+  const started = Date.now();
+  const result = await runCeremony({
+    page,
+    interpreter: async (input) => {
+      inputs.push(structuredClone(input));
+      return heuristic(input);
+    },
+    goal: "registration",
+    // The caller holds no authenticator code of its own.
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    issued: {
+      fields: { "totp-seed": "Setup key" },
+      keep: async (values) => {
+        kept.push(values);
+      },
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "completed", JSON.stringify(result.transcript));
+  assert.deepEqual(kept, [{ "totp-seed": groupedSeed }]);
+  // One code typed, the seed's own, into the code field and nowhere else.
+  assert.equal(page.typed.length, 1);
+  assert.ok(codeBetween(page.typed[0]!, started, Date.now()));
+  assert.deepEqual(
+    result.transcript
+      .filter((step) => step.action === "fill")
+      .map((step) => step.role),
+    ["totp-code"],
+  );
+  // The role was on offer from the page that showed the seed; neither the
+  // seed, in any spelling, nor the code reached the interpreter or the
+  // transcript.
+  assert.ok(inputs[0]!.available.includes("totp-code"));
+  const visible = JSON.stringify([inputs, result]);
+  for (const value of [...totpSeedSpellings(enrolmentSeed), page.typed[0]!])
+    assert.equal(visible.includes(value), false, value);
+});
+
+test("ISSUED-SEED-LEAK: a page that prints the seed again after it was read fails the attempt", async () => {
+  for (const echo of [
+    `Your key: ${enrolmentSeed}`,
+    `Your key: ${enrolmentSeed.toLowerCase()}`,
+    `Your key: ${groupedSeed}`,
+  ]) {
+    const inputs: InterpreterInput[] = [];
+    await assert.rejects(
+      runCeremony({
+        page: enrolmentPage({ echo }),
+        interpreter: async (input) => {
+          inputs.push(structuredClone(input));
+          return createHeuristicInterpreter()(input);
+        },
+        goal: "registration",
+        secrets: createSecrets({}),
+        allowedOrigins: ["https://provider.example"],
+        issued: {
+          fields: { "totp-seed": "Setup key" },
+          keep: async () => {},
+        },
+        verify: async () => true,
+      }),
+      (error: Error) => error instanceof CeremonySecretLeak,
+      echo,
+    );
+    assert.equal(JSON.stringify(inputs).includes(enrolmentSeed), false);
+  }
+});
+
+test("ISSUED-SEED-UNUSABLE: a setup key that is not a seed is not kept, and no code is offered for it", async () => {
+  const page = enrolmentPage({ setupKey: "not a base32 key!" });
+  const inputs: InterpreterInput[] = [];
+  const result = await runCeremony({
+    page,
+    interpreter: async (input) => {
+      inputs.push(structuredClone(input));
+      return createHeuristicInterpreter()(input);
+    },
+    goal: "registration",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    issued: {
+      fields: { "totp-seed": "Setup key" },
+      keep: async () => assert.fail("nothing may be kept"),
+    },
+    verify: async () => true,
+  });
+  assert.notEqual(result.status, "completed");
+  assert.deepEqual(page.typed, []);
+  assert.ok(inputs.every((input) => !input.available.includes("totp-code")));
+});
+
+test("ISSUED-SEED-DECLARATION: a seed is declared only into credential custody", () => {
+  const seed = { kind: "totp-seed", label: "Setup key" } as const;
+  assert.equal(
+    issuedDeclarationSchema.safeParse({
+      sink: "credential-custody",
+      fields: [seed],
+    }).success,
+    true,
+  );
+  assert.equal(
+    issuedDeclarationSchema.safeParse({
+      sink: "oauth-client",
+      fields: [{ kind: "client-id", label: "Client ID" }, seed],
+    }).success,
+    false,
+  );
+});
+
+test("ISSUED-ADAPTER:the Playwright adapter reads only the observed field, on the observed document", async () => {
   const graph = handleGraph({ displays: { 0: "displayed-value-1" } });
   const page = createPlaywrightCeremonyPage(graph.page);
   const field: SnapshotElement = {

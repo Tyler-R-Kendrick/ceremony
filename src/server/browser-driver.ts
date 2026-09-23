@@ -29,6 +29,7 @@ import {
   type RecordedTraceEntry,
 } from "../core/recorded-ceremony.js";
 import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
+import { parseTotpSeed, totpCode, totpSeedSpellings } from "./totp.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -242,6 +243,13 @@ export interface CeremonyRunOptions {
    * interpreter is given; the transcript records a `kept` step naming the
    * kinds. While any declared
    * value is still unread, a claim of completion is not accepted.
+   *
+   * A kept `totp-seed` also answers the page that showed it. Enrolment asks
+   * for a code from the authenticator just set up before it turns the factor
+   * on, so from the moment the seed is read the attempt offers `totp-code`,
+   * computed here from that seed at the moment of filling. The interpreter
+   * sees the role and never the seed or the code, and the code is guarded
+   * like any other typed secret.
    */
   issued?: {
     fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
@@ -403,6 +411,26 @@ export async function runCeremony(
     string,
   ][];
   let kept = declared.length === 0;
+  /**
+   * A seed this attempt read off an enrolment page. It never leaves this
+   * function except into the plan's sink, and inside it only `totpCode`
+   * reads it.
+   */
+  let enrolled: string | undefined;
+  /**
+   * The roles on offer right now: the caller's, plus the authenticator code
+   * a kept seed can answer. A seed read on this attempt is the one the page
+   * is waiting to see a code from, so it answers `totp-code` even where the
+   * caller also held one; a plan that says both is refused before it runs.
+   */
+  const offered = (): readonly CeremonyRole[] =>
+    enrolled !== undefined && !secrets.roles.includes("totp-code")
+      ? [...secrets.roles, "totp-code"]
+      : secrets.roles;
+  const resolveRole = async (role: CeremonyRole) =>
+    role === "totp-code" && enrolled !== undefined
+      ? totpCode(enrolled, Date.now())
+      : secrets.resolve(role);
 
   const record = (
     snapshot: PageSnapshot,
@@ -597,11 +625,27 @@ export async function runCeremony(
         )
       )
         return;
+      // A setup key that is not a usable seed would be kept, typed as codes
+      // that never match, and counted against the account's lockout; it is
+      // not taken at all instead.
+      if (kind === "totp-seed")
+        try {
+          parseTotpSeed(value);
+        } catch {
+          return;
+        }
       issued.set(kind, value);
-      if (secret && !guarded.includes(value)) guarded.push(value);
+      // A seed is guarded in every spelling a page prints one in: the setup
+      // key is grouped on one line and may be repeated plain on the next.
+      const spellings =
+        kind === "totp-seed" ? totpSeedSpellings(value) : [value];
+      if (secret)
+        for (const spelling of spellings)
+          if (!guarded.includes(spelling)) guarded.push(spelling);
     }
     await options.issued.keep(Object.fromEntries(issued) as IssuedValues);
     kept = true;
+    enrolled = issued.get("totp-seed");
     record(snapshot, "kept", {
       note: declared.map(([kind]) => kind).join(", "),
       remembered: false,
@@ -686,7 +730,7 @@ export async function runCeremony(
       // password in the form under a label nobody reviewed.
       if (
         !role ||
-        !secrets.roles.includes(role) ||
+        !offered().includes(role) ||
         (element.kind === "select" && secretRoles.includes(role))
       )
         return unusable();
@@ -704,7 +748,7 @@ export async function runCeremony(
             !allowed.has(originOf(element.submitsTo))))
       )
         return finish({ status: "blocked", reason: "untrusted-origin", steps });
-      const value = await secrets.resolve(role);
+      const value = await resolveRole(role);
       if (value === undefined) {
         // A mailbox that never delivered is a reportable wall, not a retry loop.
         record(snapshot, "blocked", { reason: "provider-error" });
@@ -872,7 +916,7 @@ export async function runCeremony(
     const input: InterpreterInput = {
       goal,
       snapshot,
-      available: secrets.roles,
+      available: offered(),
       history: history.slice(-8),
       // Labels only, which the page shows anyway. What was read, and whether
       // anything has been, stays here.
@@ -1185,8 +1229,13 @@ export async function runRecordedCeremony(
   const undeclared = recording.origins.find((origin) => !allowed.has(origin));
   if (undeclared !== undefined)
     return refuse({ kind: "undeclared-origin", observed: undeclared });
+  // An authenticator code on a recording that keeps the seed it enrols comes
+  // from that seed, read on the way; nobody has to supply it.
+  const enrols = options.issued?.fields["totp-seed"] !== undefined;
   const unsupplied = recording.roles.find(
-    (role) => !options.secrets.roles.includes(role),
+    (role) =>
+      !options.secrets.roles.includes(role) &&
+      !(enrols && role === "totp-code"),
   );
   if (unsupplied !== undefined)
     return refuse({ kind: "missing-role", role: unsupplied });
