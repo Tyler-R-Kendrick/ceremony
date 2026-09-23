@@ -78,13 +78,12 @@ import { pathnameOf } from "./phases.js";
  */
 
 /**
- * CSS viewport; the device scale makes the video 1280x720. A 960-wide
- * viewport is a laptop browser window scaled up, which is how the provider's
- * realistic layouts are meant to be seen. Nothing is injected into a page
- * the driver reads.
+ * CSS viewport, one CSS pixel per video pixel: an ordinary 1280x720 browser
+ * window, so a consent screen or a sign-in card fits the way it would on a
+ * laptop. Nothing is injected into a page the driver reads.
  */
-const viewport = { width: 960, height: 540 };
-const zoom = 4 / 3;
+const viewport = { width: 1280, height: 720 };
+const zoom = 1;
 const videoSize = { width: 1280, height: 720 };
 const fps = 25;
 const hud = {
@@ -118,6 +117,12 @@ export type DemoSession = {
   hold(ms: number): Promise<void>;
   /** Move the cursor out of the way once the driver has finished acting. */
   park(): Promise<void>;
+  /**
+   * Scroll so the page's last button sits clear of the caption row, e.g. a
+   * consent screen's Allow/Cancel while the viewer reads it. Presentation
+   * only: nothing is pressed, and the driver re-reads the page anyway.
+   */
+  reveal(): Promise<void>;
   /** Use the current frame as the poster image. */
   poster(): void;
   /** A full-frame card: title, facts. Text is fixed or built from captions. */
@@ -197,7 +202,7 @@ function cardHtml(input: {
         ? "Connector · server side, not in the browser"
         : "Ceremony demo · self-hosted test provider";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-    html{zoom:1.5}
+    html{zoom:2}
     html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:"DejaVu Sans",sans-serif}
     main{box-sizing:border-box;height:100%;padding:22px 30px;display:flex;flex-direction:column;justify-content:center${input.keepPanel ? ";max-width:420px" : ""}}
     .kicker{color:${accent};font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
@@ -228,7 +233,7 @@ const panelMarks = {
 
 function panelHtml(content: Panel): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-    html{zoom:1.1}
+    html{zoom:1.5}
     html,body{margin:0;background:transparent;font-family:"DejaVu Sans",sans-serif}
     .panel{display:inline-block;width:196px;box-sizing:border-box;padding:9px 11px 7px;border-radius:8px;
       background:rgba(15,23,42,.92);color:#e2e8f0;border:1px solid #334155}
@@ -433,16 +438,19 @@ export async function recordDemo(
       kind: "fill" | "click" | "check",
       handle: ElementHandle,
     ) => {
-      // Bring the control to the middle of the window, clear of the caption
-      // row, the way a person scrolls a tall form while filling it in.
+      // Scroll only when the control is near an edge or under the caption
+      // row, and then to the middle, the way a person scrolls a tall form
+      // while filling it in; a control already in view leaves the page still.
       await handle
-        .evaluate((element: Element) =>
-          element.scrollIntoView({
-            block: "center",
-            inline: "nearest",
-            behavior: "instant",
-          }),
-        )
+        .evaluate((element: Element) => {
+          const rect = element.getBoundingClientRect();
+          if (rect.top < 72 || rect.bottom > window.innerHeight - 150)
+            element.scrollIntoView({
+              block: "center",
+              inline: "nearest",
+              behavior: "instant",
+            });
+        })
         .catch(() => {});
       const box = await handle.boundingBox().catch(() => null);
       if (box) {
@@ -510,6 +518,23 @@ export async function recordDemo(
         openPanel = { key, png: image.png, start: timeline.getFrameCount() };
       },
       hold: (ms) => pause(ms),
+      reveal: async () => {
+        await page
+          .evaluate(() => {
+            const buttons = [...document.querySelectorAll("button")].filter(
+              (button) => button.getClientRects().length > 0,
+            );
+            const last = buttons.at(-1);
+            if (!last) return;
+            const rect = last.getBoundingClientRect();
+            if (rect.bottom > window.innerHeight - 150)
+              window.scrollBy({
+                top: rect.bottom - (window.innerHeight - 170),
+                behavior: "instant",
+              });
+          })
+          .catch(() => {});
+      },
       park: () =>
         moveCursorTo(
           context,

@@ -21,7 +21,7 @@ export async function startConnectorCallback(): Promise<{
   const server: Server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(`<!doctype html><html><head><meta charset="utf-8"><title>Connector callback</title>
-      <style>body{margin:0;height:100vh;display:flex;align-items:center;padding:0 30px;background:#f8fafc;color:#0f172a;font-family:"DejaVu Sans",sans-serif}
+      <style>html{zoom:2}body{margin:0;height:100vh;display:flex;align-items:center;padding:0 30px;background:#f8fafc;color:#0f172a;font-family:"DejaVu Sans",sans-serif}
       h1{font-size:18px;margin:0 0 6px}p{font-size:10px;margin:0;color:#475569}</style></head>
       <body><div><h1>Connector callback received</h1><p>Returning to Ceremony. The authorization code is never displayed.</p></div></body></html>`);
   });

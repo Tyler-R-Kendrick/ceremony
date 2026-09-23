@@ -172,6 +172,7 @@ export async function record(session: DemoSession) {
       if (atConsent) {
         session.step("consent");
         session.say({ kind: "provider", says: "consent-screen" });
+        await session.reveal();
         await session.hold(1_600);
       }
       const action = await narrated(input);
