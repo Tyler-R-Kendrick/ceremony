@@ -20,6 +20,8 @@ import {
   splitScope,
   tokenErrorDetail,
   wireError,
+  wireFetch,
+  type WireOptions,
 } from "./wire.js";
 
 /*
@@ -59,6 +61,18 @@ export type ClientCredentialsInput = {
   parameters?: Readonly<Record<string, string>> | undefined;
   /** How this issuer separates scopes; RFC 6749 says a space, some providers use a comma. */
   scopeSeparator?: " " | "," | undefined;
+  /**
+   * How the token request body is encoded. `form`, the default, is RFC 6749
+   * section 4.4.2. `json` sends the very same parameters - built by
+   * oauth4webapi exactly as for `form`, client authentication included - as
+   * one JSON object under `content-type: application/json`, for a provider
+   * whose token endpoint documents only that.
+   *
+   * A property of the provider, set in its reviewed definition or adapter
+   * code. No caller, request or model chooses it: it changes how a client
+   * secret travels, which is a review decision, not an option.
+   */
+  requestEncoding?: "form" | "json" | undefined;
 };
 
 export type ClientCredentialsGrant = {
@@ -66,6 +80,43 @@ export type ClientCredentialsGrant = {
   expiresAt?: number;
   permissions: PermissionRecord;
 };
+
+/**
+ * The engine's fetch, re-encoding the form body oauth4webapi built as JSON.
+ *
+ * Only the encoding changes: every parameter, and whatever client
+ * authentication put into the body, is carried across one for one. A
+ * parameter that appears twice cannot be one JSON member, so the request is
+ * refused before anything is sent rather than silently dropping a value.
+ */
+function jsonBodyFetch(options: WireOptions) {
+  const send = wireFetch(options);
+  return <M extends string, B>(
+    url: string,
+    init: oauth.CustomFetchOptions<M, B>,
+  ): Promise<Response> => {
+    const form = new URLSearchParams(
+      init.body instanceof URLSearchParams
+        ? init.body
+        : String(init.body ?? ""),
+    );
+    const members: Record<string, string> = {};
+    for (const [name, value] of form) {
+      if (Object.hasOwn(members, name))
+        throw new ConnectorError("configuration-required", {
+          detail: "oauth.client-credentials.json-duplicate",
+        });
+      members[name] = value;
+    }
+    const headers = new Headers(init.headers as HeadersInit);
+    headers.set("content-type", "application/json");
+    return send(url, {
+      ...init,
+      headers: Object.fromEntries(headers) as never,
+      body: JSON.stringify(members) as never,
+    });
+  };
+}
 
 /** Parameters the grant sets itself; a definition's extra parameters cannot replace them. */
 const RESERVED_PARAMETERS = new Set([
@@ -143,6 +194,11 @@ export async function grantClientCredentials(
       at: now(),
     });
   let tokens: oauth.TokenEndpointResponse;
+  const wire: WireOptions = {
+    fetch: ctx.environment.fetch,
+    signal: ctx.signal,
+    allowLoopbackHttp: input.server.allowLoopbackHttp,
+  };
   try {
     const response = await oauth.clientCredentialsGrantRequest(
       as,
@@ -153,11 +209,12 @@ export async function grantClientCredentials(
         ...(scope ? { scope } : {}),
         ...resourceParameters(input.policy.resource),
       },
-      requestOptions({
-        fetch: ctx.environment.fetch,
-        signal: ctx.signal,
-        allowLoopbackHttp: input.server.allowLoopbackHttp,
-      }),
+      input.requestEncoding === "json"
+        ? {
+            ...requestOptions(wire),
+            [oauth.customFetch]: jsonBodyFetch(wire),
+          }
+        : requestOptions(wire),
     );
     tokens = await oauth.processClientCredentialsResponse(
       as,
@@ -165,6 +222,11 @@ export async function grantClientCredentials(
       response,
     );
   } catch (failure) {
+    // Refused by this engine before a byte was sent: nothing to be unsure of.
+    if (failure instanceof ConnectorError) {
+      await settle("not-applied", failure.detail);
+      throw failure;
+    }
     if (neverSent(failure)) {
       await settle("not-applied", "oauth.client-credentials.unreachable");
       throw wireError(failure, "oauth.client-credentials");

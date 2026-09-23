@@ -209,3 +209,69 @@ test("renewal refuses a credential that did not come from this grant", async (t)
   );
   assert.equal(harness.server.counts.token, 0);
 });
+
+test("a provider definition's JSON encoding sends the same grant as one JSON object", async (t) => {
+  const harness = await authHarness(t, {
+    server: { clientCredentials: true, clientSecret: SECRET },
+    configuration: {
+      OAUTH_CLIENT_ID: "fixture-client",
+      OAUTH_CLIENT_SECRET: SECRET,
+    },
+    policy: {
+      registration: {
+        allowed: ["pre-registered"],
+        clientIdConfiguration: "OAUTH_CLIENT_ID",
+        clientSecretConfiguration: "OAUTH_CLIENT_SECRET",
+        clientAuthentication: "client_secret_post",
+      },
+    },
+  });
+  const ctx = harness.ctx();
+  const sent: Array<{ type: string | null; body: string }> = [];
+  // A token endpoint that documents only JSON: what arrives is recorded, then
+  // handed to the fixture server as the form it understands, so the grant is
+  // still checked by a real authorization server.
+  const jsonEndpoint: typeof fetch = async (url, init) => {
+    const headers = new Headers(init?.headers);
+    const body = String(init?.body ?? "");
+    sent.push({ type: headers.get("content-type"), body });
+    headers.set("content-type", "application/x-www-form-urlencoded");
+    return ctx.environment.fetch(url, {
+      ...init,
+      headers,
+      body: new URLSearchParams(JSON.parse(body) as Record<string, string>),
+    });
+  };
+  const result = await acquireClientCredentials(
+    { ...ctx, environment: { ...ctx.environment, fetch: jsonEndpoint } },
+    {
+      server: harness.resolved,
+      client: harness.client,
+      policy: harness.policy,
+      scopes: ["profile"],
+      scope: scopeOf(harness),
+      parameters: { audience: "https://api.fixture.example" },
+      requestEncoding: "json",
+    },
+  );
+  assert.equal(result.state, "complete");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.type, "application/json");
+  assert.deepEqual(JSON.parse(sent[0]!.body), {
+    audience: "https://api.fixture.example",
+    grant_type: "client_credentials",
+    scope: "profile",
+    client_id: "fixture-client",
+    client_secret: SECRET,
+  });
+  // The default is still the form RFC 6749 describes.
+  const form = await confidential(t);
+  await acquireClientCredentials(form.ctx(), {
+    server: form.resolved,
+    client: form.client,
+    policy: form.policy,
+    scopes: [],
+    scope: scopeOf(form),
+  });
+  assert.equal(form.server.tokenRequests.length, 1);
+});

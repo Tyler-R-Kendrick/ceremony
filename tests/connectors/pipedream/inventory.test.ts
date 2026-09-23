@@ -187,6 +187,20 @@ test("the project access token is minted once, kept in custody and never shown",
     "concurrent calls share one client-credentials grant",
   );
   assert.equal(h.double.accessTokens.size, 1);
+  // Minted by the shared engine: the documented JSON body, and the grant
+  // journaled like any other client-credentials request.
+  assert.equal(tokenRequests[0]!.headers["content-type"], "application/json");
+  assert.deepEqual(
+    Object.keys(JSON.parse(tokenRequests[0]!.body.toString("utf8"))).sort(),
+    ["client_id", "client_secret", "grant_type"],
+  );
+  const grants = h.ports.inspect
+    .effects()
+    .filter(
+      (entry) => entry.intent.operation === "oauth.client-credentials.grant",
+    );
+  assert.equal(grants.length, 1);
+  assert.equal(grants[0]!.outcome?.status, "applied");
 
   const [token] = [...h.double.accessTokens.keys()];
   const serialized = JSON.stringify([a, b, c]);
