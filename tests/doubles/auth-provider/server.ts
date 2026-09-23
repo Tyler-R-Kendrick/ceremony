@@ -616,6 +616,21 @@ export async function startAuthProvider(
       return redirect(next, { "set-cookie": cookie });
     };
 
+    /** An unconfirmed account's password was accepted: mail a code first. */
+    const confirmUnverified = (found: Account) => {
+      const token = randomBytes(12).toString("hex");
+      const code = digits(6);
+      pending.set(token, {
+        email: found.email,
+        username: found.username,
+        password: found.password,
+        code,
+        token,
+      });
+      deliver(found.email, code, token);
+      return confirmPage(token, next, markup.messages.unverified);
+    };
+
     const dashboard = (email: string) =>
       send(
         200,
@@ -688,19 +703,7 @@ export async function startAuthProvider(
       );
       if (!found || found.password !== password)
         return signInPage(next, markup.messages.rejected);
-      if (!found.verified) {
-        const token = randomBytes(12).toString("hex");
-        const code = digits(6);
-        pending.set(token, {
-          email: found.email,
-          username: found.username,
-          password: found.password,
-          code,
-          token,
-        });
-        deliver(found.email, code, token);
-        return confirmPage(token, next, markup.messages.unverified);
-      }
+      if (!found.verified) return confirmUnverified(found);
       return signedIn(found);
     }
 
@@ -712,6 +715,9 @@ export async function startAuthProvider(
       if ((body.get(markup.names.password) ?? "") !== found.password)
         return passwordPage(next, markup.messages.rejected);
       identified.delete(browser());
+      // The same rule as the one-page form: a right password on an
+      // unconfirmed account earns a confirmation step, not a session.
+      if (!found.verified) return confirmUnverified(found);
       return signedIn(found);
     }
 
