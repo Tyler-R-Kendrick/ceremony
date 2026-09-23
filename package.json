@@ -101,6 +101,7 @@
     "evidence:connectors": "node --import tsx scripts/connector-evidence.ts",
     "verify:live": "node --import tsx scripts/verify-release.ts live",
     "test:live:attended": "node --import tsx scripts/verify-attended.ts",
+    "certify:attended": "node --import tsx scripts/certify-attended.ts",
     "verify:release": "node --import tsx scripts/verify-release.ts release",
     "maintenance:storage": "node --import tsx scripts/persistence-maintenance.ts",
     "build:hosted": "nitro build",
