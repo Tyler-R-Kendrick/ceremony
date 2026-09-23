@@ -117,6 +117,8 @@ export type InvokeResponse = {
   replayed?: true;
   handoff?: { kind: string; state: string };
   presentation?: HumanPresentation;
+  /** Personal output released to an assistant under the binding's owner consent. */
+  agentOutputConsent?: "personal";
 };
 
 export type DefinitionListEntry = {
@@ -191,6 +193,11 @@ type ConnectionEntry = { record: ConnectionRecord; revision: number };
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
 type HandoffHandle = { handoffRef: string; generation: number };
 
+/** A pending revocation request as recorded on a connection's server-side state. */
+const revocationRequestSchema = z.object({
+  requestedAt: z.string(),
+  requestedBy: z.string(),
+});
 const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -847,6 +854,13 @@ export class ConnectorCommandService {
   ): Promise<BindingReference> {
     requireAny(actor, ["reviewer", "publisher"]);
     const input: BindingApprovalInput = bindingApprovalSchema.parse(rawInput);
+    // Letting an assistant read personal output is a person's decision.
+    const agentOutputConsent =
+      input.approvals.agentOutputConsent === "personal"
+        ? ("personal" as const)
+        : undefined;
+    if (agentOutputConsent && actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "consent.human-only" });
     const definition = await this.definition(
       actor.tenantId,
       input.definitionRef,
@@ -932,6 +946,7 @@ export class ConnectorCommandService {
       configuration,
       settings: approvals.settings,
       policyRevision: this.policy.revision,
+      ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
     const binding = runtimeBindingSchema.parse({
       bindingRef,
@@ -953,6 +968,7 @@ export class ConnectorCommandService {
       permittedTargets: approvals.permittedTargets,
       reviewedDigest,
       settings: approvals.settings,
+      ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
     await this.ports.definitions.putBinding(binding);
     return this.reference(binding);
@@ -2031,11 +2047,13 @@ export class ConnectorCommandService {
       )
         throw new ConnectorError("denied", { detail: "target.policy" });
     }
+    const consent = { agentOutputConsent: binding.agentOutputConsent };
     if (
       !(await this.policy.allowOutput(
         actor,
         operation.outputClassification,
         operation,
+        consent,
       ))
     )
       throw new ConnectorError("denied", { detail: "output.classification" });
@@ -2186,16 +2204,24 @@ export class ConnectorCommandService {
       ...(result.code ? { code: code(result.code, "adapter.code") } : {}),
     };
     if (result.output !== undefined) {
-      const allowed = await this.policy.allowOutput(
-        actor,
-        classification,
-        operation,
-      );
+      // Secret output never reaches an assistant, whatever a policy says.
+      const allowed =
+        !(actor.actorKind === "agent" && classification === "secret") &&
+        (await this.policy.allowOutput(
+          actor,
+          classification,
+          operation,
+          consent,
+        ));
       const size = Buffer.byteLength(JSON.stringify(result.output) ?? "");
       if (!allowed || size > MAX_OUTPUT_BYTES) {
         response.outputWithheld = true;
         if (size > MAX_OUTPUT_BYTES) response.code = "output.too-large";
-      } else response.output = result.output;
+      } else {
+        response.output = result.output;
+        if (actor.actorKind === "agent" && classification === "personal")
+          response.agentOutputConsent = "personal";
+      }
     }
     if (result.state === "human-required" && result.handoff) {
       const issued = await this.issueHandoff(
@@ -2544,6 +2570,89 @@ export class ConnectorCommandService {
       result: { ...remote, local: "applied" },
       connection: this.project(actor, current),
     };
+  }
+
+  /**
+   * Asks for upstream revocation without performing it. Revocation is an
+   * administrator's decision taken by a person (`revoke`); anyone who may use
+   * the connection, an assistant included, may only put the request in front
+   * of them. The request is recorded on the connection and surfaces as its
+   * last outcome; nothing is revoked, disconnected or invalidated here.
+   */
+  async requestRevocation(
+    actor: ActorContext,
+    connectionRef: string,
+    rawInput: unknown = {},
+  ): Promise<{
+    connectionRef: string;
+    revocation: "pending-approval";
+    requestedAt: string;
+  }> {
+    requireCapability(actor, "executor");
+    z.strictObject({}).parse(rawInput ?? {});
+    const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke-request",
+    );
+    const prior = revocationRequestSchema.safeParse(
+      record.state.revocationRequest,
+    );
+    if (prior.success)
+      return {
+        connectionRef,
+        revocation: "pending-approval",
+        requestedAt: prior.data.requestedAt,
+      };
+    const requestedAt = iso(this.now());
+    await this.update(actor, entry, {
+      state: boundedState(record.state, {
+        revocationRequest: { requestedAt, requestedBy: actor.actorKind },
+      }),
+      lastOutcome: "revoke.requested",
+    });
+    return { connectionRef, revocation: "pending-approval", requestedAt };
+  }
+
+  /** A person declines a pending revocation request; approving it is `revoke`. */
+  async declineRevocation(
+    actor: ActorContext,
+    connectionRef: string,
+    rawInput: unknown,
+  ): Promise<ConnectionView> {
+    if (actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "revoke.human-only" });
+    const input = z
+      .strictObject({ expectedRevision: z.number().int().positive() })
+      .parse(rawInput);
+    const entry = await this.connection(actor, connectionRef);
+    if (entry.revision !== input.expectedRevision)
+      throw new ConnectorError("conflict", { detail: "revision.stale" });
+    if (
+      !revocationRequestSchema.safeParse(entry.record.state.revocationRequest)
+        .success
+    )
+      throw new ConnectorError("conflict", { detail: "revoke.not-requested" });
+    const state = { ...entry.record.state };
+    delete state.revocationRequest;
+    return this.project(
+      actor,
+      await this.update(actor, entry, {
+        state,
+        lastOutcome: "revoke.declined",
+      }),
+    );
   }
 
   /** Administrative purge of a disconnected connection's local record; never an upstream effect. */

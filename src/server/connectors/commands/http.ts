@@ -297,7 +297,7 @@ export function createConnectorHttp(
         );
       }
       const connection =
-        /^\/connections\/([^/]+)(?:\/(poll|verify|reconnect|disconnect|invoke|revoke|delete|cancel))?$/.exec(
+        /^\/connections\/([^/]+)(?:\/(poll|verify|reconnect|disconnect|invoke|revoke|revoke-request|revoke-decline|delete|cancel))?$/.exec(
           path,
         );
       if (connection) {
@@ -326,6 +326,14 @@ export function createConnectorHttp(
             return connectorReply(await service.invoke(actor, ref, body));
           case "revoke":
             return connectorReply(await service.revoke(actor, ref, body));
+          case "revoke-request":
+            return connectorReply(
+              await service.requestRevocation(actor, ref, body ?? {}),
+            );
+          case "revoke-decline":
+            return connectorReply(
+              await service.declineRevocation(actor, ref, body),
+            );
           case "delete":
             return connectorReply(await service.delete(actor, ref, body));
         }

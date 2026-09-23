@@ -171,6 +171,8 @@ export const bindingApprovalSchema = z.strictObject({
     configuration: z.array(configurationNameSchema).max(48).optional(),
     custody: credentialCustodySchema.optional(),
     authorityInstance: z.string().max(256).regex(noControl).optional(),
+    /** Owner consent that assistants may read personal outputs; only a person can give it. */
+    agentOutputConsent: z.enum(["none", "personal"]).optional(),
     /** Inert adapter settings a reviewer approves (client id, API version); never a secret or an executable URL. */
     settings: z
       .preprocess(
