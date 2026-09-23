@@ -243,27 +243,34 @@ async function prepareDevice(
 }> {
   let showing = false;
   let screen: DeviceScreen = "requested";
+  /** The screens drawn so far; "connected" only once a poll was answered. */
+  const drawn = new Set<DeviceScreen>();
   const show = (next: DeviceScreen) => {
     // A connected device stays connected on screen.
     if (screen === "connected" && next !== "connected") next = screen;
     screen = next;
     showing = true;
-    session.showProp(`${label}:${next}`, "left");
+    if (drawn.has(next)) session.showProp(`${label}:${next}`, "left");
   };
-  const device = await startDevice(provider, {
+  const draw = async (state: DeviceScreen, account?: string) => {
+    const screenOf = deviceScreen({ ...device, product }, state, account);
+    await session.prop(`${label}:${state}`, screenOf.html, screenOf.text);
+    drawn.add(state);
+  };
+  const device: SimulatedDevice = await startDevice(provider, {
     protect: session.protect,
     // A poll that lands while the device is on camera updates its screen;
-    // one that lands off camera is remembered for when it is shown.
-    onScreen: (next) => {
+    // one that lands off camera is remembered for when it is shown. The
+    // connected screen is drawn only now, from the account the provider's
+    // userinfo named for the token the poll returned.
+    onScreen: async (next, account) => {
+      if (next === "connected") await draw("connected", account);
       if (showing) show(next);
       else if (screen !== "connected") screen = next;
     },
   });
-  const account = provider.accounts()[0]?.email;
-  for (const state of ["requested", "polling", "connected"] as const) {
-    const drawn = deviceScreen({ ...device, product }, state, account);
-    await session.prop(`${label}:${state}`, drawn.html, drawn.text);
-  }
+  await draw("requested");
+  await draw("polling");
   return {
     device,
     show,

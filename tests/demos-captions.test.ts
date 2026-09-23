@@ -9,7 +9,15 @@ import {
   type CaptionEvent,
   type PanelEvent,
 } from "../scripts/demos/captions.js";
-import { deviceScreen, pollInterval } from "../scripts/demos/device.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import {
+  deviceScreen,
+  pollInterval,
+  startDevice,
+  type DeviceScreen,
+} from "../scripts/demos/device.js";
+import type { ProviderDouble } from "./doubles/auth-provider/server.js";
 import { outcomeFacts } from "../scripts/demos/story.js";
 import type { CeremonyResult } from "../src/server/browser-driver.js";
 
@@ -271,4 +279,59 @@ test("DEMO-DEVICE: a device told to slow down polls five seconds slower, from th
   interval = pollInterval(interval, "authorization_pending");
   assert.equal(interval, 10, "the longer interval is kept");
   assert.equal(pollInterval(interval, "slow_down"), 15);
+});
+
+test("DEMO-DEVICE: the connected screen names the account userinfo returned, drawn after the poll", async (t) => {
+  // The provider's userinfo, answering for the one token it issued.
+  const token = "at_canary-device-token-5b1e";
+  const server = createServer((request, response) => {
+    const own = request.headers.authorization === `Bearer ${token}`;
+    response.writeHead(own ? 200 : 401, { "content-type": "application/json" });
+    response.end(own ? '{"sub":"userinfo-subject@ceremony.invalid"}' : "{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  let polls = 0;
+  const provider = {
+    origin,
+    requestDevice: async () => ({
+      device_code: "dc-canary-device-code-9f2a",
+      user_code: "BCDF-GHJK",
+      verification_uri: `${origin}/device`,
+      verification_uri_complete: `${origin}/device?user_code=BCDF-GHJK`,
+      expires_in: 600,
+      interval: 0,
+    }),
+    pollDevice: async () =>
+      ++polls < 2
+        ? { status: 400, body: { error: "authorization_pending" } }
+        : { status: 200, body: { access_token: token } },
+    // Nothing the device reads comes from here: an account list that says
+    // someone else must not be what the screen shows.
+    accounts: () => [{ email: "somebody-else@ceremony.invalid" }],
+  } as unknown as ProviderDouble;
+
+  const screens: { screen: DeviceScreen; account?: string }[] = [];
+  const protectedValues: string[] = [];
+  let drawnBeforeConnected = false;
+  const device = await startDevice(provider, {
+    protect: (value) => protectedValues.push(value),
+    onScreen: async (screen, account) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      screens.push(account === undefined ? { screen } : { screen, account });
+      if (screen === "connected") drawnBeforeConnected = true;
+    },
+  });
+  t.after(() => device.stop());
+  const who = await device.connected;
+  assert.equal(who, "userinfo-subject@ceremony.invalid");
+  assert.ok(drawnBeforeConnected, "the connected screen is ready first");
+  assert.deepEqual(screens.at(-1), {
+    screen: "connected",
+    account: "userinfo-subject@ceremony.invalid",
+  });
+  assert.equal(device.connectedAs(), "userinfo-subject@ceremony.invalid");
+  assert.ok(protectedValues.includes(token));
+  assert.ok(protectedValues.includes("dc-canary-device-code-9f2a"));
 });

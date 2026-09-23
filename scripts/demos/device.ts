@@ -47,7 +47,12 @@ export async function startDevice(
   provider: ProviderDouble,
   options: {
     protect(value: string): void;
-    onScreen(screen: DeviceScreen): void;
+    /**
+     * The device's screen changed. `connected` carries the account the
+     * provider's userinfo named for the token, and is awaited before the
+     * device reports itself connected, so its screen can be drawn from it.
+     */
+    onScreen(screen: DeviceScreen, account?: string): void | Promise<void>;
   },
 ): Promise<SimulatedDevice> {
   const answer = await provider.requestDevice(deviceClient.client);
@@ -74,13 +79,13 @@ export async function startDevice(
         ).json()) as { sub?: string };
         if (!who.sub) return reject(new Error("no subject"));
         account = who.sub;
-        options.onScreen("connected");
+        await options.onScreen("connected", who.sub);
         return resolve(who.sub);
       }
       if (body.error !== "authorization_pending" && body.error !== "slow_down")
         return reject(new Error(`device poll ended: ${String(body.error)}`));
       pending++;
-      options.onScreen("polling");
+      void options.onScreen("polling");
       // The interval the provider asked for is the least a device waits,
       // and a `slow_down` answer lengthens it for every poll after.
       interval = pollInterval(interval, body.error);
