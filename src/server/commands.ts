@@ -128,6 +128,50 @@ export function scopedRunFor(run: RunRecord, nodeId: string): RunRecord {
     run.nodes.find((node) => node.id === nodeId),
   );
 }
+/**
+ * The step a provider's human page acts on: the first step of the run not yet
+ * verified that runs in `context`'s provider, with its stored state. Steps of
+ * other providers are skipped, so inside another provider's run the page finds
+ * its own step and never another provider's. A step whose scoped context is
+ * not `context` (another target or configuration) yields nothing, so the page
+ * refuses rather than acting on it under the wrong authority.
+ */
+export async function pendingProviderStep(
+  tx: AsyncTransaction,
+  context: Pick<
+    OperationContext,
+    | "actor"
+    | "runId"
+    | "provider"
+    | "target"
+    | "environment"
+    | "configurationVersion"
+  >,
+  run: RunRecord,
+): Promise<
+  | {
+      node: RunPlanNode;
+      state?: { state: string; verified: boolean; diagnosticCode?: string };
+    }
+  | undefined
+> {
+  for (const node of run.nodes) {
+    const scoped = scopedRun(run, node);
+    if (scoped.provider !== context.provider) continue;
+    const state = await tx.get<NodeRecord>(
+      key(context.actor, "node", `${context.runId}:${node.id}`),
+    );
+    if (state?.value.verified) continue;
+    if (
+      scoped.target !== context.target ||
+      scoped.environment !== context.environment ||
+      scoped.configurationVersion !== context.configurationVersion
+    )
+      return undefined;
+    return { node, ...(state ? { state: state.value } : {}) };
+  }
+  return undefined;
+}
 const sameContext = (a: RunContext, b: RunContext) =>
   contextFields.every((name) => a[name] === b[name]);
 type CommandRecord = {

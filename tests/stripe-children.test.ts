@@ -8,7 +8,8 @@ import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
-import type { RunRecord } from "../src/server/commands.js";
+import type { RunPlanNode, RunRecord } from "../src/server/commands.js";
+import { AgentCoordinator } from "../src/server/agent/coordinator.js";
 
 async function fixture(t: TestContext, configured = false) {
   const token = `rk_test_${randomBytes(24).toString("hex")}`;
@@ -101,15 +102,29 @@ async function fixture(t: TestContext, configured = false) {
     },
   };
   const children = new AsyncStripeChildren(store, options);
+  // Who the mounted routes see, and every view of a run the host authorized.
+  const session = { actor };
+  const authorized: {
+    operationId: string;
+    provider: string;
+    scope?: string;
+  }[] = [];
   const runtime = createGitHubRuntime({
     store,
-    identity: { authenticate: async () => actor },
+    identity: { authenticate: async () => session.actor },
     origin: context.origin,
     environment: context.environment,
     configurationVersion: "v1",
     stripe: { configuration: options.configuration, fetch: options.fetch },
     allowTarget: async () => true,
-    authorize: async (subject, run) => subject.subjectId === run.subjectId,
+    authorize: async (subject, run, operationId) => {
+      authorized.push({
+        operationId,
+        provider: run.provider,
+        ...(run.scope ? { scope: run.scope.connectorId } : {}),
+      });
+      return subject.subjectId === run.subjectId;
+    },
   });
   const advance = async (runId: string, nodeId: string) => {
     const run = await runtime.commands.snapshot(actor, runId);
@@ -144,6 +159,8 @@ async function fixture(t: TestContext, configured = false) {
     input,
     token,
     behavior,
+    session,
+    authorized,
     reads: () => reads,
   };
 }
@@ -532,4 +549,173 @@ test("a Stripe step planned under its own connector runs inside another provider
     }),
     /denied/,
   );
+});
+
+test("a person completes a Stripe step waiting inside a GitHub run on Stripe's own page", async (t) => {
+  const f = await fixture(t);
+  // A version of its own, so nothing passes by matching the run's.
+  f.behavior.version = "stripe-v2";
+  const stripe = {
+    connectorId: "stripe",
+    provider: "stripe",
+    profile: "stripe-api-key",
+    target: "self",
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "stripe-v2",
+  };
+  const nodes: RunPlanNode[] = [
+    {
+      id: "account",
+      operationId: "stripe.prepare-account",
+      operationVersion: "1.0.0",
+      dependsOn: [],
+      bindings: {},
+      context: stripe,
+    },
+    {
+      id: "credential",
+      operationId: "stripe.obtain-key",
+      operationVersion: "1.0.0",
+      dependsOn: ["account"],
+      bindings: {
+        account: { from: "output", node: "account", name: "account" },
+      },
+      context: stripe,
+    },
+    {
+      id: "access",
+      operationId: "stripe.verify-access",
+      operationVersion: "1.0.0",
+      dependsOn: ["credential"],
+      bindings: {
+        credential: { from: "output", node: "credential", name: "credential" },
+      },
+      context: stripe,
+    },
+  ];
+  const run = await f.runtime.commands.createRun(
+    f.actor,
+    {
+      provider: "github",
+      profile: "github-app",
+      target: "acme",
+      origin: "https://app.example",
+      environment: "test",
+      configurationVersion: "v1",
+    },
+    nodes,
+    {},
+  );
+  const call = (path: string, body?: unknown) =>
+    teachingHttp(
+      new Request(
+        `https://app.example/api/v1/teaching${path}`,
+        body === undefined
+          ? {}
+          : {
+              method: "POST",
+              headers: {
+                origin: "https://app.example",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(body),
+            },
+      ),
+      f.runtime,
+    );
+  const path = `/stripe/${run.id}/human`;
+  // A step that is not yet waiting on a person has no page.
+  assert.equal((await call(path)).status, 403);
+  assert.equal((await f.advance(run.id, "account")).state, "awaiting-human");
+
+  // The agent's hand-off names the waiting step's provider, not the run's.
+  const coordinator = new AgentCoordinator(f.store, f.runtime.commands);
+  const outcome = await coordinator.turnOutcome(f.actor, run.id, "turn-1");
+  assert.equal(outcome.status, "awaiting-human");
+  assert.equal(
+    outcome.handoff?.path,
+    `/api/v1/teaching/stripe/${encodeURIComponent(run.id)}/human`,
+  );
+  assert.equal(outcome.handoff?.nodeId, "account");
+
+  // Another provider in the URL reaches nothing, whether or not the host
+  // offers it.
+  for (const guessed of ["supabase", "jira", "authored-fixture"]) {
+    assert.equal((await call(`/${guessed}/${run.id}/human`)).status, 403);
+    assert.equal(
+      (await call(`/${guessed}/${run.id}/human`, { accountReady: true }))
+        .status,
+      403,
+    );
+  }
+  // Only the page itself is served for the scoped step: its provider's
+  // account claim is refused, and it has no callback or recovery route.
+  assert.equal((await call(`/stripe/${run.id}/account`)).status, 403);
+  for (const action of ["callback", "recovery"])
+    assert.equal((await call(`/stripe/${run.id}/${action}`)).status, 404);
+
+  // Another person, even with the executor capability, is refused.
+  f.session.actor = { ...f.actor, subjectId: "mallory" };
+  assert.equal((await call(path)).status, 403);
+  // An agent cannot use the person's page at all.
+  f.session.actor = { ...f.actor, actorKind: "agent" };
+  assert.equal((await call(path)).status, 403);
+  f.session.actor = f.actor;
+
+  f.authorized.length = 0;
+  // The person follows the hand-off's own path.
+  const page = await call(
+    outcome.handoff!.path!.slice("/api/v1/teaching".length),
+  );
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.ok(html.includes("https://dashboard.stripe.com/register"));
+  // The host authorized the page under the Stripe step's own view.
+  assert.deepEqual(f.authorized, [
+    { operationId: "stripe.human", provider: "stripe", scope: "stripe" },
+  ]);
+  const ticket = /ticket:"([a-f0-9-]+)"/.exec(html)?.[1];
+  assert.ok(ticket);
+  assert.equal((await call(path, { ticket, accountReady: true })).status, 200);
+  assert.deepEqual(
+    (await f.runtime.commands.snapshot(f.actor, run.id)).nodes.map((node) => [
+      node.id,
+      node.state,
+    ]),
+    [
+      ["account", "complete"],
+      ["credential", "awaiting-human"],
+      ["access", "pending"],
+    ],
+  );
+  assert.equal(
+    (await coordinator.turnOutcome(f.actor, run.id, "turn-2")).handoff?.path,
+    `/api/v1/teaching/stripe/${encodeURIComponent(run.id)}/human`,
+  );
+  const collector = await (await call(path)).text();
+  assert.ok(collector.includes('type="password"'));
+  const privateTicket = /ticket:"([a-f0-9-]+)"/.exec(collector)?.[1];
+  assert.ok(privateTicket);
+  const submitted = await call(path, { ticket: privateTicket, token: f.token });
+  assert.equal(submitted.status, 200);
+  const completed = await f.runtime.commands.snapshot(f.actor, run.id);
+  assert.equal(completed.status, "complete");
+  assert.ok(
+    completed.nodes.every(
+      (node) => node.verified && node.provider === "stripe",
+    ),
+  );
+  assert.equal(f.reads(), 1);
+  // Once no step waits, the page is gone.
+  assert.equal((await call(path)).status, 403);
+  for (const kind of ["event", "demonstration", "audit", "outbox"] as const) {
+    const records = await f.store.transaction((tx) =>
+      tx.list(f.actor.tenantId, kind),
+    );
+    assert.ok(
+      !JSON.stringify(records).includes(f.token),
+      `${kind} must exclude the credential`,
+    );
+  }
 });
