@@ -13,7 +13,11 @@ import {
   type SessionReleaseResult,
   type SessionStatus,
 } from "../core/browser-session-contracts.js";
-import { recordingReferenceSchema } from "../core/recorded-ceremony.js";
+import {
+  recordingDescriptorTextSchema,
+  recordingReferenceSchema,
+} from "../core/recorded-ceremony.js";
+import { identifierSchema } from "../core/operation-contracts.js";
 import { AuthorizationError, requireCapability } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { LeaseConflict, SessionLost } from "./browser-sessions.js";
@@ -131,9 +135,11 @@ export const browserLoginToolInputs = {
   recordLogin: z.strictObject({
     connectorId: identifier,
     draft: clientDraftSchema.omit({ recording: true }),
+    // The recording format's own rules, asked here: a name it would refuse
+    // is a bad request, not a reason to lose the login it was recording.
     recording: z.strictObject({
-      id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$/),
-      title: z.string().min(1).max(120),
+      id: identifierSchema,
+      title: recordingDescriptorTextSchema,
     }),
     /**
      * A published recording to replay. Where the provider no longer matches

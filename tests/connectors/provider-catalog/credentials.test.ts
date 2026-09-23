@@ -310,6 +310,67 @@ test("Basic credentials fill the path template and go only in Authorization", as
   assert.ok(!JSON.stringify([view, result]).includes("pa55word"));
 });
 
+test("a provider that echoes a Basic credential back has it redacted", async (t) => {
+  const username = "ada.lovelace";
+  const password = "pa55word-echoed";
+  const encoded = Buffer.from(`${username}:${password}`).toString("base64");
+  const { harness, approved, connectionRef, provide } =
+    await collectedConnection(t, {
+      provider: {
+        display_name: "Local Board",
+        auth_mode: "BASIC",
+        proxy: { base_url: "API_ORIGIN/rest" },
+      },
+      accept: (headers) => headers["authorization"] === `Basic ${encoded}`,
+      destination: (origin) => `${origin}/rest`,
+      profileId: "basic",
+    });
+  const view = await provide({ username, password });
+  assert.equal((view as { lifecycle: string }).lifecycle, "active");
+  const echoed = await harness.service.invoke(harness.actor, connectionRef, {
+    operationRef: approved.operation("proxy.get"),
+    input: { path: "/echo" },
+    commandId: commandId(),
+  });
+  assert.equal(echoed.state, "complete");
+  assert.equal(
+    (echoed.output as { body: { authorization: string } }).body.authorization,
+    "Basic [redacted]",
+  );
+  for (const secret of [encoded, username, password])
+    assert.ok(!JSON.stringify(echoed).includes(secret));
+});
+
+test("an API key's placed value, prefix and all, is redacted when echoed", async (t) => {
+  const key = "prefixed-key-1234567890";
+  const { harness, approved, connectionRef, provide } =
+    await collectedConnection(t, {
+      provider: {
+        display_name: "Local Mail",
+        auth_mode: "API_KEY",
+        proxy: {
+          base_url: "API_ORIGIN/v3",
+          headers: { "X-Api-Key": "Token ${apiKey}" },
+        },
+      },
+      accept: (headers) => headers["x-api-key"] === `Token ${key}`,
+      destination: (origin) => `${origin}/v3`,
+      profileId: "api-key",
+    });
+  const view = await provide({ apiKey: key });
+  assert.equal((view as { lifecycle: string }).lifecycle, "active");
+  const echoed = await harness.service.invoke(harness.actor, connectionRef, {
+    operationRef: approved.operation("proxy.get"),
+    input: { path: "/echo" },
+    commandId: commandId(),
+  });
+  assert.equal(echoed.state, "complete");
+  assert.equal(
+    (echoed.output as { body: { apiKey: string } }).body.apiKey,
+    "[redacted]",
+  );
+});
+
 test("a provider that needs no credential connects and proxies without one", async (t) => {
   const api = await startProviderApi(t, {
     accept: (headers) => headers["authorization"] === undefined,

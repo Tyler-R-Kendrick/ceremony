@@ -22,6 +22,7 @@ import {
   beginAuthorization,
 } from "../src/server/authored-oauth.js";
 import { readAuthoredApp } from "../src/server/authored-app.js";
+import { installedDiscovery } from "../src/server/authored-operations.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 
 /*
@@ -213,6 +214,14 @@ async function confidentialFixture(
     }
     if (url.pathname === "/userinfo")
       return Response.json({ sub: "subject-1", preferred_username: "owner" });
+    // Published metadata knows the endpoints, never the author's client settings.
+    if (url.pathname === "/.well-known/oauth-authorization-server")
+      return Response.json({
+        issuer: provider,
+        authorization_endpoint: `${provider}/authorize`,
+        token_endpoint: `${provider}/token`,
+        code_challenge_methods_supported: ["S256"],
+      });
     return new Response("", { status: 404 });
   };
   const registry = new OperationRegistry(authoredVocabulary);
@@ -388,4 +397,19 @@ test("a confidential client without its secret never falls back to a public toke
   const snapshot = await f.commands.snapshot(actor, f.run.id);
   assert.equal(snapshot.nodes[0]?.state, "awaiting-human");
   assert.equal(f.tokenRequests.length, 0);
+});
+
+test("a native discovery refresh keeps the author's declared client settings", async (t) => {
+  const f = await confidentialFixture("client_secret_post");
+  t.after(() => f.store.close());
+  // Asking for the native flow re-reads the provider's published metadata.
+  const page = await (await f.human(undefined, "?flow=oauth-code")).text();
+  assert.match(page, /name="client_secret"/);
+  const saved = await installedDiscovery(f.store, actor, "novel");
+  assert.equal(saved?.authorizationEndpoint, `${provider}/authorize`);
+  assert.equal(saved?.clientId, "confidential-client");
+  assert.equal(saved?.tokenEndpointAuthMethod, "client_secret_post");
+  assert.deepEqual(saved?.authorizationParams, {
+    audience: "https://api.provider.example",
+  });
 });

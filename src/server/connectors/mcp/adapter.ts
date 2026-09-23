@@ -923,10 +923,18 @@ async function invokeInternal(
         output: payloadOf(outcome.payload),
       });
     case "authorization-required":
+      // A 403 is the server refusing this operation to a token it accepted
+      // (`insufficient_scope`, or plain permission). A renewed token carries
+      // the same grant, so it is a denial to report, not a token to renew.
       return finish("not-applied", {
         ...base,
         state: "denied",
-        code: "authorization-required",
+        code:
+          outcome.challenge.status !== 403
+            ? "authorization-required"
+            : outcome.challenge.error === "insufficient_scope"
+              ? "mcp.scope.insufficient"
+              : "mcp.permission-denied",
       });
     case "indeterminate":
       return finish("indeterminate", {
