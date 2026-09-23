@@ -65,16 +65,51 @@ These are documented decisions, not bugs. Each one narrows the platform goal and
 
 ## Changes made with this review
 
-_Filled in below once each change is verified._
+Every change below carries its own tests, and none is a live-provider certification. Evidence is local: protocol fixtures, the self-hosted [auth scenario doubles](auth-scenario-doubles.md), and real Chromium.
+
+| Capability                               | Now                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI records a new ceremony                | **Yes.** `browser_record_login` drives a login on a service the code has never seen and compiles a value-free [recorded ceremony](recorded-ceremonies.md): page matches, element fingerprints and roles, never values. A person reviews and publishes it, and `browser_login` then replays it with zero model calls. On drift it stops with a precise reason; a repair is saved only as a new draft.                                         |
+| AI authors and composes over MCP         | **Yes.** Authoring, demonstrations, draft compile/import/edit, recipe preview/compose/execute and Arazzo import are MCP tools gated by role (`mcp-teaching.ts`). Review, publish and retire stay human-only. Authoring `compose` now produces a runnable recipe.                                                                                                                                                                             |
+| Chain across providers / reusable steps  | **Yes.** A recipe invocation can name a `connector`, and each step is admitted and authorized in its own connector context. Values cross providers only through vocabulary declared `crossProvider`, such as `common.oauth-client`. Provider-neutral steps (`registerNeutral`), including inbox provisioning and verification, join any run. Arazzo success criteria and bounded retries are enforced at run time.                           |
+| Execute remotely (managed OAuth → proxy) | **Yes, for imported and catalog connectors.** The generic OAuth engine backs the OpenAPI, catalog and remote-MCP adapters: authorization code with PKCE, OIDC, device, client credentials, and key/Basic/bearer through private input. Refresh on expiry or 401 is single-flight, RFC 7009 revocation is opt-in, and dynamic client registrations are durable. Agents call through `connector_invoke`, with secrets injected inside custody. |
+| Execute through browser use              | **Yes.** An RFC 6238 TOTP code is generated from a held seed, and both seed and code are redacted. Any CDP endpoint can serve as a remote browser, behind the same egress-proxy rule. `browser_*` tools are wired in the reference host, and a verified session can be reused (opt-in). The model-free interpreter now finishes every registration scenario in the catalog, including recovering from a taken address.                       |
+| Nango-style provider catalog as data     | **Yes.** A [provider catalog](provider-catalog.md) schema plus a Nango `providers.yaml` importer feed one `catalog-http` adapter. The manifest's endpoint ban is replaced by _declared endpoints, approved at binding review_.                                                                                                                                                                                                               |
+| Hosted platform                          | **Yes.** The tenant comes from an OIDC claim and roles from a claims mapping. The connector runtime, connector MCP tools and signed webhooks are mounted. A provider registry replaces the provider-name ternaries, and GitHub is optional.                                                                                                                                                                                                  |
+| Server agent                             | **Yes.** A native Anthropic provider is added. The agent gets `snapshot` and `request_human` tools, a structured handoff at human waits, and distinct `denied`, `invalid`, `conflict` and `transient` error codes. Agents can call `connector_verify` and `connector_revoke_request`; the latter only queues a request a person must approve.                                                                                                |
+
+Bugs found and fixed along the way, each with a regression test:
+
+- One author's install could overwrite another's.
+- Connector intents were hidden when only `connectorIntents` was configured.
+- Requesting an account on a non-GitHub connector produced a run that was always denied.
+- Composed projects failed with duplicate method IDs.
+- OAuth handoffs were completed twice.
+- The device-flow `slow_down` interval was lost between polls.
+- The durable journal refused a repeated read whose result changed. The same bug affected device polling and two provider adapters.
+- Webhook deliveries to `/events/<authority>/<subscription>` were rejected with 403.
+- Strict authoring results refused discovery reports that carried extra fields.
+
+The decisions in _Self-imposed limits_ were resolved as follows:
+
+- **Resolved:**
+  - 1: declared endpoints are now approved at binding review.
+  - 4 and 5: the hosted runtime is multi-tenant and mounts the connector runtime.
+  - 7: model access (native Anthropic provider and the new agent tools).
+- **Still open:**
+  - 2: operation packs.
+  - 3: support labels derived from evidence.
+  - 6: package publication and other-language SDKs.
+
+Demonstration videos of these flows, led by account registration, are added in a follow-up change.
 
 ## Remaining roadmap
 
-Ordered by leverage toward the stated goal:
+Items 1 and 3 to 7 of the original roadmap are delivered above; item 2 (the catalog) is delivered, and its decision is taken. What remains, by leverage:
 
-1. **A replayable recorded-ceremony artifact.** Extend `CeremonyPlan` with value-free step actions (URL pattern, element role/fingerprint, success check). Emit them from the login driver while it runs, then replay without a model and fall back to the interpreter only on drift. This is what "the AI records a new ceremony" should mean for providers without an API.
-2. **A data-driven provider catalog** with a Nango `providers.yaml` importer feeding a generic `catalog-http` adapter. This depends on decision 1 above.
-3. **Per-node run context** so a single run can span providers, with each leaf authorized against its own connector context (for example, create an OAuth app at provider A, then use its client at provider B).
-4. **Mount connectors, webhooks and the connector MCP tools in the hosted runtime**, and map tenant from an OIDC claim.
-5. **Converge the two browser subsystems** on the login driver. Add session reuse, a durable cross-process human handoff, and a generic live-view handoff that is not GitHub-specific.
-6. **Human handoff as an agent tool.** Return a person-bound URL or use MCP URL elicitation instead of ending at `awaiting-human`. Add `connector_verify` and a revocation _request_ that queues human approval.
-7. **Wire Arazzo end to end**, or narrow its specification claims.
+1. **Operation packs.** Let third parties add new step types without a rebuild: a signed, host-loaded manifest plus a sandboxed handler.
+2. **Derive support labels from evidence**, not adapter family, so a configured and exercised catalog or OpenAPI connector can be labelled beyond `fixture`.
+3. **Converge the two browser subsystems** on the login driver: popups in the authorization executor, a durable cross-process human handoff, and a generic live-view handoff.
+4. **Automatic composition across providers.** `compose` and demonstration compilation still produce single-connector recipes; an author names connectors in the draft.
+5. **Publish the package and generate an OpenAPI description** of `/api/v1/connectors` for SDKs in other languages.
+6. **Live, attended certification** of the registration, stitched and catalog flows against real providers. Everything above is local evidence.
