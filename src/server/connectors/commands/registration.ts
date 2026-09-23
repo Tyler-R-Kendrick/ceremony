@@ -6,10 +6,11 @@ import {
   type ConnectorManifest,
   type Field,
 } from "../../../core/schema.js";
-import type {
-  AuthenticationProfile,
-  NormalizedDefinition,
-  OwnerKind,
+import {
+  isLiveSupportLabel,
+  type AuthenticationProfile,
+  type NormalizedDefinition,
+  type OwnerKind,
 } from "../../../core/connectors/index.js";
 import {
   CeremonyError,
@@ -155,8 +156,19 @@ export function createConnectorRegistration(
     throw new ConnectorError("unsupported", {
       detail: "manifest.no-executable-method",
     });
+  // A fixture-family adapter (the generic OpenAPI and catalog adapters)
+  // registers as a live adapter only when its dated evidence earns a live
+  // label; the family alone keeps it `fixture`, as the manifest profile
+  // requires. The owner's configuration is unknown here, so an adapter that
+  // needs configuration is judged without it: live evidence it cannot
+  // present does not count.
+  const configured = adapter.configuration.every((item) => !item.required);
+  const live = isLiveSupportLabel(
+    service.support.label(adapter.id, configured),
+  );
   const manifest: ConnectorManifest = manifestSchema.parse({
-    support: adapter.support === "fixture" ? "fixture" : "live-adapter",
+    support:
+      adapter.support === "fixture" && !live ? "fixture" : "live-adapter",
     id: options.connectorId,
     name: (options.name ?? options.definition.display.name).slice(0, 100),
     description: (

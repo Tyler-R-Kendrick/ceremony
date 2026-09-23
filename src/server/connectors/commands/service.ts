@@ -19,6 +19,7 @@ import {
   type HumanPresentation,
   type NormalizedDefinition,
   type SourceRecord,
+  type SupportLabel,
   type VerificationClaim,
 } from "../../../core/connectors/index.js";
 import {
@@ -57,6 +58,11 @@ import {
 } from "../auth/policy.js";
 import { ConnectorError } from "../errors.js";
 import { catalogFor } from "../inventory.js";
+import {
+  createSupportLabeler,
+  type SupportLabeler,
+  type SupportLabelOptions,
+} from "../support.js";
 import type {
   Clock,
   ConfigurationPort,
@@ -179,6 +185,12 @@ export interface ConnectorCommandServiceOptions {
   configure?: ConfigurationWriter;
   /** Upper bound on any adapter call, including the provider round trips inside it. */
   callTimeoutMs?: number;
+  /**
+   * Evidence-derived support labels: extra dated entries (a host's own live
+   * runs or attended certifications) and the opt-in production minimum.
+   * Absent means the recorded entries are shown and nothing is gated.
+   */
+  support?: SupportLabelOptions;
 }
 
 export const CONNECTOR_CALLBACK_PATH = "/api/v1/connectors/callback";
@@ -370,6 +382,7 @@ export class ConnectorCommandService {
   private readonly now: Clock;
   private readonly random: RandomPort;
   private readonly callTimeoutMs: number;
+  readonly support: SupportLabeler;
 
   constructor(private readonly options: ConnectorCommandServiceOptions) {
     const origin = new URL(options.origin);
@@ -385,6 +398,42 @@ export class ConnectorCommandService {
       uuid: () => randomUUID(),
     };
     this.callTimeoutMs = options.callTimeoutMs ?? 30_000;
+    this.support = createSupportLabeler({
+      ...options.support,
+      now: this.now,
+    });
+  }
+
+  /** Whether every configuration name the adapter requires is present for this actor. */
+  private async configured(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+  ): Promise<boolean> {
+    const required = adapter.configuration
+      .filter((item) => item.required)
+      .map((item) => item.name);
+    if (required.length === 0) return true;
+    const present = await this.options.configuration(actor).present(required);
+    return required.every((name) => present.has(name));
+  }
+
+  /**
+   * The host's opt-in production minimum, rechecked at approval, connect and
+   * invoke because evidence expires between them. Off by default, and it
+   * reads configuration only when a minimum is set.
+   */
+  private async requireSupport(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+    destinations: RuntimeBinding["destinations"],
+  ): Promise<void> {
+    if (!this.support.minimumForProduction) return;
+    if (!this.support.isProduction(destinations)) return;
+    this.support.require(
+      adapter.id,
+      destinations,
+      await this.configured(actor, adapter),
+    );
   }
 
   /** The exact callback URL adapters must register; built from the origin, never from input. */
@@ -595,6 +644,7 @@ export class ConnectorCommandService {
     return catalogFor(
       this.registry,
       (adapter) => presence.get(adapter.id) ?? new Set(),
+      (adapterId, configured) => this.support.label(adapterId, configured),
     );
   }
 
@@ -920,6 +970,7 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
+    await this.requireSupport(actor, adapter, destinations);
     const reviewed = await this.reviewInputs(
       actor,
       adapter,
@@ -1335,6 +1386,7 @@ export class ConnectorCommandService {
       binding.definitionRef,
     );
     await this.authorize(actor, { kind: "binding", binding }, "connect");
+    await this.requireSupport(actor, adapter, binding.destinations);
     if (input.durable)
       await this.authorize(
         actor,
@@ -2056,6 +2108,29 @@ export class ConnectorCommandService {
     );
   }
 
+  /**
+   * The support label of the adapter behind one of the actor's connections,
+   * as the status tools show it. Ownership is the store's, exactly as for
+   * `status`; the label is computed now, against this actor's configuration.
+   */
+  async connectionSupportLabel(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<SupportLabel> {
+    requireCapability(actor, "executor");
+    const entry = await this.connection(actor, connectionRef);
+    const binding = await this.binding(
+      actor.tenantId,
+      entry.record.bindingRef,
+      entry.record.bindingRevision,
+    );
+    const adapter = this.adapterFor(binding);
+    return this.support.label(
+      adapter.id,
+      await this.configured(actor, adapter),
+    );
+  }
+
   async listConnections(
     actor: ActorContext,
     filter?: Parameters<ConnectionStorePort["list"]>[1],
@@ -2166,6 +2241,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "invoke",
     );
+    await this.requireSupport(actor, adapter, binding.destinations);
     const operation = boundOperation(binding, input.operationRef);
     if (!operation)
       throw new ConnectorError("denied", { detail: "operation.unapproved" });
