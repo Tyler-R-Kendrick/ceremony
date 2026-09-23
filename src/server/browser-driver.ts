@@ -572,6 +572,20 @@ export async function runCeremony(
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
       if (!value || value.length > 4096 || (secret && value.length < 8)) return;
+      // A value this attempt already holds is not one the provider issued.
+      // A field the driver filled with a password and the page then made
+      // read-only would otherwise read back as a "client secret" and send the
+      // password to the plan's sink. Checked before this read's own value is
+      // guarded, so a secret is compared only with what came before it.
+      if (
+        guarded.some(
+          (held) =>
+            held.length >= 4 &&
+            (value.includes(held) ||
+              (value.length >= 4 && held.includes(value))),
+        )
+      )
+        return;
       issued.set(kind, value);
       if (secret && !guarded.includes(value)) guarded.push(value);
     }

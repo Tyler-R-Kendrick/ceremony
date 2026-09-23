@@ -3765,3 +3765,69 @@ test("the interpreter prompt offers choosing, names the plan's choices and kept 
     /keeps what these read-only fields show/,
   );
 });
+
+test("ISSUED-HELD: a value the attempt typed or holds is never kept as an issued one", async () => {
+  // The password went into a field labelled "Client secret", which the page
+  // then made read-only. Reading it back must not send the password to the
+  // plan's sink as though the provider had issued it.
+  const password = "pw-typed-then-shown-5c1c";
+  for (const held of [{ protectedValues: [password] }, {}]) {
+    let typed = false;
+    const page: CeremonyPage & { calls: string[] } = {
+      ...inertPage("https://provider.example/settings/apps/1"),
+      snapshot: async () =>
+        snapshot({
+          path: "https://provider.example/settings/apps/1",
+          title: "Example app",
+          headings: ["Example app"],
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "text",
+              label: "Client ID",
+              readOnly: true,
+              filled: true,
+            },
+            {
+              index: 1,
+              kind: "input",
+              type: "password",
+              label: "Client secret",
+              ...(typed ? { readOnly: true, filled: true } : {}),
+            },
+          ],
+        }),
+      fill: async () => {
+        typed = true;
+      },
+      readIssued: async (element) =>
+        element.label === "Client ID"
+          ? "oac_client-held-1"
+          : typed
+            ? password
+            : undefined,
+    };
+    const kept: unknown[] = [];
+    const result = await runCeremony({
+      page,
+      goal: "obtain-credential",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({ password }),
+      ...held,
+      interpreter: async ({ snapshot: current }) =>
+        current.elements[1]?.filled
+          ? { action: "done" }
+          : { action: "fill", element: 1, role: "password" },
+      issued: {
+        fields: issuedFields,
+        keep: async (values) => {
+          kept.push(values);
+        },
+      },
+      verify: async () => true,
+    });
+    assert.deepEqual(kept, [], JSON.stringify(held));
+    assert.equal(result.status, "unverified");
+  }
+});
