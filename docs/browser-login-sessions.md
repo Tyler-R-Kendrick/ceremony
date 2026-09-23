@@ -247,6 +247,60 @@ provider that checks the code, and covers both leak cases. The isolated
 authorization executor used by authored connectors does not read seeds yet; its
 code-entry path is still the agent inbox or a person.
 
+### Keeping a value the provider issues
+
+Some logins exist to take something away: an OAuth client's ID and secret from
+the provider's developer settings, shown once after "Generate a new client
+secret". A draft declares that in `issued`:
+
+```json
+{
+  "sink": "oauth-client",
+  "fields": [
+    { "kind": "client-id", "label": "Client ID" },
+    { "kind": "client-secret", "label": "Client secret" }
+  ]
+}
+```
+
+Each field is named by the **exact label** of the read-only input that shows
+it, and each kind (`client-id`, `client-secret`) appears once, under one label;
+an unknown kind, a repeated label or kind, more fields than kinds, a label
+shaped like a value, or an `oauth-client` sink without a `client-id` is refused
+by the schema. The declaration is compiled into the plan and its digest.
+
+`sink` is a **kind the host registered**, never a callback: `oauth-client`
+(the host mints a run-bound `common.oauth-client` handle with
+`mintOAuthClient`, keyed by the login's `runRef`) or `credential-custody` (the
+host writes into its private collector). The host passes the functions as
+`issuedSinks` to `createHostBrowserLogin`; a plan naming a kind it did not
+register is `plan-rejected` / `issued-sink-unavailable`, and the service
+refuses one it was not given before a browser starts.
+
+The driver, not the interpreter, reads the fields - all of them from one page
+or none - and hands them to the sink once. A secret is guarded from that moment
+like a typed password. The interpreter is told the labels (so it leaves them,
+and any "Generate" button beside them, alone) and never whether anything was
+read. A plan that keeps issued values drives with the goal `obtain-credential`
+and ends `blocked` / `issued-value-missing` if the values were not all kept,
+however signed in the browser is. The values are never in the result, a step,
+a stored record or a recording; the recording carries the declaration, so a
+reviewer sees what a replay keeps. `ISSUED-SERVICE` in
+`tests/browser-login-service.test.ts` runs this through the host against the
+auth double's developer settings and sweeps every surface for both values.
+
+### Choices
+
+A draft may name options for required `<select>` controls in `choices`, by the
+field's exact label: `{ "Country or region": "Canada" }`. Both sides are page
+text held to the page-label rule (no addresses, long digit runs or tokens), at
+most eight entries, and part of the digest. The driver's `select` action
+chooses an option by its **visible label**, only one the observation listed,
+and only the plan's option where the plan named one; the adapter revalidates
+the control exactly as it does for `fill`. A secret role is never filled into a
+select. A required choice the plan did not make is not guessed: it is handed to
+a person (`choice`), or ends `choice-required`.
+
 ## Handoffs
 
 A handoff identifies the **attempt**, not the run. Keying a wait by run alone let
@@ -263,7 +317,20 @@ which returns the `HumanParticipation` for that actor and compiled plan (or
 nothing, to decline). With one, a challenge, passkey or native dialog within the
 plan's `interactionRounds` pauses the same attempt in the same browser and
 resumes it after the person answers. Without one, the login ends
-`requires-human`. The reference host configures none: its managed browsers are
+`requires-human`.
+
+Two more reasons come from what the plan was _not_ given. On an RFC 8628
+**device verification page** (recognised by `deviceVerificationField`: the
+page's own wording, such as "Connect a device" or "Enter the code displayed on
+your device", or a field named `user_code`) the agent types the user code only
+when the plan supplied a `user-code` role; the device code never reaches a
+page. Without it the request's reason is `device-code` and its `path` is the
+verification URI - origin and pathname, so the code a
+`verification_uri_complete` query carries is not in it - and a person holding
+the device enters the code there. An unmade required choice is `choice`. The
+interpreter only reports these walls; the driver checks the page really is one
+before asking anybody. With nobody to ask they end as `requires-human` with
+`device-code` or `choice`. The reference host configures none: its managed browsers are
 headless on the server, with no surface a person could act in.
 
 ## Enabling it in a host
