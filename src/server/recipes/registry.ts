@@ -24,10 +24,26 @@ export type OperationContext = {
   /** Server-issued execution lease; absent during pure verification and human collection. Never a tool argument. */
   fence?: Fence;
 };
+/**
+ * Public facts about the exchange a handler performed, reported by the
+ * handler itself so a recipe's success criteria can read `$statusCode`,
+ * `$url`, `$method` and `$response.header.<name>`. The handler decides what
+ * is public: it reports only headers it knows carry no secret, and a URL
+ * without credentials or tokens. The command service evaluates criteria
+ * against these and then discards them; they are never stored, returned or
+ * recorded.
+ */
+export type OperationResponseFacts = {
+  statusCode?: number;
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+};
 export type OperationResult = {
   state: "complete" | "awaiting-human" | "verifying" | "uncertain" | "failed";
   outputs: Record<string, unknown>;
   diagnosticCode?: z.infer<typeof diagnosticCodeSchema>;
+  response?: OperationResponseFacts;
 };
 export type RegisteredOperation = {
   contract: OperationContract;
@@ -40,12 +56,25 @@ export type RegisteredOperation = {
   ): Promise<OperationResult>;
   verify?(context: OperationContext, result: OperationResult): Promise<boolean>;
   fixtures: readonly string[];
+  /**
+   * The host's evidence that running the handler again after a completed or
+   * failed attempt cannot duplicate an external effect. A recipe may declare
+   * a retry only for an operation that carries it. Absent means no retry.
+   */
+  replay?: "read-only" | "upstream-idempotency-key" | "reconciliation";
 };
 export type VocabularyEntry = {
   schema: z.ZodType;
   classification: FieldClassification;
   provider?: string;
   profile?: string;
+  /**
+   * A value of this contract may flow from a step run under one connector's
+   * authorization context into a step run under another's (an OAuth client
+   * handle minted at one provider and used at a second, for instance).
+   * Everything else stays inside the context that produced it.
+   */
+  crossProvider?: boolean;
 };
 
 /**

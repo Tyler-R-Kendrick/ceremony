@@ -6,8 +6,10 @@ import {
   type Binding,
   type RecipeDefinition,
   type RecipeInvocation,
+  type RecipeOutcome,
   RECIPE_LIMITS,
 } from "../../core/recipe-contracts.js";
+import { checkOutcomeConditions } from "./outcome.js";
 import {
   demonstrationEventSchema,
   type DemonstrationEvent,
@@ -102,11 +104,76 @@ export async function validateRecipe(
           input.contract
         )
           fail("incompatible-output", id);
+        // One provider's artifact never becomes another provider's input
+        // unless its contract is declared shareable.
+        else if (
+          producerOperation &&
+          producerOperation.contract.provider !== operation.contract.provider &&
+          !vocabulary?.crossProvider
+        )
+          fail("cross-provider-binding", id);
       }
     }
     for (const name of Object.keys(bindings))
       if (!Object.hasOwn(operation.contract.inputs, name))
         fail("unknown-operation-input", id);
+  }
+  /** Criteria read only public values; a retry needs the host's replay evidence. */
+  function validateOutcome(
+    operation: RegisteredOperation,
+    outcome: RecipeOutcome,
+    id: string,
+  ) {
+    if (outcome.retry && !operation.replay) fail("retry-not-replay-safe", id);
+    for (const code of checkOutcomeConditions(outcome)) fail(code, id);
+    for (const binding of Object.values(outcome.values)) {
+      if (binding.from === "literal") continue;
+      let contract: string | undefined;
+      if (binding.from === "input")
+        contract = recipe.inputs[binding.name]?.contract;
+      else if (binding.node === id)
+        contract = operation.contract.outputs[binding.name]?.contract;
+      else {
+        const producer = leaves.find((leaf) => leaf.id === binding.node);
+        contract =
+          producer?.use.kind === "operation"
+            ? registry.get(producer.use.id, producer.use.version)?.contract
+                .outputs[binding.name]?.contract
+            : undefined;
+      }
+      const vocabulary = contract
+        ? registry.vocabulary.get(contract)
+        : undefined;
+      if (!vocabulary) fail("missing-output", id);
+      else if (vocabulary.classification !== "public")
+        fail("private-criterion-value", id);
+    }
+  }
+  /** Rebind an outcome's values from the declaring recipe's names to plan names. */
+  function expandOutcome(
+    outcome: RecipeOutcome,
+    self: string,
+    id: string,
+    inputs: Record<string, Binding>,
+    outputs: Map<string, Record<string, { node: string; name: string }>>,
+  ): RecipeOutcome {
+    const values: Record<string, Binding> = {};
+    for (const [key, binding] of Object.entries(outcome.values)) {
+      if (binding.from === "input") {
+        const input = inputs[binding.name];
+        if (input) values[key] = input;
+        else fail("unbound-input", id);
+      } else if (binding.from === "output") {
+        if (binding.node === self)
+          values[key] = { from: "output", node: id, name: binding.name };
+        else {
+          const producer = outputs.get(binding.node)?.[binding.name];
+          if (producer) values[key] = { from: "output", ...producer };
+          else fail("missing-output", id);
+        }
+      } else values[key] = binding;
+    }
+    return { ...outcome, values };
   }
   async function expand(
     current: RecipeDefinition,
@@ -114,6 +181,7 @@ export async function validateRecipe(
     inputs: Record<string, Binding>,
     depth: number,
     inherited: string[] = [],
+    connector?: string,
   ): Promise<Record<string, { node: string; name: string }>> {
     if (depth > RECIPE_LIMITS.depth) {
       fail("recipe-depth-limit");
@@ -191,7 +259,14 @@ export async function validateRecipe(
           const firstLeaf = leaves.length;
           outputs.set(
             node.id,
-            await expand(child, `${id}.`, bindings, depth + 1, predecessors),
+            await expand(
+              child,
+              `${id}.`,
+              bindings,
+              depth + 1,
+              predecessors,
+              node.connector ?? connector,
+            ),
           );
           completionNodes.set(
             node.id,
@@ -217,7 +292,19 @@ export async function validateRecipe(
         }
         validateOperationInputs(operation, bindings, id);
         const dependsOn = predecessors;
-        leaves.push({ id, use: node.use, dependsOn, bindings });
+        const outcome = node.outcome
+          ? expandOutcome(node.outcome, node.id, id, inputs, outputs)
+          : undefined;
+        if (outcome) validateOutcome(operation, outcome, id);
+        const leafConnector = node.connector ?? connector;
+        leaves.push({
+          id,
+          use: node.use,
+          dependsOn,
+          bindings,
+          ...(leafConnector ? { connector: leafConnector } : {}),
+          ...(outcome ? { outcome } : {}),
+        });
         completionNodes.set(node.id, [id]);
         outputs.set(
           node.id,

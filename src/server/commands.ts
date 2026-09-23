@@ -5,7 +5,7 @@ import {
   type CommandEnvelope,
 } from "../core/teaching-contracts.js";
 import type { ActorContext } from "../core/operation-contracts.js";
-import type { Binding } from "../core/recipe-contracts.js";
+import type { Binding, RecipeOutcome } from "../core/recipe-contracts.js";
 import {
   type AsyncCeremonyStore,
   type AsyncTransaction,
@@ -18,6 +18,7 @@ import {
   type OperationResult,
   type RegisteredOperation,
 } from "./recipes/registry.js";
+import { evaluateOutcome } from "./recipes/outcome.js";
 import { appendSemanticTransition } from "./demonstrations.js";
 
 export type RunPlanNode = {
@@ -26,6 +27,14 @@ export type RunPlanNode = {
   operationVersion: string;
   dependsOn: string[];
   bindings: Record<string, Binding>;
+  /**
+   * The authorization context of a step that runs under a different
+   * connector than the run's own, resolved by the host for this actor when
+   * the run was planned. Absent means the run's context.
+   */
+  context?: NodeContext;
+  /** Success criteria and bounded retry, from the recipe invocation. */
+  outcome?: RecipeOutcome;
 };
 export type RunContext = {
   provider: string;
@@ -35,6 +44,7 @@ export type RunContext = {
   environment: string;
   configurationVersion: string;
 };
+export type NodeContext = RunContext & { connectorId: string };
 export type RunRecord = RunContext & {
   id: string;
   subjectId: string;
@@ -43,13 +53,56 @@ export type RunRecord = RunContext & {
   nodes: RunPlanNode[];
   inputs: Record<string, unknown>;
   continuation?: string;
+  /**
+   * Present only on the view a host's authorization check receives for a step
+   * with its own context: the run's context fields are that step's, and this
+   * names the step and its connector. Never stored.
+   */
+  scope?: { nodeId: string; connectorId: string };
 };
 type NodeRecord = {
   state: OperationResult["state"];
   verified: boolean;
   outputs: Record<string, unknown>;
   diagnosticCode?: "verification-rejected";
+  /** Failed attempts of a step with an outcome. */
+  attempts?: number;
+  /** Earliest time the next attempt may start, when a retry is allowed. */
+  retryAt?: number;
+  /** A step with an outcome that failed and may not be attempted again. */
+  exhausted?: boolean;
 };
+const contextFields = [
+  "provider",
+  "profile",
+  "target",
+  "origin",
+  "environment",
+  "configurationVersion",
+] as const;
+function contextOf(run: RunRecord, node: RunPlanNode | undefined): RunContext {
+  const source = node?.context ?? run;
+  return Object.fromEntries(
+    contextFields.map((name) => [name, source[name]]),
+  ) as RunContext;
+}
+/**
+ * The run as a step's authorization sees it: a step planned under another
+ * connector is checked against that connector's context, never the run's.
+ */
+export function scopedRun(
+  run: RunRecord,
+  node: RunPlanNode | undefined,
+): RunRecord {
+  if (!node?.context) return run;
+  return {
+    ...run,
+    ...contextOf(run, node),
+    scope: { nodeId: node.id, connectorId: node.context.connectorId },
+  };
+}
+const sameContext = (a: RunContext, b: RunContext) =>
+  contextFields.every((name) => a[name] === b[name]);
 type CommandRecord = {
   digest: string;
   runId: string;
@@ -152,13 +205,37 @@ export class ProtectedCommandService {
       new Set(nodes.map((n) => n.id)).size !== nodes.length
     )
       throw new AuthorizationError("invalid_request");
-    const prior = new Set<string>();
+    const prior = new Map<string, RunPlanNode>();
     for (const node of nodes) {
-      this.registry.require(node.operationId, node.operationVersion);
+      const operation = this.registry.require(
+        node.operationId,
+        node.operationVersion,
+      );
+      // Each step is admitted against its own context: a step planned under
+      // another connector must belong to that connector's provider/profile.
+      const own = node.context ?? context;
       if (
-        !this.admits(context, node.operationId, node.operationVersion) ||
+        !this.admits(own, node.operationId, node.operationVersion) ||
         node.dependsOn.some((id) => !prior.has(id))
       )
+        throw new AuthorizationError("denied");
+      // An artifact crosses from one connector's context into another's only
+      // when its contract is declared shareable; checked again at execution.
+      for (const binding of [
+        ...Object.values(node.bindings),
+        ...Object.values(node.outcome?.values ?? {}),
+      ]) {
+        if (binding.from !== "output" || binding.node === node.id) continue;
+        const producer = prior.get(binding.node);
+        if (
+          producer &&
+          !sameContext(producer.context ?? context, own) &&
+          !this.shareable(producer, binding.name)
+        )
+          throw new AuthorizationError("denied");
+      }
+      // A retry repeats the handler: only the host's replay evidence allows it.
+      if (node.outcome?.retry && !operation.replay)
         throw new AuthorizationError("denied");
       commandEnvelopeSchema.parse({
         commandId: "validate",
@@ -169,7 +246,7 @@ export class ProtectedCommandService {
         expectedRevision: 0,
         bindings: node.bindings,
       });
-      prior.add(node.id);
+      prior.set(node.id, node);
     }
     const run: RunRecord = {
       ...context,
@@ -183,6 +260,14 @@ export class ProtectedCommandService {
     };
     if (!(await this.reauthorize(actor, run, nodes[0]!.operationId)))
       throw new AuthorizationError("denied");
+    // Every step under another connector needs the host's consent for that
+    // connector's context before the run exists, not when it is reached.
+    for (const node of nodes)
+      if (
+        node.context &&
+        !(await this.reauthorize(actor, scopedRun(run, node), node.operationId))
+      )
+        throw new AuthorizationError("denied");
     await this.store.transaction((tx) =>
       tx.put(key(actor, "run", run.id), run, null),
     );
@@ -198,6 +283,16 @@ export class ProtectedCommandService {
       throw new AuthorizationError("denied");
     return run;
   }
+  /** Whether a producer's output may leave the producer's connector context. */
+  private shareable(producer: RunPlanNode, name: string): boolean {
+    const contract = this.registry.get(
+      producer.operationId,
+      producer.operationVersion,
+    )?.contract.outputs[name]?.contract;
+    return Boolean(
+      contract && this.registry.vocabulary.get(contract)?.crossProvider,
+    );
+  }
   async snapshot(actor: ActorContext, runId: string) {
     return this.store.transaction(async (tx) => {
       const run = await this.owned(tx, actor, runId);
@@ -212,6 +307,21 @@ export class ProtectedCommandService {
           operationVersion: node.operationVersion,
           state: state?.value.state ?? "pending",
           verified: state?.value.verified ?? false,
+          // A step under another connector says whose context it runs in.
+          ...(node.context
+            ? {
+                provider: node.context.provider,
+                profile: node.context.profile,
+              }
+            : {}),
+          ...(state?.value.retryAt !== undefined
+            ? {
+                retry: {
+                  attempts: state.value.attempts ?? 0,
+                  notBefore: state.value.retryAt,
+                },
+              }
+            : {}),
         });
       }
       return {
@@ -286,7 +396,7 @@ export class ProtectedCommandService {
         node.operationId,
         node.operationVersion,
       );
-      const run = initial.run.value;
+      const run = scopedRun(initial.run.value, node);
       if (!(await this.reauthorize(actor, run, node.operationId)))
         throw new AuthorizationError("denied");
       try {
@@ -326,7 +436,12 @@ export class ProtectedCommandService {
         throw new PersistenceConflict();
       for (const node of current.value.nodes) {
         if (
-          !(await this.reauthorize(actor, current.value, node.operationId, tx))
+          !(await this.reauthorize(
+            actor,
+            scopedRun(current.value, node),
+            node.operationId,
+            tx,
+          ))
         )
           throw new AuthorizationError("denied");
         if (!invalid.has(node.id)) continue;
@@ -392,6 +507,21 @@ export class ProtectedCommandService {
         throw new AuthorizationError("denied");
       outputs.set(dependency, complete.value.outputs);
     }
+    const own = contextOf(run, node);
+    const output = (producer: string, name: string) => {
+      const source = outputs.get(producer);
+      if (!source || !Object.hasOwn(source, name))
+        throw new AuthorizationError("denied");
+      // The plan was checked when the run was created; check the stored plan again.
+      const planned = run.nodes.find((candidate) => candidate.id === producer);
+      if (
+        !planned ||
+        (!sameContext(contextOf(run, planned), own) &&
+          !this.shareable(planned, name))
+      )
+        throw new AuthorizationError("denied");
+      return source[name];
+    };
     const values: Record<string, unknown> = {};
     for (const [name, binding] of Object.entries(node.bindings)) {
       if (!Object.hasOwn(operation.contract.inputs, name))
@@ -404,16 +534,26 @@ export class ProtectedCommandService {
         if (!Object.hasOwn(run.inputs, binding.name))
           throw new AuthorizationError("invalid_request");
         values[name] = run.inputs[binding.name];
-      } else {
-        const source = outputs.get(binding.node);
-        if (!source || !Object.hasOwn(source, binding.name))
-          throw new AuthorizationError("denied");
-        values[name] = source[binding.name];
-      }
+      } else values[name] = output(binding.node, binding.name);
     }
     const checked = operation.inputSchema.safeParse(values);
     if (!checked.success) throw new AuthorizationError("invalid_request");
-    return checked.data;
+    // Values a success criterion reads, except the step's own outputs, which
+    // exist only once the handler has run.
+    const outcome = new Map<string, unknown>();
+    const ownOutputs: Array<[key: string, name: string]> = [];
+    for (const [reference, binding] of Object.entries(
+      node.outcome?.values ?? {},
+    )) {
+      if (binding.from === "literal") outcome.set(reference, binding.value);
+      else if (binding.from === "input") {
+        if (Object.hasOwn(run.inputs, binding.name))
+          outcome.set(reference, run.inputs[binding.name]);
+      } else if (binding.node === node.id)
+        ownOutputs.push([reference, binding.name]);
+      else outcome.set(reference, output(binding.node, binding.name));
+    }
+    return { values: checked.data, outcome, ownOutputs };
   }
   async execute(
     actor: ActorContext,
@@ -425,7 +565,16 @@ export class ProtectedCommandService {
     const initial = await this.store.transaction((tx) =>
       this.owned(tx, actor, command.runId),
     );
-    if (!(await this.reauthorize(actor, initial.value, command.operationId)))
+    // A step planned under another connector is authorized in that context.
+    const step = (run: RunRecord) =>
+      run.nodes.find((candidate) => candidate.id === command.nodeId);
+    if (
+      !(await this.reauthorize(
+        actor,
+        scopedRun(initial.value, step(initial.value)),
+        command.operationId,
+      ))
+    )
       throw new AuthorizationError("denied");
     signal.throwIfAborted();
     const operation = this.registry.require(
@@ -435,20 +584,24 @@ export class ProtectedCommandService {
     const admission = await this.store.transaction(async (tx) => {
       const saved = await this.owned(tx, actor, command.runId);
       const run = saved.value;
-      if (!(await this.reauthorize(actor, run, command.operationId, tx)))
+      const planned = step(run);
+      if (
+        !(await this.reauthorize(
+          actor,
+          scopedRun(run, planned),
+          command.operationId,
+          tx,
+        ))
+      )
         throw new AuthorizationError("denied");
       const intent = digest({
         command,
         tenantId: actor.tenantId,
         subjectId: actor.subjectId,
-        context: {
-          provider: run.provider,
-          profile: run.profile,
-          target: run.target,
-          origin: run.origin,
-          environment: run.environment,
-          configurationVersion: run.configurationVersion,
-        },
+        context: contextOf(run, planned),
+        ...(planned?.context
+          ? { connectorId: planned.context.connectorId }
+          : {}),
       });
       const prior = await tx.get<CommandRecord>(
         key(actor, "command", command.commandId),
@@ -564,10 +717,25 @@ export class ProtectedCommandService {
       if (
         ownState?.value.state === "uncertain" ||
         ownState?.value.state === "complete" ||
-        ownState?.value.verified
+        ownState?.value.verified ||
+        ownState?.value.exhausted
       )
         throw new AuthorizationError("denied");
-      const values = await this.resolveInputs(tx, actor, run, node, operation);
+      // A declared retry is spaced: an attempt before its time is a conflict
+      // the caller resolves by reading the run again, not a new effect.
+      if (
+        ownState?.value.retryAt !== undefined &&
+        ownState.value.retryAt > (await tx.now())
+      )
+        throw new PersistenceConflict();
+      const resolved = await this.resolveInputs(
+        tx,
+        actor,
+        run,
+        node,
+        operation,
+      );
+      const values = resolved.values;
       // Non-public inputs can originate only in host-owned run bindings, never inline tool arguments.
       const fence = await tx.claim(
         key(actor, "run", run.id),
@@ -588,10 +756,21 @@ export class ProtectedCommandService {
         { commandId: command.commandId, intent, status: "intent-persisted" },
         null,
       );
-      return { run, node, values, fence, effectId, record };
+      return {
+        run,
+        node,
+        values,
+        outcome: resolved.outcome,
+        ownOutputs: resolved.ownOutputs,
+        fence,
+        effectId,
+        record,
+      };
     });
     if (admission.existing) return admission.existing;
-    const { run, node, values, fence, effectId } = admission;
+    const { run, node, values, fence, effectId, outcome, ownOutputs } =
+      admission;
+    const scoped = scopedRun(run, node);
     const context: OperationContext = {
       actor,
       fence,
@@ -599,20 +778,22 @@ export class ProtectedCommandService {
       nodeId: node.id,
       commandId: command.commandId,
       effectId,
-      provider: run.provider,
-      target: run.target,
-      configurationVersion: run.configurationVersion,
-      origin: run.origin,
-      environment: run.environment,
+      provider: scoped.provider,
+      target: scoped.target,
+      configurationVersion: scoped.configurationVersion,
+      origin: scoped.origin,
+      environment: scoped.environment,
       signal,
     };
     let result: OperationResult;
     let verified = false;
+    let response: OperationResult["response"];
     try {
-      if (!(await this.reauthorize(actor, run, command.operationId)))
+      if (!(await this.reauthorize(actor, scoped, command.operationId)))
         throw new AuthorizationError("denied");
       signal.throwIfAborted();
       result = await operation.handler(context, values);
+      response = result.response;
       if (result.state === "complete") {
         result.outputs = operation.outputSchema.parse(result.outputs);
         verified = Boolean(
@@ -629,14 +810,41 @@ export class ProtectedCommandService {
       // A transport exception is not evidence that an external effect did not happen.
       result = { state: "uncertain", outputs: {}, diagnosticCode: "uncertain" };
     }
-    if (!(await this.reauthorize(actor, run, command.operationId)))
+    // Success criteria: a verified attempt that misses them is a failed one.
+    // The reported transport facts are read here and then dropped.
+    let retryable = false;
+    if (
+      node.outcome &&
+      (result.state === "complete" || result.state === "failed")
+    ) {
+      const read = new Map(outcome);
+      for (const [reference, name] of ownOutputs)
+        if (Object.hasOwn(result.outputs, name))
+          read.set(reference, result.outputs[name]);
+      const decision = evaluateOutcome(node.outcome, read, response);
+      if (result.state === "complete" && !decision.satisfied) {
+        verified = false;
+        result = {
+          state: "failed",
+          outputs: {},
+          diagnosticCode: "verification-rejected",
+        };
+      }
+      retryable = result.state === "failed" && decision.retryable;
+    }
+    if (!(await this.reauthorize(actor, scoped, command.operationId)))
       throw new AuthorizationError("denied");
     return this.store.transaction(async (tx) => {
       // Match admission/cancellation: lock the run before its lease.
       const current = await this.owned(tx, actor, run.id);
       await tx.assertFence(fence);
       if (
-        !(await this.reauthorize(actor, current.value, command.operationId, tx))
+        !(await this.reauthorize(
+          actor,
+          scopedRun(current.value, node),
+          command.operationId,
+          tx,
+        ))
       )
         throw new AuthorizationError("denied");
       if (
@@ -646,6 +854,22 @@ export class ProtectedCommandService {
         throw new PersistenceConflict();
       const nodeKey = key(actor, "node", `${run.id}:${node.id}`);
       const prior = await tx.get<NodeRecord>(nodeKey);
+      // A step with an outcome counts its failed attempts; once no retry is
+      // left (or none was declared, or its criteria refuse) it is exhausted.
+      let attempts: Pick<NodeRecord, "attempts" | "retryAt" | "exhausted"> = {};
+      if (node.outcome) {
+        const count =
+          (prior?.value.attempts ?? 0) + (result.state === "failed" ? 1 : 0);
+        if (count) attempts = { attempts: count };
+        if (result.state === "failed")
+          attempts =
+            retryable && node.outcome.retry && count <= node.outcome.retry.limit
+              ? {
+                  attempts: count,
+                  retryAt: (await tx.now()) + node.outcome.retry.afterMs,
+                }
+              : { attempts: count, exhausted: true };
+      }
       await tx.put(
         nodeKey,
         {
@@ -655,6 +879,7 @@ export class ProtectedCommandService {
           ...(result.diagnosticCode === "verification-rejected"
             ? { diagnosticCode: "verification-rejected" as const }
             : {}),
+          ...attempts,
         },
         prior?.revision ?? null,
       );

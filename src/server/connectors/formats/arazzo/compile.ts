@@ -488,6 +488,7 @@ export function toRunPlan(leaves: readonly RecipeInvocation[]): RunPlanNode[] {
       operationVersion: leaf.use.version,
       dependsOn: [...leaf.dependsOn],
       bindings: structuredClone(leaf.bindings),
+      ...(leaf.outcome ? { outcome: structuredClone(leaf.outcome) } : {}),
     };
   });
 }
