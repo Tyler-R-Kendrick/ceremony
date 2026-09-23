@@ -43,6 +43,10 @@ import type {
 } from "./browser-executor.js";
 import type { ProgrammableInbox } from "./authored-inbox.js";
 import {
+  recordAuthoredEvidence,
+  type AuthoredEvidenceTarget,
+} from "./authored-evidence.js";
+import {
   discoverProviderAuth,
   isProviderOwnedAuth,
   readAuthResponse,
@@ -1970,6 +1974,13 @@ export function registerAuthoredOperations(
     fetch?: typeof fetch;
     browser?: AuthorizationBrowser;
     inbox?: ProgrammableInbox;
+    /**
+     * What a verified run's transport reaches, which decides the support
+     * evidence it records (see `authored-evidence.ts`). The runtime sets it
+     * from the transport it chose, never from anything an author supplied;
+     * absent, verified runs record nothing.
+     */
+    evidence?: { target: AuthoredEvidenceTarget; now?: () => number };
   },
 ): void {
   const complete = (outputs: Record<string, string>): OperationResult => ({
@@ -1978,6 +1989,24 @@ export function registerAuthoredOperations(
   });
   const handle = (context: OperationContext, kind: HandleKind) =>
     issueAuthoredHandle(options.store, context, kind);
+  /**
+   * A verified run is evidence about the connector's current definition.
+   * Recording it is bookkeeping: if the write fails the connection still
+   * stands and the label simply does not rise, which is the safe direction.
+   */
+  const recordVerified = async (
+    context: OperationContext,
+    proof: "credential-accepted" | "authorization-verified",
+  ) => {
+    if (!options.evidence) return;
+    await recordAuthoredEvidence(options.store, context.actor, {
+      connectorId: context.target,
+      runId: context.runId,
+      target: options.evidence.target,
+      proof,
+      now: (options.evidence.now ?? Date.now)(),
+    }).catch(() => undefined);
+  };
   /** An upstream handle must come from this run: another run's reference names nothing here. */
   const inputBound = (
     context: OperationContext,
@@ -2829,13 +2858,17 @@ export function registerAuthoredOperations(
                   : ("unavailable" as const),
             };
           }
-          if (!credential.verified)
+          if (!credential.verified) {
             await markAuthoredCredentialVerified(
               options.store,
               context.actor,
               context.runId,
               credential.revision,
             );
+            // Only a probe that actually ran is evidence; a credential this
+            // run already verified was recorded when it was.
+            await recordVerified(context, "credential-accepted");
+          }
           await saveAuthoredBlocker(
             options.store,
             context.actor,
@@ -2856,6 +2889,7 @@ export function registerAuthoredOperations(
             outputs: {},
             diagnosticCode: "awaiting-human" as const,
           };
+        await recordVerified(context, "authorization-verified");
         return complete({ connection: await handle(context, "connection") });
       },
     },
