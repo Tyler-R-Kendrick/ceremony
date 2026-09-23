@@ -295,11 +295,16 @@ A draft may name options for required `<select>` controls in `choices`, by the
 field's exact label: `{ "Country or region": "Canada" }`. Both sides are page
 text held to the page-label rule (no addresses, long digit runs or tokens), at
 most eight entries, and part of the digest. The driver's `select` action
-chooses an option by its **visible label**, only one the observation listed,
-and only the plan's option where the plan named one; the adapter revalidates
-the control exactly as it does for `fill`. A secret role is never filled into a
-select. A required choice the plan did not make is not guessed: it is handed to
-a person (`choice`), or ends `choice-required`.
+chooses an option by its **visible label**. On a live drive it chooses only
+the plan's option for that field, whatever the interpreter proposes and
+whether or not the select is marked required; a proposal for any other option,
+or for a field the plan named nothing for, is discarded as unusable. The one
+other source of a choice is a published [recording](recorded-ceremonies.md)
+that a person reviewed: its own `select` step may choose an option the
+observation listed, and a fallback interpreter repairing that replay may not.
+The adapter revalidates the control exactly as it does for `fill`. A secret
+role is never filled into a select. A required choice the plan did not make is
+not guessed: it is handed to a person (`choice`), or ends `choice-required`.
 
 ## Handoffs
 

@@ -2971,7 +2971,67 @@ function choicePage(): CeremonyPage & {
   };
 }
 
-test("SELECT: the driver chooses a listed option by its label, and records the choice", async () => {
+test("SELECT: on a live drive only the plan's choice is made, however the interpreter proposes another", async () => {
+  // The interpreter picks a listed country the plan never chose. A model
+  // does not decide where somebody's account lives.
+  for (const optional of [false, true]) {
+    const page = choicePage();
+    const snapshotOf = page.snapshot;
+    if (optional)
+      page.snapshot = async () => {
+        const seen = await snapshotOf();
+        delete seen.elements[0]!.required;
+        return seen;
+      };
+    const result = await runCeremony({
+      page,
+      goal: "registration",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({}),
+      interpreter: async () => ({
+        action: "select",
+        element: 0,
+        option: "Japan",
+      }),
+    });
+    assert.equal(page.chosen(), undefined, `optional: ${optional}`);
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "unsupported-page",
+    );
+  }
+  // A fallback interpreter repairing a replay is no different: only the
+  // recording's own steps carry a reviewed choice.
+  const page = choicePage();
+  // Recorded on another page, so the sign-up page drifts to the fallback.
+  const elsewhere = {
+    ...(await page.snapshot()),
+    path: "https://provider.example/other",
+  };
+  const repaired = await runRecordedCeremony({
+    page,
+    recording: compileRecording(
+      [{ snapshot: elsewhere, action: "click", element: 1 }],
+      {
+        id: "region-click",
+        title: "Register",
+        goal: "registration",
+        entryUrl: "https://provider.example/other",
+        origins: ["https://provider.example"],
+        recordedWith: "deterministic",
+        excluded: [],
+      },
+    ),
+    fallback: async () => ({ action: "select", element: 0, option: "Japan" }),
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+  });
+  assert.equal(page.chosen(), undefined);
+  assert.ok(repaired.interpreterCalls > 0);
+});
+
+test("SELECT: the driver chooses the plan's option by its label, and records the choice", async () => {
   const page = choicePage();
   const applied: RecordedTraceEntry[] = [];
   let asked = false;
@@ -2980,6 +3040,7 @@ test("SELECT: the driver chooses a listed option by its label, and records the c
     goal: "registration",
     allowedOrigins: ["https://provider.example"],
     secrets: createSecrets({}),
+    choices: { "Country or region": "Canada" },
     interpreter: async ({ snapshot: current }) => {
       if (current.elements[0]?.filled) return { action: "done" };
       asked = true;
@@ -3245,7 +3306,7 @@ test("SELECT: a plan's choice reaches past the snapshot's first twenty options; 
         : { action: "select", element: 0, option: "Uruguay" },
   });
   assert.deepEqual(long.chosen, ["Uruguay"]);
-  // Without a plan choice, only a listed option can be chosen.
+  // Without a plan choice, a live drive chooses nothing.
   long.chosen = [];
   const free = await runCeremony({
     page: long,

@@ -279,6 +279,14 @@ const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   choice: "choice-required",
 };
 
+/**
+ * Runs that replay a reviewed recording, with a test for whether the
+ * proposal in hand came from the recording rather than a fallback
+ * interpreter. Private to this module: only `runRecordedCeremony` can put a
+ * run here, so no caller can grant itself a replay's freedom to choose.
+ */
+const reviewedReplays = new WeakMap<CeremonyRunOptions, () => boolean>();
+
 const defaultMaxSteps = 24;
 const defaultStallLimit = 3;
 
@@ -727,28 +735,31 @@ export async function runCeremony(
         element: element.index,
       });
     } else if (action.action === "select") {
-      // An option is chosen by the label the page shows. Where the plan named
-      // the choice for this field, that is the only option it may be - and
-      // it may be chosen even past the snapshot's first twenty options, since
-      // a country list is longer than that and the plan, not the
-      // interpreter, wrote it. Anything else must be an option the
-      // observation listed: an interpreter cannot type free text into a
-      // choice. The adapter refuses a label the live control does not offer.
-      // A guarded value cannot be among the listed options - the snapshot
-      // carrying it would already have failed the attempt - and the check
-      // below says so rather than relying on it.
+      // An option is chosen by the label the page shows, and on a live drive
+      // only one the plan chose for this field: an interpreter does not pick
+      // somebody's country or organisation for them, whatever the page
+      // lists. The plan's option may lie past the snapshot's first twenty,
+      // since a country list is longer than that and the plan, not the
+      // interpreter, wrote it; the adapter refuses a label the live control
+      // does not offer. The one other source of a choice is a recording a
+      // person reviewed and published - its step names the option, and it
+      // must be one the observation listed. A guarded value cannot be among
+      // the listed options - the snapshot carrying it would already have
+      // failed the attempt - and the check below says so rather than relying
+      // on it.
       const option = action.option;
       const planned =
         element.label === undefined
           ? undefined
           : options.choices?.[element.label];
+      const recorded = reviewedReplays.get(options)?.() === true;
       if (
         element.kind !== "select" ||
         !page.select ||
         option === undefined ||
         (planned !== undefined
           ? planned !== option
-          : !(element.options ?? []).includes(option))
+          : !recorded || !(element.options ?? []).includes(option))
       )
         return unusable();
       if (contains(option, guarded))
@@ -1264,7 +1275,7 @@ export async function runRecordedCeremony(
     return fallback(input);
   };
 
-  const result = await runCeremony({
+  const run: CeremonyRunOptions = {
     ...options,
     interpreter,
     onApplied: (entry) => {
@@ -1276,7 +1287,10 @@ export async function runRecordedCeremony(
       }
       options.onApplied?.(entry);
     },
-  });
+  };
+  // A recorded choice was reviewed; a fallback interpreter's is not.
+  reviewedReplays.set(run, () => !fromFallback);
+  const result = await runCeremony(run);
   return {
     ...result,
     ...(drift ? { drift } : {}),
