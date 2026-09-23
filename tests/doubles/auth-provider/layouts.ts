@@ -168,6 +168,9 @@ select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--
 input.user-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:22px;letter-spacing:.3em;text-align:center;text-transform:uppercase;height:52px}
 .device-icon{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;margin:0 auto 16px;background:#f2f4f7;color:var(--accent)}
 .center{text-align:center}
+.steps{margin:0 0 16px;padding-left:20px;font-size:14px;color:var(--text)}
+.steps li+li{margin-top:6px}
+input.setup-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.02em;background:#f9fafb;padding:0 10px}
 textarea{resize:vertical}
 .copy-row{display:flex;gap:8px}
 .copy-row input{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:#f9fafb}
@@ -224,6 +227,7 @@ const escape = (value: string) =>
 
 const errorIcon = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5v4.2M8 11h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const deviceIcon = `<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><rect x="3" y="5" width="22" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 23h8M14 19v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+const shieldIcon = `<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><path d="M14 3.5l8.5 3.2v6.4c0 5.3-3.6 9.6-8.5 11.4-4.9-1.8-8.5-6.1-8.5-11.4V6.7L14 3.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10.2 14.1l2.6 2.6 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const checkIcon = `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><circle cx="9" cy="9" r="8" fill="currentColor" opacity=".12"/><path d="M5.5 9.2l2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /** "owner@example.com" as "o***@example.com": enough to recognise, no more. */
@@ -538,6 +542,39 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
            <div class="actions"><a href="/">Cancel</a><button type="submit" class="btn btn-primary">Continue</button></div>
          </form>
          <p class="fine">Signed in as <strong>${escape(options.account)}</strong>. Only enter a code from a device you are setting up yourself.</p>`,
+      );
+    },
+
+    /**
+     * "Set up an authenticator app", the page a provider that requires a
+     * second factor shows before a new account's session is complete. The
+     * setup key is in a read-only field, grouped in fours the way enrolment
+     * screens print it, and the form asks for the code the app then shows
+     * before the factor is turned on.
+     */
+    enrollAuthenticator(options: {
+      action: string;
+      setupKey: string;
+      account: string;
+      error?: string;
+    }) {
+      return page(
+        "Set up two-factor authentication",
+        `<div class="device-icon" aria-hidden="true">${shieldIcon}</div>
+         <h1 class="center">Set up two-factor authentication</h1>
+         <p class="subtitle center">${product} asks every account for a code from an authenticator app when it signs in.</p>
+         ${banner(options.error)}
+         <form method="post" action="${options.action}">
+           <ol class="steps">
+             <li>Open your authenticator app and choose <strong>Enter a setup key</strong>.</li>
+             <li>Add this key for <strong>${escape(options.account)}</strong>.</li>
+           </ol>
+           <div class="field"><label for="totp-setup-key">Setup key</label><input id="totp-setup-key" type="text" class="setup-key" value="${escape(options.setupKey)}" readonly spellcheck="false" aria-describedby="totp-setup-key-hint"><p class="hint" id="totp-setup-key-hint">Time-based, 6 digits, a new code every 30 seconds.</p></div>
+           <ol class="steps" start="3"><li>Enter the 6-digit code the app shows.</li></ol>
+           ${input({ id: "totp-setup-code", label: "Authentication code", name: names.code, type: "text", autocomplete: "one-time-code", extra: 'class="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"' })}
+           <button type="submit" class="btn btn-primary btn-block">Verify and turn on</button>
+         </form>
+         <p class="fine">Keep the key somewhere safe: it is shown only while you set up the app.</p>`,
       );
     },
 

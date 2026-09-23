@@ -177,10 +177,15 @@ test("heuristic exclusions stay few and each says why", () => {
   assert.ok(Object.keys(heuristicExclusions).length <= 4);
 });
 
-/** The inputs a person would type into, in page order. */
+/**
+ * The inputs a person would type into, in page order. A read-only field - an
+ * authenticator's setup key - shows a value and takes none.
+ */
 const typed = (snapshot: PageSnapshot): SnapshotElement[] =>
   snapshot.elements.filter(
-    (element) => element.kind === "input" || element.kind === "checkbox",
+    (element) =>
+      (element.kind === "input" && element.readOnly !== true) ||
+      element.kind === "checkbox",
   );
 
 for (const layout of realisticLayouts)
@@ -194,6 +199,7 @@ for (const layout of realisticLayouts)
       "sign-in-unverified-account",
       "registration-with-emailed-code",
       "registration-with-confirmation-link",
+      "registration-enrolls-an-authenticator",
       "authorization-code-with-consent",
     ]) {
       const base = authScenarios.find((scenario) => scenario.id === id)!;
@@ -207,7 +213,7 @@ for (const layout of realisticLayouts)
     const paths = new Set(
       snapshots.map((snapshot) => new URL(snapshot.path).pathname),
     );
-    for (const expected of ["/signin", "/signup", "/authorize"])
+    for (const expected of ["/signin", "/signup", "/mfa/setup", "/authorize"])
       assert.ok(paths.has(expected), `${layout} never showed ${expected}`);
 
     for (const snapshot of snapshots) {

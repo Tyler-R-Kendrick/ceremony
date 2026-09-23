@@ -115,6 +115,8 @@ export type ScenarioState = {
   address?: string;
   client?: string;
   resource?: string;
+  /** What the plan's custody sink received from an enrolment page. */
+  custody?: string;
 };
 
 /** Everything `runCeremony` needs, minus the page, which the runner supplies. */
@@ -411,6 +413,49 @@ export const authScenarios: readonly AuthScenario[] = [
       const account = provider.account(identity.email);
       if (!account?.verified)
         throw new Error("Registration must leave a verified account");
+    },
+  },
+  {
+    id: "registration-enrolls-an-authenticator",
+    title:
+      "a new account sets up an authenticator app, and the plan keeps its seed",
+    family: "OTP / magic link / MFA",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused", "mailbox-readable"],
+    // No authenticator code is supplied: the one that confirms enrolment is
+    // derived by the driver from the seed the page shows.
+    provides: ["email", "password", "password-confirm", "verification-code"],
+    behavior: () => ({ seed: 24, verification: "code", enrollTotp: true }),
+    plan: ({ provider, identity }) => {
+      const state: ScenarioState = {};
+      return {
+        entryUrl: `${provider.origin}${provider.signupPath}`,
+        goal: "registration",
+        secrets: registrationSecrets(identity, provider, identity.email, state),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        // Custody, as far as this scenario goes, is its own state.
+        issued: {
+          fields: { "totp-seed": "Setup key" },
+          keep: async ({ "totp-seed": seed }) => {
+            if (seed) state.custody = seed;
+          },
+        },
+        verify: () => provider.verifyAccess(identity.email),
+        state,
+      };
+    },
+    expect: { status: "completed" },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const account = provider.account(identity.email);
+      if (!account?.verified)
+        throw new Error("Registration must leave a verified account");
+      if (
+        !account.totpSeed ||
+        state.custody?.replace(/\s/g, "") !== account.totpSeed
+      )
+        throw new Error("The kept seed must be the one the account enrolled");
     },
   },
   {

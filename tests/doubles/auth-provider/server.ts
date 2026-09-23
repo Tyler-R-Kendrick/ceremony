@@ -72,6 +72,15 @@ export type ProviderBehavior = {
    */
   totpSeed?: string;
   /**
+   * Every account must have an authenticator app. One without an enrolled
+   * seed is sent to "Set up two-factor authentication" before its session is
+   * complete - right after its address is confirmed at registration, or at
+   * its next sign-in. The page shows a fresh RFC 6238 seed as a setup key and
+   * turns the factor on only for a code from it; from then on that account's
+   * sign-in asks for a code from its own seed.
+   */
+  enrollTotp?: boolean;
+  /**
    * Sign-in asks for the identifier alone, then shows the password on its
    * own page - the identifier-first shape most large providers use.
    */
@@ -170,7 +179,12 @@ export type MailMessage = {
   at: number;
 };
 
-export type Account = SeedAccount & { verified: boolean; totp: string };
+export type Account = SeedAccount & {
+  verified: boolean;
+  totp: string;
+  /** The authenticator seed this account enrolled, under `enrollTotp`. */
+  totpSeed?: string;
+};
 
 export type ProviderDouble = {
   origin: string;
@@ -326,6 +340,22 @@ const hashSecret = (secret: string) =>
 const digits = (length: number) =>
   Array.from({ length }, () => randomInt(0, 10)).join("");
 
+/** A code from this seed, one period either side of now, as providers allow. */
+const totpMatches = (seed: string, code: string) =>
+  [-30_000, 0, 30_000].some(
+    (skew) => totpCode(seed, Date.now() + skew) === code,
+  );
+
+/** A fresh 160-bit enrolment seed in RFC 4648 base32, as setup pages show. */
+function newTotpSeed(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const byte of randomBytes(20)) bits += byte.toString(2).padStart(8, "0");
+  return (bits.match(/.{5}/g) ?? [])
+    .map((chunk) => alphabet[parseInt(chunk, 2)])
+    .join("");
+}
+
 export async function startAuthProvider(
   behavior: ProviderBehavior = {},
 ): Promise<ProviderDouble> {
@@ -343,7 +373,15 @@ export async function startAuthProvider(
       verified: seeded.verified ?? true,
       totp: digits(6),
     });
-  const sessions = new Map<string, { email: string; factors: number }>();
+  /**
+   * A session, and how far it is. `factors` below 2 is a second factor still
+   * owed; `setup` means that factor is an authenticator not yet enrolled, and
+   * `seed` is the one its setup page is showing.
+   */
+  const sessions = new Map<
+    string,
+    { email: string; factors: number; setup?: boolean; seed?: string }
+  >();
   const pending = new Map<string, PendingRegistration>();
   const requests = new Map<string, AuthorizationRequest>();
   const grants = new Map<
@@ -497,11 +535,24 @@ export async function startAuthProvider(
       response.writeHead(302, { location, ...withCookies(headers) });
       response.end();
     };
-    const openSession = (email: string, factors: number) => {
+    const openSession = (email: string, factors: number, setup = false) => {
       const id = randomBytes(16).toString("hex");
-      sessions.set(id, { email, factors });
+      sessions.set(id, setup ? { email, factors, setup } : { email, factors });
       return `sid=${id}; Path=/; HttpOnly`;
     };
+    /** Where a session still owed an authenticator's enrolment goes. */
+    const setupPath = (target: string) =>
+      `/mfa/setup?next=${encodeURIComponent(target)}`;
+    /**
+     * An account whose address was just confirmed: signed in, or - when every
+     * account needs an authenticator - first sent to set one up.
+     */
+    const confirmedSession = (email: string) =>
+      behavior.enrollTotp
+        ? redirect(setupPath(next), {
+            "set-cookie": openSession(email, 1, true),
+          })
+        : redirect(next, { "set-cookie": openSession(email, 2) });
 
     const challengePage = (status = 200) => {
       // The widget is the real obstacle; the form beside it is what a person
@@ -778,17 +829,24 @@ export async function startAuthProvider(
           );
 
     /** Whether a submitted second factor is the one this account expects. */
-    const codeAccepted = (account: Account, code: string) =>
-      behavior.totpSeed
-        ? [-30_000, 0, 30_000].some(
-            (skew) => totpCode(behavior.totpSeed!, Date.now() + skew) === code,
-          )
-        : code === account.totp;
+    const codeAccepted = (account: Account, code: string) => {
+      const seed = account.totpSeed ?? behavior.totpSeed;
+      return seed ? totpMatches(seed, code) : code === account.totp;
+    };
 
-    /** A verified account's password was accepted: the second factor, or in. */
+    /**
+     * A verified account's password was accepted: the second factor, its
+     * enrolment, or in. An account that enrolled an authenticator is asked
+     * for a code from it whatever `requireMfa` says.
+     */
     const signedIn = (found: Account) => {
-      const cookie = openSession(found.email, behavior.requireMfa ? 1 : 2);
-      if (behavior.requireMfa) {
+      const owed = behavior.requireMfa === true || found.totpSeed !== undefined;
+      if (!owed && behavior.enrollTotp)
+        return redirect(setupPath(next), {
+          "set-cookie": openSession(found.email, 1, true),
+        });
+      const cookie = openSession(found.email, owed ? 1 : 2);
+      if (owed) {
         const id = cookie.slice("sid=".length, cookie.indexOf(";"));
         return mfaPage(id, next);
       }
@@ -904,7 +962,8 @@ export async function startAuthProvider(
     if (url.pathname === "/") {
       const session = sessionOf(request);
       if (!session) return redirect("/signin");
-      if (behavior.requireMfa && session.factors < 2) return redirect("/mfa");
+      if (session.factors < 2)
+        return redirect(session.setup ? setupPath("/") : "/mfa");
       return dashboard(session.email);
     }
 
@@ -977,9 +1036,57 @@ export async function startAuthProvider(
       return json(200, { account: account?.username ?? session.email });
     }
 
+    // An authenticator is set up here before the session is complete. The
+    // seed is generated once per session and shown until a code from it
+    // arrives; only then is it the account's, and the factor on.
+    if (url.pathname === "/mfa/setup") {
+      const session = sessionOf(request);
+      if (!session) return redirect(`/signin?next=${encodeURIComponent(next)}`);
+      const account = accounts.get(session.email.toLowerCase());
+      if (!session.setup || !account) return redirect(next);
+      const seed = (session.seed ??= newTotpSeed());
+      if (method === "POST") {
+        if (totpMatches(seed, (body.get(markup.names.code) ?? "").trim())) {
+          account.totpSeed = seed;
+          session.factors = 2;
+          delete session.setup;
+          delete session.seed;
+          return redirect(next);
+        }
+      }
+      const error = method === "POST" ? markup.messages.badCode : undefined;
+      const setupKey = seed.match(/.{1,4}/g)!.join(" ");
+      const action = setupPath(next);
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.enrollAuthenticator({
+            action,
+            setupKey,
+            account: account.email,
+            ...(error ? { error } : {}),
+          }),
+        );
+      return send(
+        200,
+        markup.page(
+          "Set up two-factor authentication",
+          `${markup.alert(error)}
+           <h1>Set up two-factor authentication</h1>
+           <p>Add this key to your authenticator app, then enter the code it shows.</p>
+           <form method="post" action="${action}">
+             <label for="setup_key">Setup key</label> <input id="setup_key" type="text" value="${setupKey}" readonly>
+             ${markup.field(markup.labels.totp, markup.names.code, "text", "required")}
+             <button type="submit">${markup.captions.submitCode}</button>
+           </form>`,
+        ),
+      );
+    }
+
     if (url.pathname === "/mfa") {
       const session = sessionOf(request);
       if (!session) return redirect("/signin");
+      if (session.setup) return redirect(setupPath(next));
       if (method === "GET") {
         const id = cookies(request)["sid"] ?? "";
         return mfaPage(id, next);
@@ -1028,7 +1135,7 @@ export async function startAuthProvider(
           verified: true,
           totp: digits(6),
         });
-        return redirect(next, { "set-cookie": openSession(email, 2) });
+        return confirmedSession(email);
       }
       const token = randomBytes(12).toString("hex");
       const code = digits(6);
@@ -1057,7 +1164,7 @@ export async function startAuthProvider(
           verified: true,
           totp: digits(6),
         });
-        return redirect(next, { "set-cookie": openSession(record.email, 2) });
+        return confirmedSession(record.email);
       }
       const token = url.searchParams.get("p") ?? "";
       const record = pending.get(token);
@@ -1073,7 +1180,7 @@ export async function startAuthProvider(
         verified: true,
         totp: digits(6),
       });
-      return redirect(next, { "set-cookie": openSession(record.email, 2) });
+      return confirmedSession(record.email);
     }
 
     if (url.pathname === "/authorize") {
@@ -1100,7 +1207,8 @@ export async function startAuthProvider(
           );
       }
       const session = sessionOf(request);
-      if (!session || (behavior.requireMfa && session.factors < 2))
+      if (session?.setup) return redirect(setupPath(url.pathname + url.search));
+      if (!session || session.factors < 2)
         return redirect(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
@@ -1384,7 +1492,7 @@ export async function startAuthProvider(
       url.pathname.startsWith(`${oauthAppsPath}/`)
     ) {
       const session = sessionOf(request);
-      if (!session || (behavior.requireMfa && session.factors < 2))
+      if (!session || session.factors < 2)
         return redirect(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
