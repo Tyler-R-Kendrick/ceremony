@@ -254,7 +254,8 @@ test("an attended entry typed into a ledger is refused: only a signed record is 
         supportEvidence: [
           {
             adapterId: "vendor-http",
-            check: "attended:2026-10-01-vendor",
+            // A real file, so the attendance itself is what is refused.
+            check: "tests/connectors/contracts/certification.test.ts",
             target: "attended-live",
             recordedAt: "2026-10-01",
             attendedBy: "Ada Attendant",

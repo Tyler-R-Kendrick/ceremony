@@ -35,7 +35,7 @@ The transcript lists each step's name, its kind (`attestation`, `driver`, `servi
 - The transcript file exists and hashes to the signed digest.
 - `rehearsal` is `false`.
 
-A record that fails any check is refused by name, and generation fails, so `npm run docs:connectors:check` cannot pass with a forged, stale or rehearsed record in the tree. An `attended-live` entry typed straight into a ledger's `supportEvidence` is refused too: an attendee's name in a ledger is a claim anybody can type, so the only way an attended entry enters is a signed record.
+A record that fails any check is refused by name, and generation fails, so `npm run docs:connectors:check` cannot pass with a forged, stale or rehearsed record in the tree. An `attended-live` or `recorded-live` entry typed straight into a ledger's `supportEvidence` is refused too, and so is any ledger entry whose check is a named `scheme:identifier` rather than a repository file: an attendee's name or a live run in a ledger is a claim anybody can type, so the only way live evidence enters the generated labels is a signed record. A deployment adds its own live runs through `support.evidence`.
 
 A verified record earns `certified` for 180 days, and only where the configuration it was measured with is present (see [support labels](specifications/connector-support-matrix.md#support-labels)). For a generic adapter it certifies the named definition, never the adapter's code path.
 

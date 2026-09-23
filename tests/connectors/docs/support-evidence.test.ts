@@ -12,6 +12,12 @@ import {
   type Ledger,
 } from "../../../scripts/connector-support-matrix.js";
 import { recordedSupportEvidence } from "../../../src/server/connectors/recorded-evidence.js";
+import { generateKeyPairSync } from "node:crypto";
+import {
+  certifierKeyId,
+  digestOf,
+  signCertification,
+} from "../../../src/server/connectors/certification.js";
 
 /*
  * The ledger side of evidence-derived support labels: what a ledger may say,
@@ -231,6 +237,47 @@ test("undated work items become dated entries by their ledger's day, never above
   assert.equal(labelFor(vendor, collection).label, "unverified");
 });
 
+test("a ledger cannot type a live run, and cites a file rather than a named check", () => {
+  // Regression: a hand-typed recorded-live entry was admitted, and a check
+  // containing ":" skipped the file-exists test, so this one earned `live`.
+  const typed = {
+    adapterId: "vendor-http",
+    check: "typed:anything",
+    target: "recorded-live",
+    recordedAt: "2026-09-20",
+  };
+  const collection = collectSupportEvidence(
+    [
+      ledger({
+        supportEvidence: [
+          typed,
+          { ...typed, check: "tests/connectors/openapi/authorize.test.ts" },
+          { ...typed, target: "local-double" },
+          { ...typed, check: "ledger:HTTP/HTTP-04", target: "local-double" },
+        ],
+      }),
+    ],
+    [vendor],
+    { today: TODAY, exists: () => true },
+  );
+  assert.deepEqual(collection.entries, []);
+  assert.equal(labelFor(vendor, collection).label, "unverified");
+  for (const [index, pattern] of [
+    [0, /not a named check \(typed:anything\)/],
+    [1, /a live run is a deployment's own evidence/],
+    [2, /not a named check/],
+    [3, /not a named check \(ledger:HTTP\/HTTP-04\)/],
+  ] as const)
+    assert.ok(
+      collection.refused.some(
+        (line) =>
+          line.startsWith(`ledger TEST: evidence[${index}]: `) &&
+          pattern.test(line),
+      ),
+      `evidence[${index}]`,
+    );
+});
+
 test("a legacy live evidence level is refused, not counted", () => {
   const collection = collectSupportEvidence(
     [
@@ -277,19 +324,45 @@ test("a ledger dated in the future is refused rather than earning a label", () =
 });
 
 test("published labels are evaluated as of the newest recorded day, and live evidence needs configuration", () => {
-  // (An attended entry can no longer be typed into a ledger at all; a
-  // recorded live run shows the same configuration rule.)
-  const live = {
-    adapterId: "vendor-http",
-    check: "live-run:2026-09-20-vendor",
-    target: "recorded-live",
-    recordedAt: "2026-09-20",
+  // Live evidence reaches the generator only as a signed certification.
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const certifiers = {
+    certifiers: [
+      {
+        keyId: certifierKeyId(publicKey),
+        name: "A. Reviewer",
+        publicKey: publicKey
+          .export({ type: "spki", format: "der" })
+          .toString("base64"),
+      },
+    ],
   };
-  const collection = collectSupportEvidence(
-    [ledger({ supportEvidence: [live] })],
-    [openapi, vendor],
-    { today: TODAY, exists: () => false },
+  const transcript = [
+    { step: "attend", kind: "attestation", outcome: "confirmed" },
+    { step: "outcome", kind: "attestation", outcome: "confirmed" },
+  ];
+  const record = signCertification(
+    {
+      kind: "attended-certification",
+      schemaVersion: 1,
+      id: "2026-09-20-vendor-registration-abc123",
+      adapterId: "vendor-http",
+      provider: { name: "Vendor", origins: ["https://auth.vendor.com"] },
+      flow: "registration",
+      rehearsal: false,
+      attendedBy: "A. Reviewer",
+      recordedAt: "2026-09-20",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      transcript: { digest: digestOf(transcript), steps: 2, humanSteps: 2 },
+      outcome: "completed",
+    },
+    privateKey,
   );
+  const collection = collectSupportEvidence([], [openapi, vendor], {
+    today: TODAY,
+    certifications: [{ source: "certifications/v.json", record, transcript }],
+    certifiers,
+  });
   assert.deepEqual(collection.refused, []);
   assert.equal(collection.asOf, "2026-09-20");
   // The matrix measures with no configuration present, so an adapter that

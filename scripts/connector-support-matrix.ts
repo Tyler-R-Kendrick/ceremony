@@ -592,8 +592,10 @@ const entryKey = (entry: SupportEvidence) =>
  *
  * Explicit entries (a ledger's `supportEvidence` array) are validated by the core
  * schema and refused, by name, when malformed, dated after `today`, naming an
- * adapter this generator cannot construct, or citing a repository path that
- * does not exist: a label may only rest on a check a reader can open.
+ * adapter this generator cannot construct, citing anything but a repository
+ * file that exists (a label may only rest on a check a reader can open), or
+ * claiming a live target: live evidence enters only from a deployment's own
+ * entries or a verified attended certification record.
  *
  * Work items recorded before entries existed are still evidence, dated by
  * their ledger's `recordedAt`. Each becomes one entry per adapter it joins
@@ -657,17 +659,35 @@ export function collectSupportEvidence(
         );
         return;
       }
-      if (!entry.check.includes(":") && !exists(entry.check)) {
+      // A ledger entry cites a file a reader can open. A named check
+      // (`scheme:identifier`) names nothing here that can be checked: the
+      // generator derives `ledger:` checks itself and `attended:` ones from
+      // verified records, so a ledger may not type either, or any other.
+      if (entry.check.includes(":")) {
+        refused.push(
+          `ledger ${ledger.swarm}: evidence[${index}]: a ledger entry cites a repository file, not a named check (${entry.check})`,
+        );
+        return;
+      }
+      if (!exists(entry.check)) {
         refused.push(
           `ledger ${ledger.swarm}: evidence[${index}]: ${entry.check} does not exist`,
         );
         return;
       }
-      // An attendee's name in a ledger is a claim anybody can type; only a
-      // signed record the certifier list vouches for is an attendance.
+      // A live run or an attendance typed into a ledger is a claim anybody
+      // can make, and a repository test file never reached a real provider.
+      // Live evidence belongs to the deployment that ran it (a host's own
+      // entries) or to a signed record the certifier list vouches for.
       if (entry.target === "attended-live") {
         refused.push(
           `ledger ${ledger.swarm}: evidence[${index}]: an attended certification enters only as a signed record under certifications/`,
+        );
+        return;
+      }
+      if (entry.target === "recorded-live") {
+        refused.push(
+          `ledger ${ledger.swarm}: evidence[${index}]: a live run is a deployment's own evidence, never a ledger entry`,
         );
         return;
       }
@@ -881,7 +901,7 @@ export function renderSupportMatrix(input: {
     "",
     "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran.",
     "",
-    `An \`attended-live\` entry enters only from a signed record under \`certifications/\`, verified against the reviewed \`certifiers.json\` (see [attended certification](../certification.md)); an attended entry typed into a ledger is refused, and so is a rehearsal against local doubles. ${
+    `An \`attended-live\` entry enters only from a signed record under \`certifications/\`, verified against the reviewed \`certifiers.json\` (see [attended certification](../certification.md)); a ledger entry cites a repository file, never a named check, and is never live: an attended or recorded-live entry typed into a ledger is refused, and so is a rehearsal against local doubles. ${
       input.evidence.entries.some(
         (entry) =>
           entry.target === "attended-live" || entry.target === "recorded-live",
