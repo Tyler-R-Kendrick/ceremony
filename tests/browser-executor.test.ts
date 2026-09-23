@@ -3013,6 +3013,8 @@ for (const waitingOn of ["inference", "inbox"] as const)
 async function windowedSignIn(options: {
   /** Where the identity page's form POST is redirected, if anywhere. */
   redirectPost?: string;
+  /** Open a second window at the same place alongside the first. */
+  twice?: boolean;
   /** Where the button's window opens instead of the identity page. */
   opens?: string;
 }) {
@@ -3065,7 +3067,7 @@ async function windowedSignIn(options: {
     response
       .writeHead(200, { "content-type": "text/html" })
       .end(
-        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(target)}, "signin", "popup")'>Continue with Fixture ID</button>`,
+        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(target)}, "signin", "popup")${options.twice ? `; window.open(${JSON.stringify(target)}, "signin-2", "popup")` : ""}'>Continue with Fixture ID</button>`,
       );
   });
   await new Promise<void>((resolve) =>
@@ -3221,6 +3223,36 @@ test("a declared window's redirect hop cannot carry its credential POST to an un
   if (result.status === "blocked") assert.equal(result.reason, "origin");
   assert.equal(fixture.posts.length, 1);
   assert.equal(forwarded, 0);
+});
+
+test("two windows at declared origins identify no document, and neither receives a credential", async (t) => {
+  const fixture = await windowedSignIn({ twice: true });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  let stored = false;
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    vault: {
+      get: async () => undefined,
+      put: async () => {
+        stored = true;
+      },
+    },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "popup");
+  assert.equal(fixture.posts.length, 0);
+  assert.equal(stored, false);
 });
 
 test("declaring a window outside the authorization's origins is refused before a browser opens", async () => {
