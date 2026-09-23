@@ -178,6 +178,20 @@ export class AgentCoordinator {
         : {}),
     };
   }
+  /**
+   * The handoff for a run that is waiting on a person right now, in the same
+   * projection a turn records. Transports that return a run to an assistant
+   * (the MCP run tools) attach it, so the assistant can say where the person
+   * continues rather than only that the run is waiting. Undefined when no
+   * node waits, or when the run carries an identifier model context refuses.
+   */
+  pendingHandoff(run: RunView): AgentHandoff | undefined {
+    try {
+      return this.handoffFor(project(run));
+    } catch {
+      return undefined;
+    }
+  }
   async status(actor: ActorContext, runId: string, turnId?: string) {
     const run = await this.commands.snapshot(actor, runId);
     const budget = await this.store.transaction((tx) =>
