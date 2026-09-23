@@ -697,8 +697,8 @@
         "operationId": "declineRevocation",
         "tags": ["revocation"],
         "summary": "Decline a pending revocation request",
-        "description": "Approving the request is `revoke`, an administrator's action; declining it is the connection owner's.\n\nRequires no capability beyond owning the connection.\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
-        "x-ceremony-capabilities": [],
+        "description": "Approving the request is `revoke` and declining it is its counterpart: both are an administrator's action, under the same host policy, on an open connection.\n\nRequires one of these capabilities: `admin`.\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["admin"],
         "x-ceremony-human-only": true,
         "parameters": [
           { "$ref": "#/components/parameters/connectionRef" },

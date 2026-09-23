@@ -40,7 +40,9 @@ function catalog(
           authorizationUrl: `${server.origin}/authorize`,
           tokenUrl: `${server.origin}/token`,
           issuer: server.issuer,
-          scopes: ["items.read"],
+          // A caller may only name scopes the reviewed entry declares, so
+          // `openid` is one of the entry's own.
+          scopes: ["items.read", "openid"],
           ...auth,
         },
         proxy: { baseUrl: `${api.origin}/v2` },
@@ -80,7 +82,7 @@ async function bound(
     destination: `${api.origin}/v2`,
     profileId,
   });
-  const connect = (requested: string[] = ["openid"]) =>
+  const connect = (requested: string[] = []) =>
     harness.service.connect(harness.actor, {
       bindingRef: approved.reference.bindingRef,
       intent: { profileId, requestedPermissions: requested },
@@ -187,14 +189,25 @@ test("a declared key set must be the one the issuer publishes", async (t) => {
 test("without openid the entry is used as reviewed: no discovery, no keys", async (t) => {
   const { server, harness, connect } = await bound(t, {
     server: { openidConnect: false },
+    auth: () => ({ scopes: ["items.read"] }),
   });
-  const url = presented(await connect([]));
+  const url = presented(await connect());
   assert.ok(url);
   assert.equal(new URL(url).searchParams.get("nonce"), null);
   const done = await completeRedirect(harness, url);
   assert.equal((done as { lifecycle: string }).lifecycle, "active");
   assert.equal(server.counts.metadata, 0);
   assert.equal(server.counts.jwks, 0);
+  // Nor can a caller add `openid` to an entry that does not declare it.
+  const other = await bound(t, {
+    server: { openidConnect: false },
+    auth: () => ({ scopes: ["items.read"] }),
+  });
+  await assert.rejects(
+    other.connect(["openid"]),
+    refused("catalog.scope.undeclared"),
+  );
+  assert.equal(other.server.counts.metadata, 0);
 });
 
 test("openid is refused for a comma-separated provider", async (t) => {
@@ -226,7 +239,9 @@ test("a Nango entry whose discovery URL names its issuer can ask for openid, and
         auth_mode: "OAUTH2",
         authorization_url: `${server.origin}/authorize`,
         token_url: `${server.origin}/token`,
-        default_scopes: ["items.read"],
+        // Declared by the entry: a caller may name a reviewed scope, never
+        // add one, and openid is no exception.
+        default_scopes: ["items.read", "openid"],
         proxy: { base_url: `${api.origin}/v2` },
         ...extra,
       },
@@ -257,4 +272,15 @@ test("a Nango entry whose discovery URL names its issuer can ask for openid, and
   // No issuer named anywhere: the same entry refuses openid, as before.
   const unnamed = await connectWith({});
   await assert.rejects(unnamed.view, refused("catalog.scope.openid"));
+});
+
+test("a key set on an origin host policy has not admitted is refused at review", async (t) => {
+  // The review hands the entry's OAuth origins, key set included, to host
+  // issuer policy; an undeclared, unlisted origin never becomes a binding.
+  await assert.rejects(
+    bound(t, {
+      auth: () => ({ jwksUrl: "https://keys.local-idp.example/jwks" }),
+    }),
+    refused("oauth.issuer.not-permitted"),
+  );
 });

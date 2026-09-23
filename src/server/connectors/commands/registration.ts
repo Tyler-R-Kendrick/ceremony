@@ -161,10 +161,14 @@ export function createConnectorRegistration(
   // label; the family alone keeps it `fixture`, as the manifest profile
   // requires. The owner's configuration is unknown here, so an adapter that
   // needs configuration is judged without it: live evidence it cannot
-  // present does not count.
+  // present does not count. The label is this definition's: a generic
+  // adapter's own suites never make an imported description live.
   const configured = adapter.configuration.every((item) => !item.required);
   const live = isLiveSupportLabel(
-    service.support.label(adapter.id, configured),
+    service.support.label(adapter, configured, [
+      options.definition.definitionRef,
+      `sha256:${options.definition.normalizedDigest}`,
+    ]),
   );
   const manifest: ConnectorManifest = manifestSchema.parse({
     support:

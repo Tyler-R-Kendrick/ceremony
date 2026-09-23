@@ -92,7 +92,12 @@ export function looksLikeValue(text: string): boolean {
   return false;
 }
 
-const descriptorText = z
+/**
+ * Text a recording may carry: trimmed, bounded and not shaped like a value.
+ * Exported so a host can refuse a recording's title where it is asked for,
+ * rather than learn after a login that the title cannot be saved.
+ */
+export const recordingDescriptorTextSchema = z
   .string()
   .min(1)
   .max(RECORDING_LIMITS.text)
@@ -180,10 +185,10 @@ export const elementFingerprintSchema = z
       .regex(/^[a-z][a-z0-9 -]{0,63}$/)
       .optional(),
     /** The accessible name: an ARIA label or the associated `<label>`. */
-    label: descriptorText.optional(),
-    placeholder: descriptorText.optional(),
+    label: recordingDescriptorTextSchema.optional(),
+    placeholder: recordingDescriptorTextSchema.optional(),
     /** A button's or link's caption. */
-    text: descriptorText.optional(),
+    text: recordingDescriptorTextSchema.optional(),
     ordinal: z.number().int().min(0).max(59),
     of: z.number().int().min(1).max(60),
   })
@@ -250,7 +255,7 @@ export const recordedActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("select"),
     target: elementFingerprintSchema,
-    option: descriptorText,
+    option: recordingDescriptorTextSchema,
   }),
   /** The page was mid-transition; the recording waited for it. */
   z.strictObject({ kind: z.literal("wait-for") }),
@@ -299,7 +304,7 @@ export const recordedCeremonySchema = z
   .strictObject({
     schemaVersion: z.literal(1),
     id: identifierSchema,
-    title: descriptorText,
+    title: recordingDescriptorTextSchema,
     goal: ceremonyGoalSchema,
     /** Where a replay is expected to begin. */
     entry: pageMatchSchema,
@@ -575,6 +580,11 @@ export const recordingRejectionReasons = [
    * not choose it again without storing it, so there is no recording.
    */
   "unrecordable-choice",
+  /**
+   * What the login did cannot be written in the recording format: a title or
+   * id it refuses, or more identical controls than a fingerprint can count.
+   */
+  "invalid",
 ] as const;
 export type RecordingRejectionReason =
   (typeof recordingRejectionReasons)[number];
@@ -630,9 +640,29 @@ function identifierShaped(segment: string): boolean {
 const creating =
   /\b(create|register|add|new|generate|save|install|publish|sign up)\b/i;
 
-/** Segments that identify an attempt rather than a page. */
-function generalizeSegment(segment: string): string {
+/**
+ * Segments that identify an attempt, or a person, rather than a page.
+ *
+ * Judged on the decoded segment: `alice%40corp.example` is an address, and
+ * the encoding is exactly what would otherwise hide it from the value
+ * patterns. A segment naming a value the login used is a wildcard rather than
+ * the reason the whole recording is refused, since `/users/<name>/password`
+ * is an ordinary shape for a page.
+ */
+function generalizeSegment(
+  segment: string,
+  excluded: readonly string[],
+): string {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // A malformed escape is judged as it stands; the raw checks still apply.
+  }
+  const forms = [segment.toLowerCase(), decoded.toLowerCase()];
   if (
+    excluded.some((value) => forms.some((form) => form.includes(value))) ||
+    looksLikeValue(decoded) ||
     /^\d{3,}$/.test(segment) ||
     /^[0-9a-f]{12,}$/i.test(segment) ||
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -649,13 +679,16 @@ function generalizeSegment(segment: string): string {
 /**
  * The page pattern for an observed page.
  *
- * `assigned` names segments the provider handed out during the run - an
- * identifier that first appeared after the run asked the provider to create
- * something. Those are the attempt's, not the page's, whatever their length:
- * the next run's app is `/oauth-apps/2`, not `/oauth-apps/1`.
+ * `excluded` are lower-cased values the login used; see
+ * {@link generalizeSegment}. `assigned` names segments the provider handed
+ * out during the run - an identifier that first appeared after the run asked
+ * the provider to create something. Those are the attempt's, not the page's,
+ * whatever their length: the next run's app is `/oauth-apps/2`, not
+ * `/oauth-apps/1`.
  */
 export function pageMatchOf(
   observed: string,
+  excluded: readonly string[] = [],
   assigned: ReadonlySet<string> = new Set(),
 ): PageMatch {
   const url = new URL(observed);
@@ -665,10 +698,14 @@ export function pageMatchOf(
     "/" +
     (trailing ? segments.slice(0, -1) : segments)
       .map((segment) =>
-        assigned.has(segment) ? "*" : generalizeSegment(segment),
+        assigned.has(segment) ? "*" : generalizeSegment(segment, excluded),
       )
       .join("/");
-  return { origin: url.origin, path: path.slice(0, 256) };
+  // A pattern holds whole segments: one cut mid-way, or left ending in a
+  // slash, would be a page nobody visited, or no pattern at all.
+  const bounded =
+    path.length <= 256 ? path : path.slice(0, path.lastIndexOf("/", 256));
+  return { origin: url.origin, path: bounded || "/" };
 }
 
 /**
@@ -793,7 +830,7 @@ export function compileRecording(
   let previousKey = "";
   const assigned = assignedSegments(options.entryUrl, trace);
   for (const [position, entry] of trace.entries()) {
-    const page = pageMatchOf(entry.snapshot.path, assigned);
+    const page = pageMatchOf(entry.snapshot.path, excluded, assigned);
     if (!allowed.has(page.origin))
       throw new RecordingRejected("undeclared-origin");
     if (entry.action === "done") {
@@ -857,13 +894,13 @@ export function compileRecording(
     success.length,
     ...success.filter((match) => !stepPages.has(describePage(match))),
   );
-  const entry = pageMatchOf(options.entryUrl);
+  const entry = pageMatchOf(options.entryUrl, excluded);
   const used = new Set([
     entry.origin,
     ...steps.map((step) => step.page.origin),
     ...success.map((match) => match.origin),
   ]);
-  const recording = recordedCeremonySchema.parse({
+  const parsed = recordedCeremonySchema.safeParse({
     schemaVersion: 1,
     id: options.id,
     title: options.title,
@@ -878,6 +915,8 @@ export function compileRecording(
     ...(options.basedOn ? { basedOn: options.basedOn } : {}),
     ...(options.issued ? { issued: options.issued } : {}),
   } satisfies RecordedCeremony);
+  if (!parsed.success) throw new RecordingRejected("invalid");
+  const recording = parsed.data;
 
   // The descriptors were scrubbed one by one. This is the check that does not
   // trust that: a value the login held, anywhere in the finished bytes, and

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, randomBytes } from "node:crypto";
 import { test, type TestContext } from "node:test";
 import {
   runCeremony,
@@ -262,4 +263,62 @@ test("REGISTRY-CALLBACK: an app registered with another callback cannot sign any
       input.snapshot.headings.includes("Redirect URI mismatch"),
     ),
   );
+});
+
+test("REGISTRY-CODE-CLIENT: a code redeems only for the client it was issued to, whoever else authenticates", async (t) => {
+  const providers = await chain(t);
+  const x = (await register(providers)).kept[0]!;
+  const y = (await register(providers, `${providers.b.origin}/other-callback`))
+    .kept[0]!;
+  assert.notEqual(x["client-id"], y["client-id"]);
+
+  // A real code for X: the person signs in at A and allows X, and the driver
+  // stops at X's callback before anything redeems it.
+  const verifier = randomBytes(32).toString("base64url");
+  const authorize = new URL(`${providers.a.origin}/authorize`);
+  authorize.searchParams.set("response_type", "code");
+  authorize.searchParams.set("client_id", x["client-id"]!);
+  authorize.searchParams.set("redirect_uri", providers.b.callbackUrl);
+  authorize.searchParams.set("scope", "openid");
+  authorize.searchParams.set("state", randomBytes(8).toString("hex"));
+  authorize.searchParams.set(
+    "code_challenge",
+    createHash("sha256").update(verifier).digest("base64url"),
+  );
+  authorize.searchParams.set("code_challenge_method", "S256");
+  const { result } = await drive({
+    ...signInPlan(providers),
+    entryUrl: authorize.href,
+    goal: "authorize",
+    allowedOrigins: [providers.a.origin],
+    redirectUri: providers.b.callbackUrl,
+    verify: async () => false,
+  });
+  assert.equal(result.status, "completed", detail(result));
+  const code = result.status === "completed" ? result.callback?.code : "";
+  assert.ok(code, "the callback carried a code");
+
+  const redeem = (client: IssuedValues) =>
+    fetch(`${providers.a.origin}/token`, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${Buffer.from(
+          `${client["client-id"]}:${client["client-secret"]}`,
+        ).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: providers.b.callbackUrl,
+        code_verifier: verifier,
+      }).toString(),
+    });
+  // Y authenticates with its own valid secret, and still cannot have X's code.
+  const stolen = await redeem(y);
+  assert.equal(stolen.status, 400);
+  assert.deepEqual(await stolen.json(), { error: "invalid_grant" });
+  // The same request as X is honoured, so the refusal was the client alone.
+  const own = await redeem(x);
+  assert.equal(own.status, 200);
 });

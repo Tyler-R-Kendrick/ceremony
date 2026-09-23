@@ -50,16 +50,19 @@ export function catalogEntryFor(
     authentication?: CatalogEntry["authentication"];
     definitionRef?: string;
     /** The evidence-derived label for this adapter; absent leaves the entry unlabelled. */
-    label?: (adapterId: string, configured: boolean) => SupportLabel;
+    label?: (adapter: ConnectorAdapter, configured: boolean) => SupportLabel;
   } = {},
 ): CatalogEntry {
   const capabilities = adapter.capabilities(present);
   const missingRequired = adapter.configuration.some(
     (item) => item.required && !present.has(item.name),
   );
-  const supportLabel = extra.label?.(adapter.id, !missingRequired);
+  const supportLabel = extra.label?.(adapter, !missingRequired);
+  // A generic adapter's row describes its code path, which never reads live;
+  // it is promoted per definition (a registration), never here.
   const declared: CatalogEntry["support"] =
     adapter.support === "fixture" &&
+    adapter.evidenceScope !== "definition" &&
     supportLabel &&
     isLiveSupportLabel(supportLabel)
       ? "provider-backed"
@@ -105,7 +108,7 @@ export function catalogEntryFor(
 export function catalogFor(
   registry: ConnectorAdapterRegistry,
   present: (adapter: ConnectorAdapter) => ReadonlySet<string>,
-  label?: (adapterId: string, configured: boolean) => SupportLabel,
+  label?: (adapter: ConnectorAdapter, configured: boolean) => SupportLabel,
 ): CatalogEntry[] {
   return registry
     .list()

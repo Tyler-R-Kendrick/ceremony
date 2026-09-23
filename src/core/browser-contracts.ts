@@ -682,9 +682,20 @@ export function snapshotDocument(
         entry.filled = checked;
       } else if (tag === "select") {
         entry.kind = "select";
+        // Each option by its label - what a browser shows and what
+        // Playwright's `selectOption({ label })` matches - which is the
+        // option's own text unless a `label` attribute overrides it.
         entry.options = Array.from(control.querySelectorAll("option"))
           .slice(0, 20)
-          .map((option) => trim(option.textContent, 100));
+          .map((option) => {
+            const shown = (option as { label?: unknown }).label;
+            return trim(
+              typeof shown === "string" && shown !== ""
+                ? shown
+                : option.getAttribute("label") || option.textContent,
+              100,
+            );
+          });
         entry.filled = value.length > 0;
       } else if (
         tag === "button" ||
@@ -873,9 +884,11 @@ export const elementUsableSource = `((element) => {
  * Read-only is the whole point. It is what makes the value one the page
  * *shows* — a provider displaying an issued secret — rather than one somebody
  * typed: the driver never fills a read-only control (`elementUsableSource`
- * refuses it), so nothing the attempt itself supplied, a password included,
- * can come back out through here. A hidden or invisible field is not a value
- * the page is showing anyone, so it is not read either.
+ * refuses it), so no field the attempt itself filled can be read back out
+ * through here. A page can still copy a typed value into a read-only field of
+ * its own; the driver refuses such a value when it compares each read against
+ * what it substituted. A hidden or invisible field is not a value the page is
+ * showing anyone, so it is not read either.
  */
 export const readOnlyValueSource = `((element) => {
   if (!element || !element.isConnected) return null;
@@ -985,15 +998,20 @@ export type CheckboxConsent = {
   marketing: boolean;
 };
 
+/**
+ * Opt-ins that are nobody's to give: marketing, newsletters, and sharing the
+ * person's data with partners. "I agree" is how these are worded too, so a
+ * box naming one is never read as terms alone.
+ */
 const marketingWords =
-  /newsletter|marketing|promotion|special offers|\boffers\b|product (news|updates)|news and (updates|offers)|(e-?mail|send) me (news|updates|offers|tips)|subscribe/i;
+  /newsletter|marketing|promot|special offers|\boffers\b|\bupdates\b|product news|(e-?mail|send) me (news|offers|tips)|subscribe|partners|third[- ]part(y|ies)|share my (data|information)/i;
 const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
   // A bare "I agree" or "I accept" is read as terms: it is the conservative
   // reading, since it asks a person rather than ticking.
   terms:
     /terms|conditions|\beula\b|user agreement|acceptable use|\bi (agree|accept)\b|\bagree to\b|\baccept the\b/i,
   privacy: /privacy|data (processing|protection)|personal data|cookie/i,
-  age: /old enough|\b(1[3-9]|2[01]) ?(\+|years|or (older|over))|of (legal )?age|age of (majority|consent)|\b(over|at least) (1[3-9]|2[01])\b|minimum age/i,
+  age: /old enough|years of age|\b(1[3-9]|2[01]) ?(\+|years|or (older|over))|of (legal )?age|age of (majority|consent)|\b(over|at least) (1[3-9]|2[01])\b|minimum age/i,
 };
 
 /**
@@ -1044,6 +1062,9 @@ export function needsConsent(consent: CheckboxConsent): boolean {
  */
 const devicePageWords =
   /(enter|type) the code (shown|displayed) on (your|the) (device|screen|tv)|code (shown|displayed) on your device|connect (a|your) device|activate (a |your )?(device|tv)|device (activation|authori[sz]ation|login|sign[- ]?in|verification)|link (a|your) device/i;
+/** Wording that names a sign-in identifier, which a user code never is. */
+const identifierWords =
+  /user\s?name|e-?mail|login|account|sign[- ]?in|phone|mobile|handle|^user$|^identifier$/i;
 /** Wording that names the user code field itself. */
 const userCodeWords =
   /\b(user|device|pairing|activation)[ _-]?code\b|code (shown|displayed) on (your|the) (device|screen|tv)|^user_?code$/i;
@@ -1069,9 +1090,18 @@ export function deviceVerificationField(
     )
   )
     return undefined;
-  const typed = snapshot.elements.filter(
-    (element) => element.kind === "input" && element.readOnly !== true,
-  );
+  // An identifier field is never the code field, however the page is
+  // headed: "Connect a device" above a lone email box is the sign-in step
+  // before the verification page, and a user code typed there goes to the
+  // provider as somebody's address.
+  const typed = snapshot.elements.filter((element) => {
+    if (element.kind !== "input" || element.readOnly === true) return false;
+    if (element.type === "email" || element.type === "tel") return false;
+    if (/\b(username|email)\b/.test(element.autocomplete ?? "")) return false;
+    return ![element.name, element.label, element.placeholder].some(
+      (text) => text !== undefined && identifierWords.test(text),
+    );
+  });
   const page = devicePageWords.test(
     `${snapshot.title} ${snapshot.headings.join(" ")}`,
   );

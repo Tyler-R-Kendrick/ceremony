@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { safeTextSchema, type EvidenceLevel } from "./identity.js";
+import {
+  connectorReferenceSchema,
+  safeTextSchema,
+  type EvidenceLevel,
+} from "./identity.js";
 
 /*
  * Support labels, derived from recorded evidence and nothing else.
@@ -48,7 +52,24 @@ import { safeTextSchema, type EvidenceLevel } from "./identity.js";
  * Dates. An entry is dated by UTC calendar day. One dated after the
  * evaluation day is not evidence yet: validation at every boundary that
  * accepts entries (the ledger generator, a host supplying its own) refuses
- * it, and computation ignores it and reports it.
+ * it, and computation ignores it and reports it. The evaluation instant must
+ * be finite: every comparison against NaN is false, which would admit a
+ * future or expired entry, so a clock that returns one is refused.
+ *
+ * Scope. Most adapters speak for one provider, so an entry about the adapter
+ * speaks for every connection through it. A generic adapter (the OpenAPI and
+ * provider-catalog adapters, `evidenceScope: "definition"`) runs whatever
+ * description a person imported: its own suites prove the code path, not any
+ * provider behind a definition nobody exercised. So an entry may name the
+ * definition it exercised (`definition`: its `definitionRef`, or
+ * `sha256:<normalizedDigest>`), and:
+ *
+ * - evaluated for one definition, a generic adapter counts only entries
+ *   naming that definition; a single-provider adapter counts its
+ *   adapter-wide entries plus those naming that definition;
+ * - evaluated adapter-wide (the catalog row, the published matrix), an entry
+ *   naming a definition does not count, and a generic adapter's code path
+ *   never reads `live` or `certified`, because no provider was named.
  *
  * Nothing here can raise a label from the adapter family, a model's
  * suggestion or a registration: only an entry can, and an attended
@@ -141,28 +162,17 @@ export function labelForTarget(
 
 /**
  * A work item recorded before entries were dated carries only an evidence
- * level. That level does not say what the check ran against, so it maps to
- * the weakest target it could mean: `protocol-fixture` covers both in-process
- * fixtures and loopback doubles, so it counts as an in-process fixture. A
- * level that proves nothing (`not-tested`) earns no entry. Raising such an
- * adapter above `fixture` takes an explicit, dated entry naming its target.
+ * level. That level names no check, no target and no attendee, so whatever
+ * it claims it earns at most an in-process fixture; a level that proves
+ * nothing (`not-tested`) earns no entry. Raising an adapter above `fixture`
+ * takes an explicit, dated entry naming its target and the check that ran,
+ * and a legacy live level is refused outright by the ledger generator
+ * rather than quietly downgraded.
  */
 export function legacyCheckTarget(
   level: EvidenceLevel,
 ): CheckTarget | undefined {
-  switch (level) {
-    case "not-tested":
-      return undefined;
-    case "unit":
-    case "protocol-fixture":
-      return "in-process-fixture";
-    case "local-integration":
-    case "browser-integration":
-      return "local-double";
-    case "live-authorized":
-    case "deployed-authorized":
-      return "recorded-live";
-  }
+  return level === "not-tested" ? undefined : "in-process-fixture";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -177,8 +187,12 @@ const calendarDay = z
     );
   }, "Not a calendar day");
 
-/** UTC midnight of the day an instant falls on. */
-const dayOf = (instant: number) => Math.floor(instant / DAY_MS) * DAY_MS;
+/** UTC midnight of the day an instant falls on; a non-finite instant is refused. */
+const dayOf = (instant: number) => {
+  if (!Number.isFinite(instant))
+    throw new RangeError("Support labels need a finite evaluation instant");
+  return Math.floor(instant / DAY_MS) * DAY_MS;
+};
 const dayValue = (day: string) => Date.parse(`${day}T00:00:00.000Z`);
 
 /*
@@ -217,6 +231,17 @@ export const supportEvidenceSchema = z
     check: checkSchema,
     target: checkTargetSchema,
     recordedAt: calendarDay,
+    /**
+     * The one definition this check exercised: its `definitionRef` or
+     * `sha256:<normalizedDigest>`. Absent means the entry speaks for the
+     * adapter as a whole. See "Scope" above.
+     */
+    definition: connectorReferenceSchema
+      .refine(
+        (value) => !/^[a-z][a-z0-9+.-]*:\/\//i.test(value),
+        "A definition is named by reference or digest, not by URL",
+      )
+      .optional(),
     /** Who attended a certification. Required for `attended-live`, refused otherwise. */
     attendedBy: safeTextSchema.min(1).max(120).optional(),
     notes: safeTextSchema.max(500).optional(),
@@ -243,8 +268,8 @@ export function supportEvidenceProblems(
   entries: readonly unknown[],
   options: { asOf: number },
 ): string[] {
-  const problems: string[] = [];
   const today = dayOf(options.asOf);
+  const problems: string[] = [];
   entries.forEach((raw, index) => {
     const parsed = supportEvidenceSchema.safeParse(raw);
     if (!parsed.success) {
@@ -294,7 +319,25 @@ export type SupportLabelResult = {
   unconfigured: SupportEvidence[];
   /** Entries dated after the evaluation day; never evidence. */
   future: SupportEvidence[];
+  /** Entries that do not speak for the evaluated scope (another definition, or live evidence for a generic code path). */
+  outOfScope: SupportEvidence[];
 };
+
+export type SupportLabelScope = {
+  /** Whether the adapter runs arbitrary imported definitions (`evidenceScope: "definition"`). */
+  definitionScoped?: boolean;
+  /** Evaluate for one definition: every name it goes by (`definitionRef`, `sha256:<digest>`). */
+  definitions?: readonly string[];
+};
+
+/** Whether an entry speaks for the scope being evaluated. See "Scope" above. */
+function inScope(entry: SupportEvidence, scope: SupportLabelScope): boolean {
+  if (entry.definition !== undefined)
+    return scope.definitions?.includes(entry.definition) ?? false;
+  if (!scope.definitionScoped) return true;
+  if (scope.definitions) return false;
+  return !isLiveSupportLabel(labelForTarget(entry.target));
+}
 
 /**
  * The label one adapter's entries earn as of `asOf`. Entries for other
@@ -303,7 +346,7 @@ export type SupportLabelResult = {
 export function computeSupportLabel(
   adapterId: string,
   entries: readonly SupportEvidence[],
-  options: { asOf: number; configured: boolean },
+  options: { asOf: number; configured: boolean } & SupportLabelScope,
 ): SupportLabelResult {
   const today = dayOf(options.asOf);
   const result: SupportLabelResult = {
@@ -311,9 +354,14 @@ export function computeSupportLabel(
     expired: [],
     unconfigured: [],
     future: [],
+    outOfScope: [],
   };
   for (const entry of entries) {
     if (entry.adapterId !== adapterId) continue;
+    if (!inScope(entry, options)) {
+      result.outOfScope.push(entry);
+      continue;
+    }
     const recorded = dayValue(entry.recordedAt);
     if (recorded > today) {
       result.future.push(entry);

@@ -244,8 +244,8 @@ export interface CeremonyRunOptions {
    * password, so a later snapshot or note reproducing it fails the attempt.
    * The values are never in the result, the transcript or anything the
    * interpreter is given; the transcript records a `kept` step naming the
-   * kinds. While any declared
-   * value is still unread, a claim of completion is not accepted.
+   * kinds. While any declared value is still unread, neither a claim of
+   * completion nor an arrival at the callback completes the attempt.
    */
   issued?: {
     fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
@@ -286,6 +286,9 @@ export interface CeremonyRunOptions {
   onApplied?: (entry: RecordedTraceEntry) => void;
 }
 
+/** Roles typed only on an allowed origin, into a form posting to one. */
+const originBoundRoles: readonly CeremonyRole[] = [...secretRoles, "user-code"];
+
 /** What a step needing a person ends as, when no person takes it. */
 const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   "human-challenge": "human-challenge",
@@ -295,6 +298,14 @@ const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   choice: "choice-required",
   consent: "consent-required",
 };
+
+/**
+ * Runs that replay a reviewed recording, with a test for whether the
+ * proposal in hand came from the recording rather than a fallback
+ * interpreter. Private to this module: only `runRecordedCeremony` can put a
+ * run here, so no caller can grant itself a replay's freedom to choose.
+ */
+const reviewedReplays = new WeakMap<CeremonyRunOptions, () => boolean>();
 
 const defaultMaxSteps = 24;
 const defaultStallLimit = 3;
@@ -591,10 +602,11 @@ export async function runCeremony(
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
       if (!value || value.length > 4096 || (secret && value.length < 8)) return;
-      // Nor is anything this attempt typed. A page that prints the password
-      // back beside the label a plan named is showing the caller's own
-      // secret, not issuing one, and it goes to no sink under another name.
-      if (contains(value, guarded)) return;
+      // A field showing something the driver typed is not an issued value,
+      // whatever it is labelled: keeping it would hand the password to the
+      // plan's next step, which may send it to another origin. This holds for
+      // an ID as much as a secret, since an ID is carried unguarded.
+      if (guarded.includes(value) || contains(value, guarded)) return;
       issued.set(kind, value);
       if (secret && !guarded.includes(value)) guarded.push(value);
     }
@@ -693,8 +705,13 @@ export async function runCeremony(
         return unusable();
       // A permitted page can still hand a secret to a third party. Refuse the
       // entry rather than the navigation: by then the value is already sent.
+      //
+      // A device's user code is held to the same rule though it is not a
+      // secret: it is the one-time approval of a device, and typed into a
+      // form that posts elsewhere it approves the device for whoever is
+      // listening there instead.
       if (
-        secretRoles.includes(role) &&
+        originBoundRoles.includes(role) &&
         (!allowed.has(originOf(url)) ||
           (element.submitsTo !== undefined &&
             !allowed.has(originOf(element.submitsTo))))
@@ -768,28 +785,36 @@ export async function runCeremony(
         ...(consent.kinds.length ? { consent: consent.kinds } : {}),
       });
     } else if (action.action === "select") {
-      // An option is chosen by the label the page shows. Where the plan named
-      // the choice for this field, that is the only option it may be - and
-      // it may be chosen even past the snapshot's first twenty options, since
-      // a country list is longer than that and the plan, not the
-      // interpreter, wrote it. Anything else must be an option the
-      // observation listed: an interpreter cannot type free text into a
-      // choice. The adapter refuses a label the live control does not offer.
-      // A guarded value cannot be among the listed options - the snapshot
-      // carrying it would already have failed the attempt - and the check
-      // below says so rather than relying on it.
+      // An option is chosen by the label the page shows, and on a live drive
+      // only one the plan chose for this field: an interpreter does not pick
+      // somebody's country or organisation for them, whatever the page
+      // lists. The plan's option may lie past the snapshot's first twenty,
+      // since a country list is longer than that and the plan, not the
+      // interpreter, wrote it; the adapter refuses a label the live control
+      // does not offer. The one other source of a choice is a recording a
+      // person reviewed and published - its step names the option, and it
+      // must be one the observation listed. A guarded value cannot be among
+      // the listed options - the snapshot carrying it would already have
+      // failed the attempt - and the check below says so rather than relying
+      // on it.
       const option = action.option;
       const planned =
         element.label === undefined
           ? undefined
           : options.choices?.[element.label];
+      const recorded = reviewedReplays.get(options)?.() === true;
+      const listed = element.options ?? [];
+      // A snapshot lists at most twenty options, so only a shorter list is
+      // known to be the whole control - and a planned option missing from a
+      // whole list is not on this page, whatever the plan hoped.
+      const complete = listed.length < 20;
       if (
         element.kind !== "select" ||
         !page.select ||
         option === undefined ||
         (planned !== undefined
-          ? planned !== option
-          : !(element.options ?? []).includes(option))
+          ? planned !== option || (complete && !listed.includes(option))
+          : !recorded || !listed.includes(option))
       )
         return unusable();
       if (contains(option, guarded))
@@ -945,11 +970,20 @@ export async function runCeremony(
         steps++;
         return;
       }
+      // A claim that a person is needed which the page does not bear out -
+      // no device page, a plan that holds the user code, no select waiting -
+      // is not passed on under its own name. A caller told
+      // `device-code-required` goes looking for a person with a device; what
+      // happened is that the interpreter could not read this page.
+      const ending: BlockedReason =
+        reason === "device-code-required" || reason === "choice-required"
+          ? "unsupported-page"
+          : reason;
       record(snapshot, "blocked", {
-        reason,
+        reason: ending,
         ...(action.note ? { note: action.note } : {}),
       });
-      return finish({ status: "blocked", reason, steps });
+      return finish({ status: "blocked", reason: ending, steps });
     }
     if (action.action === "done") {
       refusals = 0;
@@ -1002,6 +1036,9 @@ export async function runCeremony(
           steps,
         });
       if (code) {
+        // A code is not what an `issued` plan came for: with a declared value
+        // still unread, arriving here is no more a completion than a claim is.
+        if (!kept) return finish({ status: "unverified", steps });
         const state = parsed.searchParams.get("state");
         const callback: CeremonyCallback = { code };
         if (state !== null) callback.state = state;
@@ -1346,7 +1383,7 @@ export async function runRecordedCeremony(
     return fallback(input);
   };
 
-  const result = await runCeremony({
+  const run: CeremonyRunOptions = {
     ...options,
     interpreter,
     onApplied: (entry) => {
@@ -1358,7 +1395,10 @@ export async function runRecordedCeremony(
       }
       options.onApplied?.(entry);
     },
-  });
+  };
+  // A recorded choice was reviewed; a fallback interpreter's is not.
+  reviewedReplays.set(run, () => !fromFallback);
+  const result = await runCeremony(run);
   return {
     ...result,
     ...(drift ? { drift } : {}),

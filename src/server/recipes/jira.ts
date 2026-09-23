@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { RecipeDefinition } from "../../core/recipe-contracts.js";
 import { manifestSchema } from "../../core/schema.js";
-import type { RunRecord } from "../commands.js";
+import { readScopedRun, type RunRecord } from "../commands.js";
 import { AuthorizationError } from "../identity.js";
 import { runArazzo, type ArazzoDocument } from "../arazzo.js";
 import {
@@ -239,24 +239,20 @@ export class AsyncJiraChildren {
   private async authorize(context: OperationContext) {
     context.signal.throwIfAborted();
     await this.options.authorize(context);
-    const run = await this.store.transaction((tx) =>
-      tx.get<RunRecord>({
-        tenant: context.actor.tenantId,
-        kind: "run",
-        id: context.runId,
-      }),
-    );
+    // The step's own context: a Jira step may be planned inside another
+    // provider's run, under the Jira connector.
+    const run = await readScopedRun(this.store, context);
     if (
       !run ||
-      run.value.subjectId !== context.actor.subjectId ||
-      run.value.sessionId !== context.actor.sessionId ||
-      run.value.status === "cancelled" ||
-      run.value.provider !== "jira" ||
-      run.value.profile !== "jira-3lo" ||
-      run.value.target !== context.target ||
-      run.value.origin !== context.origin ||
-      run.value.environment !== context.environment ||
-      run.value.configurationVersion !== context.configurationVersion
+      run.subjectId !== context.actor.subjectId ||
+      run.sessionId !== context.actor.sessionId ||
+      run.status === "cancelled" ||
+      run.provider !== "jira" ||
+      run.profile !== "jira-3lo" ||
+      run.target !== context.target ||
+      run.origin !== context.origin ||
+      run.environment !== context.environment ||
+      run.configurationVersion !== context.configurationVersion
     )
       throw new AuthorizationError("denied");
     const config = await this.options.configuration(context);

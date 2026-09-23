@@ -3,11 +3,13 @@ import test from "node:test";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
   analyzeUrlTemplate,
+  definitionFor,
   entrySchemaFor,
   parseProviderCatalogEntry,
   PROVIDER_CATALOG_LIMITS,
   resolveUrlTemplate,
   resolveValueTemplate,
+  reviewCatalogBinding,
   type ProviderCatalogEntryInput,
 } from "../../../src/server/connectors/formats/provider-catalog/index.js";
 
@@ -359,5 +361,22 @@ test("every list and string in an entry is bounded", () => {
     entrySchemaFor().safeParse(oauthEntry({ displayName: "x".repeat(121) }))
       .success,
     false,
+  );
+});
+
+test("review names a templated issuer host as a family of origins, never an exact one", async () => {
+  const entry = parseProviderCatalogEntry(oauthEntry());
+  const definition = await definitionFor(entry, { authorityNamespace: "test" });
+  const reviewed = reviewCatalogBinding(
+    { definition, destinations: [], operations: [], profileId: "oauth2" },
+    {},
+  );
+  assert.deepEqual(reviewed.issuer, {
+    issuer: "https://*.tenant-desk.example",
+    origins: ["https://*.tenant-desk.example"],
+  });
+  assert.equal(
+    reviewed.settings["provider-catalog/digest"] !== undefined,
+    true,
   );
 });
