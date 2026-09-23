@@ -486,19 +486,12 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
         login.status === "verified" || login.status === "submitted-unverified";
       const draftSaved =
         reached && outcome?.recording
-          ? await recordings.saveDraft(
-              actor,
-              // A repair keeps the published id so its next version lines up;
-              // a first recording takes the name the caller gave it.
-              outcome.recording.recordedWith === "repair"
-                ? outcome.recording
-                : {
-                    ...outcome.recording,
-                    id: recording.id,
-                    title: outcome.recording.title,
-                  },
-              { connectorId, outcome: login.status },
-            )
+          ? // A first recording carries the id the caller gave it; a repair
+            // keeps the published one, so its next version lines up.
+            await recordings.saveDraft(actor, outcome.recording, {
+              connectorId,
+              outcome: login.status,
+            })
           : undefined;
       return {
         login,

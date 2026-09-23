@@ -113,6 +113,15 @@ export const recordedCeremonyInputs = {
     revision: z.number().int().positive(),
     digest: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   }),
+  /**
+   * Replace a draft's recording — to mark a sometimes-there page optional,
+   * add a branch for an account chooser, or drop a step. The whole artifact,
+   * re-validated, so an edit is held to exactly the rules a recording is.
+   */
+  edit: z.strictObject({
+    revision: z.number().int().positive(),
+    recording: z.unknown(),
+  }),
 } as const;
 
 function draftKey(actor: ActorContext, draftId: string) {
@@ -207,6 +216,49 @@ export class RecordedCeremonies {
       record.data,
       checked.recording,
     );
+  }
+
+  /**
+   * Its author edits a draft. The edit is a new revision with a new digest,
+   * so no review of the old one covers it.
+   *
+   * Two things an edit cannot change: which recording this is (`id`), and
+   * how it came to exist (`recordedWith`, `basedOn`). A reviewer reads those
+   * to decide how much to trust the steps, so they stay what the recording
+   * said they were.
+   */
+  async editDraft(
+    actor: ActorContext,
+    draftId: string,
+    input: unknown,
+  ): Promise<RecordedCeremonyDraft> {
+    requireCapability(actor, "author");
+    draftIdSchema.parse(draftId);
+    const { revision, recording } = recordedCeremonyInputs.edit.parse(input);
+    return this.store.transaction(async (tx) => {
+      const current = await tx.get(draftKey(actor, draftId));
+      if (!current) throw new AuthorizationError("denied");
+      const record = draftRecordSchema.safeParse(current.value);
+      if (!record.success || record.data.author !== actor.subjectId)
+        throw new AuthorizationError("denied");
+      if (current.revision !== revision) throw new PersistenceConflict();
+      const previous = recordedCeremonySchema.parse(record.data.recording);
+      const proposed = recordedCeremonySchema.parse(recording);
+      if (
+        proposed.id !== previous.id ||
+        proposed.recordedWith !== previous.recordedWith ||
+        JSON.stringify(proposed.basedOn) !== JSON.stringify(previous.basedOn)
+      )
+        throw new AuthorizationError("invalid_request");
+      const checked = await parsed(proposed);
+      const next: z.infer<typeof draftRecordSchema> = {
+        ...record.data,
+        digest: checked.digest,
+        recording: checked.recording,
+      };
+      const saved = await tx.put(draftKey(actor, draftId), next, revision);
+      return this.present(draftId, saved, next, checked.recording);
+    });
   }
 
   /** Approve one exact revision and digest of a draft. */
@@ -362,9 +414,10 @@ export class RecordedCeremonies {
 }
 
 /**
- * The people's routes: read a draft, review it, publish it. Mounted by the
- * teaching HTTP surface under `/recorded-ceremonies/`; there is no MCP
- * equivalent for review or publication, on purpose.
+ * The people's routes: read a draft, edit it (its author), review it,
+ * publish it. Mounted by the teaching HTTP surface under
+ * `/recorded-ceremonies/`; there is no MCP equivalent for review or
+ * publication, on purpose.
  *
  * Returns `undefined` for a path this does not own, so the caller can answer
  * 404 the way it answers every other unknown path.
@@ -377,12 +430,14 @@ export async function recordedCeremonyRoute(
   body: unknown,
 ): Promise<unknown> {
   const match =
-    /^\/recorded-ceremonies\/drafts\/([^/]+)(?:\/(review|publish))?$/.exec(
+    /^\/recorded-ceremonies\/drafts\/([^/]+)(?:\/(edit|review|publish))?$/.exec(
       path,
     );
   if (!match || !recordings) return undefined;
   const draftId = draftIdSchema.parse(decodeURIComponent(match[1]!));
   if (!post && !match[2]) return recordings.readDraft(actor, draftId);
+  if (post && match[2] === "edit")
+    return recordings.editDraft(actor, draftId, body);
   if (post && match[2] === "review")
     return recordings.review(actor, draftId, body);
   if (post && match[2] === "publish")
