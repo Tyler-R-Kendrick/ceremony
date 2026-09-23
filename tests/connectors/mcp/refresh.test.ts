@@ -96,6 +96,7 @@ async function setup(
     expiresAt?: number;
     oauth?: Record<string, unknown> | false;
     mcp?: Record<string, unknown>;
+    fetch?: typeof fetch;
   },
 ): Promise<Setup> {
   const as = await tokenEndpoint();
@@ -231,7 +232,9 @@ async function setup(
       connection,
       generation: 1,
       signal: new AbortController().signal,
-      environment: ports.environment({ fetch: globalThis.fetch }),
+      environment: ports.environment({
+        fetch: input.fetch ?? globalThis.fetch,
+      }),
     },
   };
 }
@@ -314,6 +317,38 @@ test("a pinned tool whose listing is refused with 401 renews once and retries", 
   assert.equal(result.state, "complete");
   assert.equal(state.as.grants.length, 1, "one refresh");
   assertNoTokens(state, result);
+});
+
+test("a 403 for insufficient scope is a denial, not a reason to spend a refresh", async (t) => {
+  // The server knows the token and refuses the operation: a renewed token
+  // carries the same grant, so rotating the refresh token cannot help.
+  const forbidding: typeof fetch = async (request, init) => {
+    if (typeof init?.body === "string" && init.body.includes('"tools/call"'))
+      return new Response(JSON.stringify({ error: "insufficient_scope" }), {
+        status: 403,
+        headers: {
+          "content-type": "application/json",
+          "www-authenticate":
+            'Bearer error="insufficient_scope", scope="notes:write"',
+        },
+      });
+    return fetch(request, init);
+  };
+  const state = await setup(t, {
+    material: { access_token: ISSUED[0], refresh_token: REFRESH },
+    expiresAt: Date.now() + 3_600_000,
+    fetch: forbidding,
+  });
+  const result = await call(state);
+  assert.equal(result.state, "denied");
+  assert.equal(result.code, "mcp.scope.insufficient");
+  assert.equal(state.as.grants.length, 0, "no refresh was spent");
+  assert.equal(
+    state.ports.inspect.credentialMaterial(state.credentialRef)?.[
+      "refresh_token"
+    ],
+    REFRESH,
+  );
 });
 
 test("without a refresh token, or without an issuer policy, the refusal stands and the issuer is not asked", async (t) => {
