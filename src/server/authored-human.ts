@@ -377,6 +377,7 @@ export async function authoredHuman(
         grant,
         fetcher,
         prior.value.dpopJwk,
+        context.target,
       );
     } else
       created = await saveAuthoredAuthorizationSession(
@@ -392,6 +393,7 @@ export async function authoredHuman(
         },
         fetcher,
         clientAuth,
+        context.target,
       );
     if (!created) throw new AuthorizationError("denied");
     await options.browser?.close?.(browserKey);
@@ -1052,6 +1054,7 @@ export async function authoredHuman(
         },
         fetcher,
         pollAuth,
+        context.target,
       );
       if (poll.status === "ready") {
         await store.transaction((tx) => tx.delete(oauthKey, reserved));

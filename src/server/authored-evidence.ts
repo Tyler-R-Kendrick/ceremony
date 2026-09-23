@@ -8,7 +8,10 @@ import {
   type SupportLabelResult,
 } from "../core/connectors/index.js";
 import type { ActorContext } from "../core/operation-contracts.js";
-import type { AsyncCeremonyStore } from "./persistence/index.js";
+import type {
+  AsyncCeremonyStore,
+  AsyncTransaction,
+} from "./persistence/index.js";
 
 /*
  * Support evidence for authored connectors, recorded by the runtime and by
@@ -25,6 +28,15 @@ import type { AsyncCeremonyStore } from "./persistence/index.js";
  * completing: the connector's approved credential-verification request was
  * accepted by the provider, or an authorization finished and its session
  * checked out. A refused, unavailable or unverified run records nothing.
+ *
+ * Which definition it names. The one the run actually exercised, and only
+ * when three reads agree: the credential or session was bound to it when it
+ * was created (`bindAuthoredDefinition`), the verifier computed it from the
+ * same installed record it probed with, and the installed record still names
+ * it when the entry is written. A connector reinstalled at any point in
+ * between records nothing, rather than crediting a definition nobody ran;
+ * this matters most for a session verified without any network call, whose
+ * only exercise of the provider was the exchange that created it.
  *
  * What target it claims. The runtime decides, from the transport the run
  * used, never the author: its own public-only transport can reach nothing
@@ -130,6 +142,54 @@ const storedSchema = z.strictObject({
   entries: z.array(supportEvidenceSchema).max(MAX_ENTRIES),
 });
 
+/** The installed record as this actor may use it: their own connector, or nothing. */
+function ownInstalled(value: unknown, actor: ActorContext) {
+  const parsed = installedSchema.safeParse(value);
+  return parsed.success && parsed.data.author === actor.subjectId
+    ? parsed.data
+    : undefined;
+}
+
+/**
+ * The definition name of an installed-connector record as read, or nothing
+ * when it is not this actor's. A caller that acts on a record computes the
+ * name from the same read it acts on, so the name is of what it used.
+ */
+export function authoredDefinitionOf(
+  value: unknown,
+  actor: ActorContext,
+): string | undefined {
+  const installed = ownInstalled(value, actor);
+  return installed ? authoredDefinitionName(installed) : undefined;
+}
+
+/**
+ * The definition a credential or session is bound to when it is created:
+ * the installed record read in the same transaction, provided the discovery
+ * the ceremony actually used defines the same connector. A ceremony that ran
+ * against discovery the installed record no longer (or not yet) carries is
+ * bound to nothing, and can never be evidence.
+ */
+export async function bindAuthoredDefinition(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  connectorId: string,
+  used?: Record<string, unknown>,
+): Promise<string | undefined> {
+  const installed = ownInstalled(
+    (await tx.get(installedKey(actor, connectorId)))?.value,
+    actor,
+  );
+  if (!installed) return undefined;
+  const name = authoredDefinitionName(installed);
+  if (
+    used &&
+    authoredDefinitionName({ ...installed, discovery: used }) !== name
+  )
+    return undefined;
+  return name;
+}
+
 async function readInstalled(
   store: AsyncCeremonyStore,
   actor: ActorContext,
@@ -138,8 +198,7 @@ async function readInstalled(
   const record = await store.transaction((tx) =>
     tx.get(installedKey(actor, connectorId)),
   );
-  const parsed = installedSchema.safeParse(record?.value);
-  return parsed.success ? parsed.data : undefined;
+  return ownInstalled(record?.value, actor);
 }
 
 /** Entries for this connector, or none when the record is absent or does not parse exactly. */
@@ -167,11 +226,17 @@ async function readEntries(
 }
 
 /**
- * Records that a verified run of this connector's current definition
- * happened today. Called only by the authored verifier after the provider
- * accepted the credential or the authorization's session checked out.
- * Returns the entry, or nothing when the connector is not installed for
- * this actor (a run cannot vouch for a definition it did not run).
+ * Records that a verified run exercised `definition`: the name the verifier
+ * computed from the installed record it acted on, which also matched the
+ * definition its credential or session was bound to. Called only by the
+ * authored verifier, after the provider accepted the credential or the
+ * authorization's session checked out.
+ *
+ * The write re-reads the installed record in its own transaction and is
+ * refused unless it still names that definition. A reinstall while the probe
+ * was in flight would otherwise have the probe of one definition recorded
+ * as evidence for another, which nothing ever ran. Returns the entry, or
+ * nothing when the write was refused.
  */
 export async function recordAuthoredEvidence(
   store: AsyncCeremonyStore,
@@ -179,13 +244,12 @@ export async function recordAuthoredEvidence(
   input: {
     connectorId: string;
     runId: string;
+    definition: string;
     target: AuthoredEvidenceTarget;
     proof: "credential-accepted" | "authorization-verified";
     now: number;
   },
 ): Promise<SupportEvidence | undefined> {
-  const installed = await readInstalled(store, actor, input.connectorId);
-  if (!installed || installed.author !== actor.subjectId) return undefined;
   const entry = supportEvidenceSchema.parse({
     adapterId: AUTHORED_ADAPTER_ID,
     // The run is named by a digest: a run id is an internal reference, and
@@ -193,13 +257,18 @@ export async function recordAuthoredEvidence(
     check: `authored-run:${sha256(`${actor.tenantId}\u0000${input.runId}`).slice(0, 32)}`,
     target: input.target,
     recordedAt: new Date(input.now).toISOString().slice(0, 10),
-    definition: authoredDefinitionName(installed),
+    definition: input.definition,
     notes:
       input.proof === "credential-accepted"
         ? "The approved credential-verification request was accepted by the provider."
         : "An authorization completed and its session was verified.",
   });
-  await store.transaction(async (tx) => {
+  return store.transaction(async (tx) => {
+    if (
+      (await bindAuthoredDefinition(tx, actor, input.connectorId)) !==
+      input.definition
+    )
+      return undefined;
     const key = evidenceKey(actor, input.connectorId);
     const current = await tx.get(key);
     const parsed = storedSchema.safeParse(current?.value);
@@ -222,8 +291,8 @@ export async function recordAuthoredEvidence(
       },
       current?.revision ?? null,
     );
+    return entry;
   });
-  return entry;
 }
 
 /**

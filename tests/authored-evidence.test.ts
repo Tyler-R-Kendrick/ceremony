@@ -15,12 +15,16 @@ import {
   approveAuthoredCredentialVerification,
   authoredVocabulary,
   declareAuthoredCredentialVerification,
+  discoveredAuthSchema,
+  issueAuthoredHandle,
   proposeAuthoredCredentialVerification,
   registerAuthoredOperations,
+  saveAuthoredGrantSession,
 } from "../src/server/authored-operations.js";
 import {
   AUTHORED_ADAPTER_ID,
   authoredDefinitionName,
+  authoredDefinitionOf,
   authoredSupportLabel,
   recordAuthoredEvidence,
   type AuthoredEvidenceTarget,
@@ -103,15 +107,37 @@ async function install(
   });
 }
 
+/** The definition name of what is installed for `who` right now. */
+async function currentDefinition(
+  store: SQLiteCeremonyStore,
+  who: ActorContext = actor,
+) {
+  const record = await store.transaction((tx) =>
+    tx.get({
+      tenant: who.tenantId,
+      kind: "artifact",
+      id: "installed-connector:novel",
+    }),
+  );
+  const name = authoredDefinitionOf(record?.value, who);
+  assert.ok(name);
+  return name;
+}
+
 /** One authored API-key run through the collection form and the verifier. */
 async function verifiedRun(
   store: SQLiteCeremonyStore,
   options: {
     evidence?: { target: AuthoredEvidenceTarget; now?: () => number };
     accept?: boolean;
+    /** Runs while the provider is answering the verification request. */
+    duringProbe?: () => Promise<void>;
+    /** Runs after the key is collected and before the verifier starts. */
+    beforeVerify?: () => Promise<void>;
   } = {},
 ) {
   const fetcher: typeof fetch = async (input, init) => {
+    await options.duringProbe?.();
     const request = new Request(String(input), init);
     const ok =
       (options.accept ?? true) &&
@@ -196,6 +222,7 @@ async function verifiedRun(
     { connectorId: "novel", name: "Novel", fetch: fetcher },
   );
   assert.equal(saved.status, 303);
+  await options.beforeVerify?.();
   await advance("access");
   return { commands, run };
 }
@@ -436,6 +463,7 @@ test("evidence is scoped to its tenant and to the connector's author", async (t)
     await recordAuthoredEvidence(store, stranger, {
       connectorId: "novel",
       runId: "run",
+      definition: await currentDefinition(store),
       target: "recorded-live",
       proof: "authorization-verified",
       now: NOW,
@@ -455,6 +483,7 @@ test("a completed authorization is recorded as such, one entry per definition an
     await recordAuthoredEvidence(store, actor, {
       connectorId: "novel",
       runId,
+      definition: await currentDefinition(store),
       target: "recorded-live",
       proof: "authorization-verified",
       now: day,
@@ -485,4 +514,180 @@ test("a completed authorization is recorded as such, one entry per definition an
       discovery: { origin: "https://elsewhere.example" },
     }),
   );
+});
+
+test("a reinstall while the provider answers the probe records nothing for either definition", async (t) => {
+  // Regression: the verifier probed with the definition it read first, then
+  // recorded whatever was installed after the probe, so the new definition,
+  // which nothing had run, read `live` and its manifest `live-adapter`.
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  const probed = await currentDefinition(store);
+  let reinstalled = false;
+  const { commands, run } = await verifiedRun(store, {
+    evidence: { target: "recorded-live", now: () => NOW },
+    duringProbe: async () => {
+      if (reinstalled) return;
+      reinstalled = true;
+      await install(store, actor, "Novel, renamed mid-probe");
+    },
+  });
+  assert.ok(reinstalled);
+  // The probe itself succeeded, so the run's connection stands.
+  assert.equal((await commands.snapshot(actor, run.id)).status, "complete");
+  assert.notEqual(await currentDefinition(store), probed);
+  assert.deepEqual(await evidenceRecords(store), []);
+  const drafts = new ConnectorDrafts(store, { now: () => NOW });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "unverified");
+  assert.equal(
+    (await drafts.getInstalled(actor, "novel"))?.manifest.support,
+    "fixture",
+  );
+});
+
+test("a credential collected under one definition is not evidence for the next", async (t) => {
+  // The reinstall lands after the key was collected and before the verifier
+  // reads the connector: the probe then proves a key collected for the old
+  // definition against the new one, which is evidence for neither.
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  const { commands, run } = await verifiedRun(store, {
+    evidence: { target: "recorded-live", now: () => NOW },
+    beforeVerify: () => install(store, actor, "Novel, reinstalled"),
+  });
+  assert.equal((await commands.snapshot(actor, run.id)).status, "complete");
+  assert.deepEqual(await evidenceRecords(store), []);
+  const drafts = new ConnectorDrafts(store, { now: () => NOW });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "unverified");
+});
+
+async function sessionRun(
+  store: SQLiteCeremonyStore,
+  options: { between?: () => Promise<void> } = {},
+) {
+  const registry = new OperationRegistry(authoredVocabulary);
+  registerAuthoredOperations(registry, {
+    store,
+    // A verifier with no userinfo endpoint makes no call at all.
+    fetch: async () => {
+      throw new Error("no network call is expected");
+    },
+    evidence: { target: "recorded-live", now: () => NOW },
+  });
+  const commands = new ProtectedCommandService(
+    store,
+    registry,
+    async () => true,
+  );
+  const runContext = {
+    provider: "novel",
+    profile: "authored",
+    target: "novel",
+    origin,
+    environment: "test",
+    configurationVersion: "v1",
+  };
+  const run = await commands.createRun(
+    actor,
+    runContext,
+    [
+      {
+        id: "access",
+        operationId: "authored.verify-access",
+        operationVersion: "1.0.0",
+        dependsOn: [],
+        bindings: {},
+      },
+    ],
+    {},
+  );
+  const context: OperationContext = {
+    ...runContext,
+    actor,
+    runId: run.id,
+    nodeId: "user",
+    commandId: "user",
+    effectId: "user",
+    signal: new AbortController().signal,
+  };
+  const installed = await store.transaction((tx) =>
+    tx.get<{ discovery: unknown }>({
+      tenant: actor.tenantId,
+      kind: "artifact",
+      id: "installed-connector:novel",
+    }),
+  );
+  // The token exchange that created the session: the provider's only
+  // exercise in this flow when there is no userinfo endpoint.
+  const created = await saveAuthoredGrantSession(
+    store,
+    actor,
+    run.id,
+    discoveredAuthSchema.parse(installed!.value.discovery),
+    { access_token: "synthetic-access-token", sub: "provider-subject" },
+    async () => {
+      throw new Error("no userinfo call is expected");
+    },
+    undefined,
+    "novel",
+  );
+  assert.ok(created);
+  const session = await issueAuthoredHandle(store, context, "session");
+  await options.between?.();
+  return registry
+    .require("authored.verify-access", "1.0.0")
+    .handler({ ...context, nodeId: "access" }, { session });
+}
+
+test("a session is evidence for the definition it was created under", async (t) => {
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  const verified = await sessionRun(store);
+  assert.equal(verified.state, "complete");
+  const drafts = new ConnectorDrafts(store, { now: () => NOW });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "live");
+  const [stored] = await evidenceRecords(store);
+  const [entry] = (stored?.value as { entries: Array<Record<string, unknown>> })
+    .entries;
+  assert.equal(entry!.definition, await currentDefinition(store));
+  assert.match(String(entry!.notes), /authorization completed/);
+});
+
+test("a session verified after a reinstall records nothing for the definition it never ran", async (t) => {
+  // Regression: with no userinfo endpoint the verifier makes no call, so a
+  // session resumed after a reinstall credited the new definition from the
+  // installed record alone.
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  const verified = await sessionRun(store, {
+    between: () => install(store, actor, "Novel, reinstalled"),
+  });
+  assert.equal(verified.state, "complete");
+  assert.deepEqual(await evidenceRecords(store), []);
+  const drafts = new ConnectorDrafts(store, { now: () => NOW });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "unverified");
+});
+
+test("a write naming a definition that is no longer installed is refused", async (t) => {
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  const before = await currentDefinition(store);
+  await install(store, actor, "Novel, renamed");
+  assert.equal(
+    await recordAuthoredEvidence(store, actor, {
+      connectorId: "novel",
+      runId: "run",
+      definition: before,
+      target: "recorded-live",
+      proof: "credential-accepted",
+      now: NOW,
+    }),
+    undefined,
+  );
+  assert.deepEqual(await evidenceRecords(store), []);
 });
