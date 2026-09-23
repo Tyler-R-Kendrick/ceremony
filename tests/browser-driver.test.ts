@@ -3466,6 +3466,13 @@ test("CONSENT: a terms box is recognised however it is worded or wherever its wo
     assert.ok(checkboxConsent(box).kinds.includes("terms"), body);
     assert.equal(consentCovers(checkboxConsent(box), []), false, body);
   }
+  // A description that is also the text beside the box is said once.
+  assert.equal(
+    boxOf(
+      `<input type="checkbox" name="accept_tos" required aria-describedby="d"><p id="d">I agree to the Terms</p>`,
+    ).label,
+    "I agree to the Terms",
+  );
   // Text beside the box that belongs to another control is not its label.
   assert.equal(
     boxOf(

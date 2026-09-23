@@ -708,8 +708,10 @@ export function snapshotDocument(
           ? after(parent.nextSibling)
           : "";
       };
+      // The description is often the very text beside the box; said once.
+      const named = label || beside();
       const words = trim(
-        [label || beside(), described].filter(Boolean).join(" "),
+        [named, described === named ? "" : described].filter(Boolean).join(" "),
         200,
       );
       if (words) entry.label = words;
