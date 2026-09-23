@@ -3,7 +3,9 @@ import {
   blockedReasonSchema,
   ceremonyGoalSchema,
   ceremonyRoleSchema,
+  issuedDeclarationSchema,
   secretRoles,
+  type IssuedDeclaration,
   type CeremonyGoal,
   type CeremonyRole,
   type PageSnapshot,
@@ -228,6 +230,16 @@ export const recordedActionSchema = z.discriminatedUnion("kind", [
     kind: z.literal("check"),
     target: elementFingerprintSchema,
   }),
+  /**
+   * Choose an option in a `<select>` by the label the page showed. The
+   * option is page text a reviewer reads, held to the same rule as every
+   * other descriptor, and never a role: nothing is substituted into it.
+   */
+  z.strictObject({
+    kind: z.literal("select"),
+    target: elementFingerprintSchema,
+    option: descriptorText,
+  }),
   /** The page was mid-transition; the recording waited for it. */
   z.strictObject({ kind: z.literal("wait-for") }),
 ]);
@@ -295,6 +307,14 @@ export const recordedCeremonySchema = z
     recordedWith: z.enum(["deterministic", "host-model", "repair"]),
     /** The published version a repair was made from. */
     basedOn: recordingReferenceSchema.optional(),
+    /**
+     * What a replay keeps from a provider page, and which host sink receives
+     * it. Part of the artifact, so a reviewer approving the recording
+     * approves this too, and a login replaying it must declare exactly the
+     * same thing: a plan cannot add keeping to a recording that was reviewed
+     * without it, or keep something else under its name.
+     */
+    issued: issuedDeclarationSchema.optional(),
   })
   .superRefine((recording, context) => {
     const issue = (message: string) =>
@@ -331,7 +351,12 @@ export const recordedCeremonySchema = z
       }
       if (action.kind === "check" && action.target.kind !== "checkbox")
         issue(`step ${step.id} checks something that is not a checkbox`);
+      if (action.kind === "select" && action.target.kind !== "select")
+        issue(`step ${step.id} chooses in something that is not a select`);
     }
+    for (const field of recording.issued?.fields ?? [])
+      if (looksLikeValue(field.label))
+        issue(`issued ${field.kind} is named by something like a value`);
     if (recording.steps.every((step) => step.optional))
       issue("At least one step is required");
 
@@ -501,10 +526,12 @@ function descriptorsOf(
  */
 export type RecordedTraceEntry = {
   snapshot: PageSnapshot;
-  action: "fill" | "click" | "check" | "wait" | "done";
+  action: "fill" | "click" | "check" | "select" | "wait" | "done";
   /** Index into `snapshot.elements`. */
   element?: number;
   role?: CeremonyRole;
+  /** For `select`: the option's visible label, as the snapshot listed it. */
+  option?: string;
 };
 
 export const recordingRejectionReasons = [
@@ -518,6 +545,12 @@ export const recordingRejectionReasons = [
   "too-long",
   /** A value the login held privately appeared in what would be saved. */
   "protected-value",
+  /**
+   * An option was chosen whose label cannot be kept in a value-free
+   * artifact - it reads like an address, a code or a token. A replay could
+   * not choose it again without storing it, so there is no recording.
+   */
+  "unrecordable-choice",
 ] as const;
 export type RecordingRejectionReason =
   (typeof recordingRejectionReasons)[number];
@@ -538,6 +571,8 @@ export type CompileRecordingOptions = {
   origins: readonly string[];
   recordedWith: RecordedCeremony["recordedWith"];
   basedOn?: RecordingReference;
+  /** What the login kept, carried into the artifact for review. */
+  issued?: IssuedDeclaration;
   /**
    * Values the login resolved — every role, not only the secret ones. Any
    * descriptor containing one is dropped, and the finished artifact is
@@ -677,7 +712,12 @@ export function compileRecording(
         action = { kind: "fill", target, role: entry.role };
         if (!roles.includes(entry.role)) roles.push(entry.role);
       } else if (entry.action === "check") action = { kind: "check", target };
-      else {
+      else if (entry.action === "select") {
+        const option = clean(entry.option);
+        if (option === undefined || option !== entry.option)
+          throw new RecordingRejected("unrecordable-choice");
+        action = { kind: "select", target, option };
+      } else {
         const next = trace[position + 1];
         action = {
           kind: "click",
@@ -731,6 +771,7 @@ export function compileRecording(
     success: success.slice(0, RECORDING_LIMITS.success),
     recordedWith: options.recordedWith,
     ...(options.basedOn ? { basedOn: options.basedOn } : {}),
+    ...(options.issued ? { issued: options.issued } : {}),
   } satisfies RecordedCeremony);
 
   // The descriptors were scrubbed one by one. This is the check that does not

@@ -1,6 +1,7 @@
 import { generateText, Output, type LanguageModel } from "ai";
 import {
   ceremonyRoles,
+  deviceVerificationField,
   driverActionSchema,
   type CeremonyGoal,
   type CeremonyRole,
@@ -34,6 +35,18 @@ export type InterpreterInput = {
    * page, and they are different buttons on different documents.
    */
   history: readonly { action: string; note?: string; path?: string }[];
+  /**
+   * Labels of the read-only fields the plan keeps a value from, when it keeps
+   * any. Labels only - text the page shows anyway - so an interpreter can
+   * leave those fields and the buttons around them alone. Whether a value was
+   * read is never said.
+   */
+  issuedLabels?: readonly string[];
+  /**
+   * Options the plan chose, by the label of the `<select>` each is for. Page
+   * text on both sides; never a secret.
+   */
+  choices?: Readonly<Record<string, string>>;
 };
 
 export type CeremonyInterpreter = (
@@ -59,9 +72,14 @@ Choose exactly ONE next action and return only that object.
 - "fill" names an element index and a role. Code substitutes the value; you never see it. Available roles: ${input.available.join(", ") || "none"}.
 - "click" a button or link by element index to submit, continue, approve, or move to the sign-in or registration page you need.
 - "check" a required checkbox, such as terms or age confirmation, by element index.
+- "select" chooses an "option" of a select element by its visible label, exactly as listed. Only choose what the plan chose: ${JSON.stringify(input.choices ?? {})}. A required choice the plan did not make is "blocked" with choice-required.
 - "wait" only when the page is mid-transition and no element can be acted on.
 - "done" only when the page shows the ceremony finished. A claim is checked; an unverified claim fails the attempt.
-- "blocked" with a reason when no action can help: human-challenge, credentials-rejected, account-exists, account-missing, consent-denied, provider-error, unsupported-page.
+- "blocked" with a reason when no action can help: human-challenge, credentials-rejected, account-exists, account-missing, consent-denied, provider-error, unsupported-page, device-code-required (a page asking for the code shown on a device when no user-code role is available), choice-required.${
+    input.issuedLabels?.length
+      ? `\n- The plan keeps what these read-only fields show, privately: ${JSON.stringify(input.issuedLabels)}. Never fill them. Once every one of them shows a value, the ceremony is "done"; do not press anything that would generate a new one.`
+      : ""
+  }
 - "note" is a short public status line. Never put a credential, code or personal value in it.
 - If an alert repeats after the same action, change approach or report blocked instead of repeating it.
 Page: ${JSON.stringify(input.snapshot)}
@@ -226,6 +244,14 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip|passkey|security key/;
   /** A provider's own way back after it failed: not a way back from the goal. */
   const retry = /try again|retry|back to sign in/i;
+  /**
+   * A button that makes the provider issue something new: "Generate a new
+   * client secret", "Create token", "Regenerate key". Pressing one twice can
+   * revoke what the first press issued, so it is never pressed twice on one
+   * page, whatever else changed there.
+   */
+  const issuing =
+    /(generate|create|regenerate|new|roll|rotate)\b.*\b(secret|token|key)/;
   /** A page telling the person to go and read their mail. */
   const awaitingMail =
     /check your (e-?mail|inbox)|we (have )?sent|confirmation (e-?mail|message|link)|verify your e-?mail/;
@@ -237,7 +263,14 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     "obtain-credential": /token|api key|credential|new (personal )?access/,
   };
 
-  return async ({ goal, snapshot, available, history }) => {
+  return async ({
+    goal,
+    snapshot,
+    available,
+    history,
+    issuedLabels = [],
+    choices = {},
+  }) => {
     if (snapshot.challenge)
       return { action: "blocked", reason: "human-challenge" };
     // A passkey hint is conditional UI only on a field that also takes
@@ -301,6 +334,43 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (/incorrect|invalid|did not match|wrong password/.test(alerts))
       return { action: "blocked", reason: "credentials-rejected" };
 
+    // A page showing every value the plan keeps is the end of the ceremony.
+    // The driver has already read them from this observation, before this
+    // runs, so the only thing left to do on it is something that could spoil
+    // them: press "Generate" again and the secret just read is revoked. A
+    // claim is only a claim - the driver refuses it until the values are in
+    // hand - so claiming here costs nothing when they are not. Shown but
+    // still empty means the page is filling them in: wait for it.
+    if (issuedLabels.length > 0) {
+      const shown = issuedLabels.map((label) =>
+        snapshot.elements.filter(
+          (element) => element.kind === "input" && element.label === label,
+        ),
+      );
+      if (shown.every((matches) => matches.length === 1)) {
+        if (shown.every(([field]) => field!.filled === true))
+          return { action: "done", note: "issued values shown" };
+        const waited = history.at(-1)?.action === "wait";
+        return waited
+          ? { action: "blocked", reason: "unsupported-page" }
+          : { action: "wait" };
+      }
+    }
+
+    // A device authorization page wants the code shown on a device. That
+    // code is typed only when the plan supplied it; guessing any other role
+    // into the field - a mailed code, an authenticator's - would hand the
+    // provider a value meant for somewhere else. Without it, a person holding
+    // the device has to enter it, and the driver decides whether to ask one.
+    const deviceField = deviceVerificationField(snapshot);
+    if (
+      deviceField &&
+      deviceField.filled !== true &&
+      !deviceField.submitsTo &&
+      !available.includes("user-code")
+    )
+      return { action: "blocked", reason: "device-code-required" };
+
     // Registering, on a page that is not itself a registration form but links
     // to one: go there first. Filling a sign-in form here would post the
     // brand-new password to the provider's sign-in endpoint - a wasted
@@ -331,16 +401,52 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
       .join(" ")
       .toLowerCase();
     let seenPassword = false;
+    /** A required choice the plan did not make, for a person to make. */
+    let unchosen: SnapshotElement | undefined;
     for (const element of snapshot.elements) {
       if (element.kind !== "input" && element.kind !== "select") continue;
-      const role = roleOf(element, seenPassword, available, context);
+      // A read-only field shows a value; nothing is typed into it.
+      if (element.readOnly) continue;
+      if (element.kind === "select" && !element.filled) {
+        // Chosen by the field's label: an option the page lists, or - when
+        // the list was cut at the snapshot's twenty - the plan's option, for
+        // the adapter to find in the live control or refuse.
+        const option =
+          element.label === undefined ? undefined : choices[element.label];
+        const listed = element.options ?? [];
+        if (
+          option !== undefined &&
+          (listed.includes(option) || listed.length >= 20)
+        )
+          return {
+            action: "select",
+            element: element.index,
+            option,
+            note: element.label,
+          };
+      }
+      const role =
+        element === deviceField
+          ? "user-code"
+          : roleOf(element, seenPassword, available, context);
       if (role === "password") seenPassword = true;
+      if (
+        element.kind === "select" &&
+        !element.filled &&
+        element.required &&
+        (!role || !available.includes(role))
+      )
+        unchosen ??= element;
       if (!role || element.filled || !available.includes(role)) continue;
       // Never type into a form that posts somewhere else; the driver refuses
       // it too, and asking is a wasted step.
       if (element.submitsTo) continue;
       return { action: "fill", element: element.index, role };
     }
+    // Everything this caller can supply is in. A required choice nobody made
+    // is not one to guess - the first option is rarely the person's country -
+    // and submitting without it only earns the provider's refusal.
+    if (unchosen) return { action: "blocked", reason: "choice-required" };
 
     // A required box is ticked for any goal. Registration also ticks the
     // provider's terms or age confirmation when the page does not mark it
@@ -402,15 +508,27 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
           (entry, at) =>
             entry.action === "click" &&
             entry.path === snapshot.path &&
-            at > changed,
+            (at > changed || issuing.test((entry.note ?? "").toLowerCase())),
         )
         .map((entry) => entry.note),
+    );
+    // A page already showing a value the plan keeps has issued it; a button
+    // that issues another would replace it.
+    const keeping = issuedLabels.some((label) =>
+      snapshot.elements.some(
+        (element) =>
+          element.kind === "input" &&
+          element.label === label &&
+          element.filled === true &&
+          /secret|token|key/i.test(label),
+      ),
     );
     const buttons = snapshot.elements.filter(
       (element) =>
         element.kind === "button" &&
         !backward.test(words(element)) &&
-        !pressed.has(element.text),
+        !pressed.has(element.text) &&
+        !(keeping && issuing.test(words(element))),
     );
     // A caption that says "forward" is taken first. Failing that, a form
     // filled here and not yet submitted, whose page has exactly one button

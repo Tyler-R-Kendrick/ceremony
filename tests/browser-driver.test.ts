@@ -4,6 +4,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import { parseHTML } from "linkedom";
 import {
   ceremonyRoles,
+  deviceVerificationField,
   driverActionSchema,
   secretRoles,
   snapshotDocument,
@@ -14,9 +15,13 @@ import {
 import {
   createSecrets,
   runCeremony,
+  runRecordedCeremony,
   CeremonySecretLeak,
   type CeremonyPage,
+  type HumanParticipationRequest,
 } from "../src/server/browser-driver.js";
+import { compileRecording } from "../src/core/recorded-ceremony.js";
+import type { RecordedTraceEntry } from "../src/core/recorded-ceremony.js";
 import {
   createHeuristicInterpreter,
   createModelInterpreter,
@@ -1489,6 +1494,8 @@ function handleGraph(
     onClick?: (index: number) => void;
     /** What each read-only control displays, by index. */
     displays?: Record<number, string>;
+    /** What the page shows, when it is not the default sign-in form. */
+    view?: PageSnapshot;
   } = {},
 ) {
   const origin = options.origin ?? "https://provider.example";
@@ -1534,8 +1541,10 @@ function handleGraph(
     check: async () => {
       calls.push(`check ${index}`);
     },
-    selectOption: async (value: string) => {
-      calls.push(`select ${index} ${value}`);
+    selectOption: async (value: string | { label: string }) => {
+      calls.push(
+        `select ${index} ${typeof value === "string" ? value : `label:${value.label}`}`,
+      );
       return [];
     },
   });
@@ -1579,7 +1588,7 @@ function handleGraph(
           if (name === "forms") return listHandle("forms");
           const value =
             name === "snapshot"
-              ? snapshot()
+              ? (options.view ?? snapshot())
               : name === "destinations"
                 ? state.map((entry) => entry.destination)
                 : origin;
@@ -2922,4 +2931,837 @@ test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on t
   );
   graph.navigate("https://provider.example/elsewhere");
   await assert.rejects(page.readIssued!(field), refusedAs("stale-document"));
+});
+
+/* -------------------------------------------------------------------------- */
+/* Choosing an option                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** A registration page with a required country picker, and what it chose. */
+function choicePage(): CeremonyPage & {
+  calls: string[];
+  chosen: () => string | undefined;
+} {
+  let chosen: string | undefined;
+  const page = inertPage("https://provider.example/signup");
+  return {
+    ...page,
+    chosen: () => chosen,
+    snapshot: async () =>
+      snapshot({
+        path: "https://provider.example/signup",
+        title: "Create your account",
+        headings: ["Create your account"],
+        elements: [
+          {
+            index: 0,
+            kind: "select",
+            label: "Country or region",
+            options: ["Select a country", "Canada", "Japan"],
+            required: true,
+            filled: chosen !== undefined,
+          },
+          { index: 1, kind: "button", text: "Create account" },
+        ],
+      }),
+    select: async (element, option) => {
+      page.calls.push(`select:${element.index}:${option}`);
+      chosen = option;
+    },
+  };
+}
+
+test("SELECT: the driver chooses a listed option by its label, and records the choice", async () => {
+  const page = choicePage();
+  const applied: RecordedTraceEntry[] = [];
+  let asked = false;
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async ({ snapshot: current }) => {
+      if (current.elements[0]?.filled) return { action: "done" };
+      asked = true;
+      return { action: "select", element: 0, option: "Canada" };
+    },
+    onApplied: (entry) => applied.push(entry),
+    verify: async () => page.chosen() === "Canada",
+  });
+  assert.ok(asked);
+  assert.equal(result.status, "completed");
+  assert.ok(page.calls.includes("select:0:Canada"));
+  assert.deepEqual(
+    result.transcript.map((step) => step.action),
+    ["select", "done"],
+  );
+  assert.equal(applied[0]?.action, "select");
+  assert.equal(applied[0]?.option, "Canada");
+});
+
+test("SELECT: an option the page did not list, or not the plan's, or on a field that is not a select, is never chosen", async () => {
+  const proposals = [
+    { action: "select", element: 0, option: "Atlantis" },
+    { action: "select", element: 0, option: "Japan" },
+    { action: "select", element: 1, option: "Canada" },
+    { action: "select", element: 0 },
+  ] as const;
+  for (const proposal of proposals) {
+    const page = choicePage();
+    const result = await runCeremony({
+      page,
+      goal: "registration",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({}),
+      // The plan chose Canada; Japan is listed but not the plan's choice.
+      choices: { "Country or region": "Canada" },
+      interpreter: async () => ({ ...proposal }),
+    });
+    assert.equal(result.status, "blocked", JSON.stringify(proposal));
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "unsupported-page",
+    );
+    assert.equal(page.chosen(), undefined, JSON.stringify(proposal));
+  }
+  // An adapter that cannot choose makes every choice unusable.
+  const { select: _select, ...unable } = choicePage();
+  const result = await runCeremony({
+    page: unable,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({
+      action: "select",
+      element: 0,
+      option: "Canada",
+    }),
+  });
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+});
+
+test("SELECT: a secret role is never filled into a select, and the value is never resolved for it", async () => {
+  const page = choicePage();
+  let resolved = 0;
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: {
+      roles: ["password"],
+      resolve: async () => {
+        resolved++;
+        return "pw-never-typed-1";
+      },
+    },
+    interpreter: async () => ({ action: "fill", element: 0, role: "password" }),
+  });
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+  assert.equal(resolved, 0);
+  assert.ok(!page.calls.some((call) => call.startsWith("fill")));
+});
+
+test("SELECT: the heuristic chooses the plan's option by field label and leaves an unmade required choice to a person", async () => {
+  const interpret = createHeuristicInterpreter();
+  const page = await choicePage().snapshot();
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      available: [],
+      history: [],
+      snapshot: page,
+      choices: { "Country or region": "Japan" },
+    }),
+    {
+      action: "select",
+      element: 0,
+      option: "Japan",
+      note: "Country or region",
+    },
+  );
+  // A choice for another field, or an option this one does not list, is no
+  // choice here; the first option is not guessed.
+  for (const choices of [
+    { Organisation: "Acme" },
+    { "Country or region": "Mars" },
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        available: [],
+        history: [],
+        snapshot: page,
+        choices,
+      }),
+      { action: "blocked", reason: "choice-required" },
+    );
+  // An optional choice nobody made is simply left alone.
+  const optional = structuredClone(page);
+  delete optional.elements[0]!.required;
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      available: [],
+      history: [],
+      snapshot: optional,
+    }),
+    { action: "click", element: 1, note: "Create account" },
+  );
+});
+
+test("SELECT: an unmade required choice is handed to a person, who makes it in the same browser", async () => {
+  const page = choicePage();
+  const requests: HumanParticipationRequest[] = [];
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+    human: {
+      contract: {
+        surface: "provider-browser",
+        recipient: "initiating-subject",
+        delegation: "a2h-authorize",
+        resume: "verify",
+      },
+      request: async (request) => {
+        requests.push(request);
+        await page.select!(
+          { index: 0, kind: "select", label: "Country or region" },
+          "Japan",
+        );
+        return "completed";
+      },
+    },
+    maxSteps: 4,
+  });
+  assert.deepEqual(
+    requests.map(({ reason, path }) => ({ reason, path })),
+    [{ reason: "choice", path: "https://provider.example/signup" }],
+  );
+  assert.equal(page.chosen(), "Japan");
+  assert.equal(result.handoffs, 1);
+  assert.ok(page.calls.includes("click:1"), "the form is then submitted");
+  // Nobody to ask: the choice is not made, and the attempt says why.
+  const alone = choicePage();
+  const refused = await runCeremony({
+    page: alone,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+  });
+  assert.equal(
+    refused.status === "blocked" && refused.reason,
+    "choice-required",
+  );
+  assert.equal(alone.chosen(), undefined);
+  assert.ok(!alone.calls.some((call) => call.startsWith("click")));
+});
+
+test("SELECT: a report that a choice is needed is not a handoff where no select is waiting", async () => {
+  const page = inertPage();
+  let asked = 0;
+  const result = await runCeremony({
+    page,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({ action: "blocked", reason: "choice-required" }),
+    human: {
+      contract: {
+        surface: "provider-browser",
+        recipient: "initiating-subject",
+        delegation: "a2h-authorize",
+        resume: "verify",
+      },
+      request: async () => {
+        asked++;
+        return "completed";
+      },
+    },
+  });
+  assert.equal(asked, 0);
+  assert.equal(result.status === "blocked" && result.reason, "choice-required");
+});
+
+test("SELECT: a plan's choice reaches past the snapshot's first twenty options; nothing else does", async () => {
+  // A country list longer than a snapshot carries.
+  const countries = Array.from(
+    { length: 20 },
+    (_, index) => `Country ${index}`,
+  );
+  const long: CeremonyPage & { chosen: string[] } = {
+    ...inertPage("https://provider.example/signup"),
+    chosen: [],
+    snapshot: async () =>
+      snapshot({
+        path: "https://provider.example/signup",
+        elements: [
+          {
+            index: 0,
+            kind: "select",
+            label: "Country or region",
+            options: countries,
+            required: true,
+            filled: long.chosen.length > 0,
+          },
+        ],
+      }),
+    select: async (_element, option) => {
+      long.chosen.push(option);
+    },
+  };
+  const interpret = createHeuristicInterpreter();
+  const input = {
+    goal: "registration" as const,
+    available: [],
+    history: [],
+    snapshot: await long.snapshot(),
+    choices: { "Country or region": "Uruguay" },
+  };
+  assert.deepEqual(await interpret(input), {
+    action: "select",
+    element: 0,
+    option: "Uruguay",
+    note: "Country or region",
+  });
+  await runCeremony({
+    page: long,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    choices: input.choices,
+    interpreter: async (seen) =>
+      seen.snapshot.elements[0]?.filled
+        ? { action: "done" }
+        : { action: "select", element: 0, option: "Uruguay" },
+  });
+  assert.deepEqual(long.chosen, ["Uruguay"]);
+  // Without a plan choice, only a listed option can be chosen.
+  long.chosen = [];
+  const free = await runCeremony({
+    page: long,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({
+      action: "select",
+      element: 0,
+      option: "Uruguay",
+    }),
+  });
+  assert.equal(free.status === "blocked" && free.reason, "unsupported-page");
+  assert.deepEqual(long.chosen, []);
+});
+
+test("SELECT: the Playwright adapter chooses by visible label on the observed control", async () => {
+  const view = snapshot({
+    elements: [
+      {
+        index: 0,
+        kind: "select",
+        label: "Country or region",
+        options: ["Select a country", "Canada"],
+      },
+    ],
+  });
+  const graph = handleGraph({ view, controls: 1 });
+  const page = createPlaywrightCeremonyPage(graph.page);
+  await page.snapshot();
+  await page.select!(view.elements[0]!, "Canada");
+  assert.ok(graph.calls.includes("select 0 label:Canada"));
+  // An input is not chosen in, whatever it is called.
+  await assert.rejects(
+    page.select!({ index: 0, kind: "input", label: "Country or region" }, "x"),
+    StaleTargetError,
+  );
+  graph.state[0]!.connected = false;
+  await assert.rejects(
+    page.select!(view.elements[0]!, "Canada"),
+    (error: unknown) =>
+      error instanceof StaleTargetError && error.reason === "stale-element",
+  );
+});
+
+test("SELECT: a recorded choice replays with no interpreter, and only by label", async () => {
+  const page = choicePage();
+  const observed = await page.snapshot();
+  const recording = compileRecording(
+    [
+      { snapshot: observed, action: "select", element: 0, option: "Canada" },
+      { snapshot: observed, action: "click", element: 1 },
+    ],
+    {
+      id: "region",
+      title: "Register with a region",
+      goal: "registration",
+      entryUrl: "https://provider.example/signup",
+      origins: ["https://provider.example"],
+      recordedWith: "deterministic",
+      excluded: [],
+    },
+  );
+  assert.deepEqual(recording.steps[0]?.action, {
+    kind: "select",
+    target: {
+      kind: "select",
+      label: "Country or region",
+      ordinal: 0,
+      of: 1,
+    },
+    option: "Canada",
+  });
+  const replayed = await runRecordedCeremony({
+    page,
+    recording,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+  });
+  assert.equal(page.chosen(), "Canada");
+  assert.equal(replayed.interpreterCalls, 0);
+  assert.ok(page.calls.includes("click:1"));
+});
+
+/* -------------------------------------------------------------------------- */
+/* Device authorization pages                                                 */
+/* -------------------------------------------------------------------------- */
+
+const devicePath = "https://provider.example/device";
+
+function devicePage(
+  overrides: Partial<PageSnapshot> = {},
+  code: Partial<SnapshotElement> = {},
+): PageSnapshot {
+  return snapshot({
+    path: devicePath,
+    title: "Connect a device · Example",
+    headings: ["Connect a device"],
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        name: "user_code",
+        label: "Device code",
+        required: true,
+        ...code,
+      },
+      { index: 1, kind: "button", text: "Continue" },
+    ],
+    ...overrides,
+  });
+}
+
+test("DEVICE: a verification page is recognised by what it says and what its field is called", () => {
+  // RFC 8628's own wording, and the usual providers' variants of it.
+  for (const [headings, label] of [
+    [["Connect a device"], "Device code"],
+    [["Enter the code displayed on your device"], "Code"],
+    [["Activate your TV"], "Activation code"],
+    [["Device login"], "User code"],
+    [["Link your device"], "Pairing code"],
+  ] as const) {
+    const page = devicePage(
+      { title: "Example", headings: [...headings] },
+      { name: "code", label },
+    );
+    assert.equal(
+      deviceVerificationField(page)?.index,
+      0,
+      `${headings[0]} / ${label}`,
+    );
+  }
+  // The RFC's parameter name identifies the field whatever the page says.
+  assert.equal(
+    deviceVerificationField(
+      devicePage({ title: "Example", headings: ["Welcome"] }),
+    )?.index,
+    0,
+  );
+  // A "device code" on a settings page is not a verification page.
+  assert.equal(
+    deviceVerificationField(
+      devicePage(
+        { title: "Security settings", headings: ["Trusted devices"] },
+        { name: "nickname", label: "Device code" },
+      ),
+    ),
+    undefined,
+  );
+  // A page with a password box is a sign-in page whatever its heading says,
+  // and a read-only field shows a value rather than asking for one.
+  assert.equal(
+    deviceVerificationField(
+      devicePage({
+        elements: [
+          ...devicePage().elements,
+          { index: 2, kind: "input", type: "password", label: "Password" },
+        ],
+      }),
+    ),
+    undefined,
+  );
+  assert.equal(
+    deviceVerificationField(devicePage({}, { readOnly: true, filled: true })),
+    undefined,
+  );
+  // The page that follows says it is done and asks for nothing.
+  assert.equal(
+    deviceVerificationField(
+      devicePage({ headings: ["Device connected"], elements: [] }),
+    ),
+    undefined,
+  );
+});
+
+test("DEVICE: the heuristic types a user code only when the plan gave it one, and never another code", async () => {
+  const interpret = createHeuristicInterpreter();
+  const page = devicePage();
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["user-code", "totp-code"],
+      history: [],
+      snapshot: page,
+    }),
+    { action: "fill", element: 0, role: "user-code" },
+  );
+  // Without it, neither a mailed code nor an authenticator's goes in.
+  for (const available of [
+    ["verification-code"],
+    ["totp-code"],
+    ["username", "password"],
+  ] as const)
+    assert.deepEqual(
+      await interpret({
+        goal: "sign-in",
+        available,
+        history: [],
+        snapshot: devicePage({}, { name: "code", label: "Code" }),
+      }),
+      { action: "blocked", reason: "device-code-required" },
+    );
+  // Entered, it is submitted.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["user-code"],
+      history: [{ action: "fill", path: devicePath }],
+      snapshot: devicePage({}, { filled: true }),
+    }),
+    { action: "click", element: 1, note: "Continue" },
+  );
+});
+
+test("DEVICE: without the user code, a person holding the device is asked at the verification URI", async () => {
+  let entered = false;
+  const page: CeremonyPage & { calls: string[] } = {
+    ...inertPage(`${devicePath}?user_code=WDJB-MJHT`),
+    snapshot: async () =>
+      entered
+        ? devicePage({ headings: ["Device connected"], elements: [] })
+        : devicePage(),
+  };
+  const requests: HumanParticipationRequest[] = [];
+  const result = await runCeremony({
+    page,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({ username: "casey" }),
+    interpreter: createHeuristicInterpreter(),
+    human: {
+      contract: {
+        surface: "provider-browser",
+        recipient: "initiating-subject",
+        delegation: "a2h-authorize",
+        resume: "verify",
+      },
+      request: async (request) => {
+        requests.push(request);
+        entered = true;
+        return "completed";
+      },
+    },
+    verify: async () => entered,
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(result.handoffs, 1);
+  // Origin and pathname: the `verification_uri_complete` query, which carries
+  // the code, is not part of what a host is asked to show.
+  assert.deepEqual(
+    requests.map(({ reason, path }) => ({ reason, path })),
+    [{ reason: "device-code", path: devicePath }],
+  );
+  assert.ok(!JSON.stringify([requests, result]).includes("WDJB"));
+  assert.ok(!page.calls.some((call) => call.startsWith("fill")));
+});
+
+test("DEVICE: a plan holding the user code is not handed off, and nobody to ask stops by name", async () => {
+  let asked = 0;
+  const human = {
+    contract: {
+      surface: "provider-browser",
+      recipient: "initiating-subject",
+      delegation: "a2h-authorize",
+      resume: "verify",
+    },
+    request: async () => {
+      asked++;
+      return "completed" as const;
+    },
+  } as const;
+  // An interpreter that reports the wall although the plan has the code: the
+  // page is an ordinary form for this plan, so nobody is interrupted.
+  const held = await runCeremony({
+    page: { ...inertPage(devicePath), snapshot: async () => devicePage() },
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({ "user-code": "WDJBMJHT" }),
+    interpreter: async () => ({
+      action: "blocked",
+      reason: "device-code-required",
+    }),
+    human,
+  });
+  assert.equal(asked, 0);
+  assert.equal(
+    held.status === "blocked" && held.reason,
+    "device-code-required",
+  );
+  // The same report on a page that is not a device page asks nobody either.
+  await runCeremony({
+    page: inertPage(),
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({
+      action: "blocked",
+      reason: "device-code-required",
+    }),
+    human,
+  });
+  assert.equal(asked, 0);
+  const alone = await runCeremony({
+    page: { ...inertPage(devicePath), snapshot: async () => devicePage() },
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+  });
+  assert.equal(
+    alone.status === "blocked" && alone.reason,
+    "device-code-required",
+  );
+  assert.equal(alone.handoffs, 0);
+});
+
+/* -------------------------------------------------------------------------- */
+/* The heuristic on an issued-value page                                      */
+/* -------------------------------------------------------------------------- */
+
+test("ISSUED-HEURISTIC: a page showing every declared value is the end, and nothing around it is pressed", async () => {
+  const interpret = createHeuristicInterpreter();
+  const shown = (secretFilled: boolean | undefined) =>
+    snapshot({
+      path: "https://provider.example/settings/developers/oauth-apps/1",
+      title: "Example app",
+      // No success wording at all: the declared fields are the signal.
+      headings: ["Example app", "Client secrets"],
+      elements: [
+        {
+          index: 0,
+          kind: "input",
+          type: "text",
+          label: "Client ID",
+          readOnly: true,
+          filled: true,
+        },
+        { index: 1, kind: "button", text: "Copy" },
+        {
+          index: 2,
+          kind: "input",
+          type: "text",
+          label: "Client secret",
+          readOnly: true,
+          ...(secretFilled === undefined ? {} : { filled: secretFilled }),
+        },
+        { index: 3, kind: "button", text: "Copy" },
+        { index: 4, kind: "button", text: "Generate a new client secret" },
+        { index: 5, kind: "button", text: "Update application" },
+      ],
+    });
+  const input = {
+    goal: "obtain-credential" as const,
+    available: [],
+    history: [],
+    issuedLabels: ["Client ID", "Client secret"],
+  };
+  assert.deepEqual(await interpret({ ...input, snapshot: shown(true) }), {
+    action: "done",
+    note: "issued values shown",
+  });
+  // Shown and still empty: the page is filling it in, so wait - once.
+  assert.deepEqual(await interpret({ ...input, snapshot: shown(undefined) }), {
+    action: "wait",
+  });
+  assert.deepEqual(
+    await interpret({
+      ...input,
+      history: [{ action: "wait", path: shown(false).path }],
+      snapshot: shown(false),
+    }),
+    { action: "blocked", reason: "unsupported-page" },
+  );
+  // Without a declaration the page is read as before, and "Generate" is a
+  // way forward like any other: the declaration is what makes it a hazard.
+  assert.deepEqual(
+    await interpret({
+      goal: "obtain-credential",
+      available: [],
+      history: [],
+      snapshot: shown(true),
+    }),
+    { action: "click", element: 4, note: "Generate a new client secret" },
+  );
+});
+
+test("ISSUED-HEURISTIC: a generate button is pressed once per page, and never while a kept secret is showing", async () => {
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/settings/tokens";
+  const page = (elements: SnapshotElement[]) =>
+    snapshot({ path, title: "Tokens", headings: ["Tokens"], elements });
+  const generate: SnapshotElement = {
+    index: 2,
+    kind: "button",
+    text: "Generate new token",
+  };
+  const agree: SnapshotElement = {
+    index: 1,
+    kind: "checkbox",
+    label: "I understand this token can act as me",
+    required: true,
+    filled: true,
+  };
+  // Ticking a box on the page is a changed form, which lets an ordinary
+  // button be pressed again - but not one that issues a secret.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "obtain-credential",
+      available: [],
+      history: [
+        { action: "click", note: "Generate new token", path },
+        { action: "check", path },
+      ],
+      snapshot: page([
+        { index: 0, kind: "input", type: "text", label: "Note", filled: true },
+        agree,
+        generate,
+      ]),
+    }),
+    { action: "click", element: 2, note: "Generate new token" },
+  );
+  // The declared token is showing, though the other declared field is not
+  // here: another press would replace the token just shown.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "obtain-credential",
+      available: [],
+      history: [],
+      issuedLabels: ["Token", "Token name"],
+      snapshot: page([
+        {
+          index: 0,
+          kind: "input",
+          type: "text",
+          label: "Token",
+          readOnly: true,
+          filled: true,
+        },
+        agree,
+        generate,
+      ]),
+    }),
+    { action: "click", element: 2, note: "Generate new token" },
+  );
+});
+
+test("ISSUED-HEURISTIC: the production heuristic keeps a client's values end to end and presses Generate exactly once", async () => {
+  const page = issuingPage();
+  let presses = 0;
+  const click = page.click;
+  page.click = async (element) => {
+    if (element.text === "Generate a new client secret") presses++;
+    return click(element);
+  };
+  const kept: unknown[] = [];
+  const result = await runCeremony({
+    page,
+    interpreter: createHeuristicInterpreter(),
+    goal: "obtain-credential",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    issued: {
+      fields: issuedFields,
+      keep: async (values) => {
+        kept.push(values);
+      },
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(presses, 1);
+  assert.equal(kept.length, 1);
+});
+
+test("a snapshot says a field is read-only, never what it holds", () => {
+  const { document } = parseHTML(
+    `<!doctype html><html><body>
+       <label for="id">Client ID</label><input id="id" readonly value="oac_shown-value-1">
+       <label for="n">Name</label><input id="n" value="typed">
+     </body></html>`,
+  );
+  document.documentElement.setAttribute(
+    "data-ceremony-href",
+    "https://provider.example/apps/1",
+  );
+  const result = snapshotDocument(
+    document as unknown as Document,
+    snapshotSelectors,
+  );
+  assert.equal(result.elements[0]?.readOnly, true);
+  assert.equal(result.elements[1]?.readOnly, undefined);
+  assert.ok(!JSON.stringify(result).includes("oac_shown-value-1"));
+});
+
+test("the interpreter prompt offers choosing, names the plan's choices and kept fields, and nothing else", () => {
+  const prompt = interpreterPrompt({
+    goal: "obtain-credential",
+    snapshot: snapshot(),
+    available: [],
+    history: [],
+    issuedLabels: ["Client secret"],
+    choices: { "Country or region": "Canada" },
+  });
+  assert.match(prompt, /"select"/);
+  assert.match(prompt, /Country or region/);
+  assert.match(prompt, /device-code-required/);
+  assert.match(prompt, /\["Client secret"\]/);
+  assert.doesNotMatch(
+    interpreterPrompt({
+      goal: "sign-in",
+      snapshot: snapshot(),
+      available: [],
+      history: [],
+    }),
+    /keeps what these read-only fields show/,
+  );
 });

@@ -312,6 +312,19 @@ export function createPlaywrightCeremonyPage(
       windowMayOpen = false;
       await targets.act(element, (handle) => handle.check());
     },
+    // By the option's visible label, never its `value` attribute: the label
+    // is what the observation listed and what the plan or recording named,
+    // and a value attribute is markup no interpreter was shown. Playwright
+    // refuses a label the live control does not offer, which arrives here as
+    // a stale element rather than a different choice.
+    select: async (element, option) => {
+      windowMayOpen = false;
+      if (element.kind !== "select")
+        throw new StaleTargetError("stale-element");
+      await targets.act(element, (handle) =>
+        handle.selectOption({ label: option }),
+      );
+    },
     click: async (element) => {
       // The only action that can send something. `dispatches` turns on the
       // post-action destination re-read, so a form re-pointed during

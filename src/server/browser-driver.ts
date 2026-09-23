@@ -1,5 +1,6 @@
 import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
+  deviceVerificationField,
   driverActionSchema,
   secretIssuedValueKinds,
   secretRoles,
@@ -96,6 +97,13 @@ export interface CeremonyPage {
   fill(element: SnapshotElement, value: string): Promise<void>;
   click(element: SnapshotElement): Promise<void>;
   check(element: SnapshotElement): Promise<void>;
+  /**
+   * Choose the option a `<select>` shows under this visible label. Held to
+   * the same revalidation as `fill`: the observed control on the observed
+   * document, or a refusal. Optional, so an adapter that cannot choose simply
+   * does not, and a `select` proposal is then an unusable one.
+   */
+  select?(element: SnapshotElement, option: string): Promise<void>;
   /** Wait for navigation or in-page updates to quiesce, bounded by the adapter. */
   settle(): Promise<void>;
   /**
@@ -239,6 +247,15 @@ export interface CeremonyRunOptions {
     fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
     keep(values: IssuedValues): Promise<void>;
   };
+  /**
+   * Choices the plan makes, by the exact label of the `<select>` they are
+   * for: `{ "Country or region": "Canada" }`. Both sides are text the page
+   * shows, so neither is a secret. A `select` on a field named here must
+   * choose exactly this option; on any other field it must choose an option
+   * the observation listed. A required choice with no entry here is a
+   * person's to make.
+   */
+  choices?: Readonly<Record<string, string>>;
   onStep?: (step: CeremonyStep) => void;
   /**
    * Called once an action has actually taken effect, with the observation it
@@ -252,6 +269,15 @@ export interface CeremonyRunOptions {
    */
   onApplied?: (entry: RecordedTraceEntry) => void;
 }
+
+/** What a step needing a person ends as, when no person takes it. */
+const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
+  "human-challenge": "human-challenge",
+  passkey: "passkey-required",
+  "native-dialog": "native-dialog",
+  "device-code": "device-code-required",
+  choice: "choice-required",
+};
 
 const defaultMaxSteps = 24;
 const defaultStallLimit = 3;
@@ -481,12 +507,7 @@ export async function runCeremony(
     snapshot: PageSnapshot,
     reason: HumanStepReason,
   ): Promise<BlockedReason | undefined> => {
-    const fallback: BlockedReason =
-      reason === "passkey"
-        ? "passkey-required"
-        : reason === "native-dialog"
-          ? "native-dialog"
-          : "human-challenge";
+    const fallback = fallbackFor[reason];
     if (!options.human || handoffs >= maxHandoffs) return fallback;
     record(snapshot, "handoff", { reason: fallback });
     handoffs++;
@@ -613,36 +634,37 @@ export async function runCeremony(
       record(snapshot, "blocked", { reason });
       return finish({ status: "blocked", reason, steps });
     };
-    const element =
-      action.element === undefined
-        ? undefined
-        : snapshot.elements[action.element];
-    if (!element) {
+    /**
+     * A proposal that names something this page cannot take. Discarded, and
+     * two in a row mean the surface is not one this attempt can drive.
+     */
+    const unusable = (): CeremonyResult | undefined => {
       steps++;
       if (++refusals >= 2) {
         record(snapshot, "blocked", { reason: "unsupported-page" });
         return finish({ status: "blocked", reason: "unsupported-page", steps });
       }
-      return;
-    }
+      return undefined;
+    };
+    const element =
+      action.element === undefined
+        ? undefined
+        : snapshot.elements[action.element];
+    if (!element) return unusable();
 
     if (action.action === "fill") {
       const role = action.role;
       // A role the caller never supplied is as unusable as a missing element:
       // the value is never resolved, and the attempt says so rather than
-      // spending its whole budget re-asking.
-      if (!role || !secrets.roles.includes(role)) {
-        steps++;
-        if (++refusals >= 2) {
-          record(snapshot, "blocked", { reason: "unsupported-page" });
-          return finish({
-            status: "blocked",
-            reason: "unsupported-page",
-            steps,
-          });
-        }
-        return;
-      }
+      // spending its whole budget re-asking. So is a secret aimed at a
+      // `<select>`: choosing the option that equals a password would put the
+      // password in the form under a label nobody reviewed.
+      if (
+        !role ||
+        !secrets.roles.includes(role) ||
+        (element.kind === "select" && secretRoles.includes(role))
+      )
+        return unusable();
       // A permitted page can still hand a secret to a third party. Refuse the
       // entry rather than the navigation: by then the value is already sent.
       if (
@@ -690,6 +712,45 @@ export async function runCeremony(
         action: "check",
         element: element.index,
       });
+    } else if (action.action === "select") {
+      // An option is chosen by the label the page shows. Where the plan named
+      // the choice for this field, that is the only option it may be - and
+      // it may be chosen even past the snapshot's first twenty options, since
+      // a country list is longer than that and the plan, not the
+      // interpreter, wrote it. Anything else must be an option the
+      // observation listed: an interpreter cannot type free text into a
+      // choice. The adapter refuses a label the live control does not offer.
+      // A guarded value cannot be among the listed options - the snapshot
+      // carrying it would already have failed the attempt - and the check
+      // below says so rather than relying on it.
+      const option = action.option;
+      const planned =
+        element.label === undefined
+          ? undefined
+          : options.choices?.[element.label];
+      if (
+        element.kind !== "select" ||
+        !page.select ||
+        option === undefined ||
+        (planned !== undefined
+          ? planned !== option
+          : !(element.options ?? []).includes(option))
+      )
+        return unusable();
+      if (contains(option, guarded))
+        throw new CeremonySecretLeak("a chosen option");
+      try {
+        await page.select(element, option);
+      } catch (error) {
+        return refused(error);
+      }
+      record(snapshot, "select", action.note ? { note: action.note } : {});
+      options.onApplied?.({
+        snapshot,
+        action: "select",
+        element: element.index,
+        option,
+      });
     } else {
       // A control that belongs to a form is the only thing here that can change
       // the provider's state, so it is the only thing announced. Clicking a
@@ -734,6 +795,34 @@ export async function runCeremony(
     previous = current;
   }
 
+  /**
+   * Whether an interpreter's "a person has to do this" names a step a person
+   * can do here, checked against the page rather than taken on its word.
+   *
+   * A device verification page needs a person only when this plan was not
+   * given the user code - with it, the page is an ordinary form. A missing
+   * choice needs one only where a `<select>` is actually waiting for one.
+   */
+  const personStep = (
+    reason: BlockedReason,
+    snapshot: PageSnapshot,
+  ): HumanStepReason | undefined => {
+    if (
+      reason === "device-code-required" &&
+      !secrets.roles.includes("user-code") &&
+      deviceVerificationField(snapshot)
+    )
+      return "device-code";
+    if (
+      reason === "choice-required" &&
+      snapshot.elements.some(
+        (element) => element.kind === "select" && element.filled !== true,
+      )
+    )
+      return "choice";
+    return undefined;
+  };
+
   async function driveSnapshot(
     snapshot: PageSnapshot,
     url: string,
@@ -747,6 +836,12 @@ export async function runCeremony(
       snapshot,
       available: secrets.roles,
       history: history.slice(-8),
+      // Labels only, which the page shows anyway. What was read, and whether
+      // anything has been, stays here.
+      ...(declared.length > 0
+        ? { issuedLabels: declared.map(([, label]) => label) }
+        : {}),
+      ...(options.choices ? { choices: options.choices } : {}),
     };
     const proposed = await interpreter(input);
     const parsed = proposed
@@ -768,6 +863,22 @@ export async function runCeremony(
     // Reaching here means the proposal is structurally usable.
     if (action.action === "blocked") {
       const reason = action.reason ?? "unsupported-page";
+      // Two walls a person can get past in this same browser. Asking a
+      // person stays the driver's decision: the report is only acted on when
+      // this page really is what it names, and the budget and the person's
+      // answer are the same as for any other handoff.
+      const person = personStep(reason, snapshot);
+      if (person) {
+        const refused = await handOff(snapshot, person);
+        if (refused) {
+          record(snapshot, "blocked", { reason: refused });
+          return finish({ status: "blocked", reason: refused, steps });
+        }
+        refusals = 0;
+        await page.settle();
+        steps++;
+        return;
+      }
       record(snapshot, "blocked", {
         reason,
         ...(action.note ? { note: action.note } : {}),
@@ -1090,7 +1201,9 @@ export async function runRecordedCeremony(
       const action: DriverAction =
         step.action.kind === "fill"
           ? { action: "fill", element, role: step.action.role, note }
-          : { action: step.action.kind, element, note };
+          : step.action.kind === "select"
+            ? { action: "select", element, option: step.action.option, note }
+            : { action: step.action.kind, element, note };
       return { propose: action, step: position };
     }
     // Every recorded step has been applied and no success page was recorded
