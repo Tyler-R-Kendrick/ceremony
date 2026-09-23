@@ -1,22 +1,11 @@
-import { resumeHook, start } from "workflow/api";
+import { resumeHook } from "workflow/api";
 import type { ActorContext } from "../../core/operation-contracts.js";
 import type { AgentCommandPort } from "./coordinator.js";
-import { ceremonyAgentWorkflow } from "./workflow.js";
 import { randomUUID } from "node:crypto";
 import { PersistenceConflict } from "../persistence/index.js";
 import type { TeachingRuntime } from "../teaching-runtime.js";
 import { AuthorizationError } from "../identity.js";
 
-/** Invoke after durable session admission, with a stable session identity persisted by the host. */
-export async function startAgentWorkflow(
-  commands: AgentCommandPort,
-  actor: ActorContext,
-  runId: string,
-  sessionId: string,
-) {
-  await commands.snapshot(actor, runId);
-  return start(ceremonyAgentWorkflow, [runId, sessionId]);
-}
 /** Wake conveys no approval. The durable outbox retries false (hook not yet registered). */
 export async function wakeAgent(
   commands: AgentCommandPort,

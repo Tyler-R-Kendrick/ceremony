@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { randomBytes } from "node:crypto";
 import {
   dispatchAgentWakes,
-  startAgentWorkflow,
   wakeAgent,
 } from "../src/server/agent/workflow-api.js";
 import {
@@ -113,10 +112,6 @@ test("AC-19 AC-28 AC-34: wake dispatch pages safely, respects competing claims a
       (await read())
         .filter((r) => r.id.startsWith("z:"))
         .every((r) => r.value.status === "blocked"),
-    );
-    await assert.rejects(
-      startAgentWorkflow(runtime.commands, actor, "missing", "session"),
-      /denied/,
     );
     await assert.rejects(
       wakeAgent(runtime.commands, actor, "missing"),
