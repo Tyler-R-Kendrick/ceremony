@@ -9,7 +9,7 @@ import type {
   RecordKey,
 } from "../persistence/index.js";
 import { AsyncPrivateCollectionBroker } from "../persistence/collections.js";
-import type { RunRecord } from "../commands.js";
+import { readScopedRun, scopedRunFor, type RunRecord } from "../commands.js";
 import { runArazzo } from "../arazzo.js";
 import { appendSemanticTransition } from "../demonstrations.js";
 import { serviceWorkflows } from "../services.js";
@@ -128,23 +128,19 @@ export class AsyncStripeChildren {
   private async authorize(context: OperationContext) {
     context.signal.throwIfAborted();
     await this.options.authorize(context);
-    const run = await this.store.transaction((tx) =>
-      tx.get<RunRecord>({
-        tenant: context.actor.tenantId,
-        kind: "run",
-        id: context.runId,
-      }),
-    );
+    // The step's own context: a Stripe step may be planned inside another
+    // provider's run, under the Stripe connector.
+    const run = await readScopedRun(this.store, context);
     if (
       !run ||
-      run.value.subjectId !== context.actor.subjectId ||
-      run.value.status === "cancelled" ||
-      run.value.provider !== "stripe" ||
-      run.value.profile !== "stripe-api-key" ||
-      run.value.target !== context.target ||
-      run.value.origin !== context.origin ||
-      run.value.environment !== context.environment ||
-      run.value.configurationVersion !== context.configurationVersion
+      run.subjectId !== context.actor.subjectId ||
+      run.status === "cancelled" ||
+      run.provider !== "stripe" ||
+      run.profile !== "stripe-api-key" ||
+      run.target !== context.target ||
+      run.origin !== context.origin ||
+      run.environment !== context.environment ||
+      run.configurationVersion !== context.configurationVersion
     )
       throw new AuthorizationError("denied");
     const configuration = await this.options.configuration(context);
@@ -186,7 +182,8 @@ export class AsyncStripeChildren {
       !run ||
       run.value.subjectId !== context.actor.subjectId ||
       run.value.status !== "active" ||
-      run.value.configurationVersion !== context.configurationVersion
+      scopedRunFor(run.value, context.nodeId).configurationVersion !==
+        context.configurationVersion
     )
       throw new AuthorizationError("denied");
     const key = this.key(context, kind);

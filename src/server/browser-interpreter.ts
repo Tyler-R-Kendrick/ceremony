@@ -274,14 +274,21 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // provider's terms or age confirmation when the page does not mark it
     // required - many only say so after a refused submit - because accepting
     // them is part of creating the account the person asked for. Nothing
-    // else optional is ever ticked.
+    // else optional is ever ticked: "I agree" is also how marketing and
+    // data-sharing boxes are worded, so the wording must name terms or an
+    // age, and must not name mail, offers or partners.
     const unchecked = snapshot.elements.find(
       (element) =>
         element.kind === "checkbox" &&
         element.filled !== true &&
         (element.required === true ||
           (goal === "registration" &&
-            /agree|accept|terms|old enough/.test(words(element)))),
+            /\b(terms|conditions|privacy policy|eula|old enough|years of age)\b/.test(
+              words(element),
+            ) &&
+            !/marketing|newsletter|offers|partners|promot|updates/.test(
+              words(element),
+            ))),
     );
     if (unchecked) return { action: "check", element: unchecked.index };
 

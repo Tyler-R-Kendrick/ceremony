@@ -29,7 +29,7 @@ function nangoDocument(server: { origin: string }, api: { origin: string }) {
       authorization_url: `${server.origin}/authorize`,
       token_url: `${server.origin}/token`,
       authorization_params: { response_type: "code", access_type: "offline" },
-      default_scopes: ["items.read"],
+      default_scopes: ["items.read", "items.write"],
       proxy: {
         base_url: `${api.origin}/v2`,
         headers: { "accept-version": "2026-01" },
@@ -96,7 +96,7 @@ test("authorize → callback → proxy → refresh on expiry, all through the se
     await connected(t);
 
   // The authorization request is the engine's: S256 PKCE, the reviewed
-  // parameters, default plus requested scopes, and the deployment's callback.
+  // parameters, the reviewed scopes, and the deployment's callback.
   assert.equal(authorization.origin, server.origin);
   assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorization.searchParams.get("access_type"), "offline");
@@ -294,17 +294,6 @@ test("a binding whose settings were altered after review is refused", async (t) 
     harness,
     nangoDocument(server, api),
   );
-  const { providerCatalogBindingSettings } =
-    await import("../../../src/server/connectors/formats/provider-catalog/index.js");
-  const settings = providerCatalogBindingSettings(definitions[0]!);
-  // The reviewer's copy says one token URL; someone edits the auth section.
-  const tampered = {
-    ...settings,
-    "provider-catalog/auth": {
-      ...(settings["provider-catalog/auth"] as object),
-      tokenUrl: `${api.origin}/token`,
-    },
-  };
   harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
   harness.setConfiguration(
     harness.actor,
@@ -315,7 +304,18 @@ test("a binding whose settings were altered after review is refused", async (t) 
     definitionRef: definitions[0]!.definitionRef,
     destination: `${api.origin}/v2`,
     profileId: "oauth2",
-    settings: tampered,
+  });
+  // Review copied one token URL; someone edits the stored auth section.
+  const settings = approved.binding.settings;
+  await harness.definitions.putBinding({
+    ...approved.binding,
+    settings: {
+      ...settings,
+      "provider-catalog/auth": {
+        ...(settings["provider-catalog/auth"] as object),
+        tokenUrl: `${api.origin}/token`,
+      },
+    },
   });
   await assert.rejects(
     harness.service.connect(harness.actor, {
@@ -326,6 +326,36 @@ test("a binding whose settings were altered after review is refused", async (t) 
       error instanceof ConnectorError &&
       error.detail === "catalog.binding.entry-digest",
   );
+});
+
+test("a scope beyond the entry's reviewed defaults is refused, not asked for", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
+  harness.setConfiguration(
+    harness.actor,
+    "LOCAL_CRM_CLIENT_SECRET",
+    CLIENT_SECRET,
+  );
+  const document = nangoDocument(server, api);
+  document["local-crm"].default_scopes = ["items.read"];
+  const { definitions } = await importDocument(harness, document);
+  const approved = await approve(harness, {
+    definitionRef: definitions[0]!.definitionRef,
+    destination: `${api.origin}/v2`,
+    profileId: "oauth2",
+  });
+  await assert.rejects(
+    harness.service.connect(harness.actor, {
+      bindingRef: approved.reference.bindingRef,
+      intent: { profileId: "oauth2", requestedPermissions: ["items.admin"] },
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "catalog.scope.undeclared",
+  );
+  assert.equal(server.counts.authorize, 0);
 });
 
 test("an ID token is never asked for without keys to verify it", async (t) => {
@@ -399,4 +429,136 @@ test("a token the provider refuses is renewed once and the call retried, each re
   assert.deepEqual(attempts, ["applied", "not-applied", "applied"]);
   for (const surface of [first, second])
     assert.ok(!JSON.stringify(surface).includes(revoked));
+});
+
+test("a reviewer's settings cannot move the entry's token endpoint or name another client secret", async (t) => {
+  const { providerCatalogBindingSettings, CATALOG_EXTENSION } =
+    await import("../../../src/server/connectors/formats/provider-catalog/definition.js");
+  const server = await startOAuthServer(t);
+  // Another provider's token endpoint, which knows that provider's secret.
+  const elsewhere = await startOAuthServer(t, {
+    clientSecret: "other-provider-secret",
+  });
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
+  harness.setConfiguration(
+    harness.actor,
+    "OTHER_PROVIDER_CLIENT_SECRET",
+    "other-provider-secret",
+  );
+  const { definitions } = await importDocument(
+    harness,
+    nangoDocument(server, api),
+  );
+  const imported = definitions[0]!.nativeExtensions[CATALOG_EXTENSION] as {
+    auth: Record<string, unknown>;
+  };
+  // A consistent entry of the reviewer's own, digest and all: the token URL
+  // on an origin the definition never declared, and a secret it never named.
+  const settings = providerCatalogBindingSettings({
+    ...(imported as never as object),
+    auth: {
+      ...imported.auth,
+      tokenUrl: `${elsewhere.origin}/token`,
+      tokenRequestAuth: "client_secret_basic",
+      clientSecretConfiguration: "OTHER_PROVIDER_CLIENT_SECRET",
+    },
+  } as never);
+  await assert.rejects(
+    approve(harness, {
+      definitionRef: definitions[0]!.definitionRef,
+      destination: `${api.origin}/v2`,
+      profileId: "oauth2",
+      settings,
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.detail === "settings.reserved",
+  );
+  assert.equal(elsewhere.tokenRequests.length, 0);
+});
+
+test("the entry's OAuth origins go through the host's issuer policy, for a person only", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const candidates: Array<{ origins: string[]; declaredOrigins: string[] }> =
+    [];
+  let admit = false;
+  const harness = await catalogHarness(t, {
+    policy: (base) => ({
+      ...base,
+      // Any reviewer may approve here; only the issuer gate is under test.
+      authorize: () => true,
+      allowIssuer: (actor, candidate) => {
+        candidates.push(candidate);
+        return admit && base.allowIssuer!(actor, candidate);
+      },
+    }),
+  });
+  const { definitions } = await importDocument(
+    harness,
+    nangoDocument(server, api),
+  );
+  const review = (actor = harness.actor) =>
+    approve(harness, {
+      definitionRef: definitions[0]!.definitionRef,
+      destination: `${api.origin}/v2`,
+      profileId: "oauth2",
+      actor,
+    });
+  await assert.rejects(
+    review(),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.issuer.not-permitted",
+  );
+  assert.deepEqual(candidates.at(-1)?.origins, [server.origin]);
+  assert.ok(candidates.at(-1)?.declaredOrigins.includes(server.origin));
+  admit = true;
+  const { agent } = await import("../commands/harness.js");
+  await assert.rejects(
+    review(agent({ capabilities: ["executor", "reviewer"] })),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.policy.human-only",
+  );
+  const approved = await review();
+  assert.equal(approved.binding.status, "approved");
+});
+
+test("an adapter reads only the configuration its binding names", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
+  harness.setConfiguration(
+    harness.actor,
+    "LOCAL_CRM_CLIENT_SECRET",
+    CLIENT_SECRET,
+  );
+  const { definitions } = await importDocument(
+    harness,
+    nangoDocument(server, api),
+  );
+  // The reviewer approved the client id but not the secret: the adapter
+  // cannot read a value the approval never named, even if the host holds it.
+  const approved = await approve(harness, {
+    definitionRef: definitions[0]!.definitionRef,
+    destination: `${api.origin}/v2`,
+    profileId: "oauth2",
+    configuration: ["LOCAL_CRM_CLIENT_ID"],
+  });
+  const view = await harness.service.connect(harness.actor, {
+    bindingRef: approved.reference.bindingRef,
+    intent: { profileId: "oauth2" },
+  });
+  assert.equal(
+    (view as { lifecycle: string }).lifecycle,
+    "configuration-required",
+  );
+  assert.equal(
+    (view as { presentation?: unknown }).presentation,
+    undefined,
+    "no authorization is started without the approved client",
+  );
 });

@@ -264,6 +264,15 @@ const CLIENT_CAPABILITIES = Object.freeze({
   elicitation: { form: {}, url: {} },
 });
 
+/** A listing refused for authorization, carrying the challenge so a call can answer it. */
+class ListingUnauthorized extends ConnectorError {
+  readonly challenge: AuthorizationChallenge;
+  constructor(challenge: AuthorizationChallenge) {
+    super("unauthenticated", { detail: "mcp.authorization-required" });
+    this.challenge = challenge;
+  }
+}
+
 export function definitionDigest(tool: {
   name: string;
   description?: string;
@@ -1727,9 +1736,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 
   function listFailure(message: RpcResult): ConnectorError {
     if (message.kind === "authorization-required")
-      return new ConnectorError("unauthenticated", {
-        detail: "mcp.authorization-required",
-      });
+      return new ListingUnauthorized(message.challenge);
     return discoveryFailure(message);
   }
 
@@ -1917,9 +1924,17 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       let tools: McpList<McpTool> | undefined;
       try {
         tools = await listTools({ ...(signal ? { signal } : {}) });
-      } catch {
-        // The call itself reports why: an unauthenticated listing becomes an
-        // authorization challenge on the call, not an exception here.
+      } catch (error) {
+        // An unauthenticated listing is the call's own challenge: the token
+        // that would be presented to the tool was just refused, and a pinned
+        // tool would otherwise read as unverifiable instead of as a grant to
+        // renew.
+        if (error instanceof ListingUnauthorized)
+          return {
+            kind: "authorization-required",
+            challenge: error.challenge,
+            warnings: warnings.codes,
+          };
         warnings.add("mcp.tool.list-unavailable");
       }
       const tool = tools?.items.find((item) => item.name === request.name);
