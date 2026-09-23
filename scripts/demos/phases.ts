@@ -24,6 +24,8 @@ export function providerPhase(
 ): Phase | undefined {
   const { pathname, action, role } = observed;
   if (pathname === "/authorize") return "consent";
+  // Enrolment asks for an authenticator code too; its page says which step.
+  if (pathname === "/mfa/setup") return "enroll-authenticator";
   // A code field says which step this is wherever the provider serves it:
   // confirmation and two-factor forms are often answered from the URL of
   // the form that led to them, so the path alone cannot tell.

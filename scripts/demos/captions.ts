@@ -31,6 +31,10 @@ export const phases = [
   "a-register-app",
   "b-configure",
   "b-sign-in",
+  "device-request",
+  "device-code",
+  "enroll-authenticator",
+  "sign-in-again",
 ] as const;
 export type Phase = (typeof phases)[number];
 
@@ -49,6 +53,10 @@ const phaseNames: Record<Phase, string> = {
   "a-register-app": "alpha: register an OAuth app at A",
   "b-configure": "beta: B checks the client with A",
   "b-sign-in": "beta: sign in to B with A",
+  "device-request": "device asks to be authorized",
+  "device-code": "enter the device's code",
+  "enroll-authenticator": "set up authenticator, keep seed",
+  "sign-in-again": "sign in again, empty browser",
 };
 
 /** Roles a driver can fill, described by where the value comes from. */
@@ -73,7 +81,9 @@ export type ValueSource =
   | "person-profile"
   | "person-address"
   | "private-collector"
-  | "totp-seed";
+  | "totp-seed"
+  | "plan"
+  | "device-screen";
 
 const sourceNames: Record<ValueSource, string> = {
   "agent-inbox": "new agent-inbox address",
@@ -83,6 +93,8 @@ const sourceNames: Record<ValueSource, string> = {
   "person-address": "the person's usual address",
   "private-collector": "private collector",
   "totp-seed": "from held seed",
+  plan: "given by the plan",
+  "device-screen": "read off the device",
 };
 
 /** Named ceremony walls the driver reports; the reason list is closed. */
@@ -122,7 +134,14 @@ export type CaptionEvent =
   | { kind: "inbox"; stage: "provisioned" | "waiting" | "received" }
   | {
       kind: "provider";
-      says: "address-in-use" | "check-inbox" | "signed-in" | "consent-screen";
+      says:
+        | "address-in-use"
+        | "check-inbox"
+        | "signed-in"
+        | "consent-screen"
+        | "setup-authenticator"
+        | "device-consent"
+        | "device-connected";
     }
   | { kind: "blocked"; reason: string }
   | { kind: "outcome"; status: string; reason?: string }
@@ -130,7 +149,7 @@ export type CaptionEvent =
       kind: "verified";
       what: "account" | "session" | "token" | "single-use-code";
     }
-  | { kind: "handoff"; what: "consent-approved" | "requested" }
+  | { kind: "handoff"; what: "consent-approved" | "requested" | "device-code" }
   | {
       kind: "connector";
       stage:
@@ -148,9 +167,15 @@ export type CaptionEvent =
   | { kind: "step"; index: number; total: number; phase: Phase }
   | {
       kind: "decision";
-      what: "no-account-register" | "has-account-sign-in";
+      what:
+        | "no-account-register"
+        | "has-account-sign-in"
+        | "code-in-plan"
+        | "no-code-hand-off";
       layout?: string;
     }
+  | { kind: "device"; stage: "requested" | "polling" | "connected" }
+  | { kind: "custody"; stage: "seed-kept" | "code-derived" }
   | {
       kind: "recording";
       stage: "capturing" | "compiled" | "replaying" | "replayed";
@@ -240,7 +265,12 @@ function clickTarget(control: unknown, phase: Phase | undefined): string {
     case "consent":
       return "approve the consent screen";
     case "sign-in":
+    case "sign-in-again":
       return "submit the sign-in form";
+    case "device-code":
+      return "submit the device's code";
+    case "enroll-authenticator":
+      return "turn on the authenticator";
     default:
       return "press the form's submit button";
   }
@@ -290,9 +320,19 @@ export function caption(event: CaptionEvent): string {
             ? "Provider: signed in to the new account"
             : event.says === "consent-screen"
               ? "Provider: asks to grant the connector access"
-              : "Provider: confirmation email sent",
+              : event.says === "device-consent"
+                ? "Provider: asks to let the device use the account"
+                : event.says === "setup-authenticator"
+                  ? "Provider: every account needs an authenticator"
+                  : event.says === "device-connected"
+                    ? "Provider: the device is connected"
+                    : "Provider: confirmation email sent",
       );
     case "blocked":
+      // A wall a person can get past is reported, not stopped at: the driver
+      // decides whether to ask someone, and says so separately.
+      if (event.reason === "device-code-required")
+        return "Agent: the device's code is not in the plan";
       return bounded(
         `Driver: stopped — ${lookup(blockedNames, event.reason, "named wall")}`,
       );
@@ -318,16 +358,36 @@ export function caption(event: CaptionEvent): string {
       return bounded(
         event.what === "consent-approved"
           ? "Handoff: consent approved"
-          : "Handoff: a person is asked to act",
+          : event.what === "device-code"
+            ? "Handoff: a person enters the device's code"
+            : "Handoff: a person is asked to act",
       );
     case "decision": {
       const at = lookup(productNames, event.layout, "this provider");
       return bounded(
         event.what === "has-account-sign-in"
           ? `Decision: account exists at ${at} → sign in`
-          : `Decision: no account at ${at} → register`,
+          : event.what === "code-in-plan"
+            ? "Decision: the plan holds the device's code → type it"
+            : event.what === "no-code-hand-off"
+              ? "Decision: no code in the plan → ask a person"
+              : `Decision: no account at ${at} → register`,
       );
     }
+    case "device":
+      return bounded(
+        event.stage === "requested"
+          ? "Device: asked to be authorized, shows a code"
+          : event.stage === "connected"
+            ? "Device: poll answered, connected ✓ (token hidden)"
+            : "Device: polling the token endpoint",
+      );
+    case "custody":
+      return bounded(
+        event.stage === "seed-kept"
+          ? "Driver: setup key read into custody (not shown)"
+          : "Driver: code derived from the held seed (hidden)",
+      );
     case "recording":
       return bounded(recordingLines[event.stage] ?? "Recording: working");
     case "connector":
@@ -366,7 +426,8 @@ export type PanelEvent =
       current: Phase;
       finished?: boolean;
     }
-  | { kind: "inbox"; stage: "provisioned" | "waiting" | "received" };
+  | { kind: "inbox"; stage: "provisioned" | "waiting" | "received" }
+  | { kind: "custody"; stage: "empty" | "held" | "used" };
 
 export function panel(event: PanelEvent): Panel {
   if (event.kind === "chain") {
@@ -385,6 +446,28 @@ export function panel(event: PanelEvent): Panel {
               : "pending",
         text: `${index + 1}. ${phaseNames[phase]}`,
       })),
+    };
+  }
+  if (event.kind === "custody") {
+    const stage = (["empty", "held", "used"] as const).includes(event.stage)
+      ? event.stage
+      : "empty";
+    return {
+      title: "Credential custody",
+      rows: [
+        {
+          mark: stage === "empty" ? "pending" : "done",
+          text:
+            stage === "empty"
+              ? "Authenticator seed: none held yet"
+              : "Authenticator seed held for this account",
+        },
+        {
+          mark: stage === "used" ? "done" : "pending",
+          text: "Sign-in code derived from it at fill time",
+        },
+        { mark: "info", text: "The seed and codes are never shown" },
+      ],
     };
   }
   const stage = event.stage;

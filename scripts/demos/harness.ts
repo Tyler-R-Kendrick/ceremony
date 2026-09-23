@@ -124,13 +124,24 @@ export type DemoSession = {
    */
   reveal(): Promise<void>;
   /**
-   * Cover the element `selector` names with a solid box in the video for as
-   * long as it is on screen, or stop watching with `undefined`. For a value
-   * a provider page itself displays (an issued client secret): the page is
-   * left alone and the box is drawn into the composited video, starting a
-   * little before the element was first seen so no captured frame shows it.
+   * Cover every element the selectors match with a solid box in the video for
+   * as long as it is on screen, or stop watching with `undefined`. For a
+   * value a provider page itself displays (an issued client secret, a setup
+   * key) or one the driver types in plain sight (an authenticator code): the
+   * page is left alone and the box is drawn into the composited video,
+   * starting a little before the element was first seen so no captured frame
+   * shows it.
    */
-  redact(selector: string | undefined): void;
+  redact(selectors: string | readonly string[] | undefined): void;
+  /**
+   * Render a stage prop off camera: a side card drawn from the demo's own
+   * state rather than from the caption vocabulary, such as the screen of the
+   * simulated device in a device-authorization demo. `text` is every line it
+   * prints; it is checked against protected values like any caption.
+   */
+  prop(key: string, html: string, text: readonly string[]): Promise<void>;
+  /** Show a rendered prop beside the page on `side`, or clear it. */
+  showProp(key: string | undefined, side?: "left" | "right"): void;
   /** Use the current frame as the poster image. */
   poster(): void;
   /** A full-frame card: title, facts. Text is fixed or built from captions. */
@@ -138,7 +149,7 @@ export type DemoSession = {
     input: {
       title: string;
       lines: readonly string[];
-      tone?: "intro" | "result" | "connector";
+      tone?: "intro" | "result" | "connector" | "device";
       /** Leave the side panel up and keep the text clear of it. */
       keepPanel?: boolean;
     },
@@ -194,13 +205,15 @@ const escapeHtml = (text: string) =>
 function cardHtml(input: {
   title: string;
   lines: readonly string[];
-  tone?: "intro" | "result" | "connector";
+  tone?: "intro" | "result" | "connector" | "device";
   keepPanel?: boolean;
+  /** A prop stays up on the left: the text sits between it and the panel. */
+  clearLeft?: boolean;
 }): string {
   const accent =
     input.tone === "result"
       ? "#34d399"
-      : input.tone === "connector"
+      : input.tone === "connector" || input.tone === "device"
         ? "#fbbf24"
         : "#93c5fd";
   const kicker =
@@ -208,11 +221,13 @@ function cardHtml(input: {
       ? "Result"
       : input.tone === "connector"
         ? "Connector · server side, not in the browser"
-        : "Ceremony demo · self-hosted test provider";
+        : input.tone === "device"
+          ? "Simulated device · outside the browser"
+          : "Ceremony demo · self-hosted test provider";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html{zoom:2}
     html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:"DejaVu Sans",sans-serif}
-    main{box-sizing:border-box;height:100%;padding:22px 30px;display:flex;flex-direction:column;justify-content:center${input.keepPanel ? ";max-width:420px" : ""}}
+    main{box-sizing:border-box;height:100%;padding:22px 30px;display:flex;flex-direction:column;justify-content:center${input.keepPanel ? (input.clearLeft ? ";margin-left:185px;max-width:290px" : ";max-width:420px") : ""}}
     .kicker{color:${accent};font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
     h1{font-size:19px;margin:0 0 11px;color:#fff}
     ul{margin:0;padding:0;list-style:none}
@@ -259,6 +274,9 @@ function panelHtml(content: Panel): string {
 
 /** Where a panel sits in the 1280x720 frame: right side, below any heading. */
 const panelPosition = { margin: 28, top: 150 };
+
+/** The most a preview committed under `docs/demos/` may weigh. */
+const maxPreviewBytes = 1_100_000;
 
 /**
  * webreel's own headless mode starts chrome-headless-shell with begin-frame
@@ -318,6 +336,7 @@ export async function recordDemo(
   let recorder: Recorder | undefined;
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
   let raw: string | undefined;
+  let propBrowser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
     chrome = await launchChrome({ headless: false });
     // The only page target in a fresh profile is the one webreel records.
@@ -381,6 +400,10 @@ export async function recordDemo(
         kind: "inbox" as const,
         stage,
       })),
+      ...(["empty", "held", "used"] as const).map((stage) => ({
+        kind: "custody" as const,
+        stage,
+      })),
     ];
     const panelImages = new Map<string, { png: Buffer; text: string[] }>();
     for (const event of panelEvents) {
@@ -391,12 +414,28 @@ export async function recordDemo(
         text: [content.title, ...content.rows.map((row) => row.text)],
       });
     }
-    const panelSpans: { png: Buffer; start: number; end: number }[] = [];
+    const panelSpans: PanelSpan[] = [];
+    const panelSide = entry.panelSide ?? "right";
     let openPanel: { key: string; png: Buffer; start: number } | undefined;
     const closePanel = () => {
       if (openPanel)
-        panelSpans.push({ ...openPanel, end: timeline.getFrameCount() });
+        panelSpans.push({
+          ...openPanel,
+          side: panelSide,
+          end: timeline.getFrameCount(),
+        });
       openPanel = undefined;
+    };
+    // Props are rendered in a browser of their own, never in the recorded
+    // tab, so drawing one mid-run puts nothing on camera but the prop.
+    const props = new Map<string, { png: Buffer; text: readonly string[] }>();
+    let openProp:
+      | { key: string; png: Buffer; start: number; side: "left" | "right" }
+      | undefined;
+    const closeProp = () => {
+      if (openProp)
+        panelSpans.push({ ...openProp, end: timeline.getFrameCount() });
+      openProp = undefined;
     };
 
     await page.setContent(cardHtml({ title: entry.title, lines: [] }));
@@ -431,40 +470,64 @@ export async function recordDemo(
     let posterFrame: number | undefined;
     type Box = { x: number; y: number; w: number; h: number };
     const redactions: (Box & { start: number; end: number })[] = [];
-    let redacting: { selector: string; timer: NodeJS.Timeout } | undefined;
-    let openBox: (Box & { start: number }) | undefined;
-    const closeBox = () => {
-      if (openBox)
-        redactions.push({ ...openBox, end: timeline.getFrameCount() });
-      openBox = undefined;
+    let redacting: { timer: NodeJS.Timeout } | undefined;
+    /** Boxes on screen now, by selector and match. */
+    const openBoxes = new Map<string, Box & { start: number }>();
+    const closeBox = (key: string) => {
+      const box = openBoxes.get(key);
+      if (box) redactions.push({ ...box, end: timeline.getFrameCount() });
+      openBoxes.delete(key);
     };
-    const pollRedaction = async (selector: string) => {
+    const closeBoxes = () => {
+      for (const key of [...openBoxes.keys()]) closeBox(key);
+    };
+    const pollRedaction = async (selectors: readonly string[]) => {
       const found = await page
-        .evaluate((query: string) => {
-          const element = document.querySelector(query);
-          if (!element) return null;
-          const rect = element.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0
-            ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height }
-            : null;
-        }, selector)
-        .catch(() => null);
-      const same =
-        found &&
-        openBox &&
-        Math.abs(found.x - openBox.x) < 1 &&
-        Math.abs(found.y - openBox.y) < 1 &&
-        Math.abs(found.w - openBox.w) < 1;
-      if (same) return;
-      closeBox();
-      if (found)
+        .evaluate((queries: readonly string[]) => {
+          const boxes: Record<
+            string,
+            { x: number; y: number; w: number; h: number }
+          > = {};
+          queries.forEach((query, at) =>
+            document.querySelectorAll(query).forEach((element, index) => {
+              const rect = element.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0)
+                boxes[`${at}:${index}`] = {
+                  x: rect.x,
+                  y: rect.y,
+                  w: rect.width,
+                  h: rect.height,
+                };
+            }),
+          );
+          return boxes;
+        }, selectors)
+        // A page in the middle of navigating answers nothing; its boxes stay
+        // up until a read says otherwise.
+        .catch(() => undefined);
+      if (!found) return;
+      for (const key of [...openBoxes.keys()]) if (!found[key]) closeBox(key);
+      for (const [key, rect] of Object.entries(found)) {
+        const open = openBoxes.get(key);
+        if (
+          open &&
+          Math.abs(rect.x - open.x) < 1 &&
+          Math.abs(rect.y - open.y) < 1 &&
+          Math.abs(rect.w - open.w) < 1 &&
+          Math.abs(rect.h - open.h) < 1
+        )
+          continue;
+        closeBox(key);
         // Back-dated: a frame may have been captured between the page
         // painting the value and this read. A box over the page before the
         // value arrived hides nothing that matters; a missed frame would.
-        openBox = {
-          ...found,
-          start: Math.max(0, timeline.getFrameCount() - 12),
-        };
+        // A box that moved (a scroll) was being watched already, so its new
+        // place needs less of a margin than a field seen for the first time.
+        openBoxes.set(key, {
+          ...rect,
+          start: Math.max(0, timeline.getFrameCount() - (open ? 8 : 12)),
+        });
+      }
     };
     let current: Extract<CaptionEvent, { kind: "step" }> | undefined;
     let line: CaptionEvent | undefined;
@@ -563,16 +626,57 @@ export async function recordDemo(
         openPanel = { key, png: image.png, start: timeline.getFrameCount() };
       },
       hold: (ms) => pause(ms),
-      redact(selector) {
+      redact(selectors) {
         if (redacting) {
           clearInterval(redacting.timer);
           redacting = undefined;
-          closeBox();
+          closeBoxes();
         }
-        if (!selector) return;
-        const timer = setInterval(() => void pollRedaction(selector), 60);
+        if (!selectors) return;
+        const list = typeof selectors === "string" ? [selectors] : selectors;
+        if (list.length === 0) return;
+        let busy = false;
+        const timer = setInterval(() => {
+          // One read at a time: a slow page must not stack them up.
+          if (busy) return;
+          busy = true;
+          void pollRedaction(list).finally(() => {
+            busy = false;
+          });
+        }, 40);
         timer.unref();
-        redacting = { selector, timer };
+        redacting = { timer };
+      },
+      async prop(key, html, text) {
+        propBrowser ??= await chromium.launch();
+        const offstage = await propBrowser.newPage({
+          viewport: { width: 640, height: 720 },
+        });
+        try {
+          await offstage.setContent(html);
+          props.set(key, {
+            png: await offstage
+              .locator(".prop")
+              .screenshot({ omitBackground: true }),
+            text,
+          });
+        } finally {
+          await offstage.close();
+        }
+      },
+      showProp(key, side = "left") {
+        if (openProp && key === openProp.key && side === openProp.side) return;
+        closeProp();
+        if (key === undefined) return;
+        const image = props.get(key);
+        if (!image) throw new Error(`No prop was rendered for ${key}`);
+        shown.push(...image.text);
+        openProp = {
+          key,
+          png: image.png,
+          side,
+          start: timeline.getFrameCount(),
+        };
       },
       reveal: async () => {
         await page
@@ -604,7 +708,10 @@ export async function recordDemo(
       async card(input, ms) {
         line = undefined;
         timeline.hideHud();
-        if (!input.keepPanel) closePanel();
+        if (!input.keepPanel) {
+          closePanel();
+          closeProp();
+        }
         // A card is not a page anyone acts on; the pointer leaves the frame.
         timeline.setCursorPath([{ x: -40, y: -40 }]);
         context.setCursorPosition(-40, -40);
@@ -612,7 +719,12 @@ export async function recordDemo(
         // so no frame pairs the new card with the previous caption.
         await pause(160);
         shown.push(input.title, ...input.lines);
-        await page.setContent(cardHtml(input));
+        await page.setContent(
+          cardHtml({
+            ...input,
+            clearLeft: input.keepPanel === true && openProp?.side === "left",
+          }),
+        );
         // A redacted element is gone once the card replaces its page; the
         // box stops here, not when the scenario stopped asking for it.
         session.redact(undefined);
@@ -692,6 +804,7 @@ export async function recordDemo(
     const outcome = await body(session);
     await pause(400);
     closePanel();
+    closeProp();
     session.redact(undefined);
     await recorder.stop();
     recorder = undefined;
@@ -726,12 +839,12 @@ export async function recordDemo(
 
     await compose(raw, timeline.toJSON(), video);
     const ffmpeg = await ensureFfmpeg();
-    overlayPanels(
-      ffmpeg,
-      video,
-      panelSpans,
-      entry.panelSide ?? "right",
-      redactions,
+    overlayPanels(ffmpeg, video, panelSpans, redactions);
+    // Where every box went, by frame, beside the video: what a frame-by-frame
+    // check of the redaction starts from. Positions and frame numbers only.
+    writeFileSync(
+      join(outputDirectory, `${entry.id}.redactions.json`),
+      `${JSON.stringify({ fps, boxes: redactions }, null, 2)}\n`,
     );
     const seconds = timeline.getFrameCount() / fps;
     extractThumbnail(
@@ -767,13 +880,22 @@ export async function recordDemo(
         preview,
       ]);
       // Markdown renders a GIF inline where it will not play a video, so the
-      // docs embed this and link the MP4. A small palette keeps it well under
-      // the size a repository should carry.
-      execFileSync(ffmpeg, [
-        ...["-y", "-v", "error", "-i", video, "-vf"],
-        "fps=6,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=48[p];[b][p]paletteuse=dither=none",
-        join(options.previewDirectory, `${entry.id}.gif`),
-      ]);
+      // docs embed this and link the MP4. A small palette keeps it under the
+      // size a repository should carry; a long demo steps down in frame rate
+      // and width until it fits.
+      const gif = join(options.previewDirectory, `${entry.id}.gif`);
+      for (const [rate, width, colors] of [
+        [6, 720, 48],
+        [5, 640, 40],
+        [4, 600, 32],
+      ] as const) {
+        execFileSync(ffmpeg, [
+          ...["-y", "-v", "error", "-i", video, "-vf"],
+          `fps=${rate},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colors}[p];[b][p]paletteuse=dither=none`,
+          gif,
+        ]);
+        if (statSync(gif).size <= maxPreviewBytes) break;
+      }
       copyFileSync(poster, join(options.previewDirectory, `${entry.id}.png`));
     }
     return { video, poster, preview, seconds, bytes: statSync(video).size };
@@ -781,6 +903,7 @@ export async function recordDemo(
     if (recorder) await recorder.stop().catch(() => {});
     if (raw) rmSync(raw, { force: true });
     await browser?.close().catch(() => {});
+    await propBrowser?.close().catch(() => {});
     await client?.close().catch(() => {});
     chrome?.kill();
     if (previousChromePath === undefined) delete process.env.CHROME_PATH;
@@ -794,11 +917,17 @@ export async function recordDemo(
  * open. Frame numbers are the timeline's, which is what the composed video is
  * made of, so a panel appears exactly when the event that opened it happened.
  */
+type PanelSpan = {
+  png: Buffer;
+  start: number;
+  end: number;
+  side: "left" | "right";
+};
+
 function overlayPanels(
   ffmpeg: string,
   video: string,
-  spans: readonly { png: Buffer; start: number; end: number }[],
-  side: "left" | "right",
+  spans: readonly PanelSpan[],
   redactions: readonly {
     x: number;
     y: number;
@@ -821,7 +950,7 @@ function overlayPanels(
       inputs.push("-i", file);
       const next = `v${index}`;
       filters.push(
-        `[${previous}][${index + 1}:v]overlay=x=${side === "left" ? panelPosition.margin : `W-w-${panelPosition.margin}`}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
+        `[${previous}][${index + 1}:v]overlay=x=${span.side === "left" ? panelPosition.margin : `W-w-${panelPosition.margin}`}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
       );
       previous = next;
     });
