@@ -139,6 +139,7 @@ export async function record(session: DemoSession) {
       goal: "registration",
       secrets,
       allowedOrigins: [provider.origin],
+      onApplied: session.applied,
       protectedValues: [account.password, identity.password],
       verify: async () =>
         replacement !== undefined && provider.verifyAccess(replacement),

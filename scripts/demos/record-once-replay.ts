@@ -144,7 +144,10 @@ export async function record(session: DemoSession) {
       allowedOrigins: [provider.origin],
       protectedValues: [firstAccount.password],
       verify: () => provider.verifyAccess(first),
-      onApplied: (entry) => trace.push(entry),
+      onApplied: (entry) => {
+        trace.push(entry);
+        session.applied(entry);
+      },
     });
     await session.park();
     session.panel(undefined);
@@ -219,6 +222,7 @@ export async function record(session: DemoSession) {
       allowedOrigins: [provider.origin],
       protectedValues: [secondAccount.password],
       verify: () => provider.verifyAccess(second),
+      onApplied: session.applied,
       onStep: (step) => {
         if (step.action === "fill" && step.role)
           session.say({

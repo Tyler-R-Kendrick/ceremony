@@ -25,6 +25,7 @@ import {
 } from "@webreel/core";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 import type { CeremonyRole } from "../../src/core/browser-contracts.js";
+import type { RecordedTraceEntry } from "../../src/core/recorded-ceremony.js";
 import type {
   CeremonyPage,
   CeremonyResult,
@@ -49,6 +50,7 @@ import {
   type ValueSource,
 } from "./captions.js";
 import type { DemoEntry } from "./catalog.js";
+import { fillMismatches } from "./label-gate.js";
 import { pathnameOf } from "./phases.js";
 
 /**
@@ -126,6 +128,11 @@ export type DemoSession = {
   ): Promise<void>;
   /** The driver's page adapter, instrumented to move the cursor before acting. */
   ceremonyPage(): CeremonyPage;
+  /**
+   * Pass as the driver's `onApplied`. Every applied fill is checked against
+   * the control's own label before the video is kept.
+   */
+  applied(entry: RecordedTraceEntry): void;
   /** Caption each proposal before the driver acts on it. */
   narrate(
     inner: CeremonyInterpreter,
@@ -272,6 +279,7 @@ export async function recordDemo(
   const video = join(outputDirectory, `${entry.id}.mp4`);
   const poster = join(outputDirectory, `${entry.id}.png`);
   const protectedValues = new Set<string>();
+  const appliedEntries: RecordedTraceEntry[] = [];
   const shown: string[] = [];
 
   const wrapper = headlessChromeWrapper();
@@ -476,6 +484,9 @@ export async function recordDemo(
         await page.setContent(cardHtml(input));
         await pause(ms);
       },
+      applied(entry) {
+        appliedEntries.push(entry);
+      },
       ceremonyPage: () =>
         createPlaywrightCeremonyPage(observedPage(page, before, after)),
       narrate(inner, narration) {
@@ -544,6 +555,17 @@ export async function recordDemo(
           `${entry.id}: a protected value reached the transcript`,
         );
     }
+    const mismatches = fillMismatches(appliedEntries);
+    if (mismatches.length)
+      throw new Error(
+        `${entry.id}: a value went into a control labelled for something else: ${mismatches
+          .map((item) => `${item.role} → ${item.control}`)
+          .join("; ")}`,
+      );
+    if (appliedEntries.length === 0)
+      throw new Error(
+        `${entry.id}: no applied steps were reported to the label gate`,
+      );
     if (!outcome.ok)
       throw new Error(`${entry.id}: the run did not show what it set out to`);
 

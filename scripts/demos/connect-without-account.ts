@@ -201,6 +201,7 @@ export async function record(session: DemoSession) {
       goal: "registration",
       secrets,
       allowedOrigins: [provider.origin],
+      onApplied: session.applied,
       redirectUri: provider.redirectUri,
       protectedValues: [account.password],
       maxSteps: 30,
