@@ -140,6 +140,7 @@ export {
   OAUTH_CODE_EXCHANGE_OPERATION,
   OAUTH_REFRESH_OPERATION,
   refreshAccessToken,
+  RESERVED_TOKEN_REQUEST_PARAMETERS,
   type BeginAuthorizationCodeInput,
   type CompleteAuthorizationCodeInput,
   type RefreshAccessTokenInput,

@@ -35,7 +35,7 @@ import {
  *   other shape makes the provider non-executable rather than being guessed.
  * - What cannot be represented exactly is either adapted with an info issue
  *   (a redundant `response_type: code`) or refused with a blocking one (a
- *   `token_params` entry the authorization-code engine would not send).
+ *   `token_params` entry that would override a parameter the grant owns).
  *
  * Reading the file contacts nothing; every URL in it is a declaration that a
  * binding review may later approve.
@@ -432,19 +432,12 @@ function tokenParameters(
       );
       continue;
     }
-    if (grant === "authorization_code")
-      throw new Unsupported(
-        "OAUTH2",
-        "The provider needs extra token request parameters, which the authorization-code engine does not send.",
-        "catalog.nango.token-params-unsupported",
-        at,
-      );
     if (
       RESERVED_TOKEN_PARAMETERS.has(name) ||
       nonConnectionVariables(value).length
     )
       throw new Unsupported(
-        "OAUTH2_CC",
+        grant === "authorization_code" ? "OAUTH2" : "OAUTH2_CC",
         "A token parameter overrides the grant or references a value the catalog cannot supply.",
         "catalog.nango.token-params-unsupported",
         at,
@@ -625,7 +618,14 @@ function mapProvider(
         authorization.params,
         issues,
       );
-      tokenParameters(raw, key, "authorization_code", issues);
+      // Sent on the code exchange only; Nango keeps refresh-time extras in
+      // `refresh_params`, handled below.
+      const tokenParams = tokenParameters(
+        raw,
+        key,
+        "authorization_code",
+        issues,
+      );
       let refresh = true;
       if (
         isRecord(raw["refresh_params"]) &&
@@ -666,6 +666,7 @@ function mapProvider(
         ),
         scopeSeparator,
         authorizationParams: mapped.params,
+        tokenParams,
         tokenRequestAuth: clientAuth(raw, key, "client_secret_post"),
         refresh,
       };

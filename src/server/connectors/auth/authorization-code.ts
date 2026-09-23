@@ -58,6 +58,8 @@ export const AUTHORIZATION_CODE_INTENT = "oauth.authorization-code";
 export const DEFAULT_HANDOFF_TTL_MS = 600_000;
 export const OAUTH_CODE_EXCHANGE_OPERATION = "oauth.code.exchange";
 export const OAUTH_REFRESH_OPERATION = "oauth.token.refresh";
+/** How far ahead of this host's clock an ID token's `iat` may be. */
+const ID_TOKEN_IAT_SKEW_SECONDS = 60;
 
 const reservedAuthorizationParameters = new Set([
   "response_type",
@@ -73,6 +75,51 @@ const reservedAuthorizationParameters = new Set([
   "request_uri",
   "request",
 ]);
+
+/**
+ * Token request parameters the code exchange owns. Grant type, code, redirect
+ * URI and verifier bind the request to this attempt; client id, secret and
+ * assertion are client authentication; scope, resource and refresh token
+ * belong to other messages or to host policy. A declared extra parameter may
+ * name none of them.
+ */
+export const RESERVED_TOKEN_REQUEST_PARAMETERS: ReadonlySet<string> = new Set([
+  "grant_type",
+  "code",
+  "redirect_uri",
+  "code_verifier",
+  "client_id",
+  "client_secret",
+  "client_assertion",
+  "client_assertion_type",
+  "scope",
+  "resource",
+  "refresh_token",
+]);
+
+/**
+ * Checks a reviewed definition's extra token parameters before anything is
+ * sent. A collision with a parameter the grant owns is a configuration fault
+ * to refuse, not a value to overwrite quietly: the request would otherwise
+ * carry something other than what the reviewer approved.
+ */
+function tokenRequestParameters(
+  parameters: Readonly<Record<string, string>> | undefined,
+): Record<string, string> {
+  const checked: Record<string, string> = {};
+  for (const [name, value] of Object.entries(parameters ?? {})) {
+    if (
+      RESERVED_TOKEN_REQUEST_PARAMETERS.has(name) ||
+      !/^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/.test(name) ||
+      typeof value !== "string"
+    )
+      throw new ConnectorError("configuration-required", {
+        detail: "oauth.token-parameter.reserved",
+      });
+    checked[name] = value;
+  }
+  return checked;
+}
 
 /** The return route for provider callbacks, built from the deployment's exact origin only. */
 export function callbackUri(
@@ -188,7 +235,10 @@ export async function beginAuthorizationCode(
   const challenge = await oauth.calculatePKCECodeChallenge(verifier);
   const scopes = [...new Set(input.scopes)];
   const scope = joinScope(scopes);
-  const nonce = scopes.includes("openid")
+  // A caller may pass one pre-joined scope value (a provider's own spelling),
+  // so `openid` is looked for among the space-separated tokens, not only as a
+  // whole entry: an ID token requested without a nonce is one a replay fits.
+  const nonce = scopes.flatMap((value) => value.split(" ")).includes("openid")
     ? oauth.generateRandomNonce()
     : undefined;
   const parameters = new URLSearchParams();
@@ -272,6 +322,12 @@ export type CompleteAuthorizationCodeInput = {
   client: ResolvedClient;
   policy: Pick<IssuerPolicy, "resource" | "responseIssuerParameter">;
   scope?: CredentialScope | undefined;
+  /**
+   * Extra parameters for the code exchange that a reviewed definition names
+   * as static values (an `audience`, say). Host-authored only: never read from
+   * the callback, the request or a model. A name the grant owns is refused.
+   */
+  parameters?: Readonly<Record<string, string>> | undefined;
 };
 
 type OpenHandoff = {
@@ -369,6 +425,7 @@ export async function completeAuthorizationCode(
     throw new ConnectorError("invalid-request", {
       detail: "oauth.handoff.kind",
     });
+  const extra = tokenRequestParameters(input.parameters);
   if (assertHandoffCurrent(ctx, handoff) === "expired") {
     await finishHandoff(ctx, handoff, "expired");
     return { state: "expired", claims: [], code: "oauth.handoff.expired" };
@@ -465,7 +522,10 @@ export async function completeAuthorizationCode(
       open.verifier,
       {
         ...transport,
-        additionalParameters: resourceParameters(open.resource),
+        additionalParameters: {
+          ...extra,
+          ...resourceParameters(open.resource),
+        },
       },
     );
     tokens = await oauth.processAuthorizationCodeResponse(
@@ -501,6 +561,19 @@ export async function completeAuthorizationCode(
           { cause: failure },
         );
       }
+    /*
+     * oauth4webapi bounds `exp` (30 s tolerance) but only type-checks `iat`, so
+     * a token stamped as issued in the future passes. An issuer whose clock
+     * runs ahead by more than the skew allowance, or a token minted ahead of
+     * time for later replay, is refused here. Measured on the library's own
+     * clock, the one it checks `exp` against, so the two bounds agree.
+     */
+    const idClaims = oauth.getValidatedIdTokenClaims(tokens);
+    if (
+      idClaims !== undefined &&
+      idClaims.iat > Math.floor(Date.now() / 1000) + ID_TOKEN_IAT_SKEW_SECONDS
+    )
+      throw new oauth.OperationProcessingError("ID Token issued in the future");
   } catch (failure) {
     if (neverSent(failure)) {
       await ctx.environment.effects.complete(begun.effectRef, {

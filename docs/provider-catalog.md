@@ -83,23 +83,23 @@ They are host configuration read by name: `<ID>_CLIENT_ID` and
 `catalog-http` adapter's `import` accepts it through the ordinary import
 route. Every provider key yields exactly one entry.
 
-| Nango                                                     | Catalog entry                                                                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `auth_mode: OAUTH2`                                       | `oauth2-authorization-code`                                                                                               |
-| `auth_mode: OAUTH2_CC`                                    | `oauth2-client-credentials`                                                                                               |
-| `auth_mode: API_KEY` with `proxy.headers` / `proxy.query` | `api-key` header or query placement; `authorization: Bearer ${apiKey}` becomes `bearer`                                   |
-| `auth_mode: BASIC`, `NONE`                                | `basic`, `none`                                                                                                           |
-| `OAUTH1`, `APP`, `CUSTOM`, `TBA`, `JWT`, `SIGNATURE`, ... | `unsupported`, with the reason and a blocking issue                                                                       |
-| `authorization_url`, `token_url`, `refresh_url`           | the same URLs; a query string on the authorization URL becomes explicit parameters                                        |
-| `authorization_params`                                    | `authorizationParams`; a redundant `response_type: code` is dropped with an issue; a reserved override is `unsupported`   |
-| `token_params`                                            | client credentials: `tokenParams`. Authorization code: `unsupported` (the engine does not send extra token parameters)    |
-| `default_scopes`, `scope_separator`                       | `scopes`, `scopeSeparator` (space or comma)                                                                               |
-| `token_request_auth_method: basic`                        | `client_secret_basic` (otherwise `client_secret_post`)                                                                    |
-| `proxy.base_url`, `proxy.headers`, `proxy.verification`   | `proxy.baseUrl`, non-credential `proxy.headers`, `proxy.verification`                                                     |
-| `connection_config`, `${connectionConfig.x}`              | `connectionConfig` fields; a field used in a host is a `dns-label`; the provider's own pattern is replaced, with an issue |
-| `alias`                                                   | resolved against the named provider, with an issue                                                                        |
-| `docs`, `categories`, `display_name`                      | `docsUrl`, `categories`, `displayName`                                                                                    |
-| scripts, `proxy.retry`, `proxy.paginate`, other keys      | not imported; each reported as an info issue                                                                              |
+| Nango                                                     | Catalog entry                                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `auth_mode: OAUTH2`                                       | `oauth2-authorization-code`                                                                                                    |
+| `auth_mode: OAUTH2_CC`                                    | `oauth2-client-credentials`                                                                                                    |
+| `auth_mode: API_KEY` with `proxy.headers` / `proxy.query` | `api-key` header or query placement; `authorization: Bearer ${apiKey}` becomes `bearer`                                        |
+| `auth_mode: BASIC`, `NONE`                                | `basic`, `none`                                                                                                                |
+| `OAUTH1`, `APP`, `CUSTOM`, `TBA`, `JWT`, `SIGNATURE`, ... | `unsupported`, with the reason and a blocking issue                                                                            |
+| `authorization_url`, `token_url`, `refresh_url`           | the same URLs; a query string on the authorization URL becomes explicit parameters                                             |
+| `authorization_params`                                    | `authorizationParams`; a redundant `response_type: code` is dropped with an issue; a reserved override is `unsupported`        |
+| `token_params`                                            | `tokenParams`, sent on the client-credentials request or the authorization-code exchange; a reserved override is `unsupported` |
+| `default_scopes`, `scope_separator`                       | `scopes`, `scopeSeparator` (space or comma)                                                                                    |
+| `token_request_auth_method: basic`                        | `client_secret_basic` (otherwise `client_secret_post`)                                                                         |
+| `proxy.base_url`, `proxy.headers`, `proxy.verification`   | `proxy.baseUrl`, non-credential `proxy.headers`, `proxy.verification`                                                          |
+| `connection_config`, `${connectionConfig.x}`              | `connectionConfig` fields; a field used in a host is a `dns-label`; the provider's own pattern is replaced, with an issue      |
+| `alias`                                                   | resolved against the named provider, with an issue                                                                             |
+| `docs`, `categories`, `display_name`                      | `docsUrl`, `categories`, `displayName`                                                                                         |
+| scripts, `proxy.retry`, `proxy.paginate`, other keys      | not imported; each reported as an info issue                                                                                   |
 
 A provider whose description cannot be represented exactly is never guessed
 at and never dropped: it is imported as `unsupported`, carrying its reason. The
@@ -147,9 +147,19 @@ from Nango.
   `renewClientCredentials`), with the entry's `tokenParams` as extra token
   parameters; parameters the grant owns (grant type, client authentication,
   scope, resource) cannot be set that way.
+- An authorization-code entry's `tokenParams` (Nango's `token_params`, such as
+  an `audience`) are sent on the code exchange only, not on refresh (Nango
+  keeps refresh extras in `refresh_params`, which still disables refresh).
+  They are static values from the reviewed entry, filled only with the
+  connection's configured fields; nothing from the callback, the caller or a
+  model can add or change one. A name the grant owns (`grant_type`, `code`,
+  `redirect_uri`, `code_verifier`, `client_id`, `client_secret`,
+  `client_assertion`, `client_assertion_type`, `scope`, `resource`,
+  `refresh_token`) is refused when the entry is read, and the engine refuses
+  it again (`oauth.token-parameter.reserved`) before the code is spent.
 - Not described by the format: OAuth 1.0a, request signing, app installations,
-  custom multi-step flows, webhooks, pagination and retries, extra token
-  parameters on the authorization-code grant, and upstream revocation.
+  custom multi-step flows, webhooks, pagination and retries, extra refresh
+  parameters, and upstream revocation.
 - The `openid` scope is refused for catalog providers: an ID token would name
   the account, and without discovery there are no published keys to verify
   it against.

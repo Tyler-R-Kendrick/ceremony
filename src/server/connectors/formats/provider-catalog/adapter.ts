@@ -671,7 +671,7 @@ export function createCatalogHttpAdapter(
 
   function tokenParameters(
     entry: ProviderCatalogEntry,
-    auth: ClientCredentials,
+    auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
   ): Record<string, string> {
     return Object.fromEntries(
@@ -1276,6 +1276,9 @@ export function createCatalogHttpAdapter(
         server: context.server,
         client: context.client,
         policy: context.policy,
+        // The reviewed entry's static values, filled with this connection's
+        // configured fields; nothing from the callback or the caller.
+        parameters: tokenParameters(entry, auth, values),
       });
       // The grant settled the handoff itself, under the generation fence,
       // for these outcomes; the command layer records it and moves on.
