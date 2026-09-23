@@ -1,6 +1,5 @@
 import type { Browser, Page } from "playwright-core";
 import { z } from "zod";
-import { chromium } from "./playwright.js";
 
 /**
  * A remote browser a person can be handed, whichever provider runs it.
@@ -205,6 +204,9 @@ export async function openLiveBrowser(
   source: LiveViewSource,
   options: { fetch?: typeof fetch } = {},
 ): Promise<LiveBrowser> {
+  // Loaded here, not at the top: the URL rules above are imported by modules
+  // (durable hand-offs among them) that must not pull a browser driver in.
+  const { chromium } = await import("./playwright.js");
   if (source.kind === "cloudflare") {
     const browser = await chromium.connectOverCDP(
       `wss://api.cloudflare.com/client/v4/accounts/${source.accountId}/browser-run/devtools/browser?keep_alive=600000`,

@@ -11,6 +11,12 @@ import type {
 import type { SessionVerifier } from "./browser-verification.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
 import { RecordedCeremonies } from "./recorded-ceremonies.js";
+import type { HumanHandoffContract } from "../core/connector-contracts.js";
+import {
+  createBrowserHandoffs,
+  type BrowserHandoffs,
+  type BrowserHandoffSummary,
+} from "./browser-handoffs.js";
 
 /**
  * The retained-browser login tools, assembled the way a host runs them.
@@ -50,6 +56,23 @@ export type HostBrowserLoginOptions = {
   credentialRefs?: BrowserLoginToolDeps["credentialRefs"];
   allowUnverified?: boolean;
   human?: BrowserLoginToolDeps["human"];
+  /**
+   * Bring people in through durable hand-offs kept in `store`, instead of a
+   * `human` function of the host's own: a hand-off any process can resolve
+   * through `browserHandoffRoute`, that expires, and that is refused by name
+   * once the process holding its browser is gone. `onRequested` is how the
+   * host tells the person - it gets the summary, never a control URL.
+   *
+   * Ignored when `human` is given: that is the host deciding for itself.
+   */
+  handoffs?: {
+    contract: HumanHandoffContract;
+    ttlMs?: number;
+    onRequested?: (
+      actor: ActorContext,
+      summary: BrowserHandoffSummary,
+    ) => unknown;
+  };
   backends?: BrowserLoginToolDeps["backends"];
   launch?: LoginServiceOptions["launch"];
   modelInterpreter?: LoginServiceOptions["modelInterpreter"];
@@ -70,11 +93,37 @@ export type HostBrowserLoginOptions = {
   issuedSinks?: LoginServiceOptions["issuedSinks"];
 };
 
+export type HostBrowserLogin = BrowserLoginTools & {
+  /** The durable hand-offs, when `handoffs` configured them. */
+  handoffs?: BrowserHandoffs;
+};
+
 export function createHostBrowserLogin(
   options: HostBrowserLoginOptions,
-): BrowserLoginTools {
+): HostBrowserLogin {
   let built: Promise<BrowserLoginTools> | undefined;
   const recordings = new RecordedCeremonies(options.store);
+  const configured = options.handoffs;
+  const handoffs = configured
+    ? createBrowserHandoffs({
+        store: options.store,
+        ...(configured.ttlMs !== undefined ? { ttlMs: configured.ttlMs } : {}),
+      })
+    : undefined;
+  const human: BrowserLoginToolDeps["human"] | undefined =
+    options.human ??
+    (handoffs && configured
+      ? (actor) =>
+          handoffs.participation(actor, {
+            contract: configured.contract,
+            ...(configured.onRequested
+              ? {
+                  onRequested: (summary: BrowserHandoffSummary) =>
+                    configured.onRequested?.(actor, summary),
+                }
+              : {}),
+          })
+      : undefined);
   const tools = () =>
     (built ??= (async () => {
       const [
@@ -137,7 +186,7 @@ export function createHostBrowserLogin(
           ? { credentialRefs: options.credentialRefs }
           : {}),
         ...(options.allowUnverified === true ? { allowUnverified: true } : {}),
-        ...(options.human ? { human: options.human } : {}),
+        ...(human ? { human } : {}),
         // The compiler refuses a draft asking for inference on a host with no
         // model. Without this a host that configured one had every such draft
         // refused anyway, which read as "no model" to a host that had one.
@@ -174,5 +223,6 @@ export function createHostBrowserLogin(
     readRecording: async (actor, input) =>
       (await tools()).readRecording(actor, input),
     recordings,
+    ...(handoffs ? { handoffs } : {}),
   };
 }
