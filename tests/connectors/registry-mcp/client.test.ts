@@ -340,17 +340,21 @@ test("maps upstream failures to sanitized codes without echoing bodies", async (
   assert.ok(
     looped.issues.some((issue) => issue.code === "registry.cursor.loop"),
   );
+  // The registry holds its answer twenty times longer than the client waits,
+  // so the timeout fires every time. A 1 ms limit against an immediate
+  // loopback reply lost that race about once in two hundred calls.
   const tiny = createMcpRegistryClient({
     baseUrl: double.origin,
     fetch: globalThis.fetch,
-    limits: { requestTimeoutMs: 1 },
+    limits: { requestTimeoutMs: 50 },
   });
+  double.faults.stallListMs = 1_000;
   await assert.rejects(
     tiny.list(),
     (error: unknown) =>
-      error instanceof ConnectorError &&
-      ["registry.timeout", "registry.network"].includes(error.detail ?? ""),
+      error instanceof ConnectorError && error.detail === "registry.timeout",
   );
+  double.faults.stallListMs = undefined;
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(
