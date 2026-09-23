@@ -252,7 +252,7 @@
       "check": "tests/connectors/mcp/current-profile.test.ts",
       "target": "local-double",
       "recordedAt": "2026-09-23",
-      "notes": "Discovery on the current protocol profile against the fixture MCP server process over loopback HTTP."
+      "notes": "The MCP client the adapter runs every session through (createMcpClient), not the adapter itself: discovery on the current protocol profile over loopback HTTP against the fixture MCP server process (tests/connectors/doubles/mcp-servers). The adapter end to end is adapter.test.ts."
     },
     {
       "adapterId": "mcp-remote",

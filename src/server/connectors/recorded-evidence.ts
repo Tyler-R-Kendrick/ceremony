@@ -348,7 +348,7 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     target: "local-double",
     recordedAt: "2026-09-23",
     notes:
-      "The discovery-document client and its paging, through the adapter with the platform fetch against the loopback Integration Connectors double, which checks each request independently.",
+      "The Integration Connectors client the adapter builds every call on (createGoogleConnectorsClient), not the adapter itself: discovery documents and paging with the platform fetch against the loopback Integration Connectors double (tests/connectors/doubles/google-connectors.ts). The adapter end to end is adapter.test.ts.",
   },
   {
     adapterId: "hasura-ndc",
@@ -479,7 +479,7 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     target: "local-double",
     recordedAt: "2026-09-23",
     notes:
-      "Discovery on the current protocol profile against the fixture MCP server process over loopback HTTP.",
+      "The MCP client the adapter runs every session through (createMcpClient), not the adapter itself: discovery on the current protocol profile over loopback HTTP against the fixture MCP server process (tests/connectors/doubles/mcp-servers). The adapter end to end is adapter.test.ts.",
   },
   {
     adapterId: "mcp-remote",
