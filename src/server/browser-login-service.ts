@@ -398,7 +398,15 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             },
             interpreter,
             capture,
+            restore !== undefined,
           );
+          /** A replay that stopped before its first step on a restored session. */
+          const restoredDrift = outcome.kind === "restored-drift";
+          const drifted = (): LoginResult => ({
+            status: "blocked",
+            runRef,
+            reason: "recording-drift",
+          });
           if (outcome.kind === "indeterminate")
             return {
               status: "indeterminate",
@@ -423,6 +431,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             : undefined;
           const request = context.request;
 
+          if (restoredDrift && (!verifier || !request)) return drifted();
           if (!verifier || !request) {
             // No registered verifier means the honest ceiling is "something was
             // submitted". Retaining the session is still useful and still true;
@@ -453,6 +462,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             expected,
           );
 
+          if (!verification.verified && restoredDrift) return drifted();
           if (!verification.verified) {
             // A wrong account is reported. It is never a licence to log that
             // account out, switch to another, or start a recovery flow.
@@ -523,6 +533,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               "dispose-managed",
             );
             retained = false;
+            if (restoredDrift) delete capture.drift;
             return {
               status: "verified",
               runRef,
@@ -531,6 +542,9 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               evidenceKind: evidence.kind,
             };
           }
+          // The restored session was already where the recording leads, so
+          // nothing drifted: the replay simply had nothing left to do.
+          if (restoredDrift) delete capture.drift;
           return {
             status: "verified",
             runRef,
@@ -713,8 +727,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     onDispatch: (info: { destination: string }) => Promise<void> | void,
     interpreter: CeremonyInterpreter | undefined,
     capture: Capture,
+    restored: boolean,
   ): Promise<
     | { kind: "done" }
+    | { kind: "restored-drift" }
     | { kind: "indeterminate" }
     | { kind: "blocked"; reason: BrowserOperationReason }
     | { kind: "human"; reason: "human-challenge" | "passkey" | "native-dialog" }
@@ -817,6 +833,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     }
 
     const trace: RecordedTraceEntry[] = [];
+    let dispatchedHere = false;
     const common = {
       page,
       goal: "sign-in" as const,
@@ -824,7 +841,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       // The driver's origin rule is the union of everywhere a secret may go,
       // and its per-role narrowing is applied by the plan before we get here.
       allowedOrigins: plan.navigationOrigins,
-      onDispatch,
+      onDispatch: async (info: { destination: string }) => {
+        dispatchedHere = true;
+        await onDispatch(info);
+      },
       ...(guarded.length > 0 ? { protectedValues: guarded } : {}),
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
@@ -911,7 +931,13 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       !capture.repaired &&
       result.status === "blocked"
     )
-      return { kind: "blocked", reason: "recording-drift" };
+      // Except on a restored session, before anything was applied: a saved
+      // state that is still signed in opens on the signed-in view rather than
+      // the recording's first form. That is the verifier's question, and only
+      // its "no" makes this drift.
+      return restored && trace.length === 0 && !dispatchedHere
+        ? { kind: "restored-drift" }
+        : { kind: "blocked", reason: "recording-drift" };
     if (result.status === "blocked") {
       if (result.reason === "human-challenge")
         return { kind: "human", reason: "human-challenge" };
