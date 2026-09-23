@@ -777,6 +777,9 @@ export function createOpenApiHttpAdapter(
       PROFILES_SETTINGS_KEY,
       OAUTH_SETTINGS_KEY,
     ],
+    // `oauthPolicyFor` resolves each profile's own policy before the
+    // binding-wide one, so approval may pin per-profile policies here.
+    profileIssuerPolicies: true,
 
     async reviewBinding(input) {
       return reviewOpenApiBinding(input, {

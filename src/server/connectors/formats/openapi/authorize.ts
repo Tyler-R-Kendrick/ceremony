@@ -35,7 +35,10 @@ import {
 } from "../../auth/device.js";
 import { assertHandoffCurrent } from "../../auth/handoff.js";
 import { revokeUpstreamGrant } from "../../auth/revocation.js";
-import type { IssuerPolicy } from "../../auth/policy.js";
+import {
+  PROFILE_ISSUER_POLICIES_SETTING,
+  type IssuerPolicy,
+} from "../../auth/policy.js";
 import type { RuntimeBinding } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { planSettingsOf, type OperationPlan } from "./plan.js";
@@ -62,8 +65,12 @@ import { planSettingsOf, type OperationPlan } from "./plan.js";
  */
 
 export const PROFILES_SETTINGS_KEY = "openapi-http-profiles";
-/** Per-profile issuer policies, keyed by profile id; `settings.oauth` is the binding-wide fallback. */
-export const OAUTH_SETTINGS_KEY = "openapi-http-oauth";
+/**
+ * Per-profile issuer policies, keyed by profile id; `settings.oauth` is the
+ * binding-wide fallback. The command layer's reviewed approval writes it
+ * (`approvals.oauthProfiles`), under the same rules as `settings.oauth`.
+ */
+export const OAUTH_SETTINGS_KEY = PROFILE_ISSUER_POLICIES_SETTING;
 export const CREDENTIAL_ENTRY_INTENT = "openapi.credential-entry";
 const CREDENTIAL_ENTRY_TTL_MS = 15 * 60 * 1000;
 

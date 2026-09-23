@@ -867,6 +867,23 @@ export const normalizedDefinitionSchema = z
   .superRefine(refineNormalizedDefinition);
 export type NormalizedDefinition = z.infer<typeof normalizedDefinitionSchema>;
 
+/**
+ * One row of the author/reviewer definition list. The list names each
+ * definition and counts its compatibility issues by severity; the reviewer
+ * opens one definition to read the issues themselves.
+ */
+export const definitionListEntrySchema = z.strictObject({
+  definitionRef: connectorReferenceSchema,
+  identity: normalizedDefinitionShape.identity,
+  display: normalizedDefinitionShape.display,
+  issues: z.strictObject({
+    blocking: z.number().int().nonnegative(),
+    warning: z.number().int().nonnegative(),
+    info: z.number().int().nonnegative(),
+  }),
+});
+export type DefinitionListEntry = z.infer<typeof definitionListEntrySchema>;
+
 /** Reads a stored definition document; the byte ceiling is checked before parsing. */
 export function parseNormalizedDefinition(text: string): NormalizedDefinition {
   if (new TextEncoder().encode(text).byteLength > DEFINITION_LIMITS.bytes)

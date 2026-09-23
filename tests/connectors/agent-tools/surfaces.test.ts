@@ -185,6 +185,75 @@ test("AG-03: an MCP intent answers with the agent projection and nothing else", 
   assert.equal(invalid.isError, true);
 });
 
+test("an MCP intent that leaves a person waiting names the owner's page, and nothing that grants anything", async () => {
+  const waitingSummary = buildConnectionSummary({
+    lifecycle: "human-required",
+    handoff: {
+      handoffRef: "handoff:canary-ref",
+      kind: "provider-browser",
+      state: "waiting",
+      presentation: "popup",
+      expiresAt: "2026-09-23T01:00:00.000Z",
+      generation: 0,
+    },
+  });
+  const settled = buildConnectionSummary({
+    connectionRef: "connection:2",
+    handoff: {
+      handoffRef: "handoff:settled",
+      kind: "device-code",
+      state: "completed",
+      presentation: "second-device",
+      expiresAt: "2026-09-23T01:00:00.000Z",
+      generation: 0,
+    },
+  });
+  const { tools, server } = fakeServer();
+  registerAgentConnectorTools(
+    server,
+    {
+      ...deps,
+      async list() {
+        return [waitingSummary, settled];
+      },
+      async reconnect() {
+        return waitingSummary;
+      },
+      async status() {
+        return waitingSummary;
+      },
+    },
+    { actor: () => fixtureActor, humanRoute: "/app/connectors" },
+  );
+  const handler = (name: string) =>
+    tools.find((tool) => tool.name === name)!.handler;
+  const expected = {
+    kind: "provider-browser",
+    state: "waiting",
+    path: "/app/connectors?connection=connection%3A1",
+  };
+  for (const [name, input] of [
+    [
+      "connector_reconnect",
+      { connectionRef: "connection:1", expectedRevision: 3 },
+    ],
+    ["connector_status", { connectionRef: "connection:1" }],
+  ] as const) {
+    const text = textOf(await handler(name)(input));
+    assert.deepEqual(JSON.parse(text).handoff, expected, name);
+    assert.doesNotMatch(text, /canary-ref|handoffRef|expiresAt|https?:/, name);
+  }
+  const listed = JSON.parse(textOf(await handler("connector_list")({}))) as {
+    connections: Array<{ handoff?: Record<string, string> }>;
+  };
+  assert.deepEqual(listed.connections[0]!.handoff, expected);
+  // A handoff nobody is waiting on any more has no page to open.
+  assert.deepEqual(listed.connections[1]!.handoff, {
+    kind: "device-code",
+    state: "completed",
+  });
+});
+
 test("AC-AG-04: after the assistant is stopped, an A2A delegation is refused by the same gate every other surface uses", async () => {
   const kit = await harness();
   try {

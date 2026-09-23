@@ -121,6 +121,8 @@ async function approveThroughReview(
     document: unknown;
     destination: string;
     oauth?: Record<string, unknown>;
+    /** Per-profile policies, built from the imported definition's profile ids. */
+    oauthProfiles?: (profileIds: string[]) => Record<string, unknown>;
     settings?: Record<string, unknown>;
     verifier?: { nativeId: string };
   },
@@ -133,6 +135,11 @@ async function approveThroughReview(
   });
   const definitionRef = imported.definitions[0];
   assert.ok(definitionRef, "the description imported");
+  const definition = await harness.definitions.getDefinition(
+    reviewer.tenantId,
+    definitionRef,
+  );
+  assert.ok(definition);
   const reference = await harness.service.approveBinding(reviewer, {
     definitionRef,
     adapterId: "openapi-http",
@@ -140,6 +147,13 @@ async function approveThroughReview(
       destinations: [input.destination],
       operations: ["listItems"],
       ...(input.oauth ? { oauth: input.oauth } : {}),
+      ...(input.oauthProfiles
+        ? {
+            oauthProfiles: input.oauthProfiles(
+              definition.authentication.map((profile) => profile.id),
+            ),
+          }
+        : {}),
       ...(input.settings ? { settings: input.settings } : {}),
       ...(input.verifier ? { verifier: input.verifier } : {}),
     },
@@ -163,6 +177,8 @@ async function setup(
     document: unknown;
     server?: AuthorizationServerOptions;
     policy?: Record<string, unknown> | false;
+    /** Pin the policy per profile instead of binding-wide. */
+    perProfile?: boolean;
     configuration?: Record<string, string>;
     /** How the protected API answers; defaults to checking the bearer with the fixture issuer. */
     api?: "introspect" | "always-401" | "api-key";
@@ -215,7 +231,13 @@ async function setup(
   const binding = await approveThroughReview(harness, reviewer, {
     document: input.document,
     destination: api.origin,
-    ...(policy ? { oauth: policy } : {}),
+    ...(policy && !input.perProfile ? { oauth: policy } : {}),
+    ...(policy && input.perProfile
+      ? {
+          oauthProfiles: (ids: string[]) =>
+            Object.fromEntries(ids.map((id) => [id, policy])),
+        }
+      : {}),
   });
   const operation = binding.operations.find(
     (item) => item.nativeId === "listItems",
@@ -700,7 +722,7 @@ test("only a person pins an issuer policy, only through review, and only for an 
     ),
     refused("oauth.policy.human-only"),
   );
-  for (const key of ["oauth", "openapi-http", "openapi-http-oauth"])
+  for (const key of ["oauth", "oauth-profiles", "openapi-http"])
     await assert.rejects(
       approveThroughReview(harness, reviewer, {
         document: description("authorizationCode"),
@@ -823,4 +845,112 @@ test("an upstream disconnect revokes the grant at the issuer only when the revie
   assert.equal(unrevoked.result.upstream, "not-attempted");
   assert.equal(unrevoked.connection.lifecycle, "locally-disconnected");
   assert.equal(off.as.counts.revocation, 0);
+});
+
+test("a person pins a per-profile issuer policy through the same review, and the profile connects with it", async (t) => {
+  const state = await setup(t, {
+    document: description("authorizationCode"),
+    perProfile: true,
+  });
+  // Nothing binding-wide: the only policy is the profile's own.
+  assert.equal(state.binding.settings["oauth"], undefined);
+  const pinned = state.binding.settings["oauth-profiles"] as Record<
+    string,
+    { issuer?: string }
+  >;
+  assert.deepEqual(
+    Object.values(pinned).map((policy) => policy.issuer),
+    [state.as.issuer],
+  );
+  const { done } = await connectWithBrowser(state);
+  assert.equal(done.lifecycle, "active");
+  assert.equal(state.as.counts.token, 1);
+});
+
+test("per-profile issuer policies are refused for agents, unknown profiles, invalid policies and issuers host policy does not admit", async (t) => {
+  const api = await startHttpFixture(() => ({ status: 200, body: [] }));
+  t.after(() => api.close());
+  const registry = new ConnectorAdapterRegistry();
+  registry.register(createOpenApiHttpAdapter());
+  const harness = await createHarness({
+    service: { registry },
+    policy: (base) => ({ ...base, authorize: () => true }),
+  });
+  t.after(() => harness.close());
+  const reviewer = human();
+  const declared = {
+    issuer: "https://declared.example.test",
+    registration: { clientIdConfiguration: "ITEMS_CLIENT_ID" },
+  };
+  const refused = (detail: string) => (error: unknown) =>
+    error instanceof ConnectorError && error.detail === detail;
+  const each =
+    (policy: Record<string, unknown>) =>
+    (ids: string[]): Record<string, unknown> =>
+      Object.fromEntries(ids.map((id) => [id, policy]));
+  const review = (
+    actor: ReturnType<typeof human>,
+    oauthProfiles: (ids: string[]) => Record<string, unknown>,
+  ) =>
+    approveThroughReview(harness, actor, {
+      document: description("authorizationCode"),
+      destination: api.origin,
+      oauthProfiles,
+    });
+
+  await assert.rejects(
+    review(
+      agent({ capabilities: ["author", "reviewer", "executor"] }),
+      each(declared),
+    ),
+    refused("oauth.policy.human-only"),
+  );
+  await assert.rejects(
+    review(reviewer, () => ({ "no-such-profile": declared })),
+    refused("oauth.policy.profile-unknown"),
+  );
+  await assert.rejects(
+    review(reviewer, each({ ...declared, issuer: "not a url" })),
+    refused("oauth.policy.invalid"),
+  );
+  await assert.rejects(
+    review(reviewer, each({ ...declared, unexpected: true })),
+    refused("oauth.policy.invalid"),
+  );
+  await assert.rejects(
+    review(
+      reviewer,
+      each({ ...declared, issuer: "https://elsewhere.example.test" }),
+    ),
+    refused("oauth.issuer.not-permitted"),
+  );
+  await assert.rejects(
+    review(
+      reviewer,
+      each({ ...declared, trustedOrigins: ["https://elsewhere.example.test"] }),
+    ),
+    refused("oauth.issuer.not-permitted"),
+    "a profile's policy is judged on every origin, like the binding-wide one",
+  );
+  // Admitted: pinned under the reserved key, next to a binding-wide policy.
+  const binding = await approveThroughReview(harness, reviewer, {
+    document: description("authorizationCode"),
+    destination: api.origin,
+    oauth: declared,
+    oauthProfiles: each({
+      ...declared,
+      responseIssuerParameter: "required",
+    }),
+  });
+  const pinned = binding.settings["oauth-profiles"] as Record<
+    string,
+    { issuer: string; responseIssuerParameter: string }
+  >;
+  assert.equal(Object.keys(pinned).length, 1);
+  assert.equal(Object.values(pinned)[0]!.responseIssuerParameter, "required");
+  assert.equal(
+    (binding.settings["oauth"] as { responseIssuerParameter: string })
+      .responseIssuerParameter,
+    "if-advertised",
+  );
 });

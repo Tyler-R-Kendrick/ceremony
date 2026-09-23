@@ -284,6 +284,31 @@ test("the entry refuses reserved parameters, credential headers and undeclared f
       }),
     ],
     [
+      "templated key set",
+      oauthEntry({
+        auth: {
+          ...(oauthEntry().auth as object),
+          jwksUrl:
+            "https://${connectionConfig.subdomain}.tenant-desk.example/jwks",
+        },
+      }),
+    ],
+    ...[
+      "code",
+      "redirect_uri",
+      "code_verifier",
+      "client_secret",
+      "resource",
+    ].map((name): [string, ProviderCatalogEntryInput] => [
+      `reserved authorization-code token parameter ${name}`,
+      oauthEntry({
+        auth: {
+          ...(oauthEntry().auth as object),
+          tokenParams: { [name]: "chosen-elsewhere" },
+        },
+      }),
+    ]),
+    [
       "unknown key",
       { ...oauthEntry(), extra: true } as ProviderCatalogEntryInput,
     ],

@@ -217,8 +217,8 @@ Module: `src/server/connectors/formats/provider-catalog/index.ts` (`createCatalo
 - import: Reads Ceremony provider catalogs and Nango providers.yaml; unsupported auth modes are kept as descriptions with a reason, never dropped.
 - import: An import creates drafts only; every endpoint in them is contacted only after a reviewer approves a binding.
 - configure: OAuth client ids and secrets, and per-connection values such as a subdomain, come from host configuration by name.
-- authorize: OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry, never from discovery.
-- authorize: Client credentials is a local grant request pending the shared engine's own.
+- authorize: OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry. Only an openid request, for an entry that names its issuer, reads the issuer's metadata, which must agree with the entry, to verify the ID token.
+- authorize: Client credentials is the shared engine's grant (grantClientCredentials, renewClientCredentials), with the entry's token parameters.
 - authorize: API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.
 - verify: A collected credential is checked only when the entry declares a verification read; otherwise it is stored unverified.
 - verify: Acceptance proves a grant, not which account it belongs to.

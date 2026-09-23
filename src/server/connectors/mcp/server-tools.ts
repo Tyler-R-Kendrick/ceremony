@@ -14,7 +14,7 @@ import { explainConnectorError } from "../errors.js";
 /*
  * Connector tools on the existing Ceremony MCP server.
  *
- * These tools are added beside the five that were already there; nothing
+ * These tools are added beside the ceremony tools already there; nothing
  * about those changes. They obey the same two rules as the rest of that file:
  * the actor comes from the host's `authenticate` path and never from an
  * argument, and nothing a model can read carries a credential, a destination,
@@ -169,33 +169,20 @@ export const connectorToolInputs = {
 
 const waiting = new Set<string>(["issued", "waiting"]);
 
-function text(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
-}
-
-function refusal(message: string) {
-  return {
-    isError: true as const,
-    content: [{ type: "text" as const, text: message }],
-  };
-}
-
 /**
- * Registers the connector tools on an existing server. The five ceremony
- * tools are untouched; this only adds.
+ * How a connector handoff leaves for an assistant over MCP: kind and state
+ * always and, while a person is actually awaited, the same-origin path of the
+ * owner's page for that connection (`<route>?connection=<ref>`). The path is
+ * built here from the connection reference the caller already holds, never
+ * from anything a service or provider said, so it carries no code, token,
+ * state or provider URL. The connector tools and the connector intents share
+ * it, so both answer the same way.
  */
-export function registerConnectorServerTools(
-  server: McpServer,
-  deps: ConnectorToolDependencies,
-  context: ConnectorToolContext,
-): void {
-  const route = context.humanRoute ?? "/connectors";
-  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(route))
+export function connectorHandoffViews(humanRoute = "/connectors") {
+  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(humanRoute))
     throw new Error("Invalid connector human route");
-  /** The owner's page for this connection. No code, token, state or provider URL. */
   const personPath = (connectionRef: string) =>
-    `${route}?${new URLSearchParams({ connection: connectionRef })}`;
-  /** Kind and state always; the person-bound path only while a person is actually awaited. */
+    `${humanRoute}?${new URLSearchParams({ connection: connectionRef })}`;
   const handoffView = (
     connectionRef: string,
     handoff: { kind: string; state: string } | undefined,
@@ -211,6 +198,30 @@ export function registerConnectorServerTools(
           },
         }
       : {};
+  return { personPath, handoffView };
+}
+
+function text(value: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
+}
+
+function refusal(message: string) {
+  return {
+    isError: true as const,
+    content: [{ type: "text" as const, text: message }],
+  };
+}
+
+/**
+ * Registers the connector tools on an existing server. The ceremony tools
+ * are untouched; this only adds.
+ */
+export function registerConnectorServerTools(
+  server: McpServer,
+  deps: ConnectorToolDependencies,
+  context: ConnectorToolContext,
+): void {
+  const { personPath, handoffView } = connectorHandoffViews(context.humanRoute);
   const run = async <T>(operate: (actor: ActorContext) => Promise<T>) => {
     const actor = context.actor();
     if (!actor) return refusal("Sign in to the ceremony application first.");

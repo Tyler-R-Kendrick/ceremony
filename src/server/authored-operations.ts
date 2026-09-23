@@ -555,6 +555,16 @@ export const discoveredAuthSchema = z.object({
   tokenEndpointAuthMethod: z.enum(tokenEndpointAuthMethods).optional(),
   /** How a collected key or password is checked against the provider. */
   credentialVerification: credentialVerificationSchema.optional(),
+  /**
+   * A proposed declaration waiting for a person. It is never used to verify
+   * anything; `approveAuthoredCredentialVerification` promotes it, by digest.
+   */
+  pendingCredentialVerification: z
+    .strictObject({
+      declaration: credentialVerificationSchema,
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
 });
 function sessionKey(actor: ActorContext, runId: string) {
   return {
@@ -1800,6 +1810,86 @@ export async function declareAuthoredCredentialVerification(
     ...discovery,
     credentialVerification: verification,
   });
+}
+
+/** Digest of a parsed declaration; zod emits keys in schema order, so it is stable. */
+function verificationDigest(verification: CredentialVerification) {
+  return createHash("sha256")
+    .update(JSON.stringify(verification))
+    .digest("hex");
+}
+
+/**
+ * The reviewed path to a declaration, which is what the HTTP route and the
+ * MCP tool offer. An author (a person or their assistant) proposes one; it is
+ * checked exactly as a direct declaration is (schema, HTTPS, an origin the
+ * provider already declared, the author's own connector) and kept as pending,
+ * where it verifies nothing. It takes effect only when a person approves that
+ * exact declaration by digest, so an assistant can say which request proves a
+ * key but cannot, on its own, decide where a person's key will be sent.
+ */
+export async function proposeAuthoredCredentialVerification(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  declaration: unknown,
+) {
+  if (
+    !actor.capabilities.includes("author") &&
+    !actor.capabilities.includes("admin")
+  )
+    throw new AuthorizationError("denied");
+  const verification = credentialVerificationSchema.parse(declaration);
+  const discovery = await installedDiscovery(store, actor, connectorId);
+  if (!discovery || !verificationAllowed(discovery, verification))
+    throw new AuthorizationError("denied");
+  const digest = verificationDigest(verification);
+  await saveInstalledDiscovery(store, actor, connectorId, {
+    ...discovery,
+    pendingCredentialVerification: { declaration: verification, digest },
+  });
+  return {
+    connectorId,
+    state: "pending-review" as const,
+    digest,
+    declaration: verification,
+    active: Boolean(discovery.credentialVerification),
+  };
+}
+
+/**
+ * A person approves the pending declaration they were shown, pinned by its
+ * digest. An assistant's actor is refused whatever it holds: this is the
+ * publication step for a credential declaration, and it stays with people.
+ * The origin is checked again, since the provider's declared origins may have
+ * changed since the proposal.
+ */
+export async function approveAuthoredCredentialVerification(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  digest: string,
+) {
+  if (actor.actorKind !== "human") throw new AuthorizationError("denied");
+  if (
+    !actor.capabilities.includes("author") &&
+    !actor.capabilities.includes("admin")
+  )
+    throw new AuthorizationError("denied");
+  const discovery = await installedDiscovery(store, actor, connectorId);
+  const pending = discovery?.pendingCredentialVerification;
+  if (!discovery || !pending) throw new AuthorizationError("denied");
+  if (pending.digest !== digest)
+    throw new AuthorizationError("invalid_request");
+  if (!verificationAllowed(discovery, pending.declaration))
+    throw new AuthorizationError("denied");
+  const { pendingCredentialVerification: _approved, ...rest } = discovery;
+  void _approved;
+  await saveInstalledDiscovery(store, actor, connectorId, {
+    ...rest,
+    credentialVerification: pending.declaration,
+  });
+  return { connectorId, state: "active" as const, digest };
 }
 
 /**

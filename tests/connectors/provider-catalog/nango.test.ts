@@ -36,7 +36,7 @@ test("every provider key yields exactly one entry; none is dropped", () => {
   const keys = [...fixture.matchAll(/^([a-z][a-z0-9-]*):$/gm)].map(
     (match) => match[1],
   );
-  assert.equal(keys.length, 14);
+  assert.equal(keys.length, 15);
   assert.deepEqual(
     imported.providers.map((item) => item.nangoKey),
     keys,
@@ -167,7 +167,11 @@ test("unsupported modes are imported as described entries with a reason", () => 
   for (const [key, native, code] of [
     ["legacy-signer", "OAUTH1", "catalog.nango.auth-mode-unsupported"],
     ["app-installer", "APP", "catalog.nango.auth-mode-unsupported"],
-    ["extra-token-params", "OAUTH2", "catalog.nango.token-params-unsupported"],
+    [
+      "reserved-token-params",
+      "OAUTH2",
+      "catalog.nango.token-params-unsupported",
+    ],
     ["plain-http", "OAUTH2", "catalog.url.scheme"],
   ] as const) {
     const item = provider(key);
@@ -187,6 +191,52 @@ test("unsupported modes are imported as described entries with a reason", () => 
   assert.ok(
     codes(provider("legacy-signer")).includes("catalog.nango.key-unknown"),
   );
+});
+
+test("OAUTH2 token_params become the entry's static code-exchange parameters", () => {
+  const item = provider("audience-token-params");
+  assert.equal(item.executable, true);
+  const auth = item.entry.auth;
+  assert.equal(auth.mode, "oauth2-authorization-code");
+  if (auth.mode !== "oauth2-authorization-code") return;
+  // The redundant grant type is dropped with an issue; the rest is kept as
+  // written, templates and all, for the adapter to fill per connection.
+  assert.deepEqual(auth.tokenParams, {
+    audience: "https://api.audience-token.example/${connectionConfig.region}",
+  });
+  assert.ok(codes(item).includes("catalog.nango.parameter-redundant"));
+  assert.ok(!codes(item).includes("catalog.nango.token-params-unsupported"));
+  assert.deepEqual(
+    item.entry.connectionConfig.map((field) => field.name),
+    ["region"],
+  );
+  // A parameter the grant owns is still refused, whichever grant it is.
+  for (const [name, value] of [
+    ["code", "x"],
+    ["client_secret", "x"],
+    ["redirect_uri", "https://elsewhere.example/cb"],
+    ["code_verifier", "x"],
+    ["resource", "https://api.example"],
+    ["audience", "${apiKey}"],
+  ] as Array<[string, string]>) {
+    const [refused] = importNangoProviders(
+      JSON.stringify({
+        probe: {
+          auth_mode: "OAUTH2",
+          authorization_url: "https://auth.probe.example/authorize",
+          token_url: "https://auth.probe.example/token",
+          token_params: { [name]: value },
+        },
+      }),
+    ).providers;
+    assert.equal(refused?.executable, false, name);
+    assert.ok(
+      refused?.issues.some(
+        (issue) => issue.code === "catalog.nango.token-params-unsupported",
+      ),
+      name,
+    );
+  }
 });
 
 test("loopback HTTP endpoints import only when the host opts in", () => {

@@ -186,6 +186,26 @@ export const bindingApprovalSchema = z.strictObject({
         z.record(z.string().min(1).max(120), z.unknown()),
       )
       .optional(),
+    /**
+     * Issuer policies for individual authentication profiles, keyed by
+     * profile id, pinned beside `oauth` (which remains the fallback). Same
+     * rules as `oauth`, applied to each: human reviewers only, validated
+     * against the issuer policy schema, admitted by host policy per issuer.
+     */
+    oauthProfiles: z
+      .preprocess(
+        boundedJsonGuard(
+          { depth: 5, nodes: 2048, bytes: 64 * 1024, stringLength: 2048 },
+          { maxKeys: 32 },
+        ),
+        z
+          .record(
+            identifierSchema,
+            z.record(z.string().min(1).max(120), z.unknown()),
+          )
+          .refine((map) => Object.keys(map).length <= 16, "Too many profiles"),
+      )
+      .optional(),
     /** An approved read operation the adapter verifies credentials with. */
     verifier: z
       .strictObject({
