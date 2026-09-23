@@ -1984,9 +1984,15 @@ export function createAuthorizationBrowser(
           return { ...last, sessionPending: true };
         }
         await close();
+        // A boundary refusal tore the session down, and says only that. Its
+        // shape must not depend on how the drive noticed: a driver that
+        // tripped over the closed page reaches the catch below, which never
+        // reported `accountStored`, while one that reached its own deadline
+        // first, or retried a failed snapshot, returns here.
+        const refused = originBlocked || popupBlocked || submissionUncertain;
         return {
           ...last,
-          ...(accountStored ? { accountStored: true } : {}),
+          ...(accountStored && !refused ? { accountStored: true } : {}),
         };
       };
       const driveOn = async (on: Page, attempt: DriveInput) =>

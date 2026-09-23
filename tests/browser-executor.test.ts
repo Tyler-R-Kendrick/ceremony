@@ -2846,39 +2846,47 @@ test("an undiscovered redirect cannot receive browser credentials", async (t) =>
   if (result.status === "blocked") assert.equal(result.reason, "origin");
 });
 
-for (const status of [307, 308] as const)
-  test(`a ${status} redirect cannot forward a credential POST to an undiscovered origin`, async (t) => {
-    let submissions = 0;
-    let forwarded = 0;
-    const other = await listen({
-      onLogin: () => {
-        forwarded++;
-      },
+// The refusal is the same whichever way the drive ends. The deterministic
+// driver usually trips over the closed page and throws; under load it can
+// reach its own deadline first and return instead. The inferred driver
+// retries a failed snapshot, so it always returns - which is what made the
+// result's shape depend on timing until a refusal stopped carrying
+// `accountStored`.
+for (const mode of ["deterministic", "inferred"] as const)
+  for (const status of [307, 308] as const)
+    test(`a ${status} redirect cannot forward a credential POST to an undiscovered origin (${mode})`, async (t) => {
+      let submissions = 0;
+      let forwarded = 0;
+      const other = await listen({
+        onLogin: () => {
+          forwarded++;
+        },
+      });
+      const provider = await listen({
+        onLogin: () => {
+          submissions++;
+        },
+        loginRedirect: { status, location: `${other.origin}/login` },
+      });
+      t.after(() => provider.close());
+      t.after(() => other.close());
+      const browser = await chromium.launch({ headless: true });
+      t.after(() => browser.close());
+      const executor = createAuthorizationBrowser({
+        open: async () => ({ browser, close: async () => {} }),
+        ...(mode === "inferred" ? { interpreter: scriptedInterpreter() } : {}),
+      });
+      const result = await executor.complete({
+        startUrl: `${provider.origin}/login`,
+        redirectUri: `${provider.origin}/callback`,
+        allowedOrigins: [provider.origin],
+        credentials: { username: "fixture-user", password: "fixture-password" },
+        timeoutMs: 2000,
+      });
+      assert.equal(submissions, 1);
+      assert.equal(forwarded, 0);
+      assert.deepEqual(result, { status: "blocked", reason: "origin" });
     });
-    const provider = await listen({
-      onLogin: () => {
-        submissions++;
-      },
-      loginRedirect: { status, location: `${other.origin}/login` },
-    });
-    t.after(() => provider.close());
-    t.after(() => other.close());
-    const browser = await chromium.launch({ headless: true });
-    t.after(() => browser.close());
-    const executor = createAuthorizationBrowser({
-      open: async () => ({ browser, close: async () => {} }),
-    });
-    const result = await executor.complete({
-      startUrl: `${provider.origin}/login`,
-      redirectUri: `${provider.origin}/callback`,
-      allowedOrigins: [provider.origin],
-      credentials: { username: "fixture-user", password: "fixture-password" },
-      timeoutMs: 2000,
-    });
-    assert.equal(submissions, 1);
-    assert.equal(forwarded, 0);
-    assert.deepEqual(result, { status: "blocked", reason: "origin" });
-  });
 
 test("origin confinement preserves provider assets and CAPTCHA subframes", async (t) => {
   const requests: string[] = [];
@@ -3187,8 +3195,8 @@ test("a window at an origin the authorization did not declare is refused before 
     credentials: { username: "fixture-user", password: "fixture-password" },
     timeoutMs: 5_000,
   });
-  assert.equal(result.status, "blocked");
-  if (result.status === "blocked") assert.equal(result.reason, "popup");
+  // The exact refusal: a boundary refusal carries nothing else.
+  assert.deepEqual(result, { status: "blocked", reason: "popup" });
   assert.equal(reached, 0);
   assert.equal(fixture.posts.length, 0);
 });
