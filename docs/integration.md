@@ -6,7 +6,7 @@ For the default session-aware flow, render `<Ceremony manifest={connector} />`. 
 
 ## Install a local artifact
 
-Run `npm run build && npm pack` in this repository, then install the resulting tarball in your app. The package remains private; publication is not part of this change.
+Run `npm run build && npm pack` in this repository, then install the resulting tarball in your app. The package remains private; publication is not part of this change. [Clients and the package](sdk.md) lists the entry points, what the tarball contains and how `npm run test:package` checks it.
 
 React hosts also install `react@^19.1.0`, `react-dom@^19.1.0` and `@openuidev/react-lang@0.2.15`. These are optional peers: a headless Vue app does not need React or OpenUI. Imports are ESM with TypeScript declarations.
 
