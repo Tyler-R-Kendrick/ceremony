@@ -114,7 +114,7 @@ export default {
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
     guard(
       "src/server/recipes/jira.ts",
-      "run.value.target !== context.target ||",
+      "run.target !== context.target ||",
     ),
     guard(
       "src/server/recipes/jira.ts",
