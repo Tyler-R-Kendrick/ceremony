@@ -102,6 +102,32 @@ export function scopedRun(
     scope: { nodeId: node.id, connectorId: node.context.connectorId },
   };
 }
+/**
+ * The stored run as the step named in `context` sees it. A provider's own
+ * guard compares this, not the stored run's top-level fields, so its step can
+ * run under its own connector inside another provider's run; a node id the run
+ * does not have sees the unscoped run.
+ */
+export async function readScopedRun(
+  store: AsyncCeremonyStore,
+  context: Pick<OperationContext, "actor" | "runId" | "nodeId">,
+): Promise<RunRecord | undefined> {
+  const record = await store.transaction((tx) =>
+    tx.get<RunRecord>({
+      tenant: context.actor.tenantId,
+      kind: "run",
+      id: context.runId,
+    }),
+  );
+  return record ? scopedRunFor(record.value, context.nodeId) : undefined;
+}
+/** {@link scopedRun} for a step named by id, as an operation context names it. */
+export function scopedRunFor(run: RunRecord, nodeId: string): RunRecord {
+  return scopedRun(
+    run,
+    run.nodes.find((node) => node.id === nodeId),
+  );
+}
 const sameContext = (a: RunContext, b: RunContext) =>
   contextFields.every((name) => a[name] === b[name]);
 type CommandRecord = {
