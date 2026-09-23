@@ -984,6 +984,63 @@ export const authScenarios: readonly AuthScenario[] = [
     },
   },
   {
+    id: "device-link-with-its-code-goes-to-a-person",
+    title:
+      "a device's complete link pre-fills its code, and an agent never given it asks a person rather than approve",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified", "human-available"],
+    // The sign-in, but not the device's code: that is only in the link.
+    provides: ["username", "password"],
+    behavior: () => ({ seed: 55 }),
+    human: (page, _identity, { provider }) =>
+      createHumanParticipant(page, {
+        // The person reads the code off the device, as issued.
+        userCode: () => provider.issuedDeviceCodes().at(-1),
+        onRequest: (request) => {
+          // The verification page, never the link's query with the code.
+          if (
+            request.reason !== "device-code" ||
+            request.path !== `${provider.origin}/device`
+          )
+            throw new Error(`Unexpected handoff ${JSON.stringify(request)}`);
+        },
+      }),
+    plan: async ({ provider, identity }) => {
+      const client = "driftwood-terminal";
+      const device = await provider.requestDevice(client);
+      const poll = () => provider.pollDevice(client, device.device_code);
+      const state: ScenarioState = {};
+      return {
+        // The link a device shows as a QR code, with the code in its query.
+        entryUrl: device.verification_uri_complete,
+        goal: "sign-in",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: async () => {
+          const answer = await poll();
+          if (typeof answer.body.access_token !== "string") return false;
+          state.token = answer.body.access_token;
+          return true;
+        },
+        state,
+      };
+    },
+    // Completed only because a person took the step: one handoff, and the
+    // device approved by the account that signed in.
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const answer = await fetch(`${provider.origin}/userinfo`, {
+        headers: { authorization: `Bearer ${state.token ?? ""}` },
+      });
+      const who = (await answer.json()) as { sub?: string };
+      if (who.sub !== identity.email)
+        throw new Error("The device's token must be for the approving account");
+    },
+  },
+  {
     id: "page-without-any-ceremony",
     title: "a page offering nothing to do is reported, not waited on",
     family: "Forms/session auth",

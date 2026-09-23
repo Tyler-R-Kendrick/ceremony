@@ -38,12 +38,13 @@ import { disclosure, outcomeFacts } from "./story.js";
  * run is verified only once that poll is answered with a token for the
  * person's account.
  *
- * The second segment is the same page with no code in the plan. The
- * heuristic reports the wall instead of guessing a value into the field; the
- * driver checks that the page really is a device verification page and asks
- * a person, naming the page by origin and path only. The person reads the
- * code off the device and types it, and the agent carries on from the
- * consent screen.
+ * The second segment opens the device's complete link, whose query carries
+ * the code, with no code in the plan. The page pre-fills the field from the
+ * link; the heuristic does not press Continue on a code it was never given,
+ * but reports the wall, and the driver checks that the page really is a
+ * device verification page and asks a person, naming the page by origin and
+ * path only. The person reads the code off the device, enters it and
+ * continues, and the agent carries on from the consent screen.
  *
  * The provider is the self-hosted double, "Acme Accounts" in its
  * identifier-first layout; the device and its product name are invented.
@@ -144,7 +145,7 @@ export async function record(session: DemoSession) {
         lines: [
           "A second device asks to be authorized. This time the plan holds the person's sign-in but not the device's code.",
           "The browser starts empty, and the agent opens the device's complete link, the one with the code in its query.",
-          "The page does not read the code from the link, and the agent does not guess one. The driver asks a person.",
+          "The page pre-fills the code from the link. The agent was never given it, so it does not press Continue on it: the driver asks a person to check it against the device.",
         ],
       },
       8_000,

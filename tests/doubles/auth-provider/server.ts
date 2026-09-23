@@ -1548,24 +1548,46 @@ export async function startAuthProvider(
     }
 
     if (url.pathname === "/device") {
+      // The code a `verification_uri_complete` link carries, when it has the
+      // shape of one: it pre-fills the field for the person to check against
+      // the device, and survives the detour through sign-in. Anything else in
+      // the query is not echoed into the page.
+      const linked = /^[A-Z0-9]{4}-?[A-Z0-9]{4}$|^[A-Z0-9]{4,8}$/i.test(
+        url.searchParams.get("user_code") ?? "",
+      )
+        ? url.searchParams.get("user_code")!.toUpperCase()
+        : undefined;
+      const here = linked
+        ? `/device?user_code=${encodeURIComponent(linked)}`
+        : "/device";
       const session = sessionOf(request);
       if (!session || session.factors < 2)
-        return redirect(`/signin?next=${encodeURIComponent("/device")}`);
+        return redirect(`/signin?next=${encodeURIComponent(here)}`);
       // A realistic layout renders the verification page whole, in its own
-      // shell; the randomized one assembles it from parts.
+      // shell; the randomized one assembles it from parts. Pre-filling is
+      // only a convenience: the device is approved by a POST, which a person
+      // makes by pressing the button, never by opening the link.
       const form = (error?: string) =>
         markup.pages
           ? markup.pages.device({
               action: "/device",
               account: session.email,
               ...(error ? { error } : {}),
+              ...(linked && method === "GET" ? { userCode: linked } : {}),
             })
           : markup.page(
               "Connect a device",
               `${markup.alert(error)}
                <h1>Enter the code shown on your device</h1>
                <form method="post" action="/device">
-                 ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
+                 ${markup.field(
+                   markup.labels.userCode,
+                   markup.names.userCode,
+                   "text",
+                   linked && method === "GET"
+                     ? `required value="${markup.escape(linked)}"`
+                     : "required",
+                 )}
                  <button type="submit">${markup.captions.approve}</button>
                </form>`,
             );

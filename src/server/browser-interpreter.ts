@@ -426,14 +426,23 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // into the field - a mailed code, an authenticator's - would hand the
     // provider a value meant for somewhere else. Without it, a person holding
     // the device has to enter it, and the driver decides whether to ask one.
+    //
+    // A field that is already filled changes nothing. A
+    // `verification_uri_complete` link puts its code in the field, and a
+    // code this caller was never given is not one it can vouch for: pressing
+    // Continue would approve whichever device the link came from.
     const deviceField = deviceVerificationField(snapshot);
     if (
       deviceField &&
-      deviceField.filled !== true &&
       !deviceField.submitsTo &&
       !available.includes("user-code")
     )
       return { action: "blocked", reason: "device-code-required" };
+    // With the code in hand, a field the page filled is typed over with it,
+    // once per document, so what is approved is the plan's code.
+    const typedHere = history.some(
+      (entry) => entry.action === "fill" && entry.path === snapshot.path,
+    );
 
     // Registering, on a page that is not itself a registration form but links
     // to one: go there first. Filling a sign-in form here would post the
@@ -519,7 +528,9 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         (!role || !available.includes(role))
       )
         unchosen ??= element;
-      if (!role || element.filled || !available.includes(role)) continue;
+      const prefilled = element === deviceField && !typedHere;
+      if (!role || (element.filled && !prefilled) || !available.includes(role))
+        continue;
       // Never type into a form that posts somewhere else; the driver refuses
       // it too, and asking is a wasted step.
       if (element.submitsTo) continue;

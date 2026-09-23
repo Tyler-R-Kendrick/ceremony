@@ -39,6 +39,7 @@ import {
 } from "../src/server/browser-page.js";
 import type { BoundPageLike } from "../src/server/browser-targets.js";
 import { totpCode, totpSeedSpellings } from "../src/server/totp.js";
+import { createScriptedInterpreter } from "./doubles/scripted-interpreter.js";
 
 /**
  * Boundary checks for the ceremony driver that the scenario catalog cannot
@@ -4126,6 +4127,43 @@ test("DEVICE: the heuristic types a user code only when the plan gave it one, an
       snapshot: devicePage({}, { filled: true }),
     }),
     { action: "click", element: 1, note: "Continue" },
+  );
+});
+
+test("DEVICE-LINK: a code the page pre-filled from a link is never approved on the caller's behalf", async () => {
+  const interpret = createHeuristicInterpreter();
+  // The complete link put a code in the field. Without a code of its own the
+  // caller cannot vouch for it: Continue would approve whichever device the
+  // link came from, so a person is asked instead.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: devicePage({}, { filled: true }),
+    }),
+    { action: "blocked", reason: "device-code-required" },
+  );
+  // With its own code, the caller types it over the pre-filled one, once,
+  // and then submits what it typed.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["user-code"],
+      history: [],
+      snapshot: devicePage({}, { filled: true }),
+    }),
+    { action: "fill", element: 0, role: "user-code" },
+  );
+  // The scripted double holds to the same rule.
+  assert.deepEqual(
+    await createScriptedInterpreter()({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: devicePage({}, { filled: true }),
+    }),
+    { action: "blocked", reason: "device-code-required" },
   );
 });
 

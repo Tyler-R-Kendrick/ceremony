@@ -523,11 +523,18 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
 
     /**
      * An RFC 8628 verification page: the person is signed in here, and types
-     * the short code their TV, console or command-line tool is showing. The
-     * code is never on this page - it is on the device - and the query of a
-     * `verification_uri_complete` link is not read back into the field.
+     * the short code their TV, console or command-line tool is showing. A
+     * `verification_uri_complete` link carries the code in its query, and
+     * the page puts it in the field for the person to check against the
+     * device; nothing is approved until they press Continue.
      */
-    device(options: { action: string; account: string; error?: string }) {
+    device(options: {
+      action: string;
+      account: string;
+      error?: string;
+      /** The code a `verification_uri_complete` link carried. */
+      userCode?: string;
+    }) {
       return page(
         "Connect a device",
         `<div class="device-icon" aria-hidden="true">${deviceIcon}</div>
@@ -541,9 +548,12 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
              name: names.userCode,
              type: "text",
              autocomplete: "off",
-             extra:
-               'class="user-code" autocapitalize="characters" spellcheck="false" maxlength="9" autofocus',
-             hint: "The code is on your device's screen. It expires after a few minutes.",
+             extra: `class="user-code" autocapitalize="characters" spellcheck="false" maxlength="9" autofocus${
+               options.userCode ? ` value="${escape(options.userCode)}"` : ""
+             }`,
+             hint: options.userCode
+               ? "Filled in from the link you opened. Check that it matches the code on your device before you continue."
+               : "The code is on your device's screen. It expires after a few minutes.",
            })}
            <div class="actions"><a href="/">Cancel</a><button type="submit" class="btn btn-primary">Continue</button></div>
          </form>
