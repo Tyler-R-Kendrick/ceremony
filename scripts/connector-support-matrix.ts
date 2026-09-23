@@ -8,6 +8,7 @@ import {
   computeSupportLabel,
   evidenceLevelSchema,
   legacyCheckTarget,
+  liveEvidenceLevels,
   supportEvidenceProblems,
   supportEvidenceSchema,
   supportLabelRules,
@@ -224,6 +225,8 @@ export type AdapterFacts = {
   service: string;
   displayName: string;
   support: string;
+  /** "definition" for a generic adapter whose evidence speaks for one definition at a time. */
+  evidenceScope: string;
   custody: string[];
   profiles: string[];
   configuration: Array<{
@@ -373,6 +376,7 @@ export async function readAdapters(): Promise<{
         service: String(shaped["service"] ?? ""),
         displayName: String(shaped["displayName"] ?? ""),
         support: String(shaped["support"] ?? ""),
+        evidenceScope: String(shaped["evidenceScope"] ?? "adapter"),
         custody: Array.isArray(shaped["custody"])
           ? (shaped["custody"] as string[]).map(String)
           : [],
@@ -522,8 +526,10 @@ const entryKey = (entry: SupportEvidence) =>
  * their ledger's `recordedAt`. Each becomes one entry per adapter it joins
  * (by module directory, exactly as the evidence column joins them), with
  * check `ledger:<SWARM>/<ID>` and the weakest target its level could mean
- * (`legacyCheckTarget`). A ledger with no `recordedAt` earns nothing, and
- * says so.
+ * (`legacyCheckTarget`), which is never above an in-process fixture. A
+ * legacy live level is refused: a live claim needs an explicit entry that
+ * names its check, its day and, if attended, who attended it. A ledger with
+ * no `recordedAt` earns nothing, and says so.
  *
  * The published labels are then evaluated as of the newest recorded day,
  * not the wall clock, so `--check` cannot drift on a calendar tick; the
@@ -589,6 +595,15 @@ export function collectSupportEvidence(
     }
     for (const item of ledger.workItems) {
       const level = evidenceLevelSchema.safeParse(item.evidenceLevel);
+      if (
+        level.success &&
+        (liveEvidenceLevels as readonly string[]).includes(level.data)
+      ) {
+        refused.push(
+          `ledger ${ledger.swarm}: ${item.id}: legacy level ${level.data} is refused; a live level needs an explicit, dated, attributed entry`,
+        );
+        continue;
+      }
       const target = level.success ? legacyCheckTarget(level.data) : undefined;
       if (!target) continue;
       const joined = new Set<string>();
@@ -643,6 +658,8 @@ export function labelFor(
   return computeSupportLabel(adapter.id, collection.entries, {
     asOf: collection.asOf ? Date.parse(`${collection.asOf}T00:00:00.000Z`) : 0,
     configured,
+    // Adapter-wide: the row describes the code path, never one definition.
+    definitionScoped: adapter.evidenceScope === "definition",
   });
 }
 
@@ -737,7 +754,9 @@ export function renderSupportMatrix(input: {
           ],
     ),
     "",
-    "Work items recorded before entries were dated carry only an evidence level, which does not say what a check ran against. Each counts as the weakest target its level could mean, dated by its ledger's `recordedAt`: `unit` and `protocol-fixture` as an in-process fixture, `local-integration` and `browser-integration` as a local double. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.",
+    "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.",
+    "",
+    "A generic adapter (`evidenceScope: definition`: the OpenAPI and provider-catalog adapters) runs whatever description a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.",
     "",
     ...(expired.length > 0
       ? [
@@ -762,7 +781,7 @@ export function renderSupportMatrix(input: {
   ];
   for (const adapter of input.adapters)
     lines.push(
-      `| \`${adapter.id}\` | ${adapter.service} | ${adapter.runtime} | ${adapter.support} | ${label(adapter).label} | ${adapter.custody.join(", ")} | ${columns
+      `| \`${adapter.id}\` | ${adapter.service} | ${adapter.runtime} | ${adapter.support} | ${label(adapter).label}${adapter.evidenceScope === "definition" ? " (code path)" : ""} | ${adapter.custody.join(", ")} | ${columns
         .map((column) => cell(adapter.rows[column.dimension as string]))
         .join(" | ")} |`,
     );
