@@ -162,6 +162,17 @@ channel — if such a channel exists, the deployment was never constrained.
 Expiry reclaims managed processes on its own, so a caller who never returns does
 not leave a browser running and a grant alive indefinitely.
 
+### Acting in a window the page opens
+
+A plan that requires `popupBinding` admits a window the page opens at one of
+its navigation origins. The rule lives in `src/server/browser-windows.ts` and
+is shared with the authorization executor behind authored connectors: act in
+the page until a window at an admitted origin exists, then in that window, and
+in the page again once it has closed. Only a window the page (or a window it
+opened) opened is a candidate; one at an origin not admitted ends the attempt
+`popup-undeclared`, two at admitted origins `popup-ambiguous`, and one still at
+`about:blank` is waited for rather than read.
+
 ### Reusing a verified session
 
 A host may pass `reuseVerifiedSessions: true` (see _Enabling it in a host_).
@@ -319,6 +330,49 @@ plan's `interactionRounds` pauses the same attempt in the same browser and
 resumes it after the person answers. Without one, the login ends
 `requires-human`.
 
+### Durable hand-offs
+
+A `HumanParticipation` is a promise in the process holding the browser, so a
+host that implements one in memory can only be answered through that process,
+and loses the hand-off with nobody told why if it restarts.
+`createBrowserHandoffs({ store })` (`src/server/browser-handoffs.ts`) keeps each
+hand-off in the store instead: a record under the actor's tenant, bound to its
+subject, encrypted at rest like every record, expiring after ten minutes by
+default. The holding process polls it and heartbeats it; any process resolves
+it.
+
+- `participation(actor, { contract, liveView?, onRequested? })` is the
+  `HumanParticipation` a host returns from `human(actor, plan)`. `onRequested`
+  is how the host tells the person (it gets a value-free summary, never a
+  control URL).
+- `browserHandoffRoute(handoffs, actor, request)` is the human route: the host
+  mounts it behind its own authentication. It shows what is waiting, redirects
+  `?live-view=1` to the provider's live view (`no-store`) when the host's
+  browser offered one, and accepts a same-origin `completed` or `declined`.
+- `createHostBrowserLogin({ handoffs: { contract } })` wires both; the
+  assembled tools expose `handoffs` for the route. A host that passes its own
+  `human` keeps it.
+
+An answer is delivered only to a hand-off that is pending, unexpired and still
+being waited on; the attempt then resumes in the same browser and still needs
+provider evidence. Otherwise it is refused by name and the record settled:
+`expired` once the deadline passes (the waiter also stops then and reports the
+person unavailable), `generation-mismatch` once the holding process's
+heartbeat has stopped (the record becomes `lost`), `not-authorized` for another
+subject or tenant, `cancelled` for an answer given twice.
+
+**What survives a restart and what does not.** The browser does not: its page,
+cookies and CDP connection belong to the process that launched it, and so does
+the attempt waiting in it. What survives is the hand-off record - which says
+the hand-off was lost and why, so a person who answers late is told
+`generation-mismatch` instead of resuming nothing - and the login's
+effect-ledger entry, which says whether anything was submitted: a replay of the
+same `idempotencyKey` answers `indeterminate` rather than logging in twice, or
+`expired` if nothing was dispatched. A live-view URL is kept only in the
+encrypted record, dropped when the hand-off settles, and returned only by
+`controlUrl`. The managed backends here are local and headless, so they offer
+no live view; the link appears when a host supplies one.
+
 Two more reasons come from what the plan was _not_ given. On an RFC 8628
 **device verification page** (recognised by `deviceVerificationField`: the
 page's own wording, such as "Connect a device" or "Enter the code displayed on
@@ -342,7 +396,8 @@ both `/api/v1/teaching/tools/browser-*` and the `browser_*` MCP tools appear.
 Without `browserLogin` neither transport offers them. The host supplies what
 only it can decide: `credentials` (how a collector reference resolves),
 `knownConnectors`, reviewed `verifiers`, and optionally `credentialRefs`,
-`human`, `allowUnverified`, `modelInterpreter` and `reuseVerifiedSessions`.
+`human` (or `handoffs`, for [durable hand-offs](#durable-hand-offs)),
+`allowUnverified`, `modelInterpreter` and `reuseVerifiedSessions`.
 Nothing heavy loads until the first call.
 
 The example server turns this on with `CEREMONY_BROWSER_LOGIN=true` (off by
@@ -362,6 +417,7 @@ npx tsx --test tests/browser-targets.e2e.test.ts         # stale-target oracles,
 npx tsx --test tests/browser-session-lifetime.test.ts    # retention, leases, release
 npx tsx --test tests/login-plan.test.ts                  # effective configuration
 npx tsx --test tests/browser-login-handoff.test.ts       # attempt-bound handoffs
+npx tsx --test tests/browser-handoffs.test.ts            # durable, cross-process hand-offs
 npx tsx --test tests/totp.test.ts tests/browser-login-totp.test.ts  # held TOTP seeds
 npx tsx --test tests/browser-login-host.test.ts          # host wiring, session reuse
 ```

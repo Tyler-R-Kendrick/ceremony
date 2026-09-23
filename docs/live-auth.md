@@ -111,9 +111,17 @@ This is protocol-fixture evidence against the loopback authorization server doub
 
 ## Remote browser and Agent2Human
 
-`CloudflareHumanBrowser` implements the fixed GitHub registration/installation scenario using [Browser Run human takeover](https://developers.cloudflare.com/browser-run/features/human-in-the-loop/). It automates only the trusted broker navigation, then yields provider login and approval to a human. No generic browser tools, screenshots, DOM extraction or recording are exposed to the model. Control URLs remain encrypted and resolve only through an authenticated human route. Takeover completion is not authentication proof; GitHub callbacks still verify access.
+`RemoteHumanBrowser` hands a person a remote browser tab for **any** connector's login. It automates only the trusted broker navigation - it opens the connector's own human route in the remote browser, with a private cookie scoped to that route, and waits for the route to send the tab to the provider - then yields provider login and approval to a person through the provider's live view. The connector supplies the route (`HumanTakeoverRoute`: human path, cookie scope, destination origin, instructions); GitHub's registration/installation scenario is `githubHumanTakeover(id)` and is no longer built into the browser. No generic browser tools, screenshots, DOM extraction or recording are exposed to the model. Takeover completion is not authentication proof; the connector's callback and verification still decide.
 
-The reference CLI enables this only when `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are configured. No paid resource is activated automatically. Remote failure preserves the same ceremony's own-browser option. Active local browser sessions close on cancellation/expiry; process restart cannot reattach their CDP event listeners. Human windows expire after five minutes.
+Three providers mint the takeover URL (`src/server/live-view.ts`):
+
+- **Cloudflare Browser Run** - `Cloudflare.getLiveView`, plus `Cloudflare.handoff` for its [human takeover](https://developers.cloudflare.com/browser-run/features/human-in-the-loop/) banner. `CloudflareHumanBrowser` is `RemoteHumanBrowser` configured for it.
+- **Browserbase** - the session debug endpoint, preferring the live view of the waiting tab over the whole browser.
+- **Any CDP endpoint** whose operator runs a live view - an `https://` template with `{targetId}`, filled with the tab's CDP target id (`CEREMONY_BROWSER_CDP_LIVE_VIEW_URL` for the executor, validated at boot and never quoted in errors).
+
+Every takeover URL must be `https:` with no userinfo. Control URLs stay out of results, pages, events and model-visible values; they are encrypted at rest and resolve only through an authenticated human route (`humanUrl`, or a `no-store` redirect). The reference CLI enables Cloudflare only when `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are configured. No paid resource is activated automatically. Remote failure preserves the same ceremony's own-browser option. Active remote sessions close on cancellation/expiry; process restart cannot reattach their CDP event listeners. Human windows expire after five minutes.
+
+The isolated authorization browser uses the same minters for the remote browsers it opens: when an authored connector's login waits on a person (a challenge, a passkey, a missing input) in a remote browser that offers a live view, the authored human route shows **Take over the provider page in a live browser**, and `?live-view=1` redirects - `no-store`, `no-referrer`, from the authenticated route - to the provider's live view of that tab. A local browser offers no link.
 
 ### Remote isolated browsers for authored connectors
 
@@ -121,7 +129,17 @@ The isolated authorization browser (`createAuthorizationBrowser`) launches a loc
 
 **Every remote browser requires `CEREMONY_BROWSER_REMOTE_PROXY`.** A remote browser's traffic leaves from someone else's network, where the local egress proxy cannot see it, so the operator-vetted proxy is its only containment. Without one, the executor opens nothing and reports `browser-unavailable`; this is deliberate and is not relaxed for any provider. The proxy URL must be `http(s)://` without userinfo; use `CEREMONY_BROWSER_REMOTE_PROXY_USERNAME`/`_PASSWORD` for proxy credentials. The proxy has to be reachable _from the remote browser_, and whether it actually contains egress is the operator's claim to verify — Ceremony only guarantees that every context it opens is configured to use it, with loopback not bypassed.
 
-Evidence: `tests/browser-remote-cdp.test.ts` connects to a separately spawned local Chromium through its debugging port and asserts, from a fixture forward proxy's own record, that the provider was reached through the configured proxy. No hosted CDP provider was exercised.
+Evidence: `tests/browser-remote-cdp.test.ts` connects to a separately spawned local Chromium through its debugging port and asserts, from a fixture forward proxy's own record, that the provider was reached through the configured proxy. `tests/live-view.test.ts` checks the takeover-URL rules, the template and Browserbase minters against a real local tab (Browserbase's API is a fixture), and a generic `RemoteHumanBrowser` takeover end to end over a local browser, including that no database file holds the control URL; `tests/cloudflare.test.ts` keeps the GitHub/Cloudflare scenario. No hosted CDP provider, Browserbase account or Cloudflare account was exercised, and no live view was opened by a person.
+
+#### Two browser systems, one set of rules
+
+There are still two browser subsystems: the **authorization executor** above (`createAuthorizationBrowser`, used by authored connectors, with its egress proxy and remote providers) and the **login driver** (`runCeremony` with `browser-page.ts`, `browser-interpreter.ts` and `browser-login-service.ts`, used by login plans and recorded ceremonies). They now share the parts that decide where a person's credential may go and how a person is brought in:
+
+- **Windows.** The rule for adopting a window the page opens is one module, `browser-windows.ts`, used by the driver's page adapter and by the executor. The executor adopts only windows at origins the connector declared; see [the workflow studio](workflow-studio.md).
+- **Live view.** Both the executor's remote browsers and `RemoteHumanBrowser` mint takeover URLs through `live-view.ts`.
+- **Hand-offs.** The login driver's `HumanParticipation` can be backed by the store (`createBrowserHandoffs`, see [handoffs](browser-login-sessions.md#handoffs)), so a person can answer from any process. The executor's paused sessions are still held by the process that opened them; the authored route's durable `pending` flag and `session-expired` blocker are what survive a restart there.
+
+What is not converged: the executor still drives pages with its own deterministic and inferred drivers rather than through `createPlaywrightCeremonyPage`, so its element revalidation, recording and issued-value reading remain the driver's alone.
 
 `Agent2Human` implements the signed AUTHORIZE/RESPONSE slice of [Twilio Agent2Human](https://github.com/twilio-labs/Agent2Human): gateway discovery, canonical JSON, detached Ed25519 signatures, stable pending delivery IDs, pinned response verification, principal/correlation/expiry/replay checks. Configure `ReferenceOptions.live.a2h` programmatically with gateway origin, agent/key IDs, private and pinned gateway keys, API credential and an authenticated `recipient(owner)` resolver. Contacts are never model-provided. Configure gateway response delivery to `POST /api/live/a2h/:instanceId`; this reference does not negotiate a callback subscription for you.
 
