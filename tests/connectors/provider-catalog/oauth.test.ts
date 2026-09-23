@@ -441,3 +441,33 @@ test("a token the provider refuses is renewed once and the call retried, each re
   for (const surface of [first, second])
     assert.ok(!JSON.stringify(surface).includes(revoked));
 });
+
+test("per-profile issuer policies are refused for an adapter that would never read them", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  const { definitions } = await importDocument(
+    harness,
+    nangoDocument(server, api),
+  );
+  const definition = definitions[0]!;
+  const { providerCatalogBindingSettings } =
+    await import("../../../src/server/connectors/formats/provider-catalog/index.js");
+  await assert.rejects(
+    harness.service.approveBinding(harness.actor, {
+      definitionRef: definition.definitionRef,
+      adapterId: "catalog-http",
+      approvals: {
+        destinations: [`${api.origin}/v2`],
+        operations: [{ nativeId: "proxy.get", outputClassification: "public" }],
+        settings: providerCatalogBindingSettings(definition),
+        oauthProfiles: {
+          [definition.authentication[0]!.id]: { issuer: server.issuer },
+        },
+      },
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.policy.profiles-unsupported",
+  );
+});

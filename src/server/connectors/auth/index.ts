@@ -40,6 +40,7 @@ export {
   isLoopbackHost,
   issuerPolicy,
   issuerPolicyFromBinding,
+  PROFILE_ISSUER_POLICIES_SETTING,
   issuerPolicySchema,
   tokenTypeIdentifiers,
   type ClientAuthenticationMethod,
