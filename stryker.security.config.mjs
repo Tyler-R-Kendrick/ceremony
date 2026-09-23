@@ -112,10 +112,7 @@ export default {
     guard("src/server/jira-setup.ts", "sharedApp.success &&", 5, -1),
     guard("src/server/github-runtime.ts", 'state.state !== "configured"'),
     guard("src/server/jira-auth.ts", 'user.accountId === "unknown" ||', 3),
-    guard(
-      "src/server/recipes/jira.ts",
-      "run.value.target !== context.target ||",
-    ),
+    guard("src/server/recipes/jira.ts", "run.target !== context.target ||"),
     guard(
       "src/server/recipes/jira.ts",
       "return artifact.scope === this.scope(context) &&",
