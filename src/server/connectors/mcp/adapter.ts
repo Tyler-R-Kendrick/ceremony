@@ -242,6 +242,11 @@ function renew(
  * single-flight in custody and presents nothing upstream when the held token
  * is no longer the one that failed, so calls failing together make one
  * refresh.
+ *
+ * A renewal that does not succeed is classified as verification's is: only a
+ * refusal reads as the connection needing a person. Either way the refused
+ * attempt was already journaled not applied by `invokeInternal`, and stays
+ * so: the operation never ran, whatever became of the refresh.
  */
 async function callRenewing(
   ctx: AdapterCallContext,
@@ -251,13 +256,28 @@ async function callRenewing(
 ): Promise<InvokeResult> {
   const presented: Presented = {};
   const endpoint = () => endpointFor(ctx, operation);
+  const unrenewed = (
+    failure: unknown,
+    base: Pick<InvokeResult, "outputClassification" | "effect" | "effectRef">,
+  ): InvokeResult => ({
+    ...base,
+    ...renewalInvokeOutcome[renewalFailure(failure)],
+  });
   let result: InvokeResult;
   try {
     result = await call(presented);
   } catch (error) {
     if (!renewable(ctx, options) || !credentialExpired(error)) throw error;
-    if (!(await renew(ctx, options, endpoint(), heldTokenStale(ctx))))
-      throw error;
+    let renewed: boolean;
+    try {
+      renewed = await renew(ctx, options, endpoint(), heldTokenStale(ctx));
+    } catch (failure) {
+      return unrenewed(failure, {
+        outputClassification: operation.outputClassification,
+        effect: operation.effect,
+      });
+    }
+    if (!renewed) throw error;
     return call(presented);
   }
   const refused = presented.digest;
@@ -270,13 +290,36 @@ async function callRenewing(
   let renewed: boolean;
   try {
     renewed = await renew(ctx, options, endpoint(), heldTokenRefused(refused));
-  } catch {
+  } catch (failure) {
     // The refresh's own code stays in the journal it wrote; the caller
-    // learns only that the connection needs a person again.
-    return { ...result, code: "mcp.credential-renewal-failed" };
+    // learns only which kind of failure it was.
+    const { output: _none, handoff: _noHandoff, ...base } = result;
+    void _none;
+    void _noHandoff;
+    return unrenewed(failure, base);
   }
   return renewed ? call(presented) : result;
 }
+
+/**
+ * An invocation's answer when its renewal did not succeed. The operation did
+ * not run in any case; the state says what the caller should do next.
+ */
+const renewalInvokeOutcome: Record<
+  "refused" | "unavailable" | "unknown",
+  Pick<InvokeResult, "state" | "code">
+> = {
+  // Needs a person: the grant was refused.
+  refused: { state: "denied", code: "mcp.credential-renewal-failed" },
+  // Retry later: the issuer could not be reached and nothing was spent.
+  unavailable: { state: "failed", code: "mcp.credential-renewal-unavailable" },
+  // The refresh token may have been spent; nobody can say, so it is not
+  // presented again and the caller is told the connection's state is unknown.
+  unknown: {
+    state: "indeterminate",
+    code: "mcp.credential-renewal-indeterminate",
+  },
+};
 
 /**
  * Renews the default profile's token after a verification attempt the token
