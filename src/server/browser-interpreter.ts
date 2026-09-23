@@ -142,7 +142,17 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   };
 
   const forward =
-    /continue|submit|sign in|log in|register|create|next|confirm|verify|approve|authorize|finish|done/;
+    /continue|submit|sign in|log in|sign up|join|register|create|next|confirm|verify|approve|authorize|allow|grant|accept|agree|get started|finish|done/;
+  /**
+   * Controls that never move a ceremony forward, whatever else they say:
+   * pressing "Resend confirmation" or "Deny" is a wrong answer, not a slower
+   * right one. Checked before `forward`, so "Send a new link" is not a submit.
+   */
+  const backward =
+    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip/;
+  /** A page telling the person to go and read their mail. */
+  const awaitingMail =
+    /check your (e-?mail|inbox)|we (have )?sent|confirmation (e-?mail|message|link)|verify your e-?mail/;
   /** Links that take an unfamiliar page toward the one the goal needs. */
   const toward: Record<CeremonyGoal, RegExp> = {
     "sign-in": /sign in|log in|already have/,
@@ -157,10 +167,47 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (snapshot.passkey && !available.includes("password"))
       return { action: "blocked", reason: "passkey-required" };
 
-    // An alert that names a wall is a wall, whatever else is on the page.
+    // An alert that names a wall is a wall, whatever else is on the page —
+    // except a taken address during registration, which a caller that
+    // declared it can obtain another address may get past, at most twice.
     const alerts = snapshot.alerts.join(" ").toLowerCase();
-    if (/already (exists|registered|taken)|in use/.test(alerts))
-      return { action: "blocked", reason: "account-exists" };
+    if (
+      /already (exists|registered|taken|in use)|in use|is taken/.test(alerts)
+    ) {
+      const address = snapshot.elements.find(
+        (element) =>
+          element.kind === "input" && roleOf(element, false) === "email",
+      );
+      const swaps = history.filter(
+        (entry) => entry.action === "fill" && entry.note === "retry-address",
+      ).length;
+      // Whether the address on the page is the one the provider just
+      // refused: true unless an address was swapped in after the last press.
+      const lastSwap = history.findLastIndex(
+        (entry) => entry.action === "fill" && entry.note === "retry-address",
+      );
+      const lastPress = history.findLastIndex(
+        (entry) => entry.action === "click",
+      );
+      const refused = lastSwap < lastPress;
+      if (
+        goal !== "registration" ||
+        !available.includes("alternate-email") ||
+        !address ||
+        address.submitsTo
+      )
+        return { action: "blocked", reason: "account-exists" };
+      if (refused) {
+        if (swaps >= 2) return { action: "blocked", reason: "account-exists" };
+        return {
+          action: "fill",
+          element: address.index,
+          role: "alternate-email",
+          note: "retry-address",
+        };
+      }
+      // The replacement is in place; the rest of the form is refilled below.
+    }
     if (/incorrect|invalid|did not match|wrong password/.test(alerts))
       return { action: "blocked", reason: "credentials-rejected" };
 
@@ -176,11 +223,18 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
       return { action: "fill", element: element.index, role };
     }
 
+    // A required box is ticked for any goal. Registration also ticks the
+    // provider's terms or age confirmation when the page does not mark it
+    // required - many only say so after a refused submit - because accepting
+    // them is part of creating the account the person asked for. Nothing
+    // else optional is ever ticked.
     const unchecked = snapshot.elements.find(
       (element) =>
         element.kind === "checkbox" &&
-        element.required === true &&
-        element.filled !== true,
+        element.filled !== true &&
+        (element.required === true ||
+          (goal === "registration" &&
+            /agree|accept|terms|old enough/.test(words(element)))),
     );
     if (unchecked) return { action: "check", element: unchecked.index };
 
@@ -198,19 +252,51 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // existed errs toward offering the button rather than withholding it. The
     // driver's own stall detection is what stops a genuine loop, and it can
     // see something this cannot: whether the page changed.
+    //
+    // A press also stops counting once the form on this document was
+    // deliberately changed since - a replacement address swapped in, a box
+    // ticked - because the provider refused the old form and the new one has
+    // not been submitted. Refilling the same fields is not such a change, or a
+    // page that keeps refusing would be submitted forever.
+    const changed = history.findLastIndex(
+      (entry) =>
+        entry.path === snapshot.path &&
+        (entry.action === "check" ||
+          (entry.action === "fill" && entry.note === "retry-address")),
+    );
+    const lastPress = history.findLastIndex(
+      (entry) => entry.action === "click" && entry.path === snapshot.path,
+    );
+    const unsubmitted =
+      history.findLastIndex(
+        (entry) =>
+          (entry.action === "fill" || entry.action === "check") &&
+          entry.path === snapshot.path,
+      ) > lastPress;
     const pressed = new Set(
       history
         .filter(
-          (entry) => entry.action === "click" && entry.path === snapshot.path,
+          (entry, at) =>
+            entry.action === "click" &&
+            entry.path === snapshot.path &&
+            at > changed,
         )
         .map((entry) => entry.note),
     );
-    const submit = snapshot.elements.find(
+    const buttons = snapshot.elements.filter(
       (element) =>
         element.kind === "button" &&
-        forward.test(words(element)) &&
+        !backward.test(words(element)) &&
         !pressed.has(element.text),
     );
+    // A caption that says "forward" is taken first. Failing that, a form
+    // filled here and not yet submitted, whose page has exactly one button
+    // left that is not a way back, has one way on whatever the provider chose
+    // to call it ("Join", "Go", "Let's go"): pressing it is what a person
+    // would do, and the driver still verifies the outcome.
+    const submit =
+      buttons.find((element) => forward.test(words(element))) ??
+      (unsubmitted && buttons.length === 1 ? buttons[0] : undefined);
     if (submit)
       return { action: "click", element: submit.index, note: submit.text };
 
@@ -235,7 +321,22 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
       )
     )
       return { action: "done" };
-    return history.at(-1)?.action === "wait"
+    // Mail takes time to arrive, and waiting is also how the driver collects
+    // a confirmation link from the inbox, so a page that says "check your
+    // inbox" earns a few waits; any other page earns one.
+    let waits = 0;
+    for (
+      let i = history.length - 1;
+      i >= 0 && history[i]!.action === "wait";
+      i--
+    )
+      waits++;
+    const patience = awaitingMail.test(
+      `${said} ${snapshot.alerts.join(" ").toLowerCase()}`,
+    )
+      ? 4
+      : 1;
+    return waits >= patience
       ? { action: "blocked", reason: "unsupported-page" }
       : { action: "wait" };
   };
