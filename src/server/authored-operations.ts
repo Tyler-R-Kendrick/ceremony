@@ -615,6 +615,31 @@ export async function installedDiscovery(
 ) {
   return (await installedConnector(store, actor, connectorId))?.discovery;
 }
+/**
+ * A fresh crawl of a provider's metadata with the author's own declarations
+ * kept. Published metadata can move endpoints, but it never knows which
+ * client the author registered, how that client authenticates, which extra
+ * authorization parameters it needs or how a key is checked, so a refresh
+ * must not erase them.
+ */
+export function withDeclaredAuth(
+  found: z.input<typeof discoveredAuthSchema>,
+  declared: z.infer<typeof discoveredAuthSchema> | undefined,
+): z.infer<typeof discoveredAuthSchema> {
+  const kept = {
+    ...(declared?.clientId ? { clientId: declared.clientId } : {}),
+    ...(declared?.tokenEndpointAuthMethod
+      ? { tokenEndpointAuthMethod: declared.tokenEndpointAuthMethod }
+      : {}),
+    ...(declared?.authorizationParams
+      ? { authorizationParams: declared.authorizationParams }
+      : {}),
+    ...(declared?.credentialVerification
+      ? { credentialVerification: declared.credentialVerification }
+      : {}),
+  };
+  return discoveredAuthSchema.parse({ ...found, ...kept });
+}
 export async function saveInstalledDiscovery(
   store: AsyncCeremonyStore,
   actor: ActorContext,
@@ -2178,7 +2203,7 @@ export function registerAuthoredOperations(
             found.clientIdMetadataDocumentSupported ||
             found.clientId
           ) {
-            discovery = discoveredAuthSchema.parse(found);
+            discovery = withDeclaredAuth(found, discovery);
             await saveInstalledDiscovery(
               options.store,
               context.actor,
