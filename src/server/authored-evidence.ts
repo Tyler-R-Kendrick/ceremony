@@ -91,28 +91,46 @@ const installedSchema = z.object({
 });
 
 /**
- * The discovery fields that decide where a credential is sent and how its
- * acceptance is proved. Everything else discovery records (documents read,
- * whether search was used, a retry hint) is bookkeeping that changes between
- * runs without changing what the connector does.
+ * The discovery fields that decide where a credential is sent, which
+ * ceremony runs and how its result is proved: every endpoint, the client and
+ * how it authenticates, the grants and methods on offer, PKCE, DPoP and
+ * client-metadata support, and the verification request. Everything else
+ * discovery records (documents read, whether search was used, a retry hint,
+ * candidate origins) is bookkeeping that changes between runs without
+ * changing what the connector does.
  */
 const definingDiscovery = [
   "origin",
   "issuer",
+  "methods",
+  "grantTypes",
   "authorizationEndpoint",
   "tokenEndpoint",
   "userinfoEndpoint",
+  "revocationEndpoint",
   "deviceAuthorizationEndpoint",
   "registrationEndpoint",
   "pushedAuthorizationRequestEndpoint",
   "requirePushedAuthorizationRequests",
   "clientId",
+  "clientIdMetadataDocumentSupported",
   "scopes",
+  "codeChallengeMethods",
   "tokenEndpointAuthMethod",
   "authorizationParams",
   "dpopRequired",
+  "dpopSigningAlgorithms",
   "credentialVerification",
 ] as const;
+
+/**
+ * A field absent and a field that is an empty list mean the same thing to
+ * every reader of discovery (no scopes, no methods, no algorithms), and the
+ * stored record and a parsed copy spell them differently, so both are
+ * dropped before digesting.
+ */
+const defines = (value: unknown) =>
+  value !== undefined && !(Array.isArray(value) && value.length === 0);
 
 /** `sha256:<digest>` of an installed connector's defining parts. */
 export function authoredDefinitionName(installed: {
@@ -122,9 +140,9 @@ export function authoredDefinitionName(installed: {
 }): string {
   const discovery = Object.fromEntries(
     definingDiscovery.flatMap((name) =>
-      installed.discovery?.[name] === undefined
-        ? []
-        : [[name, installed.discovery[name]]],
+      defines(installed.discovery?.[name])
+        ? [[name, installed.discovery![name]]]
+        : [],
     ),
   );
   return `sha256:${sha256(

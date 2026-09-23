@@ -365,6 +365,68 @@ test("changing where the key goes or how it is proved leaves the new definition 
   assert.equal((await drafts.supportLabel(actor, "novel")).label, "unverified");
 });
 
+test("every discovery field that changes the ceremony changes the definition", async (t) => {
+  const store = newStore();
+  t.after(() => store.close());
+  await install(store);
+  await verifiedRun(store, {
+    evidence: { target: "recorded-live", now: () => NOW },
+  });
+  const drafts = new ConnectorDrafts(store, { now: () => NOW });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "live");
+  const key = {
+    tenant: actor.tenantId,
+    kind: "artifact" as const,
+    id: "installed-connector:novel",
+  };
+  const rewrite = (change: (discovery: Record<string, unknown>) => void) =>
+    store.transaction(async (tx) => {
+      const current = await tx.get<{ discovery: Record<string, unknown> }>(key);
+      const discovery = structuredClone(current!.value.discovery);
+      change(discovery);
+      await tx.put(key, { ...current!.value, discovery }, current!.revision);
+    });
+  const original = (
+    (await store.transaction((tx) => tx.get(key)))!.value as {
+      discovery: Record<string, unknown>;
+    }
+  ).discovery;
+  for (const [field, value] of [
+    ["methods", ["api-key", "oauth"]],
+    ["grantTypes", ["authorization_code"]],
+    ["revocationEndpoint", `${provider}/revoke`],
+    ["clientIdMetadataDocumentSupported", true],
+    ["codeChallengeMethods", ["S256"]],
+    ["dpopSigningAlgorithms", ["ES256"]],
+    ["scopes", ["read"]],
+    ["userinfoEndpoint", `${provider}/userinfo`],
+  ] as const) {
+    await rewrite((discovery) => {
+      discovery[field] = value;
+    });
+    assert.equal(
+      (await drafts.supportLabel(actor, "novel")).label,
+      "unverified",
+      field,
+    );
+    await rewrite((discovery) => {
+      for (const name of Object.keys(discovery)) delete discovery[name];
+      Object.assign(discovery, structuredClone(original));
+    });
+    assert.equal((await drafts.supportLabel(actor, "novel")).label, "live");
+  }
+  // Bookkeeping, and an empty list where the field was absent, change
+  // nothing a run does.
+  await rewrite((discovery) => {
+    discovery.documents = ["https://provider.example/.well-known/x"];
+    discovery.searchUsed = true;
+    discovery.retryable = true;
+    discovery.codeChallengeMethods = [];
+    delete discovery.grantTypes;
+  });
+  assert.equal((await drafts.supportLabel(actor, "novel")).label, "live");
+});
+
 test("no authoring path writes evidence, and a damaged record reads as none", async (t) => {
   const store = newStore();
   t.after(() => store.close());
