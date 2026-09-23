@@ -12,6 +12,7 @@ import { configuredKeyring } from "../persistence/maintenance.js";
 import type { ActorContext } from "../identity.js";
 import { actorIdentifierSchema } from "../../core/operation-contracts.js";
 import { hostedJiraOwnerDelivery } from "./a2h.js";
+import { modelConfigurationFromEnvironment } from "../agent/model.js";
 
 let instance: Promise<TeachingRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
@@ -177,12 +178,7 @@ export async function createHostedRuntime(
         environment.resolveGitHub(actor, c.configurationVersion),
       expectedAccount: c.account,
       ...(continuation ? { continuation } : {}),
-      modelConfiguration: {
-        ...(env.CEREMONY_MODEL ? { model: env.CEREMONY_MODEL } : {}),
-        ...(env.CEREMONY_MODEL_URL ? { endpoint: env.CEREMONY_MODEL_URL } : {}),
-        ...(env.CEREMONY_MODEL_KEY ? { apiKey: env.CEREMONY_MODEL_KEY } : {}),
-        ...(env.CEREMONY_MODEL_GATEWAY === "true" ? { gateway: true } : {}),
-      },
+      modelConfiguration: modelConfigurationFromEnvironment(env),
       authorize: async (actor, run, operationId) =>
         actor.tenantId === c.tenant &&
         actor.subjectId === run.subjectId &&
