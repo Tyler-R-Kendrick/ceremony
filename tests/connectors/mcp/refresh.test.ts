@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
-import { createMcpRemoteAdapter } from "../../../src/server/connectors/mcp/index.js";
+import {
+  createMcpClient,
+  createMcpRemoteAdapter,
+} from "../../../src/server/connectors/mcp/index.js";
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
 import type { ConnectionRecord } from "../../../src/server/connectors/ports.js";
@@ -92,6 +95,7 @@ async function setup(
     material: Record<string, string>;
     expiresAt?: number;
     oauth?: Record<string, unknown> | false;
+    mcp?: Record<string, unknown>;
   },
 ): Promise<Setup> {
   const as = await tokenEndpoint();
@@ -143,7 +147,12 @@ async function setup(
     permittedTargets: [],
     reviewedDigest: "c".repeat(64),
     settings: {
-      mcp: { profile: "2026-07-28", endpointPath: "/mcp", auth: "bearer" },
+      mcp: {
+        profile: "2026-07-28",
+        endpointPath: "/mcp",
+        auth: "bearer",
+        ...input.mcp,
+      },
       ...(input.oauth === false
         ? {}
         : {
@@ -278,6 +287,32 @@ test("a 401 to a live-looking token renews once and retries; a consequential cal
   // The refused attempt never ran; the retry is its own entry and applied.
   assert.deepEqual(attempts, ["not-applied", "applied"]);
   assert.equal((await mcp.report()).effects.length, 1, "one note was created");
+  assertNoTokens(state, result);
+});
+
+test("a pinned tool whose listing is refused with 401 renews once and retries", async (t) => {
+  // The reviewed digest of echo, read with a token the fixture accepts.
+  const listed = await createMcpClient({
+    profile: "2026-07-28",
+    endpoint: `${mcp.origin}/mcp`,
+    fetch: globalThis.fetch,
+    auth: { kind: "bearer", use: (work) => work(ISSUED[0]) },
+    limits: { requestTimeoutMs: 5000 },
+  }).listTools();
+  const digest = listed.items.find(
+    (tool) => tool.name === "echo",
+  )?.definitionDigest;
+  assert.ok(digest);
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() + 3_600_000,
+    mcp: { pinnedTools: { echo: digest } },
+  });
+  // The pin lists tools before calling; that listing is what meets the 401,
+  // and it is a challenge to answer, not an unverifiable tool.
+  const result = await call(state);
+  assert.equal(result.state, "complete");
+  assert.equal(state.as.grants.length, 1, "one refresh");
   assertNoTokens(state, result);
 });
 
