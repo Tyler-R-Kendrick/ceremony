@@ -481,6 +481,10 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
        * registry. What a person is shown, rather than an identifier.
        */
       application?: string;
+      /** Where the decision posts. The authorization request's by default. */
+      action?: string;
+      /** The request came from a device a person is connecting by code. */
+      device?: boolean;
     }) {
       const app = escape(
         options.application ||
@@ -496,7 +500,9 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
         .join("");
       const delegation = options.actor
         ? `<p class="callout">${escape(options.actor)} will act on your behalf.</p>`
-        : "";
+        : options.device
+          ? `<p class="callout">This request came from the device you entered a code for. Only allow it if you started signing in on that device.</p>`
+          : "";
       return page(
         "Authorize application",
         `<div class="consent">
@@ -506,7 +512,7 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
            <p>This will allow ${app} to:</p>
            <ul class="scopes">${items}</ul>
            ${delegation}
-           <form method="post" action="/consent">
+           <form method="post" action="${escape(options.action ?? "/consent")}">
              <input type="hidden" name="r" value="${escape(options.requestId)}">
              <div class="actions"><button type="submit" name="decision" value="allow" class="btn btn-primary">Allow</button><button type="submit" name="decision" value="deny" class="btn btn-secondary">Cancel</button></div>
            </form>

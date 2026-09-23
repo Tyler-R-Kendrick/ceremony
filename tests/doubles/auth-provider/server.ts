@@ -216,6 +216,26 @@ export type ProviderDouble = {
   };
   deviceUrl(userCode: string): string;
   issueDeviceCode(): string;
+  /**
+   * Ask for device authorization over HTTP, as a device does (RFC 8628
+   * section 3.1). The device shows `user_code` and `verification_uri`.
+   */
+  requestDevice(
+    clientId: string,
+    scope?: string,
+  ): Promise<{
+    device_code: string;
+    user_code: string;
+    verification_uri: string;
+    verification_uri_complete: string;
+    expires_in: number;
+    interval: number;
+  }>;
+  /** Poll the token endpoint once with a device code, as the device does. */
+  pollDevice(
+    clientId: string,
+    deviceCode: string,
+  ): Promise<{ status: number; body: Record<string, unknown> }>;
   /** User codes issued so far, oldest first: what each device showed. */
   issuedDeviceCodes(): readonly string[];
   /** Which account approved a device's user code, if one has. */
@@ -346,6 +366,15 @@ const totpMatches = (seed: string, code: string) =>
     (skew) => totpCode(seed, Date.now() + skew) === code,
   );
 
+/**
+ * An RFC 8628 user code: eight characters from twenty consonants (section
+ * 6.1), so it cannot spell a word and survives being read off a TV.
+ */
+function newUserCode(): string {
+  const alphabet = "BCDFGHJKLMNPQRSTVWXZ";
+  return Array.from({ length: 8 }, () => alphabet[randomInt(20)]).join("");
+}
+
 /** A fresh 160-bit enrolment seed in RFC 4648 base32, as setup pages show. */
 function newTotpSeed(): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -396,7 +425,26 @@ export async function startAuthProvider(
       actor: string;
     }
   >();
-  const devices = new Map<string, { approved: boolean; email?: string }>();
+  /**
+   * Devices by user code (upper case, no separator). One that came through
+   * the device authorization endpoint carries its client and device code, and
+   * is approved only on a consent screen naming that client; one from
+   * `issueDeviceCode` is approved by entering its code.
+   */
+  const devices = new Map<
+    string,
+    {
+      approved: boolean;
+      email?: string;
+      denied?: boolean;
+      clientId?: string;
+      deviceCode?: string;
+      scope?: string;
+      expiresAt?: number;
+    }
+  >();
+  /** Device consent screens shown, by request id, to the code they are for. */
+  const deviceConsents = new Map<string, string>();
   /** Region chosen at registration, by address. */
   const regions = new Map<string, string>();
   /** Identifier-first: which account a browser named before its password. */
@@ -868,6 +916,15 @@ export async function startAuthProvider(
       return confirmPage(token, next, markup.messages.unverified);
     };
 
+    /** The page a person sees once a device they are connecting is approved. */
+    const deviceConnected = (email: string) =>
+      markup.pages
+        ? markup.pages.deviceConnected()
+        : markup.page(
+            "Device connected",
+            `<h1>You are signed in</h1><p data-account="${markup.escape(email)}">The device is now approved.</p>`,
+          );
+
     const dashboard = (email: string) =>
       send(
         200,
@@ -1306,6 +1363,41 @@ export async function startAuthProvider(
       return redirect(target.href);
     }
 
+    // RFC 8628 section 3.4-3.5: the device polls with its device code until a
+    // person has approved or refused it. The token is issued once, to the
+    // client the code was issued to; after that the code is spent.
+    if (
+      url.pathname === "/token" &&
+      method === "POST" &&
+      body.get("grant_type") === "urn:ietf:params:oauth:grant-type:device_code"
+    ) {
+      const presented = body.get("device_code") ?? "";
+      const entry = [...devices.entries()].find(
+        ([, device]) => presented !== "" && device.deviceCode === presented,
+      );
+      const device = entry?.[1];
+      if (!device || device.clientId !== body.get("client_id"))
+        return json(400, { error: "invalid_grant" });
+      if (device.expiresAt !== undefined && Date.now() > device.expiresAt)
+        return json(400, { error: "expired_token" });
+      if (device.denied) return json(400, { error: "access_denied" });
+      if (!device.approved || !device.email)
+        return json(400, { error: "authorization_pending" });
+      delete device.deviceCode;
+      const token = `at_${randomBytes(16).toString("hex")}`;
+      accessTokens.set(token, {
+        sub: device.email,
+        clientId: device.clientId,
+        scope: device.scope ?? "",
+      });
+      return json(200, {
+        access_token: token,
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: device.scope ?? "",
+      });
+    }
+
     if (url.pathname === "/token" && method === "POST") {
       // Under a registry, the client authenticates before anything about the
       // code is looked at, and a code redeems only for the client it was
@@ -1395,73 +1487,128 @@ export async function startAuthProvider(
       return json(200, { sub: session.email, email: session.email });
     }
 
+    // RFC 8628 section 3.1: a device asks to be authorized. It gets a device
+    // code to poll with and a short user code to show, which a person enters
+    // at the verification URI; the complete URI carries the code in its query
+    // for devices that can show a link or a QR code.
+    if (url.pathname === "/device_authorization" && method === "POST") {
+      const client = body.get("client_id") ?? "";
+      if (!client) return json(400, { error: "invalid_client" });
+      const userCode = newUserCode();
+      const deviceCode = randomBytes(32).toString("base64url");
+      devices.set(userCode, {
+        approved: false,
+        clientId: client,
+        deviceCode,
+        scope: body.get("scope") ?? "",
+        expiresAt: Date.now() + 600_000,
+      });
+      const shown = `${userCode.slice(0, 4)}-${userCode.slice(4)}`;
+      return json(200, {
+        device_code: deviceCode,
+        user_code: shown,
+        verification_uri: `${origin}/device`,
+        verification_uri_complete: `${origin}/device?user_code=${shown}`,
+        expires_in: 600,
+        interval: 5,
+      });
+    }
+
     if (url.pathname === "/device") {
       const session = sessionOf(request);
-      if (!session)
+      if (!session || session.factors < 2)
         return redirect(`/signin?next=${encodeURIComponent("/device")}`);
       // A realistic layout renders the verification page whole, in its own
-      // shell; the randomized one assembles it from parts below.
-      if (markup.pages) {
-        if (method === "GET")
-          return send(
-            200,
-            markup.pages.device({ action: "/device", account: session.email }),
-          );
-        const entered = (body.get(markup.names.userCode) ?? "")
-          .replace(/[\s-]/g, "")
-          .toUpperCase();
-        const device = devices.get(entered);
-        if (!device)
-          return send(
-            200,
-            markup.pages.device({
+      // shell; the randomized one assembles it from parts.
+      const form = (error?: string) =>
+        markup.pages
+          ? markup.pages.device({
               action: "/device",
               account: session.email,
-              error: markup.messages.badCode,
-            }),
-          );
-        device.approved = true;
-        device.email = session.email;
-        return send(200, markup.pages.deviceConnected());
-      }
-      if (method === "GET")
-        return send(
-          200,
-          markup.page(
-            "Connect a device",
-            `<h1>Enter the code shown on your device</h1>
-             <form method="post" action="/device">
-               ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
-               <button type="submit">${markup.captions.approve}</button>
-             </form>`,
-          ),
-        );
+              ...(error ? { error } : {}),
+            })
+          : markup.page(
+              "Connect a device",
+              `${markup.alert(error)}
+               <h1>Enter the code shown on your device</h1>
+               <form method="post" action="/device">
+                 ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
+                 <button type="submit">${markup.captions.approve}</button>
+               </form>`,
+            );
+      if (method === "GET") return send(200, form());
       const entered = (body.get(markup.names.userCode) ?? "")
-        .trim()
+        .replace(/[\s-]/g, "")
         .toUpperCase();
       const device = devices.get(entered);
-      if (!device)
+      if (
+        !device ||
+        device.approved ||
+        device.denied ||
+        (device.expiresAt !== undefined && Date.now() > device.expiresAt)
+      )
+        return send(200, form(markup.messages.badCode));
+      // A device that asked through the endpoint names a client, and a
+      // person approves that client on a consent screen: the code only says
+      // which device, not what it may do.
+      if (device.clientId !== undefined) {
+        const requestId = randomBytes(8).toString("hex");
+        deviceConsents.set(requestId, entered);
+        const application = registry.get(device.clientId)?.name;
+        if (markup.pages)
+          return send(
+            200,
+            markup.pages.consent({
+              requestId,
+              clientId: device.clientId,
+              scope: device.scope ?? "",
+              account: session.email,
+              actor: "",
+              ...(application ? { application } : {}),
+              action: "/device/consent",
+              device: true,
+            }),
+          );
         return send(
           200,
           markup.page(
-            "Connect a device",
-            `${markup.alert(markup.messages.badCode)}
-             <h1>Enter the code shown on your device</h1>
-             <form method="post" action="/device">
-               ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
-               <button type="submit">${markup.captions.approve}</button>
+            "Authorize",
+            `<h1>${markup.headings.consent}</h1>
+             <p>${markup.escape(application ?? device.clientId)} on your device is requesting ${markup.escape(device.scope || "access")}.</p>
+             <form method="post" action="/device/consent">
+               <input type="hidden" name="r" value="${requestId}">
+               <button type="submit" name="decision" value="allow">${markup.captions.approve}</button>
+               <button type="submit" name="decision" value="deny">${markup.captions.deny}</button>
              </form>`,
           ),
         );
+      }
       device.approved = true;
       device.email = session.email;
-      return send(
-        200,
-        markup.page(
-          "Device connected",
-          `<h1>You are signed in</h1><p data-account="${markup.escape(session.email)}">The device is now approved.</p>`,
-        ),
-      );
+      return send(200, deviceConnected(session.email));
+    }
+
+    if (url.pathname === "/device/consent" && method === "POST") {
+      const session = sessionOf(request);
+      const requestId = body.get("r") ?? "";
+      const userCode = deviceConsents.get(requestId);
+      const device = userCode ? devices.get(userCode) : undefined;
+      if (!session || session.factors < 2 || !device)
+        return redirect("/device");
+      deviceConsents.delete(requestId);
+      if (body.get("decision") !== "allow") {
+        device.denied = true;
+        return send(
+          200,
+          markup.page(
+            "Device not connected",
+            `<h1>Device not connected</h1><p>You cancelled the request. The device was not given access.</p>`,
+          ),
+        );
+      }
+      device.approved = true;
+      device.email = session.email;
+      return send(200, deviceConnected(session.email));
     }
 
     // A person clears the widget in the same browser they were handed. The
@@ -1958,6 +2105,32 @@ export async function startAuthProvider(
       return device?.approved ? device.email : undefined;
     },
     regionOf: (email) => regions.get(email.toLowerCase()),
+    requestDevice: async (client, scope = "openid profile") => {
+      const response = await fetch(`${origin}/device_authorization`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: client, scope }).toString(),
+      });
+      if (!response.ok) throw new Error("Device authorization was refused");
+      return (await response.json()) as Awaited<
+        ReturnType<ProviderDouble["requestDevice"]>
+      >;
+    },
+    pollDevice: async (client, deviceCode) => {
+      const response = await fetch(`${origin}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: deviceCode,
+          client_id: client,
+        }).toString(),
+      });
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown>,
+      };
+    },
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });

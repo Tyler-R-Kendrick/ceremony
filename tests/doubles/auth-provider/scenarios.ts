@@ -117,6 +117,8 @@ export type ScenarioState = {
   resource?: string;
   /** What the plan's custody sink received from an enrolment page. */
   custody?: string;
+  /** An access token a device collected by polling. */
+  token?: string;
 };
 
 /** Everything `runCeremony` needs, minus the page, which the runner supplies. */
@@ -929,6 +931,56 @@ export const authScenarios: readonly AuthScenario[] = [
       const [code] = provider.issuedDeviceCodes();
       if (code && provider.deviceApprovedBy(code))
         throw new Error("No code was entered, so no device is approved");
+    },
+  },
+  {
+    id: "device-authorization-with-consent",
+    title:
+      "a device that asked for authorization is approved by its code and a consent screen",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified"],
+    provides: ["username", "password", "user-code"],
+    behavior: () => ({ seed: 54 }),
+    plan: async ({ provider, identity }) => {
+      // The device asks first, and is told to keep waiting until a person
+      // has approved it; only its token poll says when that happened.
+      const client = "driftwood-terminal";
+      const device = await provider.requestDevice(client);
+      const poll = () => provider.pollDevice(client, device.device_code);
+      if ((await poll()).body.error !== "authorization_pending")
+        throw new Error("A device must wait until it is approved");
+      const state: ScenarioState = {};
+      return {
+        // The verification URI a device shows, without the code in a query.
+        entryUrl: device.verification_uri,
+        goal: "sign-in",
+        secrets: createSecrets({
+          username: identity.username,
+          password: identity.password,
+          "user-code": device.user_code,
+        }),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: async () => {
+          const answer = await poll();
+          if (typeof answer.body.access_token !== "string") return false;
+          state.token = answer.body.access_token;
+          // Spent: a device code buys one token.
+          return (await poll()).body.error === "invalid_grant";
+        },
+        state,
+      };
+    },
+    expect: { status: "completed" },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const answer = await fetch(`${provider.origin}/userinfo`, {
+        headers: { authorization: `Bearer ${state.token ?? ""}` },
+      });
+      const who = (await answer.json()) as { sub?: string };
+      if (who.sub !== identity.email)
+        throw new Error("The device's token must be for the approving account");
     },
   },
   {
