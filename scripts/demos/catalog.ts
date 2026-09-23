@@ -58,6 +58,25 @@ export const demoCatalog: readonly DemoEntry[] = [
     docsPreview: false,
     load: () => import("./registration-recovers.js"),
   },
+  {
+    id: "connect-without-account",
+    title: "Connect an API for someone with no account yet",
+    summary:
+      "One stitched run: OAuth authorization finds no account, so the agent registers one, verifies it through the agent inbox, approves consent, and the connector redeems the code with PKCE for verified access.",
+    scenario: "authorization-requires-registration-first",
+    interpreter: "heuristic",
+    chain: [
+      "authorize",
+      "sign-in",
+      "register",
+      "verify-email",
+      "consent",
+      "token-exchange",
+      "verified",
+    ],
+    docsPreview: true,
+    load: () => import("./connect-without-account.js"),
+  },
 ];
 
 export function findDemos(names: readonly string[]): DemoEntry[] {
