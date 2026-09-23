@@ -1,5 +1,6 @@
 {
   "swarm": "HTTP",
+  "recordedAt": "2026-09-19",
   "workItems": [
     {
       "id": "HTTP-01",
@@ -188,5 +189,28 @@
     "Response bodies are bounded, content-type-gated and JSON-parsed but not schema-validated; the export therefore publishes permissive response schemas. Validating responses against the compiled subset is a deliberate follow-up, not a silent gap.",
     "The Overlay JSONPath implementation is an explicit subset, not full RFC 9535; Overlay 1.1.0 requires full RFC 9535 for interoperable documents, so overlays using filters (including the specification's own filter examples) are refused rather than partially applied."
   ],
-  "externalEffectsPerformed": []
+  "externalEffectsPerformed": [],
+  "supportEvidence": [
+    {
+      "adapterId": "openapi-http",
+      "check": "tests/connectors/openapi/authorize.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "The generic OAuth path: an imported description approved into a binding, connected by a person and invoked through the real command service, with authorization code and PKCE, device authorization and client credentials against the loopback OAuth authorization-server double and a protected loopback API. Tokens are checked absent from views, results, records, the effect journal and handoffs."
+    },
+    {
+      "adapterId": "openapi-http",
+      "check": "tests/connectors/openapi/invoke.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Reviewed operations invoked against a loopback HTTP fixture that records what it received: parameter serialization, credential placement for key, Basic and bearer, response bounds, refused redirects and the effect journal."
+    },
+    {
+      "adapterId": "openapi-http",
+      "check": "tests/connectors/openapi/journal.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Durable effect-journal replay and indeterminate writes against a loopback HTTP fixture."
+    }
+  ]
 }
