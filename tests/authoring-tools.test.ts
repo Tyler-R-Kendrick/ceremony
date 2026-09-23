@@ -1091,3 +1091,39 @@ test("compound provider names discover client-metadata OAuth without a human for
   );
   await store.close();
 });
+
+/**
+ * The installed record is keyed by connector id across the whole tenant, while
+ * reads are scoped to the author who installed it. Overwriting another
+ * author's record would silently take their connector away from them: they
+ * would stop seeing it, and the second author's definition would stand in its
+ * place. A second author is refused instead, and the first keeps theirs.
+ */
+test("a second author cannot overwrite a connector another author installed", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  try {
+    const drafts = new ConnectorDrafts(store, {
+      fetch: async () => new Response("", { status: 404 }),
+    });
+    const first = actor();
+    const second: ActorContext = { ...first, subjectId: "another-author" };
+    await drafts.fromProvider(first, "jira");
+    const before = await drafts.getInstalled(first, "jira");
+    assert.ok(before);
+    await assert.rejects(drafts.fromProvider(second, "jira"), /denied/);
+    assert.deepEqual(await drafts.getInstalled(first, "jira"), before);
+    assert.equal(await drafts.getInstalled(second, "jira"), undefined);
+    assert.deepEqual(
+      (await drafts.listManifests(first)).map((item) => item.id),
+      ["jira"],
+    );
+    // The owner may still redraft their own connector, from any session.
+    await drafts.fromProvider({ ...first, sessionId: "later" }, "jira");
+    assert.ok(await drafts.getInstalled(first, "jira"));
+  } finally {
+    await store.close();
+  }
+});
