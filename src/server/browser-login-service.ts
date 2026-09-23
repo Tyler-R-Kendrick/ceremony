@@ -7,8 +7,12 @@ import {
 } from "../core/browser-session-contracts.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
+  ceremonyRoles,
+  derivedRoleOf,
+  heldCredentialKinds,
   heldSecretRoles,
   type CeremonyRole,
+  type HeldCredentialKind,
 } from "../core/browser-contracts.js";
 import {
   launchManagedBrowser,
@@ -35,6 +39,7 @@ import {
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
+import { totpCode, totpSeedSpellings } from "./totp.js";
 
 /**
  * One authorized browser login, end to end.
@@ -56,11 +61,15 @@ export interface CredentialSource {
   /**
    * Resolve one role for one plan. Implementations read the existing private
    * collector; a reference is not a value and resolution is authorized here.
+   *
+   * A held credential kind — a `totp-seed` — is resolved the same way and is
+   * never handed onward: the service derives the role's value from it at fill
+   * time, and the kind itself is never offered to an interpreter.
    */
   resolve(
     actor: ActorContext,
     plan: EffectiveLoginPlan,
-    role: CeremonyRole,
+    role: CeremonyRole | HeldCredentialKind,
   ): Promise<string | undefined>;
 }
 
@@ -545,9 +554,12 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     | { kind: "human"; reason: "human-challenge" | "passkey" | "native-dialog" }
   > {
     await page.goto(plan.entryUrl);
+    const declared = Object.keys(plan.credentialRefs);
+    const held = heldCredentialKinds.filter((kind) => declared.includes(kind));
     const roles: CeremonyRole[] = [];
-    for (const role of Object.keys(plan.credentialRefs) as CeremonyRole[])
-      roles.push(role);
+    for (const role of declared as CeremonyRole[])
+      if (!(heldCredentialKinds as readonly string[]).includes(role))
+        roles.push(role);
 
     const values: Partial<Record<CeremonyRole, () => Promise<string>>> = {};
     for (const role of roles)
@@ -556,6 +568,25 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         if (value === undefined) throw new Error("credential unavailable");
         return value;
       };
+    // A held seed offers the role it derives, and the value is computed at the
+    // moment of filling rather than when the attempt starts. A code minted
+    // before an interpreter has decided, or before a slow page has settled, is
+    // a code that can expire between being computed and being submitted.
+    //
+    // The seed is resolved inside this closure and goes no further. The only
+    // thing that leaves is the code, which the driver guards the moment it
+    // types it because `totp-code` is a secret role — so a page that echoes it
+    // back trips the canary like a page that echoes a password.
+    for (const kind of held) {
+      const role = derivedRoleOf[kind];
+      if (!ceremonyRoles.includes(role)) continue;
+      roles.push(role);
+      values[role] = async () => {
+        const seed = await options.credentials.resolve(actor, plan, kind);
+        if (seed === undefined) throw new Error("credential unavailable");
+        return totpCode(seed, now());
+      };
+    }
 
     // Arm the driver's canary before the first page is read, not after the
     // first field is typed.
@@ -597,6 +628,18 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         .resolve(actor, plan, role)
         .catch(() => undefined);
       if (value !== undefined && !guarded.includes(value)) guarded.push(value);
+    }
+    // A held seed is the most held secret there is: every future code comes
+    // out of it. It is guarded in each spelling a page could plausibly show,
+    // because enrolment screens print the same secret grouped, lower-cased or
+    // inside an `otpauth://` URI, and the canary matches exact text.
+    for (const kind of held) {
+      const seed = await options.credentials
+        .resolve(actor, plan, kind)
+        .catch(() => undefined);
+      if (seed === undefined) continue;
+      for (const spelling of totpSeedSpellings(seed))
+        if (!guarded.includes(spelling)) guarded.push(spelling);
     }
 
     const result = await runCeremony({

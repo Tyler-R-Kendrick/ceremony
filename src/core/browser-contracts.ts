@@ -79,6 +79,28 @@ export const heldSecretRoles: readonly CeremonyRole[] = [
   "password-confirm",
 ];
 
+/**
+ * Secrets a host may hold that are never typed as themselves.
+ *
+ * A `totp-seed` is the enrolment secret behind an authenticator. No page ever
+ * asks for it, and no interpreter may select it: what a page asks for is the
+ * `totp-code` derived from it at the moment of filling. So these are not
+ * roles. A plan names one by reference exactly as it names a password, the
+ * credential source resolves it inside the trusted path, and the driver only
+ * ever sees the role it derives.
+ *
+ * Kept apart from {@link ceremonyRoles} deliberately. Adding the seed there
+ * would offer it to an interpreter as a fillable value, and the one thing a
+ * seed must never be is typed into a page.
+ */
+export const heldCredentialKinds = ["totp-seed"] as const;
+export const heldCredentialKindSchema = z.enum(heldCredentialKinds);
+export type HeldCredentialKind = z.infer<typeof heldCredentialKindSchema>;
+
+/** The role each held credential kind produces a value for. */
+export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
+  { "totp-seed": "totp-code" };
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
