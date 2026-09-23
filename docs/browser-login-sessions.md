@@ -358,13 +358,20 @@ it.
   assembled tools expose `handoffs` for the route. A host that passes its own
   `human` keeps it.
 
-An answer is delivered only to a hand-off that is pending, unexpired and still
-being waited on; the attempt then resumes in the same browser and still needs
-provider evidence. Otherwise it is refused by name and the record settled:
-`expired` once the deadline passes (the waiter also stops then and reports the
-person unavailable), `generation-mismatch` once the holding process's
-heartbeat has stopped (the record becomes `lost`), `not-authorized` for another
-subject or tenant, `cancelled` for an answer given twice.
+An answer is recorded only for a hand-off that is pending and unexpired,
+decided again inside the write. It is **delivered** only when the process
+holding the browser picks it up and acknowledges it under the generation that
+created the record; `resolve` waits for that acknowledgement (bounded by
+`acknowledgeWithinMs`, the staleness window by default), and the route says
+the sign-in is continuing only after it. The attempt then resumes in the same
+browser and still needs provider evidence. Otherwise the answer is refused by
+name and the record settled: `expired` once the deadline passes (the waiter
+also stops then and reports the person unavailable; an answer recorded just
+before its expiry write is still honoured), `generation-mismatch` when the
+holder never acknowledges - however recently it stopped - or its heartbeat
+has gone quiet (the record becomes `lost`, and a holder that comes back to it
+finds it lost and ends the attempt), `not-authorized` for another subject or
+tenant, `cancelled` for an answer given twice.
 
 **What survives a restart and what does not.** The browser does not: its page,
 cookies and CDP connection belong to the process that launched it, and so does

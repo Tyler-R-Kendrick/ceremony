@@ -468,3 +468,113 @@ test("a host that asks for durable hand-offs gets them, and only then", () => {
   assert.ok(durable.handoffs);
   assert.equal(createHostBrowserLogin(options).handoffs, undefined);
 });
+
+test("an answer given moments after the holding process stopped is refused, never reported as continuing", async (t) => {
+  const shared = store();
+  t.after(() => shared.close());
+  // Stopped well inside its heartbeat window: nothing about the record looks
+  // stale yet, so only the missing acknowledgement can tell.
+  const crashed = createBrowserHandoffs({
+    store: shared,
+    sleep: () => new Promise(() => {}),
+  });
+  void crashed.participation(owner, { contract }).request(request);
+  const pending = await waiting(crashed);
+  const serving = createBrowserHandoffs({
+    store: shared,
+    pollMs: 5,
+    acknowledgeWithinMs: 60,
+  });
+  assert.deepEqual(
+    await serving.resolve(owner, pending.handoffRef, "completed"),
+    { status: "refused", reason: "generation-mismatch" },
+  );
+  assert.equal((await serving.read(owner, pending.handoffRef))?.status, "lost");
+  const shown = await browserHandoffRoute(
+    serving,
+    owner,
+    new Request(
+      `https://app.example/human/browser?handoff=${pending.handoffRef}`,
+    ),
+  );
+  const html = await shown.text();
+  assert.doesNotMatch(html, /continuing/);
+  assert.match(html, /no longer running/);
+});
+
+test("an answer is not recorded for a hand-off that lapses between the read and the write", async (t) => {
+  const shared = store();
+  t.after(() => shared.close());
+  const holding = createBrowserHandoffs({ store: shared, pollMs: 5 });
+  const outcome = holding.participation(owner, { contract }).request(request);
+  const pending = await waiting(holding);
+  const expiresAt = Date.parse(pending.expiresAt);
+  // The route's first look finds it pending; by its write it has expired.
+  let looks = 0;
+  const lapsing = createBrowserHandoffs({
+    store: shared,
+    // Not stale: the holder is alive; only the deadline passes.
+    staleAfterMs: 3_600_000,
+    now: () => (looks++ < 2 ? expiresAt - 1 : expiresAt + 1),
+  });
+  assert.deepEqual(
+    await lapsing.resolve(owner, pending.handoffRef, "completed"),
+    { status: "refused", reason: "expired" },
+  );
+  assert.notEqual(
+    (await holding.read(owner, pending.handoffRef))?.status,
+    "completed",
+  );
+  await holding.resolve(owner, pending.handoffRef, "declined");
+  assert.equal(await outcome, "declined");
+});
+
+test("an answer that lands just as the holder gives up on the hand-off is honoured, not dropped", async (t) => {
+  const shared = store();
+  t.after(() => shared.close());
+  let transactions = 0;
+  let answer: (() => Promise<void>) | undefined;
+  // The holder's own view of the store, with a hook to land the person's
+  // answer between its last read and its expiry write.
+  const racing = {
+    transaction: async <T>(
+      work: Parameters<typeof shared.transaction<T>>[0],
+    ): Promise<T> => {
+      if (++transactions === 3) await answer?.();
+      return shared.transaction(work);
+    },
+    close: () => shared.close(),
+  };
+  let calls = 0;
+  const start = Date.now();
+  const holding = createBrowserHandoffs({
+    store: racing,
+    pollMs: 1,
+    ttlMs: 1_000,
+    // Created at `start`; every later look is past the deadline.
+    now: () => (calls++ === 0 ? start : start + 5_000),
+  });
+  const outcome = holding.participation(owner, { contract }).request(request);
+  answer = async () => {
+    const [row] = await shared.transaction((tx) =>
+      tx.list<Record<string, unknown>>(owner.tenantId, "handoff"),
+    );
+    assert.ok(row);
+    await shared.transaction((tx) =>
+      tx.put(
+        { tenant: owner.tenantId, kind: "handoff", id: row.id },
+        { ...row.value, status: "completed" },
+        row.revision,
+      ),
+    );
+  };
+  assert.equal(await outcome, "completed");
+  const [row] = await shared.transaction((tx) =>
+    tx.list<{ status: string; acknowledged?: boolean }>(
+      owner.tenantId,
+      "handoff",
+    ),
+  );
+  assert.equal(row?.value.status, "completed");
+  assert.equal(row?.value.acknowledged, true);
+});

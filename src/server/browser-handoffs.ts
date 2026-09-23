@@ -31,10 +31,15 @@ import { safeLiveViewUrl } from "./live-view.js";
  *   the record; the process holding the browser polls it and resumes the
  *   same attempt in the same browser. Which process served the person does
  *   not matter.
+ * - **Only the holder says "continuing".** An answer is recorded, and then
+ *   picked up by the process holding the browser, which acknowledges it
+ *   under the generation that created the record. A person is told the
+ *   sign-in is continuing only after that acknowledgement.
  * - **A restart fails by name.** The waiting process heartbeats the record.
- *   An answer that arrives after the heartbeat stopped is refused as
- *   `generation-mismatch` and the record is marked `lost`, instead of being
- *   accepted for a browser that no longer exists.
+ *   An answer the holder never acknowledges - it arrived after the process
+ *   stopped, however recently - is refused as `generation-mismatch` and the
+ *   record is marked `lost`, instead of being accepted for a browser that no
+ *   longer exists.
  * - **Expiry is enforced on both sides.** The waiter gives up at `expiresAt`
  *   and reports the person unavailable; a late answer is refused `expired`.
  *
@@ -52,8 +57,12 @@ import { safeLiveViewUrl } from "./live-view.js";
  * is resolvable only through `controlUrl`, from an authenticated human route.
  */
 
+/**
+ * `answered` is an answer recorded and not yet picked up by the process
+ * holding the browser; `completed` and `declined` mean it was picked up.
+ */
 export type BrowserHandoffStatus =
-  "pending" | "completed" | "declined" | "expired" | "lost";
+  "pending" | "answered" | "completed" | "declined" | "expired" | "lost";
 
 const recordSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -73,6 +82,11 @@ const recordSchema = z.strictObject({
   expiresAt: z.number(),
   /** The provider's takeover URL. Encrypted at rest; never summarised. */
   liveView: z.url().optional(),
+  /**
+   * Set by the holding process, under `generation`, when it has picked up a
+   * `completed` or `declined` answer and the attempt has resumed or ended.
+   */
+  acknowledged: z.boolean().optional(),
 });
 type HandoffRecord = z.infer<typeof recordSchema>;
 
@@ -115,6 +129,11 @@ export type BrowserHandoffsOptions = {
    * dead, short enough that a person is not left waiting on a restart.
    */
   staleAfterMs?: number;
+  /**
+   * How long `resolve` waits for the holding process to acknowledge an
+   * answer before declaring it gone. `staleAfterMs` by default.
+   */
+  acknowledgeWithinMs?: number;
   /** Swapped in tests. */
   sleep?: (ms: number) => Promise<void>;
 };
@@ -132,6 +151,7 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
   const pollMs = options.pollMs ?? 1_000;
   const heartbeatMs = options.heartbeatMs ?? 5_000;
   const staleAfter = options.staleAfterMs ?? heartbeatMs * 3;
+  const acknowledgeWithin = options.acknowledgeWithinMs ?? staleAfter;
   const sleep =
     options.sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -153,9 +173,15 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
 
   /** The status a record has now, which is not always the one it was written with. */
   const effective = (record: HandoffRecord): BrowserHandoffStatus => {
+    const stale = now() - record.heartbeatAt > staleAfter;
+    if (record.status === "completed" || record.status === "declined") {
+      if (record.acknowledged) return record.status;
+      // Recorded, not picked up: whoever held the browser has not said so.
+      return stale ? "lost" : "answered";
+    }
     if (record.status !== "pending") return record.status;
     if (now() >= record.expiresAt) return "expired";
-    if (now() - record.heartbeatAt > staleAfter) return "lost";
+    if (stale) return "lost";
     return "pending";
   };
 
@@ -171,19 +197,25 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
     liveView: record.liveView !== undefined && effective(record) === "pending",
   });
 
-  /** Write a status, if the record is still what the writer last read. */
+  /**
+   * Write a status, if the record is still what the writer last read and -
+   * decided inside the same transaction - `when` still holds of it. Returns
+   * the record as it stands afterwards, so a caller that lost a race learns
+   * what won it.
+   */
   const settle = async (
     actor: ActorContext,
     handoffRef: string,
-    from: BrowserHandoffStatus[],
-    to: BrowserHandoffStatus,
+    from: HandoffRecord["status"][],
+    to: HandoffRecord["status"],
     patch: Partial<HandoffRecord> = {},
+    when: (record: HandoffRecord) => boolean = () => true,
   ) =>
     options.store.transaction(async (tx) => {
       const stored = await tx.get<HandoffRecord>(key(actor, handoffRef));
       if (!stored) return undefined;
       const record = recordSchema.parse(stored.value);
-      if (!from.includes(record.status)) return record;
+      if (!from.includes(record.status) || !when(record)) return record;
       const next: HandoffRecord = { ...record, ...patch, status: to };
       // A settled hand-off keeps no control URL: nobody may take over a tab
       // this record no longer vouches for.
@@ -255,6 +287,31 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
           await Promise.resolve(input.onRequested?.(summarise(record))).catch(
             () => {},
           );
+          /**
+           * Pick up a recorded answer: acknowledge it under this process's
+           * generation, and act on it only if the acknowledgement is what the
+           * record now says. A route that already gave up on this process
+           * (and marked the hand-off lost) wins, and the attempt ends.
+           */
+          const pickUp = async (
+            answer: "completed" | "declined",
+          ): Promise<HumanParticipationResult> => {
+            const after = await settle(
+              actor,
+              handoffRef,
+              [answer],
+              answer,
+              { acknowledged: true },
+              (record) => record.generation === generation,
+            ).catch(() => undefined);
+            return after?.status === answer && after.acknowledged
+              ? answer
+              : "unavailable";
+          };
+          const answered = (record: HandoffRecord) =>
+            record.status === "completed" || record.status === "declined"
+              ? record.status
+              : undefined;
           let beat = at;
           for (;;) {
             await sleep(pollMs);
@@ -263,14 +320,20 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
             );
             if (!current) return "unavailable";
             const { record: seen } = current;
-            if (seen.status === "completed") return "completed";
-            if (seen.status === "declined") return "declined";
+            const answer = answered(seen);
+            if (answer) return pickUp(answer);
             if (seen.status !== "pending") return "unavailable";
             if (now() >= seen.expiresAt) {
-              await settle(actor, handoffRef, ["pending"], "expired").catch(
-                () => {},
-              );
-              return "unavailable";
+              // An answer that landed between the read and this write wins:
+              // it was accepted, so it is honoured rather than dropped.
+              const final = await settle(
+                actor,
+                handoffRef,
+                ["pending"],
+                "expired",
+              ).catch(() => undefined);
+              const late = final && answered(final);
+              return late ? pickUp(late) : "unavailable";
             }
             if (now() - beat >= heartbeatMs) {
               beat = now();
@@ -329,20 +392,59 @@ export function createBrowserHandoffs(options: BrowserHandoffsOptions) {
     ): Promise<BrowserHandoffResolution> {
       const found = await load(actor, handoffRef);
       if (!found) return { status: "refused", reason: "not-authorized" };
+      const refusal = (
+        status: BrowserHandoffStatus,
+      ): BrowserHandoffResolution => ({
+        status: "refused",
+        reason:
+          status === "expired"
+            ? "expired"
+            : status === "lost"
+              ? "generation-mismatch"
+              : "cancelled",
+      });
       const status = effective(found.record);
       if (status === "expired" || status === "lost") {
         await settle(actor, handoffRef, ["pending"], status);
-        return {
-          status: "refused",
-          reason: status === "expired" ? "expired" : "generation-mismatch",
-        };
+        return refusal(status);
       }
-      if (status !== "pending")
-        return { status: "refused", reason: "cancelled" };
-      const settled = await settle(actor, handoffRef, ["pending"], answer);
-      return settled?.status === answer
+      if (status !== "pending") return refusal(status);
+      // Expiry and staleness are decided again inside the write, so an
+      // answer is never recorded for a hand-off that lapsed after the read.
+      const settled = await settle(
+        actor,
+        handoffRef,
+        ["pending"],
+        answer,
+        {},
+        (record) => effective(record) === "pending",
+      );
+      if (settled?.status !== answer || settled.acknowledged)
+        return refusal(settled ? effective(settled) : "lost");
+      // Recorded. "Delivered" is the holder's to say: wait, bounded, for it
+      // to pick the answer up. One that never does is gone, and the answer
+      // is refused rather than reported as resuming anything.
+      for (
+        let waited = 0;
+        waited < acknowledgeWithin;
+        waited += Math.max(pollMs, 1)
+      ) {
+        await sleep(pollMs);
+        const seen = await load(actor, handoffRef);
+        if (seen?.record.acknowledged && seen.record.status === answer)
+          return { status: "delivered" };
+      }
+      const after = await settle(
+        actor,
+        handoffRef,
+        [answer],
+        "lost",
+        {},
+        (record) => !record.acknowledged,
+      );
+      return after?.acknowledged && after.status === answer
         ? { status: "delivered" }
-        : { status: "refused", reason: "cancelled" };
+        : refusal("lost");
     },
 
     /**
@@ -467,11 +569,13 @@ export async function browserHandoffRoute(
       `<h1>${
         summary.status === "completed"
           ? "Thanks - the sign-in is continuing"
-          : summary.status === "declined"
-            ? "You declined this sign-in"
-            : summary.status === "expired"
-              ? "This sign-in expired"
-              : "The browser for this sign-in is no longer running"
+          : summary.status === "answered"
+            ? "Your answer is recorded; the sign-in has not picked it up yet"
+            : summary.status === "declined"
+              ? "You declined this sign-in"
+              : summary.status === "expired"
+                ? "This sign-in expired"
+                : "The browser for this sign-in is no longer running"
       }</h1><p>Status: <code>${escape(summary.status)}</code></p>`,
     );
   const hidden = `<input type="hidden" name="handoff" value="${escape(summary.handoffRef)}">`;
