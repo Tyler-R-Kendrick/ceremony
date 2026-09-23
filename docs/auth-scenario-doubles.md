@@ -160,7 +160,11 @@ live provider would retain exactly what verification is forbidden to keep, so
 this runner is never pointed at one. Two further consequences are worth stating:
 the CLI takes values as process arguments, which are visible in the process list
 while a command runs, and the doubles are seeded with synthetic values — another
-reason real credentials stay out of it.
+reason real credentials stay out of it. The same holds for an issued value the
+plan keeps (a client secret, a token in a labelled code block): this runner
+reads it with the adapters' own `readOnlyValueSource`, only from the element the
+last observation described and only on the page it was observed on, and the
+value crosses the CLI's output.
 
 The snapshot still comes from the shared `snapshotDocument`, shipped into the
 page with `eval`, so a contract proved here means what it means in the other two
