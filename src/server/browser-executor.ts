@@ -64,7 +64,6 @@ type DriveInput = AuthorizationBrowserInput & {
 };
 
 export type AuthorizationBrowserResult = {
-  capturePath?: string;
   accountStored?: boolean;
   sessionPending?: boolean;
 } & (

@@ -39,6 +39,7 @@ export type ConnectorAction =
   | "disconnect-broker"
   | "disconnect-upstream"
   | "revoke"
+  | "revoke-request"
   | "delete"
   | "event";
 
@@ -107,11 +108,16 @@ export interface ConnectorPolicy {
     subject: PolicySubject,
     action: ConnectorAction,
   ): MaybePromise<boolean>;
-  /** Whether an output of this classification may be returned to this actor. */
+  /**
+   * Whether an output of this classification may be returned to this actor.
+   * `consent` carries what a person approved on the binding; a policy may
+   * honour it or be stricter, never looser for secret output.
+   */
   allowOutput(
     actor: ActorContext,
     classification: "public" | "personal" | "secret",
     operation: BoundOperation,
+    consent?: { agentOutputConsent?: "personal" | undefined },
   ): MaybePromise<boolean>;
   /** Which network class admits a destination a reviewer named, or false. */
   allowDestination(
@@ -222,8 +228,11 @@ export function defaultConnectorPolicy(
     requireConsent: (_actor, operation) =>
       operation.consent === "confirm" || operation.effect !== "read",
     authorize: (actor) => live(actor),
-    allowOutput: (actor, classification) =>
-      actor.actorKind !== "agent" || classification === "public",
+    allowOutput: (actor, classification, _operation, consent) =>
+      actor.actorKind !== "agent" ||
+      classification === "public" ||
+      (classification === "personal" &&
+        consent?.agentOutputConsent === "personal"),
     allowDestination: (_actor, candidate) => {
       if (isLoopbackOrigin(candidate.origin))
         return options.loopbackFixtures ? "loopback-fixture" : false;

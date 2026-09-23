@@ -11,20 +11,72 @@ import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { configuredKeyring } from "../persistence/maintenance.js";
 import type { ActorContext } from "../identity.js";
 import { actorIdentifierSchema } from "../../core/operation-contracts.js";
+import type { RunRecord } from "../commands.js";
 import { hostedJiraOwnerDelivery } from "./a2h.js";
 import { modelConfigurationFromEnvironment } from "../agent/model.js";
+import { hostedTenancy, type HostedTenancy } from "./tenancy.js";
+import { createHostedConnectors, type HostedConnectors } from "./connectors.js";
 
-let instance: Promise<TeachingRuntime> | undefined;
+/** The teaching runtime plus what only the hosted carrier composes around it. */
+export type HostedRuntime = TeachingRuntime & {
+  hosted: {
+    tenancy: HostedTenancy;
+    /** Absent when the operator disabled connectors. */
+    connectors?: HostedConnectors;
+  };
+};
+
+let instance: Promise<HostedRuntime> | undefined;
 /** Process cache holds clients only. Shared database and current policy remain authoritative. */
-export function getHostedRuntime(): Promise<TeachingRuntime> {
+export function getHostedRuntime(): Promise<HostedRuntime> {
   return (instance ??= createHostedRuntime().catch(() => {
     instance = undefined;
     throw new Error("Hosted configuration unavailable");
   }));
 }
+
+/**
+ * Host policy for one run, after the provider registry has checked that the
+ * run still matches its provider's current configuration.
+ *
+ * The run must belong to this actor, in a tenant this deployment serves, on
+ * this origin, and its target must be one the host allows for its provider.
+ * The target rules are data keyed by provider rather than a chain of name
+ * comparisons: a provider absent here has no admissible target and is
+ * refused. An authored run's target is its own connector id, which is what
+ * `context` records for it; anything else is a tampered record.
+ */
+export function hostedRunPolicy(policy: {
+  origin: string;
+  tenancy: Pick<HostedTenancy, "accepts">;
+  /** GitHub's authorized account; GitHub runs are refused without one. */
+  account?: string;
+}) {
+  const targets: Readonly<Record<string, (run: RunRecord) => boolean>> = {
+    stripe: (run) => run.target === "self",
+    supabase: (run) => run.target === "self",
+    // A chosen site is checked by the provider entry against the host's
+    // allowTarget; a configured one against the configuration itself.
+    jira: () => true,
+    ...(policy.account
+      ? { github: (run: RunRecord) => run.target === policy.account }
+      : {}),
+  };
+  return (actor: ActorContext, run: RunRecord): boolean =>
+    // Runs are stored under the actor's tenant, so a run from another tenant
+    // is never found; this refuses an actor from a tenant not served at all.
+    policy.tenancy.accepts(actor.tenantId) &&
+    actor.subjectId === run.subjectId &&
+    actor.capabilities.includes("executor") &&
+    run.origin === policy.origin &&
+    (run.profile === "authored"
+      ? run.target === run.provider
+      : Object.hasOwn(targets, run.provider) && targets[run.provider]!(run));
+}
+
 export async function createHostedRuntime(
   env: NodeJS.ProcessEnv = process.env,
-): Promise<TeachingRuntime> {
+): Promise<HostedRuntime> {
   if (env.CEREMONY_TEST_PROFILE === "true" && env.NODE_ENV !== "test")
     throw new Error("Test hosting requires the test runtime");
   const testProfile =
@@ -37,8 +89,10 @@ export async function createHostedRuntime(
       keyId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
       issuer: z.url(),
       clientId: z.string().min(1).optional(),
-      tenant: z.string().min(1).max(100),
-      account: z.string().regex(/^[A-Za-z0-9-]{1,100}$/),
+      account: z
+        .string()
+        .regex(/^[A-Za-z0-9-]{1,100}$/)
+        .optional(),
       configurationVersion: z.string().min(1).max(100),
       jiraSetupOwner: actorIdentifierSchema.optional(),
     })
@@ -49,16 +103,26 @@ export async function createHostedRuntime(
       keyId: env.CEREMONY_VAULT_KEY_ID,
       issuer: env.CEREMONY_OIDC_ISSUER,
       clientId: env.CEREMONY_OIDC_CLIENT_ID,
-      tenant: env.CEREMONY_TENANT_ID,
-      account: env.CEREMONY_GITHUB_ACCOUNT,
+      ...(env.CEREMONY_GITHUB_ACCOUNT
+        ? { account: env.CEREMONY_GITHUB_ACCOUNT }
+        : {}),
       configurationVersion: env.CEREMONY_CONFIGURATION_VERSION,
       ...(env.CEREMONY_JIRA_SETUP_OWNER_SUBJECT
         ? { jiraSetupOwner: env.CEREMONY_JIRA_SETUP_OWNER_SUBJECT }
         : {}),
     });
+  let tenancy: HostedTenancy;
+  try {
+    tenancy = hostedTenancy(env);
+  } catch {
+    throw new Error("Missing or invalid hosted configuration");
+  }
   if (!config.success)
     throw new Error("Missing or invalid hosted configuration");
   const c = config.data;
+  // Tenant-wide operator settings name one tenant; with claim tenancy they
+  // apply only to the configured home tenant, and without one they are off.
+  const home = tenancy.home;
   const continuation = hostedContinuation(env);
   if (
     new URL(c.origin).origin !== c.origin ||
@@ -111,6 +175,11 @@ export async function createHostedRuntime(
         : {}),
     };
   };
+  const admits = hostedRunPolicy({
+    origin: c.origin,
+    tenancy,
+    ...(c.account ? { account: c.account } : {}),
+  });
   try {
     await store.migrate();
     const identity = await createOidcIdentity(
@@ -118,35 +187,33 @@ export async function createHostedRuntime(
         origin: c.origin,
         issuer: c.issuer,
         ...(c.clientId ? { clientId: c.clientId } : {}),
-        clientName: `Ceremony · ${c.tenant}`,
+        clientName: home ? `Ceremony · ${home}` : "Ceremony",
         ...(testProfile ? { development: true } : {}),
         ...(env.CEREMONY_OIDC_CLIENT_SECRET
           ? { clientSecret: env.CEREMONY_OIDC_CLIENT_SECRET }
           : {}),
         mapClaims: async (claims) => {
-          const roles = z
-            .array(
-              z.enum(["author", "reviewer", "publisher", "executor", "admin"]),
-            )
-            .max(5)
-            .parse(claims.ceremony_roles ?? ["executor"]);
-          return {
-            tenantId: c.tenant,
-            subjectId: claims.sub,
-            capabilities: roles,
-          };
+          const tenantId = tenancy.tenantFor(claims);
+          const capabilities = tenancy.capabilitiesFor(claims);
+          await tenancy.remember(store, tenantId);
+          return { tenantId, subjectId: claims.sub, capabilities };
         },
       },
       persistentIdentityStore(store),
     );
-    const deliverOwnerSetup = await hostedJiraOwnerDelivery(
+    const deliverOwnerSetup = home
+      ? await hostedJiraOwnerDelivery(env, store, c.origin, home, [
+          "read:jira-user",
+        ])
+      : undefined;
+    const connectors = createHostedConnectors({
       env,
+      origin: c.origin,
       store,
-      c.origin,
-      c.tenant,
-      ["read:jira-user"],
-    );
-    return createGitHubRuntime({
+      configurationVersion: c.configurationVersion,
+      testProfile,
+    });
+    const runtime = createGitHubRuntime({
       store,
       identity,
       origin: c.origin,
@@ -154,15 +221,15 @@ export async function createHostedRuntime(
       configurationVersion: c.configurationVersion,
       jira: {
         configuration: jiraConfiguration,
-        ...(c.jiraSetupOwner
+        ...(c.jiraSetupOwner && home
           ? {
               setupOwner: async (actor: ActorContext) =>
-                actor.tenantId === c.tenant ? c.jiraSetupOwner : undefined,
+                actor.tenantId === home ? c.jiraSetupOwner : undefined,
             }
           : {}),
         ...(deliverOwnerSetup ? { deliverOwnerSetup } : {}),
         allowTarget: async (actor) =>
-          actor.tenantId === c.tenant &&
+          tenancy.accepts(actor.tenantId) &&
           actor.capabilities.includes("executor"),
         ...(testProfile ? { allowLoopbackHttp: true } : {}),
       },
@@ -176,38 +243,19 @@ export async function createHostedRuntime(
       },
       configuration: (actor) =>
         environment.resolveGitHub(actor, c.configurationVersion),
-      expectedAccount: c.account,
+      // GitHub acts on one authorized account. Without one it is not offered,
+      // rather than the whole deployment refusing to start.
+      ...(c.account
+        ? { expectedAccount: c.account }
+        : { githubEnabled: false }),
       ...(continuation ? { continuation } : {}),
       modelConfiguration: modelConfigurationFromEnvironment(env),
-      authorize: async (actor, run, operationId) =>
-        actor.tenantId === c.tenant &&
-        actor.subjectId === run.subjectId &&
-        actor.capabilities.includes("executor") &&
-        (operationId === "continuation" ||
-          run.configurationVersion ===
-            (run.provider === "stripe"
-              ? (await environment.resolveStripe(actor, c.configurationVersion))
-                  .version
-              : run.provider === "jira"
-                ? (await jiraConfiguration(actor)).version
-                : run.provider === "supabase"
-                  ? (
-                      await environment.resolveSupabase(
-                        actor,
-                        c.configurationVersion,
-                      )
-                    ).version
-                  : (
-                      await environment.resolveGitHub(
-                        actor,
-                        c.configurationVersion,
-                      )
-                    ).configurationVersion)) &&
-        run.origin === c.origin &&
-        (run.provider === "stripe" || run.provider === "supabase"
-          ? run.target === "self"
-          : run.provider === "jira" ||
-            (run.provider === "github" && run.target === c.account)),
+      // The provider registry has already matched the run to its provider's
+      // current configuration; this is the host's own policy on top.
+      authorize: async (actor, run) => admits(actor, run),
+    });
+    return Object.assign(runtime, {
+      hosted: { tenancy, ...(connectors ? { connectors } : {}) },
     });
   } catch {
     await store.close();

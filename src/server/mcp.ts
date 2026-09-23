@@ -13,7 +13,11 @@ import {
 } from "./browser-login-tools.js";
 import { AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
-import { registerTeachingTools, type RefusalWording } from "./mcp-teaching.js";
+import {
+  registerTeachingTools,
+  teachingRefusals,
+  type RefusalWording,
+} from "./mcp-teaching.js";
 import { PersistenceConflict } from "./persistence/index.js";
 import { registerPrivateCollector } from "./mcp-app.js";
 import type { PrivateCollectorOptions } from "./mcp-app.js";
@@ -313,7 +317,7 @@ export function createCeremonyMcpHandler(
         "browser_login",
         {
           description:
-            "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value.",
+            "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value. Name a published recorded ceremony in draft.recording to replay it with no model.",
           inputSchema: browserLoginToolInputs.login,
           annotations: { destructiveHint: false, openWorldHint: true },
         },
@@ -349,6 +353,44 @@ export function createCeremonyMcpHandler(
         },
         async (input) => await run((who) => browser.backends(who, input)),
       );
+
+      // Recording is authoring: it saves an artifact that other logins may
+      // replay once a person publishes it. So it is offered only to an actor
+      // who could author at all, and only where the host keeps recordings.
+      // Review and publication are not offered here in any form - they are
+      // the people's routes, and a draft this tool saves can be replayed by
+      // nobody until one of them has run.
+      const authors = Boolean(
+        actor &&
+        (actor.capabilities.includes("author") ||
+          actor.capabilities.includes("admin")),
+      );
+      if (browser.recordings && authors) {
+        server.registerTool(
+          "browser_record_login",
+          {
+            description:
+              "Log in to a service in a real browser and record the steps as a draft recorded ceremony: value-free page and control descriptions plus the credential role each field takes, never a value. A person must review and publish the draft before browser_login can replay it. Pass basedOn to replay a published recording and, where the plan allows the host's model, repair a step the provider changed.",
+            inputSchema: browserLoginToolInputs.recordLogin,
+            annotations: { destructiveHint: false, openWorldHint: true },
+          },
+          async (input) => await run((who) => browser.recordLogin(who, input)),
+        );
+        server.registerTool(
+          "ceremony_recording_read",
+          {
+            description:
+              "Read a recorded ceremony: a draft you recorded, by draftId, or a published version by id, version and digest. Includes what a caller must be able to supply.",
+            inputSchema: browserLoginToolInputs.recording,
+            annotations: { readOnlyHint: true },
+          },
+          async (input) =>
+            await run(
+              (who) => browser.readRecording(who, input),
+              teachingRefusals,
+            ),
+        );
+      }
     }
 
     if (collectorOrigins && collectorAvailable)

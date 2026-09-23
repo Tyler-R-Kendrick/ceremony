@@ -4,6 +4,8 @@ Choose a service and connect. Ceremony checks the current authenticated context,
 
 Teaching is optional. Use **Teach this step** in the connection, or **Create from demonstration** in the studio. The browser does not require an extension, desktop recorder or CLI. The application records semantic transitions from its authoritative server ledger, not a recording of arbitrary provider tabs. Private entry and provider control material do not enter demonstrations.
 
+A demonstration therefore records _composition of known steps_: every event names an operation already registered in the host, and compiling one drops any event whose operation is not registered. It cannot capture a provider the code has never seen. That is a different kind of recording: a [recorded ceremony](recorded-ceremonies.md) captures the pages, controls and credential roles of a real browser login while the login driver completes it, as value-free data that replays later with no model. It goes through the same draft, review and publish lifecycle.
+
 ## Review a whole ceremony or a part
 
 Pause or stop recording when appropriate. Select a contiguous section of the semantic timeline; verified child boundaries are the meaningful reusable boundaries. Review what the procedure starts with, what it does, which choices need fresh input, when a person is needed, and which registered verifier proves completion. Use **Adjust** to change the name or selected portion. Advanced authors can inspect the declarative definition, but JSON is not necessary for the normal review.

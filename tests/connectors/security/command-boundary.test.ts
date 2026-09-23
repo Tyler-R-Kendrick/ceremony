@@ -407,10 +407,18 @@ test("the event mount point authenticates by signature and reaches nothing else"
     deliveries.map((item) => item.authority),
     ["nango", "nango"],
   );
-  // The mount point owns exactly one shape of path. Anything else is not a
-  // second door into the command routes.
+  // The receiver's own shape, `<authority>/<subscriptionId>`, reaches the
+  // same receiver with the same authority, and is still verified there.
+  const routed = await post("/api/v1/connectors/events/nango/subscription-1");
+  assert.equal(routed?.status, 401);
+  assert.equal(deliveries.at(-1)?.authority, "nango");
+  // The mount point owns exactly those two shapes of path. Anything else is
+  // not a second door into the command routes.
   for (const path of [
-    "/api/v1/connectors/events/nango/extra",
+    "/api/v1/connectors/events/nango/extra/more",
+    "/api/v1/connectors/events/nango/%2e%2e",
+    "/api/v1/connectors/events/nango/..%2Fconnections",
+    "/api/v1/connectors/events/%2e%2e/connections",
     "/api/v1/connectors/events/",
     "/api/v1/connectors/connections",
     "/api/v1/connectors/events/../connections",
@@ -425,7 +433,7 @@ test("the event mount point authenticates by signature and reaches nothing else"
   // An authority name outside the allowed shape is a 404, not a lookup.
   const odd = await post("/api/v1/connectors/events/..%2Fadmin");
   assert.equal(odd?.status, 404);
-  assert.equal(deliveries.length, 2, "no extra delivery reached the receiver");
+  assert.equal(deliveries.length, 3, "no extra delivery reached the receiver");
 });
 
 test("SEC-03: the hosted mount resolves a session only where the route needs one, so signed deliveries reach the receiver", async () => {

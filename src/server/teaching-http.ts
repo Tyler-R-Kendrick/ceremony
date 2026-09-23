@@ -14,14 +14,12 @@ import { PersistenceConflict } from "./persistence/index.js";
 import { recipeDefinitionSchema } from "../core/recipe-contracts.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
-import { readFile } from "node:fs/promises";
 import {
   authoredAccountRegistrationRecipe,
   authoredAccountStored,
   publicAuthoredIdentity,
   readAuthoredAccountIntent,
   readAuthoredBlocker,
-  readAuthoredCapture,
   readAuthoredLog,
   saveAuthoredAccountIntent,
 } from "./authored-operations.js";
@@ -35,6 +33,7 @@ import {
   teachingInputs,
 } from "./teaching-operations.js";
 import { browserToolFailure } from "./browser-login-tools.js";
+import { recordedCeremonyRoute } from "./recorded-ceremonies.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
@@ -47,7 +46,6 @@ async function presentRun(
   run: Awaited<ReturnType<TeachingRuntime["commands"]["snapshot"]>>,
 ) {
   const identity = await publicAuthoredIdentity(runtime.store, actor, run.id);
-  const capture = await readAuthoredCapture(runtime.store, actor, run.id);
   const blocker = await readAuthoredBlocker(runtime.store, actor, run.id);
   const accountIntent = await readAuthoredAccountIntent(
     runtime.store,
@@ -65,7 +63,6 @@ async function presentRun(
   return {
     ...run,
     ...(identity ? { identity } : {}),
-    ...(capture ? { capture: true } : {}),
     ...(account ? { account: "stored" as const } : {}),
     ...(blocker
       ? {
@@ -317,6 +314,10 @@ async function toolHttp(
       return reply(await browser.release(actor, body));
     if (path === "/tools/browser-backends")
       return reply(await browser.backends(actor, body));
+    if (path === "/tools/browser-record-login" && browser.recordings)
+      return reply(await browser.recordLogin(actor, body));
+    if (path === "/tools/browser-recording-read" && browser.recordings)
+      return reply(await browser.readRecording(actor, body));
   }
   return reply({ error: "unavailable" }, 404);
 }
@@ -500,27 +501,6 @@ async function runHttp(
     return await startRunHttp(request, runtime, actor, body);
   const runRoute = /^\/runs\/([^/]+)(?:\/(advance|cancel))?$/.exec(path);
   const activeDemo = /^\/runs\/([^/]+)\/demonstration$/.exec(path);
-  const captureRoute = /^\/runs\/([^/]+)\/capture$/.exec(path);
-  if (captureRoute && !post) {
-    const runId = id.parse(decodeURIComponent(captureRoute[1]!));
-    await runtime.commands.snapshot(actor, runId);
-    const pathOnDisk = await readAuthoredCapture(runtime.store, actor, runId);
-    if (!pathOnDisk) return reply({ error: "unavailable" }, 404);
-    try {
-      const bytes = await readFile(pathOnDisk);
-      return new Response(bytes, {
-        status: 200,
-        headers: {
-          "content-type": "video/webm",
-          "cache-control": "no-store",
-          "referrer-policy": "no-referrer",
-          "x-content-type-options": "nosniff",
-        },
-      });
-    } catch {
-      return reply({ error: "unavailable" }, 404);
-    }
-  }
   if (activeDemo && !post) {
     const runId = id.parse(decodeURIComponent(activeDemo[1]!));
     await runtime.commands.snapshot(actor, runId);
@@ -1009,6 +989,20 @@ export async function teachingHttp(
           (item) => item.id,
         ),
       });
+    // Reading, reviewing and publishing a recorded ceremony: the people's
+    // half of recording, which no MCP tool offers.
+    if (path.startsWith("/recorded-ceremonies/")) {
+      const answer = await recordedCeremonyRoute(
+        runtime.browserLogin?.recordings,
+        actor,
+        path,
+        post,
+        body,
+      );
+      return answer === undefined
+        ? reply({ error: "unavailable" }, 404)
+        : reply(answer);
+    }
     if (path === "/runs" || path.startsWith("/runs/"))
       return await runHttp(request, runtime, actor, path, post, body);
     if (path === "/demonstrations" || path.startsWith("/demonstrations/"))

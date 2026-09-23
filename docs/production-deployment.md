@@ -19,11 +19,42 @@ Supply configuration through the host's protected environment, not through the b
 | `CEREMONY_OIDC_ISSUER`           | Trusted end-user identity issuer. Deployment/workload OIDC is not a substitute.                        |
 | `CEREMONY_OIDC_CLIENT_ID`        | Registered hosted application client.                                                                  |
 | `CEREMONY_OIDC_CLIENT_SECRET`    | Server-only client secret when required by the identity provider.                                      |
-| `CEREMONY_TENANT_ID`             | Trusted deployment tenant mapping.                                                                     |
-| `CEREMONY_GITHUB_ACCOUNT`        | Authorized target account for this reference deployment.                                               |
+| `CEREMONY_TENANT_ID`             | Pinned deployment tenant; with `CEREMONY_TENANT_CLAIM`, optional home tenant (see below).              |
+| `CEREMONY_GITHUB_ACCOUNT`        | Optional. Authorized GitHub target account; unset, GitHub is not offered.                              |
 | `CEREMONY_CONFIGURATION_VERSION` | Change when authority-relevant provider/origin/permission configuration changes.                       |
 
-The identity adapter validates the OIDC protocol response and maps signed `ceremony_roles` to explicit author, reviewer, publisher, executor and administrator capabilities. When absent, roles default to executor only. Give publication rights through the identity provider, not a browser flag. Login, logout and protected sessions use the shared store; the browser's resume hint does not authenticate the user. Production has no anonymous-owner fallback.
+One of `CEREMONY_TENANT_ID` and `CEREMONY_TENANT_CLAIM` is required.
+
+The identity adapter validates the OIDC protocol response and maps signed roles to explicit author, reviewer, publisher, executor and administrator capabilities. When absent, roles default to executor only. Give publication rights through the identity provider, not a browser flag. Login, logout and protected sessions use the shared store; the browser's resume hint does not authenticate the user. Production has no anonymous-owner fallback.
+
+### Tenants and roles from the identity provider
+
+The browser (ID token) and MCP (access token) identities map claims through one hosted tenancy object, so a person has the same tenant and capabilities in both.
+
+| Name                    | Purpose                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CEREMONY_TENANT_CLAIM` | Top-level claim whose value is the tenant (for example an organization id). A token without it, or with a malformed or server-reserved value, is refused.                 |
+| `CEREMONY_ROLES_CLAIM`  | Top-level claim carrying roles, as a string array or a space-separated string. Default `ceremony_roles`.                                                                  |
+| `CEREMONY_ROLES_MAP`    | Optional JSON object from an identity-provider role or group to capabilities, such as `{"ceremony-authors":["author","executor"]}`. Unset: a role name is the capability. |
+
+With only `CEREMONY_TENANT_ID`, every identity belongs to that tenant, as before. With `CEREMONY_TENANT_CLAIM`, each identity belongs to the tenant its signed claim names; a missing claim is never placed in a default tenant, because that would merge unrelated organizations. `CEREMONY_TENANT_ID` then names the home tenant, and tenant-wide operator settings (`CEREMONY_JIRA_SETUP_OWNER_SUBJECT`, hosted A2H) apply only to it; without it they are off. All tenant data (runs, the session Environment, connector state) is keyed by the actor's tenant in the shared store. The workload dispatcher drains every tenant that has signed in, not only the home tenant.
+
+A token with no roles claim is an executor. A roles claim that is present grants exactly the capabilities it maps to, which may be none; unknown role names grant nothing rather than failing sign-in. A roles claim that is neither a string nor a string array is refused. Recording and authoring over MCP (`ceremony_demonstration_*`, `ceremony_author_*`) require `author`, so they are reachable only for identities the provider marks as authors.
+
+Shared host configuration is deployment-wide: the Jira app pair, `CEREMONY_CONFIGURATION_VERSION` and connector configuration below are the same for every tenant. Per-session Environment values stay per tenant and session.
+
+### Connector runtime
+
+The hosted server composes the connector runtime on the same PostgreSQL store and mounts `/api/v1/connectors/*` behind the hosted session, as described in [connector provider setup](connector-provider-setup.md). The MCP endpoint then offers the connector tools and intents. `CEREMONY_CONNECTORS=disabled` turns all of this off.
+
+| Name                               | Purpose                                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CEREMONY_CONNECTOR_CONFIGURATION` | Comma-separated host variable names adapters may read, for example an OAuth client pair. Revision is `CEREMONY_CONFIGURATION_VERSION`. Names starting `CEREMONY_` are refused. Unset: adapters needing configuration report themselves unconfigured. |
+| `CEREMONY_CONNECTOR_EVENTS`        | `enabled` mounts the webhook receiver at `/api/v1/connectors/events/<authority>/<subscriptionId>`. Unset or `disabled`: that route answers 404.                                                                                                      |
+
+Webhook signing secrets are not environment values. Each approved event subscription names its own secret in the tenant's credential custody, and the receiver verifies each delivery against it before anything is parsed. Verified deliveries are admitted to the per-tenant event inbox. The hosted server does not yet schedule a worker that drains that inbox into connection lifecycle changes.
+
+The approved fetcher reaches the public internet only; loopback fixtures are allowed only under the local test profile.
 
 The native Environment section uses authenticated `/api/environment`: GET returns variable names/revision only; POST accepts bounded JSON edits or an optional dotenv string and stores values encrypted. It is shared across connectors within the authenticated session, not across unrelated sessions. `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_OWNER` and `GITHUB_APP_PRIVATE_KEY` are consumed together by the trusted GitHub configuration resolver. Partial configuration blocks with a setup message. Changes bind a new configuration version and cannot silently replace an app during an in-progress callback.
 

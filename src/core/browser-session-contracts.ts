@@ -240,6 +240,13 @@ export const browserOperationReasons = [
    * a model read the page when nothing did, so it refuses under its own name.
    */
   "reasoning-unavailable",
+  /**
+   * A recorded ceremony was replayed and the provider no longer matched it:
+   * a page it expected did not appear, or a control it recorded was not on
+   * the page. Nothing past that point was attempted. Its own name, because
+   * the remedy is a new recording or a repair, not a retry.
+   */
+  "recording-drift",
   /** The provider reported an error the ceremony cannot act on. */
   "provider-error",
 ] as const;

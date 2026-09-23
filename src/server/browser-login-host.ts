@@ -10,6 +10,7 @@ import type {
 } from "./browser-login-tools.js";
 import type { SessionVerifier } from "./browser-verification.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
+import { RecordedCeremonies } from "./recorded-ceremonies.js";
 
 /**
  * The retained-browser login tools, assembled the way a host runs them.
@@ -34,6 +35,11 @@ import type { AsyncCeremonyStore } from "./persistence/index.js";
  * Nothing heavy loads until the first call. A deployment that configures this
  * and never logs anybody in does not start a browser driver, which is the
  * same promise the tools make about their backend list.
+ *
+ * Recorded ceremonies come with it, kept in the same `store`: an author may
+ * record a login as a draft, people review and publish it, and a plan naming
+ * the published version replays it with no model. That needs no decision
+ * from the host beyond the ones above, so it is not an option.
  */
 export type HostBrowserLoginOptions = {
   store: AsyncCeremonyStore;
@@ -59,6 +65,7 @@ export function createHostBrowserLogin(
   options: HostBrowserLoginOptions,
 ): BrowserLoginTools {
   let built: Promise<BrowserLoginTools> | undefined;
+  const recordings = new RecordedCeremonies(options.store);
   const tools = () =>
     (built ??= (async () => {
       const [
@@ -121,6 +128,11 @@ export function createHostBrowserLogin(
           : {}),
         ...(options.allowUnverified === true ? { allowUnverified: true } : {}),
         ...(options.human ? { human: options.human } : {}),
+        // The compiler refuses a draft asking for inference on a host with no
+        // model. Without this a host that configured one had every such draft
+        // refused anyway, which read as "no model" to a host that had one.
+        ...(options.modelInterpreter ? { modelAvailable: true } : {}),
+        recordings,
         evidenceFor: async (actor, sessionRef) =>
           ledger.get(evidenceKey(actor, sessionRef)),
       });
@@ -136,5 +148,10 @@ export function createHostBrowserLogin(
       (await tools()).sessionStatus(actor, input),
     release: async (actor, input) => (await tools()).release(actor, input),
     backends: async (actor, input) => (await tools()).backends(actor, input),
+    recordLogin: async (actor, input) =>
+      (await tools()).recordLogin(actor, input),
+    readRecording: async (actor, input) =>
+      (await tools()).readRecording(actor, input),
+    recordings,
   };
 }

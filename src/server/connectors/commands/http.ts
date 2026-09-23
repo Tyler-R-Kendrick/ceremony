@@ -127,16 +127,23 @@ export function createConnectorEventsHttp(
 ): (request: Request) => Promise<Response | undefined> {
   return async (request) => {
     const url = new URL(request.url);
-    const route = /^\/events\/([^/]+)$/.exec(
-      url.pathname.startsWith(`${CONNECTOR_HTTP_PREFIX}/`)
-        ? url.pathname.slice(CONNECTOR_HTTP_PREFIX.length)
-        : "",
-    );
+    // `/events/<authority>/<subscriptionId>` is the webhook receiver's own
+    // route shape (`createWebhookReceiver`); the bare authority form stays for
+    // a receiver that routes by authority alone. Accepting only the latter
+    // made every subscription delivery fall through unanswered. The
+    // two-segment form admits raw names only -- no escapes, no dot segment --
+    // so it can name an authority and a subscription and nothing else.
+    const route =
+      /^\/events\/(?:([^/]+)|([a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119})\/[a-zA-Z0-9][a-zA-Z0-9_.:@-]{0,199})$/.exec(
+        url.pathname.startsWith(`${CONNECTOR_HTTP_PREFIX}/`)
+          ? url.pathname.slice(CONNECTOR_HTTP_PREFIX.length)
+          : "",
+      );
     if (!route) return undefined;
     try {
       if (request.method !== "POST") return methodNotAllowed("POST");
       const authority = authoritySchema.safeParse(
-        decodeURIComponent(route[1]!),
+        route[2] ?? decodeURIComponent(route[1]!),
       );
       if (!authority.success || !options.receiveEvent)
         return connectorReply(
@@ -297,7 +304,7 @@ export function createConnectorHttp(
         );
       }
       const connection =
-        /^\/connections\/([^/]+)(?:\/(poll|verify|reconnect|disconnect|invoke|revoke|delete|cancel))?$/.exec(
+        /^\/connections\/([^/]+)(?:\/(poll|verify|reconnect|disconnect|invoke|revoke|revoke-request|revoke-decline|delete|cancel))?$/.exec(
           path,
         );
       if (connection) {
@@ -326,6 +333,14 @@ export function createConnectorHttp(
             return connectorReply(await service.invoke(actor, ref, body));
           case "revoke":
             return connectorReply(await service.revoke(actor, ref, body));
+          case "revoke-request":
+            return connectorReply(
+              await service.requestRevocation(actor, ref, body ?? {}),
+            );
+          case "revoke-decline":
+            return connectorReply(
+              await service.declineRevocation(actor, ref, body),
+            );
           case "delete":
             return connectorReply(await service.delete(actor, ref, body));
         }

@@ -57,6 +57,10 @@ const bring = requiredOf(plan, route); // what the caller must hold up front
 
 `canonicalCeremonyPlan` and `digestCeremonyPlan` make a plan shareable and comparable. A plan carries shape and order only — the schema is strict and has no field a value could live in — so sharing one discloses nothing about the person or the run it came from.
 
+## From a plan to something that runs
+
+A plan has no actions, so nothing executes one. Its executable sibling is a [recorded ceremony](recorded-ceremonies.md). That artifact is captured while the login driver actually completes a login: ordered steps of page pattern, control fingerprint and credential role, with no values in them. It replays with no model and stops by name when the provider has changed. `ceremonyPlanFromRecording` turns a recording back into the plan it implies, so the same questions — what must happen first, and what the caller must bring — can be asked of either.
+
 ## What a discovered plan does not mean
 
 It is a reading of pages, at one moment, within stated bounds. It is not a certification that the provider behaves this way, not a guarantee the ceremony will succeed, and not an endorsement by the provider. Everything discovery could not settle by reading is in `uncertain`, and that list is part of the result rather than a footnote to it.
