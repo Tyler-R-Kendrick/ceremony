@@ -328,7 +328,8 @@ Two more reasons come from what the plan was _not_ given. On an RFC 8628
 **device verification page** (recognised by `deviceVerificationField`: the
 page's own wording, such as "Connect a device" or "Enter the code displayed on
 your device", or a field named `user_code`) the agent types the user code only
-when the plan supplied a `user-code` role; the device code never reaches a
+when the plan supplied a `user-code` role, and - like a secret - only on an
+allowed origin into a form posting to one; the device code never reaches a
 page. Without it the request's reason is `device-code` and its `path` is the
 verification URI - origin and pathname, so the code a
 `verification_uri_complete` query carries is not in it - and a person holding

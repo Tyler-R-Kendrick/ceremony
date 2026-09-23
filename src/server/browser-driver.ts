@@ -270,6 +270,9 @@ export interface CeremonyRunOptions {
   onApplied?: (entry: RecordedTraceEntry) => void;
 }
 
+/** Roles typed only on an allowed origin, into a form posting to one. */
+const originBoundRoles: readonly CeremonyRole[] = [...secretRoles, "user-code"];
+
 /** What a step needing a person ends as, when no person takes it. */
 const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   "human-challenge": "human-challenge",
@@ -689,8 +692,13 @@ export async function runCeremony(
         return unusable();
       // A permitted page can still hand a secret to a third party. Refuse the
       // entry rather than the navigation: by then the value is already sent.
+      //
+      // A device's user code is held to the same rule though it is not a
+      // secret: it is the one-time approval of a device, and typed into a
+      // form that posts elsewhere it approves the device for whoever is
+      // listening there instead.
       if (
-        secretRoles.includes(role) &&
+        originBoundRoles.includes(role) &&
         (!allowed.has(originOf(url)) ||
           (element.submitsTo !== undefined &&
             !allowed.has(originOf(element.submitsTo))))

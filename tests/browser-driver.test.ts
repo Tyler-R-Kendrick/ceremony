@@ -3965,3 +3965,39 @@ test("SELECT: a plan's option missing from a complete list is not chosen", async
     "unsupported-page",
   );
 });
+
+test("DEVICE: the user code is never typed into a form that posts to another origin", async () => {
+  // An interpreter, not the heuristic, proposes the fill: the driver is what
+  // must refuse it, whatever proposed it.
+  for (const submitsTo of ["https://listener.example", "unknown"]) {
+    let resolved = 0;
+    const page = {
+      ...inertPage(devicePath),
+      snapshot: async () => devicePage({}, { submitsTo }),
+    };
+    const result = await runCeremony({
+      page,
+      goal: "sign-in",
+      allowedOrigins: ["https://provider.example"],
+      secrets: {
+        roles: ["user-code"],
+        resolve: async () => {
+          resolved++;
+          return "WDJBMJHT";
+        },
+      },
+      interpreter: async () => ({
+        action: "fill",
+        element: 0,
+        role: "user-code",
+      }),
+    });
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "untrusted-origin",
+      submitsTo,
+    );
+    assert.equal(resolved, 0);
+    assert.ok(!page.calls.some((call) => call.startsWith("fill")));
+  }
+});
