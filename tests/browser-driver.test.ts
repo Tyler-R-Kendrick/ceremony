@@ -540,9 +540,10 @@ test("the heuristic stops at provider walls and does not fill unavailable or cro
 test("the heuristic follows the goal's alternative link without repeating a clicked action", async () => {
   const interpret = createHeuristicInterpreter();
   const here = "https://provider.example/signin";
+  // Registration leaves a sign-in page for its sign-up link before pressing
+  // anything; that order is covered by its own test below.
   for (const [goal, label] of [
     ["sign-in", "Already have an account? Log in"],
-    ["registration", "Create an account"],
     ["authorize", "Allow access"],
     ["obtain-credential", "New personal access token"],
   ] as const) {
@@ -766,6 +767,86 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
     }),
     { action: "blocked", reason: "unsupported-page" },
   );
+});
+
+test("registering from a sign-in page follows the sign-up link before typing anything", async () => {
+  const interpret = createHeuristicInterpreter();
+  const available = [
+    "email",
+    "username",
+    "password",
+    "password-confirm",
+  ] as const;
+  // A sign-in form: filling it would post the brand-new password to the
+  // provider's sign-in endpoint, a wasted and possibly lockout-counting try.
+  const signIn = snapshot({
+    title: "Account access",
+    headings: ["Account access"],
+    elements: [
+      { index: 0, kind: "input", type: "password", label: "Your password" },
+      { index: 1, kind: "input", type: "text", label: "Username" },
+      { index: 2, kind: "button", text: "Next" },
+      { index: 3, kind: "link", text: "Sign up" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: signIn,
+      available,
+      history: [],
+    }),
+    { action: "click", element: 3, note: "Sign up" },
+  );
+  // Once followed, the link is not pressed again from the same page.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: signIn,
+      available,
+      history: [{ action: "click", note: "Sign up", path: signIn.path }],
+    }),
+    { action: "fill", element: 0, role: "password" },
+  );
+  // Signing in is still what a sign-in page is for.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      snapshot: signIn,
+      available,
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "password" },
+  );
+  // A registration form that also links elsewhere is filled, not left.
+  for (const form of [
+    { headings: ["Create your account"] },
+    {
+      headings: ["Welcome"],
+      elements: [
+        { index: 0, kind: "input", type: "password", label: "Password" },
+        { index: 1, kind: "input", type: "password", label: "Password" },
+        { index: 2, kind: "link", text: "Create an account" },
+      ],
+    },
+  ] satisfies Partial<PageSnapshot>[])
+    assert.equal(
+      (
+        await interpret({
+          goal: "registration",
+          snapshot: snapshot({
+            elements: [
+              { index: 0, kind: "input", type: "password", label: "Password" },
+              { index: 1, kind: "link", text: "Sign up" },
+            ],
+            ...form,
+          }),
+          available,
+          history: [],
+        })
+      )?.action,
+      "fill",
+    );
 });
 
 test("a button with the same label on the next document is not already pressed", async () => {

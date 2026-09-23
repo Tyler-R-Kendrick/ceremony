@@ -211,6 +211,32 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (/incorrect|invalid|did not match|wrong password/.test(alerts))
       return { action: "blocked", reason: "credentials-rejected" };
 
+    // Registering, on a page that is not itself a registration form but links
+    // to one: go there first. Filling a sign-in form here would post the
+    // brand-new password to the provider's sign-in endpoint - a wasted
+    // attempt that may count toward a lockout - before the account exists.
+    if (goal === "registration") {
+      const heading =
+        `${snapshot.title} ${snapshot.headings.join(" ")}`.toLowerCase();
+      const passwords = snapshot.elements.filter(
+        (element) => element.kind === "input" && element.type === "password",
+      ).length;
+      const signUp = snapshot.elements.find(
+        (element) =>
+          element.kind === "link" &&
+          toward.registration.test(words(element)) &&
+          !history.some(
+            (entry) => entry.action === "click" && entry.note === element.text,
+          ),
+      );
+      if (
+        signUp &&
+        passwords < 2 &&
+        !/create|sign up|regist|join|new account/.test(heading)
+      )
+        return { action: "click", element: signUp.index, note: signUp.text };
+    }
+
     let seenPassword = false;
     for (const element of snapshot.elements) {
       if (element.kind !== "input" && element.kind !== "select") continue;
