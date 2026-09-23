@@ -311,26 +311,39 @@ export async function stopWindows(
         targetId,
         flatten: false,
       });
-      // Wait for the reply rather than only the dispatch: the close that
-      // follows must not overtake the stop it depends on.
-      const replied = new Promise<void>((resolve) => {
-        const timer = setTimeout(done, 2_000);
-        timer.unref();
-        function done() {
-          clearTimeout(timer);
-          session.off("Target.receivedMessageFromTarget", listener);
-          resolve();
-        }
-        function listener(event: { sessionId: string }) {
-          if (event.sessionId === sessionId) done();
-        }
-        session.on("Target.receivedMessageFromTarget", listener);
-      });
-      await session.send("Target.sendMessageToTarget", {
-        sessionId,
-        message: JSON.stringify({ id: 1, method: "Page.stopLoading" }),
-      });
-      await replied;
+      // A window between documents can answer "Not attached to an active
+      // page" for a moment; that is a stop that did not happen, so it is
+      // asked again, a bounded number of times, before teardown proceeds.
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        // Wait for the reply rather than only the dispatch: the close that
+        // follows must not overtake the stop it depends on.
+        const stopped = new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => done(false), 2_000);
+          timer.unref();
+          function done(ok: boolean) {
+            clearTimeout(timer);
+            session.off("Target.receivedMessageFromTarget", listener);
+            resolve(ok);
+          }
+          function listener(event: { sessionId: string; message: string }) {
+            if (event.sessionId !== sessionId) return;
+            let reply: { id?: number; error?: unknown } = {};
+            try {
+              reply = JSON.parse(event.message) as typeof reply;
+            } catch {
+              return;
+            }
+            if (reply.id === attempt) done(reply.error === undefined);
+          }
+          session.on("Target.receivedMessageFromTarget", listener);
+        });
+        await session.send("Target.sendMessageToTarget", {
+          sessionId,
+          message: JSON.stringify({ id: attempt, method: "Page.stopLoading" }),
+        });
+        if (await stopped) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }),
   );
 }
@@ -394,6 +407,13 @@ export async function watchForeignWindows(
       }
       clearTimeout(timer);
       arrivals = [];
+      await stopWindows(session, windows);
+      // A click the drive made just before it ended can have queued a form
+      // submission into a window that starts only after the first stop - a
+      // navigation that stop could not see. One more sweep, a moment later,
+      // catches what was queued; nothing drives the page by then, so
+      // nothing new is queued after it.
+      await new Promise((resolve) => setTimeout(resolve, 100));
       await stopWindows(session, windows);
     },
   };
