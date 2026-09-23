@@ -931,6 +931,44 @@ test("NEUTRAL-AMBIGUOUS: a neutral step between two connectors is left for a per
   );
 });
 
+test("NEUTRAL-PENDING: a neutral step next to an unresolved step inherits nothing from half the picture", async (t) => {
+  const f = fixture(t, ["alpha", "beta", "beta-eu"]);
+  const draft = await f.runtime.recipes.createDraft(
+    actor,
+    recipe("relay-to-unsettled", [
+      operationStep("create", "alpha.create-client"),
+      operationStep("relay", "common.relay-client", client("create")),
+      operationStep("use", "beta.use-client", client("relay")),
+    ]),
+  );
+  // Its producer is under alpha, but its consumer is a choice between beta
+  // and beta-eu: alpha is only one side, so the relay is not placed.
+  assert.deepEqual(
+    draft.definition.invocations.map((node) => node.connector),
+    ["alpha", undefined, undefined],
+  );
+  assert.deepEqual(draft.diagnostics, [
+    {
+      code: "connector-ambiguous",
+      node: "use",
+      message:
+        "More than one approved connector can run beta/beta-oauth steps: beta, beta-eu. Name the one this step runs under; it decides whose account the step acts with.",
+      choices: ["beta", "beta-eu"],
+    },
+    {
+      code: "connector-inherit-ambiguous",
+      node: "relay",
+      message:
+        "This provider-neutral step exchanges artifacts with steps under an unresolved connector. Name the connector it runs under.",
+      choices: ["alpha"],
+    },
+  ]);
+  assert.deepEqual(draft.connectors?.nodes[1], {
+    node: "relay",
+    source: "unresolved",
+  });
+});
+
 test("SINGLE-ADMITTED: a GitHub App draft that registers an account first is not split, even with an authored connector installed", async (t) => {
   const f = fixture(t, ["alpha", "github", "authored-demo"]);
   const draft = await f.runtime.recipes.createDraft(
