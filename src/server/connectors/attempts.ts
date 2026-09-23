@@ -55,27 +55,39 @@ export function attemptDigest(digest: string, attempt: number): string {
  * Begins the journal entry for the request about to be sent. A returned
  * `prior` is the effect's settled answer (applied, failed, reconciled,
  * indeterminate or in flight); after `MAX_EFFECT_ATTEMPTS` refusals the last
- * `not-applied` is returned as the answer rather than trying forever.
+ * one is returned as the answer rather than trying forever.
  */
 export async function beginAttempt(
   effects: EffectJournalPort,
   intent: EffectIntent,
-  options: { mode: AttemptMode; random: RandomPort },
+  options: {
+    mode: AttemptMode;
+    /** Needed for `each-request`, whose every request is its own identity. */
+    random?: RandomPort;
+    /**
+     * Settled outcomes, besides `not-applied`, that leave the effect still to
+     * be done: an effect whose attempt `failed` without producing anything
+     * usable, such as a registration answered with an unusable client.
+     */
+    retryAfter?: readonly EffectOutcome["status"][];
+  },
 ): Promise<BegunAttempt> {
   if (options.mode === "each-request") {
+    if (!options.random) throw new Error("each-request needs a random port");
     const begun = await effects.begin({
       ...intent,
       digest: sha256(`${intent.digest}\nrequest:${options.random.uuid()}`),
     });
     return { ...begun, attempt: 0 };
   }
+  const retry = new Set(["not-applied", ...(options.retryAfter ?? [])]);
   let last: BegunAttempt | undefined;
   for (let attempt = 0; attempt < MAX_EFFECT_ATTEMPTS; attempt++) {
     const begun = await effects.begin({
       ...intent,
       digest: attemptDigest(intent.digest, attempt),
     });
-    if (!begun.prior || begun.prior.status !== "not-applied")
+    if (!begun.prior || !retry.has(begun.prior.status))
       return { ...begun, attempt };
     last = { ...begun, attempt };
   }

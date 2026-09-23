@@ -13,6 +13,7 @@ import {
 } from "../../persistence/index.js";
 import { ConnectorError } from "../errors.js";
 import type { Clock, RandomPort } from "../ports.js";
+import { SYSTEM_TENANT } from "../../system-tenants.js";
 
 /*
  * Shared plumbing for the connector state layer. Everything durable goes
@@ -24,7 +25,7 @@ import type { Clock, RandomPort } from "../ports.js";
  */
 
 /** Records that must be found from an opaque reference alone live under this fixed tenant. */
-export const INDEX_TENANT = "connector";
+export const INDEX_TENANT = SYSTEM_TENANT.connector;
 export const SCHEMA_VERSION = 1 as const;
 
 const referencePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$/;

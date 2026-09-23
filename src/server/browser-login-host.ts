@@ -8,6 +8,7 @@ import type {
   BrowserLoginToolDeps,
   BrowserLoginTools,
 } from "./browser-login-tools.js";
+import type { BrowserSessionRegistry } from "./browser-sessions.js";
 import type { SessionVerifier } from "./browser-verification.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
 import { RecordedCeremonies } from "./recorded-ceremonies.js";
@@ -61,6 +62,43 @@ export type HostBrowserLoginOptions = {
   reuseVerifiedSessions?: boolean;
 };
 
+/**
+ * The evidence behind each session this process established, so a status
+ * read can recompute `verified` from evidence in hand instead of reporting a
+ * remembered label. Secret-free, and process-local for the same reason the
+ * live browsers are: a session this process no longer holds is reported lost
+ * regardless of what is remembered about it. An entry goes when its session
+ * is released, or a long-running host would keep one for every login it ever
+ * ran.
+ */
+export function withEvidenceLedger(registry: BrowserSessionRegistry) {
+  const ledger = new Map<string, LoginEvidence>();
+  const evidenceKey = (actor: ActorContext, sessionRef: string) =>
+    JSON.stringify([actor.tenantId, actor.subjectId, sessionRef]);
+  const sessions: BrowserSessionRegistry = {
+    ...registry,
+    async recordEvidence(actor, sessionRef, evidence, evidenceRef) {
+      const recorded = await registry.recordEvidence(
+        actor,
+        sessionRef,
+        evidence,
+        evidenceRef,
+      );
+      ledger.set(evidenceKey(actor, sessionRef), evidence);
+      return recorded;
+    },
+    async release(actor, sessionRef, kind) {
+      const released = await registry.release(actor, sessionRef, kind);
+      // Cancelling a run stops dispatch and leaves the session in place.
+      if (kind !== "cancel-run") ledger.delete(evidenceKey(actor, sessionRef));
+      return released;
+    },
+  };
+  const evidenceFor = async (actor: ActorContext, sessionRef: string) =>
+    ledger.get(evidenceKey(actor, sessionRef));
+  return { sessions, evidenceFor };
+}
+
 export function createHostBrowserLogin(
   options: HostBrowserLoginOptions,
 ): BrowserLoginTools {
@@ -84,27 +122,7 @@ export function createHostBrowserLogin(
         import("./browser-state.js"),
       ]);
       const registry = createBrowserSessionRegistry({ store: options.store });
-      // The evidence behind each session this process established, so a
-      // status read can recompute `verified` from evidence in hand instead of
-      // reporting a remembered label. Secret-free, and process-local for the
-      // same reason the live browsers are: a session this process no longer
-      // holds is reported lost regardless of what is remembered about it.
-      const ledger = new Map<string, LoginEvidence>();
-      const evidenceKey = (actor: ActorContext, sessionRef: string) =>
-        JSON.stringify([actor.tenantId, actor.subjectId, sessionRef]);
-      const sessions: typeof registry = {
-        ...registry,
-        async recordEvidence(actor, sessionRef, evidence, evidenceRef) {
-          const recorded = await registry.recordEvidence(
-            actor,
-            sessionRef,
-            evidence,
-            evidenceRef,
-          );
-          ledger.set(evidenceKey(actor, sessionRef), evidence);
-          return recorded;
-        },
-      };
+      const { sessions, evidenceFor } = withEvidenceLedger(registry);
       const service = createBrowserLoginService({
         sessions,
         verifiers: createVerifierRegistry(options.verifiers ?? []),
@@ -133,8 +151,7 @@ export function createHostBrowserLogin(
         // refused anyway, which read as "no model" to a host that had one.
         ...(options.modelInterpreter ? { modelAvailable: true } : {}),
         recordings,
-        evidenceFor: async (actor, sessionRef) =>
-          ledger.get(evidenceKey(actor, sessionRef)),
+        evidenceFor,
       });
     })().catch((error: unknown) => {
       // A failed assembly is retried on the next call rather than cached as

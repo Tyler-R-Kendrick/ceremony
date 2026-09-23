@@ -450,11 +450,21 @@ test("every documented connector route conforms to the OpenAPI description", asy
     ).status,
     200,
   );
+  // Declining is revoke's counterpart: the owner alone may not clear it.
   assert.equal(
     (
       await exchange(harness, "POST", `${connectionPath(ref)}/revoke-decline`, {
         session: SESSION,
         body: { expectedRevision: await revision(harness, ref) },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await exchange(harness, "POST", `${connectionPath(ref)}/revoke-decline`, {
+        session: ADMIN,
+        body: { expectedRevision: await revision(harness, ref, ADMIN) },
       })
     ).status,
     200,

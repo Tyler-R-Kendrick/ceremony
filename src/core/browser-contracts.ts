@@ -664,9 +664,11 @@ export const elementUsableSource = `((element) => {
  * Read-only is the whole point. It is what makes the value one the page
  * *shows* — a provider displaying an issued secret — rather than one somebody
  * typed: the driver never fills a read-only control (`elementUsableSource`
- * refuses it), so nothing the attempt itself supplied, a password included,
- * can come back out through here. A hidden or invisible field is not a value
- * the page is showing anyone, so it is not read either.
+ * refuses it), so no field the attempt itself filled can be read back out
+ * through here. A page can still copy a typed value into a read-only field of
+ * its own; the driver refuses such a value when it compares each read against
+ * what it substituted. A hidden or invisible field is not a value the page is
+ * showing anyone, so it is not read either.
  */
 export const readOnlyValueSource = `((element) => {
   if (!element || !element.isConnected) return null;
