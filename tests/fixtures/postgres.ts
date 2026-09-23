@@ -35,10 +35,8 @@ async function grantDataDirectory(directory: string): Promise<void> {
   await chown(directory, uid, gid);
 }
 
-/** Actual isolated PostgreSQL server, never a production URL or a fake SQL implementation. */
-export async function postgresFixture() {
-  const directory = await mkdtemp(join(tmpdir(), "ceremony-postgres-"));
-  await grantDataDirectory(directory);
+/** A port nothing is listening on at the moment of asking; see `postgresFixture`. */
+async function unusedPort(): Promise<number> {
   const socket = createServer();
   await new Promise<void>((resolve, reject) => {
     socket.once("error", reject);
@@ -47,25 +45,67 @@ export async function postgresFixture() {
   const address = socket.address();
   if (!address || typeof address === "string")
     throw new Error("Fixture port unavailable");
-  const port = address.port;
   await new Promise<void>((resolve, reject) =>
     socket.close((error) => (error ? reject(error) : resolve())),
   );
+  return address.port;
+}
+
+/** What PostgreSQL logs when another socket already holds its port. */
+const portTaken =
+  /could not bind IPv[46] address "[^"]*": Address already in use/;
+
+/** Attempts at starting the server, each on a fresh port. */
+const startAttempts = 4;
+
+/** Actual isolated PostgreSQL server, never a production URL or a fake SQL implementation. */
+export async function postgresFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "ceremony-postgres-"));
+  await grantDataDirectory(directory);
   const password = randomBytes(24).toString("hex");
-  const server = new EmbeddedPostgres({
-    databaseDir: join(directory, "db"),
-    port,
-    user: "ceremony",
-    password,
-    persistent: true,
-    authMethod: "scram-sha-256",
-    postgresFlags: ["-h", "127.0.0.1", "-k", directory],
-    onLog: () => {},
-    onError: () => {},
-  });
+  let log = "";
+  const serverOn = (port: number) =>
+    new EmbeddedPostgres({
+      databaseDir: join(directory, "db"),
+      port,
+      user: "ceremony",
+      password,
+      persistent: true,
+      authMethod: "scram-sha-256",
+      postgresFlags: ["-h", "127.0.0.1", "-k", directory],
+      onLog: (message) => {
+        log += String(message);
+      },
+      onError: () => {},
+    });
+  /*
+   * The port is picked by asking the OS for an unused one and then letting it
+   * go, and PostgreSQL binds it only later, in `start()`, after `initdb` has
+   * run for a second or more. Anything else on the machine that binds or
+   * connects in that gap can be given the same port: a parallel test file's
+   * listener, or an outbound connection's local port, which comes from the
+   * same ephemeral range. PostgreSQL then exits with "could not bind" and
+   * `start()` rejects with nothing at all. No port can be reserved across
+   * that gap and handed over, so the gap is closed from the other side: a
+   * start refused because the port was taken is tried again on a fresh one.
+   * `initdb` never uses the port, so the cluster is initialised once. Any
+   * other failure, or a port taken every time, still fails the fixture.
+   */
+  let port = await unusedPort();
+  let server = serverOn(port);
   try {
     await server.initialise();
-    await server.start();
+    for (let attempt = 1; ; attempt++) {
+      log = "";
+      try {
+        await server.start();
+        break;
+      } catch (error) {
+        if (attempt === startAttempts || !portTaken.test(log)) throw error;
+      }
+      port = await unusedPort();
+      server = serverOn(port);
+    }
   } catch {
     await rm(directory, { recursive: true, force: true });
     throw new Error(
