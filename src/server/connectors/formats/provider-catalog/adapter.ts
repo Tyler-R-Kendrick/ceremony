@@ -54,12 +54,14 @@ import { readBoundedBody, responseIsJson } from "../openapi/serialize.js";
 import {
   CATALOG_ECOSYSTEM,
   CATALOG_IMPORTER_VERSION,
+  CATALOG_SETTINGS,
   configurationFor,
   definitionFor,
   entryFromBinding,
   profileIdFor,
   proxyNativeId,
   PROXY_METHODS,
+  reviewCatalogBinding,
   type ProxyMethod,
 } from "./definition.js";
 import { catalogIssue } from "./issues.js";
@@ -84,10 +86,13 @@ import {
  *
  * It has two shapes. Unpinned (`catalog-http`), it imports catalog documents
  * and Nango `providers.yaml` files into draft definitions, and executes a
- * binding using the entry the reviewer approved into the binding's settings.
+ * binding using the entry review approved into the binding's settings.
  * Pinned (`catalog-<id>`), it is one host-registered provider: the directory
  * shows it as its own connector, and at run time it executes the host's entry
  * and refuses a binding whose settings carry a different one.
+ * Unpinned, the entry a binding carries is the one binding review copied from
+ * the reviewed definition, and its OAuth origins were admitted by host issuer
+ * policy for a person; a reviewer's own settings can supply neither.
  *
  * Either way the rules are those of every other adapter here:
  *
@@ -1093,6 +1098,17 @@ export function createCatalogHttpAdapter(
         ),
         row("delegate", ["There is no third party to delegate to."], true),
       ];
+    },
+
+    // The entry is copied from the reviewed definition by binding review;
+    // a reviewer's free-form settings cannot supply or replace it.
+    reservedSettings: Object.values(CATALOG_SETTINGS),
+
+    async reviewBinding(input) {
+      return reviewCatalogBinding(input, {
+        ...parseOptions,
+        ...(pinned ? { pinned } : {}),
+      });
     },
 
     async import(

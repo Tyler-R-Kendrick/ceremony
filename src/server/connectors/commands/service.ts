@@ -223,6 +223,20 @@ function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
     }
   return [...origins];
 }
+/** A configuration port that answers only for the names given; any other reads as absent. */
+function narrowConfiguration(
+  port: ConfigurationPort,
+  names: ReadonlySet<string>,
+): ConfigurationPort {
+  return {
+    read: async (name) => (names.has(name) ? port.read(name) : undefined),
+    present: async (asked) => {
+      const allowed = asked.filter((name) => names.has(name));
+      return allowed.length ? port.present(allowed) : new Set<string>();
+    },
+    revision: () => port.revision(),
+  };
+}
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
 /**
@@ -428,10 +442,38 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         effects: this.ports.effects,
         evidence: this.ports.evidence,
-        configuration: this.options.configuration(actor),
+        configuration: narrowConfiguration(
+          this.options.configuration(actor),
+          this.configurationNames(binding),
+        ),
         origin: this.origin,
       },
     };
+  }
+
+  /**
+   * The configuration names an adapter may read under a binding. A hosted
+   * deployment's port holds every tenant-visible value the host keeps, so an
+   * adapter sees only what review approved: the binding's names, the names
+   * its host-registered adapter declares, and the client of the issuer
+   * policy a person pinned.
+   */
+  private configurationNames(binding: RuntimeBinding): ReadonlySet<string> {
+    const names = new Set(binding.configuration);
+    for (const item of this.registry.get(binding.adapterId)?.configuration ??
+      [])
+      names.add(item.name);
+    const oauth = binding.settings["oauth"] as
+      { registration?: Record<string, unknown> } | undefined;
+    for (const key of [
+      "clientIdConfiguration",
+      "clientSecretConfiguration",
+      "privateKeyConfiguration",
+    ]) {
+      const name = oauth?.registration?.[key];
+      if (typeof name === "string") names.add(name);
+    }
+    return names;
   }
 
   private adapterFor(binding: string | Pick<RuntimeBinding, "adapterId">) {
@@ -951,6 +993,15 @@ export class ConnectorCommandService {
           ...(approvals.verifier ? { verifier: approvals.verifier } : {}),
         }),
       );
+      // A format whose own settings reach an issuer gets the same gate as a
+      // reviewed issuer policy.
+      if (result.issuer)
+        await this.admitIssuer(
+          actor,
+          definition,
+          result.issuer.issuer,
+          result.issuer.origins,
+        );
       operations = result.operations;
       settings = { ...settings, ...result.settings };
     } else if (approvals.verifier)
@@ -1064,23 +1115,12 @@ export class ConnectorCommandService {
           });
         throw error;
       }
-      let allowed = false;
-      try {
-        allowed = this.policy.allowIssuer
-          ? await this.policy.allowIssuer(actor, {
-              issuer: oauth.issuer,
-              origins: issuerPolicyOrigins(oauth),
-              declaredOrigins: declaredOAuthOrigins(definition),
-              definition,
-            })
-          : false;
-      } catch {
-        allowed = false;
-      }
-      if (!allowed)
-        throw new ConnectorError("network-policy", {
-          detail: "oauth.issuer.not-permitted",
-        });
+      await this.admitIssuer(
+        actor,
+        definition,
+        oauth.issuer,
+        issuerPolicyOrigins(oauth),
+      );
     }
     let source: { bytes: Uint8Array; mediaType: string } | undefined;
     if (adapter.reviewBinding) {
@@ -1103,6 +1143,40 @@ export class ConnectorCommandService {
       }
     }
     return { ...(oauth ? { oauth } : {}), ...(source ? { source } : {}) };
+  }
+
+  /**
+   * Host policy's word on an OAuth issuer and the origins its grants may
+   * contact, for a person reviewing a binding. It is asked whether the
+   * issuer arrives as a reviewed policy or with a format's own settings.
+   */
+  private async admitIssuer(
+    actor: ActorContext,
+    definition: NormalizedDefinition,
+    issuer: string,
+    origins: string[],
+  ): Promise<void> {
+    if (actor.actorKind !== "human")
+      throw new ConnectorError("denied", {
+        detail: "oauth.policy.human-only",
+      });
+    let allowed = false;
+    try {
+      allowed = this.policy.allowIssuer
+        ? await this.policy.allowIssuer(actor, {
+            issuer,
+            origins,
+            declaredOrigins: declaredOAuthOrigins(definition),
+            definition,
+          })
+        : false;
+    } catch {
+      allowed = false;
+    }
+    if (!allowed)
+      throw new ConnectorError("network-policy", {
+        detail: "oauth.issuer.not-permitted",
+      });
   }
 
   private async approveDestinations(

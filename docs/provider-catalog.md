@@ -120,10 +120,16 @@ from Nango.
    as the destination (an exact origin; for a templated host, the concrete
    tenant origin, which is not a declared server, so host policy must admit
    it, for example through the default policy's `destinations` allowlist), the `proxy.get` / `proxy.post` / ... methods with
-   their output classification and consent, and the entry as settings via
-   `providerCatalogBindingSettings(definition)`. The reviewed digest covers
-   the entry. A host-registered provider's own entry is authoritative, so its
-   binding needs no entry in its settings and refuses a different one.
+   their output classification and consent. Review copies the entry from the
+   definition into the binding's settings, where the reviewed digest covers
+   it; a reviewer's own settings cannot carry it (`settings.reserved`), so the
+   endpoints and client-secret names a binding uses are the imported ones. An
+   OAuth entry's issuer and authorization, token and refresh origins go
+   through host policy's `allowIssuer`, for a person only, as a reviewed
+   issuer policy does; a templated host is named `https://*.<suffix>`, which
+   only a host that lists it admits. A host-registered provider's own entry
+   is authoritative, so review refuses a definition carrying a different one.
+   An adapter reads only the configuration names the binding approved.
 3. **Connect.** OAuth authorization code goes through the shared engine in
    `auth/*` (state, S256 PKCE, one-use codes, RFC 9207 `iss` checks). Client
    credentials is acquired at connect. API keys, Basic and bearer credentials
