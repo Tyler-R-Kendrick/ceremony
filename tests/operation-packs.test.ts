@@ -49,6 +49,7 @@ import {
 import {
   OperationPackLimiter,
   processIsolationArguments,
+  runInSandbox,
 } from "../src/server/operation-pack-sandbox.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { loopbackAuthFetch } from "../src/server/public-auth-fetch.js";
@@ -1778,4 +1779,79 @@ test("the isolation flags deny files, processes and workers, and do not restrict
     // Node 22 has no network permission: documented, not relied on.
     net: "connected",
   });
+});
+
+test("a host throw at the stack edge never reaches the bundle as a value", async (t) => {
+  // Regression: an overflow raised inside the host callback behind
+  // ceremony.fetch used to become the fetch promise's rejection value, a
+  // host-realm error whose constructor chain gave the bundle that realm's
+  // Function. The handler primes the stack to the edge, attempting a fetch at
+  // every descent so some call overflows inside the host bridge, then checks
+  // every settled value: none may reach a Function outside the sandbox, and
+  // none may generate code. Without the guard, worker isolation reports
+  // foreign and generated counts above zero.
+  const source = `
+    const operations = {
+      edge: {
+        async run(input, ceremony) {
+          const seen = [];
+          function attempt() {
+            try {
+              const p = ceremony.fetch({ url: "https://x.example/e" });
+              seen.push(p.then(() => undefined, (e) => e));
+            } catch (e) {
+              seen.push(Promise.resolve(e));
+            }
+          }
+          function edge() { attempt(); edge(); }
+          try { edge(); } catch (e) {}
+          const values = await Promise.all(seen);
+          let foreign = 0, generated = 0;
+          for (const v of values) {
+            if (!v || (typeof v !== "object" && typeof v !== "function")) continue;
+            let maker;
+            try { maker = v.constructor.constructor; } catch (e) { continue; }
+            if (typeof maker !== "function") continue;
+            if (maker !== Function) foreign++;
+            try { maker("return 1")(); generated++; } catch (e) {}
+          }
+          return { outputs: { note: values.length + "," + foreign + "," + generated } };
+        },
+      },
+    };
+  `;
+  const limiter = new OperationPackLimiter({ maxConcurrent: 2 });
+  for (const isolation of ["worker", "process"] as const) {
+    const outcome = await runInSandbox({
+      source,
+      entry: "run",
+      operation: "edge",
+      input: "null",
+      timeoutMs: 30_000,
+      memoryMb: 64,
+      outputBytes: 64 * 1024,
+      signal: AbortSignal.timeout(60_000),
+      isolation,
+      limiter,
+      request: async () => ({
+        ok: true,
+        text: JSON.stringify({ status: 200, headers: {}, body: "{}" }),
+      }),
+    });
+    assert.equal(outcome.kind, "done", isolation);
+    const [attempts, foreign, generated] = JSON.parse(
+      (outcome as { text: string }).text,
+    )
+      .outputs.note.split(",")
+      .map(Number);
+    // The handler must actually reach the stack edge for the test to mean
+    // anything, so it overflows many times.
+    assert.ok(attempts > 1000, `${isolation} attempts=${attempts}`);
+    assert.equal(
+      foreign,
+      0,
+      `${isolation} reached a Function outside the sandbox`,
+    );
+    assert.equal(generated, 0, `${isolation} generated code from a string`);
+  }
 });

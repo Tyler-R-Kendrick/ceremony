@@ -23,9 +23,18 @@ import { Worker } from "node:worker_threads";
  * or out of the context. Inputs arrive as JSON text parsed inside the
  * context; results and requests leave as JSON text; the one host-realm
  * function the context holds (`send`) is captured in a closure the bundle
- * cannot name, checks that every argument is a primitive before touching it,
- * and never returns or throws anything. Nothing the bundle can reach
- * therefore belongs to the outer realm. As a second line, the bootstrap
+ * cannot name and takes only primitive arguments. Context code reaches it
+ * only through `relay`, which wraps every call in a try/catch, so a host
+ * throw — a stack overflow raised while entering `send` at the edge, for
+ * one — is swallowed and turned into a context-realm rejection, never handed
+ * back as a value whose constructor chain would give the bundle the outer
+ * realm's `Function`. Nothing the bundle can reach therefore belongs to the
+ * outer realm. Code generation from strings is off in the context, so even a
+ * leaked outer-realm `Function` could not run a string there; the worker
+ * realm cannot have that flag set (`--disallow-code-generation-from-strings`
+ * is rejected in a Worker's `execArgv`), which is why not leaking the object
+ * in the first place is the guarantee, and `process` isolation adds the flag
+ * for the child's own realm. As a further line, the bootstrap
  * drops the outer realm's `require`, `process` and `fetch` globals before the
  * bundle runs, so even an escape finds no module loader there. In worker
  * isolation the worker is still a thread of the host process, so that is
@@ -69,6 +78,14 @@ function boot(data, post, listen) {
     const pending = new Map();
     const get = Map.prototype.get, set = Map.prototype.set, remove = Map.prototype.delete;
     let next = 0;
+    // The one call from context code into the host. A host throw here (a
+    // stack overflow raised inside 'send' at the edge, say) would otherwise
+    // become the outer-realm error the bundle catches, handing it that
+    // realm's Function. Every host call goes through this guard, so a host
+    // throw is swallowed and only false, never a host object, crosses back.
+    function relay(kind, id, text) {
+      try { send(kind, id, text); return true; } catch (error) { return false; }
+    }
     const ceremony = freeze({
       fetch: freeze(function fetch(request) {
         return new P(function (resolve, reject) {
@@ -77,7 +94,10 @@ function boot(data, post, listen) {
           if (typeof text !== "string") { reject(new E("invalid-request")); return; }
           const id = ++next;
           call(set, pending, [id, { resolve, reject }]);
-          send("request", id, text);
+          if (!relay("request", id, text)) {
+            call(remove, pending, [id]);
+            reject(new E("request-failed"));
+          }
         });
       }),
     });
@@ -103,19 +123,19 @@ function boot(data, post, listen) {
               verify: Boolean(value) && typeof value.verify === "function",
             };
           }
-        send("done", 0, stringify(found));
+        relay("done", 0, stringify(found));
         return;
       }
       const operation = operations && call(own, operations, [name]) ? operations[name] : undefined;
       const handler = operation && typeof operation[entry] === "function" ? operation[entry] : undefined;
-      if (!handler) { send("error", 0, "missing-entry"); return; }
+      if (!handler) { relay("error", 0, "missing-entry"); return; }
       new P(function (resolve) { resolve(call(handler, undefined, [parse(inputText), ceremony])); }).then(
         function (value) {
           let text;
-          try { text = stringify(value === undefined ? null : value); } catch (error) { send("error", 0, ""); return; }
-          send("done", 0, typeof text === "string" ? text : "null");
+          try { text = stringify(value === undefined ? null : value); } catch (error) { relay("error", 0, ""); return; }
+          relay("done", 0, typeof text === "string" ? text : "null");
         },
-        function () { send("error", 0, ""); },
+        function () { relay("error", 0, ""); },
       );
     }
     return freeze({ start, settle });

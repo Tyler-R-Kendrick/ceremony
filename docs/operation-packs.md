@@ -306,9 +306,18 @@ promise that never settles, runaway allocation.
 reaches any object from the realm that created it can climb to that realm's
 `Function` and run with its authority. The containment is:
 
-1. **Only primitives cross.** Input goes in as JSON text parsed inside the context. Requests and results come out as JSON text. The one worker function the context holds is captured in a closure the bundle cannot name. It type-checks its arguments before touching them and never returns or throws a worker object. No worker-realm object is reachable from the bundle. The tests try `constructor.constructor`, the `AsyncFunction` constructor, `eval`, `import()`, `WebAssembly.Module` and stack-frame inspection, and all of them are refused.
+1. **Only primitives cross.** Input goes in as JSON text parsed inside the context. Requests and results come out as JSON text. The one worker function the context holds is captured in a closure the bundle cannot name and takes only primitive arguments. Context code reaches it only through a guard that wraps every call in a try/catch, so a throw from the worker side — including a stack overflow raised while entering that function at the edge — is swallowed and becomes a context-realm rejection (`request-failed`), never a value the bundle can read. No worker-realm object is reachable from the bundle. The tests try `constructor.constructor`, the `AsyncFunction` constructor, `eval`, `import()`, `WebAssembly.Module`, stack-frame inspection, and forcing that host callback to throw at the stack edge, and all of them are refused.
 2. **The worker has no loader.** Before the bundle runs, the bootstrap deletes the worker realm's `require`, `module` and `fetch` globals and replaces `process`, so even an escape into the worker realm finds no module loader there.
 3. **The capability surface is one function.** There are no timers, no `fetch`, no `console` and no filesystem. The only authority is `ceremony.fetch`, which the host serves under the rules above.
+
+Code generation from strings is off in the context, so even a leaked
+outer-realm `Function` cannot compile a string there. The worker realm itself
+cannot be started with `--disallow-code-generation-from-strings` (Node rejects
+that flag in a Worker's `execArgv`, and setting the V8 flag at runtime does
+not take), so blocking codegen in the worker realm is not available; keeping
+worker-realm objects from ever reaching the bundle (point 1) is what contains
+this. `process` isolation does pass the flag, so the child's own realm blocks
+codegen too.
 
 The limits are real, and in `worker` isolation they are not a process
 boundary. A worker thread shares the host's process, so a V8 or Node
