@@ -6,6 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import {
+  readOnlyValueSource,
   snapshotPageSource,
   type PageSnapshot,
 } from "../../src/core/browser-contracts.js";
@@ -201,6 +202,23 @@ export function createAgentBrowserPage(
     },
     click: async (element) => {
       await call("click", selector(element.index));
+    },
+    // What a read-only field shows, under the same rule the Playwright
+    // adapter reads by: a visible, enabled, read-only input or nothing.
+    readIssued: async (element) => {
+      const { value } = JSON.parse(
+        await call(
+          "eval",
+          `(() => {
+            const field = document.querySelector(${JSON.stringify(
+              selector(element.index),
+            )});
+            const value = (${readOnlyValueSource})(field);
+            return { value: typeof value === "string" ? value : null };
+          })()`,
+        ),
+      ) as { value: unknown };
+      return typeof value === "string" ? value : undefined;
     },
     settle: async () => {
       await call("wait", String(settleMs));
