@@ -322,7 +322,6 @@ export function createCatalogHttpAdapter(
     oidc = false,
   ): Promise<OAuthContext> {
     const allowLoopbackHttp = loopbackAllowed(ctx);
-
     const resolve = (template: string) =>
       resolveUrlTemplate(entry, template, values, { allowLoopbackHttp }).url;
     const token = resolve(auth.tokenUrl);
@@ -1086,7 +1085,7 @@ export function createCatalogHttpAdapter(
             ? [reason]
             : [
                 "OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry. Only an openid request, for an entry that names its issuer, reads the issuer's metadata, which must agree with the entry, to verify the ID token.",
-                "Client credentials is a local grant request pending the shared engine's own.",
+                "Client credentials is the shared engine's grant (grantClientCredentials, renewClientCredentials), with the entry's token parameters.",
                 "API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.",
               ],
           blocked,
