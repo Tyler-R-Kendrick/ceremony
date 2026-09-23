@@ -748,6 +748,44 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
     }),
     { action: "wait" },
   );
+  // "Agree" alone is not terms: an optional marketing or data-sharing box
+  // worded as an agreement is never ticked, even to register.
+  for (const label of [
+    "I agree to receive marketing emails and share my data with partners",
+    "I accept promotional offers",
+    "I agree to the terms of the newsletter",
+    "Accept product updates",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "wait" },
+      label,
+    );
+  for (const label of [
+    "I accept the terms and the privacy policy",
+    "I confirm I am old enough to use this service",
+    "I am 16 years of age or older",
+    "I accept the EULA",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "check", element: 0 },
+      label,
+    );
   const inbox = snapshot({
     title: "Almost there",
     headings: ["Check your inbox to confirm the account."],
@@ -772,6 +810,78 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
       history: waited(4),
     }),
     { action: "blocked", reason: "unsupported-page" },
+  );
+});
+
+test("the sign-up link is only for starting registration, and only a plain one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const available = ["email", "password", "password-confirm"] as const;
+  // Someone else's sign-up, or a passwordless one, is not the way in.
+  const offers = snapshot({
+    title: "Get started with Acme",
+    headings: ["Get started with Acme"],
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email" },
+      { index: 1, kind: "input", type: "password", label: "Password" },
+      { index: 2, kind: "link", text: "Sign up with Google" },
+      { index: 3, kind: "link", text: "Sign up with a passkey" },
+      { index: 4, kind: "button", text: "Continue" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: offers,
+      available,
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // A sign-in page reached after confirming the address is signed in to;
+  // following its sign-up link would make a second account.
+  const confirmed = snapshot({
+    title: "Sign in",
+    headings: ["Your email is confirmed", "Sign in"],
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email" },
+      { index: 1, kind: "input", type: "password", label: "Password" },
+      { index: 2, kind: "button", text: "Sign in" },
+      { index: 3, kind: "link", text: "Create an account" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: confirmed,
+      available,
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // Nor once registration has typed anything, even on an unmarked page.
+  const plain = snapshot({
+    ...confirmed,
+    headings: ["Sign in"],
+    path: "/login",
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: plain,
+      available,
+      history: [{ action: "fill", note: "password-confirm", path: "/signup" }],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // Before any of that, the same page is left for its sign-up link.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: plain,
+      available,
+      history: [],
+    }),
+    { action: "click", element: 3, note: "Create an account" },
   );
 });
 
@@ -1208,6 +1318,147 @@ test("after a provider fault the heuristic retries through the provider's own li
   );
 });
 
+test("a provider's retry link is followed once per run, and never into a lockout", async () => {
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/signin";
+  const down = snapshot({
+    alerts: ["Sign-in is temporarily unavailable. Try again."],
+    elements: [{ index: 0, kind: "link", text: "Back to sign in" }],
+  });
+  // After one retry that failed again, the provider is down, not flaky:
+  // looping would post the password to it once per lap.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [
+        { action: "click", note: "Sign in", path },
+        { action: "click", note: "Back to sign in", path },
+        { action: "fill", path },
+        { action: "fill", path },
+        { action: "click", note: "Sign in", path },
+      ],
+      snapshot: down,
+    }),
+    { action: "click", element: 0, note: "Back to sign in" },
+  );
+  // Nor is the submit offered again on the form after a second retry would
+  // have reset it: the first retry is the only one that counts.
+  const form = snapshot({
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        label: "Username",
+        filled: true,
+      },
+      {
+        index: 1,
+        kind: "input",
+        type: "password",
+        label: "Password",
+        filled: true,
+      },
+      { index: 2, kind: "button", text: "Sign in" },
+    ],
+  });
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [
+        { action: "click", note: "Try again", path },
+        { action: "click", note: "Sign in", path },
+        { action: "click", note: "Try again", path },
+        { action: "fill", path },
+        { action: "fill", path },
+      ],
+      snapshot: form,
+    }),
+    { action: "click", element: 2, note: "Sign in" },
+  );
+  // "Try again later" after too many attempts is a lockout.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [{ action: "click", note: "Sign in", path }],
+      snapshot: snapshot({
+        alerts: ["Too many attempts. Try again later."],
+        elements: [{ index: 0, kind: "link", text: "Try again" }],
+      }),
+    }),
+    { action: "click", element: 0, note: "Try again" },
+  );
+});
+
+test("codes that are not a sign-in code never receive one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const available = ["email", "password", "totp-code"] as const;
+  for (const field of [
+    { label: "ZIP code" },
+    { label: "Promo code" },
+    { label: "Referral code (optional)" },
+    { label: "Code", autocomplete: "postal-code" },
+    { label: "Verification", autocomplete: "tel" },
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        available,
+        history: [],
+        snapshot: snapshot({
+          headings: ["Create your account"],
+          elements: [
+            { index: 0, kind: "input", type: "text", ...field },
+            { index: 1, kind: "button", text: "Create account" },
+          ],
+        }),
+      }),
+      { action: "click", element: 1, note: "Create account" },
+      field.label,
+    );
+});
+
+test("a one-time code the page says was emailed is the emailed one", async () => {
+  const interpret = createHeuristicInterpreter();
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["verification-code", "totp-code"],
+      history: [],
+      snapshot: snapshot({
+        headings: ["Enter the one-time code we emailed to a•••@example.test"],
+        elements: [
+          { index: 0, kind: "input", type: "text", label: "One-time code" },
+          { index: 1, kind: "button", text: "Verify" },
+        ],
+      }),
+    }),
+    { action: "fill", element: 0, role: "verification-code" },
+  );
+});
+
+test("signing in never follows a passkey or social sign-in link", async () => {
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/signin";
+  const result = await interpret({
+    goal: "sign-in",
+    available: ["username", "password"],
+    history: [{ action: "click", note: "Sign in", path }],
+    snapshot: snapshot({
+      elements: [
+        { index: 0, kind: "button", text: "Sign in" },
+        { index: 1, kind: "link", text: "Sign in with a passkey" },
+        { index: 2, kind: "link", text: "Sign in with Google" },
+      ],
+    }),
+  });
+  assert.notEqual(result?.action === "click" ? result.element : -1, 1);
+  assert.notEqual(result?.action === "click" ? result.element : -1, 2);
+});
+
 test("a passkey hint on an identifier field alone is conditional UI, not a prompt", async () => {
   // Step one of an identifier-first page asks for the address only, and a
   // provider offering conditional passkey UI puts `webauthn` on that field.
@@ -1435,6 +1686,52 @@ test("the heuristic presses 'Generate' as a way forward, once per document", asy
     )?.action,
     "click",
   );
+});
+
+test("the heuristic presses 'Generate' only to obtain a credential, and never one that replaces or removes one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const settings = (text: string) =>
+    snapshot({
+      path: "https://provider.example/settings/security",
+      title: "Security",
+      headings: ["Security"],
+      elements: [{ index: 0, kind: "button", text }],
+    });
+  // Signing in, a page whose only button generates something is not a way
+  // forward: on a real provider it replaces what the person already has.
+  for (const text of ["Generate new recovery codes", "Regenerate token"])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "sign-in",
+          available: ["password"],
+          history: [],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
+  // Even to obtain a credential, one that revokes or replaces an existing
+  // one is never pressed.
+  for (const text of [
+    "Regenerate token",
+    "Revoke token",
+    "Reset client secret",
+    "Delete application",
+  ])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "obtain-credential",
+          available: [],
+          history: [{ action: "fill", path: settings(text).path }],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
 });
 
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
@@ -2804,6 +3101,24 @@ test("ISSUED-UNREAD: a completion claim is refused while a declared value is sti
   assert.equal(kept, 0);
 });
 
+test("ISSUED-UNREAD: a callback does not complete the attempt while a declared value is still unread", async () => {
+  const result = await runCeremony({
+    page: inertPage("https://host.example/callback?code=canary-code-1&state=s"),
+    interpreter: async () => ({ action: "done" }),
+    goal: "obtain-credential",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    redirectUri: "https://host.example/callback",
+    issued: {
+      fields: issuedFields,
+      keep: async () => assert.fail("nothing was shown to keep"),
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "unverified");
+  assert.equal(JSON.stringify(result).includes("canary-code-1"), false);
+});
+
 test("ISSUED-AMBIGUOUS: a label that matches two fields identifies neither, and nothing is kept", async () => {
   const page = issuingPage({ duplicateSecret: true });
   let kept = 0;
@@ -2894,6 +3209,79 @@ test("ISSUED-STALE: a read the adapter refuses takes nothing, and undeclared fie
   assert.deepEqual(undeclared.reads, []);
 });
 
+test("ISSUED-TYPED: a read-only field showing a value the driver typed is never kept as an issued one", async () => {
+  const password = "hunter2-typed-pass";
+  // Each field that displays something the driver typed: the password itself,
+  // and a longer value with the password inside it.
+  for (const echoed of [
+    { "client-id": issuedClientId, "client-secret": password },
+    { "client-id": `id-${password}`, "client-secret": issuedCanary },
+  ]) {
+    let signedIn = false;
+    const page: CeremonyPage = {
+      ...inertPage(),
+      snapshot: async () =>
+        signedIn
+          ? snapshot({
+              path: "https://provider.example/settings/developers/oauth-apps/1",
+              headings: ["Example app"],
+              elements: [
+                {
+                  index: 0,
+                  kind: "input",
+                  type: "text",
+                  label: "Client ID",
+                  filled: true,
+                },
+                {
+                  index: 1,
+                  kind: "input",
+                  type: "text",
+                  label: "Client secret",
+                  filled: true,
+                },
+              ],
+            })
+          : snapshot(),
+      click: async (element) => {
+        if (element.text === "Sign in") signedIn = true;
+      },
+      readIssued: async (element) =>
+        element.label === "Client ID"
+          ? echoed["client-id"]
+          : element.label === "Client secret"
+            ? echoed["client-secret"]
+            : undefined,
+    };
+    let filled = false;
+    const result = await runCeremony({
+      page,
+      interpreter: async ({ snapshot: current }) => {
+        const signIn = current.elements.find((e) => e.text === "Sign in");
+        if (!signIn) return { action: "done" };
+        if (!filled) {
+          filled = true;
+          return { action: "fill", element: 1, role: "password" };
+        }
+        return { action: "click", element: signIn.index };
+      },
+      goal: "obtain-credential",
+      secrets: createSecrets({ password }),
+      allowedOrigins: ["https://provider.example"],
+      issued: {
+        fields: issuedFields,
+        keep: async () => assert.fail("a typed value may not be kept"),
+      },
+      verify: async () => true,
+    });
+    assert.equal(result.status, "unverified");
+    assert.equal(
+      result.transcript.some((step) => step.action === "kept"),
+      false,
+    );
+  }
+});
+
 test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on the observed document", async () => {
   const graph = handleGraph({ displays: { 0: "displayed-value-1" } });
   const page = createPlaywrightCeremonyPage(graph.page);
@@ -2971,7 +3359,67 @@ function choicePage(): CeremonyPage & {
   };
 }
 
-test("SELECT: the driver chooses a listed option by its label, and records the choice", async () => {
+test("SELECT: on a live drive only the plan's choice is made, however the interpreter proposes another", async () => {
+  // The interpreter picks a listed country the plan never chose. A model
+  // does not decide where somebody's account lives.
+  for (const optional of [false, true]) {
+    const page = choicePage();
+    const snapshotOf = page.snapshot;
+    if (optional)
+      page.snapshot = async () => {
+        const seen = await snapshotOf();
+        delete seen.elements[0]!.required;
+        return seen;
+      };
+    const result = await runCeremony({
+      page,
+      goal: "registration",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({}),
+      interpreter: async () => ({
+        action: "select",
+        element: 0,
+        option: "Japan",
+      }),
+    });
+    assert.equal(page.chosen(), undefined, `optional: ${optional}`);
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "unsupported-page",
+    );
+  }
+  // A fallback interpreter repairing a replay is no different: only the
+  // recording's own steps carry a reviewed choice.
+  const page = choicePage();
+  // Recorded on another page, so the sign-up page drifts to the fallback.
+  const elsewhere = {
+    ...(await page.snapshot()),
+    path: "https://provider.example/other",
+  };
+  const repaired = await runRecordedCeremony({
+    page,
+    recording: compileRecording(
+      [{ snapshot: elsewhere, action: "click", element: 1 }],
+      {
+        id: "region-click",
+        title: "Register",
+        goal: "registration",
+        entryUrl: "https://provider.example/other",
+        origins: ["https://provider.example"],
+        recordedWith: "deterministic",
+        excluded: [],
+      },
+    ),
+    fallback: async () => ({ action: "select", element: 0, option: "Japan" }),
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+  });
+  assert.equal(page.chosen(), undefined);
+  assert.ok(repaired.interpreterCalls > 0);
+});
+
+test("SELECT: the driver chooses the plan's option by its label, and records the choice", async () => {
   const page = choicePage();
   const applied: RecordedTraceEntry[] = [];
   let asked = false;
@@ -2980,6 +3428,7 @@ test("SELECT: the driver chooses a listed option by its label, and records the c
     goal: "registration",
     allowedOrigins: ["https://provider.example"],
     secrets: createSecrets({}),
+    choices: { "Country or region": "Canada" },
     interpreter: async ({ snapshot: current }) => {
       if (current.elements[0]?.filled) return { action: "done" };
       asked = true;
@@ -3189,7 +3638,11 @@ test("SELECT: a report that a choice is needed is not a handoff where no select 
     },
   });
   assert.equal(asked, 0);
-  assert.equal(result.status === "blocked" && result.reason, "choice-required");
+  // Nor is the claim passed on: the caller is not told a person could help.
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
 });
 
 test("SELECT: a plan's choice reaches past the snapshot's first twenty options; nothing else does", async () => {
@@ -3245,7 +3698,7 @@ test("SELECT: a plan's choice reaches past the snapshot's first twenty options; 
         : { action: "select", element: 0, option: "Uruguay" },
   });
   assert.deepEqual(long.chosen, ["Uruguay"]);
-  // Without a plan choice, only a listed option can be chosen.
+  // Without a plan choice, a live drive chooses nothing.
   long.chosen = [];
   const free = await runCeremony({
     page: long,
@@ -3387,6 +3840,24 @@ test("DEVICE: a verification page is recognised by what it says and what its fie
     )?.index,
     0,
   );
+  // A lone identifier under a device heading is the sign-in step before the
+  // verification page, never the code field: by type, by autocomplete, or by
+  // what it is called.
+  for (const identifier of [
+    { name: "login", type: "email", label: "Continue with" },
+    { name: "id", type: "text", autocomplete: "username", label: "You" },
+    { name: "id", type: "text", autocomplete: "email", label: "You" },
+    { name: "who", type: "text", label: "Email or username" },
+    { name: "phone", type: "tel", label: "Number" },
+    { name: "account", type: "text", label: "Account" },
+  ])
+    assert.equal(
+      deviceVerificationField(
+        devicePage({ title: "Connect a device", headings: [] }, identifier),
+      ),
+      undefined,
+      JSON.stringify(identifier),
+    );
   // A "device code" on a settings page is not a verification page.
   assert.equal(
     deviceVerificationField(
@@ -3533,12 +4004,11 @@ test("DEVICE: a plan holding the user code is not handed off, and nobody to ask 
     human,
   });
   assert.equal(asked, 0);
-  assert.equal(
-    held.status === "blocked" && held.reason,
-    "device-code-required",
-  );
-  // The same report on a page that is not a device page asks nobody either.
-  await runCeremony({
+  // The claim is not passed on: nobody is needed, the page went unread.
+  assert.equal(held.status === "blocked" && held.reason, "unsupported-page");
+  // The same report on a page that is not a device page asks nobody either,
+  // and says nothing about a person.
+  const elsewhere = await runCeremony({
     page: inertPage(),
     goal: "sign-in",
     allowedOrigins: ["https://provider.example"],
@@ -3550,6 +4020,10 @@ test("DEVICE: a plan holding the user code is not handed off, and nobody to ask 
     human,
   });
   assert.equal(asked, 0);
+  assert.equal(
+    elsewhere.status === "blocked" && elsewhere.reason,
+    "unsupported-page",
+  );
   const alone = await runCeremony({
     page: { ...inertPage(devicePath), snapshot: async () => devicePage() },
     goal: "sign-in",
@@ -3764,4 +4238,154 @@ test("the interpreter prompt offers choosing, names the plan's choices and kept 
     }),
     /keeps what these read-only fields show/,
   );
+});
+
+test("ISSUED-HELD: a value the attempt typed or holds is never kept as an issued one", async () => {
+  // The password went into a field labelled "Client secret", which the page
+  // then made read-only. Reading it back must not send the password to the
+  // plan's sink as though the provider had issued it.
+  const password = "pw-typed-then-shown-5c1c";
+  for (const held of [{ protectedValues: [password] }, {}]) {
+    let typed = false;
+    const page: CeremonyPage & { calls: string[] } = {
+      ...inertPage("https://provider.example/settings/apps/1"),
+      snapshot: async () =>
+        snapshot({
+          path: "https://provider.example/settings/apps/1",
+          title: "Example app",
+          headings: ["Example app"],
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "text",
+              label: "Client ID",
+              readOnly: true,
+              filled: true,
+            },
+            {
+              index: 1,
+              kind: "input",
+              type: "password",
+              label: "Client secret",
+              ...(typed ? { readOnly: true, filled: true } : {}),
+            },
+          ],
+        }),
+      fill: async () => {
+        typed = true;
+      },
+      readIssued: async (element) =>
+        element.label === "Client ID"
+          ? "oac_client-held-1"
+          : typed
+            ? password
+            : undefined,
+    };
+    const kept: unknown[] = [];
+    const result = await runCeremony({
+      page,
+      goal: "obtain-credential",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({ password }),
+      ...held,
+      interpreter: async ({ snapshot: current }) =>
+        current.elements[1]?.filled
+          ? { action: "done" }
+          : { action: "fill", element: 1, role: "password" },
+      issued: {
+        fields: issuedFields,
+        keep: async (values) => {
+          kept.push(values);
+        },
+      },
+      verify: async () => true,
+    });
+    assert.deepEqual(kept, [], JSON.stringify(held));
+    assert.equal(result.status, "unverified");
+  }
+});
+
+test("SELECT: options are listed by the label a browser shows and matches, not by their raw text", () => {
+  const { document } = parseHTML(
+    `<!doctype html><html><body><form action="/signup">
+       <label for="c">Country or region</label>
+       <select id="c" name="country">
+         <option value="">Select a country</option>
+         <option value="CA" label="Canada">CA — ignored text</option>
+         <option value="JP">  Japan  </option>
+       </select>
+     </form></body></html>`,
+  );
+  document.documentElement.setAttribute(
+    "data-ceremony-href",
+    "https://provider.example/signup",
+  );
+  const [choice] = snapshotDocument(
+    document as unknown as Document,
+    snapshotSelectors,
+  ).elements;
+  // `selectOption({ label: "Canada" })` matches the attribute; the text
+  // beside it is not what a browser shows or matches.
+  assert.deepEqual(choice?.options, ["Select a country", "Canada", "Japan"]);
+});
+
+test("SELECT: a plan's option missing from a complete list is not chosen", async () => {
+  const page = choicePage();
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    // The page lists three options, which is the whole control: the plan's
+    // country is not among them.
+    choices: { "Country or region": "Uruguay" },
+    interpreter: async () => ({
+      action: "select",
+      element: 0,
+      option: "Uruguay",
+    }),
+  });
+  assert.equal(page.chosen(), undefined);
+  assert.ok(!page.calls.some((call) => call.startsWith("select")));
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+});
+
+test("DEVICE: the user code is never typed into a form that posts to another origin", async () => {
+  // An interpreter, not the heuristic, proposes the fill: the driver is what
+  // must refuse it, whatever proposed it.
+  for (const submitsTo of ["https://listener.example", "unknown"]) {
+    let resolved = 0;
+    const page = {
+      ...inertPage(devicePath),
+      snapshot: async () => devicePage({}, { submitsTo }),
+    };
+    const result = await runCeremony({
+      page,
+      goal: "sign-in",
+      allowedOrigins: ["https://provider.example"],
+      secrets: {
+        roles: ["user-code"],
+        resolve: async () => {
+          resolved++;
+          return "WDJBMJHT";
+        },
+      },
+      interpreter: async () => ({
+        action: "fill",
+        element: 0,
+        role: "user-code",
+      }),
+    });
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "untrusted-origin",
+      submitsTo,
+    );
+    assert.equal(resolved, 0);
+    assert.ok(!page.calls.some((call) => call.startsWith("fill")));
+  }
 });

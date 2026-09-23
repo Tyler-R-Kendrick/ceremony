@@ -163,7 +163,7 @@ const connectorLines: Record<string, string> = {
   exchange: "Connector: code + PKCE verifier → access token",
   "subject-matches": "Verified: token is for the account just made ✓",
   "subject-is-person": "Verified: token is for the person's own account ✓",
-  "secret-kept": "Agent: keep the client secret (captured, never shown)",
+  "secret-kept": "Driver: client ID + secret kept, never shown to agent",
   "b-checked-client": "Connector: B saved the client after A accepted it ✓",
   "b-signed-in": "Verified: B signed the person in through A ✓",
   "replay-refused": "Verified: same code refused on replay ✓",

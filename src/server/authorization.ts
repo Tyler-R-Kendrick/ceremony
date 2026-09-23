@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { AuthorizationError, type ActorContext } from "./identity.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 /** Shared subject-scoped fixed window; no process-local rate-limit authority. */
 export async function reserveRequest(
@@ -22,7 +23,7 @@ export async function reserveRequest(
       .update(JSON.stringify([actor.tenantId, actor.subjectId]))
       .digest("hex");
     const key = {
-      tenant: "identity",
+      tenant: SYSTEM_TENANT.identity,
       kind: "budget" as const,
       id: `request:${id}`,
     };

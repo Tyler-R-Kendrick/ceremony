@@ -432,3 +432,24 @@ describe("RECORDED-HOST: record, publish by a person, replay with no model", () 
       );
   });
 });
+
+describe("RECORDED-HOST: a recording name the format cannot hold", () => {
+  test("is refused before the login runs, so a login is never lost to it", async () => {
+    const h = host();
+    after(() => h.store.close());
+    for (const recording of [
+      { id: "fixture-idp-sign-in", title: "Acme login for ops@acme.example" },
+      { id: "fixture-idp-sign-in", title: "Acme login " },
+      { id: "fixture-idp-sign-in", title: "Acme tenant 12345678" },
+      { id: "constructor", title: "Fixture IdP sign-in" },
+    ]) {
+      const recorded = await h.tool(agent, "browser_record_login", {
+        connectorId: "fixture-idp",
+        draft: draft("host-model"),
+        recording,
+      });
+      assert.equal(recorded.isError, true, recorded.text);
+    }
+    assert.equal(h.model.calls, 0, "no login was started");
+  });
+});

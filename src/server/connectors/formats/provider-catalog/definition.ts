@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import {
+  canonicalConnectorJson,
   completeDimensions,
   normalizedDefinitionSchema,
   normalizedDigestOf,
@@ -8,9 +10,15 @@ import {
   type NativeCapability,
   type NormalizedDefinition,
 } from "../../../../core/connectors/index.js";
-import type { RuntimeBinding } from "../../binding.js";
+import type { BindingReview, BindingReviewResult } from "../../adapter.js";
+import {
+  boundOperationSchema,
+  type BoundOperation,
+  type RuntimeBinding,
+} from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import {
+  analyzeUrlTemplate,
   clientConfigurationNames,
   entryDigest,
   entrySchemaFor,
@@ -28,9 +36,11 @@ import {
  * destination (an exact origin, host policy deciding its network class), the
  * methods, their output classification and consent, exactly as for any other
  * imported description. The entry itself travels in the definition's native
- * extensions for review, and the reviewer copies it into the binding's
- * settings with `providerCatalogBindingSettings`, where the review digest
- * covers it like every other approved setting.
+ * extensions for review, and binding review copies it from there into the
+ * binding's settings (`reviewCatalogBinding`), where the review digest covers
+ * it like every other approved setting. A reviewer's free-form settings never
+ * carry it: its endpoints and client-secret names are the imported ones, and
+ * its OAuth origins go through host issuer policy like any reviewed issuer.
  */
 
 export const CATALOG_ECOSYSTEM = "provider-catalog";
@@ -293,9 +303,10 @@ export function providerCatalogBindingSettings(
 
 function parseEntryFromDefinition(
   definition: NormalizedDefinition,
+  options: ParseOptions = { allowLoopbackHttp: true },
 ): ProviderCatalogEntry {
   const raw = definition.nativeExtensions[CATALOG_EXTENSION];
-  const parsed = entrySchemaFor({ allowLoopbackHttp: true }).safeParse(raw);
+  const parsed = entrySchemaFor(options).safeParse(raw);
   if (!parsed.success)
     throw new ConnectorError("invalid-request", {
       detail: "catalog.definition.entry-missing",
@@ -333,4 +344,119 @@ export function entryFromBinding(
       detail: "catalog.binding.entry-digest",
     });
   return parsed.data;
+}
+
+/**
+ * The origin a URL template reaches. A host label a connection fills is
+ * written `*`, so `https://*.example.com` is a family of origins no exact
+ * origin matches: only a host policy that names it admits it.
+ */
+function templateOrigin(template: string, options: ParseOptions): string {
+  const analysis = analyzeUrlTemplate(template, options);
+  if ("error" in analysis)
+    throw new ConnectorError("invalid-request", { detail: analysis.error });
+  if (!analysis.hostFields.length) return new URL(template).origin;
+  const host = [...analysis.hostFields.map(() => "*"), analysis.hostSuffix];
+  const defaultPort = analysis.scheme === "https" ? "443" : "80";
+  const port =
+    analysis.port && analysis.port !== defaultPort ? `:${analysis.port}` : "";
+  return `${analysis.scheme}://${host.join(".")}${port}`;
+}
+
+/** The issuer and every origin an entry's OAuth grants contact; absent for other modes. */
+function oauthOrigins(
+  entry: ProviderCatalogEntry,
+  options: ParseOptions,
+): BindingReviewResult["issuer"] {
+  const auth = entry.auth;
+  if (
+    auth.mode !== "oauth2-authorization-code" &&
+    auth.mode !== "oauth2-client-credentials"
+  )
+    return undefined;
+  const token = templateOrigin(auth.tokenUrl, options);
+  const endpoints =
+    auth.mode === "oauth2-authorization-code"
+      ? // The key set an openid authorization verifies ID tokens with is
+        // contacted too, so host policy judges its origin with the rest.
+        [auth.authorizationUrl, auth.tokenUrl, auth.refreshUrl, auth.jwksUrl]
+      : [auth.tokenUrl];
+  const issuer =
+    auth.mode === "oauth2-authorization-code" && auth.issuer
+      ? auth.issuer
+      : token;
+  const origins = new Set<string>([
+    auth.mode === "oauth2-authorization-code" && auth.issuer
+      ? new URL(auth.issuer).origin
+      : token,
+  ]);
+  for (const url of endpoints)
+    if (url) origins.add(templateOrigin(url, options));
+  return { issuer, origins: [...origins] };
+}
+
+/**
+ * Binding review for a catalog definition. The entry comes from the
+ * definition the reviewer is approving, never from their settings, so the
+ * endpoints and client-secret names a binding executes are the ones that were
+ * imported and shown for review. The operations are the declared proxy
+ * methods under the reviewer's decisions. A pinned adapter executes the
+ * host's entry, so a definition carrying another one is refused here rather
+ * than bound and refused at use; an unpinned one hands its OAuth origins back
+ * for host issuer policy.
+ */
+export function reviewCatalogBinding(
+  input: BindingReview,
+  options: ParseOptions & { pinned?: ProviderCatalogEntry },
+): BindingReviewResult {
+  const entry = parseEntryFromDefinition(input.definition, options);
+  if (options.pinned && entryDigest(entry) !== entryDigest(options.pinned))
+    throw new ConnectorError("configuration-required", {
+      detail: "catalog.binding.entry-differs",
+    });
+  if (input.verifier)
+    throw new ConnectorError("unsupported", {
+      detail: "verifier.adapter-unsupported",
+    });
+  const operations = input.operations.map((reviewed, index): BoundOperation => {
+    const capability = input.definition.capabilities.find(
+      (item) => item.nativeId === reviewed.nativeId,
+    );
+    const transport = boundOperationSchema.shape.transport.safeParse(
+      capability?.nativeExtensions?.["x-ceremony-transport"],
+    );
+    if (
+      !capability ||
+      !transport.success ||
+      transport.data.kind !== "http" ||
+      !(PROXY_METHODS as readonly string[]).includes(transport.data.method)
+    )
+      throw new ConnectorError("invalid-request", {
+        detail: "operation.transport-unknown",
+      });
+    const authenticationProfile =
+      reviewed.authenticationProfile ??
+      (input.profileId &&
+      (capability.authentication ?? []).includes(input.profileId)
+        ? input.profileId
+        : undefined);
+    const { authenticationProfile: _explicit, ...decisions } = reviewed;
+    void _explicit;
+    return {
+      ...decisions,
+      operationRef: `operation:${createHash("sha256")
+        .update(canonicalConnectorJson([reviewed.nativeId, index]))
+        .digest("hex")
+        .slice(0, 32)}`,
+      transport: transport.data,
+      ...(authenticationProfile ? { authenticationProfile } : {}),
+      ...(capability.label ? { description: capability.label } : {}),
+    };
+  });
+  const issuer = options.pinned ? undefined : oauthOrigins(entry, options);
+  return {
+    operations,
+    settings: providerCatalogBindingSettings(entry),
+    ...(issuer ? { issuer } : {}),
+  };
 }

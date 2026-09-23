@@ -21,6 +21,7 @@ import { ConnectorError } from "../errors.js";
 import { EVENT_LIMITS, authoritySchema, eventTypeSchema } from "./envelope.js";
 import { EVENT_TASK, taskSchema } from "./inbox.js";
 import { vendorIdPattern } from "./verification.js";
+import { SYSTEM_TENANT } from "../../system-tenants.js";
 
 /*
  * A subscription is the approved fact that events from one authority may be
@@ -36,7 +37,7 @@ import { vendorIdPattern } from "./verification.js";
 
 export const SUBSCRIPTION_KIND = "connector-event-subscription" as const;
 /** Route lookups arrive with an authority and a subscription id and no tenant; the index under this fixed tenant maps them. */
-export const ROUTE_INDEX_TENANT = "connector-events";
+export const ROUTE_INDEX_TENANT = SYSTEM_TENANT.connectorEvents;
 const idAlphabet = /^[a-zA-Z0-9_.:@/-]{1,200}$/;
 const noControl = /^[^\p{Cc}]+$/u;
 const time = z.number().int().nonnegative();

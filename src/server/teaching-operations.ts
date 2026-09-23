@@ -222,18 +222,36 @@ export async function listPublishedRecipes(
   actor: ActorContext,
 ) {
   requireCapability(actor, "executor");
-  const rows = await runtime.store.transaction((tx) =>
-    tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
-  );
-  return rows
-    .filter((x) => x.value.definition && !x.value.retired)
-    .map((x) => ({
-      id: x.value.definition.id,
-      title: x.value.definition.title,
-      version: x.value.version,
-      digest: x.value.digest,
-      definition: x.value.definition,
-    }));
+  // Every page, not the first: a catalog past one page, or one whose early
+  // rows are retired or superseded versions, must not lose recipes.
+  const latest = new Map<string, PublishedRecipe>();
+  const page = 100;
+  let after = "";
+  for (;;) {
+    const rows = await runtime.store.transaction((tx) =>
+      tx.list<PublishedRecipe>(actor.tenantId, "recipe", page, after),
+    );
+    for (const { value } of rows) {
+      if (!value.definition || value.retired) continue;
+      const prior = latest.get(value.definition.id);
+      if (
+        !prior ||
+        value.version.localeCompare(prior.version, undefined, {
+          numeric: true,
+        }) > 0
+      )
+        latest.set(value.definition.id, value);
+    }
+    if (rows.length < page) break;
+    after = rows.at(-1)!.id;
+  }
+  return [...latest.values()].map((value) => ({
+    id: value.definition.id,
+    title: value.definition.title,
+    version: value.version,
+    digest: value.digest,
+    definition: value.definition,
+  }));
 }
 
 /**
