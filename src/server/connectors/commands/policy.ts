@@ -66,7 +66,12 @@ export type DestinationCandidate = {
 export type IssuerCandidate = {
   /** The issuer identifier, verbatim. */
   issuer: string;
-  /** Every origin the policy lets the grants contact: the issuer's, listed trusted origins, configured endpoints. */
+  /**
+   * Every origin the policy lets the grants contact: the issuer's, listed
+   * trusted origins, configured endpoints. A host label a connection fills in
+   * is written `*` (`https://*.example.com`); that is never an exact origin,
+   * so only a policy that names it admits it.
+   */
   origins: string[];
   /** Origins the definition itself declares for its OAuth profiles; a declaration is never approval. */
   declaredOrigins: string[];

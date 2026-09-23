@@ -18,6 +18,7 @@ import { validContinuationWorker } from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { authenticatedActor, requireCapability } from "../identity.js";
 import { PersistenceConflict } from "../persistence/index.js";
+import { SYSTEM_TENANT } from "../system-tenants.js";
 
 type BrowserIdentity = HostIdentityAdapter & {
   login(request: Request): Promise<Response>;
@@ -53,7 +54,7 @@ async function hostedIdentityCommand(
   await reserveRequest(
     runtime.store,
     {
-      tenantId: "hosted",
+      tenantId: SYSTEM_TENANT.hosted,
       subjectId: "authentication-boundary",
       sessionId: "server",
       actorKind: "system",

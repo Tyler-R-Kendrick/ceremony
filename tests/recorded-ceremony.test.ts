@@ -21,7 +21,10 @@ import {
   runCeremony,
   runRecordedCeremony,
 } from "../src/server/browser-driver.js";
-import type { CeremonyInterpreter } from "../src/server/browser-interpreter.js";
+import {
+  createHeuristicInterpreter,
+  type CeremonyInterpreter,
+} from "../src/server/browser-interpreter.js";
 import { totpCode, totpSeedSpellings } from "../src/server/totp.js";
 import { startAuthProvider } from "./doubles/auth-provider/server.js";
 import { createHttpCeremonyPage } from "./doubles/http-page.js";
@@ -560,25 +563,55 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
   });
 
   test("a value that survives the scrub anywhere refuses the whole recording", () => {
-    // A path segment is not a descriptor, so it is not scrubbed one by one;
-    // the check over the finished bytes is what catches it.
+    // The title is the caller's, not a descriptor, so it is not scrubbed one
+    // by one; the check over the finished bytes is what catches it.
     assert.throws(
       () =>
         compileRecording(
           [
             {
-              snapshot: snapshot(`https://idp.example/u/${USERNAME}`, [
+              snapshot: snapshot("https://idp.example/signin", [
                 { index: 0, kind: "button", name: "go", text: "Go" },
               ]),
               action: "click",
               element: 0,
             },
           ],
-          options,
+          { ...options, title: `Sign in as ${USERNAME}` },
         ),
       (error: unknown) =>
         error instanceof RecordingRejected &&
         error.reason === "protected-value",
+    );
+  });
+
+  test("a path segment carrying a value the login used becomes a wildcard, encoded or not", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const pathOf = (url: string) =>
+      compileRecording(
+        [{ snapshot: snapshot(url, [go]), action: "click", element: 0 }],
+        { ...options, excluded: [...options.excluded, EMAIL, "alice"] },
+      ).steps[0]!.page.path;
+    assert.equal(
+      pathOf(`https://idp.example/u/${USERNAME}/password`),
+      "/u/*/password",
+    );
+    // An address hidden from the address pattern by its own encoding.
+    assert.equal(
+      pathOf("https://idp.example/u/bob%40corp.example/password"),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf(`https://idp.example/u/${encodeURIComponent(EMAIL)}/password`),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/Alice/password"),
+      "/users/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/%41lice/password"),
+      "/users/*/password",
     );
   });
 
@@ -620,11 +653,272 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
     assert.equal(recording.steps[0]!.page.path, "/flows/*/password");
   });
 
+  test("a trace the recording format cannot hold is refused by name, never thrown as a parse error", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const click = (path: string, elements = [go]) => ({
+      snapshot: snapshot(path, elements),
+      action: "click" as const,
+      element: 0,
+    });
+    const invalid = (error: unknown) =>
+      error instanceof RecordingRejected && error.reason === "invalid";
+    // More identical controls than a fingerprint can count.
+    const twins = Array.from({ length: 61 }, (_, index) => ({ ...go, index }));
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin", twins)], options),
+      invalid,
+    );
+    // A title the host would have to refuse, reaching the compiler anyway.
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          title: "Acme tenant 12345678",
+        }),
+      invalid,
+    );
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          id: "constructor",
+        }),
+      invalid,
+    );
+  });
+
+  test("a path longer than a pattern may be is cut at a segment, never left ending in a slash", () => {
+    const long = `https://idp.example/${"abcdefghijklmnop/".repeat(16)}tail`;
+    const recording = compileRecording(
+      [
+        {
+          snapshot: snapshot(long, [
+            { index: 0, kind: "button", name: "go", text: "Go" },
+          ]),
+          action: "click",
+          element: 0,
+        },
+      ],
+      options,
+    );
+    const path = recording.steps[0]!.page.path;
+    assert.ok(path.length <= 256);
+    assert.ok(!path.endsWith("/"), path);
+  });
+
   test("an empty trace is not a recording", () => {
     assert.throws(
       () => compileRecording([], options),
       (error: unknown) =>
         error instanceof RecordingRejected && error.reason === "empty",
     );
+  });
+});
+
+describe("choices and issued values in a recording", () => {
+  const origin = "https://idp.example";
+  const signupPage = (option = "Canada"): PageSnapshot => ({
+    path: `${origin}/signup`,
+    title: "Create your account",
+    headings: ["Create your account"],
+    alerts: [],
+    challenge: false,
+    passkey: false,
+    elements: [
+      {
+        index: 0,
+        kind: "select",
+        name: "country",
+        label: "Country or region",
+        options: ["Select a country", option],
+        required: true,
+      },
+      { index: 1, kind: "button", text: "Create account" },
+    ],
+  });
+  const options = {
+    id: "region-sign-up",
+    title: "Sign up with a region",
+    goal: "registration" as const,
+    entryUrl: `${origin}/signup`,
+    origins: [origin],
+    recordedWith: "deterministic" as const,
+    excluded: [],
+  };
+
+  test("a choice is recorded by the option's label, and one that reads like a value is not recorded at all", () => {
+    const recording = compileRecording(
+      [
+        {
+          snapshot: signupPage(),
+          action: "select",
+          element: 0,
+          option: "Canada",
+        },
+        { snapshot: signupPage(), action: "click", element: 1 },
+      ],
+      options,
+    );
+    assert.equal(recording.steps[0]?.action.kind, "select");
+    assert.deepEqual(recording.roles, []);
+    for (const option of ["casey@example.test", "Account 12345678"])
+      assert.throws(
+        () =>
+          compileRecording(
+            [
+              {
+                snapshot: signupPage(option),
+                action: "select",
+                element: 0,
+                option,
+              },
+            ],
+            options,
+          ),
+        (error: unknown) =>
+          error instanceof RecordingRejected &&
+          error.reason === "unrecordable-choice",
+      );
+  });
+
+  test("a choice is only ever made in a select", () => {
+    const recording = compileRecording(
+      [
+        {
+          snapshot: signupPage(),
+          action: "select",
+          element: 0,
+          option: "Canada",
+        },
+      ],
+      options,
+    );
+    const edited = structuredClone(recording) as {
+      steps: { action: { target: { kind: string } } }[];
+    };
+    edited.steps[0]!.action.target.kind = "input";
+    assert.equal(recordedCeremonySchema.safeParse(edited).success, false);
+  });
+
+  test("what a recording keeps is part of what is reviewed, and is held to the declaration's rules", async () => {
+    const plain = compileRecording(
+      [{ snapshot: signupPage(), action: "click", element: 1 }],
+      options,
+    );
+    const issued = {
+      sink: "oauth-client" as const,
+      fields: [
+        { kind: "client-id" as const, label: "Client ID" },
+        { kind: "client-secret" as const, label: "Client secret" },
+      ],
+    };
+    const keeping = compileRecording(
+      [{ snapshot: signupPage(), action: "click", element: 1 }],
+      { ...options, issued },
+    );
+    assert.deepEqual(keeping.issued, issued);
+    // A different digest: a review of the recording without it covers
+    // nothing about keeping.
+    assert.notEqual(
+      await digestRecordedCeremony(plain),
+      await digestRecordedCeremony(keeping),
+    );
+    const refused = [
+      { ...issued, fields: [{ kind: "api-key", label: "Key" }] },
+      {
+        ...issued,
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client ID" },
+        ],
+      },
+      {
+        ...issued,
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client secret" },
+          { kind: "client-secret", label: "Secret" },
+        ],
+      },
+      { sink: "oauth-client", fields: [{ kind: "client-secret", label: "S" }] },
+      { sink: "anywhere", fields: issued.fields },
+      { ...issued, fields: [{ kind: "client-id", label: "oac_1234567890" }] },
+    ];
+    for (const declaration of refused)
+      assert.equal(
+        recordedCeremonySchema.safeParse({ ...plain, issued: declaration })
+          .success,
+        false,
+        JSON.stringify(declaration),
+      );
+  });
+
+  test("a registration with a required choice is recorded on the double and replays with no interpreter", async (t) => {
+    const record = await startAuthProvider({
+      seed: 91,
+      requireRegion: true,
+      verification: "none",
+    });
+    t.after(() => record.close());
+    const secrets = () =>
+      createSecrets({
+        email: EMAIL,
+        password: PASSWORD,
+        "password-confirm": PASSWORD,
+        "display-name": "Casey Rivers",
+      });
+    const page = createHttpCeremonyPage();
+    await page.goto(`${record.origin}${record.signupPath}`);
+    const trace: RecordedTraceEntry[] = [];
+    const recorded = await runCeremony({
+      page,
+      interpreter: createHeuristicInterpreter(),
+      goal: "registration",
+      secrets: secrets(),
+      allowedOrigins: [record.origin],
+      choices: { "Country or region": "Germany" },
+      onApplied: (entry) => trace.push(entry),
+      verify: () => record.verifyAccess(EMAIL),
+    });
+    assert.equal(recorded.status, "completed");
+    assert.equal(record.regionOf(EMAIL), "DE");
+    const recording = compileRecording(trace, {
+      ...options,
+      entryUrl: `${record.origin}${record.signupPath}`,
+      origins: [record.origin],
+      excluded: [EMAIL, PASSWORD],
+    });
+    assert.ok(
+      recording.steps.some(
+        (step) =>
+          step.action.kind === "select" && step.action.option === "Germany",
+      ),
+    );
+    assertNoCanary(recording, "the recording");
+
+    // The same pages at a fresh provider, replayed with nothing to ask.
+    const replayAt = await startAuthProvider({
+      seed: 91,
+      requireRegion: true,
+      verification: "none",
+    });
+    t.after(() => replayAt.close());
+    const fresh = createHttpCeremonyPage();
+    await fresh.goto(`${replayAt.origin}${replayAt.signupPath}`);
+    const at = (text: string) =>
+      text.split(record.origin).join(replayAt.origin);
+    const moved = JSON.parse(at(JSON.stringify(recording))) as RecordedCeremony;
+    const replayed = await runRecordedCeremony({
+      page: fresh,
+      recording: moved,
+      goal: "registration",
+      secrets: secrets(),
+      allowedOrigins: [replayAt.origin],
+      verify: () => replayAt.verifyAccess(EMAIL),
+    });
+    assert.equal(replayed.status, "completed");
+    assert.equal(replayed.interpreterCalls, 0);
+    assert.equal(replayAt.regionOf(EMAIL), "DE");
   });
 });

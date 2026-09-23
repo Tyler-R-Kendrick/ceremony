@@ -9,7 +9,12 @@ import {
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
 import { identifierSchema } from "../core/operation-contracts.js";
-import { deleteAuthoredSession } from "./authored-operations.js";
+import {
+  approveAuthoredCredentialVerification,
+  credentialVerificationSchema,
+  deleteAuthoredSession,
+  proposeAuthoredCredentialVerification,
+} from "./authored-operations.js";
 import {
   compileArazzoToRecipe,
   readArazzo,
@@ -90,6 +95,18 @@ export const teachingInputs = {
     version: z.string(),
     digest: z.string(),
     inputs: z.record(teachingIdentifier, publicValue),
+  }),
+  /**
+   * How an authored API-key, Basic or form connector's collected credential
+   * is proved: one HTTPS request to an origin the provider already declared.
+   * Proposing it saves it for a person's approval; it verifies nothing yet.
+   */
+  verificationPropose: z.strictObject({
+    connectorId: z.string().regex(/^[a-z0-9-]{1,64}$/),
+    declaration: credentialVerificationSchema,
+  }),
+  verificationApprove: z.strictObject({
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
   }),
   authoringDelete: z.strictObject({
     connectorId: z.string().min(1).max(64),
@@ -205,18 +222,36 @@ export async function listPublishedRecipes(
   actor: ActorContext,
 ) {
   requireCapability(actor, "executor");
-  const rows = await runtime.store.transaction((tx) =>
-    tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
-  );
-  return rows
-    .filter((x) => x.value.definition && !x.value.retired)
-    .map((x) => ({
-      id: x.value.definition.id,
-      title: x.value.definition.title,
-      version: x.value.version,
-      digest: x.value.digest,
-      definition: x.value.definition,
-    }));
+  // Every page, not the first: a catalog past one page, or one whose early
+  // rows are retired or superseded versions, must not lose recipes.
+  const latest = new Map<string, PublishedRecipe>();
+  const page = 100;
+  let after = "";
+  for (;;) {
+    const rows = await runtime.store.transaction((tx) =>
+      tx.list<PublishedRecipe>(actor.tenantId, "recipe", page, after),
+    );
+    for (const { value } of rows) {
+      if (!value.definition || value.retired) continue;
+      const prior = latest.get(value.definition.id);
+      if (
+        !prior ||
+        value.version.localeCompare(prior.version, undefined, {
+          numeric: true,
+        }) > 0
+      )
+        latest.set(value.definition.id, value);
+    }
+    if (rows.length < page) break;
+    after = rows.at(-1)!.id;
+  }
+  return [...latest.values()].map((value) => ({
+    id: value.definition.id,
+    title: value.definition.title,
+    version: value.version,
+    digest: value.digest,
+    definition: value.definition,
+  }));
 }
 
 /**
@@ -266,6 +301,42 @@ export async function deleteAuthoredConnection(
     await deleteAuthoredSession(runtime.store, actor, input.runId);
   }
   return await runtime.authoring.uninstall(actor, input.connectorId);
+}
+
+/**
+ * Propose how an authored connector's collected credential is verified. The
+ * declaration is validated, bound to the author's own connector and to an
+ * origin its provider declared, and saved as pending; a person approves it
+ * with {@link approveCredentialVerification} before anything uses it.
+ */
+export async function proposeCredentialVerification(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.verificationPropose>,
+) {
+  requireCapability(actor, "author");
+  return await proposeAuthoredCredentialVerification(
+    runtime.store,
+    actor,
+    input.connectorId,
+    input.declaration,
+  );
+}
+
+/** A person's approval of the pending declaration, pinned by digest. Never an agent's. */
+export async function approveCredentialVerification(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  connectorId: string,
+  input: z.infer<typeof teachingInputs.verificationApprove>,
+) {
+  requireCapability(actor, "author");
+  return await approveAuthoredCredentialVerification(
+    runtime.store,
+    actor,
+    connectorId,
+    input.digest,
+  );
 }
 
 /**

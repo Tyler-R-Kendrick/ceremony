@@ -46,3 +46,4 @@ jobs:
             npm run test:integration
             npm run test:workflow
             npm run build
+            npm run test:package

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
-import { createMcpRemoteAdapter } from "../../../src/server/connectors/mcp/index.js";
+import {
+  createMcpClient,
+  createMcpRemoteAdapter,
+} from "../../../src/server/connectors/mcp/index.js";
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
 import type { ConnectionRecord } from "../../../src/server/connectors/ports.js";
@@ -45,7 +48,9 @@ async function tokenEndpoint() {
   const revoked: string[] = [];
   const grants: Array<Record<string, string>> = [];
   let issued = 0;
-  const server = await startHttpFixture((request) => {
+  /** "drop" closes the connection once the refresh request has arrived. */
+  const behaviour = { mode: "normal" as "normal" | "drop" };
+  const server = await startHttpFixture((request, raw) => {
     const form = Object.fromEntries(
       new URLSearchParams(request.body.toString("utf8")),
     );
@@ -57,6 +62,10 @@ async function tokenEndpoint() {
     }
     if (request.url.pathname !== "/token") return undefined;
     grants.push(form);
+    if (behaviour.mode === "drop") {
+      raw.req.socket.destroy();
+      return undefined;
+    }
     const presented = form["refresh_token"] ?? "";
     if (form["grant_type"] !== "refresh_token" || !refreshTokens.has(presented))
       return { status: 400, body: { error: "invalid_grant" } };
@@ -76,7 +85,7 @@ async function tokenEndpoint() {
       },
     };
   });
-  return { server, grants, revoked };
+  return { server, grants, revoked, behaviour };
 }
 
 type Setup = {
@@ -92,6 +101,9 @@ async function setup(
     material: Record<string, string>;
     expiresAt?: number;
     oauth?: Record<string, unknown> | false;
+    now?: () => number;
+    mcp?: Record<string, unknown>;
+    fetch?: typeof fetch;
   },
 ): Promise<Setup> {
   const as = await tokenEndpoint();
@@ -127,6 +139,18 @@ async function setup(
         targetParameters: [],
       },
       {
+        operationRef: "op:link",
+        nativeId: "needs_input",
+        destinationId: "server",
+        transport: { kind: "mcp-tool", toolName: "needs_input" },
+        effect: "write",
+        outputClassification: "personal",
+        cost: "free",
+        consent: "confirm",
+        replay: "none",
+        targetParameters: [],
+      },
+      {
         operationRef: "op:create",
         nativeId: "create_note",
         destinationId: "server",
@@ -143,7 +167,12 @@ async function setup(
     permittedTargets: [],
     reviewedDigest: "c".repeat(64),
     settings: {
-      mcp: { profile: "2026-07-28", endpointPath: "/mcp", auth: "bearer" },
+      mcp: {
+        profile: "2026-07-28",
+        endpointPath: "/mcp",
+        auth: "bearer",
+        ...input.mcp,
+      },
       ...(input.oauth === false
         ? {}
         : {
@@ -164,7 +193,7 @@ async function setup(
           }),
     },
   });
-  const ports = memoryPorts();
+  const ports = memoryPorts(input.now ? { now: input.now } : {});
   ports.configuration.set("MCP_CLIENT_ID", "mcp-client");
   const connectionRef = `connection:${randomUUID()}`;
   const scope = {
@@ -222,7 +251,9 @@ async function setup(
       connection,
       generation: 1,
       signal: new AbortController().signal,
-      environment: ports.environment({ fetch: globalThis.fetch }),
+      environment: ports.environment({
+        fetch: input.fetch ?? globalThis.fetch,
+      }),
     },
   };
 }
@@ -281,6 +312,64 @@ test("a 401 to a live-looking token renews once and retries; a consequential cal
   assertNoTokens(state, result);
 });
 
+test("a pinned tool whose listing is refused with 401 renews once and retries", async (t) => {
+  // The reviewed digest of echo, read with a token the fixture accepts.
+  const listed = await createMcpClient({
+    profile: "2026-07-28",
+    endpoint: `${mcp.origin}/mcp`,
+    fetch: globalThis.fetch,
+    auth: { kind: "bearer", use: (work) => work(ISSUED[0]) },
+    limits: { requestTimeoutMs: 5000 },
+  }).listTools();
+  const digest = listed.items.find(
+    (tool) => tool.name === "echo",
+  )?.definitionDigest;
+  assert.ok(digest);
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() + 3_600_000,
+    mcp: { pinnedTools: { echo: digest } },
+  });
+  // The pin lists tools before calling; that listing is what meets the 401,
+  // and it is a challenge to answer, not an unverifiable tool.
+  const result = await call(state);
+  assert.equal(result.state, "complete");
+  assert.equal(state.as.grants.length, 1, "one refresh");
+  assertNoTokens(state, result);
+});
+
+test("a 403 for insufficient scope is a denial, not a reason to spend a refresh", async (t) => {
+  // The server knows the token and refuses the operation: a renewed token
+  // carries the same grant, so rotating the refresh token cannot help.
+  const forbidding: typeof fetch = async (request, init) => {
+    if (typeof init?.body === "string" && init.body.includes('"tools/call"'))
+      return new Response(JSON.stringify({ error: "insufficient_scope" }), {
+        status: 403,
+        headers: {
+          "content-type": "application/json",
+          "www-authenticate":
+            'Bearer error="insufficient_scope", scope="notes:write"',
+        },
+      });
+    return fetch(request, init);
+  };
+  const state = await setup(t, {
+    material: { access_token: ISSUED[0], refresh_token: REFRESH },
+    expiresAt: Date.now() + 3_600_000,
+    fetch: forbidding,
+  });
+  const result = await call(state);
+  assert.equal(result.state, "denied");
+  assert.equal(result.code, "mcp.scope.insufficient");
+  assert.equal(state.as.grants.length, 0, "no refresh was spent");
+  assert.equal(
+    state.ports.inspect.credentialMaterial(state.credentialRef)?.[
+      "refresh_token"
+    ],
+    REFRESH,
+  );
+});
+
 test("without a refresh token, or without an issuer policy, the refusal stands and the issuer is not asked", async (t) => {
   for (const variant of [
     { material: { access_token: "mcp-stale-token" } },
@@ -295,6 +384,95 @@ test("without a refresh token, or without an issuer policy, the refusal stands a
     assert.equal(result.code, "authorization-required");
     assert.equal(state.as.grants.length, 0);
   }
+});
+
+/** Outcomes the adapter journaled for one operation, in order. */
+const attemptsOf = (state: Setup, operation: string) =>
+  state.ports.inspect
+    .effects()
+    .filter((entry) => entry.intent.operation === operation)
+    .map((entry) => entry.outcome?.status);
+
+test("an invocation whose renewal cannot reach the issuer is a failure to retry later, and the refused attempt stays not applied", async (t) => {
+  for (const expiresAt of [Date.now() + 3_600_000, Date.now() - 1000]) {
+    const state = await setup(t, {
+      material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+      expiresAt,
+    });
+    await state.as.server.close();
+    const result = await call(state, "op:create");
+    assert.equal(result.state, "failed");
+    assert.equal(result.code, "mcp.credential-renewal-unavailable");
+    assert.deepEqual(attemptsOf(state, "op:create"), ["not-applied"]);
+    assert.equal((await mcp.report()).effects.length, 0, "nothing was created");
+    assertNoTokens(state, result);
+  }
+});
+
+test("an invocation whose renewal outcome is unknown is indeterminate, and the refused attempt stays not applied", async (t) => {
+  for (const expiresAt of [Date.now() + 3_600_000, Date.now() - 1000]) {
+    const state = await setup(t, {
+      material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+      expiresAt,
+    });
+    state.as.behaviour.mode = "drop";
+    const result = await call(state, "op:create");
+    assert.equal(result.state, "indeterminate");
+    assert.equal(result.code, "mcp.credential-renewal-indeterminate");
+    assert.equal(state.as.grants.length, 1);
+    assert.deepEqual(attemptsOf(state, "op:create"), ["not-applied"]);
+    assertNoTokens(state, result);
+  }
+});
+
+test("a renewal the issuer refuses after custody found the token expired is a denial, not a thrown error", async (t) => {
+  const state = await setup(t, {
+    material: {
+      access_token: "mcp-stale-token",
+      refresh_token: "mcp-refresh-unknown",
+    },
+    expiresAt: Date.now() - 1000,
+  });
+  const result = await call(state, "op:create");
+  assert.equal(result.state, "denied");
+  assert.equal(result.code, "mcp.credential-renewal-failed");
+  assert.deepEqual(attemptsOf(state, "op:create"), ["not-applied"]);
+  assertNoTokens(state, result);
+});
+
+test("a person's answer whose renewal cannot reach the issuer is a failure to retry, not a reconnect", async (t) => {
+  let clock = Date.now();
+  const state = await setup(t, {
+    material: { access_token: ISSUED[0], refresh_token: REFRESH },
+    expiresAt: clock + 60_000,
+    now: () => clock,
+  });
+  const adapter = createMcpRemoteAdapter({ inputHandoffMs: 3_600_000 });
+  const started = await adapter.invoke!(state.ctx, {
+    operationRef: "op:link",
+    input: { repo: "ceremony" },
+    commandId: "command:link",
+  });
+  const { handoffRef } = await state.ports.handoffs.issue({
+    ...started.handoff!,
+    actor: state.ctx.actor,
+    connectionRef: state.ctx.connection!.connectionRef,
+    bindingRef: state.ctx.binding.bindingRef,
+    generation: state.ctx.generation,
+  });
+  const record = (await state.ports.handoffs.present(
+    state.ctx.actor,
+    handoffRef,
+  ))!;
+  clock += 10 * 60_000;
+  await state.as.server.close();
+  const resumed = await adapter.resumeInput!(state.ctx, record, {
+    name: "octocat",
+  });
+  assert.equal(resumed.state, "failed");
+  assert.equal(resumed.code, "mcp.credential-renewal-unavailable");
+  assert.equal(attemptsOf(state, "op:link").at(-1), "not-applied");
+  assertNoTokens(state, resumed);
 });
 
 test("a renewal the issuer refuses is reported by code, once, without retrying", async (t) => {
@@ -333,4 +511,154 @@ test("an upstream disconnect revokes the default profile's grant only when the r
   assert.equal(revoked.upstream, "applied");
   assert.deepEqual(on.as.revoked, [REFRESH, ISSUED[0]]);
   assertNoTokens(on, revoked);
+});
+
+/* ---------------------------------------------- verification and resumption */
+
+const verify = (state: Setup) => createMcpRemoteAdapter().verify!(state.ctx);
+
+test("verification renews an expired token once and then verifies, instead of asking a person to reconnect", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() - 1000,
+  });
+  const result = await verify(state);
+  assert.equal(result.state, "complete");
+  assert.equal(result.claims[0]?.kind, "credential-accepted");
+  assert.equal(state.as.grants.length, 1, "one refresh");
+  assert.equal(state.as.grants[0]?.["resource"], `${mcp.origin}/mcp`);
+  const material = state.ports.inspect.credentialMaterial(state.credentialRef);
+  assert.equal(material?.["access_token"], ISSUED[0]);
+  // Custody refused the stale token before anything was sent.
+  assert.ok(
+    !(await mcp.report()).wire.some((entry) =>
+      entry.headers["authorization"]?.includes("mcp-stale-token"),
+    ),
+  );
+  assertNoTokens(state, result);
+});
+
+test("verification that the server answers 401 renews once and retries discovery", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() + 3_600_000,
+  });
+  const result = await verify(state);
+  assert.equal(result.state, "complete");
+  assert.equal(state.as.grants.length, 1);
+  assertNoTokens(state, result);
+});
+
+test("a verification refresh the issuer refuses is a denial by fixed code, which is the reconnect state", async (t) => {
+  for (const expiresAt of [Date.now() - 1000, undefined]) {
+    const state = await setup(t, {
+      material: {
+        access_token: "mcp-stale-token",
+        refresh_token: "mcp-refresh-unknown",
+      },
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+    });
+    const result = await verify(state);
+    assert.equal(result.state, "denied");
+    assert.equal(result.code, "mcp.credential-renewal-failed");
+    assert.equal(state.as.grants.length, 1, "asked once, not retried");
+    assert.ok(
+      !JSON.stringify(result).includes("invalid_grant"),
+      "no issuer text",
+    );
+    assertNoTokens(state, result);
+  }
+});
+
+test("an issuer that cannot be reached during verification leaves the connection pending, not reconnect-required", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() - 1000,
+  });
+  await state.as.server.close();
+  const result = await verify(state);
+  assert.equal(result.state, "pending");
+  assert.equal(result.code, "mcp.credential-renewal-unavailable");
+  assertNoTokens(state, result);
+});
+
+test("a refresh whose outcome is unknown is indeterminate, never a refusal", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() - 1000,
+  });
+  state.as.behaviour.mode = "drop";
+  const result = await verify(state);
+  assert.equal(state.as.grants.length, 1, "the request reached the issuer");
+  assert.equal(result.state, "indeterminate");
+  assert.equal(result.code, "mcp.credential-renewal-indeterminate");
+  // The refresh token may have been spent; it is not presented again.
+  const again = await verify(state);
+  assert.equal(again.state, "indeterminate");
+  assert.equal(state.as.grants.length, 1);
+  assertNoTokens(state, result, again);
+});
+
+test("verification without a refresh token or issuer policy keeps today's answer and asks nobody", async (t) => {
+  const expired = await setup(t, {
+    material: { access_token: "mcp-stale-token" },
+    expiresAt: Date.now() - 1000,
+  });
+  const stale = await verify(expired);
+  assert.equal(stale.state, "denied");
+  assert.equal(stale.code, "credential.expired");
+  assert.equal(expired.as.grants.length, 0);
+
+  const refused = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    oauth: false,
+  });
+  const denied = await verify(refused);
+  assert.equal(denied.state, "denied");
+  assert.equal(denied.code, "authorization-required");
+  assert.equal(refused.as.grants.length, 0);
+});
+
+test("a person's answer to a suspended input request survives the token expiring meanwhile", async (t) => {
+  let clock = Date.now();
+  const state = await setup(t, {
+    material: { access_token: ISSUED[0], refresh_token: REFRESH },
+    expiresAt: clock + 60_000,
+    now: () => clock,
+  });
+  const adapter = createMcpRemoteAdapter({ inputHandoffMs: 3_600_000 });
+  const started = await adapter.invoke!(state.ctx, {
+    operationRef: "op:link",
+    input: { repo: "ceremony" },
+    commandId: "command:link",
+  });
+  assert.equal(started.state, "human-required");
+  const { handoffRef } = await state.ports.handoffs.issue({
+    ...started.handoff!,
+    actor: state.ctx.actor,
+    connectionRef: state.ctx.connection!.connectionRef,
+    bindingRef: state.ctx.binding.bindingRef,
+    generation: state.ctx.generation,
+  });
+  const record = (await state.ports.handoffs.present(
+    state.ctx.actor,
+    handoffRef,
+  ))!;
+  // The person takes ten minutes; the access token lived for one.
+  clock += 10 * 60_000;
+  const resumed = await adapter.resumeInput!(state.ctx, record, {
+    name: "octocat",
+  });
+  assert.equal(resumed.state, "complete");
+  assert.equal(state.as.grants.length, 1, "renewed once");
+  assert.deepEqual(
+    state.ports.inspect
+      .effects()
+      .filter((entry) => entry.intent.operation === "op:link")
+      .map((entry) => entry.outcome?.status)
+      .slice(-2),
+    ["not-applied", "applied"],
+    "the refused attempt sent nothing; the retry applied once",
+  );
+  assertNoTokens(state, resumed);
 });

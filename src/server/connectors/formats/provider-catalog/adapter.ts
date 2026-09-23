@@ -27,6 +27,7 @@ import {
   callbackUri,
   completeAuthorizationCode,
   credentialAcceptedClaim,
+  createMetadataCache,
   credentialScopeFor,
   grantClientCredentials,
   issuerPolicy,
@@ -54,12 +55,14 @@ import { readBoundedBody, responseIsJson } from "../openapi/serialize.js";
 import {
   CATALOG_ECOSYSTEM,
   CATALOG_IMPORTER_VERSION,
+  CATALOG_SETTINGS,
   configurationFor,
   definitionFor,
   entryFromBinding,
   profileIdFor,
   proxyNativeId,
   PROXY_METHODS,
+  reviewCatalogBinding,
   type ProxyMethod,
 } from "./definition.js";
 import { catalogIssue } from "./issues.js";
@@ -84,10 +87,13 @@ import {
  *
  * It has two shapes. Unpinned (`catalog-http`), it imports catalog documents
  * and Nango `providers.yaml` files into draft definitions, and executes a
- * binding using the entry the reviewer approved into the binding's settings.
+ * binding using the entry review approved into the binding's settings.
  * Pinned (`catalog-<id>`), it is one host-registered provider: the directory
  * shows it as its own connector, and at run time it executes the host's entry
  * and refuses a binding whose settings carry a different one.
+ * Unpinned, the entry a binding carries is the one binding review copied from
+ * the reviewed definition, and its OAuth origins were admitted by host issuer
+ * policy for a person; a reviewer's own settings can supply neither.
  *
  * Either way the rules are those of every other adapter here:
  *
@@ -223,10 +229,33 @@ function redact(value: unknown, secrets: readonly string[]): unknown {
   return value;
 }
 
-function secretsOf(material: CredentialMaterial): string[] {
-  return Object.entries(material)
-    .filter(([key, value]) => SECRET_KEYS.has(key) && value.length >= 4)
-    .map(([, value]) => value)
+/**
+ * Every form in which this call could have sent the credential: each secret
+ * value, and the exact forms `placeCredential` wrote -- the API key with its
+ * prefix, and for Basic the username and the encoded `user:pass` pair, which
+ * contains neither half verbatim.
+ */
+function secretsOf(
+  entry: ProviderCatalogEntry,
+  material: CredentialMaterial,
+): string[] {
+  const values = Object.entries(material)
+    .filter(([key]) => SECRET_KEYS.has(key))
+    .map(([, value]) => value);
+  const auth = entry.auth;
+  if (auth.mode === "api-key" && material["api_key"])
+    values.push(`${auth.prefix}${material["api_key"]}`);
+  if (auth.mode === "basic" && material["username"] !== undefined) {
+    const username = material["username"];
+    values.push(
+      username,
+      Buffer.from(`${username}:${material["password"] ?? ""}`, "utf8").toString(
+        "base64",
+      ),
+    );
+  }
+  return [...new Set(values)]
+    .filter((value) => value.length >= 4)
     .sort((a, b) => b.length - a.length);
 }
 
@@ -246,6 +275,8 @@ export function createCatalogHttpAdapter(
   const maxImportBytes = options.maxImportBytes ?? DEFAULTS.maxImportBytes;
   const evidence = options.evidence ?? "protocol-fixture";
   const executable = !pinned || pinned.auth.mode !== "unsupported";
+  // Issuer metadata for `openid` authorizations, keyed by tenant and issuer.
+  const metadataCache = createMetadataCache();
 
   function entryFor(ctx: AdapterCallContext): ProviderCatalogEntry {
     const approved = entryFromBinding(ctx.binding, parseOptions);
@@ -299,11 +330,24 @@ export function createCatalogHttpAdapter(
     return names.filter((name) => !present.has(name));
   }
 
+  /**
+   * The engine's view of the entry's issuer. Without `oidc` it is exactly the
+   * reviewed entry: discovery off, endpoints as declared. With `oidc` -- an
+   * authorization that asks for `openid` -- the issuer's own metadata is
+   * required, because an ID token names the account and only the issuer's
+   * published keys can prove it did. Discovery then has to agree with every
+   * endpoint the entry declared (a different token endpoint is a conflict,
+   * not a choice), its `issuer` must equal the entry's byte for byte, and
+   * the key set must sit on the issuer's origin or on the entry's declared
+   * `jwksUrl`. Both documents are fetched through the context's fetch, so
+   * the host's egress rules, size and time limits apply to them.
+   */
   async function oauthContext(
     ctx: AdapterCallContext,
     entry: ProviderCatalogEntry,
     auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
+    oidc = false,
   ): Promise<OAuthContext> {
     const allowLoopbackHttp = loopbackAllowed(ctx);
     const resolve = (template: string) =>
@@ -317,6 +361,10 @@ export function createCatalogHttpAdapter(
       auth.mode === "oauth2-authorization-code" && auth.refreshUrl
         ? resolve(auth.refreshUrl)
         : undefined;
+    const jwks =
+      oidc && auth.mode === "oauth2-authorization-code" && auth.jwksUrl
+        ? resolve(auth.jwksUrl)
+        : undefined;
     const issuer =
       auth.mode === "oauth2-authorization-code" && auth.issuer
         ? auth.issuer
@@ -324,7 +372,7 @@ export function createCatalogHttpAdapter(
     const issuerOrigin = new URL(issuer).origin;
     const trustedOrigins = [
       ...new Set(
-        [authorization, token, refresh]
+        [authorization, token, refresh, jwks]
           .filter((url): url is URL => url !== undefined)
           .map((url) => url.origin)
           .filter((origin) => origin !== issuerOrigin),
@@ -333,13 +381,14 @@ export function createCatalogHttpAdapter(
     const names = clientConfigurationNames(entry);
     const policy = issuerPolicy({
       issuer,
-      discovery: "disabled",
+      discovery: oidc ? "required" : "disabled",
       allowLoopbackHttp,
       trustedOrigins,
       acceptIssuerDeclaredOrigins: false,
       endpoints: {
         ...(authorization ? { authorization: authorization.href } : {}),
         token: token.href,
+        ...(jwks ? { jwks: jwks.href } : {}),
       },
       registration: {
         allowed: ["pre-registered"],
@@ -353,7 +402,14 @@ export function createCatalogHttpAdapter(
     const server = await resolveAuthorizationServer(policy, {
       fetch: ctx.environment.fetch,
       signal: ctx.signal,
+      now: ctx.environment.now,
+      tenantId: ctx.actor.tenantId,
+      cache: metadataCache,
     });
+    if (oidc && typeof server.metadata.jwks_uri !== "string")
+      throw new ConnectorError("unsupported", {
+        detail: "catalog.oidc.jwks-missing",
+      });
     const refreshServer: ResolvedAuthorizationServer = refresh
       ? {
           ...server,
@@ -379,11 +435,25 @@ export function createCatalogHttpAdapter(
     requested: readonly string[],
   ): string {
     const scopes = [...new Set([...auth.scopes, ...requested])];
-    // An ID token names the account, and without discovery there are no
-    // published keys to verify one against; so none is asked for.
-    if (scopes.includes("openid"))
-      throw new ConnectorError("unsupported", {
-        detail: "catalog.scope.openid",
+    // An ID token names the account. It is asked for only where the entry
+    // names its issuer, so discovery can find the keys that verify it (see
+    // `oauthContext`); a guessed issuer would verify nothing. OpenID Connect
+    // scopes are space-separated, so a comma-joined provider cannot carry it.
+    if (scopes.includes("openid")) {
+      if (auth.mode !== "oauth2-authorization-code" || !auth.issuer)
+        throw new ConnectorError("unsupported", {
+          detail: "catalog.scope.openid",
+        });
+      if (auth.scopeSeparator !== " ")
+        throw new ConnectorError("unsupported", {
+          detail: "catalog.scope.openid-separator",
+        });
+    }
+    // The entry's defaults are the only scopes a reviewer saw; a caller may
+    // name them, never add one.
+    if (requested.some((scope) => !auth.scopes.includes(scope)))
+      throw new ConnectorError("invalid-request", {
+        detail: "catalog.scope.undeclared",
       });
     if (
       scopes.length > 64 ||
@@ -671,7 +741,7 @@ export function createCatalogHttpAdapter(
 
   function tokenParameters(
     entry: ProviderCatalogEntry,
-    auth: ClientCredentials,
+    auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
   ): Record<string, string> {
     return Object.fromEntries(
@@ -714,7 +784,7 @@ export function createCatalogHttpAdapter(
           redirect: "error",
           signal: controller.signal,
         });
-        return await read(response, material ? secretsOf(material) : []);
+        return await read(response, material ? secretsOf(entry, material) : []);
       } finally {
         clearTimeout(timer);
         ctx.signal.removeEventListener("abort", onAbort);
@@ -818,8 +888,14 @@ export function createCatalogHttpAdapter(
     const { values } = await connectionValues(ctx, entry);
     switch (auth.mode) {
       case "oauth2-authorization-code": {
-        const context = await oauthContext(ctx, entry, auth, values);
         const scope = requestedScopes(auth, intent.requestedPermissions);
+        const context = await oauthContext(
+          ctx,
+          entry,
+          auth,
+          values,
+          scope.split(" ").includes("openid"),
+        );
         const start = await beginAuthorizationCode(ctx, {
           server: context.server,
           client: context.client,
@@ -974,6 +1050,9 @@ export function createCatalogHttpAdapter(
       : "Imports provider catalogs and Nango providers.yaml into draft connectors, and executes reviewed entries: OAuth authorization code and client credentials, API keys, Basic and bearer credentials, and an authenticated proxy to the approved origin.",
     service: pinned ? pinned.id : "provider-catalog",
     support: executable ? "fixture" : "catalog-only",
+    // The generic adapter executes any reviewed entry; a pinned adapter is
+    // one host-registered provider, so its own evidence speaks for it.
+    evidenceScope: pinned ? "adapter" : "definition",
     custody: ["host-owned", "no-credential"],
     configuration: pinned ? configurationFor(pinned) : [],
     profiles: pinned
@@ -1042,8 +1121,8 @@ export function createCatalogHttpAdapter(
           blocked
             ? [reason]
             : [
-                "OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry, never from discovery.",
-                "Client credentials is a local grant request pending the shared engine's own.",
+                "OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry. Only an openid request, for an entry that names its issuer, reads the issuer's metadata, which must agree with the entry, to verify the ID token.",
+                "Client credentials is the shared engine's grant (grantClientCredentials, renewClientCredentials), with the entry's token parameters.",
                 "API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.",
               ],
           blocked,
@@ -1093,6 +1172,17 @@ export function createCatalogHttpAdapter(
         ),
         row("delegate", ["There is no third party to delegate to."], true),
       ];
+    },
+
+    // The entry is copied from the reviewed definition by binding review;
+    // a reviewer's free-form settings cannot supply or replace it.
+    reservedSettings: Object.values(CATALOG_SETTINGS),
+
+    async reviewBinding(input) {
+      return reviewCatalogBinding(input, {
+        ...parseOptions,
+        ...(pinned ? { pinned } : {}),
+      });
     },
 
     async import(
@@ -1269,13 +1359,26 @@ export function createCatalogHttpAdapter(
           claims: [],
           code: "catalog.callback.unexpected",
         };
-      const context = await oauthContext(ctx, entry, auth, values);
+      // The attempt asked for an ID token when its private record holds a
+      // nonce or its scope names `openid`; the keys to verify it come from
+      // the same discovery the authorization began with.
+      const context = await oauthContext(
+        ctx,
+        entry,
+        auth,
+        values,
+        handoff.private["nonce"] !== undefined ||
+          (handoff.private["scope"] ?? "").split(" ").includes("openid"),
+      );
       const result = await completeAuthorizationCode(ctx, {
         url: input.url,
         handoff,
         server: context.server,
         client: context.client,
         policy: context.policy,
+        // The reviewed entry's static values, filled with this connection's
+        // configured fields; nothing from the callback or the caller.
+        parameters: tokenParameters(entry, auth, values),
       });
       // The grant settled the handoff itself, under the generation fence,
       // for these outcomes; the command layer records it and moves on.

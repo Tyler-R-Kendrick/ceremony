@@ -11,8 +11,11 @@ import {
   derivedRoleOf,
   heldCredentialKinds,
   heldSecretRoles,
+  issuedFieldsOf,
+  type CeremonyGoal,
   type CeremonyRole,
   type HeldCredentialKind,
+  type IssuedSinkKind,
 } from "../core/browser-contracts.js";
 import {
   launchManagedBrowser,
@@ -36,6 +39,7 @@ import {
   type CeremonyPage,
   type CeremonyResult,
   type HumanParticipation,
+  type IssuedValues,
   type RecordingDrift,
 } from "./browser-driver.js";
 import {
@@ -85,6 +89,22 @@ export interface CredentialSource {
   ): Promise<string | undefined>;
 }
 
+/**
+ * Where a plan's issued values go: a host function, registered by kind.
+ *
+ * The host writes them somewhere trusted and bound to this run - a
+ * `common.oauth-client` record through `mintOAuthClient`, keyed by `runRef`,
+ * or its private collector - and returns nothing. Nothing it is given, and
+ * nothing it could return, reaches the login's result, its steps, a
+ * recording or an interpreter; the run reference is how the host's own next
+ * step finds what was kept.
+ */
+export type IssuedValueSink = (
+  actor: ActorContext,
+  run: { runRef: string; plan: EffectiveLoginPlan },
+  values: IssuedValues,
+) => Promise<void>;
+
 export type LoginServiceOptions = {
   sessions: BrowserSessionRegistry;
   verifiers: VerifierRegistry;
@@ -125,6 +145,12 @@ export type LoginServiceOptions = {
    * one is a decision a host makes, not one this service makes for it.
    */
   states?: BrowserStateStore;
+  /**
+   * The sinks a plan's `issued` declaration may name, by kind. Absent means
+   * this host keeps nothing a provider page issues, and a plan that declares
+   * something is refused before a browser starts.
+   */
+  issuedSinks?: Partial<Record<IssuedSinkKind, IssuedValueSink>>;
 };
 
 /**
@@ -323,6 +349,15 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           replay && !repairing ? undefined : interpreterFor(plan);
         if (!interpreter && (!replay || repairing))
           return { status: "blocked", runRef, reason: "reasoning-unavailable" };
+        // Nowhere trusted to put an issued value is a plan this host cannot
+        // run, refused before anything opens rather than after a secret has
+        // been generated with nowhere to go.
+        if (plan.issued && !options.issuedSinks?.[plan.issued.sink])
+          return {
+            status: "blocked",
+            runRef,
+            reason: "unsupported-capability",
+          };
 
         let browser: ManagedBrowser;
         try {
@@ -382,6 +417,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
 
           const outcome = await drive(
             actor,
+            runRef,
             plan,
             page,
             input,
@@ -398,7 +434,15 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             },
             interpreter,
             capture,
+            restore !== undefined,
           );
+          /** A replay that stopped before its first step on a restored session. */
+          const restoredDrift = outcome.kind === "restored-drift";
+          const drifted = (): LoginResult => ({
+            status: "blocked",
+            runRef,
+            reason: "recording-drift",
+          });
           if (outcome.kind === "indeterminate")
             return {
               status: "indeterminate",
@@ -423,6 +467,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             : undefined;
           const request = context.request;
 
+          if (restoredDrift && (!verifier || !request)) return drifted();
           if (!verifier || !request) {
             // No registered verifier means the honest ceiling is "something was
             // submitted". Retaining the session is still useful and still true;
@@ -453,6 +498,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             expected,
           );
 
+          if (!verification.verified && restoredDrift) return drifted();
           if (!verification.verified) {
             // A wrong account is reported. It is never a licence to log that
             // account out, switch to another, or start a recovery flow.
@@ -523,6 +569,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               "dispose-managed",
             );
             retained = false;
+            if (restoredDrift) delete capture.drift;
             return {
               status: "verified",
               runRef,
@@ -531,6 +578,9 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               evidenceKind: evidence.kind,
             };
           }
+          // The restored session was already where the recording leads, so
+          // nothing drifted: the replay simply had nothing left to do.
+          if (restoredDrift) delete capture.drift;
           return {
             status: "verified",
             runRef,
@@ -707,17 +757,28 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
    */
   async function drive(
     actor: ActorContext,
+    runRef: string,
     plan: EffectiveLoginPlan,
     page: CeremonyPage,
     input: LoginRunInput,
     onDispatch: (info: { destination: string }) => Promise<void> | void,
     interpreter: CeremonyInterpreter | undefined,
     capture: Capture,
+    restored: boolean,
   ): Promise<
     | { kind: "done" }
+    | { kind: "restored-drift" }
     | { kind: "indeterminate" }
     | { kind: "blocked"; reason: BrowserOperationReason }
-    | { kind: "human"; reason: "human-challenge" | "passkey" | "native-dialog" }
+    | {
+        kind: "human";
+        reason:
+          | "human-challenge"
+          | "passkey"
+          | "native-dialog"
+          | "device-code"
+          | "choice";
+      }
   > {
     await page.goto(plan.entryUrl);
     const declared = Object.keys(plan.credentialRefs);
@@ -816,16 +877,49 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         if (!guarded.includes(spelling)) guarded.push(spelling);
     }
 
+    // What this login keeps, handed straight to the host's sink by the driver.
+    // The values pass through this closure and no further: they are added to
+    // the recording's exclusions and forgotten with the call.
+    const issuedSink = plan.issued
+      ? options.issuedSinks?.[plan.issued.sink]
+      : undefined;
+    const issuedValues: string[] = [];
+    let kept = false;
+    // A plan that keeps an issued credential is obtaining one, and the
+    // interpreter is told so; everything else here is a sign-in.
+    const goal: CeremonyGoal = plan.issued ? "obtain-credential" : "sign-in";
+
     const trace: RecordedTraceEntry[] = [];
+    let dispatchedHere = false;
     const common = {
       page,
-      goal: "sign-in" as const,
+      goal,
       secrets: createSecrets(values),
       // The driver's origin rule is the union of everywhere a secret may go,
       // and its per-role narrowing is applied by the plan before we get here.
       allowedOrigins: plan.navigationOrigins,
-      onDispatch,
+      onDispatch: async (info: { destination: string }) => {
+        dispatchedHere = true;
+        await onDispatch(info);
+      },
       ...(guarded.length > 0 ? { protectedValues: guarded } : {}),
+      ...(plan.issued && issuedSink
+        ? {
+            issued: {
+              fields: issuedFieldsOf(plan.issued),
+              keep: async (values: IssuedValues) => {
+                issuedValues.push(
+                  ...Object.values(values).filter(
+                    (value): value is string => value !== undefined,
+                  ),
+                );
+                await issuedSink(actor, { runRef, plan }, values);
+                kept = true;
+              },
+            },
+          }
+        : {}),
+      ...(plan.choices ? { choices: plan.choices } : {}),
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
         : {}),
@@ -874,8 +968,9 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         capture.recording = compileRecording(trace, {
           id: recordAs.id,
           title: recordAs.title,
-          goal: "sign-in",
+          goal,
           entryUrl: plan.entryUrl,
+          ...(plan.issued ? { issued: plan.issued } : {}),
           origins: plan.navigationOrigins,
           recordedWith: recordAs.recordedWith,
           ...(input.replay?.reference && recordAs.recordedWith === "repair"
@@ -884,14 +979,18 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           excluded: [
             ...resolved,
             ...guarded,
+            ...issuedValues,
             ...(plan.account.kind === "expect"
               ? [plan.account.accountRef]
               : []),
           ],
         });
       } catch (error) {
-        if (!(error instanceof RecordingRejected)) throw error;
-        capture.rejected = error.reason;
+        // The login has already happened by now. Whatever stops the trace
+        // becoming a recording costs the recording, never the login's answer:
+        // rethrowing here would report a signed-in session as indeterminate.
+        capture.rejected =
+          error instanceof RecordingRejected ? error.reason : "invalid";
       }
     }
 
@@ -908,7 +1007,13 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       !capture.repaired &&
       result.status === "blocked"
     )
-      return { kind: "blocked", reason: "recording-drift" };
+      // Except on a restored session, before anything was applied: a saved
+      // state that is still signed in opens on the signed-in view rather than
+      // the recording's first form. That is the verifier's question, and only
+      // its "no" makes this drift.
+      return restored && trace.length === 0 && !dispatchedHere
+        ? { kind: "restored-drift" }
+        : { kind: "blocked", reason: "recording-drift" };
     if (result.status === "blocked") {
       if (result.reason === "human-challenge")
         return { kind: "human", reason: "human-challenge" };
@@ -916,6 +1021,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         return { kind: "human", reason: "passkey" };
       if (result.reason === "native-dialog")
         return { kind: "human", reason: "native-dialog" };
+      if (result.reason === "device-code-required")
+        return { kind: "human", reason: "device-code" };
+      if (result.reason === "choice-required")
+        return { kind: "human", reason: "choice" };
       // Refusals that mean a secret was *not* safely deliverable end the
       // attempt here. There is nothing for a verifier to adjudicate: the
       // ceremony stopped before doing the thing it would be verifying.
@@ -952,6 +1061,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       )
         return { kind: "blocked", reason: "human-declined" };
     }
+    // A login that was for an issued value and did not keep it did not do
+    // what it was for, however signed in the browser now is.
+    if (plan.issued && !kept)
+      return { kind: "blocked", reason: "issued-value-missing" };
     // Every other ending — completed, unverified, stalled, exhausted, or a
     // page the interpreter could not read — means only that the drive is over.
     // Whether anyone is logged in is a question for the verifier, and a driver

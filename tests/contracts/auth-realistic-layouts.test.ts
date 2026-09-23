@@ -18,6 +18,7 @@ import { createHttpCeremonyPage } from "../doubles/http-page.js";
 import { createScriptedInterpreter } from "../doubles/scripted-interpreter.js";
 import {
   assertFillsMatchLabels,
+  fillMismatch,
   fillMismatches,
   recordDecisions,
   type Decision,
@@ -65,8 +66,6 @@ const heuristicExclusions: Record<string, string> = {
     "`stalled` is the driver's verdict on an interpreter that keeps pressing a dead button; the heuristic reports the page unsupported instead of pressing again, by design",
   "sign-in-that-never-accepts":
     "`exhausted` is the driver's verdict on an interpreter that keeps resubmitting; the heuristic stops after one refill rather than spending the step budget, by design",
-  "device-approval":
-    "the heuristic has no user-code role; device authorization is outside the sign-in, registration, two-factor and authorization-code pages these layouts model",
   "access-token-issued-for-private-collection":
     "the heuristic does not recognise a page displaying an issued credential as the end of the ceremony, on any layout; issuing a credential is outside what these layouts model",
 };
@@ -95,7 +94,7 @@ async function run(
   await page.goto(plan.entryUrl);
   const recorded = recordDecisions(interpreter);
   const { entryUrl: _entry, state, ...options } = plan;
-  const human = scenario.human?.(page, identity);
+  const human = scenario.human?.(page, identity, context);
   const result = await runCeremony({
     ...options,
     page,
@@ -414,5 +413,35 @@ test("the fill check catches a value in the wrong field", () => {
         ],
       ),
     /no label/,
+  );
+});
+
+test("the fill check refuses a sign-in code in a code field nobody signs in with", () => {
+  for (const field of [
+    { label: "ZIP code" },
+    { label: "Promo code" },
+    { label: "Referral code (optional)" },
+    { label: "Code", autocomplete: "postal-code" },
+  ])
+    for (const role of ["verification-code", "totp-code"] as const)
+      assert.match(
+        fillMismatch(role, {
+          index: 0,
+          kind: "input",
+          type: "text",
+          ...field,
+        }) ?? "",
+        /not a code field/,
+        `${role} into ${field.label}`,
+      );
+  assert.equal(
+    fillMismatch("totp-code", {
+      index: 0,
+      kind: "input",
+      type: "text",
+      label: "Authentication code",
+      autocomplete: "one-time-code",
+    }),
+    undefined,
   );
 });

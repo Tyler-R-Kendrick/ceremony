@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { ActorContext } from "../../core/operation-contracts.js";
 import {
   recipeDefinitionSchema,
@@ -391,6 +392,34 @@ function allowed(
     throw new Error("Recipe access denied");
 }
 
+/**
+ * Recorded-ceremony and connector drafts share the `draft` and `review`
+ * record kinds, so a recipe draft is recognised by its id and its shape, never
+ * by the kind alone: otherwise review and publication could reach a draft
+ * that is not a recipe.
+ */
+const recipeDraftId =
+  /^draft-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const storedRecipeDraftSchema = z.object({
+  definition: z.object({ id: z.string() }).passthrough(),
+  author: z.string(),
+  digest: z.string(),
+  diagnostics: z.array(z.unknown()),
+});
+function recipeDraftKey(actor: ActorContext, id: string) {
+  if (!recipeDraftId.test(id)) throw new Error("Recipe unavailable");
+  return { tenant: actor.tenantId, kind: "draft" as const, id };
+}
+async function readRecipeDraft(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  id: string,
+) {
+  const record = await tx.get<RecipeDraft>(recipeDraftKey(actor, id));
+  return record && storedRecipeDraftSchema.safeParse(record.value).success
+    ? record
+    : undefined;
+}
 export class RecipeService {
   constructor(
     private readonly store: AsyncCeremonyStore,
@@ -809,11 +838,7 @@ export class RecipeService {
   }
   async getDraft(actor: ActorContext, id: string) {
     return this.store.transaction(async (tx) => {
-      const record = await tx.get<RecipeDraft>({
-        tenant: actor.tenantId,
-        kind: "draft",
-        id,
-      });
+      const record = await readRecipeDraft(tx, actor, id);
       if (
         !record ||
         (record.value.author !== actor.subjectId &&
@@ -846,11 +871,7 @@ export class RecipeService {
       ),
     );
     return this.store.transaction(async (tx) => {
-      const record = await tx.get<RecipeDraft>({
-        tenant: actor.tenantId,
-        kind: "draft",
-        id,
-      });
+      const record = await readRecipeDraft(tx, actor, id);
       if (!record || record.value.author !== actor.subjectId)
         throw new Error("Recipe unavailable");
       const validation = await validateRecipe(
@@ -867,11 +888,7 @@ export class RecipeService {
         diagnostics: [...validation.diagnostics, ...placed.issues],
         ...(placed.report ? { connectors: placed.report } : {}),
       };
-      const next = await tx.put(
-        { tenant: actor.tenantId, kind: "draft", id },
-        value,
-        revision,
-      );
+      const next = await tx.put(recipeDraftKey(actor, id), value, revision);
       return { id, revision: next, ...value };
     });
   }
@@ -883,11 +900,7 @@ export class RecipeService {
   ) {
     allowed(actor, "reviewer");
     return this.store.transaction(async (tx) => {
-      const draft = await tx.get<RecipeDraft>({
-        tenant: actor.tenantId,
-        kind: "draft",
-        id,
-      });
+      const draft = await readRecipeDraft(tx, actor, id);
       if (
         !draft ||
         draft.revision !== revision ||
@@ -916,11 +929,7 @@ export class RecipeService {
   ) {
     allowed(actor, "publisher");
     return this.store.transaction(async (tx) => {
-      const draft = await tx.get<RecipeDraft>({
-        tenant: actor.tenantId,
-        kind: "draft",
-        id,
-      });
+      const draft = await readRecipeDraft(tx, actor, id);
       const review = await tx.get<{ digest: string }>({
         tenant: actor.tenantId,
         kind: "review",

@@ -9,6 +9,7 @@ import {
 } from "./identity.js";
 import { assertRequestBoundary, exactOrigin } from "./authorization.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 /** Must be backed by encrypted shared persistence. take is an atomic get-and-delete. */
 export interface IdentityStore {
@@ -21,7 +22,7 @@ export function persistentIdentityStore(
   store: AsyncCeremonyStore,
 ): IdentityStore {
   const recordKey = (id: string) => ({
-    tenant: "identity",
+    tenant: SYSTEM_TENANT.identity,
     kind: "session" as const,
     id,
   });

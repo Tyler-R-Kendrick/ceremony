@@ -8,8 +8,14 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
 import { ceremonyAgentTools } from "../src/server/agent-tools.js";
 import { teachingRefusals } from "../src/server/mcp-teaching.js";
-import { authoringTransportFor } from "../src/server/teaching-operations.js";
+import {
+  approveCredentialVerification,
+  authoringTransportFor,
+} from "../src/server/teaching-operations.js";
+import { teachingHttp } from "../src/server/teaching-http.js";
+import { installedDiscovery } from "../src/server/authored-operations.js";
 import type { AgentConnectorDependencies } from "../src/server/connectors/agents/intents.js";
+import type { ConnectorToolDependencies } from "../src/server/connectors/mcp/server-tools.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
 
@@ -45,7 +51,15 @@ const recipe: RecipeDefinition = {
   outputs: {},
 };
 
-function fixture() {
+function fixture(
+  options: {
+    waitsOnPerson?: boolean;
+    person?: () => ActorContext;
+  } & Partial<Parameters<typeof createTeachingRuntime>[0]> = {},
+) {
+  const { waitsOnPerson: _waits, person: _person, ...runtimeOptions } = options;
+  void _waits;
+  void _person;
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -76,13 +90,17 @@ function fixture() {
       target: { classification: "public", schema: z.string().min(1) },
     },
     fixtures: ["local"],
-    handler: async () => ({ state: "complete" as const, outputs: {} }),
-    verify: async () => true,
+    handler: async () =>
+      options.waitsOnPerson
+        ? { state: "awaiting-human" as const, outputs: {} }
+        : { state: "complete" as const, outputs: {} },
+    verify: async () => !options.waitsOnPerson,
   });
   const runtime = createTeachingRuntime({
     store,
     registry,
-    identity: { authenticate: async () => actor },
+    // The browser-side actor, for the HTTP routes some tests also call.
+    identity: { authenticate: async () => options.person?.() ?? actor },
     origin: context.origin,
     connections: new Map([
       [
@@ -98,6 +116,7 @@ function fixture() {
     authorize: async () => true,
     // Authoring discovery never leaves the process in these tests.
     authoringFetch: async () => new Response("", { status: 404 }),
+    ...runtimeOptions,
   });
   return { store, runtime };
 }
@@ -455,6 +474,47 @@ const teachingTools = [
   "ceremony_draft_edit",
   "ceremony_recipe_compose",
 ];
+/** Every tool an agent holding every capability is offered. */
+const AGENT_TOOLS = [
+  "browser_backends",
+  "browser_login",
+  "browser_record_login",
+  "browser_release",
+  "browser_session_status",
+  "ceremony_advance",
+  "ceremony_author_compose",
+  "ceremony_author_delete",
+  "ceremony_author_from_provider",
+  "ceremony_author_read",
+  "ceremony_author_verification_propose",
+  "ceremony_bind_private",
+  "ceremony_cancel",
+  "ceremony_collect_private",
+  "ceremony_connect",
+  "ceremony_connectors",
+  "ceremony_demonstration_consent",
+  "ceremony_demonstration_read",
+  "ceremony_demonstration_start",
+  "ceremony_draft_compile",
+  "ceremony_draft_edit",
+  "ceremony_draft_import",
+  "ceremony_draft_read",
+  "ceremony_recipe_compose",
+  "ceremony_recipe_execute",
+  "ceremony_recipe_preview",
+  "ceremony_recipes",
+  "ceremony_recording_read",
+  "ceremony_snapshot",
+  "connector_catalog",
+  "connector_connect",
+  "connector_disconnect",
+  "connector_inspect",
+  "connector_invoke",
+  "connector_list",
+  "connector_operations",
+  "connector_reconnect",
+  "connector_status",
+];
 const executorTools = [
   "ceremony_recipes",
   "ceremony_recipe_preview",
@@ -480,15 +540,52 @@ test("recording, authoring and chaining tools are offered only to actors who cou
     assert.ok(reviewerNames.includes("ceremony_demonstration_read"));
     assert.ok(!reviewerNames.includes("ceremony_draft_compile"));
     assert.ok(!reviewerNames.includes("ceremony_recipe_execute"));
+  } finally {
+    await f.store.close();
+  }
+});
 
-    // Review and publication are a person's decision: no agent tool for them,
-    // whatever the actor holds.
-    const admin = handlerFor(f.runtime, () => ({
-      ...actor,
-      capabilities: ["admin"],
-    }));
-    for (const name of (await toolsFor(admin, "admin")).map((t) => t.name))
-      assert.doesNotMatch(name, /_(publish|review|retire)/, name);
+test("an agent holding every capability is offered exactly this list, with every tool family mounted", async () => {
+  // Every optional family a deployment can mount: connector tools, connector
+  // intents, browser login with recordings, and the private collector. Only
+  // tool registration runs here, so the services behind them are never used.
+  const browserLogin = {
+    recordings: {},
+  } as unknown as NonNullable<
+    Parameters<typeof createTeachingRuntime>[0]["browserLogin"]
+  >;
+  const f = fixture({ browserLogin });
+  try {
+    // A person holding every capability is offered the same tools: review
+    // and publication are the people's routes, never a tool.
+    for (const actorKind of ["agent", "human"] as const) {
+      const holder: ActorContext = {
+        ...actor,
+        actorKind,
+        capabilities: ["executor", "author", "reviewer", "publisher", "admin"],
+      };
+      const mcp = createCeremonyMcpHandler(f.runtime, {
+        resourceUrl: endpoint,
+        issuer,
+        authenticate: () => holder,
+        connectors: {} as ConnectorToolDependencies,
+        connectorIntents: {} as AgentConnectorDependencies,
+        privateCollector: {
+          brokerOrigin: "https://broker.example",
+          appOrigin: "https://collector.example",
+          appHtml: "<!doctype html>",
+        } as unknown as NonNullable<
+          Parameters<typeof createCeremonyMcpHandler>[1]["privateCollector"]
+        >,
+      });
+      const names = (await toolsFor(mcp, actorKind)).map((t) => t.name).sort();
+      // Review, publication and retirement are a person's decision: none of
+      // them is here, for recipes, recordings or connectors, whatever the
+      // actor holds. A tool added to this list is a decision, not an accident.
+      assert.deepEqual(names, AGENT_TOOLS, actorKind);
+      for (const name of names)
+        assert.doesNotMatch(name, /_(publish|review|retire|approve)/, name);
+    }
   } finally {
     await f.store.close();
   }
@@ -739,6 +836,305 @@ test("connector intents mounted alone offer their own status and connect", async
       assert.ok(names.includes(name), `${name} is not offered`);
     assert.ok(!names.includes("connector_invoke"));
     assert.equal(new Set(names).size, names.length);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("a run that waits on a person tells the MCP caller where that person continues", async () => {
+  const f = fixture({ waitsOnPerson: true });
+  try {
+    const mcp = handlerFor(f.runtime, () => actor);
+    await call(mcp, "good", initialize);
+    const connected = await invoke(mcp, "good", "ceremony_connect", {
+      connectorId: "fixture",
+    });
+    assert.equal(connected.isError, false, connected.text);
+    const run = connected.value();
+    assert.equal(run.nodes[0].state, "awaiting-human");
+    // The coordinator's projection: kind, reason and the same-origin human
+    // route, and nothing a person has not already got.
+    const expected = {
+      kind: "person",
+      runId: run.id,
+      nodeId: "node",
+      operationId: "verify",
+      nodeState: "awaiting-human",
+      reason: "human-step",
+      path: `/api/v1/teaching/fixture-provider/${encodeURIComponent(run.id)}/human`,
+    };
+    assert.deepEqual(run.handoff, expected);
+    assert.doesNotMatch(connected.text, /[?&](code|state|token)=|https?:\/\//);
+
+    const read = await invoke(mcp, "good", "ceremony_snapshot", {
+      runId: run.id,
+    });
+    assert.deepEqual(read.value().handoff, expected);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("a run nobody is waiting on carries no handoff", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, () => actor);
+    await call(mcp, "good", initialize);
+    const connected = await invoke(mcp, "good", "ceremony_connect", {
+      connectorId: "fixture",
+    });
+    assert.equal(connected.value().status, "complete");
+    assert.equal(connected.value().handoff, undefined);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an assistant proposes how an authored connector's credential is verified; only a person makes it take effect", async () => {
+  // The browser's actor is the same subject as the MCP author, as a person
+  // and their assistant are.
+  const person: ActorContext = { ...author, actorKind: "human" };
+  const f = fixture({ person: () => person });
+  try {
+    const mcp = handlerFor(f.runtime, (token) =>
+      token === "author" ? { ...author, actorKind: "agent" } : byToken(token),
+    );
+    const names = (await toolsFor(mcp, "author")).map((t) => t.name);
+    assert.ok(names.includes("ceremony_author_verification_propose"));
+    assert.ok(
+      !names.some((name) => /verification_(approve|publish)/.test(name)),
+      "no tool approves a declaration",
+    );
+    assert.ok(
+      !(await toolsFor(mcp, "executor"))
+        .map((t) => t.name)
+        .includes("ceremony_author_verification_propose"),
+    );
+    const drafted = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_from_provider",
+      { provider: "acme", origin: "https://acme.example" },
+    );
+    assert.equal(drafted.value().draft.connectorId, "acme");
+    const declaration = {
+      url: "https://acme.example/v1/me",
+      placement: { in: "header", name: "Authorization", prefix: "Bearer " },
+    };
+
+    // The same checks the direct declaration always ran: HTTPS, an origin
+    // the provider declared, no forbidden header, the author's own connector.
+    for (const bad of [
+      { ...declaration, url: "https://attacker.example/collect" },
+      { ...declaration, url: "http://acme.example/v1/me" },
+      { ...declaration, placement: { in: "header", name: "Cookie" } },
+    ]) {
+      const refused = await invoke(
+        mcp,
+        "author",
+        "ceremony_author_verification_propose",
+        { connectorId: "acme", declaration: bad },
+      );
+      assert.equal(refused.isError, true, JSON.stringify(bad));
+    }
+    const elsewhere = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_verification_propose",
+      { connectorId: "someone-elses", declaration },
+    );
+    assert.equal(elsewhere.isError, true);
+
+    const proposed = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_verification_propose",
+      { connectorId: "acme", declaration },
+    );
+    assert.equal(proposed.isError, false, proposed.text);
+    const { digest, state } = proposed.value();
+    assert.equal(state, "pending-review");
+    assert.match(digest, /^[a-f0-9]{64}$/);
+    // Pending verifies nothing.
+    const pending = await installedDiscovery(f.store, person, "acme");
+    assert.equal(pending?.credentialVerification, undefined);
+    assert.equal(pending?.pendingCredentialVerification?.digest, digest);
+
+    // An assistant cannot approve, whatever it holds.
+    await assert.rejects(
+      approveCredentialVerification(
+        f.runtime,
+        { ...author, actorKind: "agent", capabilities: ["admin"] },
+        "acme",
+        { digest },
+      ),
+      /denied/,
+    );
+
+    const http = (path: string, body: unknown) =>
+      teachingHttp(
+        new Request(`${context.origin}/api/v1/teaching${path}`, {
+          method: "POST",
+          headers: {
+            origin: context.origin,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+        f.runtime,
+      );
+    const route = "/authoring/installed/acme/credential-verification";
+    // The HTTP route proposes with the same validation, and a person
+    // approves exactly what was proposed, by digest.
+    assert.equal(
+      (
+        await http(route, {
+          ...declaration,
+          url: "https://attacker.example/collect",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await http(`${route}/approve`, { digest: "0".repeat(64) })).status,
+      400,
+    );
+    const approved = await http(`${route}/approve`, { digest });
+    assert.equal(approved.status, 200);
+    assert.deepEqual(await approved.json(), {
+      connectorId: "acme",
+      state: "active",
+      digest,
+    });
+    const active = await installedDiscovery(f.store, person, "acme");
+    assert.deepEqual(active?.credentialVerification, declaration);
+    assert.equal(active?.pendingCredentialVerification, undefined);
+    // Nothing is left to approve twice.
+    assert.equal((await http(`${route}/approve`, { digest })).status, 403);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("the endpoint throttles each actor per tool and says when to retry", async () => {
+  const f = fixture();
+  try {
+    let at = 5_000_000;
+    const mcp = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: (token) => byToken(token),
+      rateLimit: {
+        capacity: 2,
+        refillPerSecond: 0.1,
+        tools: { ceremony_recipes: { capacity: 1 } },
+        now: () => at,
+      },
+    });
+    await call(mcp, "executor", initialize);
+    for (let i = 0; i < 2; i++)
+      assert.equal(
+        (await invoke(mcp, "executor", "ceremony_connectors")).isError,
+        false,
+      );
+    const refused = await rpc<
+      ToolResult & { structuredContent?: Record<string, unknown> }
+    >(mcp, "executor", "tools/call", {
+      name: "ceremony_connectors",
+      arguments: {},
+    });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(refused.structuredContent, {
+      error: "rate-limited",
+      tool: "ceremony_connectors",
+      retryAfterSeconds: 10,
+    });
+    assert.equal(JSON.parse(refused.content[0]!.text).error, "rate-limited");
+
+    // Another tool, and another actor, have their own budgets; a per-tool
+    // override applies to its tool.
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_recipes")).isError,
+      false,
+    );
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_recipes")).isError,
+      true,
+    );
+    await call(mcp, "author", initialize);
+    assert.equal(
+      (await invoke(mcp, "author", "ceremony_connectors")).isError,
+      false,
+    );
+
+    // The budget outlives the per-request server, and refills with time.
+    at += 10_000;
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_connectors")).isError,
+      false,
+    );
+
+    // A host that throttles in front of the endpoint can turn it off.
+    const open = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: (token) => byToken(token),
+      rateLimit: false,
+    });
+    for (let i = 0; i < 40; i++)
+      assert.equal(
+        (await invoke(open, "executor", "ceremony_connectors")).isError,
+        false,
+      );
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("ceremony_recipes lists every recipe past one page, at its latest unretired version", async () => {
+  const f = fixture();
+  try {
+    const row = (id: string, version: string, retired = false) => ({
+      key: {
+        tenant: actor.tenantId,
+        kind: "recipe" as const,
+        id: `${id}@${version}`,
+      },
+      value: {
+        definition: { ...recipe, id, title: id },
+        version,
+        digest: `digest-${id}-${version}`,
+        closure: {},
+        retired,
+        publisher: "publisher",
+      },
+    });
+    const rows = [
+      ...Array.from({ length: 150 }, (_, index) =>
+        row(`recipe-${String(index).padStart(3, "0")}`, "1.0.1"),
+      ),
+      // A newer version supersedes; a retired newer one does not.
+      row("recipe-001", "1.0.2"),
+      row("recipe-002", "1.0.2", true),
+      row("recipe-003", "1.0.1", true),
+    ];
+    await f.store.transaction(async (tx) => {
+      for (const entry of rows) {
+        const prior = await tx.get(entry.key);
+        await tx.put(entry.key, entry.value, prior?.revision ?? null);
+      }
+    });
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "executor", initialize);
+    const listed = (await invoke(mcp, "executor", "ceremony_recipes")).value()
+      .recipes as Array<{ id: string; version: string }>;
+    const versions = new Map(listed.map((item) => [item.id, item.version]));
+    assert.equal(listed.length, versions.size, "one entry per recipe");
+    assert.equal(versions.size, 149);
+    assert.equal(versions.get("recipe-149"), "1.0.1");
+    assert.equal(versions.get("recipe-001"), "1.0.2");
+    assert.equal(versions.get("recipe-002"), "1.0.1");
+    assert.equal(versions.has("recipe-003"), false);
   } finally {
     await f.store.close();
   }

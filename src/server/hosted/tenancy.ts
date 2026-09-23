@@ -4,6 +4,7 @@ import {
   PersistenceConflict,
   type AsyncCeremonyStore,
 } from "../persistence/index.js";
+import { SYSTEM_TENANT, SYSTEM_TENANTS } from "../system-tenants.js";
 
 /*
  * Who a verified identity is, in hosted terms: which tenant it belongs to and
@@ -25,6 +26,18 @@ import {
  *   falling back to a default tenant would merge unrelated organizations.
  *   `CEREMONY_TENANT_ID`, when also set, names the deployment's home tenant,
  *   to which tenant-wide operator settings (the Jira setup owner, A2H) apply.
+ *
+ * Both claim settings name a claim in one of two spellings, told apart by the
+ * first character. A name that does not start with `/` is one top-level claim,
+ * taken whole: `https://example.invalid/claims.tenant` is a single claim even
+ * though it contains dots and slashes, exactly as identity providers that
+ * namespace custom claims by URL issue it. A name that starts with `/` is an
+ * RFC 6901 JSON Pointer into nested claims: `/realm_access/roles` reads
+ * `roles` inside the `realm_access` object, and a URL-shaped key inside a
+ * pointer escapes its slashes as `~1` (`/https:~1~1example.invalid~1claims/org`).
+ * Dots are never separators, so no claim name is ambiguous. A pointer walks
+ * objects only; an array, a string or a number on the way is a malformed
+ * token, not something to index into or coerce.
  */
 
 const capabilities = [
@@ -37,25 +50,68 @@ const capabilities = [
 
 /** A tenant a claim may name: short, printable and safe as a record key everywhere. */
 const claimedTenant = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,99}$/);
-/**
- * Tenants the server itself writes under. A claim naming one would put a
- * person's records beside the server's own bookkeeping, so it is refused.
- */
-const reservedTenants = new Set([
-  "hosted",
-  "hosted-tenants",
-  "identity",
-  "public",
-  "workload",
-  "connector-events",
-]);
+/** A person's claim never names a tenant the server writes its own records under. */
+const reservedTenants = new Set(SYSTEM_TENANTS);
 const claimName = z
   .string()
   .min(1)
   .max(200)
-  .regex(/^[A-Za-z0-9_.:/#-]+$/);
+  .regex(/^[A-Za-z0-9_.:/#~-]+$/)
+  .superRefine((value, context) => {
+    try {
+      claimPath(value);
+    } catch {
+      context.addIssue({ code: "custom", message: "Invalid claim path" });
+    }
+  });
 
-const INDEX_TENANT = "hosted-tenants";
+/** How deep a pointer may reach; identity-provider claims nest two or three levels. */
+const MAX_CLAIM_DEPTH = 8;
+
+/**
+ * The keys a claim setting names, outermost first. A leading `/` makes it an
+ * RFC 6901 pointer; anything else is one top-level claim name, verbatim.
+ * Malformed pointers throw, so configuration fails before any token is read:
+ * an empty segment (`//`, a trailing `/`, `/` alone), an escape other than
+ * `~0` or `~1`, or more than eight segments.
+ */
+export function claimPath(name: string): readonly string[] {
+  if (!name.startsWith("/")) return [name];
+  const segments = name.slice(1).split("/");
+  if (segments.length > MAX_CLAIM_DEPTH)
+    throw new Error("A claim pointer is too deep");
+  return segments.map((segment) => {
+    if (segment === "" || /~(?![01])/.test(segment))
+      throw new Error("A claim pointer is malformed");
+    return segment.replace(/~1/g, "/").replace(/~0/g, "~");
+  });
+}
+
+const malformed: unique symbol = Symbol("malformed claim");
+
+const isClaimObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The value at a claim path, `undefined` when some object on the way lacks the
+ * key, or `malformed` when the path runs into something that is not an
+ * object. Only own properties are read, so `constructor` or `__proto__` in a
+ * path finds nothing rather than the prototype.
+ */
+function readClaim(
+  claims: Readonly<Record<string, unknown>>,
+  path: readonly string[],
+): unknown {
+  let current: unknown = claims;
+  for (const key of path) {
+    if (!isClaimObject(current)) return malformed;
+    if (!Object.hasOwn(current, key)) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+const INDEX_TENANT = SYSTEM_TENANT.hostedIndex;
 
 export interface HostedTenancyConfig {
   /** Pinned tenant, or the home tenant when `claim` is set. */
@@ -75,6 +131,8 @@ export class HostedTenancy {
   readonly home: string | undefined;
   readonly claim: string | undefined;
   readonly rolesClaim: string;
+  private readonly tenantPath: readonly string[] | undefined;
+  private readonly rolesPath: readonly string[];
   private readonly rolesMap:
     ReadonlyMap<string, readonly Capability[]> | undefined;
   private readonly remembered = new Set<string>();
@@ -87,6 +145,8 @@ export class HostedTenancy {
     this.home = config.home;
     this.claim = config.claim;
     this.rolesClaim = config.rolesClaim ?? "ceremony_roles";
+    this.tenantPath = config.claim ? claimPath(config.claim) : undefined;
+    this.rolesPath = claimPath(this.rolesClaim);
     this.rolesMap = config.rolesMap
       ? new Map(Object.entries(config.rolesMap))
       : undefined;
@@ -104,8 +164,11 @@ export class HostedTenancy {
 
   /** The tenant signed claims place this identity in; refuses rather than guesses. */
   tenantFor(claims: Readonly<Record<string, unknown>>): string {
-    if (!this.claim) return this.home!;
-    const value = claims[this.claim];
+    if (!this.tenantPath) return this.home!;
+    // Only a string names a tenant. A number is not coerced (`12` and `12.0`
+    // would be one organization or two depending on the issuer's encoder),
+    // and an array is not searched for a first element.
+    const value = readClaim(claims, this.tenantPath);
     const parsed = claimedTenant.safeParse(value);
     if (!parsed.success || reservedTenants.has(parsed.data))
       throw new AuthorizationError("denied");
@@ -117,11 +180,13 @@ export class HostedTenancy {
    * an executor and nothing more; a claim that is present grants exactly what
    * it maps to, which may be nothing. Unknown role names grant nothing rather
    * than failing sign-in, because identity providers put many unrelated
-   * groups in the same claim. A malformed claim is refused.
+   * groups in the same claim. A malformed claim is refused, and so is a
+   * pointer that runs into a non-object on its way to the roles.
    */
   capabilitiesFor(claims: Readonly<Record<string, unknown>>): Capability[] {
-    const raw = claims[this.rolesClaim];
+    const raw = readClaim(claims, this.rolesPath);
     if (raw === undefined) return ["executor"];
+    if (raw === malformed) throw new AuthorizationError("denied");
     const roles = z
       .union([
         z.array(z.string().max(200)).max(200),

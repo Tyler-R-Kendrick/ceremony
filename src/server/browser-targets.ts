@@ -97,7 +97,7 @@ export interface ElementHandleLike extends JsHandleLike {
   fill(value: string): Promise<void>;
   click(): Promise<void>;
   check(): Promise<void>;
-  selectOption(value: string): Promise<unknown>;
+  selectOption(value: string | { label: string }): Promise<unknown>;
 }
 
 export interface BoundPageLike {

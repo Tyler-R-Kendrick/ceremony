@@ -1,0 +1,4577 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ceremony connector API",
+    "version": "1",
+    "summary": "Connector import, review, connection and invocation.",
+    "description": "The connector command surface of a Ceremony deployment: import connector descriptions, review them into runtime bindings, connect, invoke approved operations, and disconnect or revoke.\n\n**Generated.** `npm run openapi:generate` writes this file from the Zod schemas the handler validates with; `npm run openapi:check` fails when it is stale. Do not edit it by hand.\n\n## Authentication\n\nThe hosted deployment authenticates these routes with its **session cookie**, established by the OIDC sign-in (`POST /api/auth/login`, then the issuer, then `/api/auth/callback`). They do **not** accept bearer tokens: an OAuth access token is accepted only by the MCP endpoint (`/mcp`), which exposes a narrower set of connector tools. A host embedding the handler (`createConnectorRuntime(...).http`) brings its own identity adapter and may authenticate differently; the handler itself reads no token or cookie and is handed the authenticated actor.\n\nEvery `POST` is a same-origin mutation: it must carry an `Origin` header equal to the deployment's origin and `Content-Type: application/json`, and its body is size-bounded. All routes share a per-subject request budget (429 `rate-limited`). The provider event routes are the exception: they take no session and authenticate each delivery by signature.\n\n## Human-only routes and inputs\n\nOperations marked `x-ceremony-human-only: true` refuse any actor that is not an authenticated human with 403 `denied`, whatever capabilities it holds. `x-ceremony-human-only-inputs` names inputs within an otherwise shared operation that only a person may supply. Assistants and delegated agents also see a narrower projection of every connection (see `ConnectionView`).\n\n## Errors\n\nEvery failure is `{ \"error\": <code>, \"message\": <fixed sentence>, \"detail\"?: <bounded refinement> }`. The code is the whole public story: provider bodies and exception text never leave the server. The code-to-status mapping is fixed; see the `Error<status>` responses. A method a route does not support answers 405 `invalid-request` with an `Allow` header.",
+    "license": { "name": "MIT", "identifier": "MIT" }
+  },
+  "servers": [
+    {
+      "url": "{origin}",
+      "description": "A Ceremony deployment's exact origin.",
+      "variables": {
+        "origin": {
+          "default": "https://ceremony.example",
+          "description": "The deployment origin, scheme and host only."
+        }
+      }
+    }
+  ],
+  "security": [{ "sessionCookie": [] }],
+  "tags": [
+    { "name": "catalog", "description": "The connector directory." },
+    {
+      "name": "definitions",
+      "description": "Imported, non-executable connector descriptions."
+    },
+    {
+      "name": "bindings",
+      "description": "Reviewed, server-side runtime bindings."
+    },
+    { "name": "connections", "description": "Connections and invocation." },
+    {
+      "name": "handoffs",
+      "description": "Private input a person supplies during a connection."
+    },
+    {
+      "name": "revocation",
+      "description": "Revocation requests and administrative actions."
+    },
+    { "name": "callback", "description": "Provider authorization return." },
+    { "name": "events", "description": "Signed provider deliveries." }
+  ],
+  "paths": {
+    "/api/v1/connectors/bindings": {
+      "get": {
+        "operationId": "listBindings",
+        "tags": ["bindings"],
+        "summary": "List reviewed runtime bindings",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BindingListResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      },
+      "post": {
+        "operationId": "approveBinding",
+        "tags": ["bindings"],
+        "summary": "Approve a definition into a runtime binding (review step)",
+        "description": "A reviewer's explicit decisions: destinations, operations, custody and settings. Letting an assistant read personal output, and pinning an OAuth issuer policy, are a person's decisions only.\n\nRequires one of these capabilities: `reviewer`, `publisher` (or `admin`).\n\n**Human-only inputs:** `approvals.agentOutputConsent`, `approvals.oauth`, `approvals.oauthProfiles`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "x-ceremony-capabilities": ["reviewer", "publisher"],
+        "x-ceremony-human-only-inputs": [
+          "approvals.agentOutputConsent",
+          "approvals.oauth",
+          "approvals.oauthProfiles"
+        ],
+        "parameters": [{ "$ref": "#/components/parameters/Origin" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BindingReference" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/callback": {
+      "get": {
+        "operationId": "providerCallback",
+        "tags": ["callback"],
+        "summary": "Provider authorization return (top-level navigation)",
+        "description": "Where a provider sends the person's browser after authorization. It is a navigation, not an API call: it always answers 303 to the deployment's own return path, with `connection` and `outcome` (a lifecycle or an error code) and sometimes `detail` in the query string. The query this route receives is the provider's (`state`, `code`, `error`, ...) and is correlated by `state` against the session that started the flow.\n\n**Human-only.** Any actor that is not an authenticated human is refused, and the refusal is reported in the redirect's `outcome`.",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only": true,
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "description": "Opaque correlation value issued when the flow started.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Always a redirect to the deployment's return path on its own origin; never to a location taken from input.",
+            "headers": {
+              "Location": {
+                "required": true,
+                "schema": { "type": "string", "format": "uri" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/catalog": {
+      "get": {
+        "operationId": "listCatalog",
+        "tags": ["catalog"],
+        "summary": "List the connector directory for this caller",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CatalogResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/configure": {
+      "post": {
+        "operationId": "configure",
+        "tags": ["catalog"],
+        "summary": "Commit private configuration collected out of band",
+        "description": "Takes a one-use reference from the private collection path; configuration values never travel in this JSON. Answers 501 `unsupported` where the host has no configuration writer.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only": true,
+        "parameters": [{ "$ref": "#/components/parameters/Origin" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConfigureRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConfigureResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections": {
+      "get": {
+        "operationId": "listConnections",
+        "tags": ["connections"],
+        "summary": "List this caller's connections",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [
+          {
+            "name": "ecosystem",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+          },
+          {
+            "name": "bindingRef",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 200 }
+          },
+          {
+            "name": "lifecycle",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "configuration-required",
+                "authorization-required",
+                "human-required",
+                "verifying",
+                "active",
+                "degraded",
+                "expired",
+                "reconnect-required",
+                "locally-disconnected",
+                "upstream-revoked",
+                "indeterminate"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionListResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      },
+      "post": {
+        "operationId": "connect",
+        "tags": ["connections"],
+        "summary": "Start a connection under an approved binding",
+        "description": "Usually answers with a pending lifecycle and, for the initiating human, a `presentation` to continue with. An account switch is refused here; it is a reconnect.\n\nRequires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [{ "$ref": "#/components/parameters/Origin" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConnectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}": {
+      "get": {
+        "operationId": "getConnection",
+        "tags": ["connections"],
+        "summary": "Read one connection's status",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [{ "$ref": "#/components/parameters/connectionRef" }],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/cancel": {
+      "post": {
+        "operationId": "cancelConnection",
+        "tags": ["connections"],
+        "summary": "Cancel a pending authorization or handoff",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/delete": {
+      "post": {
+        "operationId": "deleteConnection",
+        "tags": ["revocation"],
+        "summary": "Purge a disconnected connection's local record",
+        "description": "Never an upstream effect; the connection must be closed.\n\nRequires one of these capabilities: `admin`.\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["admin"],
+        "x-ceremony-human-only": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AdministrativeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/disconnect": {
+      "post": {
+        "operationId": "disconnectConnection",
+        "tags": ["connections"],
+        "summary": "Disconnect locally, at the broker, or upstream",
+        "description": "A local unlink attempts nothing upstream. Broker and upstream scopes are a person's decision only.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only inputs:** `scope (broker, upstream)`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only-inputs": ["scope (broker, upstream)"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DisconnectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DisconnectResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/handoffs/{handoffRef}/input": {
+      "post": {
+        "operationId": "provideHandoffInput",
+        "tags": ["handoffs"],
+        "summary": "Submit the private input a handoff asks for",
+        "description": "The submitted values (an API key, for example) are held in credential custody and never appear in any response.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/handoffRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HandoffInputRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/invoke": {
+      "post": {
+        "operationId": "invokeOperation",
+        "tags": ["connections"],
+        "summary": "Invoke an approved operation with this connection's credential",
+        "description": "A write, or any operation the binding marks for consent, answers `state: human-required` until an authenticated human repeats it with `confirm: true`; `confirm` is ignored for any other actor kind. A repeated `commandId` replays the journaled outcome.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only inputs:** `confirm`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only-inputs": ["confirm"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvokeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvokeResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/poll": {
+      "post": {
+        "operationId": "pollConnection",
+        "tags": ["connections"],
+        "summary": "Advance a pending authorization that completes by polling",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/reconnect": {
+      "post": {
+        "operationId": "reconnectConnection",
+        "tags": ["connections"],
+        "summary": "Start a new authorization under the current binding revision",
+        "description": "The old grant stays until the new one is verified. Replacing the verified account (`accountSwitch: true`) is a person's decision only.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only inputs:** `accountSwitch`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "x-ceremony-capabilities": ["executor"],
+        "x-ceremony-human-only-inputs": ["accountSwitch"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReconnectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/revoke": {
+      "post": {
+        "operationId": "revokeConnection",
+        "tags": ["revocation"],
+        "summary": "Revoke the upstream grant (approves a revocation request)",
+        "description": "Requires one of these capabilities: `admin`.\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["admin"],
+        "x-ceremony-human-only": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AdministrativeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DisconnectResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/revoke-decline": {
+      "post": {
+        "operationId": "declineRevocation",
+        "tags": ["revocation"],
+        "summary": "Decline a pending revocation request",
+        "description": "Approving the request is `revoke` and declining it is its counterpart: both are an administrator's action, under the same host policy, on an open connection.\n\nRequires one of these capabilities: `admin`.\n\n**Human-only.** Any actor that is not an authenticated human (an assistant, a delegated agent, the system) is refused with 403 `denied`.",
+        "x-ceremony-capabilities": ["admin"],
+        "x-ceremony-human-only": true,
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AdministrativeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/revoke-request": {
+      "post": {
+        "operationId": "requestRevocation",
+        "tags": ["revocation"],
+        "summary": "Ask an administrator to revoke this connection",
+        "description": "Only queues the request; revoking stays an administrator's human-only action.\n\nRequires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevocationRequestResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/connections/{connectionRef}/verify": {
+      "post": {
+        "operationId": "verifyConnection",
+        "tags": ["connections"],
+        "summary": "Refresh verification evidence for an existing grant",
+        "description": "Requires one of these capabilities: `executor` (or `admin`).",
+        "x-ceremony-capabilities": ["executor"],
+        "parameters": [
+          { "$ref": "#/components/parameters/connectionRef" },
+          { "$ref": "#/components/parameters/Origin" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EmptyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConnectionView" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/definitions": {
+      "get": {
+        "operationId": "listDefinitions",
+        "tags": ["definitions"],
+        "summary": "List imported connector definitions with issue counts",
+        "description": "Requires one of these capabilities: `author`, `reviewer` (or `admin`).",
+        "x-ceremony-capabilities": ["author", "reviewer"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionListResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/definitions/{definitionRef}": {
+      "get": {
+        "operationId": "getDefinition",
+        "tags": ["definitions"],
+        "summary": "Review one normalized definition and its provenance",
+        "description": "The author review projection. The protected raw artifact handle never leaves the server.\n\nRequires one of these capabilities: `author`, `reviewer` (or `admin`).",
+        "x-ceremony-capabilities": ["author", "reviewer"],
+        "parameters": [{ "$ref": "#/components/parameters/definitionRef" }],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DefinitionReview" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/connectors/events/{authority}": {
+      "post": {
+        "operationId": "receiveAuthorityEvent",
+        "tags": ["events"],
+        "summary": "Receive a provider delivery for an authority",
+        "description": "Provider deliveries only. No session and no Origin check: the receiver authenticates each delivery by verifying a signature over the raw body with the subscription's own signing secret. A deployment that has not enabled events answers 404.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authority",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The provider's signed delivery, verbatim. Its schema is the provider's; signature headers are verified before the body is parsed.",
+          "content": { "application/json": { "schema": {} } }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted, or a duplicate of an accepted delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAcknowledgement"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Verified but not routed to anything; ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAcknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "404": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "405": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "410": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "413": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "415": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "503": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/events/{authority}/{subscriptionId}": {
+      "post": {
+        "operationId": "receiveSubscriptionEvent",
+        "tags": ["events"],
+        "summary": "Receive a provider delivery for one subscription",
+        "description": "Provider deliveries only. No session and no Origin check: the receiver authenticates each delivery by verifying a signature over the raw body with the subscription's own signing secret. A deployment that has not enabled events answers 404.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "authority",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$"
+            }
+          },
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@-]{0,199}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The provider's signed delivery, verbatim. Its schema is the provider's; signature headers are verified before the body is parsed.",
+          "content": { "application/json": { "schema": {} } }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted, or a duplicate of an accepted delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAcknowledgement"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Verified but not routed to anything; ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAcknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "404": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "405": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "410": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "413": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "415": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          },
+          "503": {
+            "description": "Rejected.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventRejection" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/import": {
+      "post": {
+        "operationId": "importDefinition",
+        "tags": ["definitions"],
+        "summary": "Import a connector description (upload or URL)",
+        "description": "Import registers nothing executable: it produces definitions and the candidates a reviewer may later bind. The body ceiling is larger than other routes' to admit a full description.\n\nRequires one of these capabilities: `author` (or `admin`).",
+        "x-ceremony-capabilities": ["author"],
+        "parameters": [{ "$ref": "#/components/parameters/Origin" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ImportRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ImportResult" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "501": { "$ref": "#/components/responses/Error501" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-ceremony_session",
+        "description": "The hosted deployment's session cookie, set by its OIDC sign-in. HttpOnly, SameSite=Lax, Secure; named `ceremony_session` under the local development profile. Bearer tokens are not accepted on these routes."
+      }
+    },
+    "parameters": {
+      "connectionRef": {
+        "name": "connectionRef",
+        "in": "path",
+        "required": true,
+        "description": "A connection reference. References may contain `/` and `:`, so percent-encode the segment.",
+        "schema": { "type": "string", "maxLength": 200 }
+      },
+      "definitionRef": {
+        "name": "definitionRef",
+        "in": "path",
+        "required": true,
+        "description": "A definition reference, percent-encoded.",
+        "schema": { "type": "string", "maxLength": 200 }
+      },
+      "handoffRef": {
+        "name": "handoffRef",
+        "in": "path",
+        "required": true,
+        "description": "A handoff reference, percent-encoded.",
+        "schema": { "type": "string", "maxLength": 200 }
+      },
+      "Origin": {
+        "name": "Origin",
+        "in": "header",
+        "required": true,
+        "description": "Must equal the deployment's exact origin; a browser sends it automatically. A cross-site request is refused with 403 `denied`.",
+        "schema": { "type": "string", "format": "uri" }
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "Codes answered with 400: `invalid-request`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["invalid-request"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Codes answered with 401: `unauthenticated`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["unauthenticated"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Codes answered with 403: `denied`, `network-policy`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": ["denied", "network-policy"]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "Codes answered with 404: `not-found`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["not-found"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error409": {
+        "description": "Codes answered with 409: `conflict`, `configuration-required`, `human-required`, `indeterminate`, `cancelled`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "conflict",
+                        "configuration-required",
+                        "human-required",
+                        "indeterminate",
+                        "cancelled"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error410": {
+        "description": "Codes answered with 410: `expired`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["expired"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error429": {
+        "description": "Codes answered with 429: `rate-limited`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["rate-limited"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error501": {
+        "description": "Codes answered with 501: `unsupported`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["unsupported"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error502": {
+        "description": "Codes answered with 502: `upstream-rejected`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "enum": ["upstream-rejected"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Error503": {
+        "description": "Codes answered with 503: `upstream-unavailable`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ErrorBody" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": ["upstream-unavailable"]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ImportRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "upload" },
+              "mediaType": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+              },
+              "text": { "type": "string", "maxLength": 4194304 },
+              "adapterId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,119}$"
+              }
+            },
+            "required": ["kind", "mediaType", "text"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "url" },
+              "url": { "type": "string", "maxLength": 2048, "format": "uri" },
+              "adapterId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,119}$"
+              }
+            },
+            "required": ["kind", "url"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "BindingApprovalRequest": {
+        "type": "object",
+        "properties": {
+          "definitionRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "adapterId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,119}$"
+          },
+          "approvals": {
+            "type": "object",
+            "properties": {
+              "destinations": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048,
+                  "pattern": "^[^\\p{Cc}]*$"
+                }
+              },
+              "operations": {
+                "maxItems": 4096,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "nativeId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]+$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "transport": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": { "type": "string", "const": "http" },
+                                "method": {
+                                  "type": "string",
+                                  "enum": [
+                                    "GET",
+                                    "HEAD",
+                                    "POST",
+                                    "PUT",
+                                    "PATCH",
+                                    "DELETE",
+                                    "OPTIONS"
+                                  ]
+                                },
+                                "pathTemplate": {
+                                  "type": "string",
+                                  "maxLength": 1024,
+                                  "pattern": "^\\/[^\\p{Cc}?#]*$"
+                                }
+                              },
+                              "required": ["kind", "method", "pathTemplate"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "mcp-tool"
+                                },
+                                "toolName": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 512,
+                                  "allOf": [
+                                    { "pattern": "^[^\\p{Cc}]+$" },
+                                    {
+                                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "toolName"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "mcp-resource"
+                                },
+                                "uriTemplate": {
+                                  "type": "string",
+                                  "maxLength": 2048
+                                }
+                              },
+                              "required": ["kind", "uriTemplate"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "mcp-prompt"
+                                },
+                                "promptName": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 512,
+                                  "allOf": [
+                                    { "pattern": "^[^\\p{Cc}]+$" },
+                                    {
+                                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "promptName"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "broker-action"
+                                },
+                                "action": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 512,
+                                  "allOf": [
+                                    { "pattern": "^[^\\p{Cc}]+$" },
+                                    {
+                                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "action"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "delegated"
+                                },
+                                "route": {
+                                  "type": "string",
+                                  "maxLength": 256,
+                                  "pattern": "^[^\\p{Cc}]+$"
+                                }
+                              },
+                              "required": ["kind", "route"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "destination": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            { "type": "string", "maxLength": 2048 }
+                          ]
+                        },
+                        "effect": {
+                          "type": "string",
+                          "enum": ["read", "write", "unknown"]
+                        },
+                        "outputClassification": {
+                          "type": "string",
+                          "enum": ["public", "personal", "secret"]
+                        },
+                        "cost": {
+                          "type": "string",
+                          "enum": ["free", "metered", "unknown"]
+                        },
+                        "consent": {
+                          "type": "string",
+                          "enum": ["none", "confirm"]
+                        },
+                        "replay": {
+                          "type": "string",
+                          "enum": [
+                            "read-only",
+                            "upstream-idempotency-key",
+                            "reconciliation",
+                            "none"
+                          ]
+                        },
+                        "targetParameters": {
+                          "maxItems": 8,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                          }
+                        },
+                        "authenticationProfile": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        }
+                      },
+                      "required": ["nativeId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+              },
+              "permittedTargets": {
+                "default": [],
+                "maxItems": 256,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["kind", "id"],
+                  "additionalProperties": false
+                }
+              },
+              "configuration": {
+                "maxItems": 48,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]{0,95}$"
+                }
+              },
+              "custody": {
+                "type": "string",
+                "enum": [
+                  "host-owned",
+                  "external-credential-broker",
+                  "external-execution-broker",
+                  "attended-browser",
+                  "no-credential"
+                ]
+              },
+              "authorityInstance": {
+                "type": "string",
+                "maxLength": 256,
+                "pattern": "^[^\\p{Cc}]*$"
+              },
+              "oauth": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "additionalProperties": {}
+              },
+              "oauthProfiles": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "verifier": {
+                "type": "object",
+                "properties": {
+                  "nativeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "input": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": ["nativeId"],
+                "additionalProperties": false
+              },
+              "agentOutputConsent": {
+                "type": "string",
+                "enum": ["none", "personal"]
+              },
+              "settings": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": ["destinations", "operations"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["definitionRef", "adapterId", "approvals"],
+        "additionalProperties": false
+      },
+      "ConfigureRequest": {
+        "type": "object",
+        "properties": {
+          "secretRef": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "names": {
+            "minItems": 1,
+            "maxItems": 48,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,95}$" }
+          }
+        },
+        "required": ["secretRef"],
+        "additionalProperties": false
+      },
+      "ConnectRequest": {
+        "type": "object",
+        "properties": {
+          "bindingRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "ownerKind": {
+            "default": "user",
+            "type": "string",
+            "enum": ["user", "organization", "workload"]
+          },
+          "durable": { "default": false, "type": "boolean" },
+          "intent": {
+            "default": {
+              "requestedPermissions": [],
+              "accountSwitch": false,
+              "interruption": "allowed"
+            },
+            "type": "object",
+            "properties": {
+              "profileId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+              },
+              "requestedPermissions": {
+                "default": [],
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[^\\p{Cc}]*$"
+                }
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  }
+                },
+                "required": ["kind", "id"],
+                "additionalProperties": false
+              },
+              "accountSwitch": { "default": false, "type": "boolean" },
+              "interruption": {
+                "default": "allowed",
+                "type": "string",
+                "enum": ["allowed", "none"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["bindingRef"],
+        "additionalProperties": false
+      },
+      "ReconnectRequest": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountSwitch": { "default": false, "type": "boolean" },
+          "interruption": {
+            "default": "allowed",
+            "type": "string",
+            "enum": ["allowed", "none"]
+          },
+          "requestedPermissions": {
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\p{Cc}]*$"
+            }
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "allOf": [
+                  { "pattern": "^[^\\p{Cc}]+$" },
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
+                ]
+              }
+            },
+            "required": ["kind", "id"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["expectedRevision"],
+        "additionalProperties": false
+      },
+      "DisconnectRequest": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scope": {
+            "default": "local",
+            "type": "string",
+            "enum": ["local", "broker", "upstream"]
+          },
+          "acknowledgeSharedImpact": { "default": false, "type": "boolean" }
+        },
+        "required": ["expectedRevision"],
+        "additionalProperties": false
+      },
+      "InvokeRequest": {
+        "type": "object",
+        "properties": {
+          "operationRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "input": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "additionalProperties": {}
+          },
+          "commandId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$"
+          },
+          "confirm": { "default": false, "type": "boolean" }
+        },
+        "required": ["operationRef", "commandId"],
+        "additionalProperties": false
+      },
+      "AdministrativeRequest": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["expectedRevision"],
+        "additionalProperties": false
+      },
+      "HandoffInputRequest": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": { "type": "string", "maxLength": 4096 }
+          }
+        },
+        "required": ["values"],
+        "additionalProperties": false
+      },
+      "EmptyRequest": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "CatalogResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+                },
+                "ecosystem": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                },
+                "service": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "allOf": [
+                    { "pattern": "^[^\\p{Cc}]*$" },
+                    {
+                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 500,
+                  "allOf": [
+                    { "pattern": "^[^\\p{Cc}]*$" },
+                    {
+                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                    }
+                  ]
+                },
+                "support": {
+                  "type": "string",
+                  "enum": [
+                    "provider-backed",
+                    "fixture",
+                    "unconfigured",
+                    "catalog-only"
+                  ]
+                },
+                "custody": {
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "host-owned",
+                      "external-credential-broker",
+                      "external-execution-broker",
+                      "attended-browser",
+                      "no-credential"
+                    ]
+                  }
+                },
+                "runtimes": {
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["browser", "hosted-server", "trusted-local-runner"]
+                  }
+                },
+                "authentication": {
+                  "maxItems": 16,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "oauth-authorization-code",
+                      "oauth-client-credentials",
+                      "oauth-device",
+                      "api-key",
+                      "http-basic",
+                      "http-bearer",
+                      "openid-connect",
+                      "mutual-tls",
+                      "signature",
+                      "external-broker",
+                      "none",
+                      "ceremony-method",
+                      "unsupported"
+                    ]
+                  }
+                },
+                "configuration": {
+                  "maxItems": 48,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]{0,95}$"
+                      },
+                      "required": { "type": "boolean" },
+                      "classification": {
+                        "type": "string",
+                        "enum": ["public", "personal", "secret"]
+                      },
+                      "present": { "type": "boolean" }
+                    },
+                    "required": [
+                      "name",
+                      "required",
+                      "classification",
+                      "present"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "capabilities": {
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dimension": {
+                        "type": "string",
+                        "enum": [
+                          "discover",
+                          "import",
+                          "configure",
+                          "authorize",
+                          "verify",
+                          "invoke",
+                          "events",
+                          "reconnect",
+                          "disconnect",
+                          "revoke",
+                          "export",
+                          "delegate"
+                        ]
+                      },
+                      "profile": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "pattern": "^[^\\p{Cc}]+$"
+                      },
+                      "adapterVersion": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "allOf": [
+                          { "pattern": "^[^\\p{Cc}]+$" },
+                          {
+                            "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                          }
+                        ]
+                      },
+                      "runtime": {
+                        "type": "string",
+                        "enum": [
+                          "browser",
+                          "hosted-server",
+                          "trusted-local-runner"
+                        ]
+                      },
+                      "implementation": {
+                        "type": "string",
+                        "enum": ["implemented", "unsupported"]
+                      },
+                      "configuration": {
+                        "type": "string",
+                        "enum": ["ready", "missing", "not-applicable"]
+                      },
+                      "evidence": {
+                        "type": "string",
+                        "enum": [
+                          "not-tested",
+                          "unit",
+                          "protocol-fixture",
+                          "local-integration",
+                          "browser-integration",
+                          "live-authorized",
+                          "deployed-authorized"
+                        ]
+                      },
+                      "evidenceRef": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                      },
+                      "limitations": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 500,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "dimension",
+                      "profile",
+                      "adapterVersion",
+                      "runtime",
+                      "implementation",
+                      "configuration",
+                      "evidence",
+                      "limitations"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "evidence": {
+                  "type": "string",
+                  "enum": [
+                    "not-tested",
+                    "unit",
+                    "protocol-fixture",
+                    "local-integration",
+                    "browser-integration",
+                    "live-authorized",
+                    "deployed-authorized"
+                  ]
+                },
+                "supportLabel": {
+                  "type": "string",
+                  "enum": [
+                    "unverified",
+                    "fixture",
+                    "local",
+                    "live",
+                    "certified"
+                  ]
+                },
+                "group": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "definitionRef": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                }
+              },
+              "required": [
+                "id",
+                "ecosystem",
+                "service",
+                "displayName",
+                "description",
+                "support",
+                "custody",
+                "runtimes",
+                "authentication",
+                "configuration",
+                "capabilities",
+                "evidence",
+                "group"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["entries"],
+        "additionalProperties": false
+      },
+      "DefinitionListResponse": {
+        "type": "object",
+        "properties": {
+          "definitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "definitionRef": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                },
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "ecosystem": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                    },
+                    "authorityNamespace": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "nativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "nativeVersion": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ecosystem",
+                    "authorityNamespace",
+                    "nativeId",
+                    "nativeVersion"
+                  ],
+                  "additionalProperties": false
+                },
+                "display": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "ecosystem": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                    },
+                    "service": {
+                      "type": "string",
+                      "maxLength": 120,
+                      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                    }
+                  },
+                  "required": ["name", "description", "ecosystem"],
+                  "additionalProperties": false
+                },
+                "issues": {
+                  "type": "object",
+                  "properties": {
+                    "blocking": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "warning": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "info": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["blocking", "warning", "info"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["definitionRef", "identity", "display", "issues"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["definitions"],
+        "additionalProperties": false
+      },
+      "DefinitionReview": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": { "type": "number", "const": 1 },
+              "definitionRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "ecosystem": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "authorityNamespace": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]*$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "nativeVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "ecosystem",
+                  "authorityNamespace",
+                  "nativeId",
+                  "nativeVersion"
+                ],
+                "additionalProperties": false
+              },
+              "sourceRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "normalizedDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "importer": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[^\\p{Cc}]+$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  }
+                },
+                "required": ["id", "version"],
+                "additionalProperties": false
+              },
+              "display": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]*$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]*$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "ecosystem": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "service": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                  }
+                },
+                "required": ["name", "description", "ecosystem"],
+                "additionalProperties": false
+              },
+              "authentication": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "oauth-authorization-code"
+                        },
+                        "pkce": {
+                          "type": "string",
+                          "enum": ["S256", "plain", "none", "unknown"]
+                        },
+                        "issuer": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "authorizationEndpoint": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "tokenEndpoint": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "scopes": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "pattern": "^[^\\p{Cc}]+$"
+                          }
+                        },
+                        "scopeSemantics": {
+                          "type": "string",
+                          "enum": ["provider-scopes", "unknown"]
+                        },
+                        "clientRegistration": {
+                          "type": "string",
+                          "enum": [
+                            "pre-registered",
+                            "dynamic",
+                            "client-id-metadata-document",
+                            "unknown"
+                          ]
+                        },
+                        "clientAuthentication": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "client_secret_basic",
+                            "client_secret_post",
+                            "private_key_jwt",
+                            "unknown"
+                          ]
+                        },
+                        "refresh": {
+                          "type": "string",
+                          "enum": ["supported", "unsupported", "unknown"]
+                        },
+                        "resourceIndicator": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "pkce",
+                        "scopes",
+                        "scopeSemantics",
+                        "clientRegistration",
+                        "clientAuthentication",
+                        "refresh"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "oauth-client-credentials"
+                        },
+                        "tokenEndpoint": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "scopes": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "pattern": "^[^\\p{Cc}]+$"
+                          }
+                        },
+                        "clientAuthentication": {
+                          "type": "string",
+                          "enum": [
+                            "client_secret_basic",
+                            "client_secret_post",
+                            "private_key_jwt",
+                            "unknown"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "scopes",
+                        "clientAuthentication"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "oauth-device" },
+                        "deviceAuthorizationEndpoint": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "tokenEndpoint": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "scopes": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "pattern": "^[^\\p{Cc}]+$"
+                          }
+                        }
+                      },
+                      "required": ["id", "label", "kind", "scopes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "api-key" },
+                        "placement": {
+                          "type": "string",
+                          "enum": ["header", "query", "cookie"]
+                        },
+                        "parameterName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120,
+                          "pattern": "^[^\\p{Cc}\\s]+$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "placement",
+                        "parameterName"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "http-basic" }
+                      },
+                      "required": ["id", "label", "kind"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "http-bearer" },
+                        "format": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[^\\p{Cc}]*$"
+                        }
+                      },
+                      "required": ["id", "label", "kind"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "openid-connect" },
+                        "issuer": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "uri"
+                        },
+                        "scopes": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "pattern": "^[^\\p{Cc}]+$"
+                          }
+                        }
+                      },
+                      "required": ["id", "label", "kind", "issuer", "scopes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "mutual-tls" }
+                      },
+                      "required": ["id", "label", "kind"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "signature" },
+                        "scheme": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[^\\p{Cc}]+$"
+                        }
+                      },
+                      "required": ["id", "label", "kind", "scheme"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "external-broker"
+                        },
+                        "broker": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                        },
+                        "custody": {
+                          "type": "string",
+                          "enum": [
+                            "external-credential-broker",
+                            "external-execution-broker"
+                          ]
+                        }
+                      },
+                      "required": ["id", "label", "kind", "broker", "custody"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "none" },
+                        "reason": {
+                          "type": "string",
+                          "enum": ["public", "anonymous"]
+                        }
+                      },
+                      "required": ["id", "label", "kind", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "ceremony-method"
+                        },
+                        "flowKind": {
+                          "type": "string",
+                          "enum": [
+                            "api-key",
+                            "basic",
+                            "form",
+                            "oauth-code",
+                            "device",
+                            "authmd-anonymous",
+                            "github-app",
+                            "account-registration"
+                          ]
+                        },
+                        "methodId": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9-]{1,64}$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "flowKind",
+                        "methodId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "kind": { "type": "string", "const": "unsupported" },
+                        "native": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120,
+                          "pattern": "^[^\\p{Cc}]+$"
+                        }
+                      },
+                      "required": ["id", "label", "kind", "native"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "configuration": {
+                "maxItems": 48,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,95}$"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "session-environment",
+                        "host",
+                        "provider-console"
+                      ]
+                    },
+                    "classification": {
+                      "type": "string",
+                      "enum": ["public", "personal", "secret"]
+                    },
+                    "required": { "type": "boolean" },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["name", "source", "classification", "required"],
+                  "additionalProperties": false
+                }
+              },
+              "capabilities": {
+                "maxItems": 4096,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "http-operation",
+                        "mcp-tool",
+                        "mcp-resource",
+                        "mcp-prompt",
+                        "event",
+                        "a2a-skill",
+                        "sync",
+                        "action",
+                        "query",
+                        "entity",
+                        "custom"
+                      ]
+                    },
+                    "nativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "summary": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "effect": {
+                      "type": "string",
+                      "enum": ["read", "write", "unknown"]
+                    },
+                    "dataClassification": {
+                      "type": "string",
+                      "enum": ["public", "personal", "secret", "unknown"]
+                    },
+                    "cost": {
+                      "type": "string",
+                      "enum": ["free", "metered", "unknown"]
+                    },
+                    "authentication": {
+                      "maxItems": 16,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                      }
+                    },
+                    "inputSchemaRef": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\p{Cc}]*$"
+                    },
+                    "outputSchemaRef": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\p{Cc}]*$"
+                    },
+                    "nativeExtensions": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "pattern": "^[^\\p{Cc}]+$"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "nativeId",
+                    "effect",
+                    "dataClassification",
+                    "cost"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "events": {
+                "maxItems": 512,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nativeId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "transport": {
+                      "type": "string",
+                      "enum": ["http-webhook", "unsupported"]
+                    },
+                    "nativeTransport": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "pattern": "^[^\\p{Cc}]*$"
+                    },
+                    "verification": {
+                      "type": "string",
+                      "enum": ["standard-webhooks", "vendor", "none", "unknown"]
+                    },
+                    "messageSchemaRef": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\p{Cc}]*$"
+                    },
+                    "authentication": {
+                      "maxItems": 16,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                      }
+                    },
+                    "nativeExtensions": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "pattern": "^[^\\p{Cc}]+$"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": ["nativeId", "transport", "verification"],
+                  "additionalProperties": false
+                }
+              },
+              "declaredServers": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048,
+                      "pattern": "^[^\\p{Cc}?#]+$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "status": { "type": "string", "const": "declared" }
+                  },
+                  "required": ["url", "status"],
+                  "additionalProperties": false
+                }
+              },
+              "compatibility": {
+                "type": "object",
+                "properties": {
+                  "issues": {
+                    "maxItems": 4096,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "maxLength": 120,
+                          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+                        },
+                        "category": {
+                          "type": "string",
+                          "enum": [
+                            "structure",
+                            "security",
+                            "serialization",
+                            "schema",
+                            "network",
+                            "policy",
+                            "identity",
+                            "version",
+                            "executable-code",
+                            "license"
+                          ]
+                        },
+                        "sourcePointer": {
+                          "type": "string",
+                          "maxLength": 1024,
+                          "pattern": "^[^\\p{Cc}]*$"
+                        },
+                        "normalizedPointer": {
+                          "type": "string",
+                          "maxLength": 1024,
+                          "pattern": "^[^\\p{Cc}]*$"
+                        },
+                        "dimension": {
+                          "type": "string",
+                          "enum": [
+                            "discover",
+                            "import",
+                            "configure",
+                            "authorize",
+                            "verify",
+                            "invoke",
+                            "events",
+                            "reconnect",
+                            "disconnect",
+                            "revoke",
+                            "export",
+                            "delegate"
+                          ]
+                        },
+                        "disposition": {
+                          "type": "string",
+                          "enum": [
+                            "exact",
+                            "adapted",
+                            "native-extension",
+                            "requires-configuration",
+                            "unsupported",
+                            "rejected"
+                          ]
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": ["info", "warning", "blocking"]
+                        },
+                        "executionImpact": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "blocks-operation",
+                            "blocks-authorization",
+                            "blocks-definition"
+                          ]
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        },
+                        "remediation": {
+                          "type": "string",
+                          "maxLength": 500,
+                          "allOf": [
+                            { "pattern": "^[^\\p{Cc}]*$" },
+                            {
+                              "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "category",
+                        "sourcePointer",
+                        "dimension",
+                        "disposition",
+                        "severity",
+                        "executionImpact",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "dimensions": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "enum": [
+                        "discover",
+                        "import",
+                        "configure",
+                        "authorize",
+                        "verify",
+                        "invoke",
+                        "events",
+                        "reconnect",
+                        "disconnect",
+                        "revoke",
+                        "export",
+                        "delegate"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "enum": [
+                        "exact",
+                        "adapted",
+                        "native-extension",
+                        "requires-configuration",
+                        "unsupported",
+                        "rejected"
+                      ]
+                    },
+                    "required": [
+                      "discover",
+                      "import",
+                      "configure",
+                      "authorize",
+                      "verify",
+                      "invoke",
+                      "events",
+                      "reconnect",
+                      "disconnect",
+                      "revoke",
+                      "export",
+                      "delegate"
+                    ]
+                  }
+                },
+                "required": ["issues", "dimensions"],
+                "additionalProperties": false
+              },
+              "nativeExtensions": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[^\\p{Cc}]+$"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "definitionRef",
+              "identity",
+              "sourceRef",
+              "normalizedDigest",
+              "importer",
+              "display",
+              "authentication",
+              "configuration",
+              "capabilities",
+              "events",
+              "declaredServers",
+              "compatibility",
+              "nativeExtensions"
+            ],
+            "additionalProperties": false
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "sourceRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "ecosystem": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "authorityNamespace": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]*$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "nativeVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "ecosystem",
+                  "authorityNamespace",
+                  "nativeId",
+                  "nativeVersion"
+                ],
+                "additionalProperties": false
+              },
+              "format": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "dialect": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "pattern": "^[^\\p{Cc}]*$"
+                  }
+                },
+                "required": ["name", "version"],
+                "additionalProperties": false
+              },
+              "origin": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "upload",
+                      "url",
+                      "registry",
+                      "provider-api",
+                      "builtin-fixture",
+                      "host-configuration"
+                    ]
+                  },
+                  "location": { "type": "string", "maxLength": 2048 }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
+              },
+              "digest": {
+                "type": "object",
+                "properties": {
+                  "algorithm": { "type": "string", "const": "sha256" },
+                  "value": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                },
+                "required": ["algorithm", "value"],
+                "additionalProperties": false
+              },
+              "byteLength": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 67108864
+              },
+              "mediaType": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+              },
+              "capturedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "license": {
+                "type": "object",
+                "properties": {
+                  "spdx": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[^\\p{Cc}]*$"
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]*$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  },
+                  "redistributable": {
+                    "anyOf": [
+                      { "type": "boolean" },
+                      { "type": "string", "const": "unknown" }
+                    ]
+                  }
+                },
+                "required": ["redistributable"],
+                "additionalProperties": false
+              },
+              "adaptation": {
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "step": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120,
+                      "pattern": "^[^\\p{Cc}]+$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]+$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    },
+                    "inputDigest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "outputDigest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "step",
+                    "version",
+                    "inputDigest",
+                    "outputDigest"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "overlays": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourceRef": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                    },
+                    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                  },
+                  "required": ["sourceRef", "digest"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "sourceRef",
+              "identity",
+              "format",
+              "origin",
+              "digest",
+              "byteLength",
+              "mediaType",
+              "capturedAt",
+              "adaptation",
+              "overlays"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["definition", "source"],
+        "additionalProperties": false
+      },
+      "ImportResult": {
+        "type": "object",
+        "properties": {
+          "sourceRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "definitions": {
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+            }
+          },
+          "issues": {
+            "maxItems": 4096,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "structure",
+                    "security",
+                    "serialization",
+                    "schema",
+                    "network",
+                    "policy",
+                    "identity",
+                    "version",
+                    "executable-code",
+                    "license"
+                  ]
+                },
+                "sourcePointer": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "pattern": "^[^\\p{Cc}]*$"
+                },
+                "normalizedPointer": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "pattern": "^[^\\p{Cc}]*$"
+                },
+                "dimension": {
+                  "type": "string",
+                  "enum": [
+                    "discover",
+                    "import",
+                    "configure",
+                    "authorize",
+                    "verify",
+                    "invoke",
+                    "events",
+                    "reconnect",
+                    "disconnect",
+                    "revoke",
+                    "export",
+                    "delegate"
+                  ]
+                },
+                "disposition": {
+                  "type": "string",
+                  "enum": [
+                    "exact",
+                    "adapted",
+                    "native-extension",
+                    "requires-configuration",
+                    "unsupported",
+                    "rejected"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["info", "warning", "blocking"]
+                },
+                "executionImpact": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "blocks-operation",
+                    "blocks-authorization",
+                    "blocks-definition"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "allOf": [
+                    { "pattern": "^[^\\p{Cc}]*$" },
+                    {
+                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                    }
+                  ]
+                },
+                "remediation": {
+                  "type": "string",
+                  "maxLength": 500,
+                  "allOf": [
+                    { "pattern": "^[^\\p{Cc}]*$" },
+                    {
+                      "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "category",
+                "sourcePointer",
+                "dimension",
+                "disposition",
+                "severity",
+                "executionImpact",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "executableCandidates": {
+            "maxItems": 4096,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "allOf": [
+                { "pattern": "^[^\\p{Cc}]+$" },
+                {
+                  "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "sourceRef",
+          "definitions",
+          "issues",
+          "executableCandidates"
+        ],
+        "additionalProperties": false
+      },
+      "BindingReference": {
+        "type": "object",
+        "properties": {
+          "bindingRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "definitionRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "adapterId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "adapterVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "allOf": [
+              { "pattern": "^[^\\p{Cc}]+$" },
+              {
+                "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+              }
+            ]
+          },
+          "runtime": {
+            "type": "string",
+            "enum": ["browser", "hosted-server", "trusted-local-runner"]
+          },
+          "custody": {
+            "type": "string",
+            "enum": [
+              "host-owned",
+              "external-credential-broker",
+              "external-execution-broker",
+              "attended-browser",
+              "no-credential"
+            ]
+          },
+          "authorityInstance": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^[^\\p{Cc}]*$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["approved", "suspended", "retired"]
+          },
+          "approvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "policyRevision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\p{Cc}]+$"
+          }
+        },
+        "required": [
+          "bindingRef",
+          "definitionRef",
+          "revision",
+          "adapterId",
+          "adapterVersion",
+          "runtime",
+          "custody",
+          "authorityInstance",
+          "status",
+          "approvedAt",
+          "policyRevision"
+        ],
+        "additionalProperties": false
+      },
+      "BindingListResponse": {
+        "type": "object",
+        "properties": {
+          "bindings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BindingReference" }
+          }
+        },
+        "required": ["bindings"],
+        "additionalProperties": false
+      },
+      "ConfigureResponse": {
+        "type": "object",
+        "properties": {
+          "names": { "type": "array", "items": { "type": "string" } },
+          "revision": { "type": "string" }
+        },
+        "required": ["names", "revision"],
+        "additionalProperties": false
+      },
+      "ConnectionView": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "connectionRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "bindingRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "definitionRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "ecosystem": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$"
+              },
+              "service": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^(?:[a-z0-9][a-z0-9._-]*)?$"
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "allOf": [
+                  { "pattern": "^[^\\p{Cc}]*$" },
+                  {
+                    "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                  }
+                ]
+              },
+              "ownerKind": {
+                "type": "string",
+                "enum": ["user", "organization", "workload"]
+              },
+              "custody": {
+                "type": "string",
+                "enum": [
+                  "host-owned",
+                  "external-credential-broker",
+                  "external-execution-broker",
+                  "attended-browser",
+                  "no-credential"
+                ]
+              },
+              "runtime": {
+                "type": "string",
+                "enum": ["browser", "hosted-server", "trusted-local-runner"]
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": [
+                  "configuration-required",
+                  "authorization-required",
+                  "human-required",
+                  "verifying",
+                  "active",
+                  "degraded",
+                  "expired",
+                  "reconnect-required",
+                  "locally-disconnected",
+                  "upstream-revoked",
+                  "indeterminate"
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "allOf": [
+                      { "pattern": "^[^\\p{Cc}]+$" },
+                      {
+                        "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                      }
+                    ]
+                  }
+                },
+                "required": ["kind", "id"],
+                "additionalProperties": false
+              },
+              "verification": {
+                "type": "object",
+                "properties": {
+                  "kinds": {
+                    "maxItems": 8,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "credential-accepted",
+                        "account-identity",
+                        "resource-access",
+                        "ownership-claimed",
+                        "permission-observed"
+                      ]
+                    }
+                  },
+                  "observedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "validUntil": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "limitations": {
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "allOf": [
+                        { "pattern": "^[^\\p{Cc}]*$" },
+                        {
+                          "pattern": "^[^\\u{202A}-\\u{202E}\\u{2066}-\\u{2069}\\u{200E}\\u{200F}\\u{061C}]*$"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": ["kinds", "observedAt", "limitations"],
+                "additionalProperties": false
+              },
+              "handoff": {
+                "type": "object",
+                "properties": {
+                  "handoffRef": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "provider-browser",
+                      "connect-widget",
+                      "device-code",
+                      "private-collector",
+                      "input-required"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "issued",
+                      "waiting",
+                      "completed",
+                      "denied",
+                      "expired",
+                      "cancelled",
+                      "superseded"
+                    ]
+                  },
+                  "presentation": {
+                    "type": "string",
+                    "enum": ["same-window", "popup", "second-device", "in-app"]
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "handoffRef",
+                  "kind",
+                  "state",
+                  "presentation",
+                  "expiresAt",
+                  "generation"
+                ],
+                "additionalProperties": false
+              },
+              "lastOutcome": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "presentation": {
+                "type": "object",
+                "properties": {
+                  "url": { "type": "string", "format": "uri" },
+                  "userCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "instructions": { "type": "string", "maxLength": 500 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "connectionRef",
+              "bindingRef",
+              "definitionRef",
+              "ecosystem",
+              "service",
+              "displayName",
+              "ownerKind",
+              "custody",
+              "runtime",
+              "lifecycle",
+              "generation",
+              "revision",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false,
+            "description": "A connection as a person (or the system) sees it. `presentation` is present only for the initiating human while a handoff is pending."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "connectionRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "bindingRef": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+              },
+              "ecosystem": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$"
+              },
+              "service": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^(?:[a-z0-9][a-z0-9._-]*)?$"
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": [
+                  "configuration-required",
+                  "authorization-required",
+                  "human-required",
+                  "verifying",
+                  "active",
+                  "degraded",
+                  "expired",
+                  "reconnect-required",
+                  "locally-disconnected",
+                  "upstream-revoked",
+                  "indeterminate"
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "custody": {
+                "type": "string",
+                "enum": [
+                  "host-owned",
+                  "external-credential-broker",
+                  "external-execution-broker",
+                  "attended-browser",
+                  "no-credential"
+                ]
+              },
+              "verified": { "type": "boolean" },
+              "targetKind": { "type": "string" },
+              "handoff": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "provider-browser",
+                      "connect-widget",
+                      "device-code",
+                      "private-collector",
+                      "input-required"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "issued",
+                      "waiting",
+                      "completed",
+                      "denied",
+                      "expired",
+                      "cancelled",
+                      "superseded"
+                    ]
+                  }
+                },
+                "required": ["kind", "state"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "connectionRef",
+              "bindingRef",
+              "ecosystem",
+              "service",
+              "lifecycle",
+              "generation",
+              "revision",
+              "custody",
+              "verified"
+            ],
+            "additionalProperties": false,
+            "description": "A connection as an assistant sees it: correlation identifiers and lifecycle, nothing it could navigate to, paste, or use to select an account."
+          }
+        ],
+        "description": "The projection is chosen by the caller's actor kind, never by the request."
+      },
+      "ConnectionListResponse": {
+        "type": "object",
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConnectionView" }
+          }
+        },
+        "required": ["connections"],
+        "additionalProperties": false
+      },
+      "InvokeResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "failed",
+              "indeterminate",
+              "human-required",
+              "denied"
+            ]
+          },
+          "effect": { "type": "string", "enum": ["read", "write", "unknown"] },
+          "outputClassification": {
+            "type": "string",
+            "enum": ["public", "personal", "secret"]
+          },
+          "output": {
+            "description": "The operation's output, when this actor may see it. Absent, with `outputWithheld: true`, when policy withholds it."
+          },
+          "outputWithheld": { "type": "boolean", "const": true },
+          "code": { "type": "string" },
+          "effectRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "replayed": {
+            "description": "A repeated `commandId` returned the journaled outcome; no second effect occurred.",
+            "type": "boolean",
+            "const": true
+          },
+          "handoff": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "provider-browser",
+                  "connect-widget",
+                  "device-code",
+                  "private-collector",
+                  "input-required"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "issued",
+                  "waiting",
+                  "completed",
+                  "denied",
+                  "expired",
+                  "cancelled",
+                  "superseded"
+                ]
+              }
+            },
+            "required": ["kind", "state"],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "userCode": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "instructions": { "type": "string", "maxLength": 500 }
+            },
+            "additionalProperties": false
+          },
+          "agentOutputConsent": { "type": "string", "const": "personal" }
+        },
+        "required": ["state", "effect", "outputClassification"],
+        "additionalProperties": false
+      },
+      "DisconnectResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "properties": {
+              "local": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "unsupported",
+                  "failed",
+                  "not-attempted",
+                  "indeterminate"
+                ]
+              },
+              "broker": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "unsupported",
+                  "failed",
+                  "not-attempted",
+                  "indeterminate"
+                ]
+              },
+              "upstream": {
+                "type": "string",
+                "enum": [
+                  "applied",
+                  "unsupported",
+                  "failed",
+                  "not-attempted",
+                  "indeterminate"
+                ]
+              },
+              "sharedWith": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+                }
+              }
+            },
+            "required": ["local", "broker", "upstream"],
+            "additionalProperties": false
+          },
+          "connection": { "$ref": "#/components/schemas/ConnectionView" }
+        },
+        "required": ["result", "connection"],
+        "additionalProperties": false
+      },
+      "RevocationRequestResponse": {
+        "type": "object",
+        "properties": {
+          "connectionRef": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
+          },
+          "revocation": { "type": "string", "const": "pending-approval" },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["connectionRef", "revocation", "requestedAt"],
+        "additionalProperties": false
+      },
+      "DeleteResponse": {
+        "type": "object",
+        "properties": { "deleted": { "type": "boolean", "const": true } },
+        "required": ["deleted"],
+        "additionalProperties": false
+      },
+      "ErrorBody": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "unauthenticated",
+              "denied",
+              "invalid-request",
+              "not-found",
+              "conflict",
+              "configuration-required",
+              "human-required",
+              "unsupported",
+              "network-policy",
+              "upstream-unavailable",
+              "upstream-rejected",
+              "indeterminate",
+              "rate-limited",
+              "expired",
+              "cancelled"
+            ]
+          },
+          "message": {
+            "description": "A fixed, human-readable sentence for the code; never provider text. Always present when the connector handler answers; a host's own authentication layer may answer 401 with `error` alone.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "detail": {
+            "description": "A bounded, non-secret refinement such as \"revision.stale\" or \"revoke.admin-only\".",
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$"
+          }
+        },
+        "required": ["error"],
+        "additionalProperties": false,
+        "description": "Every failure is a sanitized code with a status. Provider bodies, exception messages and stack traces never leave the server."
+      },
+      "EventAcknowledgement": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["accepted", "duplicate", "ignored"]
+          }
+        },
+        "required": ["status"],
+        "additionalProperties": false
+      },
+      "EventRejection": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "method",
+              "unknown",
+              "too-large",
+              "unsupported-media-type",
+              "unavailable",
+              "retired",
+              "malformed",
+              "unverified",
+              "unidentified",
+              "not-found",
+              "invalid-request"
+            ]
+          },
+          "message": { "type": "string", "maxLength": 500 }
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

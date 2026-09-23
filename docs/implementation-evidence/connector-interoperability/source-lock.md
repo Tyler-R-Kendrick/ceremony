@@ -16,8 +16,8 @@ One record per external specification, standards draft or vendor document that a
 
 - Records: 80, pinned 2026-09-18.
 - Ledgers this lock claims to cover completely: AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 99.
-- Cited identifiers with no lock record: 19 (`auth0-myaccount-api-1.0`, `auth0-token-vault-2026-09-18`, `ceremony-connector-v1`, `ceremony-connectors-http-v1`, `mcp-registry-v0.1`, `n8n-node`, `nango-webhooks-2026-09`, `openapi-overlay-1.1.0`, `rfc-6749-refresh`, `rfc-7591`, `rfc-7636`, `rfc-8414`, `rfc-8693`, `rfc-9207`, `rfc-9728`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`, `workato-sdk`, `workos-pipes-rest-2026-09-18`, `zapier-cli`).
+- Source profile identifiers cited by the ledgers on disk: 112.
+- Cited identifiers with no lock record: 32 (`auth0-myaccount-api-1.0`, `auth0-token-vault-2026-09-18`, `camel-kamelet-v1@4.22.0`, `ceremony-connector-v1`, `ceremony-connectors-http-v1`, `ceremony-external-runtime/1`, `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `mcp-registry-v0.1`, `n8n-node`, `n8n-node-description/1`, `n8n-node-source-static/1`, `n8n-static-node/1`, `nango-webhooks-2026-09`, `openapi-overlay-1.1.0`, `osb-2.17`, `rfc-6749-refresh`, `rfc-7591`, `rfc-7636`, `rfc-8414`, `rfc-8693`, `rfc-9207`, `rfc-9728`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`, `workato-connector-ruby-static/1`, `workato-sdk`, `workato-static-profile/1`, `workos-pipes-rest-2026-09-18`, `zapier-app-definition/19`, `zapier-app-source-static/1`, `zapier-cli`, `zapier-static-app/1`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
 
@@ -27,6 +27,19 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 
 | Ledger           | Cited identifier                                       | Inside the covered set      |
 | ---------------- | ------------------------------------------------------ | --------------------------- |
+| AUTOMATION       | `ceremony-external-runtime/1`                          | no — pinned after this lock |
+| AUTOMATION       | `n8n-node-description/1`                               | no — pinned after this lock |
+| AUTOMATION       | `n8n-node-source-static/1`                             | no — pinned after this lock |
+| AUTOMATION       | `n8n-static-node/1`                                    | no — pinned after this lock |
+| AUTOMATION       | `workato-connector-ruby-static/1`                      | no — pinned after this lock |
+| AUTOMATION       | `workato-static-profile/1`                             | no — pinned after this lock |
+| AUTOMATION       | `zapier-app-definition/19`                             | no — pinned after this lock |
+| AUTOMATION       | `zapier-app-source-static/1`                           | no — pinned after this lock |
+| AUTOMATION       | `zapier-static-app/1`                                  | no — pinned after this lock |
+| BINDINGS         | `camel-kamelet-v1@4.22.0`                              | no — pinned after this lock |
+| BINDINGS         | `dapr-bindings-http-v1.0`                              | no — pinned after this lock |
+| BINDINGS         | `dapr-component-v1alpha1`                              | no — pinned after this lock |
+| BINDINGS         | `osb-2.17`                                             | no — pinned after this lock |
 | IDENTITY-BROKERS | `auth0-myaccount-api-1.0`                              | no — pinned after this lock |
 | IDENTITY-BROKERS | `auth0-token-vault-2026-09-18`                         | no — pinned after this lock |
 | IDENTITY-BROKERS | `workos-pipes-rest-2026-09-18`                         | no — pinned after this lock |

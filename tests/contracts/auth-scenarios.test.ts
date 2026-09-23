@@ -88,7 +88,7 @@ async function attempt(
     return base(input);
   };
   const { entryUrl: _entry, state, ...options } = plan;
-  const human = scenario.human?.(page, identity);
+  const human = scenario.human?.(page, identity, context);
   const result = await runCeremony({
     ...options,
     page,

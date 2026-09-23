@@ -28,6 +28,11 @@ import {
 import { registerAgentConnectorTools } from "./connectors/agents/mcp-intents.js";
 import type { AgentConnectorDependencies } from "./connectors/agents/intents.js";
 import type { ConnectorToolDependencies } from "./connectors/mcp/server-tools.js";
+import {
+  createMcpRateLimiter,
+  rateLimitedResult,
+  type McpRateLimitOptions,
+} from "./mcp-rate-limit.js";
 import type { CeremonyController } from "./controller.js";
 import type { CeremonyDatabase } from "./storage.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
@@ -79,9 +84,12 @@ export interface CeremonyMcpOptions {
   };
   /**
    * Connector operations, when this deployment offers them. Supplying this
-   * adds four tools beside the five above; leaving it out changes nothing.
-   * The service behind it receives the authenticated actor and re-checks
-   * capability, ownership and policy itself.
+   * adds `connector_catalog`, `connector_status`, `connector_connect` and
+   * `connector_invoke`, plus `connector_verify` and
+   * `connector_revoke_request` when it supplies `verify` and
+   * `requestRevocation`, beside the ceremony tools; leaving it out changes
+   * nothing. The service behind it receives the authenticated actor and
+   * re-checks capability, ownership and policy itself.
    */
   connectors?: ConnectorToolDependencies;
   /**
@@ -91,6 +99,12 @@ export interface CeremonyMcpOptions {
    * changes nothing.
    */
   connectorIntents?: AgentConnectorDependencies;
+  /**
+   * Per-actor, per-tool call budget (`mcp-rate-limit.ts`). On by default
+   * with `defaultMcpBucketPolicy`; pass policy overrides, per tool if need
+   * be, or `false` to leave throttling to something in front of this.
+   */
+  rateLimit?: McpRateLimitOptions | false;
   serverName?: string;
   serverVersion?: string;
   onerror?(error: Error): void;
@@ -165,6 +179,22 @@ export function createCeremonyMcpHandler(
       },
     });
   const tools = ceremonyAgentTools(runtime);
+  /*
+   * A run that waits on a person says so in its node states, which tells an
+   * assistant only that it is stuck. The handoff says where that person
+   * continues: the coordinator's projection, with the same-origin human route
+   * while a node awaits someone. It carries no code, token or query, and
+   * opening it still needs the owner's session, so passing it on grants
+   * nothing.
+   */
+  const withHandoff = <
+    T extends Parameters<typeof runtime.agent.pendingHandoff>[0],
+  >(
+    run: T,
+  ) => {
+    const handoff = runtime.agent.pendingHandoff(run);
+    return handoff ? { ...run, handoff } : run;
+  };
 
   // The collector is a property of the deployment, not of a request, so the
   // decision is made once here and reported rather than retried per call.
@@ -174,6 +204,12 @@ export function createCeremonyMcpHandler(
     collectorOrigins.brokerOrigin.startsWith("https://") &&
     collectorOrigins.appOrigin.startsWith("https://"),
   );
+  // One limiter per endpoint, shared by every request's server, so the
+  // budget survives the per-request `build` below.
+  const limiter =
+    options.rateLimit === false
+      ? undefined
+      : createMcpRateLimiter(options.rateLimit ?? {});
 
   function build(context: McpRequestContext): McpServer {
     const actor = (context.authInfo as CeremonyAuthInfo | undefined)?.extra
@@ -182,6 +218,27 @@ export function createCeremonyMcpHandler(
       name: options.serverName ?? "ceremony",
       version: options.serverVersion ?? "1.0.0",
     });
+    // Every tool, whichever module registers it (the connector tools, the
+    // intents, the collector's app tools), is registered through this
+    // server, so the budget is enforced once here rather than in each.
+    if (limiter && actor) {
+      const register = server.registerTool.bind(server);
+      server.registerTool = ((
+        name: string,
+        config: unknown,
+        handler: (...args: unknown[]) => unknown,
+      ) =>
+        register(
+          name,
+          config as never,
+          (async (...args: unknown[]) => {
+            const decision = limiter.take(actor, name);
+            if (!decision.allowed)
+              return rateLimitedResult(name, decision.retryAfterSeconds);
+            return await handler(...args);
+          }) as never,
+        )) as typeof server.registerTool;
+    }
     const run = async (
       operate: (actor: ActorContext) => Promise<unknown>,
       wording?: RefusalWording,
@@ -222,7 +279,8 @@ export function createCeremonyMcpHandler(
         }),
         annotations: { destructiveHint: false, openWorldHint: true },
       },
-      async (input) => await run((who) => tools.connect(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.connect(who, input))),
     );
     server.registerTool(
       "ceremony_snapshot",
@@ -232,7 +290,8 @@ export function createCeremonyMcpHandler(
         inputSchema: z.strictObject({ runId: z.string() }),
         annotations: { readOnlyHint: true },
       },
-      async (input) => await run((who) => tools.snapshot(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.snapshot(who, input))),
     );
     server.registerTool(
       "ceremony_advance",
@@ -255,7 +314,8 @@ export function createCeremonyMcpHandler(
           openWorldHint: true,
         },
       },
-      async (input) => await run((who) => tools.advance(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.advance(who, input))),
     );
     server.registerTool(
       "ceremony_cancel",

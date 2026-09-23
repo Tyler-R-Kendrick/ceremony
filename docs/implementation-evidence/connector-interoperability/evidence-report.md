@@ -15,9 +15,9 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 ## Requirement coverage
 
 - Required work items in the charter: 154.
-- Delivered with a ledger entry: 144.
-- Implemented: 141. Partial or unmet: 3. No ledger entry at all: 10.
-- Ledgers read: 26 (AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, QA, REGISTRY, SECURITY, STATE, SUPABASE, UX, VERCEL, WORKFLOW).
+- Delivered with a ledger entry: 154.
+- Implemented: 151. Partial or unmet: 3. No ledger entry at all: 0.
+- Ledgers read: 29 (AGENT-SURFACES, AUTOMATION, BINDINGS, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, PROVIDER-CATALOG, QA, REGISTRY, SECURITY, STATE, SUPABASE, UX, VERCEL, WORKFLOW).
 
 ## Recorded test run
 
@@ -25,7 +25,7 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 - Tested commit: `bac4e068b3c9e45356e452aa7e6c8e06da4d1f32+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 179; passed 1905, failed 0, skipped 0
-- Ledger-named test files covered by that run: 217 of 236.
+- Ledger-named test files covered by that run: 256 of 275.
 
 **10 of the paths a ledger names have no result in that run**, so their rows below read `not in the recorded run`. An absence is not a failure and is not reported as one. Each one, and why:
 
@@ -46,18 +46,7 @@ Only the one node test above would change: re-run `npm run evidence:connectors`,
 
 Named directly. These are required work items nobody delivered. They are listed here rather than folded into a claim that every swarm completed.
 
-| Item    | Swarm      |
-| ------- | ---------- |
-| AUTO-01 | AUTOMATION |
-| AUTO-02 | AUTOMATION |
-| AUTO-03 | AUTOMATION |
-| AUTO-04 | AUTOMATION |
-| AUTO-05 | AUTOMATION |
-| BIND-01 | BINDINGS   |
-| BIND-02 | BINDINGS   |
-| BIND-03 | BINDINGS   |
-| BIND-04 | BINDINGS   |
-| BIND-05 | BINDINGS   |
+- Every required work item has a ledger entry.
 
 ## Partial and unmet requirements
 
@@ -898,25 +887,61 @@ One entry per required work item, joined to the ledger that delivered it. A resu
   - `node --import tsx --test tests/connectors/microsoft/export.test.ts` — pass 11
   - `node --import tsx --test tests/connectors/microsoft/adapter.test.ts` — pass 11
 
-### AUTO-01 (AUTOMATION) — no ledger entry
+### AUTO-01 (AUTOMATION) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/zapier/profile.ts`, `src/server/connectors/formats/zapier/read.ts`, `src/server/connectors/formats/zapier/export.ts`, `src/server/connectors/formats/zapier/index.ts`, `src/server/connectors/formats/automation/common.ts`, `src/server/connectors/formats/automation/definition.ts`, `src/server/connectors/formats/automation/js-literals.ts`
+- Acceptance: AC-IMP-15, AC-IMP-14, AC-IMP-03, AC-UX-03
+- Pinned sources: `zapier-app-definition/19`, `zapier-app-source-static/1`, `zapier-static-app/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/zapier/import.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/zapier/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/no-execution.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/js-literals.test.ts` — pass 20
 
-### AUTO-02 (AUTOMATION) — no ledger entry
+### AUTO-02 (AUTOMATION) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/n8n/profile.ts`, `src/server/connectors/formats/n8n/read.ts`, `src/server/connectors/formats/n8n/export.ts`, `src/server/connectors/formats/n8n/index.ts`, `src/server/connectors/formats/automation/js-literals.ts`
+- Acceptance: AC-IMP-15, AC-IMP-14, AC-IMP-16, AC-UX-03
+- Pinned sources: `n8n-node-description/1`, `n8n-node-source-static/1`, `n8n-static-node/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/n8n/import.test.ts` — pass 3
+  - `node --import tsx --test tests/connectors/n8n/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/no-execution.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/js-literals.test.ts` — pass 20
 
-### AUTO-03 (AUTOMATION) — no ledger entry
+### AUTO-03 (AUTOMATION) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/workato/profile.ts`, `src/server/connectors/formats/workato/read.ts`, `src/server/connectors/formats/workato/export.ts`, `src/server/connectors/formats/workato/index.ts`, `src/server/connectors/formats/automation/ruby-literals.ts`
+- Acceptance: AC-IMP-15, AC-IMP-14, AC-UX-03
+- Pinned sources: `workato-static-profile/1`, `workato-connector-ruby-static/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/workato/import.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/workato/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/no-execution.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/automation/ruby-literals.test.ts` — pass 20
 
-### AUTO-04 (AUTOMATION) — no ledger entry
+### AUTO-04 (AUTOMATION) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/automation/external-runtime.ts`, `src/server/connectors/formats/automation/index.ts`
+- Acceptance: AC-IMP-15, AC-EXT-01, AC-EXT-02, AC-AUTH-01, AC-STATE-02, AC-MCP-03
+- Pinned sources: `ceremony-external-runtime/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/zapier/binding.test.ts` — pass 3
+  - `node --import tsx --test tests/connectors/n8n/binding.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/workato/binding.test.ts` — pass 1
 
-### AUTO-05 (AUTOMATION) — no ledger entry
+### AUTO-05 (AUTOMATION) — implemented, unit
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/fixtures/zapier/app.ts`, `tests/connectors/fixtures/n8n/node.ts`, `tests/connectors/fixtures/workato/connector.ts`, `tests/connectors/fixtures/automation/external-runtime.ts`, `src/server/connectors/formats/automation/definition.ts`
+- Acceptance: AC-IMP-14, AC-IMP-15, AC-IMP-13
+- Pinned sources: `zapier-static-app/1`, `n8n-static-node/1`, `workato-static-profile/1`
+- Tests:
+  - `node --import tsx --test tests/connectors/zapier/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/n8n/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/workato/export.test.ts` — pass 1
+  - `node --import tsx --test tests/connectors/zapier/import.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/n8n/import.test.ts` — pass 3
+  - `node --import tsx --test tests/connectors/workato/import.test.ts` — pass 4
 
 ### DATA-01 (DATA) — implemented, protocol-fixture
 
@@ -1008,25 +1033,58 @@ Nobody delivered this required work item.
   - `node --import tsx --test tests/connectors/google-integration-connectors/adapter.test.ts` — pass 18
   - `node --import tsx --test tests/connectors/google-integration-connectors/ac-ext-17.test.ts` — pass 4
 
-### BIND-01 (BINDINGS) — no ledger entry
+### BIND-01 (BINDINGS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/camel-kamelet/schemas.ts`, `src/server/connectors/formats/camel-kamelet/import.ts`, `src/server/connectors/formats/camel-kamelet/adapter.ts`, `src/server/connectors/formats/camel-kamelet/index.ts`
+- Acceptance: AC-EXT-18, AC-IMP-09, AC-IMP-13
+- Pinned sources: `camel-kamelet-v1@4.22.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/camel-kamelet/import.test.ts` — pass 10
+  - `node --import tsx --test tests/connectors/camel-kamelet/adapter.test.ts` — pass 4
 
-### BIND-02 (BINDINGS) — no ledger entry
+### BIND-02 (BINDINGS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/dapr/schemas.ts`, `src/server/connectors/providers/dapr/binding-settings.ts`, `src/server/connectors/providers/dapr/import.ts`, `src/server/connectors/providers/dapr/invoke.ts`, `src/server/connectors/providers/dapr/events.ts`, `src/server/connectors/providers/dapr/verifier.ts`, `src/server/connectors/providers/dapr/adapter.ts`, `src/server/connectors/providers/dapr/index.ts`
+- Acceptance: AC-EXT-18, AC-STATE-06, AC-STATE-07
+- Pinned sources: `dapr-component-v1alpha1`, `dapr-bindings-http-v1.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/dapr/import.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/dapr/invoke.test.ts` — pass 13
+  - `node --import tsx --test tests/connectors/dapr/events.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/dapr/verifier.test.ts` — pass 4
 
-### BIND-03 (BINDINGS) — no ledger entry
+### BIND-03 (BINDINGS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/providers/open-service-broker/schemas.ts`, `src/server/connectors/providers/open-service-broker/client.ts`, `src/server/connectors/providers/open-service-broker/import.ts`, `src/server/connectors/providers/open-service-broker/adapter.ts`, `src/server/connectors/providers/open-service-broker/index.ts`
+- Acceptance: AC-EXT-18, AC-STATE-03, AC-AUTH-08
+- Pinned sources: `osb-2.17`
+- Tests:
+  - `node --import tsx --test tests/connectors/open-service-broker/catalog.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/open-service-broker/inspection.test.ts` — pass 12
 
-### BIND-04 (BINDINGS) — no ledger entry
+### BIND-04 (BINDINGS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `src/server/connectors/formats/camel-kamelet/runner.ts`, `src/server/connectors/formats/camel-kamelet/adapter.ts`
+- Acceptance: AC-EXT-18, AC-EXT-08, AC-MCP-09
+- Pinned sources: `camel-kamelet-v1@4.22.0`
+- Tests:
+  - `node --import tsx --test tests/connectors/camel-kamelet/runner.test.ts` — pass 8
 
-### BIND-05 (BINDINGS) — no ledger entry
+### BIND-05 (BINDINGS) — implemented, protocol-fixture
 
-Nobody delivered this required work item.
+- Files: `tests/connectors/doubles/service-broker.ts`, `tests/connectors/doubles/dapr-sidecar.ts`, `tests/connectors/doubles/camel-runner.ts`, `tests/connectors/fixtures/camel-kamelet/aws-s3-source.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/log-sink.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/insert-header-action.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/unmarked-credential.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/duplicate-keys.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/unsupported-tag.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/alias-bomb.kamelet.yaml`, `tests/connectors/fixtures/camel-kamelet/merge-key.kamelet.yaml`, `tests/connectors/fixtures/dapr/kafka-binding.yaml`, `tests/connectors/fixtures/dapr/cron-binding.yaml`, `tests/connectors/fixtures/dapr/http-binding.yaml`, `tests/connectors/fixtures/dapr/unknown-binding.yaml`, `tests/connectors/fixtures/dapr/statestore-component.yaml`, `tests/connectors/fixtures/dapr/duplicate-keys.yaml`, `tests/connectors/fixtures/open-service-broker/catalog.json`
+- Acceptance: AC-EXT-18, AC-IMP-09, AC-IMP-13, AC-UX-06
+- Pinned sources: `camel-kamelet-v1@4.22.0`, `dapr-bindings-http-v1.0`, `osb-2.17`
+- Tests:
+  - `node --import tsx --test tests/connectors/camel-kamelet/import.test.ts` — pass 10
+  - `node --import tsx --test tests/connectors/camel-kamelet/runner.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/camel-kamelet/adapter.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/dapr/import.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/dapr/invoke.test.ts` — pass 13
+  - `node --import tsx --test tests/connectors/dapr/events.test.ts` — pass 8
+  - `node --import tsx --test tests/connectors/dapr/verifier.test.ts` — pass 4
+  - `node --import tsx --test tests/connectors/open-service-broker/catalog.test.ts` — pass 7
+  - `node --import tsx --test tests/connectors/open-service-broker/inspection.test.ts` — pass 12
 
 ### AG-01 (AGENT-SURFACES) — implemented, protocol-fixture
 
@@ -1764,6 +1822,38 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - The export reproduces no request or response schema: the description carries pointers, not schemas, and every affected operation gets an explicit loss
   - apiProperties.json and script.csx are not produced; connection parameters, client secrets and connection values never leave in an export
   - Extensions that lived inside a body or response schema have no reproduced schema to attach to and are reported as unplaced rather than moved somewhere else
+- **AUTO-01** (AUTOMATION)
+  - An app definition carries no identifier or display name; the host supplies both and an info diagnostic says so.
+  - `custom`, `session`, `digest` and `oauth1` authentication map to an unsupported native profile with a blocking security diagnostic: Zapier states where a credential goes only inside middleware code, and this reader will not guess it. The auth fields still import as configuration.
+  - `oauth2` maps to oauth-authorization-code only when `authorizeUrl` and `getAccessToken` are literal https URLs without `{{curlies}}`; otherwise the profile is unsupported native `zapier-oauth2-dynamic`.
+  - Resource-generated actions are identified as `<resourceKey>.<method>` because the platform's generated key is not stated in the definition; an info diagnostic records that.
+  - Dynamic dropdowns (`dynamic`, `search`, `choices.perform`) and function-valued field lists produce diagnostics and definition-level limitations; their options are never fetched.
+  - `beforeRequest`/`afterResponse`/`hydrators` are recorded inert and never applied to any host request.
+- **AUTO-02** (AUTOMATION)
+  - A programmatic node (an `execute`, `webhook`, `poll` or `trigger` method) reports `invoke: unsupported` and the limitation "programmatic node requires host runtime"; its metadata still imports.
+  - An expression (any value beginning with `=`) is preserved verbatim as inert text and never evaluated; a routing URL or base URL that is an expression yields no approved destination.
+  - An n8n node does not declare whether an operation reads or writes, so every imported operation records `effect: unknown` with an info diagnostic. An HTTP method is not a declaration.
+  - A credential maps to an executable profile only from a literal `authenticate.properties` placement (`header`, `qs`, `auth`); a body placement and an inherited `oAuth2Api` credential are unsupported with a blocking security diagnostic.
+  - `methods.loadOptions` is never invoked; option lists it would produce are not part of the description.
+  - The node icon, the compiled package and the node's own code are outside the description; the export says the node cannot run from it.
+- **AUTO-03** (AUTOMATION)
+  - Workato publishes no non-Ruby serialization, so `workato-static-profile/1` is this repository's own format, documented in src/server/connectors/formats/workato/profile.ts. A Ruby lambda is spelled `{"$lambda": true}` in it.
+  - From Ruby source only literal hash entries are read: connection fields, the authorization type, action and trigger names, and field lists written as literal arrays. Every lambda, block, heredoc, interpolated string, backtick command and method call is an inert diagnostic.
+  - `api_key` maps to an executable profile only when the static profile declares `authorization.apply` as `{placement, parameter}`; from Ruby the placement lives in a lambda and the profile is unsupported native `workato-api-key-placement`.
+  - `oauth2` needs literal `authorization_url` and `token_url`; the SDK writes them as lambdas, so the Ruby path reports `workato-oauth2-dynamic`.
+  - The client-credentials grant, which the SDK writes as `custom_auth` with an `acquire` lambda, maps only from an explicit `authorization.oauth2 = {grant: "client_credentials", token_url}` declaration.
+  - A Workato action does not declare whether it reads or writes, so actions record `effect: unknown`; triggers record `read`.
+  - A connector carries no version of its own; the host supplies one and an info diagnostic says so.
+  - `base_uri` is a lambda in idiomatic Ruby, so the Ruby path derives no approved destination from it.
+- **AUTO-04** (AUTOMATION)
+  - The wire contract is Ceremony's own; no vendor publishes one. A deployment must register an endpoint that implements it. `verifyExternalRuntimeSignature` is exported so a host implements verification with the same code the adapter signs with.
+  - The input and output shape language is deliberately not JSON Schema: no $ref, no composition, no `pattern`, no `format`. A caller-supplied regular expression is an execution primitive and is refused at binding-parse time.
+  - Evidence is protocol-fixture against a loopback runtime. No vendor runtime was contacted and no live authorization exists.
+  - A repeated request digest returns the journalled prior outcome for anything but a genuinely read-only operation; it never re-issues the call.
+- **AUTO-05** (AUTOMATION)
+  - The round trip is defined over the supported subset (`automationSupportedSubset`): identity, display, authentication profiles, configuration, events, declared servers and each capability's descriptive fields plus the native extension keys the exporter documents. Diagnostics and digests are deliberately outside it, because an export legitimately produces its own diagnostics.
+  - No export is runnable on its target platform. Zapier's export replaces a function with the platform's own `$func$0$f$` marker; n8n's carries the node description without its package or code; Workato's carries `{"$lambda": true}` markers. Each reports the loss.
+  - A security-critical loss (a credential placement that was never imported) is reported as blocking with `blocks-authorization`.
 - **DATA-01** (DATA)
   - The public Airbyte API documents no source check_connection operation; verify() infers reachability from a live (ignoreCache=true) stream-properties discovery and records that limitation on the claim. The deprecated Configuration API (/api/v1/sources/check_connection, discover_schema) is deliberately not called: Airbyte documents it as internal and unsupported.
   - Documented job types are sync and reset only; the job type comes from the approved operation and can never be supplied by input.
@@ -1803,6 +1893,33 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 - **CLOUD-04** (CLOUD)
   - Region and location confusion is enforced against the documented public host patterns (bedrock-agentcore-control.<region>.amazonaws.com, connectors.<region>.rep.googleapis.com); a private or loopback host takes its region from the binding, which the fixtures exercise
   - Private-endpoint policy is enforced at the binding boundary (approved-private destination required); Ceremony never creates the VPC, Lattice or Service Directory resources involved
+- **BIND-01** (BINDINGS)
+  - Pinned to the released catalog tag v4.22.0 of apache/camel-kamelets (retrieved 2026-09-18); a newer catalog is a new pin, never an automatic upgrade.
+  - The Camel route template, dataTypes block and Maven dependency list are preserved as inert data: nothing is evaluated, resolved or deployed.
+  - A source Kamelet's delivery transport is a Camel component, not an HTTP webhook, so the event descriptor is transport unsupported with the native scheme preserved.
+  - No live catalog fetch was performed from a test; fixtures are locally authored documents shaped exactly like the released ones.
+- **BIND-02** (BINDINGS)
+  - Binding directions are taken from the supported-bindings component reference (docs.dapr.io, runtime v1.18, retrieved 2026-09-18) for the sixteen types that page states; any other component type is reported direction unknown and unverified rather than guessed.
+  - There is no discover dimension: Dapr documents no sidecar component-inventory endpoint, and asking one for its loaded components would be the unauthenticated inventory surface this adapter exists to refuse.
+  - There is no verify dimension: a sidecar exposes no account or identity endpoint, so connectivity could only be relabelled as identity.
+  - Dapr defines no idempotency key for a binding invocation, so an interrupted write is journalled indeterminate and never retried automatically.
+  - A Dapr input delivery carries no provider event id; deduplication therefore uses host-assigned identity, and the app API token carries no timestamp so this leg cannot be replay-bounded by the signature itself.
+  - Disconnect is local only: Dapr offers a platform caller no operation to delete a component, unload it from a sidecar or revoke a sidecar token.
+- **BIND-03** (BINDINGS)
+  - Provision, deprovision, update, bind and unbind are not implemented: the module contains no request builder for them and every bound operation must be a GET with effect read, so the default profile cannot issue a state-changing request even if a binding asked it to.
+  - Fetching an instance or a binding is attempted only when the reviewed catalog declared instances_retrievable or bindings_retrievable. The specification defines no error for calling an unsupported fetch endpoint, so an absent flag is reported as a native limitation and the endpoint is never probed.
+  - Paid plans are recorded as out of scope: no plan change and no provisioning of a non-free plan is available here.
+  - A fetched instance is the broker's assertion about its own record; the verification claim says so and asserts nothing about the underlying resource, and no permissions are inferred.
+  - Binding rotation, volume mounts, syslog drains and route services are described but not exercised; only their presence is reported.
+  - Basic authentication is the specification's default platform-to-broker mechanism and the only one implemented; out-of-band mechanisms are explicitly out of scope in the specification itself.
+- **BIND-04** (BINDINGS)
+  - The default KameletHostRunnerPort is unavailable and fail-closed; its reason names that no Camel runner is configured and that Ceremony starts no JVM, resolves no dependency and deploys no integration.
+  - A deployment whose runtime class is browser cannot be given a runner at all: construction throws, so no code path exists in which a browser-only deployment reports local execution.
+  - A configured remote runner is unavailable until its signing-secret configuration is present; an unsigned delegation is never sent.
+  - The delegation signature is a host-internal scheme (HMAC-SHA256 over v1:timestamp:nonce:descriptor-digest), not a vendor protocol; it is not a claim of interoperability with any Camel distribution's own API.
+- **BIND-05** (BINDINGS)
+  - All evidence is protocol-fixture. No vendor account, broker, sidecar or Camel runtime was contacted, and nothing here is live or vendor-certified.
+  - The three doubles are written from the published documentation and decide conformance themselves; none of them calls the implementation under test, including the Camel runner double, which recomputes the delegation HMAC with node:crypto rather than using the signing helper.
 - **AG-01** (AGENT-SURFACES)
   - Bounded Agent Card import for both published card shapes: 1.0 `supportedInterfaces` and 0.3 `url`/`preferredTransport`/`additionalInterfaces`. Version, agent identity, every declared interface, declared security schemes, skills and task capabilities are preserved.
   - Import never performs network access of any kind: it receives bytes. A card naming a private, loopback, link-local or metadata URL is stored verbatim in declaredServers and nativeExtensions with a network diagnostic, and is never fetched.
@@ -1952,12 +2069,15 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 
 ## External effects performed
 
+- AUTOMATION: {"kind":"documentation-read","detail":"Fetched vendor documentation over HTTPS on 2026-09-18: docs.zapier.com/integrations/build-cli/overview and the raw zapier-platform schema.md (zapier-platform-schema 19.1.0); docs.n8n.io sitemap and the /connect/create-nodes/ reference pages (the charter's /integrations/creating-nodes/overview/ returns 404 and its successor is recorded in n8n/profile.ts); docs.workato.com SDK reference and authentication guides. Read-only GETs; no account, no token, no write."}
+- BINDINGS: {"effect":"Read public specification and documentation pages over HTTPS during research","targets":["https://raw.githubusercontent.com/openservicebrokerapi/servicebroker/v2.17/spec.md","https://raw.githubusercontent.com/apache/camel-kamelets/v4.22.0/kamelets/timer-source.kamelet.yaml","https://raw.githubusercontent.com/apache/camel-kamelets/v4.14.0/kamelets/aws-s3-source.kamelet.yaml","https://camel.apache.org/camel-kamelets/4.22.x/security-model.html","https://docs.dapr.io/reference/api/bindings_api/","https://docs.dapr.io/reference/components-reference/supported-bindings/","https://docs.dapr.io/operations/security/api-token/","https://docs.dapr.io/operations/security/app-api-token/"],"note":"Read-only public documentation. No account was created, no credential issued, no package installed, no image pulled, no container or JVM started, and no vendor API was called with credentials."}
 - CLOUD: Read-only documentation retrieval over HTTPS on 2026-09-18: AWS Bedrock AgentCore developer guide and control-plane API reference pages, the IAM SigV4 signing pages, and the Google Integration Connectors documentation plus the public discovery documents at https://connectors.googleapis.com/$discovery/rest?version=v1 and ?version=v2 (unauthenticated GETs).
 - CLOUD: No account was created, no resource was provisioned, no credential was created or used, no package was installed, no image was pulled and no container was launched. All tests run against loopback fixtures on ephemeral ports.
 - COMPOSIO: None. No Composio account, project, auth config or connected account was created, modified or deleted. All traffic in tests goes to a loopback fixture on an ephemeral port; documentation pages were read over HTTPS only.
 - DATA: Read-only documentation fetches over the agent proxy: docs.airbyte.com, reference.airbyte.com, hasura.github.io/ndc-spec, docs.merge.dev, developers.google.com (Cloud Search). No vendor account was used, created or modified; no API key was exercised against any live service.
 - DOCS: Read-only HTTPS GETs to establish licence and version facts for the source lock: spec.openapis.org (OAS 3.2.1, Arazzo 1.1.0, Overlay 1.1.0), asyncapi.com (3.1.0), modelcontextprotocol.io (2026-07-28 basic index), and the LICENSE files of standard-webhooks/standard-webhooks, modelcontextprotocol/modelcontextprotocol and cloudevents/spec. No credential was sent, nothing was created, modified, published or deleted, and no account was used.
 - PIPEDREAM: None. No Pipedream account, project, OAuth client, connect token, connected account or deployed trigger was created. All traffic in tests goes to a loopback fixture on 127.0.0.1. Documentation pages were read over HTTPS.
+- PROVIDER-CATALOG: None. No account was created, no provider contacted and no credential used; every double listens on 127.0.0.1.
 - REGISTRY: Read-only GET of https://registry.modelcontextprotocol.io/v0.1/servers?limit=2, https://registry.modelcontextprotocol.io/openapi.yaml, the published server.schema.json and public documentation pages, to pin the API and schema versions. No writes, no publication, no credentials used.
 - SUPABASE: None. No Supabase account, OAuth app, project or token was used or created. The only network access was reading public vendor documentation and the public OpenAPI document at https://api.supabase.com/api/v1-json; all tests run against loopback doubles.
 - UX: Installed Playwright browser builds and WebKit's host libraries in this container (npx playwright install chromium firefox webkit, npx playwright install-deps webkit). No repository file, package.json or lockfile was changed.
@@ -1973,8 +2093,3 @@ The [source lock](source-lock.md) pins 80 records as of 2026-09-18, each with it
 ## Adapter inventory read for this report
 
 28 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
-
-## Ledger problems
-
-- ledger/AUTOMATION.json: does not match the ledger shape
-- ledger/BINDINGS.json: does not match the ledger shape

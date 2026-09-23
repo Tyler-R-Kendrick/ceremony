@@ -25,8 +25,10 @@ import {
 } from "./authored-operations.js";
 import { ceremonyAgentTools } from "./agent-tools.js";
 import {
+  approveCredentialVerification,
   compileDemonstrationDraft,
   deleteAuthoredConnection,
+  proposeCredentialVerification,
   executePublishedRecipe,
   importArazzoDraft,
   importRecipeDraft,
@@ -39,6 +41,7 @@ import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
 import { configuredModel } from "./agent/model.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 const revision = z.number().int().positive();
 async function presentRun(
@@ -228,6 +231,36 @@ async function authoringHttp(
           }
         : null,
     });
+  }
+  // Proposing and approving how an authored connector's credential is
+  // verified. Proposal is what the MCP tool does too; approval is a person's,
+  // and the service refuses any other actor kind.
+  const verificationRoute =
+    /^\/authoring\/installed\/([a-z0-9-]{1,64})\/credential-verification(\/approve)?$/.exec(
+      path,
+    );
+  if (verificationRoute) {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const connectorId = verificationRoute[1]!;
+    if (verificationRoute[2])
+      return reply(
+        await approveCredentialVerification(
+          runtime,
+          actor,
+          connectorId,
+          teachingInputs.verificationApprove.parse(body),
+        ),
+      );
+    return reply(
+      await proposeCredentialVerification(
+        runtime,
+        actor,
+        teachingInputs.verificationPropose.parse({
+          connectorId,
+          declaration: body,
+        }),
+      ),
+    );
   }
   if (path === "/authoring/from-provider") {
     if (!post) return reply({ error: "unavailable" }, 405);
@@ -780,9 +813,18 @@ async function agentHttp(
         await startAgent(runId, turnId);
         return reply({ turnId, status: "running" });
       }
+      // The same projection the status route answers with: the handoff is
+      // included while the turn waits on a person, so a caller that started
+      // the agent inline learns where the person continues without polling.
+      const outcome = await runtime.agent.turnOutcome(actor, runId, turnId);
       return reply({
         turnId,
-        status: await runtime.agent.turn(actor, runId, turnId),
+        status: outcome.status,
+        ...((outcome.status === "awaiting-human" ||
+          outcome.status === "uncertain") &&
+        outcome.handoff
+          ? { handoff: outcome.handoff }
+          : {}),
       });
     }
     if (!post && agentRoute[2] === "status")
@@ -946,7 +988,7 @@ export async function teachingHttp(
       const [, , connectorId, runId] = path.split("/");
       const record = await runtime.store.transaction((tx) =>
         tx.get({
-          tenant: "public",
+          tenant: SYSTEM_TENANT.public,
           kind: "artifact",
           id: `oauth-client:${connectorId}:${runId}`,
         }),

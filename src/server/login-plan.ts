@@ -16,6 +16,10 @@ import { unmetCapabilities } from "../core/browser-session-contracts.js";
 import {
   derivedRoleOf,
   heldCredentialKinds,
+  issuedDeclarationSchema,
+  pageLabelSchema,
+  type IssuedDeclaration,
+  type IssuedSinkKind,
 } from "../core/browser-contracts.js";
 import {
   recordingReferenceSchema,
@@ -131,6 +135,29 @@ export const connectionDraftSchema = z
      * recording cannot quietly replay another.
      */
     recording: recordingReferenceSchema.optional(),
+    /**
+     * Values the provider shows on a page that this login keeps - an OAuth
+     * client's ID and secret on its developer settings page - named by the
+     * exact label of the read-only field each is in, and the host sink they
+     * go to. The sink is a kind the host registered (`oauth-client`,
+     * `credential-custody`), never anything a caller supplies, and the
+     * values never come back out of the login: not in its result, its steps
+     * or a recording, and never to the interpreter.
+     */
+    issued: issuedDeclarationSchema.optional(),
+    /**
+     * Options this login chooses, by the exact label of the `<select>` each
+     * is for: `{ "Country or region": "Canada" }`. Page text on both sides,
+     * held to the rule for page labels, so a secret cannot be passed as one.
+     * A required choice not named here is handed to a person.
+     */
+    choices: z
+      .record(pageLabelSchema, pageLabelSchema)
+      .refine(
+        (choices) => Object.keys(choices).length <= 8,
+        "At most 8 choices",
+      )
+      .optional(),
   })
   .strict();
 export type ConnectionDraft = z.infer<typeof connectionDraftSchema>;
@@ -155,6 +182,17 @@ export const planRejectionReasons = [
   "recording-unavailable",
   /** The recording acts on an origin this plan does not admit. */
   "recording-origin-not-declared",
+  /**
+   * The plan keeps issued values and this host registered no sink of that
+   * kind, so there is nowhere trusted for them to go.
+   */
+  "issued-sink-unavailable",
+  /**
+   * The plan's issued declaration and the published recording's differ. A
+   * recording keeps exactly what its reviewer saw it keep, and a plan that
+   * replays it keeps exactly that too.
+   */
+  "recording-issued-mismatch",
 ] as const;
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
@@ -211,6 +249,10 @@ export type EffectiveLoginPlan = {
   sessionTtlMs: number;
   /** The published recording this login replays, when it replays one. */
   recording?: RecordingReference;
+  /** What this login keeps from a provider page, and where it goes. */
+  issued?: IssuedDeclaration;
+  /** Options this login chooses, by field label. */
+  choices?: Readonly<Record<string, string>>;
   revision: number;
   digest: string;
 };
@@ -255,6 +297,12 @@ export type CompileOptions = {
    * wizard rendering a setting the server never compiled.
    */
   modelAvailable?: boolean;
+  /**
+   * The issued-value sinks this host registered. A plan naming any other is
+   * refused here: a sink is the host's decision, and one it never made is not
+   * a place a secret may be sent.
+   */
+  issuedSinks?: ReadonlySet<IssuedSinkKind>;
   revision: number;
 };
 
@@ -379,6 +427,9 @@ export function compileLoginPlan(
       throw new PlanRejected("unknown-credential-reference", derived);
   }
 
+  if (draft.issued && options.issuedSinks?.has(draft.issued.sink) !== true)
+    throw new PlanRejected("issued-sink-unavailable", draft.issued.sink);
+
   // "Whichever account is there" has to be said, not assumed. Without an
   // explicit policy a run would quietly accept the first session it found.
   if (
@@ -407,6 +458,10 @@ export function compileLoginPlan(
     credentialRefs,
     sessionTtlMs: draft.sessionTtlMs,
     ...(draft.recording ? { recording: draft.recording } : {}),
+    ...(draft.issued ? { issued: draft.issued } : {}),
+    ...(draft.choices && Object.keys(draft.choices).length > 0
+      ? { choices: draft.choices }
+      : {}),
     revision: options.revision,
   };
   return { ...withoutDigest, digest: planDigest(withoutDigest) };
