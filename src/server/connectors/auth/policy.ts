@@ -166,6 +166,14 @@ export function issuerPolicyOrigins(policy: IssuerPolicy): string[] {
   return [...origins];
 }
 
+/**
+ * Where per-profile issuer policies are pinned under an approved binding's
+ * settings: a map from authentication profile id to a policy. Written only by
+ * the reviewed approval path, like `settings.oauth`, which stays the
+ * binding-wide fallback for a profile without its own entry.
+ */
+export const PROFILE_ISSUER_POLICIES_SETTING = "oauth-profiles";
+
 /** The policy pinned under an approved binding's inert settings; never caller-supplied. */
 export function issuerPolicyFromBinding(binding: RuntimeBinding): IssuerPolicy {
   const raw = binding.settings["oauth"];

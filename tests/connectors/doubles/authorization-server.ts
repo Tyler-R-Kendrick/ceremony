@@ -67,6 +67,10 @@ export type AuthorizationServerMisbehaviour = {
   forgedIdTokenSubject?: string;
   /** Serve metadata with no `jwks_uri`, so no published key can check a signature. */
   omitJwksUri?: boolean;
+  /** Put this nonce in the ID token instead of the one the request carried. */
+  idTokenNonce?: string;
+  /** Stamp the ID token's `iat` this many seconds from the real clock. */
+  idTokenIssuedAtOffsetSeconds?: number;
 };
 
 export type AuthorizationServerOptions = {
@@ -104,6 +108,8 @@ export type AuthorizationServerOptions = {
   jwtAccessTokens?: boolean;
   /** Issue an ID token on the code grant. */
   openidConnect?: boolean;
+  /** How ID tokens are signed; both keys are published at `jwks_uri` either way. */
+  idTokenAlgorithm?: "ES256" | "RS256";
   /** An issuer path, so discovery must use path insertion. */
   issuerPath?: string;
   misbehave?: AuthorizationServerMisbehaviour;
@@ -243,6 +249,14 @@ export async function startAuthorizationServer(
     extractable: true,
   });
   const keyId = `key-${randomBytes(4).toString("hex")}`;
+  // An RSA key beside the EC one when RS256 ID tokens are asked for, so they
+  // are checked against a published key of their own type. Generated per
+  // server, never a fixture file; only then, since RSA generation is slow.
+  const rsa =
+    options.idTokenAlgorithm === "RS256"
+      ? await generateKeyPair("RS256", { extractable: true })
+      : undefined;
+  const rsaKeyId = `rsa-${randomBytes(4).toString("hex")}`;
   // The forger's key: a real ES256 key that never appears at `jwks_uri`, so a
   // token signed with it verifies against nothing the issuer published.
   const strangerKey =
@@ -351,7 +365,7 @@ export async function startAuthorizationServer(
     ...(options.openidConnect
       ? {
           userinfo_endpoint: endpoint("userinfo"),
-          id_token_signing_alg_values_supported: ["ES256"],
+          id_token_signing_alg_values_supported: ["ES256", "RS256"],
           subject_types_supported: ["public"],
         }
       : {}),
@@ -368,7 +382,10 @@ export async function startAuthorizationServer(
     type?: string;
     /** Signs with this key instead of the published one; the header is unchanged. */
     signWith?: CryptoKey | undefined;
+    algorithm?: "ES256" | "RS256";
+    issuedAtOffsetSeconds?: number | undefined;
   }) => {
+    const rs256 = input.algorithm === "RS256";
     const seconds = input.expiresInSeconds ?? 3600;
     let builder = new SignJWT({
       ...(input.scope !== undefined ? { scope: input.scope } : {}),
@@ -377,20 +394,25 @@ export async function startAuthorizationServer(
       client_id: registeredClientId,
     })
       .setProtectedHeader({
-        alg: "ES256",
-        kid: keyId,
+        alg: rs256 ? "RS256" : "ES256",
+        kid: rs256 ? rsaKeyId : keyId,
         ...(input.type ? { typ: input.type } : {}),
       })
       .setIssuer(input.issuer ?? issuer)
       .setSubject(input.subject)
       .setJti(randomUUID())
-      .setIssuedAt();
+      .setIssuedAt(
+        Math.floor(Date.now() / 1000) + (input.issuedAtOffsetSeconds ?? 0),
+      );
     builder = Array.isArray(input.audience)
       ? builder.setAudience(input.audience)
       : builder.setAudience(input.audience);
     return builder
       .setExpirationTime(Math.floor(now() / 1000) + seconds)
-      .sign(input.signWith ?? (privateKey as CryptoKey));
+      .sign(
+        input.signWith ??
+          ((rs256 && rsa ? rsa.privateKey : privateKey) as CryptoKey),
+      );
   };
 
   const issueAccessToken = async (input: {
@@ -506,7 +528,19 @@ export async function startAuthorizationServer(
       counts.jwks++;
       const jwk = await exportJWK(publicKey as CryptoKey);
       return json(200, {
-        keys: [{ ...jwk, kid: keyId, use: "sig", alg: "ES256" }],
+        keys: [
+          { ...jwk, kid: keyId, use: "sig", alg: "ES256" },
+          ...(rsa
+            ? [
+                {
+                  ...(await exportJWK(rsa.publicKey as CryptoKey)),
+                  kid: rsaKeyId,
+                  use: "sig",
+                  alg: "RS256",
+                },
+              ]
+            : []),
+        ],
       });
     }
 
@@ -694,8 +728,16 @@ export async function startAuthorizationServer(
                 id_token: await signJwt({
                   subject: bad.forgedIdTokenSubject ?? grant.subject,
                   audience: authenticated.clientId,
-                  ...(grant.nonce !== undefined ? { nonce: grant.nonce } : {}),
+                  ...(bad.idTokenNonce !== undefined
+                    ? { nonce: bad.idTokenNonce }
+                    : grant.nonce !== undefined
+                      ? { nonce: grant.nonce }
+                      : {}),
                   ...(strangerKey ? { signWith: strangerKey } : {}),
+                  ...(options.idTokenAlgorithm
+                    ? { algorithm: options.idTokenAlgorithm }
+                    : {}),
+                  issuedAtOffsetSeconds: bad.idTokenIssuedAtOffsetSeconds,
                 }),
               }
             : {}),

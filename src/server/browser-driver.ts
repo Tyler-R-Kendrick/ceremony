@@ -1,6 +1,8 @@
 import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
+  deviceVerificationField,
   driverActionSchema,
+  secretIssuedValueKinds,
   secretRoles,
   type BlockedReason,
   type CeremonyCallback,
@@ -10,6 +12,7 @@ import {
   type CeremonyStepAction,
   type DriverAction,
   type HumanStepReason,
+  type IssuedValueKind,
   type PageSnapshot,
   type SnapshotElement,
 } from "../core/browser-contracts.js";
@@ -94,6 +97,13 @@ export interface CeremonyPage {
   fill(element: SnapshotElement, value: string): Promise<void>;
   click(element: SnapshotElement): Promise<void>;
   check(element: SnapshotElement): Promise<void>;
+  /**
+   * Choose the option a `<select>` shows under this visible label. Held to
+   * the same revalidation as `fill`: the observed control on the observed
+   * document, or a refusal. Optional, so an adapter that cannot choose simply
+   * does not, and a `select` proposal is then an unusable one.
+   */
+  select?(element: SnapshotElement, option: string): Promise<void>;
   /** Wait for navigation or in-page updates to quiesce, bounded by the adapter. */
   settle(): Promise<void>;
   /**
@@ -121,7 +131,21 @@ export interface CeremonyPage {
     origin: string,
     credentials: { username: string; password: string },
   ): Promise<void>;
+  /**
+   * The value an observed read-only field displays, or `undefined` when the
+   * control is not one. Revalidated against the observation exactly as an
+   * action is, so it reads the field that was observed or refuses.
+   *
+   * The driver calls this only for a field whose label a plan named in
+   * `issued`, and the value goes to that plan's sink and nowhere else.
+   * Optional: an adapter without it cannot keep an issued value, and a plan
+   * that declares one then never completes on it.
+   */
+  readIssued?(element: SnapshotElement): Promise<string | undefined>;
 }
+
+/** Issued values by kind, as the driver hands them to a plan's sink. */
+export type IssuedValues = Readonly<Partial<Record<IssuedValueKind, string>>>;
 
 /**
  * Resolves a role to a value. A verification code normally resolves by waiting
@@ -199,6 +223,39 @@ export interface CeremonyRunOptions {
   stallLimit?: number;
   /** Extra values that must never reach the interpreter or a transcript. */
   protectedValues?: readonly string[];
+  /**
+   * Values the provider issues on a page and this plan keeps, such as an
+   * OAuth client's ID and secret on a developer settings page.
+   *
+   * `fields` names, for each kind, the exact label of the read-only field
+   * that displays it. The plan declares this, not the interpreter: an
+   * interpreter never learns a value was read, cannot point the driver at a
+   * field, and cannot name one. Each observation on an allowed origin is
+   * checked for exactly one input carrying each declared label; a label that
+   * matches twice identifies nothing, and a page that does not show every
+   * declared field is not read at all.
+   *
+   * Once every declared value has been read from one page, `keep` receives
+   * them, once. A secret kind is guarded from that moment like a typed
+   * password, so a later snapshot or note reproducing it fails the attempt.
+   * The values are never in the result, the transcript or anything the
+   * interpreter is given; the transcript records a `kept` step naming the
+   * kinds. While any declared value is still unread, neither a claim of
+   * completion nor an arrival at the callback completes the attempt.
+   */
+  issued?: {
+    fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
+    keep(values: IssuedValues): Promise<void>;
+  };
+  /**
+   * Choices the plan makes, by the exact label of the `<select>` they are
+   * for: `{ "Country or region": "Canada" }`. Both sides are text the page
+   * shows, so neither is a secret. A `select` on a field named here must
+   * choose exactly this option; on any other field it must choose an option
+   * the observation listed. A required choice with no entry here is a
+   * person's to make.
+   */
+  choices?: Readonly<Record<string, string>>;
   onStep?: (step: CeremonyStep) => void;
   /**
    * Called once an action has actually taken effect, with the observation it
@@ -212,6 +269,26 @@ export interface CeremonyRunOptions {
    */
   onApplied?: (entry: RecordedTraceEntry) => void;
 }
+
+/** Roles typed only on an allowed origin, into a form posting to one. */
+const originBoundRoles: readonly CeremonyRole[] = [...secretRoles, "user-code"];
+
+/** What a step needing a person ends as, when no person takes it. */
+const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
+  "human-challenge": "human-challenge",
+  passkey: "passkey-required",
+  "native-dialog": "native-dialog",
+  "device-code": "device-code-required",
+  choice: "choice-required",
+};
+
+/**
+ * Runs that replay a reviewed recording, with a test for whether the
+ * proposal in hand came from the recording rather than a fallback
+ * interpreter. Private to this module: only `runRecordedCeremony` can put a
+ * run here, so no caller can grant itself a replay's freedom to choose.
+ */
+const reviewedReplays = new WeakMap<CeremonyRunOptions, () => boolean>();
 
 const defaultMaxSteps = 24;
 const defaultStallLimit = 3;
@@ -320,6 +397,12 @@ export async function runCeremony(
   let followed: string | undefined;
   let handoffs = 0;
   const maxHandoffs = options.human?.maxRequests ?? 2;
+  /** The issued values the plan declared, and whether they are in hand. */
+  const declared = Object.entries(options.issued?.fields ?? {}) as [
+    IssuedValueKind,
+    string,
+  ][];
+  let kept = declared.length === 0;
 
   const record = (
     snapshot: PageSnapshot,
@@ -435,12 +518,7 @@ export async function runCeremony(
     snapshot: PageSnapshot,
     reason: HumanStepReason,
   ): Promise<BlockedReason | undefined> => {
-    const fallback: BlockedReason =
-      reason === "passkey"
-        ? "passkey-required"
-        : reason === "native-dialog"
-          ? "native-dialog"
-          : "human-challenge";
+    const fallback = fallbackFor[reason];
     if (!options.human || handoffs >= maxHandoffs) return fallback;
     record(snapshot, "handoff", { reason: fallback });
     handoffs++;
@@ -459,6 +537,66 @@ export async function runCeremony(
     if (outcome === "declined") return "human-declined";
     if (outcome === "unavailable") return fallback;
     return undefined;
+  };
+
+  /**
+   * Read the issued values the plan declared from the page in front of the
+   * attempt, and hand them to the plan's sink.
+   *
+   * This is driven by the plan and by nothing an interpreter says: it runs on
+   * every observation on an allowed origin, looks only for inputs whose label
+   * is exactly one the plan named, and reads a field only when exactly one
+   * matches. The adapter reads a value only from a read-only control the
+   * observation still describes, so neither a field the driver filled nor one
+   * that moved since the read can be taken for an issued value.
+   *
+   * Every declared value comes from one page or none does. A client ID read on
+   * one page and a secret on another need not belong to the same client, and
+   * the page that reveals a secret shows the client it belongs to.
+   *
+   * It runs before the interpreter sees this snapshot, and a secret joins the
+   * guarded values the moment it is read, so a provider that also printed it
+   * into a heading or an alert on the same page fails the attempt as a leak
+   * rather than delivering it to the interpreter.
+   */
+  const collectIssued = async (snapshot: PageSnapshot): Promise<void> => {
+    if (kept || !options.issued || !page.readIssued) return;
+    const fields = declared.map(([kind, label]) => {
+      const matches = snapshot.elements.filter(
+        (element) => element.kind === "input" && element.label === label,
+      );
+      return { kind, field: matches.length === 1 ? matches[0] : undefined };
+    });
+    if (fields.some(({ field }) => !field)) return;
+    const issued = new Map<IssuedValueKind, string>();
+    for (const { kind, field } of fields) {
+      let value: string | undefined;
+      try {
+        value = await page.readIssued(field!);
+      } catch (error) {
+        // The page moved since it was read: nothing is taken from it, and
+        // the next observation looks again.
+        if (error instanceof StaleTargetError) return;
+        throw error;
+      }
+      const secret = secretIssuedValueKinds.includes(kind);
+      // A secret too short to recognise could not be guarded afterwards, so
+      // it is not one this driver will carry.
+      if (!value || value.length > 4096 || (secret && value.length < 8)) return;
+      // A field showing something the driver typed is not an issued value,
+      // whatever it is labelled: keeping it would hand the password to the
+      // plan's next step, which may send it to another origin. This holds for
+      // an ID as much as a secret, since an ID is carried unguarded.
+      if (guarded.includes(value) || contains(value, guarded)) return;
+      issued.set(kind, value);
+      if (secret && !guarded.includes(value)) guarded.push(value);
+    }
+    await options.issued.keep(Object.fromEntries(issued) as IssuedValues);
+    kept = true;
+    record(snapshot, "kept", {
+      note: declared.map(([kind]) => kind).join(", "),
+      remembered: false,
+    });
   };
 
   /**
@@ -512,40 +650,46 @@ export async function runCeremony(
       record(snapshot, "blocked", { reason });
       return finish({ status: "blocked", reason, steps });
     };
-    const element =
-      action.element === undefined
-        ? undefined
-        : snapshot.elements[action.element];
-    if (!element) {
+    /**
+     * A proposal that names something this page cannot take. Discarded, and
+     * two in a row mean the surface is not one this attempt can drive.
+     */
+    const unusable = (): CeremonyResult | undefined => {
       steps++;
       if (++refusals >= 2) {
         record(snapshot, "blocked", { reason: "unsupported-page" });
         return finish({ status: "blocked", reason: "unsupported-page", steps });
       }
-      return;
-    }
+      return undefined;
+    };
+    const element =
+      action.element === undefined
+        ? undefined
+        : snapshot.elements[action.element];
+    if (!element) return unusable();
 
     if (action.action === "fill") {
       const role = action.role;
       // A role the caller never supplied is as unusable as a missing element:
       // the value is never resolved, and the attempt says so rather than
-      // spending its whole budget re-asking.
-      if (!role || !secrets.roles.includes(role)) {
-        steps++;
-        if (++refusals >= 2) {
-          record(snapshot, "blocked", { reason: "unsupported-page" });
-          return finish({
-            status: "blocked",
-            reason: "unsupported-page",
-            steps,
-          });
-        }
-        return;
-      }
+      // spending its whole budget re-asking. So is a secret aimed at a
+      // `<select>`: choosing the option that equals a password would put the
+      // password in the form under a label nobody reviewed.
+      if (
+        !role ||
+        !secrets.roles.includes(role) ||
+        (element.kind === "select" && secretRoles.includes(role))
+      )
+        return unusable();
       // A permitted page can still hand a secret to a third party. Refuse the
       // entry rather than the navigation: by then the value is already sent.
+      //
+      // A device's user code is held to the same rule though it is not a
+      // secret: it is the one-time approval of a device, and typed into a
+      // form that posts elsewhere it approves the device for whoever is
+      // listening there instead.
       if (
-        secretRoles.includes(role) &&
+        originBoundRoles.includes(role) &&
         (!allowed.has(originOf(url)) ||
           (element.submitsTo !== undefined &&
             !allowed.has(originOf(element.submitsTo))))
@@ -588,6 +732,53 @@ export async function runCeremony(
         snapshot,
         action: "check",
         element: element.index,
+      });
+    } else if (action.action === "select") {
+      // An option is chosen by the label the page shows, and on a live drive
+      // only one the plan chose for this field: an interpreter does not pick
+      // somebody's country or organisation for them, whatever the page
+      // lists. The plan's option may lie past the snapshot's first twenty,
+      // since a country list is longer than that and the plan, not the
+      // interpreter, wrote it; the adapter refuses a label the live control
+      // does not offer. The one other source of a choice is a recording a
+      // person reviewed and published - its step names the option, and it
+      // must be one the observation listed. A guarded value cannot be among
+      // the listed options - the snapshot carrying it would already have
+      // failed the attempt - and the check below says so rather than relying
+      // on it.
+      const option = action.option;
+      const planned =
+        element.label === undefined
+          ? undefined
+          : options.choices?.[element.label];
+      const recorded = reviewedReplays.get(options)?.() === true;
+      const listed = element.options ?? [];
+      // A snapshot lists at most twenty options, so only a shorter list is
+      // known to be the whole control - and a planned option missing from a
+      // whole list is not on this page, whatever the plan hoped.
+      const complete = listed.length < 20;
+      if (
+        element.kind !== "select" ||
+        !page.select ||
+        option === undefined ||
+        (planned !== undefined
+          ? planned !== option || (complete && !listed.includes(option))
+          : !recorded || !listed.includes(option))
+      )
+        return unusable();
+      if (contains(option, guarded))
+        throw new CeremonySecretLeak("a chosen option");
+      try {
+        await page.select(element, option);
+      } catch (error) {
+        return refused(error);
+      }
+      record(snapshot, "select", action.note ? { note: action.note } : {});
+      options.onApplied?.({
+        snapshot,
+        action: "select",
+        element: element.index,
+        option,
       });
     } else {
       // A control that belongs to a form is the only thing here that can change
@@ -633,6 +824,34 @@ export async function runCeremony(
     previous = current;
   }
 
+  /**
+   * Whether an interpreter's "a person has to do this" names a step a person
+   * can do here, checked against the page rather than taken on its word.
+   *
+   * A device verification page needs a person only when this plan was not
+   * given the user code - with it, the page is an ordinary form. A missing
+   * choice needs one only where a `<select>` is actually waiting for one.
+   */
+  const personStep = (
+    reason: BlockedReason,
+    snapshot: PageSnapshot,
+  ): HumanStepReason | undefined => {
+    if (
+      reason === "device-code-required" &&
+      !secrets.roles.includes("user-code") &&
+      deviceVerificationField(snapshot)
+    )
+      return "device-code";
+    if (
+      reason === "choice-required" &&
+      snapshot.elements.some(
+        (element) => element.kind === "select" && element.filled !== true,
+      )
+    )
+      return "choice";
+    return undefined;
+  };
+
   async function driveSnapshot(
     snapshot: PageSnapshot,
     url: string,
@@ -646,6 +865,12 @@ export async function runCeremony(
       snapshot,
       available: secrets.roles,
       history: history.slice(-8),
+      // Labels only, which the page shows anyway. What was read, and whether
+      // anything has been, stays here.
+      ...(declared.length > 0
+        ? { issuedLabels: declared.map(([, label]) => label) }
+        : {}),
+      ...(options.choices ? { choices: options.choices } : {}),
     };
     const proposed = await interpreter(input);
     const parsed = proposed
@@ -667,17 +892,44 @@ export async function runCeremony(
     // Reaching here means the proposal is structurally usable.
     if (action.action === "blocked") {
       const reason = action.reason ?? "unsupported-page";
+      // Two walls a person can get past in this same browser. Asking a
+      // person stays the driver's decision: the report is only acted on when
+      // this page really is what it names, and the budget and the person's
+      // answer are the same as for any other handoff.
+      const person = personStep(reason, snapshot);
+      if (person) {
+        const refused = await handOff(snapshot, person);
+        if (refused) {
+          record(snapshot, "blocked", { reason: refused });
+          return finish({ status: "blocked", reason: refused, steps });
+        }
+        refusals = 0;
+        await page.settle();
+        steps++;
+        return;
+      }
+      // A claim that a person is needed which the page does not bear out -
+      // no device page, a plan that holds the user code, no select waiting -
+      // is not passed on under its own name. A caller told
+      // `device-code-required` goes looking for a person with a device; what
+      // happened is that the interpreter could not read this page.
+      const ending: BlockedReason =
+        reason === "device-code-required" || reason === "choice-required"
+          ? "unsupported-page"
+          : reason;
       record(snapshot, "blocked", {
-        reason,
+        reason: ending,
         ...(action.note ? { note: action.note } : {}),
       });
-      return finish({ status: "blocked", reason, steps });
+      return finish({ status: "blocked", reason: ending, steps });
     }
     if (action.action === "done") {
       refusals = 0;
       record(snapshot, "done", action.note ? { note: action.note } : {});
       options.onApplied?.({ snapshot, action: "done" });
-      if (options.verify && (await options.verify()))
+      // A declared issued value still unread means the thing the plan came
+      // for is not in hand, whatever the page says.
+      if (kept && options.verify && (await options.verify()))
         return finish({ status: "completed", steps });
       if (++unverifiedClaims >= 2)
         return finish({ status: "unverified", steps });
@@ -722,6 +974,9 @@ export async function runCeremony(
           steps,
         });
       if (code) {
+        // A code is not what an `issued` plan came for: with a declared value
+        // still unread, arriving here is no more a completion than a claim is.
+        if (!kept) return finish({ status: "unverified", steps });
         const state = parsed.searchParams.get("state");
         const callback: CeremonyCallback = { code };
         if (state !== null) callback.state = state;
@@ -741,13 +996,30 @@ export async function runCeremony(
     const observed = await observe();
     if ("blocked" in observed) return observed.blocked;
     const snapshot = observed.snapshot;
+    await collectIssued(snapshot);
     // A step needing a person is never handed to an interpreter to solve.
     // A passkey hint beside a password box is conditional UI: the page still
-    // accepts a password, so it is driven normally. Only a prompt with nothing
-    // else to fill actually requires the authenticator, and so a person.
+    // accepts a password, so it is driven normally. So is the hint on an
+    // identifier field with no password beside it yet - the first step of an
+    // identifier-first page. Conditional UI is spelled `username webauthn`
+    // (or `email webauthn`): the token rides on a field a person types their
+    // identifier into. A bare `webauthn` field is the authenticator's own
+    // prompt, not an identifier, and with nothing else to fill that page
+    // requires the authenticator, and so a person.
+    const conditionalIdentifier = (element: SnapshotElement) => {
+      const tokens = (element.autocomplete ?? "").split(/\s+/);
+      return (
+        element.kind === "input" &&
+        tokens.includes("webauthn") &&
+        (tokens.includes("username") || tokens.includes("email"))
+      );
+    };
     const passkeyOnly =
       snapshot.passkey &&
-      !snapshot.elements.some((element) => element.type === "password");
+      !snapshot.elements.some(
+        (element) =>
+          element.type === "password" || conditionalIdentifier(element),
+      );
     const humanStep: HumanStepReason | undefined = snapshot.challenge
       ? "human-challenge"
       : passkeyOnly
@@ -970,7 +1242,9 @@ export async function runRecordedCeremony(
       const action: DriverAction =
         step.action.kind === "fill"
           ? { action: "fill", element, role: step.action.role, note }
-          : { action: step.action.kind, element, note };
+          : step.action.kind === "select"
+            ? { action: "select", element, option: step.action.option, note }
+            : { action: step.action.kind, element, note };
       return { propose: action, step: position };
     }
     // Every recorded step has been applied and no success page was recorded
@@ -1017,7 +1291,7 @@ export async function runRecordedCeremony(
     return fallback(input);
   };
 
-  const result = await runCeremony({
+  const run: CeremonyRunOptions = {
     ...options,
     interpreter,
     onApplied: (entry) => {
@@ -1029,7 +1303,10 @@ export async function runRecordedCeremony(
       }
       options.onApplied?.(entry);
     },
-  });
+  };
+  // A recorded choice was reviewed; a fallback interpreter's is not.
+  reviewedReplays.set(run, () => !fromFallback);
+  const result = await runCeremony(run);
   return {
     ...result,
     ...(drift ? { drift } : {}),

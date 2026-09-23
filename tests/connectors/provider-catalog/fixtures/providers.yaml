@@ -141,8 +141,8 @@ tenant-desk-sandbox:
   alias: tenant-desk
   display_name: Tenant Desk (sandbox)
 
-extra-token-params:
-  display_name: Extra Token Params
+reserved-token-params:
+  display_name: Reserved Token Params
   auth_mode: OAUTH2
   authorization_url: https://auth.extra-token.example/authorize
   token_url: https://auth.extra-token.example/token
@@ -150,6 +150,21 @@ extra-token-params:
     resource: https://api.extra-token.example
   proxy:
     base_url: https://api.extra-token.example
+
+audience-token-params:
+  display_name: Audience Token Params
+  auth_mode: OAUTH2
+  authorization_url: https://auth.audience-token.example/authorize
+  token_url: https://auth.audience-token.example/token
+  token_params:
+    grant_type: authorization_code
+    audience: https://api.audience-token.example/${connectionConfig.region}
+  connection_config:
+    region:
+      type: string
+      title: Region
+  proxy:
+    base_url: https://api.audience-token.example
 
 plain-http:
   display_name: Plain HTTP

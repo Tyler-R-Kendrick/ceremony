@@ -19,6 +19,7 @@ import {
   type HumanPresentation,
   type NormalizedDefinition,
   type SourceRecord,
+  type SupportLabel,
   type VerificationClaim,
 } from "../../../core/connectors/index.js";
 import {
@@ -52,11 +53,17 @@ import {
 import {
   issuerPolicy,
   issuerPolicyOrigins,
+  PROFILE_ISSUER_POLICIES_SETTING,
   type IssuerPolicy,
   type IssuerPolicyInput,
 } from "../auth/policy.js";
 import { ConnectorError } from "../errors.js";
 import { catalogFor } from "../inventory.js";
+import {
+  createSupportLabeler,
+  type SupportLabeler,
+  type SupportLabelOptions,
+} from "../support.js";
 import type {
   Clock,
   ConfigurationPort,
@@ -179,6 +186,12 @@ export interface ConnectorCommandServiceOptions {
   configure?: ConfigurationWriter;
   /** Upper bound on any adapter call, including the provider round trips inside it. */
   callTimeoutMs?: number;
+  /**
+   * Evidence-derived support labels: extra dated entries (a host's own live
+   * runs or attended certifications) and the opt-in production minimum.
+   * Absent means the recorded entries are shown and nothing is gated.
+   */
+  support?: SupportLabelOptions;
 }
 
 export const CONNECTOR_CALLBACK_PATH = "/api/v1/connectors/callback";
@@ -209,6 +222,14 @@ const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
 /** Origins a definition declares for its OAuth profiles; candidates for review, never approval. */
+/** Profile kinds an issuer policy can apply to. */
+const OAUTH_PROFILE_KINDS: ReadonlySet<string> = new Set([
+  "oauth-authorization-code",
+  "openid-connect",
+  "oauth-device",
+  "oauth-client-credentials",
+]);
+
 function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
   const origins = new Set<string>();
   for (const profile of definition.authentication)
@@ -376,6 +397,12 @@ function boundedState(
   return merged;
 }
 
+/** Every name a support-evidence entry may use for a definition. */
+const definitionNames = (definition: NormalizedDefinition) => [
+  definition.definitionRef,
+  `sha256:${definition.normalizedDigest}`,
+];
+
 export class ConnectorCommandService {
   readonly registry: ConnectorAdapterRegistry;
   readonly origin: string;
@@ -384,6 +411,7 @@ export class ConnectorCommandService {
   private readonly now: Clock;
   private readonly random: RandomPort;
   private readonly callTimeoutMs: number;
+  readonly support: SupportLabeler;
 
   constructor(private readonly options: ConnectorCommandServiceOptions) {
     const origin = new URL(options.origin);
@@ -399,6 +427,54 @@ export class ConnectorCommandService {
       uuid: () => randomUUID(),
     };
     this.callTimeoutMs = options.callTimeoutMs ?? 30_000;
+    this.support = createSupportLabeler({
+      ...options.support,
+      now: this.now,
+    });
+  }
+
+  /** Whether every configuration name the adapter requires is present for this actor. */
+  private async configured(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+  ): Promise<boolean> {
+    const required = adapter.configuration
+      .filter((item) => item.required)
+      .map((item) => item.name);
+    if (required.length === 0) return true;
+    const present = await this.options.configuration(actor).present(required);
+    return required.every((name) => present.has(name));
+  }
+
+  /**
+   * The host's opt-in production minimum. It is rechecked at every step that
+   * starts or continues work with the provider -- approval, connect, the
+   * completion of a pending ceremony (callback, private input, a provider
+   * event), poll, verify, reconnect and invoke -- because evidence expires
+   * between them: an in-flight ceremony whose evidence lapsed does not
+   * finish. Disconnect, revocation and deletion are never gated, so a person
+   * can always let go of a connection. The label is the binding
+   * definition's, so a generic adapter is admitted only for a description
+   * someone exercised. Off by default, and it reads configuration and the
+   * definition only when a minimum is set.
+   */
+  private async requireSupport(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+    subject: Pick<RuntimeBinding, "definitionRef" | "destinations">,
+    definition?: NormalizedDefinition,
+  ): Promise<void> {
+    if (!this.support.minimumForProduction) return;
+    if (!this.support.isProduction(subject.destinations)) return;
+    const reviewed =
+      definition ??
+      (await this.definition(actor.tenantId, subject.definitionRef));
+    this.support.require(
+      adapter,
+      subject.destinations,
+      await this.configured(actor, adapter),
+      definitionNames(reviewed),
+    );
   }
 
   /** The exact callback URL adapters must register; built from the origin, never from input. */
@@ -455,24 +531,30 @@ export class ConnectorCommandService {
    * The configuration names an adapter may read under a binding. A hosted
    * deployment's port holds every tenant-visible value the host keeps, so an
    * adapter sees only what review approved: the binding's names, the names
-   * its host-registered adapter declares, and the client of the issuer
-   * policy a person pinned.
+   * its host-registered adapter declares, and the client of each issuer
+   * policy a person pinned, binding-wide or per profile.
    */
   private configurationNames(binding: RuntimeBinding): ReadonlySet<string> {
     const names = new Set(binding.configuration);
     for (const item of this.registry.get(binding.adapterId)?.configuration ??
       [])
       names.add(item.name);
-    const oauth = binding.settings["oauth"] as
-      { registration?: Record<string, unknown> } | undefined;
-    for (const key of [
-      "clientIdConfiguration",
-      "clientSecretConfiguration",
-      "privateKeyConfiguration",
-    ]) {
-      const name = oauth?.registration?.[key];
-      if (typeof name === "string") names.add(name);
-    }
+    const perProfile = binding.settings[PROFILE_ISSUER_POLICIES_SETTING];
+    const policies = [
+      binding.settings["oauth"],
+      ...(perProfile && typeof perProfile === "object"
+        ? Object.values(perProfile)
+        : []),
+    ] as Array<{ registration?: Record<string, unknown> } | undefined>;
+    for (const oauth of policies)
+      for (const key of [
+        "clientIdConfiguration",
+        "clientSecretConfiguration",
+        "privateKeyConfiguration",
+      ]) {
+        const name = oauth?.registration?.[key];
+        if (typeof name === "string") names.add(name);
+      }
     return names;
   }
 
@@ -637,6 +719,7 @@ export class ConnectorCommandService {
     return catalogFor(
       this.registry,
       (adapter) => presence.get(adapter.id) ?? new Set(),
+      (adapter, configured) => this.support.label(adapter, configured),
     );
   }
 
@@ -962,6 +1045,12 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
+    await this.requireSupport(
+      actor,
+      adapter,
+      { definitionRef: definition.definitionRef, destinations },
+      definition,
+    );
     const reviewed = await this.reviewInputs(
       actor,
       adapter,
@@ -1009,6 +1098,11 @@ export class ConnectorCommandService {
         detail: "verifier.adapter-unsupported",
       });
     if (reviewed.oauth) settings = { ...settings, oauth: reviewed.oauth };
+    if (reviewed.oauthProfiles)
+      settings = {
+        ...settings,
+        [PROFILE_ISSUER_POLICIES_SETTING]: reviewed.oauthProfiles,
+      };
     const configuration =
       approvals.configuration ??
       definition.configuration
@@ -1090,37 +1184,55 @@ export class ConnectorCommandService {
     approvals: BindingApprovalInput["approvals"],
   ): Promise<{
     oauth?: IssuerPolicy;
+    oauthProfiles?: Record<string, IssuerPolicy>;
     source?: { bytes: Uint8Array; mediaType: string };
   }> {
-    const reserved = new Set(["oauth", ...(adapter.reservedSettings ?? [])]);
+    const reserved = new Set([
+      "oauth",
+      PROFILE_ISSUER_POLICIES_SETTING,
+      ...(adapter.reservedSettings ?? []),
+    ]);
     if (Object.keys(approvals.settings).some((key) => reserved.has(key)))
       throw new ConnectorError("invalid-request", {
         detail: "settings.reserved",
       });
-    let oauth: IssuerPolicy | undefined;
-    if (approvals.oauth !== undefined) {
-      if (actor.actorKind !== "human")
-        throw new ConnectorError("denied", {
-          detail: "oauth.policy.human-only",
+    if (
+      (approvals.oauth !== undefined ||
+        approvals.oauthProfiles !== undefined) &&
+      actor.actorKind !== "human"
+    )
+      throw new ConnectorError("denied", {
+        detail: "oauth.policy.human-only",
+      });
+    const oauth =
+      approvals.oauth !== undefined
+        ? await this.admitIssuerPolicy(actor, definition, approvals.oauth)
+        : undefined;
+    let oauthProfiles: Record<string, IssuerPolicy> | undefined;
+    if (approvals.oauthProfiles !== undefined) {
+      // A per-profile policy is pinned only where something will read it:
+      // an adapter that resolves policy per profile, for a profile the
+      // definition declares with an OAuth kind. Anything else would be a
+      // reviewed decision that silently does nothing.
+      if (!adapter.profileIssuerPolicies)
+        throw new ConnectorError("unsupported", {
+          detail: "oauth.policy.profiles-unsupported",
         });
-      try {
-        oauth = issuerPolicy(approvals.oauth as IssuerPolicyInput);
-      } catch (error) {
-        if (
-          error instanceof ConnectorError &&
-          error.code === "configuration-required"
-        )
+      oauthProfiles = {};
+      for (const [profileId, raw] of Object.entries(approvals.oauthProfiles)) {
+        const profile = definition.authentication.find(
+          (item) => item.id === profileId,
+        );
+        if (!profile || !OAUTH_PROFILE_KINDS.has(profile.kind))
           throw new ConnectorError("invalid-request", {
-            detail: "oauth.policy.invalid",
+            detail: "oauth.policy.profile-unknown",
           });
-        throw error;
+        oauthProfiles[profileId] = await this.admitIssuerPolicy(
+          actor,
+          definition,
+          raw,
+        );
       }
-      await this.admitIssuer(
-        actor,
-        definition,
-        oauth.issuer,
-        issuerPolicyOrigins(oauth),
-      );
     }
     let source: { bytes: Uint8Array; mediaType: string } | undefined;
     if (adapter.reviewBinding) {
@@ -1142,7 +1254,55 @@ export class ConnectorCommandService {
         source = { bytes: artifact.bytes, mediaType: artifact.mediaType };
       }
     }
-    return { ...(oauth ? { oauth } : {}), ...(source ? { source } : {}) };
+    return {
+      ...(oauth ? { oauth } : {}),
+      ...(oauthProfiles ? { oauthProfiles } : {}),
+      ...(source ? { source } : {}),
+    };
+  }
+
+  /**
+   * One reviewer-supplied issuer policy, validated against the schema and
+   * admitted by host policy for every origin it would let the grants contact.
+   * The binding-wide policy and each per-profile one go through this alone,
+   * so a profile cannot reach an issuer the binding-wide path would refuse.
+   */
+  private async admitIssuerPolicy(
+    actor: ActorContext,
+    definition: NormalizedDefinition,
+    raw: unknown,
+  ): Promise<IssuerPolicy> {
+    let oauth: IssuerPolicy;
+    try {
+      oauth = issuerPolicy(raw as IssuerPolicyInput);
+    } catch (error) {
+      if (
+        error instanceof ConnectorError &&
+        error.code === "configuration-required"
+      )
+        throw new ConnectorError("invalid-request", {
+          detail: "oauth.policy.invalid",
+        });
+      throw error;
+    }
+    let allowed = false;
+    try {
+      allowed = this.policy.allowIssuer
+        ? await this.policy.allowIssuer(actor, {
+            issuer: oauth.issuer,
+            origins: issuerPolicyOrigins(oauth),
+            declaredOrigins: declaredOAuthOrigins(definition),
+            definition,
+          })
+        : false;
+    } catch {
+      allowed = false;
+    }
+    if (!allowed)
+      throw new ConnectorError("network-policy", {
+        detail: "oauth.issuer.not-permitted",
+      });
+    return oauth;
   }
 
   /**
@@ -1409,6 +1569,7 @@ export class ConnectorCommandService {
       binding.definitionRef,
     );
     await this.authorize(actor, { kind: "binding", binding }, "connect");
+    await this.requireSupport(actor, adapter, binding, definition);
     if (input.durable)
       await this.authorize(
         actor,
@@ -1938,6 +2099,7 @@ export class ConnectorCommandService {
           ? "input"
           : "callback",
     );
+    await this.requireSupport(actor, adapter, binding);
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
     const journal = await this.ports.effects.begin({
@@ -2090,6 +2252,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "poll",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (!adapter.complete) return this.project(actor, entry);
     const handoff = await this.pendingHandoff(actor, record);
     const result = await adapterCall(() =>
@@ -2127,6 +2290,36 @@ export class ConnectorCommandService {
       handoff && handoff.expiresAt > this.now()
         ? presentationOf(handoff.private)
         : undefined,
+    );
+  }
+
+  /**
+   * The support label of the adapter behind one of the actor's connections,
+   * as the status tools show it. Ownership is the store's, exactly as for
+   * `status`; the label is computed now, against this actor's configuration.
+   */
+  async connectionSupportLabel(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<SupportLabel> {
+    requireCapability(actor, "executor");
+    const entry = await this.connection(actor, connectionRef);
+    const binding = await this.binding(
+      actor.tenantId,
+      entry.record.bindingRef,
+      entry.record.bindingRevision,
+    );
+    const adapter = this.adapterFor(binding);
+    const definition = await this.definition(
+      actor.tenantId,
+      binding.definitionRef,
+    );
+    // The connection's own definition: a generic adapter's code-path label
+    // says nothing about the description this connection runs.
+    return this.support.label(
+      adapter,
+      await this.configured(actor, adapter),
+      definitionNames(definition),
     );
   }
 
@@ -2176,6 +2369,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "verify",
     );
+    await this.requireSupport(actor, adapter, binding);
     const result = await adapterCall(() =>
       adapter.verify!(this.context(actor, binding, record)),
     );
@@ -2240,6 +2434,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "invoke",
     );
+    await this.requireSupport(actor, adapter, binding);
     const operation = boundOperation(binding, input.operationRef);
     if (!operation)
       throw new ConnectorError("denied", { detail: "operation.unapproved" });
@@ -2491,6 +2686,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "reconnect",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (input.accountSwitch) {
       if (actor.actorKind !== "human")
         throw new ConnectorError("denied", {

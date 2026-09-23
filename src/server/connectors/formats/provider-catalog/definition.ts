@@ -377,7 +377,9 @@ function oauthOrigins(
   const token = templateOrigin(auth.tokenUrl, options);
   const endpoints =
     auth.mode === "oauth2-authorization-code"
-      ? [auth.authorizationUrl, auth.tokenUrl, auth.refreshUrl]
+      ? // The key set an openid authorization verifies ID tokens with is
+        // contacted too, so host policy judges its origin with the rest.
+        [auth.authorizationUrl, auth.tokenUrl, auth.refreshUrl, auth.jwksUrl]
       : [auth.tokenUrl];
   const issuer =
     auth.mode === "oauth2-authorization-code" && auth.issuer

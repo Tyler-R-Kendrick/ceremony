@@ -191,6 +191,206 @@ const EXPIRY_MARGIN_MS = 30_000;
 /** Where the digest of the bearer last presented is kept for one invocation; never the bearer. */
 type Presented = { digest?: string };
 
+/**
+ * Only the default OAuth profile's own tokens are renewed here: a custom hook
+ * or a broker owns the tokens it hands out, and a configured bearer has no
+ * refresh token to spend.
+ */
+function renewable(
+  ctx: AdapterCallContext,
+  options: McpRemoteAdapterOptions,
+): boolean {
+  return !options.beginOAuth && settingsOf(ctx.binding).auth === "bearer";
+}
+
+/** The held token is stale when it is expired or inside the refresh margin. */
+function heldTokenStale(ctx: AdapterCallContext) {
+  return (current: Readonly<CredentialMaterial>) => {
+    const held = Number(current["expires_at"]);
+    return !(
+      Number.isFinite(held) && held > ctx.environment.now() + EXPIRY_MARGIN_MS
+    );
+  };
+}
+
+/** The held token is stale when it is still the one the server refused. */
+function heldTokenRefused(digest: string) {
+  return (current: Readonly<CredentialMaterial>) => {
+    const bearer = bearerOf(current);
+    return bearer !== undefined && tokenDigest(bearer) === digest;
+  };
+}
+
+function renew(
+  ctx: AdapterCallContext,
+  options: McpRemoteAdapterOptions,
+  endpoint: URL,
+  stillStale: (current: Readonly<CredentialMaterial>) => boolean,
+): Promise<boolean> {
+  return renewMcpCredential(ctx, {
+    endpoint,
+    options: options.oauth ?? {},
+    stillStale,
+  });
+}
+
+/**
+ * One renewal, then one retry, around a tool call; used by `invoke` and by
+ * the continuation of a suspended input request, which can outlive the token
+ * it was started with. Custody refusing an expired token sends nothing; a 401
+ * to a presented token is recorded as not applied. The renewal is
+ * single-flight in custody and presents nothing upstream when the held token
+ * is no longer the one that failed, so calls failing together make one
+ * refresh.
+ *
+ * A renewal that does not succeed is classified as verification's is: only a
+ * refusal reads as the connection needing a person. Either way the refused
+ * attempt was already journaled not applied by `invokeInternal`, and stays
+ * so: the operation never ran, whatever became of the refresh.
+ */
+async function callRenewing(
+  ctx: AdapterCallContext,
+  options: McpRemoteAdapterOptions,
+  operation: BoundOperation,
+  call: (presented: Presented) => Promise<InvokeResult>,
+): Promise<InvokeResult> {
+  const presented: Presented = {};
+  const endpoint = () => endpointFor(ctx, operation);
+  const unrenewed = (
+    failure: unknown,
+    base: Pick<InvokeResult, "outputClassification" | "effect" | "effectRef">,
+  ): InvokeResult => ({
+    ...base,
+    ...renewalInvokeOutcome[renewalFailure(failure)],
+  });
+  let result: InvokeResult;
+  try {
+    result = await call(presented);
+  } catch (error) {
+    if (!renewable(ctx, options) || !credentialExpired(error)) throw error;
+    let renewed: boolean;
+    try {
+      renewed = await renew(ctx, options, endpoint(), heldTokenStale(ctx));
+    } catch (failure) {
+      return unrenewed(failure, {
+        outputClassification: operation.outputClassification,
+        effect: operation.effect,
+      });
+    }
+    if (!renewed) throw error;
+    return call(presented);
+  }
+  const refused = presented.digest;
+  if (
+    !renewable(ctx, options) ||
+    result.code !== "authorization-required" ||
+    refused === undefined
+  )
+    return result;
+  let renewed: boolean;
+  try {
+    renewed = await renew(ctx, options, endpoint(), heldTokenRefused(refused));
+  } catch (failure) {
+    // The refresh's own code stays in the journal it wrote; the caller
+    // learns only which kind of failure it was.
+    const { output: _none, handoff: _noHandoff, ...base } = result;
+    void _none;
+    void _noHandoff;
+    return unrenewed(failure, base);
+  }
+  return renewed ? call(presented) : result;
+}
+
+/**
+ * An invocation's answer when its renewal did not succeed. The operation did
+ * not run in any case; the state says what the caller should do next.
+ */
+const renewalInvokeOutcome: Record<
+  "refused" | "unavailable" | "unknown",
+  Pick<InvokeResult, "state" | "code">
+> = {
+  // Needs a person: the grant was refused.
+  refused: { state: "denied", code: "mcp.credential-renewal-failed" },
+  // Retry later: the issuer could not be reached and nothing was spent.
+  unavailable: { state: "failed", code: "mcp.credential-renewal-unavailable" },
+  // The refresh token may have been spent; nobody can say, so it is not
+  // presented again and the caller is told the connection's state is unknown.
+  unknown: {
+    state: "indeterminate",
+    code: "mcp.credential-renewal-indeterminate",
+  },
+};
+
+/**
+ * Renews the default profile's token after a verification attempt the token
+ * caused to fail: custody found it expired, or the server answered 401 to it.
+ * A renewal that did not succeed is classified, because only one kind means a
+ * person must reconnect: `refused` (the issuer rejected the grant, or it is
+ * not ours to use). `unavailable` (the issuer could not be reached, nothing
+ * was spent) is worth retrying later, and `unknown` (cancelled, raced, or a
+ * request whose outcome was lost, so the refresh token may be spent) is
+ * reported as such rather than guessed at. The refresh's own code stays in
+ * the journal it wrote; nothing about it reaches the caller.
+ */
+async function renewAfterVerifyFailure(
+  ctx: AdapterCallContext,
+  options: McpRemoteAdapterOptions,
+  error: unknown,
+  presented: Presented,
+): Promise<"renewed" | "not-renewed" | RenewalFailure> {
+  if (!renewable(ctx, options)) return "not-renewed";
+  const stillStale = credentialExpired(error)
+    ? heldTokenStale(ctx)
+    : error instanceof ConnectorError &&
+        error.code === "unauthenticated" &&
+        presented.digest !== undefined
+      ? heldTokenRefused(presented.digest)
+      : undefined;
+  if (!stillStale) return "not-renewed";
+  try {
+    return (await renew(ctx, options, endpointFor(ctx), stillStale))
+      ? "renewed"
+      : "not-renewed";
+  } catch (failure) {
+    return renewalFailure(failure);
+  }
+}
+
+type RenewalFailure = "refused" | "unavailable" | "unknown";
+
+function renewalFailure(failure: unknown): RenewalFailure {
+  if (!(failure instanceof ConnectorError)) return "unknown";
+  if (failure.code === "upstream-unavailable") return "unavailable";
+  if (
+    failure.code === "cancelled" ||
+    failure.code === "indeterminate" ||
+    failure.code === "conflict"
+  )
+    return "unknown";
+  return "refused";
+}
+
+/** The verification answer for a renewal that did not succeed. */
+const renewalOutcome: Record<RenewalFailure, CompletionResult> = {
+  // The command layer makes a denied verification reconnect-required.
+  refused: {
+    state: "denied",
+    claims: [],
+    code: "mcp.credential-renewal-failed",
+  },
+  // Pending leaves the connection as it was, to be verified again later.
+  unavailable: {
+    state: "pending",
+    claims: [],
+    code: "mcp.credential-renewal-unavailable",
+  },
+  unknown: {
+    state: "indeterminate",
+    claims: [],
+    code: "mcp.credential-renewal-indeterminate",
+  },
+};
+
 function settingsOf(binding: RuntimeBinding): McpBindingSettings {
   const raw = (binding.settings as Record<string, unknown>).mcp;
   if (raw === undefined)
@@ -876,33 +1076,39 @@ export async function resumeInput(
   }
 
   if (suspended.mode === "legacy-elicitation") {
-    if (!suspended.elicitationDigest) return unmet("mcp.handoff.not-pending");
-    return invokeInternal(ctx, options, {
+    const digest = suspended.elicitationDigest;
+    if (!digest) return unmet("mcp.handoff.not-pending");
+    return callRenewing(ctx, options, operation, (presented) =>
+      invokeInternal(ctx, options, {
+        operation,
+        request,
+        commandId: suspended.commandId,
+        round: suspended.round,
+        legacyAnswer: { digest, values, action, requests },
+        presented,
+      }),
+    );
+  }
+  const inputResponses = buildInputResponses(requests, values, action);
+  // A person may answer long after the call was suspended, so the token it
+  // was started with can have expired meanwhile. The handoff is already
+  // consumed, so the renewal and its one retry happen here, not by resuming
+  // again.
+  return callRenewing(ctx, options, operation, (presented) =>
+    invokeInternal(ctx, options, {
       operation,
       request,
       commandId: suspended.commandId,
       round: suspended.round,
-      legacyAnswer: {
-        digest: suspended.elicitationDigest,
-        values,
-        action,
-        requests,
+      continuation: {
+        inputResponses,
+        ...(suspended.requestState !== undefined
+          ? { requestState: suspended.requestState }
+          : {}),
       },
-    });
-  }
-  const inputResponses = buildInputResponses(requests, values, action);
-  return invokeInternal(ctx, options, {
-    operation,
-    request,
-    commandId: suspended.commandId,
-    round: suspended.round,
-    continuation: {
-      inputResponses,
-      ...(suspended.requestState !== undefined
-        ? { requestState: suspended.requestState }
-        : {}),
-    },
-  });
+      presented,
+    }),
+  );
 }
 
 /* -------------------------------------------------------------- adapter */
@@ -1122,66 +1328,73 @@ export function createMcpRemoteAdapter(
     },
 
     async verify(ctx): Promise<CompletionResult> {
-      const bundle = clientFor(ctx, options, {});
+      /*
+       * Verification is where an expired access token is usually first
+       * noticed: a reconnect or a poll over a stored credential lands here,
+       * and so does `connector_verify`. So the default profile's token is
+       * renewed once and discovery retried once, as `invoke` does. Only a
+       * refresh the issuer refuses is a denial, which the command layer turns
+       * into the reconnect state a person resolves; an issuer outage is
+       * pending and a lost outcome indeterminate, so neither sends a person
+       * to reconnect a grant that may still be good.
+       */
+      const presented: Presented = {};
+      // Built outside the try: a binding with nothing to call is refused as
+      // an error, never reported as a verification outcome.
+      const first = clientFor(ctx, options, { presented }).client;
+      const discover = (
+        client = clientFor(ctx, options, { presented }).client,
+      ) => client.discover({ signal: ctx.signal });
+      let discovery: Awaited<ReturnType<typeof discover>>;
       try {
-        const discovery = await bundle.client.discover({ signal: ctx.signal });
-        const claim: VerificationClaim = {
-          kind: "credential-accepted",
-          evidenceRef: `mcp-verify:${randomUUID()}`,
-          issuer: "provider",
-          target: { kind: "mcp-server", id: bundle.endpoint.origin },
-          observedAt: isoNow(ctx),
-          verifierVersion: adapterVersion,
-          bindingRevision: ctx.binding.revision,
-          policyRevision: ctx.connection?.policyRevision ?? "unknown",
-          limitations: [
-            "server identity not attested beyond TLS origin",
-            "Advertised capabilities are the server's own claims and are not proof of any tool.",
-          ],
-        };
-        return {
-          state: "complete",
-          claims: [claim],
-          target: { kind: "mcp-server", id: bundle.endpoint.origin },
-          adapterState: {
-            profile: discovery.usedProfile,
-            requestedProfile: discovery.requestedProfile,
-            era: discovery.era,
-            protocolVersion: discovery.protocolVersion,
-            ...(discovery.supportedVersions
-              ? { supportedVersions: discovery.supportedVersions }
-              : {}),
-            capabilities: Object.keys(discovery.capabilities).slice(0, 32),
-            unsupportedExtensions: discovery.extensions.unsupported,
-            warnings: discovery.warnings.slice(0, 32),
-          },
-        };
+        discovery = await discover(first);
       } catch (error) {
-        if (
-          error instanceof ConnectorError &&
-          error.code === "unauthenticated"
-        ) {
-          const settings = settingsOf(ctx.binding);
-          const challenge = await probeChallenge(ctx, settings);
-          return {
-            state: "denied",
-            claims: [],
-            code: "authorization-required",
-            ...(challenge
-              ? { adapterState: { challenge: summarizeChallenge(challenge) } }
-              : {}),
-          };
+        const renewal = await renewAfterVerifyFailure(
+          ctx,
+          options,
+          error,
+          presented,
+        );
+        if (renewal === "not-renewed") return verifyFailure(ctx, error);
+        if (renewal !== "renewed") return { ...renewalOutcome[renewal] };
+        try {
+          discovery = await discover();
+        } catch (retried) {
+          return verifyFailure(ctx, retried);
         }
-        if (error instanceof ConnectorError && error.code === "cancelled")
-          return { state: "indeterminate", claims: [], code: "cancelled" };
-        if (error instanceof ConnectorError)
-          return {
-            state: error.code === "upstream-unavailable" ? "pending" : "denied",
-            claims: [],
-            code: error.detail ?? error.code,
-          };
-        throw error;
       }
+      const origin = endpointFor(ctx).origin;
+      const claim: VerificationClaim = {
+        kind: "credential-accepted",
+        evidenceRef: `mcp-verify:${randomUUID()}`,
+        issuer: "provider",
+        target: { kind: "mcp-server", id: origin },
+        observedAt: isoNow(ctx),
+        verifierVersion: adapterVersion,
+        bindingRevision: ctx.binding.revision,
+        policyRevision: ctx.connection?.policyRevision ?? "unknown",
+        limitations: [
+          "server identity not attested beyond TLS origin",
+          "Advertised capabilities are the server's own claims and are not proof of any tool.",
+        ],
+      };
+      return {
+        state: "complete",
+        claims: [claim],
+        target: { kind: "mcp-server", id: origin },
+        adapterState: {
+          profile: discovery.usedProfile,
+          requestedProfile: discovery.requestedProfile,
+          era: discovery.era,
+          protocolVersion: discovery.protocolVersion,
+          ...(discovery.supportedVersions
+            ? { supportedVersions: discovery.supportedVersions }
+            : {}),
+          capabilities: Object.keys(discovery.capabilities).slice(0, 32),
+          unsupportedExtensions: discovery.extensions.unsupported,
+          warnings: discovery.warnings.slice(0, 32),
+        },
+      };
     },
 
     async complete(ctx, input: CompletionInput): Promise<CompletionResult> {
@@ -1207,68 +1420,15 @@ export function createMcpRemoteAdapter(
 
     async invoke(ctx, request: InvokeRequest): Promise<InvokeResult> {
       const operation = requireOperation(ctx, request.operationRef);
-      const presented: Presented = {};
-      const run = () =>
+      return callRenewing(ctx, options, operation, (presented) =>
         invokeInternal(ctx, options, {
           operation,
           request: request.input,
           commandId: request.commandId,
           round: 0,
           presented,
-        });
-      // Only the default OAuth profile's own tokens are renewed here: a
-      // custom hook or a broker owns the tokens it hands out.
-      const renewable =
-        !options.beginOAuth && settingsOf(ctx.binding).auth === "bearer";
-      const renew = (
-        stillStale: (current: Readonly<CredentialMaterial>) => boolean,
-      ) =>
-        renewMcpCredential(ctx, {
-          endpoint: endpointFor(ctx, operation),
-          options: options.oauth ?? {},
-          stillStale,
-        });
-      /*
-       * One renewal, then one retry, as the OpenAPI adapter does. Custody
-       * refusing an expired token sends nothing; a 401 to a presented token
-       * is recorded as not applied. The renewal is single-flight in custody
-       * and presents nothing upstream when the held token is no longer the
-       * one that failed, so invocations failing together make one refresh.
-       */
-      let result: InvokeResult;
-      try {
-        result = await run();
-      } catch (error) {
-        if (!renewable || !credentialExpired(error)) throw error;
-        const renewed = await renew((current) => {
-          const held = Number(current["expires_at"]);
-          return !(
-            Number.isFinite(held) &&
-            held > ctx.environment.now() + EXPIRY_MARGIN_MS
-          );
-        });
-        if (!renewed) throw error;
-        return run();
-      }
-      const refused = presented.digest;
-      if (
-        !renewable ||
-        result.code !== "authorization-required" ||
-        refused === undefined
-      )
-        return result;
-      let renewed: boolean;
-      try {
-        renewed = await renew((current) => {
-          const bearer = bearerOf(current);
-          return bearer !== undefined && tokenDigest(bearer) === refused;
-        });
-      } catch {
-        // The refresh's own code stays in the journal it wrote; the caller
-        // learns only that the connection needs a person again.
-        return { ...result, code: "mcp.credential-renewal-failed" };
-      }
-      return renewed ? run() : result;
+        }),
+      );
     },
 
     async disconnect(ctx, scope: DisconnectScope): Promise<DisconnectResult> {
@@ -1303,6 +1463,33 @@ export function createMcpRemoteAdapter(
       });
     },
   };
+}
+
+/** How a verification that did not reach the server's evidence is reported. */
+async function verifyFailure(
+  ctx: AdapterCallContext,
+  error: unknown,
+): Promise<CompletionResult> {
+  if (error instanceof ConnectorError && error.code === "unauthenticated") {
+    const challenge = await probeChallenge(ctx, settingsOf(ctx.binding));
+    return {
+      state: "denied",
+      claims: [],
+      code: "authorization-required",
+      ...(challenge
+        ? { adapterState: { challenge: summarizeChallenge(challenge) } }
+        : {}),
+    };
+  }
+  if (error instanceof ConnectorError && error.code === "cancelled")
+    return { state: "indeterminate", claims: [], code: "cancelled" };
+  if (error instanceof ConnectorError)
+    return {
+      state: error.code === "upstream-unavailable" ? "pending" : "denied",
+      claims: [],
+      code: error.detail ?? error.code,
+    };
+  throw error;
 }
 
 /** One unauthenticated probe, purely to read the challenge; nothing is invoked. */

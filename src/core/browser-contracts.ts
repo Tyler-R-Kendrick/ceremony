@@ -101,6 +101,106 @@ export type HeldCredentialKind = z.infer<typeof heldCredentialKindSchema>;
 export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
   { "totp-seed": "totp-code" };
 
+/**
+ * Values a provider issues on a page, which a plan may declare it keeps.
+ *
+ * The direction is the opposite of a role. A role is a value the caller has
+ * and the page asks for; an issued value is one the page shows once and the
+ * caller must take away — an OAuth client's ID and secret on a developer
+ * settings page, after "Register application" and "Generate a new client
+ * secret". So these are deliberately not roles either: no interpreter selects,
+ * fills or sees one. The plan names the read-only field that displays each by
+ * its exact label, the driver reads it through the page adapter, and the value
+ * goes to the plan's own sink — in a run, straight into a run-bound
+ * `common.oauth-client` record — and nowhere else.
+ */
+export const issuedValueKinds = ["client-id", "client-secret"] as const;
+export const issuedValueKindSchema = z.enum(issuedValueKinds);
+export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
+/**
+ * The issued values that are secrets. Once read, each is guarded exactly as a
+ * typed password is: a later snapshot or note that reproduces it fails the
+ * attempt. A client ID is an identifier the provider puts in every
+ * authorization URL, so it is kept but not guarded.
+ */
+export const secretIssuedValueKinds: readonly IssuedValueKind[] = [
+  "client-secret",
+];
+
+/**
+ * Where a production plan's issued values may go. Each is something the
+ * *host* implements and registers, never a callback a caller or a model
+ * supplies: `oauth-client` mints a run-bound `common.oauth-client` handle
+ * (the host's `mintOAuthClient`), and `credential-custody` writes into the
+ * host's private collector. A plan names one of these by kind and nothing
+ * else, so what happens to a value is decided by the deployment.
+ */
+export const issuedSinkKinds = ["oauth-client", "credential-custody"] as const;
+export const issuedSinkKindSchema = z.enum(issuedSinkKinds);
+export type IssuedSinkKind = z.infer<typeof issuedSinkKindSchema>;
+
+/**
+ * Page text a plan names something by: the label of an issued field, the
+ * label of a `<select>` and the option chosen in it. A reviewer reads it and
+ * a recording may store it, so it is held to roughly the rule a recorded
+ * descriptor is: short, trimmed, and nothing shaped like a value. That is
+ * also what keeps a plan from smuggling a secret in as a "choice".
+ */
+export const pageLabelSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .refine((label) => label === label.trim(), "Page labels are trimmed")
+  .refine(
+    (label) => !/\d{6,}|[A-Za-z0-9+/_-]{32,}|@/.test(label),
+    "A page label looks like a value",
+  );
+
+/**
+ * What a plan declares it keeps from a provider page: which read-only field,
+ * by exact label, displays which kind of value, and which host sink receives
+ * them. One field per kind and one kind per label - a label naming two kinds,
+ * or a kind read from two fields, would make "the value" ambiguous - and no
+ * more fields than there are kinds.
+ */
+export const issuedDeclarationSchema = z
+  .strictObject({
+    sink: issuedSinkKindSchema,
+    fields: z
+      .array(
+        z.strictObject({
+          kind: issuedValueKindSchema,
+          label: pageLabelSchema,
+        }),
+      )
+      .min(1)
+      .max(issuedValueKinds.length),
+  })
+  .superRefine((declaration, context) => {
+    const kinds = new Set(declaration.fields.map((field) => field.kind));
+    if (kinds.size !== declaration.fields.length)
+      context.addIssue({ code: "custom", message: "Duplicate issued kind" });
+    const labels = new Set(declaration.fields.map((field) => field.label));
+    if (labels.size !== declaration.fields.length)
+      context.addIssue({ code: "custom", message: "Duplicate issued label" });
+    // A handle to a client with no identifier is a handle to nothing.
+    if (declaration.sink === "oauth-client" && !kinds.has("client-id"))
+      context.addIssue({
+        code: "custom",
+        message: "An oauth-client sink keeps a client-id",
+      });
+  });
+export type IssuedDeclaration = z.infer<typeof issuedDeclarationSchema>;
+
+/** A declaration as the driver's `issued.fields`: kind to exact label. */
+export function issuedFieldsOf(
+  declaration: IssuedDeclaration,
+): Partial<Record<IssuedValueKind, string>> {
+  return Object.fromEntries(
+    declaration.fields.map((field) => [field.kind, field.label]),
+  );
+}
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
@@ -121,6 +221,11 @@ export const snapshotElementSchema = z
     required: z.boolean().optional(),
     /** Whether the control already holds a value. Never the value itself. */
     filled: z.boolean().optional(),
+    /**
+     * The field is read-only: the page shows a value rather than asking for
+     * one. Present only when true, and never the value itself.
+     */
+    readOnly: z.boolean().optional(),
     /**
      * Origin this control's form posts to, present only when it differs from
      * the page's own origin. A provider page can target a third party; the
@@ -249,6 +354,17 @@ export const blockedReasons = [
    * credential is typed into.
    */
   "popup-ambiguous",
+  /**
+   * A device authorization (RFC 8628) verification page asks for the user
+   * code shown on a device, and this plan was not given it. The code is on
+   * the device, so a person holding it enters it; nothing on the page can.
+   */
+  "device-code-required",
+  /**
+   * A required choice - a country, an organisation - that the plan provided
+   * no value for. Choosing on somebody's behalf is not something to guess at.
+   */
+  "choice-required",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -258,9 +374,23 @@ export type BlockedReason = z.infer<typeof blockedReasonSchema>;
  * any note that reproduces a supplied secret rather than trusting the author.
  */
 export const driverActionSchema = z.strictObject({
-  action: z.enum(["fill", "click", "check", "wait", "done", "blocked"]),
+  action: z.enum([
+    "fill",
+    "click",
+    "check",
+    "select",
+    "wait",
+    "done",
+    "blocked",
+  ]),
   element: z.number().int().nonnegative().optional(),
   role: ceremonyRoleSchema.optional(),
+  /**
+   * For `select`: the visible label of the option to choose, exactly as the
+   * snapshot lists it. Something the page shows, never a value code
+   * substitutes, so nothing secret can travel through it.
+   */
+  option: z.string().max(100).optional(),
   reason: blockedReasonSchema.optional(),
   note: z.string().max(200).optional(),
 });
@@ -284,11 +414,13 @@ export type CeremonyCallback = { code: string; state?: string };
 /**
  * What a transcript entry records. `handoff` is a person being brought in;
  * `reobserve` is the page having been replaced under an approval, so the
- * attempt read it again instead of ending. Neither is something an
- * interpreter proposed, which is why they are not `DriverAction`s.
+ * attempt read it again instead of ending; `kept` is every issued value the
+ * plan declared having been read and handed to its sink, named by kind and
+ * never by value. None is something an interpreter proposed, which is why
+ * they are not `DriverAction`s.
  */
 export type CeremonyStepAction =
-  DriverAction["action"] | "handoff" | "reobserve";
+  DriverAction["action"] | "handoff" | "reobserve" | "kept";
 
 /** One transcript entry. Values are excluded, so this is safe to persist. */
 export type CeremonyStep = {
@@ -427,6 +559,12 @@ export function snapshotDocument(
       if (caption) entry.text = caption;
     }
     if (required) entry.required = true;
+    if (
+      entry.kind === "input" &&
+      ((control as { readOnly?: boolean }).readOnly === true ||
+        control.hasAttribute("readonly"))
+    )
+      entry.readOnly = true;
     const action = control.closest("form")?.getAttribute("action");
     if (action) {
       try {
@@ -445,9 +583,20 @@ export function snapshotDocument(
         entry.filled = checked;
       } else if (tag === "select") {
         entry.kind = "select";
+        // Each option by its label - what a browser shows and what
+        // Playwright's `selectOption({ label })` matches - which is the
+        // option's own text unless a `label` attribute overrides it.
         entry.options = Array.from(control.querySelectorAll("option"))
           .slice(0, 20)
-          .map((option) => trim(option.textContent, 100));
+          .map((option) => {
+            const shown = (option as { label?: unknown }).label;
+            return trim(
+              typeof shown === "string" && shown !== ""
+                ? shown
+                : option.getAttribute("label") || option.textContent,
+              100,
+            );
+          });
         entry.filled = value.length > 0;
       } else if (
         tag === "button" ||
@@ -572,6 +721,7 @@ export function boundSnapshotSource(): string {
     const destination = ${destinationReaderSource};
     const usable = ${elementUsableSource};
     const sameForm = ${sameFormSource};
+    const readOnlyValue = ${readOnlyValueSource};
     const elements = [];
     const forms = [];
     const result = snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) => {
@@ -601,6 +751,7 @@ export function boundSnapshotSource(): string {
       destination,
       usable,
       sameForm,
+      readOnlyValue,
       /**
        * Whether the page still shows the document this observation describes.
        * Defined here, where \`document\` means the live one, so the driver
@@ -626,6 +777,31 @@ export const elementUsableSource = `((element) => {
   if (rects.length === 0) return false;
   const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
   return !style || (style.visibility !== 'hidden' && style.display !== 'none');
+})`;
+
+/**
+ * The value a held, read-only field displays, or `null` for any other control.
+ *
+ * Read-only is the whole point. It is what makes the value one the page
+ * *shows* — a provider displaying an issued secret — rather than one somebody
+ * typed: the driver never fills a read-only control (`elementUsableSource`
+ * refuses it), so no field the attempt itself filled can be read back out
+ * through here. A page can still copy a typed value into a read-only field of
+ * its own; the driver refuses such a value when it compares each read against
+ * what it substituted. A hidden or invisible field is not a value the page is
+ * showing anyone, so it is not read either.
+ */
+export const readOnlyValueSource = `((element) => {
+  if (!element || !element.isConnected) return null;
+  const tag = String(element.tagName || '').toLowerCase();
+  if (tag !== 'input' && tag !== 'textarea') return null;
+  if (element.readOnly !== true || element.disabled === true) return null;
+  if (String(element.type || '').toLowerCase() === 'hidden') return null;
+  const rects = typeof element.getClientRects === 'function' ? element.getClientRects() : [];
+  if (rects.length === 0) return null;
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
+  if (style && (style.visibility === 'hidden' || style.display === 'none')) return null;
+  return typeof element.value === 'string' ? element.value : null;
 })`;
 
 /** Whether a held control still belongs to the exact form it was approved in. */
@@ -655,5 +831,79 @@ export const humanStepReasons = [
   "human-challenge",
   "passkey",
   "native-dialog",
+  /**
+   * A device authorization verification page, where the user code shown on a
+   * device has to be entered and the plan was not given it. The request's
+   * `path` is the verification URI: origin and pathname, never the
+   * `verification_uri_complete` query that carries the code.
+   */
+  "device-code",
+  /** A required choice the plan provided no value for. */
+  "choice",
 ] as const;
 export type HumanStepReason = (typeof humanStepReasons)[number];
+
+/**
+ * Wording that names a device authorization verification page, read from the
+ * title and headings. RFC 8628 leaves the page to the provider, so what is
+ * recognised is what providers commonly put around the user code: "Enter the
+ * code displayed on your device", "Activate your device", "Connect a device".
+ */
+const devicePageWords =
+  /(enter|type) the code (shown|displayed) on (your|the) (device|screen|tv)|code (shown|displayed) on your device|connect (a|your) device|activate (a |your )?(device|tv)|device (activation|authori[sz]ation|login|sign[- ]?in|verification)|link (a|your) device/i;
+/** Wording that names a sign-in identifier, which a user code never is. */
+const identifierWords =
+  /user\s?name|e-?mail|login|account|sign[- ]?in|phone|mobile|handle|^user$|^identifier$/i;
+/** Wording that names the user code field itself. */
+const userCodeWords =
+  /\b(user|device|pairing|activation)[ _-]?code\b|code (shown|displayed) on (your|the) (device|screen|tv)|^user_?code$/i;
+
+/**
+ * The field a device authorization verification page asks for the user code
+ * in, or `undefined` when this is not such a page.
+ *
+ * Shared by the heuristic, which fills it only with a `user-code` the plan
+ * supplied, and by the driver, which checks an interpreter's report that the
+ * page needs a person against it. A field alone is not enough - "device code"
+ * appears on settings pages too - so the page has to say what it is, or the
+ * field has to carry the RFC's own parameter name, `user_code`. A page with a
+ * password box is a sign-in page whatever its heading says, and a read-only
+ * field shows a value rather than asking for one.
+ */
+export function deviceVerificationField(
+  snapshot: PageSnapshot,
+): SnapshotElement | undefined {
+  if (
+    snapshot.elements.some(
+      (element) => element.kind === "input" && element.type === "password",
+    )
+  )
+    return undefined;
+  // An identifier field is never the code field, however the page is
+  // headed: "Connect a device" above a lone email box is the sign-in step
+  // before the verification page, and a user code typed there goes to the
+  // provider as somebody's address.
+  const typed = snapshot.elements.filter((element) => {
+    if (element.kind !== "input" || element.readOnly === true) return false;
+    if (element.type === "email" || element.type === "tel") return false;
+    if (/\b(username|email)\b/.test(element.autocomplete ?? "")) return false;
+    return ![element.name, element.label, element.placeholder].some(
+      (text) => text !== undefined && identifierWords.test(text),
+    );
+  });
+  const page = devicePageWords.test(
+    `${snapshot.title} ${snapshot.headings.join(" ")}`,
+  );
+  const named = typed.filter((element) =>
+    [element.name, element.label, element.placeholder].some(
+      (text) => text !== undefined && userCodeWords.test(text),
+    ),
+  );
+  if (
+    named.length === 1 &&
+    (page || /^user_?code$/i.test(named[0]!.name ?? ""))
+  )
+    return named[0];
+  if (page && named.length === 0 && typed.length === 1) return typed[0];
+  return undefined;
+}

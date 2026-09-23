@@ -25,6 +25,7 @@ import {
   type ProviderBehavior,
   type ProviderDouble,
 } from "./server.js";
+import type { RealisticLayout } from "./layouts.js";
 
 /**
  * The auth scenario catalog.
@@ -159,6 +160,11 @@ export type AuthScenario = {
   human?: (
     page: CeremonyPage,
     identity: ScenarioContext["identity"],
+    /**
+     * The started scenario, for a person whose part depends on the provider:
+     * the code a device is showing, say. Built after `plan`.
+     */
+    context: ScenarioContext,
   ) => HumanParticipation;
   /**
    * Excluded from the browser runner, with the reason. Only for steps a real
@@ -454,6 +460,81 @@ export const authScenarios: readonly AuthScenario[] = [
     expect: { status: "completed" },
   },
   {
+    id: "registration-with-a-region-choice",
+    title: "a required country picker is answered with the plan's choice",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused"],
+    provides: ["email", "password", "password-confirm"],
+    behavior: () => ({ seed: 25, requireRegion: true, verification: "none" }),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      // Chosen by the label the page shows, never by the code it submits.
+      choices: { "Country or region": "Canada" },
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "completed" },
+    confirm: async ({ provider, identity }) => {
+      if (provider.regionOf(identity.email) !== "CA")
+        throw new Error("The account must be created in the chosen region");
+    },
+  },
+  {
+    id: "registration-region-chosen-by-a-person",
+    title: "a required choice the plan did not make is handed to a person",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused", "human-available"],
+    provides: ["email", "password", "password-confirm"],
+    behavior: () => ({ seed: 26, requireRegion: true, verification: "none" }),
+    human: (page) =>
+      createHumanParticipant(page, {
+        choices: { "Country or region": "Japan" },
+      }),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider, identity }) => {
+      if (provider.regionOf(identity.email) !== "JP")
+        throw new Error("The account must be created where the person chose");
+    },
+  },
+  {
+    id: "registration-region-with-nobody-to-choose",
+    title: "a required choice with nobody to make it is not guessed",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused"],
+    provides: ["email", "password", "password-confirm"],
+    behavior: () => ({ seed: 27, requireRegion: true, verification: "none" }),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "blocked", reason: "choice-required" },
+    confirm: async ({ provider, identity }) => {
+      if (provider.account(identity.email))
+        throw new Error("No account may be created without the choice");
+    },
+  },
+  {
     id: "registration-address-already-in-use",
     title: "a taken address is reported rather than retried into a wall",
     family: "Forms/session auth",
@@ -732,6 +813,78 @@ export const authScenarios: readonly AuthScenario[] = [
       };
     },
     expect: { status: "completed" },
+    confirm: async ({ provider, identity }) => {
+      const [code] = provider.issuedDeviceCodes();
+      if (!code || provider.deviceApprovedBy(code) !== identity.email)
+        throw new Error("The device must be approved by the signed-in account");
+    },
+  },
+  {
+    id: "device-code-entered-by-a-person",
+    title: "a device code the plan was not given is entered by a person",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified", "human-available"],
+    // No user code: it is on the device, and the person holding it types it.
+    provides: ["username", "password"],
+    behavior: () => ({ seed: 52 }),
+    human: (page, _identity, { provider }) =>
+      createHumanParticipant(page, {
+        userCode: () => provider.issuedDeviceCodes().at(-1),
+        onRequest: (request) => {
+          // The verification URI, and nothing a query could carry.
+          if (
+            request.reason !== "device-code" ||
+            request.path !== `${provider.origin}/device`
+          )
+            throw new Error(`Unexpected handoff ${JSON.stringify(request)}`);
+        },
+      }),
+    plan: ({ provider, identity }) => {
+      const userCode = provider.issueDeviceCode();
+      return {
+        entryUrl: provider.deviceUrl(userCode),
+        goal: "sign-in",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: () => provider.verifyAccess(identity.email),
+      };
+    },
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider, identity }) => {
+      const [code] = provider.issuedDeviceCodes();
+      if (!code || provider.deviceApprovedBy(code) !== identity.email)
+        throw new Error("The person's code must approve the device");
+    },
+  },
+  {
+    id: "device-code-with-nobody-to-enter-it",
+    title: "a device code nobody can supply stops the attempt by name",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified"],
+    provides: ["username", "password"],
+    behavior: () => ({ seed: 53 }),
+    plan: ({ provider, identity }) => {
+      const userCode = provider.issueDeviceCode();
+      return {
+        entryUrl: provider.deviceUrl(userCode),
+        goal: "sign-in",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: () => provider.verifyAccess(identity.email),
+      };
+    },
+    expect: { status: "blocked", reason: "device-code-required" },
+    confirm: async ({ provider }) => {
+      const [code] = provider.issuedDeviceCodes();
+      if (code && provider.deviceApprovedBy(code))
+        throw new Error("No code was entered, so no device is approved");
+    },
   },
   {
     id: "page-without-any-ceremony",
@@ -1529,6 +1682,22 @@ export const authScenarios: readonly AuthScenario[] = [
     },
   },
 ];
+
+/**
+ * The same scenario, served in a realistic layout instead of the randomized
+ * shape. Only the look of the pages changes: preconditions, roles, the
+ * required outcome and the provider-side confirmation are the scenario's own,
+ * so a realistic page is held to exactly the contract a randomized one is.
+ */
+export function withLayout(
+  scenario: AuthScenario,
+  layout: RealisticLayout,
+): AuthScenario {
+  return {
+    ...scenario,
+    behavior: (context) => ({ ...scenario.behavior(context), layout }),
+  };
+}
 
 /** Supply the name a provider requires for the thing a ceremony creates. */
 function withDisplayName(

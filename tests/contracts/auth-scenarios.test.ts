@@ -88,7 +88,7 @@ async function attempt(
     return base(input);
   };
   const { entryUrl: _entry, state, ...options } = plan;
-  const human = scenario.human?.(page, identity);
+  const human = scenario.human?.(page, identity, context);
   const result = await runCeremony({
     ...options,
     page,
@@ -402,6 +402,39 @@ test("a randomized provider is genuinely different from instance to instance", a
   assert.ok(
     shapes.size >= 4,
     `Randomization must vary the page shape; saw ${shapes.size} distinct of 5`,
+  );
+});
+
+test("an identifier-first sign-in still confirms an unverified account", async (t) => {
+  // The one-page form sends an unconfirmed account to a code step; the
+  // two-step shape used to open a session straight from the password page,
+  // so the scenario "completed" without the confirmation it exists to prove.
+  const base = authScenarios.find(
+    (entry) => entry.id === "sign-in-unverified-account",
+  )!;
+  const scenario: AuthScenario = {
+    ...base,
+    behavior: (context) => ({
+      ...base.behavior(context),
+      identifierFirst: true,
+    }),
+  };
+  const { result, context } = await attempt(t, scenario);
+  assert.equal(result.status, "completed", detail(result));
+  assert.equal(
+    context.provider.mailbox.messages().length,
+    1,
+    "the unverified account must be sent a code",
+  );
+  assert.ok(
+    result.transcript.some(
+      (step) => step.action === "fill" && step.role === "verification-code",
+    ),
+    `the code must be entered: ${detail(result)}`,
+  );
+  assert.equal(
+    context.provider.account(context.identity.email)?.verified,
+    true,
   );
 });
 

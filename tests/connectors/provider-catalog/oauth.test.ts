@@ -20,9 +20,14 @@ import {
  * server, used through the authenticated proxy, and refreshed when it expires.
  */
 
-function nangoDocument(server: { origin: string }, api: { origin: string }) {
+function nangoDocument(
+  server: { origin: string },
+  api: { origin: string },
+  extra: Record<string, unknown> = {},
+) {
   return {
     "local-crm": {
+      ...extra,
       display_name: "Local CRM",
       categories: ["crm"],
       auth_mode: "OAUTH2",
@@ -46,6 +51,8 @@ async function connected(
     accept?: (
       server: Awaited<ReturnType<typeof startOAuthServer>>,
     ) => Parameters<typeof startProviderApi>[1];
+    /** Extra keys for the provider's Nango description. */
+    provider?: Record<string, unknown>;
   } = {},
 ) {
   const server = await startOAuthServer(t);
@@ -59,7 +66,7 @@ async function connected(
   );
   const { definitions } = await importDocument(
     harness,
-    nangoDocument(server, api),
+    nangoDocument(server, api, options.provider),
   );
   const definition = definitions[0]!;
   const approved = await approve(harness, {
@@ -356,6 +363,67 @@ test("a scope beyond the entry's reviewed defaults is refused, not asked for", a
       error.detail === "catalog.scope.undeclared",
   );
   assert.equal(server.counts.authorize, 0);
+});
+
+test("a provider's token_params ride on the code exchange only, as the reviewed entry wrote them", async (t) => {
+  const { server, harness, approved, connectionRef } = await connected(t, {
+    provider: {
+      token_params: {
+        grant_type: "authorization_code",
+        audience: "https://api.local-crm.example",
+      },
+    },
+  });
+  const exchange = server.tokenRequests.find(
+    (item) => item.grantType === "authorization_code",
+  );
+  assert.equal(
+    exchange?.parameters["audience"],
+    "https://api.local-crm.example",
+  );
+  // The grant's own parameters are the engine's, not the entry's.
+  assert.equal(exchange?.parameters["grant_type"], "authorization_code");
+  assert.ok(exchange?.parameters["code_verifier"]);
+  // Refresh is a different message: Nango keeps its extras in refresh_params.
+  harness.clock.advance(3600_000);
+  const read = await harness.service.invoke(harness.actor, connectionRef, {
+    operationRef: approved.operation("proxy.get"),
+    input: { path: "/items" },
+    commandId: commandId(),
+  });
+  assert.equal(read.state, "complete");
+  const refresh = server.tokenRequests.find(
+    (item) => item.grantType === "refresh_token",
+  );
+  assert.ok(refresh);
+  assert.equal(refresh.parameters["audience"], undefined);
+});
+
+test("per-profile issuer policies are refused for an adapter that would never read them", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  const { definitions } = await importDocument(
+    harness,
+    nangoDocument(server, api),
+  );
+  const definition = definitions[0]!;
+  await assert.rejects(
+    harness.service.approveBinding(harness.actor, {
+      definitionRef: definition.definitionRef,
+      adapterId: "catalog-http",
+      approvals: {
+        destinations: [`${api.origin}/v2`],
+        operations: [{ nativeId: "proxy.get", outputClassification: "public" }],
+        oauthProfiles: {
+          [definition.authentication[0]!.id]: { issuer: server.issuer },
+        },
+      },
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.policy.profiles-unsupported",
+  );
 });
 
 test("an ID token is never asked for without keys to verify it", async (t) => {
