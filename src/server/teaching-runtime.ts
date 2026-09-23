@@ -32,6 +32,7 @@ import {
   saveAuthoredAccountIntent,
   type AuthoredAccountIntent,
 } from "./authored-operations.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 export const githubConnectionRecipe: RecipeDefinition = {
   schemaVersion: 1,
@@ -231,7 +232,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
           runId: string;
           expiresAt: number;
           revoked: boolean;
-        }>({ tenant: "workload", kind: "session", id: run.id });
+        }>({ tenant: SYSTEM_TENANT.workload, kind: "session", id: run.id });
         const budget = await transaction.get<{ stopped: boolean }>({
           tenant: actor.tenantId,
           kind: "budget",
@@ -527,7 +528,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       )
         throw new AuthorizationError("denied");
       const recordKey = {
-        tenant: "workload",
+        tenant: SYSTEM_TENANT.workload,
         kind: "session" as const,
         id: runId,
       };
@@ -547,7 +548,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
         runId: string;
         expiresAt: number;
         revoked: boolean;
-      }>({ tenant: "workload", kind: "session", id: runId });
+      }>({ tenant: SYSTEM_TENANT.workload, kind: "session", id: runId });
       if (
         !record ||
         record.value.revoked ||

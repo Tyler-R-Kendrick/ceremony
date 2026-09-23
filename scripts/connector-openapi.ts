@@ -538,8 +538,8 @@ const operations: Operation[] = [
     tag: "revocation",
     summary: "Decline a pending revocation request",
     description:
-      "Approving the request is `revoke`, an administrator's action; declining it is the connection owner's.",
-    capabilities: [],
+      "Approving the request is `revoke` and declining it is its counterpart: both are an administrator's action, under the same host policy, on an open connection.",
+    capabilities: ["admin"],
     humanOnly: true,
     request: "AdministrativeRequest",
     success: view,

@@ -41,6 +41,7 @@ import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
 import { configuredModel } from "./agent/model.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 const revision = z.number().int().positive();
 async function presentRun(
@@ -989,7 +990,7 @@ export async function teachingHttp(
       const [, , connectorId, runId] = path.split("/");
       const record = await runtime.store.transaction((tx) =>
         tx.get({
-          tenant: "public",
+          tenant: SYSTEM_TENANT.public,
           kind: "artifact",
           id: `oauth-client:${connectorId}:${runId}`,
         }),

@@ -563,25 +563,55 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
   });
 
   test("a value that survives the scrub anywhere refuses the whole recording", () => {
-    // A path segment is not a descriptor, so it is not scrubbed one by one;
-    // the check over the finished bytes is what catches it.
+    // The title is the caller's, not a descriptor, so it is not scrubbed one
+    // by one; the check over the finished bytes is what catches it.
     assert.throws(
       () =>
         compileRecording(
           [
             {
-              snapshot: snapshot(`https://idp.example/u/${USERNAME}`, [
+              snapshot: snapshot("https://idp.example/signin", [
                 { index: 0, kind: "button", name: "go", text: "Go" },
               ]),
               action: "click",
               element: 0,
             },
           ],
-          options,
+          { ...options, title: `Sign in as ${USERNAME}` },
         ),
       (error: unknown) =>
         error instanceof RecordingRejected &&
         error.reason === "protected-value",
+    );
+  });
+
+  test("a path segment carrying a value the login used becomes a wildcard, encoded or not", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const pathOf = (url: string) =>
+      compileRecording(
+        [{ snapshot: snapshot(url, [go]), action: "click", element: 0 }],
+        { ...options, excluded: [...options.excluded, EMAIL, "alice"] },
+      ).steps[0]!.page.path;
+    assert.equal(
+      pathOf(`https://idp.example/u/${USERNAME}/password`),
+      "/u/*/password",
+    );
+    // An address hidden from the address pattern by its own encoding.
+    assert.equal(
+      pathOf("https://idp.example/u/bob%40corp.example/password"),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf(`https://idp.example/u/${encodeURIComponent(EMAIL)}/password`),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/Alice/password"),
+      "/users/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/%41lice/password"),
+      "/users/*/password",
     );
   });
 
@@ -621,6 +651,60 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
     );
     assert.equal(recording.steps.length, 1);
     assert.equal(recording.steps[0]!.page.path, "/flows/*/password");
+  });
+
+  test("a trace the recording format cannot hold is refused by name, never thrown as a parse error", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const click = (path: string, elements = [go]) => ({
+      snapshot: snapshot(path, elements),
+      action: "click" as const,
+      element: 0,
+    });
+    const invalid = (error: unknown) =>
+      error instanceof RecordingRejected && error.reason === "invalid";
+    // More identical controls than a fingerprint can count.
+    const twins = Array.from({ length: 61 }, (_, index) => ({ ...go, index }));
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin", twins)], options),
+      invalid,
+    );
+    // A title the host would have to refuse, reaching the compiler anyway.
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          title: "Acme tenant 12345678",
+        }),
+      invalid,
+    );
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          id: "constructor",
+        }),
+      invalid,
+    );
+  });
+
+  test("a path longer than a pattern may be is cut at a segment, never left ending in a slash", () => {
+    const long = `https://idp.example/${"abcdefghijklmnop/".repeat(16)}tail`;
+    const recording = compileRecording(
+      [
+        {
+          snapshot: snapshot(long, [
+            { index: 0, kind: "button", name: "go", text: "Go" },
+          ]),
+          action: "click",
+          element: 0,
+        },
+      ],
+      options,
+    );
+    const path = recording.steps[0]!.page.path;
+    assert.ok(path.length <= 256);
+    assert.ok(!path.endsWith("/"), path);
   });
 
   test("an empty trace is not a recording", () => {

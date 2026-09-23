@@ -601,6 +601,33 @@ test("client credentials are refused for a public client before anything is sent
   assert.equal(state.as.counts.token, 0);
 });
 
+test("a scope nobody declared or planned is refused, not asked for", async (t) => {
+  // The scheme declares no scopes and the operation needs none: there is
+  // nothing reviewed a request could narrow, so it may add nothing either.
+  const document = JSON.parse(
+    JSON.stringify(description("authorizationCode")),
+  ) as ReturnType<typeof description> & {
+    components: {
+      securitySchemes: {
+        oauth: { flows: { authorizationCode: { scopes: object } } };
+      };
+    };
+  };
+  document.components.securitySchemes.oauth.flows.authorizationCode.scopes = {};
+  document.security = [{ oauth: [] }];
+  const state = await setup(t, { document });
+  await assert.rejects(
+    state.harness.service.connect(state.actor, {
+      bindingRef: state.binding.bindingRef,
+      intent: { requestedPermissions: ["admin"] },
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "openapi.scope-undeclared",
+  );
+  assert.equal(state.as.counts.authorize, 0);
+});
+
 test("an OAuth profile without a host issuer policy is refused rather than calling the declared endpoints", async (t) => {
   const state = await setup(t, {
     document: description("authorizationCode"),

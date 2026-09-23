@@ -587,3 +587,26 @@ test("host run policy admits authored runs on their own target and refuses unkno
     false,
   );
 });
+
+test("no claim can name a tenant the server writes its own records under", async () => {
+  const { SYSTEM_TENANTS } = await import("../src/server/system-tenants.js");
+  const { INDEX_TENANT } =
+    await import("../src/server/connectors/state/common.js");
+  const { ROUTE_INDEX_TENANT } =
+    await import("../src/server/connectors/events/subscriptions.js");
+  const { fixtureImportActor } =
+    await import("../src/server/connectors/import/service.js");
+  // The fixed tenants written outside this list's module are still on it.
+  for (const tenant of [
+    INDEX_TENANT,
+    ROUTE_INDEX_TENANT,
+    fixtureImportActor.tenantId,
+  ])
+    assert.ok(SYSTEM_TENANTS.includes(tenant), tenant);
+  const tenancy = new HostedTenancy({ home: "tenant", claim: "org" });
+  for (const tenant of SYSTEM_TENANTS) {
+    assert.throws(() => tenancy.tenantFor({ org: tenant }), tenant);
+    assert.equal(tenancy.accepts(tenant), false, tenant);
+  }
+  assert.equal(tenancy.tenantFor({ org: "org-a" }), "org-a");
+});

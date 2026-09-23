@@ -27,7 +27,7 @@ export type McpBucketPolicy = {
 export type McpRateLimitOptions = Partial<McpBucketPolicy> & {
   /** Per-tool policy by tool name, over the defaults above. */
   tools?: Readonly<Record<string, Partial<McpBucketPolicy>>>;
-  /** Milliseconds; injectable so tests do not wait. */
+  /** Milliseconds, monotonic (`performance.now` by default); injectable so tests do not wait. */
   now?: () => number;
   /**
    * Most buckets held. Beyond it the least recently used is forgotten, so an
@@ -60,7 +60,12 @@ function checkedPolicy(policy: McpBucketPolicy): McpBucketPolicy {
 }
 
 export function createMcpRateLimiter(options: McpRateLimitOptions = {}) {
-  const now = options.now ?? Date.now;
+  // A monotonic source by default: the wall clock can be stepped back and
+  // forward, and each forward step would otherwise refill every bucket. An
+  // injected clock is held to the same rule by never letting time run back.
+  const source = options.now ?? (() => performance.now());
+  let latest = -Infinity;
+  const now = () => (latest = Math.max(latest, source()));
   const maxBuckets = options.maxBuckets ?? 10_000;
   if (!Number.isInteger(maxBuckets) || maxBuckets < 1)
     throw new Error("Invalid MCP rate limit");
