@@ -156,13 +156,18 @@ const reservedSuffixes = [
 
 /**
  * Whether an origin can be a real provider's: HTTPS, a registrable-looking
- * host, not an IP literal, not loopback and not a reserved example name.
+ * host with no trailing dot, not an IP literal, not loopback and not a
+ * reserved example name.
  */
 export function isProviderOrigin(value: string): boolean {
   if (!URL.canParse(value)) return false;
   const url = new URL(value);
   if (url.protocol !== "https:" || url.origin !== value) return false;
   const host = url.hostname.toLowerCase();
+  // A fully qualified name ends in a dot (`localhost.`, `auth.test.`) and
+  // resolves like the name without it, so it would slip every suffix check
+  // below. No provider's configured origin is spelled that way: refuse it.
+  if (host.endsWith(".")) return false;
   if (isIP(host.replace(/^\[|\]$/g, "")) !== 0) return false;
   if (host === "localhost" || !host.includes(".")) return false;
   return !reservedSuffixes.some(

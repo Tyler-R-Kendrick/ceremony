@@ -30,7 +30,7 @@ The transcript lists each step's name, its kind (`attestation`, `driver`, `servi
 - `signature.keyId` belongs to a listed certifier, that certifier's public key hashes to the `keyId`, and the signature verifies.
 - `attendedBy` is the name the list gives that key.
 - `recordedAt` is not after the evaluation day.
-- Every provider origin is public HTTPS. An IP literal, `localhost`, a single-label host, and a name under `.test`, `.example`, `.invalid`, `.localhost`, `.local` or `.internal` is a stand-in, not a provider.
+- Every provider origin is public HTTPS. An IP literal, `localhost`, a single-label host, a host written with a trailing dot, and a name under `.test`, `.example`, `.invalid`, `.localhost`, `.local` or `.internal` is a stand-in, not a provider.
 - The adapter exists, and a generic adapter's record names its definition.
 - The transcript file exists and hashes to the signed digest.
 - `rehearsal` is `false`.

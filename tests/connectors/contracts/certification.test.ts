@@ -199,6 +199,7 @@ test("every other reason a record is refused is named", () => {
     "https://localhost",
     "https://auth.northwind.test",
     "https://provider.example",
+    "https://auth.northwind.test.",
   ])
     assert.match(
       problems(signed({ provider: { name: "X", origins: [origin] } })),
@@ -283,6 +284,12 @@ test("provider origins: public HTTPS names only", () => {
     "https://svc.internal",
     "https://printer.local",
     "https://example",
+    // A trailing dot names the same host and would slip the suffix checks.
+    "https://localhost.",
+    "https://auth.test.",
+    "https://foo.localhost.",
+    "https://provider.example.",
+    "https://auth.northwind.com.",
   ])
     assert.equal(isProviderOrigin(origin), false, origin);
 });
