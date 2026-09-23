@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { findDemos } from "./catalog.js";
-import { recordDemo } from "./harness.js";
+import { recordDemo, RetryableTake, type DemoFiles } from "./harness.js";
 
 /**
  * `npm run demos:record` records every demo; `npm run demos:record -- <id>...`
@@ -23,9 +23,19 @@ for (const entry of findDemos(names)) {
   process.stdout.write(`Recording ${entry.id}…\n`);
   try {
     const { record } = await entry.load();
-    const files = await recordDemo(entry, output, record, {
-      previewDirectory: previews,
-    });
+    let files: DemoFiles | undefined;
+    // A take the camera spoiled (stalled or folded captures) is recorded
+    // again; a run that failed on its own merits is not.
+    for (let take = 1; !files; take++) {
+      try {
+        files = await recordDemo(entry, output, record, {
+          previewDirectory: previews,
+        });
+      } catch (error) {
+        if (!(error instanceof RetryableTake) || take >= 3) throw error;
+        process.stdout.write(`  take ${take} discarded: ${error.message}\n`);
+      }
+    }
     process.stdout.write(
       `  ${files.video} (${files.seconds.toFixed(1)}s, ${(files.bytes / 1e6).toFixed(2)} MB)\n  ${files.poster}\n${files.preview ? `  ${files.preview}\n` : ""}  took ${((Date.now() - started) / 1000).toFixed(0)}s\n`,
     );

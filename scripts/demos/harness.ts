@@ -160,6 +160,9 @@ export type DemoSession = {
   ): CeremonyInterpreter;
 };
 
+/** A take that failed for the camera's reasons, not the run's. */
+export class RetryableTake extends Error {}
+
 export type DemoFiles = {
   video: string;
   poster: string;
@@ -384,7 +387,32 @@ export async function recordDemo(
     };
 
     await page.setContent(cardHtml({ title: entry.title, lines: [] }));
-    await recorder.start(client, video, context);
+    // webreel's capture loop waits on each screenshot with no deadline, so
+    // one that never returns freezes the video while the run goes on. A
+    // screenshot that takes this long is abandoned as a failed capture, and
+    // the loop carries on with the next one.
+    const camera = client;
+    const recordingClient = {
+      ...camera,
+      Runtime: camera.Runtime,
+      Page: {
+        ...camera.Page,
+        captureScreenshot: (
+          params: Parameters<CDPClient["Page"]["captureScreenshot"]>[0],
+        ) =>
+          Promise.race([
+            camera.Page.captureScreenshot(params),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("screenshot timed out")),
+                2_000,
+              ).unref(),
+            ),
+          ]),
+      },
+    } as CDPClient;
+    await recorder.start(recordingClient, video, context);
+    const recordingStarted = Date.now();
     raw = recorder.getTempVideoPath();
 
     let posterFrame: number | undefined;
@@ -582,6 +610,16 @@ export async function recordDemo(
     closePanel();
     await recorder.stop();
     recorder = undefined;
+    // The video must cover the run. Under load webreel folds slow captures
+    // into at most three frames each, and a stalled capture adds none; either
+    // way the video would run fast or stop early while the run went on. Such
+    // a take is refused rather than kept.
+    const wallSeconds = (Date.now() - recordingStarted) / 1000;
+    const videoSeconds = timeline.getFrameCount() / fps;
+    if (videoSeconds < wallSeconds * 0.8)
+      throw new RetryableTake(
+        `${entry.id}: the video covers ${videoSeconds.toFixed(0)}s of a ${wallSeconds.toFixed(0)}s run`,
+      );
 
     // Nothing is kept until everything shown has been checked.
     const transcript = JSON.stringify(outcome.result?.transcript ?? []);
