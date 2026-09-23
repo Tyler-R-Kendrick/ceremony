@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { AuthorizationError, type ActorContext } from "./identity.js";
-import type { AsyncCeremonyStore } from "./persistence/index.js";
+import {
+  PersistenceConflict,
+  type AsyncCeremonyStore,
+} from "./persistence/index.js";
 import { SYSTEM_TENANT } from "./system-tenants.js";
 
 /** Shared subject-scoped fixed window; no process-local rate-limit authority. */
@@ -27,17 +30,38 @@ export async function reserveRequest(
       kind: "budget" as const,
       id: `request:${id}`,
     };
-    const record = await tx.get<{ count: number; expires: number }>(key);
+    type Budget = { count: number; expires: number };
+    let record = await tx.get<Budget>(key);
+    if (!record) {
+      // A subject's first request of all has no row to lock, so the row lock
+      // below cannot order it against another first request: a page load
+      // sends several at once, and both find nothing. The insert is what
+      // orders them. It waits for a concurrent insert of the same key to
+      // settle and inserts nothing if that one committed, and the row is
+      // then there to lock and count against like any other.
+      try {
+        await tx.put(
+          key,
+          { count: 1, expires: (await tx.now()) + windowMs },
+          null,
+        );
+        return;
+      } catch (error) {
+        if (!(error instanceof PersistenceConflict)) throw error;
+      }
+      record = await tx.get<Budget>(key);
+      if (!record) throw new PersistenceConflict();
+    }
     const now = await tx.now();
     const value =
-      record && record.value.expires > now
+      record.value.expires > now
         ? record.value
         : { count: 0, expires: now + windowMs };
     if (value.count >= limit) throw new AuthorizationError("rate_limited");
     await tx.put(
       key,
       { count: value.count + 1, expires: value.expires },
-      record?.revision ?? null,
+      record.revision,
     );
   });
 }

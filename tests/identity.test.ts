@@ -24,7 +24,13 @@ import {
   createOidcIdentity,
   persistentIdentityStore,
 } from "../src/server/oidc-identity.js";
-import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import {
+  PostgresCeremonyStore,
+  SQLiteCeremonyStore,
+  type AsyncCeremonyStore,
+  type RecordKey,
+} from "../src/server/persistence/index.js";
+import { postgresFixture } from "./fixtures/postgres.js";
 
 const actor: ActorContext = {
   tenantId: "tenant",
@@ -172,6 +178,59 @@ test("IDN AC-26 exact origin, real body ceiling and shared rate reservation", as
     await reserveRequest(store, { ...actor, subjectId: "another" }, 1);
   } finally {
     await store.close();
+  }
+});
+
+test("IDN a subject's concurrent first requests share one budget instead of conflicting", async () => {
+  // A page load sends several requests at once, so a subject's very first
+  // request is seldom alone. Each reservation reads the budget row before it
+  // writes it, and the row lock that orders every later reservation has no
+  // row to take hold of the first time. Holding both reads until both have
+  // found nothing makes that interleaving certain rather than occasional:
+  // both then insert, and the second must count against the first one's row
+  // rather than fail the request with a revision conflict.
+  const database = await postgresFixture();
+  const store = new PostgresCeremonyStore(database.config, {
+    current: "test",
+    keys: { test: randomBytes(32) },
+  });
+  try {
+    await store.migrate();
+    let reads = 0;
+    let bothRead!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      bothRead = resolve;
+    });
+    const interleaved: AsyncCeremonyStore = {
+      transaction: (work) =>
+        store.transaction((tx) =>
+          work({
+            ...tx,
+            async get<T>(key: RecordKey) {
+              const record = await tx.get<T>(key);
+              if (++reads <= 2) {
+                assert.equal(record, undefined);
+                if (reads === 2) bothRead();
+                await barrier;
+              }
+              return record;
+            },
+          }),
+        ),
+      close: () => store.close(),
+    };
+    const first = { ...actor, subjectId: "first-page-load" };
+    await Promise.all([
+      reserveRequest(interleaved, first, 2),
+      reserveRequest(interleaved, first, 2),
+    ]);
+    assert.equal(reads, 3);
+    // Both requests were counted in the one window, so the budget of two is
+    // spent, and a third request is refused for its rate and nothing else.
+    await assert.rejects(reserveRequest(store, first, 2), /rate_limited/);
+  } finally {
+    await store.close();
+    await database.close();
   }
 });
 
