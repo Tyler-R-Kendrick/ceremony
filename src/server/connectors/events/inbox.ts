@@ -5,6 +5,7 @@ import {
   PersistenceConflict,
   type AsyncCeremonyStore,
   type AsyncTransaction,
+  type Fence,
   type RecordKey,
 } from "../../persistence/index.js";
 import { ConnectorError, explainConnectorError } from "../errors.js";
@@ -42,6 +43,8 @@ import type { SubscriptionRegistry } from "./subscriptions.js";
 export const INBOX_KIND = "connector-event-inbox" as const;
 export const EVENT_TASK = "connector-event";
 const OUTBOX_PREFIX = "connector-event:";
+/** Tries at recording a successful handler before leaving it to the next pass. */
+const COMMIT_ROUNDS = 2;
 const idAlphabet = /^[a-zA-Z0-9_.:@/-]{1,200}$/;
 const noControl = /^[^\p{Cc}]+$/u;
 export const taskSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
@@ -134,17 +137,29 @@ export type DrainInput = {
   worker?: string;
   /** Deliveries attempted in this call. */
   limit?: number;
-  /** After this many failed attempts an entry is marked failed and left for an operator. */
+  /**
+   * After this many handler failures an entry is marked failed and left for
+   * an operator. A delivery commit lost to contention is not a handler
+   * failure and does not count.
+   */
   maxAttempts?: number;
 };
 export type DrainReport = {
   delivered: number;
   stale: number;
+  /** Handler failures (and outbox entries missing their inbox record). */
   failed: number;
+  /** Entries not attempted: unparseable, no handler, or leased elsewhere. */
   skipped: number;
+  /**
+   * Handler succeeded but recording it lost to concurrent writers: the entry
+   * stays pending with its attempt count unchanged and is redelivered with the
+   * same delivery id on a later pass.
+   */
+  retried: number;
   outcomes: Array<{
     deliveryId: string;
-    outcome: DispatchOutcome | "failed";
+    outcome: DispatchOutcome | "failed" | "retry";
     stale: boolean;
     ordering: Ordering;
     code?: string;
@@ -199,6 +214,23 @@ export class EventInbox {
         throw new ConnectorError("conflict", { cause: error });
       throw error;
     }
+  }
+
+  /**
+   * Checks a delivery's fence taking locks in the order every other writer of
+   * the entry does: its outbox record first, then its claim. Taking a claim
+   * reads the outbox record before claiming it, so checking the fence first
+   * would lock the two the other way round, and PostgreSQL breaks that cycle
+   * by aborting one side as a deadlock victim. This is the order
+   * `deliverContinuations` already uses for the same reason.
+   */
+  private async holdFence(
+    tx: AsyncTransaction,
+    outboxKey: RecordKey,
+    fence: Fence,
+  ): Promise<void> {
+    await tx.get(outboxKey);
+    await tx.assertFence(fence);
   }
 
   /**
@@ -369,7 +401,9 @@ export class EventInbox {
    * Delivers pending continuations for one tenant. Each entry is leased under
    * a worker fence before its handler runs and released afterwards; a handler
    * failure keeps the entry pending with its attempt count, and a lost fence
-   * leaves the outcome to the next worker.
+   * leaves the outcome to the next worker. A successful handler whose outcome
+   * cannot be recorded because of contention is reported as `retry` and
+   * redelivered later without consuming an attempt.
    */
   async drain(input: DrainInput): Promise<DrainReport> {
     const tenantId = checkTenant(input.tenantId);
@@ -382,6 +416,7 @@ export class EventInbox {
       stale: 0,
       failed: 0,
       skipped: 0,
+      retried: 0,
       outcomes: [],
     };
     let after = OUTBOX_PREFIX;
@@ -452,7 +487,7 @@ export class EventInbox {
           // An outbox entry without its inbox record cannot be delivered; park it.
           await this.store
             .transaction(async (tx) => {
-              await tx.assertFence(claimed.fence);
+              await this.holdFence(tx, outboxKey, claimed.fence);
               await tx.put(
                 outboxKey,
                 { ...claimed.value, status: "failed" },
@@ -516,10 +551,50 @@ export class EventInbox {
             );
           },
         });
+        let outcome: DispatchOutcome;
         try {
-          const outcome = (await handler(delivery)) ?? "applied";
-          await this.store.transaction(async (tx) => {
-            await tx.assertFence(claimed.fence);
+          outcome = (await handler(delivery)) ?? "applied";
+        } catch (error) {
+          report.failed++;
+          report.outcomes.push({
+            deliveryId: entry.id,
+            outcome: "failed",
+            stale,
+            ordering: claimed.ordering,
+            code: explainConnectorError(error).code,
+          });
+          // The handler may already have applied the effect: keep the delivery id and let a consumer deduplicate on retry.
+          await this.store
+            .transaction(async (tx) => {
+              await this.holdFence(tx, outboxKey, claimed.fence);
+              const attempts = claimed.value.attempts + 1;
+              const exhausted = attempts >= maxAttempts;
+              await tx.put(
+                outboxKey,
+                {
+                  ...claimed.value,
+                  attempts,
+                  ...(exhausted ? { status: "failed" } : {}),
+                },
+                claimed.revision,
+              );
+              await tx.put(
+                inboxKey,
+                {
+                  ...record,
+                  attempts,
+                  ...(exhausted ? { status: "failed" } : {}),
+                },
+                claimed.inboxRevision,
+              );
+              await tx.cancel(outboxKey);
+            })
+            .catch(() => {});
+          continue;
+        }
+        const commit = () =>
+          this.store.transaction(async (tx) => {
+            await this.holdFence(tx, outboxKey, claimed.fence);
             const deliveredAt = await tx.now();
             await tx.put(
               outboxKey,
@@ -545,51 +620,57 @@ export class EventInbox {
             if (!stale) await this.advanceWatermark(tx, tenantId, record);
             await tx.cancel(outboxKey);
           });
-          if (stale) report.stale++;
-          else report.delivered++;
-          report.outcomes.push({
-            deliveryId: entry.id,
-            outcome,
-            stale,
-            ordering: claimed.ordering,
-          });
-        } catch (error) {
-          report.failed++;
-          report.outcomes.push({
-            deliveryId: entry.id,
-            outcome: "failed",
-            stale,
-            ordering: claimed.ordering,
-            code: explainConnectorError(error).code,
-          });
-          // The handler may already have applied the effect: keep the delivery id and let a consumer deduplicate on retry.
+        /*
+         * The handler succeeded; only recording that is left. Concurrent
+         * workers delivering different events of one connection all advance
+         * the same ordering watermark and race for the same claims, so this
+         * commit can still lose a revision race, its fence, or be chosen as a
+         * PostgreSQL deadlock or serialization victim (which the store reports
+         * only as an opaque persistence error). That is contention, not a
+         * failed attempt: counting it would park an effect that already
+         * happened once enough commits lost. One immediate retry is safe
+         * because each try re-asserts the fence and writes against the
+         * revisions read at claim time, so it can only land while this worker
+         * still owns an entry nobody else has touched. If it still loses, the
+         * claim is released with the attempt count unchanged and the next pass
+         * redelivers the same delivery id, which the consumer deduplicates.
+         */
+        let lost: unknown;
+        let committed = false;
+        for (let round = 0; round < COMMIT_ROUNDS && !committed; round++)
+          await commit().then(
+            () => {
+              committed = true;
+            },
+            (error: unknown) => {
+              lost = error;
+            },
+          );
+        if (!committed) {
           await this.store
             .transaction(async (tx) => {
-              await tx.assertFence(claimed.fence);
-              const attempts = claimed.value.attempts + 1;
-              const exhausted = attempts >= maxAttempts;
-              await tx.put(
-                outboxKey,
-                {
-                  ...claimed.value,
-                  attempts,
-                  ...(exhausted ? { status: "failed" } : {}),
-                },
-                claimed.revision,
-              );
-              await tx.put(
-                inboxKey,
-                {
-                  ...record,
-                  attempts,
-                  ...(exhausted ? { status: "failed" } : {}),
-                },
-                claimed.inboxRevision,
-              );
+              await this.holdFence(tx, outboxKey, claimed.fence);
               await tx.cancel(outboxKey);
             })
             .catch(() => {});
+          report.retried++;
+          report.outcomes.push({
+            deliveryId: entry.id,
+            outcome: "retry",
+            stale,
+            ordering: claimed.ordering,
+            code: explainConnectorError(lost).code,
+          });
+          continue;
         }
+        if (stale) report.stale++;
+        else report.delivered++;
+        report.outcomes.push({
+          deliveryId: entry.id,
+          outcome,
+          stale,
+          ordering: claimed.ordering,
+        });
       }
       if (page.length < 100) break;
       after = page.at(-1)!.id;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import {
+  PersistenceConflict,
   PostgresCeremonyStore,
   type AsyncCeremonyStore,
 } from "../../../src/server/persistence/index.js";
@@ -239,6 +240,153 @@ test("EVT-04: a failing handler keeps the delivery pending with its stable id fo
   }
 });
 
+/**
+ * A store whose delivery commit loses its race on the shared ordering
+ * watermark the first `failures` times, the way concurrent workers delivering
+ * different events for one connection collide on that row. PostgreSQL reports
+ * such a collision either as a revision conflict or, for a deadlock or
+ * serialization failure, as an opaque persistence error, so both are raised.
+ */
+function contendedWatermark(
+  inner: AsyncCeremonyStore,
+  failures: number,
+): AsyncCeremonyStore {
+  let remaining = failures;
+  return {
+    transaction: (work) =>
+      inner.transaction((tx) =>
+        work({
+          ...tx,
+          put: async (key, value, expectedRevision) => {
+            if (remaining > 0 && key.id.startsWith("watermark:")) {
+              remaining--;
+              throw remaining % 2
+                ? new PersistenceConflict()
+                : new Error("Persistence operation unavailable");
+            }
+            return tx.put(key, value, expectedRevision);
+          },
+        }),
+      ),
+    close: () => inner.close(),
+  };
+}
+
+test("EVT-04: a delivery commit lost to contention is retried, not counted as a failed attempt", async () => {
+  const maxAttempts = 3;
+  // More lost commits than maxAttempts: counting them as attempts would park
+  // an event whose handler already succeeded.
+  const store = contendedWatermark(memoryStore(), maxAttempts * 4);
+  try {
+    const inbox = new EventInbox(store);
+    const admitted = await inbox.admit({
+      tenantId: "tenant-a",
+      subjectId: "subject-1",
+      envelope: envelope(),
+      connectionRef: "connection:1",
+    });
+    const { handlers, seen } = collectHandler();
+    let contended = 0;
+    let delivered = false;
+    for (let pass = 0; pass < 20 && !delivered; pass++) {
+      const report = await inbox.drain({
+        tenantId: "tenant-a",
+        handlers,
+        maxAttempts,
+      });
+      assert.equal(report.failed, 0, "a lost commit is not a handler failure");
+      if (report.delivered === 1) {
+        delivered = true;
+        continue;
+      }
+      contended++;
+      assert.equal(report.retried, 1);
+      assert.equal(report.outcomes.length, 1);
+      assert.equal(report.outcomes[0]?.outcome, "retry");
+      assert.ok(
+        ["conflict", "upstream-unavailable"].includes(
+          report.outcomes[0]?.code ?? "",
+        ),
+      );
+      const record = await inbox.get("tenant-a", admitted.deliveryId);
+      assert.equal(record?.status, "admitted");
+      assert.equal(record?.attempts, 0);
+      const outbox = await inbox.outbox("tenant-a", admitted.deliveryId);
+      assert.equal(outbox?.status, "pending");
+      assert.equal(outbox?.attempts, 0);
+    }
+    assert.ok(delivered, "the event is delivered once the contention clears");
+    assert.ok(
+      contended > maxAttempts,
+      "more contended passes than maxAttempts were survived",
+    );
+    // Every redelivery carried the same id and attempt number: the consumer
+    // deduplicates on the id, and the attempt count is the handler's own.
+    assert.equal(seen.length, contended + 1);
+    for (const delivery of seen) {
+      assert.equal(delivery.deliveryId, admitted.deliveryId);
+      assert.equal(delivery.attempt, 1);
+    }
+    const record = await inbox.get("tenant-a", admitted.deliveryId);
+    assert.equal(record?.status, "delivered");
+    assert.equal(record?.attempts, 1);
+    // A later pass finds nothing to redeliver.
+    const after = await inbox.drain({ tenantId: "tenant-a", handlers });
+    assert.equal(after.delivered + after.retried + after.failed, 0);
+  } finally {
+    await store.close();
+  }
+});
+
+test("EVT-04: a handler that keeps failing is parked after maxAttempts", async () => {
+  const store = memoryStore();
+  try {
+    const inbox = new EventInbox(store);
+    const admitted = await inbox.admit({
+      tenantId: "tenant-a",
+      subjectId: "subject-1",
+      envelope: envelope(),
+      connectionRef: "connection:1",
+    });
+    const attempts: number[] = [];
+    const handlers = {
+      "connector-event": async (delivery: EventDelivery) => {
+        attempts.push(delivery.attempt);
+        throw new Error("consumer unavailable");
+      },
+    };
+    const first = await inbox.drain({
+      tenantId: "tenant-a",
+      handlers,
+      maxAttempts: 2,
+    });
+    assert.equal(first.failed, 1);
+    assert.equal(first.retried, 0);
+    assert.equal(
+      (await inbox.outbox("tenant-a", admitted.deliveryId))?.status,
+      "pending",
+    );
+    const second = await inbox.drain({
+      tenantId: "tenant-a",
+      handlers,
+      maxAttempts: 2,
+    });
+    assert.equal(second.failed, 1);
+    const record = await inbox.get("tenant-a", admitted.deliveryId);
+    assert.equal(record?.status, "failed");
+    assert.equal(record?.attempts, 2);
+    assert.equal(
+      (await inbox.outbox("tenant-a", admitted.deliveryId))?.status,
+      "failed",
+    );
+    // A parked entry is left for an operator, not retried.
+    await inbox.drain({ tenantId: "tenant-a", handlers, maxAttempts: 2 });
+    assert.deepEqual(attempts, [1, 2]);
+  } finally {
+    await store.close();
+  }
+});
+
 test("EVT-04: out-of-order and ambiguous deliveries are reconciled, not applied", async () => {
   const store = memoryStore();
   const reconciled: string[] = [];
@@ -437,43 +585,64 @@ async function postgresContract(store: AsyncCeremonyStore): Promise<void> {
       subjectId: "subject-1",
       envelope: envelope({ eventId: id }),
     });
-  const seen: string[] = [];
   const deliveredIds: string[] = [];
+  // Entries a handler is running for right now, and any entry that was
+  // handed to a second worker while the first still held it.
+  const holding = new Set<string>();
+  const overlapping: string[] = [];
   const handlers = {
     "connector-event": async (delivery: EventDelivery) => {
-      seen.push(`${delivery.envelope.eventId}@${delivery.attempt}`);
+      if (holding.has(delivery.deliveryId))
+        overlapping.push(delivery.deliveryId);
+      holding.add(delivery.deliveryId);
       deliveredIds.push(delivery.deliveryId);
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      } finally {
+        holding.delete(delivery.deliveryId);
+      }
       return "applied" as const;
     },
   };
   // Three workers race over the same five entries. A contended lease is not a
-  // delivery: the entry stays pending for the next pass, so the loop runs
-  // until the queue is drained rather than assuming one pass suffices.
+  // delivery, and neither is a handler whose commit lost to another worker's
+  // (every event here advances one shared ordering watermark): both leave the
+  // entry pending, unharmed, for a later pass. So the loop runs until the
+  // queue is drained, with a bound generous enough for a loaded runner,
+  // rather than assuming a fixed number of passes suffices.
   let delivered = 0;
-  for (let pass = 0; pass < 5 && delivered < 5; pass++) {
+  let failed = 0;
+  for (let pass = 0; pass < 50 && delivered < 5; pass++) {
     const reports = await Promise.all([
       inbox.drain({ tenantId: "tenant-a", handlers, worker: "worker-a" }),
       inbox.drain({ tenantId: "tenant-a", handlers, worker: "worker-b" }),
       inbox.drain({ tenantId: "tenant-a", handlers, worker: "worker-c" }),
     ]);
     delivered += reports.reduce((total, report) => total + report.delivered, 0);
+    failed += reports.reduce((total, report) => total + report.failed, 0);
   }
   assert.ok(delivered >= 5, "every admitted event is eventually delivered");
+  assert.equal(failed, 0, "contention is never counted as a failed delivery");
   assert.equal(
     new Set(deliveredIds).size,
     5,
     "all five events reach a handler",
   );
+  for (const id of new Set(deliveredIds)) {
+    const entry = await inbox.get("tenant-a", id);
+    assert.equal(entry?.status, "delivered");
+    assert.equal(entry?.attempts, 1, "no lost commit consumed an attempt");
+  }
   // Nothing here claims exactly-once: a worker whose handler succeeded but
-  // whose fence was superseded leaves the entry pending, so a consumer may
-  // legitimately see the same delivery again. What must hold is that the
-  // repeat carries the same authority-scoped delivery id, which is what lets
-  // the consumer deduplicate, and that no two workers hold one entry at once.
-  assert.equal(
-    new Set(seen).size,
-    seen.length,
-    "no entry is handed to two workers at the same attempt",
+  // whose commit lost, or whose fence was superseded, leaves the entry
+  // pending, so a consumer may legitimately see the same delivery again. What
+  // must hold is that the repeat carries the same authority-scoped delivery
+  // id, which is what lets the consumer deduplicate, and that no two workers
+  // hold one entry at once.
+  assert.deepEqual(
+    overlapping,
+    [],
+    "no entry is handed to a second worker while the first holds it",
   );
   for (const id of deliveredIds)
     assert.match(id, /^connector-event:[0-9a-f]{64}$/);
@@ -500,6 +669,87 @@ test("AC-STATE-07/EVT-04: dedupe and single-worker delivery hold on real Postgre
   try {
     await store.migrate();
     await postgresContract(store);
+  } finally {
+    await store.close();
+    await database.close();
+  }
+});
+
+test("AC-STATE-07/EVT-04: recording a delivery takes its locks in claim order on PostgreSQL", async () => {
+  const database = await postgresFixture();
+  const inner = new PostgresCeremonyStore(database.config, ring());
+  // Counts the delivery commits that reach their outbox write.
+  let commits = 0;
+  const store: AsyncCeremonyStore = {
+    transaction: (work) =>
+      inner.transaction((tx) =>
+        work({
+          ...tx,
+          put: async (key, value, expectedRevision) => {
+            if (
+              key.kind === "outbox" &&
+              (value as { status?: string }).status === "delivered"
+            )
+              commits++;
+            return tx.put(key, value, expectedRevision);
+          },
+        }),
+      ),
+    close: () => inner.close(),
+  };
+  try {
+    await inner.migrate();
+    const inbox = new EventInbox(store);
+    const admitted = await inbox.admit({
+      tenantId: "tenant-a",
+      subjectId: "subject-1",
+      envelope: envelope({ eventId: "evt_lock_order" }),
+      connectionRef: "connection:1",
+    });
+    const outboxKey = {
+      tenant: "tenant-a",
+      kind: "outbox" as const,
+      id: admitted.deliveryId,
+    };
+    // A second worker trying to take the entry reads its outbox record, then
+    // claims it. It reaches the outbox record while the first worker's handler
+    // runs, and reaches the claim while that worker is recording the outcome.
+    let rival: Promise<unknown> | undefined;
+    const report = await inbox.drain({
+      tenantId: "tenant-a",
+      handlers: {
+        "connector-event": async () => {
+          let locked!: () => void;
+          const holding = new Promise<void>((resolve) => (locked = resolve));
+          rival = inner
+            .transaction(async (tx) => {
+              await tx.get(outboxKey);
+              locked();
+              await new Promise((resolve) => setTimeout(resolve, 200));
+              await tx.claim(outboxKey, "worker-rival", 30_000);
+            })
+            .then(
+              () => "claimed",
+              (error: unknown) => error,
+            );
+          await holding;
+          return "applied" as const;
+        },
+      },
+    });
+    // The rival is refused because the lease is held, not chosen as a
+    // deadlock victim, and the delivery is recorded on its first commit.
+    assert.ok(
+      (await rival) instanceof PersistenceConflict,
+      "the rival is refused the lease",
+    );
+    assert.equal(report.delivered, 1);
+    assert.equal(report.retried, 0);
+    assert.equal(commits, 1, "the delivery commit was not a deadlock victim");
+    assert.equal(
+      (await inbox.get("tenant-a", admitted.deliveryId))?.status,
+      "delivered",
+    );
   } finally {
     await store.close();
     await database.close();
