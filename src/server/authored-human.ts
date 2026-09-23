@@ -36,6 +36,7 @@ import {
   saveAuthoredGrantSession,
   saveAuthoredLogin,
   saveInstalledDiscovery,
+  withDeclaredAuth,
 } from "./authored-operations.js";
 import {
   discoverProviderAuth,
@@ -651,14 +652,14 @@ export async function authoredHuman(
         found.clientId ||
         found.documents.length
       ) {
+        discovery = withDeclaredAuth(found, installed?.discovery);
         if (installed)
           await saveInstalledDiscovery(
             store,
             context.actor,
             options.connectorId,
-            found,
+            discovery,
           );
-        discovery = discoveredAuthSchema.parse(found);
       } else if (found.retryable) discovery = { ...discovery, retryable: true };
     }
   };

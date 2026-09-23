@@ -583,9 +583,20 @@ export function snapshotDocument(
         entry.filled = checked;
       } else if (tag === "select") {
         entry.kind = "select";
+        // Each option by its label - what a browser shows and what
+        // Playwright's `selectOption({ label })` matches - which is the
+        // option's own text unless a `label` attribute overrides it.
         entry.options = Array.from(control.querySelectorAll("option"))
           .slice(0, 20)
-          .map((option) => trim(option.textContent, 100));
+          .map((option) => {
+            const shown = (option as { label?: unknown }).label;
+            return trim(
+              typeof shown === "string" && shown !== ""
+                ? shown
+                : option.getAttribute("label") || option.textContent,
+              100,
+            );
+          });
         entry.filled = value.length > 0;
       } else if (
         tag === "button" ||
@@ -774,9 +785,11 @@ export const elementUsableSource = `((element) => {
  * Read-only is the whole point. It is what makes the value one the page
  * *shows* — a provider displaying an issued secret — rather than one somebody
  * typed: the driver never fills a read-only control (`elementUsableSource`
- * refuses it), so nothing the attempt itself supplied, a password included,
- * can come back out through here. A hidden or invisible field is not a value
- * the page is showing anyone, so it is not read either.
+ * refuses it), so no field the attempt itself filled can be read back out
+ * through here. A page can still copy a typed value into a read-only field of
+ * its own; the driver refuses such a value when it compares each read against
+ * what it substituted. A hidden or invisible field is not a value the page is
+ * showing anyone, so it is not read either.
  */
 export const readOnlyValueSource = `((element) => {
   if (!element || !element.isConnected) return null;
@@ -838,6 +851,9 @@ export type HumanStepReason = (typeof humanStepReasons)[number];
  */
 const devicePageWords =
   /(enter|type) the code (shown|displayed) on (your|the) (device|screen|tv)|code (shown|displayed) on your device|connect (a|your) device|activate (a |your )?(device|tv)|device (activation|authori[sz]ation|login|sign[- ]?in|verification)|link (a|your) device/i;
+/** Wording that names a sign-in identifier, which a user code never is. */
+const identifierWords =
+  /user\s?name|e-?mail|login|account|sign[- ]?in|phone|mobile|handle|^user$|^identifier$/i;
 /** Wording that names the user code field itself. */
 const userCodeWords =
   /\b(user|device|pairing|activation)[ _-]?code\b|code (shown|displayed) on (your|the) (device|screen|tv)|^user_?code$/i;
@@ -863,9 +879,18 @@ export function deviceVerificationField(
     )
   )
     return undefined;
-  const typed = snapshot.elements.filter(
-    (element) => element.kind === "input" && element.readOnly !== true,
-  );
+  // An identifier field is never the code field, however the page is
+  // headed: "Connect a device" above a lone email box is the sign-in step
+  // before the verification page, and a user code typed there goes to the
+  // provider as somebody's address.
+  const typed = snapshot.elements.filter((element) => {
+    if (element.kind !== "input" || element.readOnly === true) return false;
+    if (element.type === "email" || element.type === "tel") return false;
+    if (/\b(username|email)\b/.test(element.autocomplete ?? "")) return false;
+    return ![element.name, element.label, element.placeholder].some(
+      (text) => text !== undefined && identifierWords.test(text),
+    );
+  });
   const page = devicePageWords.test(
     `${snapshot.title} ${snapshot.headings.join(" ")}`,
   );

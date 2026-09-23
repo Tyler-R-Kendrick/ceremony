@@ -55,12 +55,14 @@ import { readBoundedBody, responseIsJson } from "../openapi/serialize.js";
 import {
   CATALOG_ECOSYSTEM,
   CATALOG_IMPORTER_VERSION,
+  CATALOG_SETTINGS,
   configurationFor,
   definitionFor,
   entryFromBinding,
   profileIdFor,
   proxyNativeId,
   PROXY_METHODS,
+  reviewCatalogBinding,
   type ProxyMethod,
 } from "./definition.js";
 import { catalogIssue } from "./issues.js";
@@ -85,10 +87,13 @@ import {
  *
  * It has two shapes. Unpinned (`catalog-http`), it imports catalog documents
  * and Nango `providers.yaml` files into draft definitions, and executes a
- * binding using the entry the reviewer approved into the binding's settings.
+ * binding using the entry review approved into the binding's settings.
  * Pinned (`catalog-<id>`), it is one host-registered provider: the directory
  * shows it as its own connector, and at run time it executes the host's entry
  * and refuses a binding whose settings carry a different one.
+ * Unpinned, the entry a binding carries is the one binding review copied from
+ * the reviewed definition, and its OAuth origins were admitted by host issuer
+ * policy for a person; a reviewer's own settings can supply neither.
  *
  * Either way the rules are those of every other adapter here:
  *
@@ -224,10 +229,33 @@ function redact(value: unknown, secrets: readonly string[]): unknown {
   return value;
 }
 
-function secretsOf(material: CredentialMaterial): string[] {
-  return Object.entries(material)
-    .filter(([key, value]) => SECRET_KEYS.has(key) && value.length >= 4)
-    .map(([, value]) => value)
+/**
+ * Every form in which this call could have sent the credential: each secret
+ * value, and the exact forms `placeCredential` wrote -- the API key with its
+ * prefix, and for Basic the username and the encoded `user:pass` pair, which
+ * contains neither half verbatim.
+ */
+function secretsOf(
+  entry: ProviderCatalogEntry,
+  material: CredentialMaterial,
+): string[] {
+  const values = Object.entries(material)
+    .filter(([key]) => SECRET_KEYS.has(key))
+    .map(([, value]) => value);
+  const auth = entry.auth;
+  if (auth.mode === "api-key" && material["api_key"])
+    values.push(`${auth.prefix}${material["api_key"]}`);
+  if (auth.mode === "basic" && material["username"] !== undefined) {
+    const username = material["username"];
+    values.push(
+      username,
+      Buffer.from(`${username}:${material["password"] ?? ""}`, "utf8").toString(
+        "base64",
+      ),
+    );
+  }
+  return [...new Set(values)]
+    .filter((value) => value.length >= 4)
     .sort((a, b) => b.length - a.length);
 }
 
@@ -421,6 +449,12 @@ export function createCatalogHttpAdapter(
           detail: "catalog.scope.openid-separator",
         });
     }
+    // The entry's defaults are the only scopes a reviewer saw; a caller may
+    // name them, never add one.
+    if (requested.some((scope) => !auth.scopes.includes(scope)))
+      throw new ConnectorError("invalid-request", {
+        detail: "catalog.scope.undeclared",
+      });
     if (
       scopes.length > 64 ||
       scopes.some((scope) => !/^[^\s\p{Cc},]{1,200}$/u.test(scope))
@@ -750,7 +784,7 @@ export function createCatalogHttpAdapter(
           redirect: "error",
           signal: controller.signal,
         });
-        return await read(response, material ? secretsOf(material) : []);
+        return await read(response, material ? secretsOf(entry, material) : []);
       } finally {
         clearTimeout(timer);
         ctx.signal.removeEventListener("abort", onAbort);
@@ -1016,6 +1050,9 @@ export function createCatalogHttpAdapter(
       : "Imports provider catalogs and Nango providers.yaml into draft connectors, and executes reviewed entries: OAuth authorization code and client credentials, API keys, Basic and bearer credentials, and an authenticated proxy to the approved origin.",
     service: pinned ? pinned.id : "provider-catalog",
     support: executable ? "fixture" : "catalog-only",
+    // The generic adapter executes any reviewed entry; a pinned adapter is
+    // one host-registered provider, so its own evidence speaks for it.
+    evidenceScope: pinned ? "adapter" : "definition",
     custody: ["host-owned", "no-credential"],
     configuration: pinned ? configurationFor(pinned) : [],
     profiles: pinned
@@ -1135,6 +1172,17 @@ export function createCatalogHttpAdapter(
         ),
         row("delegate", ["There is no third party to delegate to."], true),
       ];
+    },
+
+    // The entry is copied from the reviewed definition by binding review;
+    // a reviewer's free-form settings cannot supply or replace it.
+    reservedSettings: Object.values(CATALOG_SETTINGS),
+
+    async reviewBinding(input) {
+      return reviewCatalogBinding(input, {
+        ...parseOptions,
+        ...(pinned ? { pinned } : {}),
+      });
     },
 
     async import(

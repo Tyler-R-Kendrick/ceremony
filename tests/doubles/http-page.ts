@@ -209,7 +209,9 @@ export function createHttpCeremonyPage(
       const options = Array.from(control.querySelectorAll("option"));
       const chosen = options.find(
         (candidate) =>
-          (candidate.textContent ?? "").replace(/\s+/g, " ").trim() === option,
+          (candidate.getAttribute("label") || candidate.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim() === option,
       );
       // The Playwright adapter reports a label the live control does not
       // offer as a stale element, and so does this.

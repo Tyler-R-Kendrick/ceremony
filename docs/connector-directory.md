@@ -272,11 +272,22 @@ live or certified label, with its configuration present, turns a `fixture`
 adapter into `provider-backed`. `connector_catalog` and `connector_status`
 return the label to an assistant.
 
+The generic OpenAPI and provider-catalog adapters run whatever description a
+person imported, so their catalog row describes only the code path: it can
+read `local`, never `live`. Wherever a label admits or promotes something
+(the production gate, a registration, a connection's status) it is the label
+of the binding's own definition, earned by entries that name that definition
+(`definition`: its `definitionRef` or `sha256:<normalizedDigest>`). An
+imported description nobody exercised is `unverified` there.
+
 A label gates nothing by default. A host that wants it to sets
 `support: { minimumForProduction: "local" }` (or any label): a binding that can
 reach anything but a loopback fixture is then refused with
-`support.below-minimum` at approval, at connect and at every invocation while
-its adapter's label is below the minimum, so expired evidence stops new work.
+`support.below-minimum` at approval, connect, the completion of a pending
+ceremony, poll, verify, reconnect and every invocation while its definition's
+label is below the minimum, so expired evidence stops new work and an
+in-flight ceremony does not finish. Disconnecting and revoking are never
+gated.
 
 Alternatives for one service are grouped under one heading and never merged.
 A native GitHub adapter and a brokered one differ in custody, evidence and

@@ -244,6 +244,20 @@ function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
     }
   return [...origins];
 }
+/** A configuration port that answers only for the names given; any other reads as absent. */
+function narrowConfiguration(
+  port: ConfigurationPort,
+  names: ReadonlySet<string>,
+): ConfigurationPort {
+  return {
+    read: async (name) => (names.has(name) ? port.read(name) : undefined),
+    present: async (asked) => {
+      const allowed = asked.filter((name) => names.has(name));
+      return allowed.length ? port.present(allowed) : new Set<string>();
+    },
+    revision: () => port.revision(),
+  };
+}
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
 /**
@@ -383,6 +397,12 @@ function boundedState(
   return merged;
 }
 
+/** Every name a support-evidence entry may use for a definition. */
+const definitionNames = (definition: NormalizedDefinition) => [
+  definition.definitionRef,
+  `sha256:${definition.normalizedDigest}`,
+];
+
 export class ConnectorCommandService {
   readonly registry: ConnectorAdapterRegistry;
   readonly origin: string;
@@ -427,21 +447,33 @@ export class ConnectorCommandService {
   }
 
   /**
-   * The host's opt-in production minimum, rechecked at approval, connect and
-   * invoke because evidence expires between them. Off by default, and it
-   * reads configuration only when a minimum is set.
+   * The host's opt-in production minimum. It is rechecked at every step that
+   * starts or continues work with the provider -- approval, connect, the
+   * completion of a pending ceremony (callback, private input, a provider
+   * event), poll, verify, reconnect and invoke -- because evidence expires
+   * between them: an in-flight ceremony whose evidence lapsed does not
+   * finish. Disconnect, revocation and deletion are never gated, so a person
+   * can always let go of a connection. The label is the binding
+   * definition's, so a generic adapter is admitted only for a description
+   * someone exercised. Off by default, and it reads configuration and the
+   * definition only when a minimum is set.
    */
   private async requireSupport(
     actor: ActorContext,
     adapter: ConnectorAdapter,
-    destinations: RuntimeBinding["destinations"],
+    subject: Pick<RuntimeBinding, "definitionRef" | "destinations">,
+    definition?: NormalizedDefinition,
   ): Promise<void> {
     if (!this.support.minimumForProduction) return;
-    if (!this.support.isProduction(destinations)) return;
+    if (!this.support.isProduction(subject.destinations)) return;
+    const reviewed =
+      definition ??
+      (await this.definition(actor.tenantId, subject.definitionRef));
     this.support.require(
-      adapter.id,
-      destinations,
+      adapter,
+      subject.destinations,
       await this.configured(actor, adapter),
+      definitionNames(reviewed),
     );
   }
 
@@ -486,10 +518,44 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         effects: this.ports.effects,
         evidence: this.ports.evidence,
-        configuration: this.options.configuration(actor),
+        configuration: narrowConfiguration(
+          this.options.configuration(actor),
+          this.configurationNames(binding),
+        ),
         origin: this.origin,
       },
     };
+  }
+
+  /**
+   * The configuration names an adapter may read under a binding. A hosted
+   * deployment's port holds every tenant-visible value the host keeps, so an
+   * adapter sees only what review approved: the binding's names, the names
+   * its host-registered adapter declares, and the client of each issuer
+   * policy a person pinned, binding-wide or per profile.
+   */
+  private configurationNames(binding: RuntimeBinding): ReadonlySet<string> {
+    const names = new Set(binding.configuration);
+    for (const item of this.registry.get(binding.adapterId)?.configuration ??
+      [])
+      names.add(item.name);
+    const perProfile = binding.settings[PROFILE_ISSUER_POLICIES_SETTING];
+    const policies = [
+      binding.settings["oauth"],
+      ...(perProfile && typeof perProfile === "object"
+        ? Object.values(perProfile)
+        : []),
+    ] as Array<{ registration?: Record<string, unknown> } | undefined>;
+    for (const oauth of policies)
+      for (const key of [
+        "clientIdConfiguration",
+        "clientSecretConfiguration",
+        "privateKeyConfiguration",
+      ]) {
+        const name = oauth?.registration?.[key];
+        if (typeof name === "string") names.add(name);
+      }
+    return names;
   }
 
   private adapterFor(binding: string | Pick<RuntimeBinding, "adapterId">) {
@@ -653,7 +719,7 @@ export class ConnectorCommandService {
     return catalogFor(
       this.registry,
       (adapter) => presence.get(adapter.id) ?? new Set(),
-      (adapterId, configured) => this.support.label(adapterId, configured),
+      (adapter, configured) => this.support.label(adapter, configured),
     );
   }
 
@@ -979,7 +1045,12 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
-    await this.requireSupport(actor, adapter, destinations);
+    await this.requireSupport(
+      actor,
+      adapter,
+      { definitionRef: definition.definitionRef, destinations },
+      definition,
+    );
     const reviewed = await this.reviewInputs(
       actor,
       adapter,
@@ -1011,6 +1082,15 @@ export class ConnectorCommandService {
           ...(approvals.verifier ? { verifier: approvals.verifier } : {}),
         }),
       );
+      // A format whose own settings reach an issuer gets the same gate as a
+      // reviewed issuer policy.
+      if (result.issuer)
+        await this.admitIssuer(
+          actor,
+          definition,
+          result.issuer.issuer,
+          result.issuer.origins,
+        );
       operations = result.operations;
       settings = { ...settings, ...result.settings };
     } else if (approvals.verifier)
@@ -1223,6 +1303,40 @@ export class ConnectorCommandService {
         detail: "oauth.issuer.not-permitted",
       });
     return oauth;
+  }
+
+  /**
+   * Host policy's word on an OAuth issuer and the origins its grants may
+   * contact, for a person reviewing a binding. It is asked whether the
+   * issuer arrives as a reviewed policy or with a format's own settings.
+   */
+  private async admitIssuer(
+    actor: ActorContext,
+    definition: NormalizedDefinition,
+    issuer: string,
+    origins: string[],
+  ): Promise<void> {
+    if (actor.actorKind !== "human")
+      throw new ConnectorError("denied", {
+        detail: "oauth.policy.human-only",
+      });
+    let allowed = false;
+    try {
+      allowed = this.policy.allowIssuer
+        ? await this.policy.allowIssuer(actor, {
+            issuer,
+            origins,
+            declaredOrigins: declaredOAuthOrigins(definition),
+            definition,
+          })
+        : false;
+    } catch {
+      allowed = false;
+    }
+    if (!allowed)
+      throw new ConnectorError("network-policy", {
+        detail: "oauth.issuer.not-permitted",
+      });
   }
 
   private async approveDestinations(
@@ -1455,7 +1569,7 @@ export class ConnectorCommandService {
       binding.definitionRef,
     );
     await this.authorize(actor, { kind: "binding", binding }, "connect");
-    await this.requireSupport(actor, adapter, binding.destinations);
+    await this.requireSupport(actor, adapter, binding, definition);
     if (input.durable)
       await this.authorize(
         actor,
@@ -1985,6 +2099,7 @@ export class ConnectorCommandService {
           ? "input"
           : "callback",
     );
+    await this.requireSupport(actor, adapter, binding);
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
     const journal = await this.ports.effects.begin({
@@ -2137,6 +2252,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "poll",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (!adapter.complete) return this.project(actor, entry);
     const handoff = await this.pendingHandoff(actor, record);
     const result = await adapterCall(() =>
@@ -2194,9 +2310,16 @@ export class ConnectorCommandService {
       entry.record.bindingRevision,
     );
     const adapter = this.adapterFor(binding);
+    const definition = await this.definition(
+      actor.tenantId,
+      binding.definitionRef,
+    );
+    // The connection's own definition: a generic adapter's code-path label
+    // says nothing about the description this connection runs.
     return this.support.label(
-      adapter.id,
+      adapter,
       await this.configured(actor, adapter),
+      definitionNames(definition),
     );
   }
 
@@ -2246,6 +2369,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "verify",
     );
+    await this.requireSupport(actor, adapter, binding);
     const result = await adapterCall(() =>
       adapter.verify!(this.context(actor, binding, record)),
     );
@@ -2310,7 +2434,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "invoke",
     );
-    await this.requireSupport(actor, adapter, binding.destinations);
+    await this.requireSupport(actor, adapter, binding);
     const operation = boundOperation(binding, input.operationRef);
     if (!operation)
       throw new ConnectorError("denied", { detail: "operation.unapproved" });
@@ -2562,6 +2686,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "reconnect",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (input.accountSwitch) {
       if (actor.actorKind !== "human")
         throw new ConnectorError("denied", {
@@ -2918,20 +3043,42 @@ export class ConnectorCommandService {
     return { connectionRef, revocation: "pending-approval", requestedAt };
   }
 
-  /** A person declines a pending revocation request; approving it is `revoke`. */
+  /**
+   * An administrator declines a pending revocation request; approving it is
+   * `revoke`. Declining is the same decision taken the other way, so it is
+   * held to the same person, capability and policy: otherwise anyone who can
+   * read the connection could clear a request before an administrator saw it.
+   */
   async declineRevocation(
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
   ): Promise<ConnectionView> {
-    if (actor.actorKind !== "human")
-      throw new ConnectorError("denied", { detail: "revoke.human-only" });
+    requireCapability(actor, "admin");
+    if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "revoke.admin-only" });
     const input = z
       .strictObject({ expectedRevision: z.number().int().positive() })
       .parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke",
+      "revoke.denied",
+    );
     if (
       !revocationRequestSchema.safeParse(entry.record.state.revocationRequest)
         .success

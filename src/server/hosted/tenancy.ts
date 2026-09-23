@@ -4,6 +4,7 @@ import {
   PersistenceConflict,
   type AsyncCeremonyStore,
 } from "../persistence/index.js";
+import { SYSTEM_TENANT, SYSTEM_TENANTS } from "../system-tenants.js";
 
 /*
  * Who a verified identity is, in hosted terms: which tenant it belongs to and
@@ -49,18 +50,8 @@ const capabilities = [
 
 /** A tenant a claim may name: short, printable and safe as a record key everywhere. */
 const claimedTenant = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,99}$/);
-/**
- * Tenants the server itself writes under. A claim naming one would put a
- * person's records beside the server's own bookkeeping, so it is refused.
- */
-const reservedTenants = new Set([
-  "hosted",
-  "hosted-tenants",
-  "identity",
-  "public",
-  "workload",
-  "connector-events",
-]);
+/** A person's claim never names a tenant the server writes its own records under. */
+const reservedTenants = new Set(SYSTEM_TENANTS);
 const claimName = z
   .string()
   .min(1)
@@ -120,7 +111,7 @@ function readClaim(
   return current;
 }
 
-const INDEX_TENANT = "hosted-tenants";
+const INDEX_TENANT = SYSTEM_TENANT.hostedIndex;
 
 export interface HostedTenancyConfig {
   /** Pinned tenant, or the home tenant when `claim` is set. */
