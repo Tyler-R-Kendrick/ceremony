@@ -9,7 +9,7 @@ import {
   type CaptionEvent,
   type PanelEvent,
 } from "../scripts/demos/captions.js";
-import { deviceScreen } from "../scripts/demos/device.js";
+import { deviceScreen, pollInterval } from "../scripts/demos/device.js";
 import { outcomeFacts } from "../scripts/demos/story.js";
 import type { CeremonyResult } from "../src/server/browser-driver.js";
 
@@ -260,4 +260,15 @@ test("DEMO-CAPTIONS: the end card reports counts and closed names, not transcrip
   } as unknown as CeremonyResult;
   for (const line of outcomeFacts(result))
     for (const value of values) assert.ok(!line.includes(value), line);
+});
+
+test("DEMO-DEVICE: a device told to slow down polls five seconds slower, from then on", () => {
+  let interval = 5;
+  interval = pollInterval(interval, "authorization_pending");
+  assert.equal(interval, 5);
+  interval = pollInterval(interval, "slow_down");
+  assert.equal(interval, 10);
+  interval = pollInterval(interval, "authorization_pending");
+  assert.equal(interval, 10, "the longer interval is kept");
+  assert.equal(pollInterval(interval, "slow_down"), 15);
 });

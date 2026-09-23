@@ -56,6 +56,8 @@ export async function startDevice(
   let pending = 0;
   let account: string | undefined;
   let timer: NodeJS.Timeout | undefined;
+  /** Seconds between polls: the provider's, and more if it says slow down. */
+  let interval = answer.interval;
   const connected = new Promise<string>((resolve, reject) => {
     const poll = async () => {
       if (stopped) return;
@@ -79,14 +81,13 @@ export async function startDevice(
         return reject(new Error(`device poll ended: ${String(body.error)}`));
       pending++;
       options.onScreen("polling");
-      // The interval the provider asked for is the least a device waits.
-      timer = setTimeout(
-        () => void poll().catch(reject),
-        answer.interval * 1000,
-      );
+      // The interval the provider asked for is the least a device waits,
+      // and a `slow_down` answer lengthens it for every poll after.
+      interval = pollInterval(interval, body.error);
+      timer = setTimeout(() => void poll().catch(reject), interval * 1000);
       timer.unref();
     };
-    timer = setTimeout(() => void poll().catch(reject), answer.interval * 1000);
+    timer = setTimeout(() => void poll().catch(reject), interval * 1000);
     timer.unref();
   });
   // A demo that ends early must not leave an unhandled rejection behind.
@@ -105,6 +106,15 @@ export async function startDevice(
       if (timer) clearTimeout(timer);
     },
   };
+}
+
+/**
+ * The wait before the next poll, in seconds. RFC 8628 section 3.5: on
+ * `slow_down` the device adds five seconds to its interval, for this and
+ * every later poll; `authorization_pending` leaves it as it was.
+ */
+export function pollInterval(current: number, error: unknown): number {
+  return error === "slow_down" ? current + 5 : current;
 }
 
 const escape = (text: string) =>
