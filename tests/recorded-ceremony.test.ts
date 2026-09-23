@@ -56,6 +56,11 @@ async function provider(t: TestContext, seed = 41) {
     identifierFirst: true,
     requireMfa: true,
     totpSeed: SEED,
+    // These tests record and replay one account's sign-in several times in
+    // a row, each answering from `totpCode` at fill time; what they check is
+    // the recording, not single use of a code, which the double otherwise
+    // enforces (RFC 6238 section 5.2).
+    acceptReusedTotp: true,
     accounts: [{ email: EMAIL, username: USERNAME, password: PASSWORD }],
   });
   t.after(() => double.close());

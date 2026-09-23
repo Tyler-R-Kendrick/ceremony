@@ -305,6 +305,14 @@ references the custody copy as a held `totp-seed`, as above. `SEED-CUSTODY` in
 double (`enrollTotp`), signs in again from the custody copy, and sweeps every
 surface for each spelling of the seed and the codes it made.
 
+A code is issued once. Providers accept each code once (RFC 6238 section
+5.2), so the driver and the service take codes from `nextTotpCode`, which
+remembers the last time step it issued a code for, per seed digest, in this
+process. A second code in the same period (a sign-in right after the
+enrolment that kept the seed, or two sign-ins in a row) waits for the next
+period instead of sending the spent code. Another process holding the same
+seed does not share that record.
+
 ### Choices
 
 A draft may name options for required `<select>` controls in `choices`, by the

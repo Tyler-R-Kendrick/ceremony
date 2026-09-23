@@ -29,7 +29,7 @@ import {
   type RecordedTraceEntry,
 } from "../core/recorded-ceremony.js";
 import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
-import { parseTotpSeed, totpCode, totpSeedSpellings } from "./totp.js";
+import { nextTotpCode, parseTotpSeed, totpSeedSpellings } from "./totp.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -413,7 +413,7 @@ export async function runCeremony(
   let kept = declared.length === 0;
   /**
    * A seed this attempt read off an enrolment page. It never leaves this
-   * function except into the plan's sink, and inside it only `totpCode`
+   * function except into the plan's sink, and inside it only `nextTotpCode`
    * reads it.
    */
   let enrolled: string | undefined;
@@ -429,7 +429,7 @@ export async function runCeremony(
       : secrets.roles;
   const resolveRole = async (role: CeremonyRole) =>
     role === "totp-code" && enrolled !== undefined
-      ? totpCode(enrolled, Date.now())
+      ? nextTotpCode(enrolled)
       : secrets.resolve(role);
 
   const record = (

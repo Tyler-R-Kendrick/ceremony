@@ -4,7 +4,11 @@ import {
   type CeremonyInterpreter,
 } from "../../src/server/browser-interpreter.js";
 import { generateIsolatedAccount } from "../../src/server/browser-executor.js";
-import { totpCode, totpSeedSpellings } from "../../src/server/totp.js";
+import {
+  nextTotpCode,
+  totpCode,
+  totpSeedSpellings,
+} from "../../src/server/totp.js";
 import { authScenarios } from "../../tests/doubles/auth-provider/scenarios.js";
 import { startAuthProvider } from "../../tests/doubles/auth-provider/server.js";
 import { startAgentInbox } from "./agent-inbox.js";
@@ -290,7 +294,12 @@ export async function record(session: DemoSession) {
             role: "totp-code",
             source: "totp-seed",
           });
-          return totpCode(held, Date.now());
+          // Never the code that confirmed the enrolment: if that one is
+          // still current, this waits for the next period, as the provider
+          // accepts each code once.
+          const code = await nextTotpCode(held);
+          session.protect(code);
+          return code;
         },
       }),
       allowedOrigins: [provider.origin],

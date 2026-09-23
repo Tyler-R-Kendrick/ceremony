@@ -54,7 +54,7 @@ import {
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
-import { totpCode, totpSeedSpellings } from "./totp.js";
+import { nextTotpCode, totpSeedSpellings } from "./totp.js";
 import { storageStateSchema, type BrowserStateStore } from "./browser-state.js";
 
 /**
@@ -817,7 +817,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       values[role] = async () => {
         const seed = await options.credentials.resolve(actor, plan, kind);
         if (seed === undefined) throw new Error("credential unavailable");
-        const code = totpCode(seed, now());
+        // Never a code this process already issued: a sign-in right after
+        // the enrolment that kept this seed, or right after another sign-in,
+        // waits for the next period rather than be refused for reuse.
+        const code = await nextTotpCode(seed, { now });
         resolved.push(code);
         return code;
       };

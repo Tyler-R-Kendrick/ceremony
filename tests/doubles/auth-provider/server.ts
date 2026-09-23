@@ -81,6 +81,14 @@ export type ProviderBehavior = {
    */
   enrollTotp?: boolean;
   /**
+   * Accept an authenticator code again within its window. Off by default:
+   * RFC 6238 section 5.2 has a verifier refuse a code once one for the same
+   * or a later time step was accepted, so a second sign-in in the same
+   * thirty seconds needs the next code. Only for fixtures that sign in to
+   * one account many times in a row and are not about the second factor.
+   */
+  acceptReusedTotp?: boolean;
+  /**
    * Sign-in asks for the identifier alone, then shows the password on its
    * own page - the identifier-first shape most large providers use.
    */
@@ -184,6 +192,8 @@ export type Account = SeedAccount & {
   totp: string;
   /** The authenticator seed this account enrolled, under `enrollTotp`. */
   totpSeed?: string;
+  /** The last time step a code from its seed was accepted for. */
+  totpStep?: number;
 };
 
 export type ProviderDouble = {
@@ -360,11 +370,17 @@ const hashSecret = (secret: string) =>
 const digits = (length: number) =>
   Array.from({ length }, () => randomInt(0, 10)).join("");
 
-/** A code from this seed, one period either side of now, as providers allow. */
-const totpMatches = (seed: string, code: string) =>
-  [-30_000, 0, 30_000].some(
-    (skew) => totpCode(seed, Date.now() + skew) === code,
-  );
+/**
+ * The time step whose code from this seed `code` is, looking one period
+ * either side of now as providers allow for clock skew, or `undefined`.
+ */
+const totpStepOf = (seed: string, code: string): number | undefined => {
+  for (const skew of [-30_000, 0, 30_000]) {
+    const at = Date.now() + skew;
+    if (totpCode(seed, at) === code) return Math.floor(at / 30_000);
+  }
+  return undefined;
+};
 
 /**
  * An RFC 8628 user code: eight characters from twenty consonants (section
@@ -876,10 +892,24 @@ export async function startAuthProvider(
             ),
           );
 
-    /** Whether a submitted second factor is the one this account expects. */
-    const codeAccepted = (account: Account, code: string) => {
+    /**
+     * Whether a submitted second factor is the one this account expects, and
+     * if so, spend it: a code from a seed is accepted once, and never after
+     * a code for the same or a later time step (RFC 6238 section 5.2).
+     */
+    const acceptCode = (account: Account, code: string) => {
       const seed = account.totpSeed ?? behavior.totpSeed;
-      return seed ? totpMatches(seed, code) : code === account.totp;
+      if (!seed) return code === account.totp;
+      const step = totpStepOf(seed, code);
+      if (step === undefined) return false;
+      if (
+        !behavior.acceptReusedTotp &&
+        account.totpStep !== undefined &&
+        step <= account.totpStep
+      )
+        return false;
+      account.totpStep = step;
+      return true;
     };
 
     /**
@@ -1103,8 +1133,14 @@ export async function startAuthProvider(
       if (!session.setup || !account) return redirect(next);
       const seed = (session.seed ??= newTotpSeed());
       if (method === "POST") {
-        if (totpMatches(seed, (body.get(markup.names.code) ?? "").trim())) {
+        const step = totpStepOf(
+          seed,
+          (body.get(markup.names.code) ?? "").trim(),
+        );
+        if (step !== undefined) {
+          // The code that turned the factor on is spent like any other.
           account.totpSeed = seed;
+          account.totpStep = step;
           session.factors = 2;
           delete session.setup;
           delete session.seed;
@@ -1149,10 +1185,7 @@ export async function startAuthProvider(
         return mfaPage(id, next);
       }
       const account = accounts.get(session.email.toLowerCase());
-      if (
-        !account ||
-        !codeAccepted(account, body.get(markup.names.code) ?? "")
-      ) {
+      if (!account || !acceptCode(account, body.get(markup.names.code) ?? "")) {
         const id = cookies(request)["sid"] ?? "";
         return mfaPage(id, next, markup.messages.badCode);
       }
