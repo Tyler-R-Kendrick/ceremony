@@ -8,7 +8,12 @@ import {
   demonstrationConsentSchema,
   type DemonstrationEvent,
 } from "../core/teaching-contracts.js";
+import { identifierSchema } from "../core/operation-contracts.js";
 import { deleteAuthoredSession } from "./authored-operations.js";
+import {
+  compileArazzoToRecipe,
+  readArazzo,
+} from "./connectors/formats/arazzo/index.js";
 import {
   AuthorizationError,
   requireCapability,
@@ -58,6 +63,13 @@ export const teachingInputs = {
     last: z.number().int().nonnegative(),
   }),
   draftImport: z.strictObject({ definition: z.string().max(262144) }),
+  arazzoImport: z.strictObject({
+    /** The Arazzo 1.0.1 or 1.1.0 description as JSON text. */
+    document: z.string().max(262144),
+    workflowId: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/),
+    /** The recipe id for the draft; the workflow id when it is representable. */
+    recipeId: identifierSchema.optional(),
+  }),
   draftEdit: z.strictObject({ revision, definition: recipeDefinitionSchema }),
   recipeCompose: z.strictObject({
     references: z
@@ -130,6 +142,61 @@ export async function importRecipeDraft(
     actor,
     parseRecipeImport(input.definition),
   );
+}
+
+/** At most this many compilation issues are returned; the rest are counted. */
+const ARAZZO_IMPORT_ISSUES = 64;
+
+/**
+ * Compile one workflow of an Arazzo description into a recipe draft.
+ *
+ * The description is third-party data: it is read within bounds, never
+ * fetched from its source URLs, and it contributes no operation. Every step
+ * must resolve through the host's reviewed operation-binding catalog to an
+ * operation the registry already holds. A workflow outside the executable
+ * profile yields its blocking issues and no draft; one inside it yields a
+ * draft under the caller's authorship, carrying its success criteria and
+ * retries as recipe outcomes. Either way nothing runs: like every draft, it
+ * executes only after a person reviews and publishes it.
+ */
+export async function importArazzoDraft(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.arazzoImport>,
+) {
+  requireCapability(actor, "author");
+  if (!runtime.arazzoCatalog) throw new AuthorizationError("invalid_request");
+  let document: unknown;
+  try {
+    document = JSON.parse(input.document);
+  } catch {
+    throw new AuthorizationError("invalid_request");
+  }
+  const compilation = compileArazzoToRecipe(
+    readArazzo(document),
+    await runtime.arazzoCatalog(actor),
+    {
+      workflowId: input.workflowId,
+      registry: runtime.registry,
+      tenantId: actor.tenantId,
+      ...(input.recipeId ? { recipeId: input.recipeId } : {}),
+    },
+  );
+  // Fixed messages and pointers only: an issue never quotes document text.
+  const issues = compilation.issues
+    .slice(0, ARAZZO_IMPORT_ISSUES)
+    .map((issue) => ({
+      code: issue.code,
+      severity: issue.severity,
+      pointer: issue.sourcePointer,
+      message: issue.message,
+      ...(issue.remediation ? { remediation: issue.remediation } : {}),
+    }));
+  const omitted = Math.max(0, compilation.issues.length - issues.length);
+  if (compilation.status !== "executable" || !compilation.recipe)
+    return { status: "blocked" as const, issues, omitted };
+  const draft = await runtime.recipes.createDraft(actor, compilation.recipe);
+  return { status: "drafted" as const, draft, issues, omitted };
 }
 
 /** The tenant's current published recipes, with what executing one needs. */

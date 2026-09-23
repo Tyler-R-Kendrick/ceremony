@@ -16,6 +16,7 @@ import {
   authoringTransportFor,
   compileDemonstrationDraft,
   executePublishedRecipe,
+  importArazzoDraft,
   importRecipeDraft,
   listPublishedRecipes,
   teachingIdentifier,
@@ -183,6 +184,21 @@ export function registerTeachingTools(
           teachingInputs.draftImport.parse(input),
         ),
     );
+    // Offered only where the host has reviewed which operations Arazzo
+    // references may mean; without that catalog every step would be unbound.
+    if (runtime.arazzoCatalog)
+      tool(
+        "ceremony_arazzo_import",
+        "Compile one workflow of an Arazzo 1.0.1 or 1.1.0 description, given as JSON text, into a recipe draft. Each step must map to an operation this server already has; source URLs are never fetched. Success criteria and retries the server can enforce are kept. Returns the draft, or the blocking issues and no draft. A draft cannot be executed until a person reviews and publishes it.",
+        teachingInputs.arazzoImport,
+        { destructiveHint: false },
+        (who, input) =>
+          importArazzoDraft(
+            runtime,
+            who,
+            teachingInputs.arazzoImport.parse(input),
+          ),
+      );
     tool(
       "ceremony_draft_edit",
       "Replace the definition of a recipe draft you authored. The revision must be the one you last read.",

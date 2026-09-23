@@ -41,10 +41,13 @@ type Behavior = {
   prepareState?: "awaiting-human";
   prepareVerified?: boolean;
   verifyVerified?: boolean;
+  /** The X-Verified header `/verify` answers with, one value per request (the last repeats). */
+  verifiedHeader?: string[];
 };
 
 async function fixture(t: TestContext, behavior: Behavior = {}) {
   const bodies: Record<string, unknown>[] = [];
+  let verifications = 0;
   const server = await startHttpFixture(async (request) => {
     const body = JSON.parse(request.body.toString() || "{}") as Record<
       string,
@@ -53,14 +56,19 @@ async function fixture(t: TestContext, behavior: Behavior = {}) {
     bodies.push({ path: request.url.pathname, ...body });
     if (request.url.pathname === "/prepare")
       return { body: { setup: "setup-1" } };
-    if (request.url.pathname === "/verify")
+    if (request.url.pathname === "/verify") {
+      const headers = behavior.verifiedHeader ?? ["true"];
+      const verified =
+        headers[Math.min(verifications++, headers.length - 1)] ?? "true";
       return {
+        headers: { "x-verified": verified },
         body: {
           account: "acct_1",
           token: "tok_secret",
           owner: "ada@example.com",
         },
       };
+    }
     if (request.url.pathname === "/finish")
       return { body: { account: "acct_1" } };
     return undefined;
@@ -483,4 +491,72 @@ test("a blocked compilation of an otherwise valid document yields a report, not 
     ["prepare"],
   );
   assert.deepEqual(f.server.requests, []);
+});
+
+/** storeWorkflow101 with the verify step's retry delay set to zero, so a test need not wait. */
+function immediateRetry() {
+  const document = storeWorkflow101();
+  const verify = (
+    (document.workflows as Record<string, unknown>[])[0]!.steps as Record<
+      string,
+      unknown
+    >[]
+  )[1]!;
+  (verify.onFailure as Record<string, unknown>[])[0]!.retryAfter = 0;
+  return document;
+}
+
+test("compiled success criteria are enforced: a response that misses them fails the step, and the declared retry runs it again", async (t) => {
+  const f = await fixture(t, { verifiedHeader: ["false", "true"] });
+  const compilation = f.compile(immediateRetry(), "connect-store");
+  assert.equal(compilation.status, "executable");
+  const { run } = await f.start(compilation, { region: "eu" });
+  await f.advance(run.id, "prepare", "c1");
+
+  // The handler verified, but `$response.header.X-Verified == 'true'` did not hold.
+  const missed = await f.advance(run.id, "verify", "c2");
+  assert.deepEqual([missed.state, missed.verified], ["failed", false]);
+  const waiting = await f.commands.snapshot(storeActor, run.id);
+  assert.equal(waiting.status, "active");
+  assert.equal(
+    JSON.stringify(waiting).includes("acct_1"),
+    false,
+    "a missed criterion publishes no outputs",
+  );
+
+  const retried = await f.advance(run.id, "verify", "c3");
+  assert.deepEqual([retried.state, retried.verified], ["complete", true]);
+  assert.equal(
+    (await f.commands.snapshot(storeActor, run.id)).status,
+    "complete",
+  );
+  assert.equal(f.requests("/verify").length, 2);
+});
+
+test("the compiled retry limit is the command service's limit", async (t) => {
+  const f = await fixture(t, { verifiedHeader: ["false"] });
+  const compilation = f.compile(immediateRetry(), "connect-store");
+  const { run } = await f.start(compilation, { region: "eu" });
+  await f.advance(run.id, "prepare", "c1");
+  // retryLimit 2: the first attempt and two retries.
+  for (const command of ["c2", "c3", "c4"])
+    assert.equal((await f.advance(run.id, "verify", command)).state, "failed");
+  await assert.rejects(f.advance(run.id, "verify", "c5"), /denied/);
+  assert.equal(f.requests("/verify").length, 3);
+  assert.equal(
+    (await f.commands.snapshot(storeActor, run.id)).status,
+    "active",
+    "the run never completes on an exhausted step",
+  );
+});
+
+test("the compiled retry delay spaces attempts", async (t) => {
+  const f = await fixture(t, { verifiedHeader: ["false", "true"] });
+  // storeWorkflow101 declares retryAfter: 1 (second).
+  const compilation = f.compile(storeWorkflow101(), "connect-store");
+  const { run } = await f.start(compilation, { region: "eu" });
+  await f.advance(run.id, "prepare", "c1");
+  assert.equal((await f.advance(run.id, "verify", "c2")).state, "failed");
+  await assert.rejects(f.advance(run.id, "verify", "c3"), /conflict/i);
+  assert.equal(f.requests("/verify").length, 1);
 });

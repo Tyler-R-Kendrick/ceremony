@@ -26,6 +26,7 @@ import { AgentCoordinator } from "./agent/coordinator.js";
 import { configuredModel, type ModelConfiguration } from "./agent/model.js";
 import type { RecipeDefinition } from "../core/recipe-contracts.js";
 import type { BrowserLoginTools } from "./browser-login-tools.js";
+import type { OperationBindingCatalogInput } from "./connectors/formats/arazzo/catalog.js";
 import {
   authoredAccountIntentKey,
   saveAuthoredAccountIntent,
@@ -121,6 +122,15 @@ export interface TeachingRuntimeOptions {
     connectorId: string,
     authored?: boolean,
   ): Promise<RunContext>;
+  /**
+   * The host's reviewed Arazzo operation-binding catalog for the actor's
+   * tenant: which document, version and registered operation each Arazzo
+   * reference means. Arazzo import is offered only when this is present; an
+   * imported description never supplies it.
+   */
+  arazzoCatalog?: (
+    actor: ActorContext,
+  ) => Promise<OperationBindingCatalogInput>;
   authoringSearch?: ProviderSearch;
   authoringFetch?: typeof fetch;
   accountStatus?: (
@@ -595,6 +605,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     cancel: options.cancel,
     selectTarget: options.selectTarget,
     browserLogin: options.browserLogin,
+    arazzoCatalog: options.arazzoCatalog,
     flushContinuations,
   };
 }
