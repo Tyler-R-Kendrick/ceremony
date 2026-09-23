@@ -929,3 +929,78 @@ test("an assistant proposes how an authored connector's credential is verified; 
     await f.store.close();
   }
 });
+
+test("the endpoint throttles each actor per tool and says when to retry", async () => {
+  const f = fixture();
+  try {
+    let at = 5_000_000;
+    const mcp = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: (token) => byToken(token),
+      rateLimit: {
+        capacity: 2,
+        refillPerSecond: 0.1,
+        tools: { ceremony_recipes: { capacity: 1 } },
+        now: () => at,
+      },
+    });
+    await call(mcp, "executor", initialize);
+    for (let i = 0; i < 2; i++)
+      assert.equal(
+        (await invoke(mcp, "executor", "ceremony_connectors")).isError,
+        false,
+      );
+    const refused = await rpc<
+      ToolResult & { structuredContent?: Record<string, unknown> }
+    >(mcp, "executor", "tools/call", {
+      name: "ceremony_connectors",
+      arguments: {},
+    });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(refused.structuredContent, {
+      error: "rate-limited",
+      tool: "ceremony_connectors",
+      retryAfterSeconds: 10,
+    });
+    assert.equal(JSON.parse(refused.content[0]!.text).error, "rate-limited");
+
+    // Another tool, and another actor, have their own budgets; a per-tool
+    // override applies to its tool.
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_recipes")).isError,
+      false,
+    );
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_recipes")).isError,
+      true,
+    );
+    await call(mcp, "author", initialize);
+    assert.equal(
+      (await invoke(mcp, "author", "ceremony_connectors")).isError,
+      false,
+    );
+
+    // The budget outlives the per-request server, and refills with time.
+    at += 10_000;
+    assert.equal(
+      (await invoke(mcp, "executor", "ceremony_connectors")).isError,
+      false,
+    );
+
+    // A host that throttles in front of the endpoint can turn it off.
+    const open = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: (token) => byToken(token),
+      rateLimit: false,
+    });
+    for (let i = 0; i < 40; i++)
+      assert.equal(
+        (await invoke(open, "executor", "ceremony_connectors")).isError,
+        false,
+      );
+  } finally {
+    await f.store.close();
+  }
+});

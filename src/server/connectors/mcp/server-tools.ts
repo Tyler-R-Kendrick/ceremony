@@ -13,7 +13,7 @@ import { explainConnectorError } from "../errors.js";
 /*
  * Connector tools on the existing Ceremony MCP server.
  *
- * These tools are added beside the five that were already there; nothing
+ * These tools are added beside the ceremony tools already there; nothing
  * about those changes. They obey the same two rules as the rest of that file:
  * the actor comes from the host's `authenticate` path and never from an
  * argument, and nothing a model can read carries a credential, a destination,
@@ -203,8 +203,8 @@ function refusal(message: string) {
 }
 
 /**
- * Registers the connector tools on an existing server. The five ceremony
- * tools are untouched; this only adds.
+ * Registers the connector tools on an existing server. The ceremony tools
+ * are untouched; this only adds.
  */
 export function registerConnectorServerTools(
   server: McpServer,

@@ -28,6 +28,11 @@ import {
 import { registerAgentConnectorTools } from "./connectors/agents/mcp-intents.js";
 import type { AgentConnectorDependencies } from "./connectors/agents/intents.js";
 import type { ConnectorToolDependencies } from "./connectors/mcp/server-tools.js";
+import {
+  createMcpRateLimiter,
+  rateLimitedResult,
+  type McpRateLimitOptions,
+} from "./mcp-rate-limit.js";
 import type { CeremonyController } from "./controller.js";
 import type { CeremonyDatabase } from "./storage.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
@@ -79,9 +84,12 @@ export interface CeremonyMcpOptions {
   };
   /**
    * Connector operations, when this deployment offers them. Supplying this
-   * adds four tools beside the five above; leaving it out changes nothing.
-   * The service behind it receives the authenticated actor and re-checks
-   * capability, ownership and policy itself.
+   * adds `connector_catalog`, `connector_status`, `connector_connect` and
+   * `connector_invoke`, plus `connector_verify` and
+   * `connector_revoke_request` when it supplies `verify` and
+   * `requestRevocation`, beside the ceremony tools; leaving it out changes
+   * nothing. The service behind it receives the authenticated actor and
+   * re-checks capability, ownership and policy itself.
    */
   connectors?: ConnectorToolDependencies;
   /**
@@ -91,6 +99,12 @@ export interface CeremonyMcpOptions {
    * changes nothing.
    */
   connectorIntents?: AgentConnectorDependencies;
+  /**
+   * Per-actor, per-tool call budget (`mcp-rate-limit.ts`). On by default
+   * with `defaultMcpBucketPolicy`; pass policy overrides, per tool if need
+   * be, or `false` to leave throttling to something in front of this.
+   */
+  rateLimit?: McpRateLimitOptions | false;
   serverName?: string;
   serverVersion?: string;
   onerror?(error: Error): void;
@@ -190,6 +204,12 @@ export function createCeremonyMcpHandler(
     collectorOrigins.brokerOrigin.startsWith("https://") &&
     collectorOrigins.appOrigin.startsWith("https://"),
   );
+  // One limiter per endpoint, shared by every request's server, so the
+  // budget survives the per-request `build` below.
+  const limiter =
+    options.rateLimit === false
+      ? undefined
+      : createMcpRateLimiter(options.rateLimit ?? {});
 
   function build(context: McpRequestContext): McpServer {
     const actor = (context.authInfo as CeremonyAuthInfo | undefined)?.extra
@@ -198,6 +218,27 @@ export function createCeremonyMcpHandler(
       name: options.serverName ?? "ceremony",
       version: options.serverVersion ?? "1.0.0",
     });
+    // Every tool, whichever module registers it (the connector tools, the
+    // intents, the collector's app tools), is registered through this
+    // server, so the budget is enforced once here rather than in each.
+    if (limiter && actor) {
+      const register = server.registerTool.bind(server);
+      server.registerTool = ((
+        name: string,
+        config: unknown,
+        handler: (...args: unknown[]) => unknown,
+      ) =>
+        register(
+          name,
+          config as never,
+          (async (...args: unknown[]) => {
+            const decision = limiter.take(actor, name);
+            if (!decision.allowed)
+              return rateLimitedResult(name, decision.retryAfterSeconds);
+            return await handler(...args);
+          }) as never,
+        )) as typeof server.registerTool;
+    }
     const run = async (
       operate: (actor: ActorContext) => Promise<unknown>,
       wording?: RefusalWording,

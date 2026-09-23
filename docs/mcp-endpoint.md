@@ -54,6 +54,12 @@ Ceremony runs work the same way. When a node of a run waits on a person, `ceremo
 
 A binding's reviewer can approve `agentOutputConsent: "personal"` alongside the binding's operations. Only a human actor can set it; an assistant with reviewer capability is refused (`consent.human-only`). The consent becomes part of the binding revision and its reviewed digest, so a connection keeps the consent its binding was approved with. The default connector policy then lets an assistant invoke operations classified personal on that binding and read their output, and the result says `agentOutputConsent: "personal"`. Secret-classified output has no consent: the service withholds it from an assistant whatever a custom policy returns, and the MCP tool withholds it again.
 
+## How often a client may call
+
+Every tool call is budgeted per actor and per tool (`src/server/mcp-rate-limit.ts`): each (tenant, subject, tool) has a token bucket of 30 calls that refills at one call every two seconds. It is keyed on the subject, not the session, so a person's several chat clients share one allowance. A call over budget is not run; it answers a tool error whose structured content is `{ "error": "rate-limited", "tool": "<name>", "retryAfterSeconds": <n> }` (the text content carries the same JSON plus a sentence), so a model can wait rather than retry blindly. The budget is enforced where tools are registered, so it covers every tool the endpoint offers, including the connector tools, the intents and the collector's app tools.
+
+A host sets it with `rateLimit` on `createCeremonyMcpHandler`: `capacity` and `refillPerSecond` for every tool, `tools` for per-tool overrides by name, `now` for an injected clock, and `maxBuckets` (default 10 000; the least recently used bucket is forgotten first). `rateLimit: false` turns it off for a host that throttles in front of the endpoint. The buckets live in the process: this paces a model, it is not a durable quota, and a restart or a second instance starts fresh. The browser routes' store-backed `reserveRequest` budgets and the connector service's own limits are unchanged, and still apply behind the tools that reach them. The hosted endpoint uses the defaults.
+
 ## What authenticates a chat client
 
 The browser is authenticated by a cookie over an OIDC code flow. A chat client is authenticated by an access token, validated against the issuer's published keys and required to name this MCP endpoint as its audience. Both end at the same `ActorContext`, so capabilities, ownership and delegation are enforced once.
