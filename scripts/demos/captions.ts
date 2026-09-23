@@ -12,7 +12,8 @@
  */
 
 /** Who did the thing on screen. */
-export type Actor = "agent" | "person" | "provider" | "inbox" | "driver";
+export type Actor =
+  "agent" | "person" | "provider" | "inbox" | "driver" | "replay";
 
 /** A step in a ceremony, as a viewer would name it. */
 export const phases = [
@@ -130,7 +131,11 @@ export type CaptionEvent =
         | "subject-matches"
         | "replay-refused";
     }
-  | { kind: "step"; index: number; total: number; phase: Phase };
+  | { kind: "step"; index: number; total: number; phase: Phase }
+  | {
+      kind: "recording";
+      stage: "capturing" | "compiled" | "replaying" | "replayed";
+    };
 
 const connectorLines: Record<string, string> = {
   request: "Connector: authorization request, PKCE S256",
@@ -141,12 +146,20 @@ const connectorLines: Record<string, string> = {
   "replay-refused": "Verified: same code refused on replay ✓",
 };
 
+const recordingLines: Record<string, string> = {
+  capturing: "Recording: applied steps kept, values dropped",
+  compiled: "Recording compiled: value-free, ready to publish",
+  replaying: "Replay: the recording drives, no model is asked",
+  replayed: "Replay finished with zero interpreter calls ✓",
+};
+
 const actorNames: Record<Actor, string> = {
   agent: "Agent",
   person: "Person",
   provider: "Provider",
   inbox: "Agent inbox",
   driver: "Driver",
+  replay: "Replay",
 };
 
 /**
@@ -273,6 +286,8 @@ export function caption(event: CaptionEvent): string {
           ? "Handoff: consent approved"
           : "Handoff: a person is asked to act",
       );
+    case "recording":
+      return bounded(recordingLines[event.stage] ?? "Recording: working");
     case "connector":
       return bounded(connectorLines[event.stage] ?? "Connector: working");
     case "step": {

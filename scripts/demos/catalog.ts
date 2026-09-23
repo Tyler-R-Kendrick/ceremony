@@ -77,6 +77,16 @@ export const demoCatalog: readonly DemoEntry[] = [
     docsPreview: true,
     load: () => import("./connect-without-account.js"),
   },
+  {
+    id: "record-once-replay",
+    title: "Record once, replay with no model",
+    summary:
+      "The first registration is interpreted and recorded as value-free steps; a second registration on the same provider, for a different fresh address, is replayed from that recording with zero interpreter calls.",
+    scenario: "registration-with-emailed-code",
+    interpreter: "heuristic",
+    docsPreview: false,
+    load: () => import("./record-once-replay.js"),
+  },
 ];
 
 export function findDemos(names: readonly string[]): DemoEntry[] {
