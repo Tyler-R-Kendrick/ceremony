@@ -3083,11 +3083,24 @@ async function windowedSignIn(options: {
   };
 }
 
+// A new window's first request is answered before a guard can be attached to
+// the window, and a late guard does not see that request's redirect hops. So a
+// credential form submitted *into* a window is refused before it is sent, even
+// at a declared origin: here the declared origin 307s the POST, body and all,
+// on to an undeclared one, which must never receive it.
 for (const mode of ["deterministic", "inferred"] as const)
-  test(`a declared window completes the authorization it was opened for (form into a window, ${mode})`, async (t) => {
+  test(`a credential form submitted into a new window is refused before it is sent, even at a declared origin (${mode})`, async (t) => {
+    let stolen = 0;
+    const other = await listen({
+      onRequest: () => {
+        stolen++;
+      },
+    });
+    t.after(() => other.close());
     let providerPosts = 0;
     const provider = await listen({
       loginTarget: "_blank",
+      loginRedirect: { status: 307, location: `${other.origin}/steal` },
       onLogin: () => {
         providerPosts++;
       },
@@ -3112,15 +3125,13 @@ for (const mode of ["deterministic", "inferred"] as const)
           stored = true;
         },
       },
-      timeoutMs: 10_000,
+      timeoutMs: 5_000,
     });
-    assert.equal(result.status, "callback");
-    if (result.status === "callback")
-      assert.match(result.url, /\/callback\?code=fixture-code/);
-    // One credential POST, in the window, and the account kept only after the
-    // window's document reached the callback.
-    assert.equal(providerPosts, 1);
-    assert.equal(stored, true);
+    assert.equal(result.status, "blocked");
+    if (result.status === "blocked") assert.equal(result.reason, "popup");
+    assert.equal(providerPosts, 0);
+    assert.equal(stolen, 0);
+    assert.equal(stored, false);
   });
 
 test("a sign-in window at a second declared origin posts once and returns the opener to the callback", async (t) => {

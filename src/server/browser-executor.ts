@@ -51,8 +51,10 @@ export type AuthorizationBrowserInput = {
   allowedOrigins: string[];
   /**
    * Origins at which a window the provider page opens is where this
-   * authorization continues - a "Sign in with ..." button that opens one, or
-   * a form that submits into one. Each must already be one of
+   * authorization continues - a "Sign in with ..." button that opens one.
+   * A window's first request may only load it (a bare GET or HEAD): a form
+   * submitted into a new window is refused, because nothing can see that
+   * request's redirects. Each must already be one of
    * `allowedOrigins` (or the redirect origin): declaring a window is a
    * statement about *where* the login continues, never a widening of where
    * it may go, and a declaration outside them is refused before a browser
@@ -1658,6 +1660,8 @@ export function createAuthorizationBrowser(
       const admitted = new Set<string>();
       /** Each reported window's guard, awaited before it is ever driven. */
       const guards = new Map<Page, Promise<boolean>>();
+      /** Windows whose document guard is in place. */
+      const guarded = new Set<Page>();
       let guardWindow: (window: Page) => Promise<boolean> = async () => false;
       try {
         // Observe an explicit WebAuthn request without reading credentials or replacing its result.
@@ -1708,9 +1712,37 @@ export function createAuthorizationBrowser(
             const foreign =
               request.isNavigationRequest() &&
               (!frame || (!frame.parentFrame() && frame.page() !== page));
+            const privateIn = (text: string) =>
+              [...privateValues].filter(
+                (value) =>
+                  value &&
+                  [
+                    value,
+                    encodeURIComponent(value),
+                    JSON.stringify(value).slice(1, -1),
+                    new URLSearchParams({ v: value }).toString().slice(2),
+                  ].some((encoded) => text.includes(encoded)),
+              );
+            /**
+             * A window's redirect hops are visible only to a guard attached to
+             * that window, and one can be attached only once Playwright has
+             * reported the window - by which time its first request is already
+             * on its way. A late guard does not see that request's redirects
+             * (a 307 carries a POST body on to wherever it points), so until a
+             * window is guarded it may only load: a bare GET or HEAD with no
+             * private value in its URL. Anything else - a form submitted into
+             * a new window, credentials in a query - is refused before it is
+             * sent, whatever origin it names.
+             */
+            const unguarded =
+              foreign &&
+              !(frame && guarded.has(frame.page())) &&
+              (!["GET", "HEAD"].includes(request.method()) ||
+                privateIn(request.url()).length > 0);
             if (
               foreign &&
-              !(tracker && popupOrigins.includes(originOf(request.url())))
+              (unguarded ||
+                !(tracker && popupOrigins.includes(originOf(request.url()))))
             ) {
               popupBlocked = true;
               await route.abort("blockedbyclient");
@@ -1718,18 +1750,7 @@ export function createAuthorizationBrowser(
             } else {
               if (foreign) windowPending = true;
               const body = request.postData();
-              const values = body
-                ? [...privateValues].filter(
-                    (value) =>
-                      value &&
-                      [
-                        value,
-                        encodeURIComponent(value),
-                        JSON.stringify(value).slice(1, -1),
-                        new URLSearchParams({ v: value }).toString().slice(2),
-                      ].some((encoded) => body.includes(encoded)),
-                  )
-                : [];
+              const values = body ? privateIn(body) : [];
               if (
                 (frame === page.mainFrame() || (tracker && topLevel)) &&
                 !["GET", "HEAD"].includes(request.method()) &&
@@ -1893,6 +1914,7 @@ export function createAuthorizationBrowser(
           const { frameTree: tree } = await cdp.send("Page.getFrameTree");
           await guardDocuments(cdp, tree.frame.id);
           admitted.add(opened.targetId);
+          guarded.add(window);
           return true;
         };
       } catch {
