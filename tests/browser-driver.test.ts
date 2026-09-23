@@ -1683,6 +1683,52 @@ test("the heuristic presses 'Generate' as a way forward, once per document", asy
   );
 });
 
+test("the heuristic presses 'Generate' only to obtain a credential, and never one that replaces or removes one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const settings = (text: string) =>
+    snapshot({
+      path: "https://provider.example/settings/security",
+      title: "Security",
+      headings: ["Security"],
+      elements: [{ index: 0, kind: "button", text }],
+    });
+  // Signing in, a page whose only button generates something is not a way
+  // forward: on a real provider it replaces what the person already has.
+  for (const text of ["Generate new recovery codes", "Regenerate token"])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "sign-in",
+          available: ["password"],
+          history: [],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
+  // Even to obtain a credential, one that revokes or replaces an existing
+  // one is never pressed.
+  for (const text of [
+    "Regenerate token",
+    "Revoke token",
+    "Reset client secret",
+    "Delete application",
+  ])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "obtain-credential",
+          available: [],
+          history: [{ action: "fill", path: settings(text).path }],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
+});
+
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
   const interpret = createHeuristicInterpreter();
   assert.deepEqual(
@@ -3046,6 +3092,24 @@ test("ISSUED-UNREAD: a completion claim is refused while a declared value is sti
   assert.equal(kept, 0);
 });
 
+test("ISSUED-UNREAD: a callback does not complete the attempt while a declared value is still unread", async () => {
+  const result = await runCeremony({
+    page: inertPage("https://host.example/callback?code=canary-code-1&state=s"),
+    interpreter: async () => ({ action: "done" }),
+    goal: "obtain-credential",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    redirectUri: "https://host.example/callback",
+    issued: {
+      fields: issuedFields,
+      keep: async () => assert.fail("nothing was shown to keep"),
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "unverified");
+  assert.equal(JSON.stringify(result).includes("canary-code-1"), false);
+});
+
 test("ISSUED-AMBIGUOUS: a label that matches two fields identifies neither, and nothing is kept", async () => {
   const page = issuingPage({ duplicateSecret: true });
   let kept = 0;
@@ -3134,6 +3198,79 @@ test("ISSUED-STALE: a read the adapter refuses takes nothing, and undeclared fie
   });
   assert.equal(plain.status, "completed");
   assert.deepEqual(undeclared.reads, []);
+});
+
+test("ISSUED-TYPED: a read-only field showing a value the driver typed is never kept as an issued one", async () => {
+  const password = "hunter2-typed-pass";
+  // Each field that displays something the driver typed: the password itself,
+  // and a longer value with the password inside it.
+  for (const echoed of [
+    { "client-id": issuedClientId, "client-secret": password },
+    { "client-id": `id-${password}`, "client-secret": issuedCanary },
+  ]) {
+    let signedIn = false;
+    const page: CeremonyPage = {
+      ...inertPage(),
+      snapshot: async () =>
+        signedIn
+          ? snapshot({
+              path: "https://provider.example/settings/developers/oauth-apps/1",
+              headings: ["Example app"],
+              elements: [
+                {
+                  index: 0,
+                  kind: "input",
+                  type: "text",
+                  label: "Client ID",
+                  filled: true,
+                },
+                {
+                  index: 1,
+                  kind: "input",
+                  type: "text",
+                  label: "Client secret",
+                  filled: true,
+                },
+              ],
+            })
+          : snapshot(),
+      click: async (element) => {
+        if (element.text === "Sign in") signedIn = true;
+      },
+      readIssued: async (element) =>
+        element.label === "Client ID"
+          ? echoed["client-id"]
+          : element.label === "Client secret"
+            ? echoed["client-secret"]
+            : undefined,
+    };
+    let filled = false;
+    const result = await runCeremony({
+      page,
+      interpreter: async ({ snapshot: current }) => {
+        const signIn = current.elements.find((e) => e.text === "Sign in");
+        if (!signIn) return { action: "done" };
+        if (!filled) {
+          filled = true;
+          return { action: "fill", element: 1, role: "password" };
+        }
+        return { action: "click", element: signIn.index };
+      },
+      goal: "obtain-credential",
+      secrets: createSecrets({ password }),
+      allowedOrigins: ["https://provider.example"],
+      issued: {
+        fields: issuedFields,
+        keep: async () => assert.fail("a typed value may not be kept"),
+      },
+      verify: async () => true,
+    });
+    assert.equal(result.status, "unverified");
+    assert.equal(
+      result.transcript.some((step) => step.action === "kept"),
+      false,
+    );
+  }
 });
 
 test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on the observed document", async () => {
