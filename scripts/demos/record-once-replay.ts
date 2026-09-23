@@ -238,6 +238,8 @@ export async function record(session: DemoSession) {
           });
         else if (step.action === "click")
           session.say({ kind: "click", actor: "replay", control: "button" });
+        else if (step.action === "check")
+          session.say({ kind: "check", actor: "replay" });
       },
     });
     session.checkFills(replayed);
