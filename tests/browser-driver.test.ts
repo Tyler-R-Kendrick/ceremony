@@ -1385,6 +1385,53 @@ test("the heuristic fills a conditional-UI identifier but never presses a passke
   );
 });
 
+test("the heuristic presses 'Generate' as a way forward, once per document", async () => {
+  const interpret = createHeuristicInterpreter();
+  const page = snapshot({
+    path: "https://provider.example/settings/developers/oauth-apps/1",
+    title: "Example app",
+    headings: ["Example app", "Client secrets"],
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        label: "Client ID",
+        filled: true,
+      },
+      { index: 1, kind: "button", text: "Copy" },
+      { index: 2, kind: "button", text: "Generate a new client secret" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "obtain-credential",
+      available: [],
+      history: [],
+      snapshot: page,
+    }),
+    { action: "click", element: 2, note: "Generate a new client secret" },
+  );
+  // Pressed here already: a second secret is not generated on a loop.
+  assert.notEqual(
+    (
+      await interpret({
+        goal: "obtain-credential",
+        available: [],
+        history: [
+          {
+            action: "click",
+            note: "Generate a new client secret",
+            path: page.path,
+          },
+        ],
+        snapshot: page,
+      })
+    )?.action,
+    "click",
+  );
+});
+
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
   const interpret = createHeuristicInterpreter();
   assert.deepEqual(

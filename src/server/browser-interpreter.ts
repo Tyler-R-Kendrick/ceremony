@@ -216,7 +216,7 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   };
 
   const forward =
-    /continue|submit|sign in|log in|sign up|join|register|create|next|confirm|verify|approve|authorize|allow|grant|accept|agree|get started|finish|done/;
+    /continue|submit|sign in|log in|sign up|join|register|create|generate|next|confirm|verify|approve|authorize|allow|grant|accept|agree|get started|finish|done/;
   /**
    * Controls that never move a ceremony forward, whatever else they say:
    * pressing "Resend confirmation" or "Deny" is a wrong answer, not a slower
