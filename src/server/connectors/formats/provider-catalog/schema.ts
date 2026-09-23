@@ -319,6 +319,11 @@ function authSchema(options: ParseOptions) {
        */
       issuer: url.optional(),
       /**
+       * Where the issuer publishes its signing keys, when that is not on the
+       * issuer's origin. Needed only for `openid`; discovery must agree.
+       */
+      jwksUrl: url.optional(),
+      /**
        * Whether the provider is known to verify PKCE. S256 is sent either way
        * (RFC 9700); this records what the provider enforces, for review.
        */
@@ -476,6 +481,9 @@ export function entrySchemaFor(options: ParseOptions = {}) {
         );
         if (auth.issuer && referencedFields(auth.issuer).fields.length)
           fail("catalog.issuer.templated");
+        // Keys decide whose identity an ID token proves: never per connection.
+        if (auth.jwksUrl && referencedFields(auth.jwksUrl).fields.length)
+          fail("catalog.jwks.templated");
       }
       if (auth.mode === "oauth2-client-credentials") {
         urls.push(auth.tokenUrl);

@@ -72,6 +72,8 @@ They are host configuration read by name: `<ID>_CLIENT_ID` and
   host labels under at least two fixed labels, and must be a DNS label; it can
   pick the tenant of `tenant-desk.example`, never another domain. Path and
   parameter values must be single URL tokens.
+- A templated `issuer` or `jwksUrl`: whose keys verify an account is never
+  chosen per connection.
 - Userinfo, fragments, `..`, `//` or encoded slashes in a path, parameters
   the OAuth engine owns (`redirect_uri`, `state`, `scope` ...), and default
   headers the transport or auth mode owns (`authorization`, `cookie`, `host`
@@ -160,6 +162,22 @@ from Nango.
 - Not described by the format: OAuth 1.0a, request signing, app installations,
   custom multi-step flows, webhooks, pagination and retries, extra refresh
   parameters, and upstream revocation.
-- The `openid` scope is refused for catalog providers: an ID token would name
-  the account, and without discovery there are no published keys to verify
-  it against.
+- The `openid` scope is accepted only for an authorization-code entry that
+  names its `issuer` and uses the space scope separator; otherwise it is
+  refused (`catalog.scope.openid`, `catalog.scope.openid-separator`). An ID
+  token names the account, so an `openid` authorization reads the issuer's
+  metadata (RFC 8414 or OpenID Connect discovery, through the same approved
+  fetch and its egress, size and time limits). The document's `issuer` must
+  equal the entry's byte for byte, every endpoint it publishes must equal the
+  one the entry declares, and its `jwks_uri` must sit on the issuer's origin
+  or equal the entry's optional `jwksUrl`; an issuer that publishes no keys is
+  refused before the person is sent anywhere (`catalog.oidc.jwks-missing`).
+  The engine then sends a nonce and verifies the ID token's signature against
+  the published keys (ES256, RS256 and the other asymmetric algorithms
+  oauth4webapi supports; never HMAC), its issuer, audience, `exp` (30 second
+  tolerance), `iat` (no more than a minute ahead) and nonce. Only the verified
+  subject leaves the engine, as the connection's account identity; the ID
+  token and its other claims are neither stored nor projected. Without
+  `openid`, an entry is used exactly as reviewed and nothing is discovered.
+  Evidence is the loopback fixture issuer in
+  `tests/connectors/provider-catalog/oidc.test.ts`, not a live provider.
