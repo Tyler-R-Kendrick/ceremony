@@ -25,10 +25,49 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-23",
   },
   {
+    adapterId: "a2a",
+    check: "tests/connectors/a2a/card.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes:
+      "Agent card import and version handling; recorded as a fixture check because it asserts the imported description rather than a served exchange.",
+  },
+  {
+    adapterId: "a2a",
+    check: "tests/connectors/a2a/delegate.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Delegation on the 1.0 wire: start, status, cancel and owner-bound task references, through the adapter with the platform fetch against the loopback A2A agent double (tests/connectors/doubles/a2a-agent.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "a2a",
+    check: "tests/connectors/a2a/security.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, verify, delegate, disconnect and revoke, with artifact URLs described and never fetched, through the adapter with the platform fetch against the loopback A2A agent double, which checks each request independently.",
+  },
+  {
     adapterId: "airbyte",
     check: "ledger:DATA/DATA-01",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "airbyte",
+    check: "tests/connectors/airbyte/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Discover, import, verify, delegate sync jobs and disconnect, through the adapter with the platform fetch against the loopback Airbyte API double (tests/connectors/doubles/airbyte-api.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "airbyte",
+    check: "tests/connectors/airbyte/catalog.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Connector catalog reading from in-process fixture documents.",
   },
   {
     adapterId: "auth0-token-vault",
@@ -41,6 +80,30 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     check: "ledger:IDENTITY-BROKERS/IB-04",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "auth0-token-vault",
+    check: "tests/connectors/auth0/exchange.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Federated token exchange and its failure modes, through the adapter with the platform fetch against the loopback Token Vault double, which checks each request independently.",
+  },
+  {
+    adapterId: "auth0-token-vault",
+    check: "tests/connectors/auth0/lifecycle.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Verify, token exchange on invoke, reconnect, expiry, disconnect and revoke mapping, through the adapter with the platform fetch against the loopback Token Vault double (tests/connectors/doubles/auth0-token-vault.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "auth0-token-vault",
+    check: "tests/connectors/auth0/linking.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Account-linking authorize, complete and verify, through the adapter with the platform fetch against the loopback Token Vault double, which checks each request independently.",
   },
   {
     adapterId: "aws-agentcore-gateway",
@@ -67,6 +130,21 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "aws-agentcore-gateway",
+    check: "tests/connectors/aws-agentcore/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Discover, import, authorize, verify, invoke and disconnect, through the adapter with the platform fetch against the loopback AgentCore control-plane and gateway MCP double (tests/connectors/doubles/aws-agentcore.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "aws-agentcore-gateway",
+    check: "tests/connectors/aws-agentcore/sigv4.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "SigV4 request signing against published test vectors, in process.",
+  },
+  {
     adapterId: "camel-kamelet",
     check: "ledger:BINDINGS/BIND-01",
     target: "in-process-fixture",
@@ -77,6 +155,21 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     check: "ledger:BINDINGS/BIND-04",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "camel-kamelet",
+    check: "tests/connectors/camel-kamelet/import.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Kamelet import from in-process fixture documents.",
+  },
+  {
+    adapterId: "camel-kamelet",
+    check: "tests/connectors/camel-kamelet/runner.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Host-signed delegation of a run descriptor, verified independently by the runner; invoke and export, through the adapter with the platform fetch against the loopback remote Camel runner double (tests/connectors/doubles/camel-runner.ts), which checks each request independently.",
   },
   {
     adapterId: "catalog-http",
@@ -149,16 +242,78 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "composio",
+    check: "tests/connectors/composio/authorize.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Composio double (tests/connectors/doubles/composio.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "composio",
+    check: "tests/connectors/composio/execute.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Tool execution on invoke, through the adapter with the platform fetch against the loopback Composio double, which checks each request independently.",
+  },
+  {
+    adapterId: "composio",
+    check: "tests/connectors/composio/lifecycle.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Verify, disconnect and revoke, through the adapter with the platform fetch against the loopback Composio double, which checks each request independently.",
+  },
+  {
     adapterId: "dapr",
     check: "ledger:BINDINGS/BIND-02",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "dapr",
+    check: "tests/connectors/dapr/events.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Input-binding event verification, through the adapter with the platform fetch against the loopback Dapr sidecar double, which checks each request independently.",
+  },
+  {
+    adapterId: "dapr",
+    check: "tests/connectors/dapr/import.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Component manifest import, in process.",
+  },
+  {
+    adapterId: "dapr",
+    check: "tests/connectors/dapr/invoke.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Output-binding invocation bounded by destination, component, operation and metadata; disconnect, through the adapter with the platform fetch against the loopback Dapr sidecar double (tests/connectors/doubles/dapr-sidecar.ts), which checks each request independently.",
+  },
+  {
     adapterId: "docker-mcp-catalog",
     check: "ledger:CATALOGS/CAT-03",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "docker-mcp-catalog",
+    check: "tests/connectors/docker-mcp/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Paged discovery with provenance, import and export; local execution reported unavailable, through the adapter with the platform fetch against the loopback catalog double (tests/connectors/doubles/http-fixture.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "docker-mcp-catalog",
+    check: "tests/connectors/docker-mcp/catalog.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Catalog entry reading from in-process fixture documents.",
   },
   {
     adapterId: "google-integration-connectors",
@@ -179,10 +334,42 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "google-integration-connectors",
+    check: "tests/connectors/google-integration-connectors/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, verify, discover, import, invoke and disconnect, through the adapter with the platform fetch against the loopback Integration Connectors double (tests/connectors/doubles/google-connectors.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "google-integration-connectors",
+    check: "tests/connectors/google-integration-connectors/client.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "The discovery-document client and its paging, through the adapter with the platform fetch against the loopback Integration Connectors double, which checks each request independently.",
+  },
+  {
     adapterId: "hasura-ndc",
     check: "ledger:DATA/DATA-02",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "hasura-ndc",
+    check: "tests/connectors/hasura-ndc/discover.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Import from the served /capabilities and /schema endpoints and the compatibility decision, through the adapter with the platform fetch against the loopback NDC connector double, which checks each request independently.",
+  },
+  {
+    adapterId: "hasura-ndc",
+    check: "tests/connectors/hasura-ndc/policy.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Query and mutation invocation and verification held to the specification and the binding, through the adapter with the platform fetch against the loopback NDC connector double (tests/connectors/doubles/ndc-connector.ts), which checks each request independently.",
   },
   {
     adapterId: "mcp-registry",
@@ -227,6 +414,21 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "mcp-registry",
+    check: "tests/connectors/registry-mcp/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Discovery, byte import with provenance and export, through the adapter with the platform fetch against the loopback MCP registry double (tests/connectors/doubles/mcp-registry.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "mcp-registry",
+    check: "tests/connectors/registry-mcp/import.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "server.json import from in-process fixture documents.",
+  },
+  {
     adapterId: "mcp-remote",
     check: "ledger:MCP/MCP-01",
     target: "in-process-fixture",
@@ -263,10 +465,57 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "mcp-remote",
+    check: "tests/connectors/mcp/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Invoke, verify, disconnect and revoke through the adapter over real HTTP to a fixture MCP server running as its own process (tests/connectors/doubles/mcp-servers).",
+  },
+  {
+    adapterId: "mcp-remote",
+    check: "tests/connectors/mcp/current-profile.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Discovery on the current protocol profile against the fixture MCP server process over loopback HTTP.",
+  },
+  {
+    adapterId: "mcp-remote",
+    check: "tests/connectors/mcp/oauth.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorization code with PKCE, authorize and complete, through the adapter with the platform fetch against the loopback authorization server double (tests/connectors/doubles/authorization-server.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "mcp-remote",
+    check: "tests/connectors/mcp/wire.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "JSON-RPC framing and message bounds, in process.",
+  },
+  {
     adapterId: "merge",
     check: "ledger:DATA/DATA-03",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "merge",
+    check: "tests/connectors/merge/adapter-boundaries.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Header rules, destinations, reconnect and refusal before submission, through the adapter with the platform fetch against the loopback Merge API double, which checks each request independently.",
+  },
+  {
+    adapterId: "merge",
+    check: "tests/connectors/merge/adapter.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Link-token authorize and complete, verify, discover, invoke, delegate and disconnect, through the adapter with the platform fetch against the loopback Merge API double (tests/connectors/doubles/merge-api.ts), which checks each request independently.",
   },
   {
     adapterId: "microsoft-custom-connector",
@@ -305,6 +554,29 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "microsoft-custom-connector",
+    check: "tests/connectors/microsoft/dynamic.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Approved dynamic value and schema lookups on invoke, through the adapter with the platform fetch against the loopback connector API double (tests/connectors/doubles/http-fixture.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "microsoft-custom-connector",
+    check: "tests/connectors/microsoft/import.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Custom connector import from in-process fixture documents.",
+  },
+  {
+    adapterId: "microsoft-custom-connector",
+    check: "tests/connectors/microsoft/verify.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "The declared connection test as credential-accepted evidence only, through the adapter with the platform fetch against the loopback connector API double, which checks each request independently.",
+  },
+  {
     adapterId: "nango",
     check: "ledger:NANGO/NG-01",
     target: "in-process-fixture",
@@ -341,10 +613,50 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "nango",
+    check: "tests/connectors/nango/invoke.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Proxy invocation, through the adapter with the platform fetch against the loopback Nango double, which checks each request independently.",
+  },
+  {
+    adapterId: "nango",
+    check: "tests/connectors/nango/sessions.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Connect-session authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Nango double (tests/connectors/doubles/nango.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "nango",
+    check: "tests/connectors/nango/syncs.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Sync delegation, disconnect and revoke, through the adapter with the platform fetch against the loopback Nango double, which checks each request independently.",
+  },
+  {
     adapterId: "open-service-broker",
     check: "ledger:BINDINGS/BIND-03",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "open-service-broker",
+    check: "tests/connectors/open-service-broker/catalog.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Catalog discovery and version negotiation, through the adapter with the platform fetch against the loopback service broker double, which checks each request independently.",
+  },
+  {
+    adapterId: "open-service-broker",
+    check: "tests/connectors/open-service-broker/inspection.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Catalog discovery, instance and binding inspection, verify and disconnect, with no provisioning request sent, through the adapter with the platform fetch against the loopback service broker double (tests/connectors/doubles/service-broker.ts), which checks each request independently.",
   },
   {
     adapterId: "openapi-http",
@@ -425,10 +737,49 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "pipedream-connect",
+    check: "tests/connectors/pipedream/authorize.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Connect-token authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Pipedream Connect double (tests/connectors/doubles/pipedream.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "pipedream-connect",
+    check: "tests/connectors/pipedream/invoke.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Action and proxy invocation, through the adapter with the platform fetch against the loopback Pipedream Connect double, which checks each request independently.",
+  },
+  {
+    adapterId: "pipedream-connect",
+    check: "tests/connectors/pipedream/triggers.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Trigger deployment, verification, disconnect and revoke, through the adapter with the platform fetch against the loopback Pipedream Connect double, which checks each request independently.",
+  },
+  {
     adapterId: "pulsemcp",
     check: "ledger:CATALOGS/CAT-04",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "pulsemcp",
+    check: "tests/connectors/pulsemcp/discovery.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Native and sub-registry paging, discovery and import, through the adapter with the platform fetch against the loopback PulseMCP double (tests/connectors/doubles/pulsemcp.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "pulsemcp",
+    check: "tests/connectors/pulsemcp/equivalence.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes: "Listing equivalence rules, in process.",
   },
   {
     adapterId: "smithery-registry",
@@ -443,12 +794,28 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "smithery-registry",
+    check: "tests/connectors/smithery/registry.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Registry discovery and import, through the adapter with the platform fetch against the loopback Smithery double, which checks each request independently.",
+  },
+  {
     adapterId: "smithery",
     check: "ledger:CATALOGS/CAT-02",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "smithery",
+    check: "tests/connectors/smithery/connections.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, verify, invoke, disconnect and revoke of a namespace connection, through the adapter with the platform fetch against the loopback Smithery double (tests/connectors/doubles/smithery.ts), which checks each request independently.",
+  },
+  {
     adapterId: "supabase-data-api",
     check: "ledger:SUPABASE/SB-01",
     target: "in-process-fixture",
@@ -479,6 +846,14 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "supabase-data-api",
+    check: "tests/connectors/supabase/data-api.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Data API authorize, verify and invoke with a session the double issued, through the adapter with the platform fetch against the loopback project double (tests/connectors/doubles/supabase-project.ts), which checks each request independently.",
+  },
+  {
     adapterId: "supabase-management",
     check: "ledger:SUPABASE/SB-01",
     target: "in-process-fixture",
@@ -509,6 +884,14 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "supabase-management",
+    check: "tests/connectors/supabase/management.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "OAuth authorize and complete with the provider redirect walked over HTTP, discover, invoke, disconnect and revoke, through the adapter with the platform fetch against the loopback Management API double (tests/connectors/doubles/supabase-management.ts), which checks each request independently.",
+  },
+  {
     adapterId: "supabase-mcp",
     check: "ledger:SUPABASE/SB-01",
     target: "in-process-fixture",
@@ -539,6 +922,14 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "supabase-mcp",
+    check: "tests/connectors/supabase/hosted-mcp.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes:
+      "Binding resolution and tool policy. Protocol execution goes through a fake of the MCP client port; the loopback double only observes the URL the binding dials, so this is not an end-to-end exchange.",
+  },
+  {
     adapterId: "supabase-wrappers",
     check: "ledger:SUPABASE/SB-01",
     target: "in-process-fixture",
@@ -567,6 +958,14 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     check: "ledger:SUPABASE/SB-05",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "supabase-wrappers",
+    check: "tests/connectors/supabase/wrappers.test.ts",
+    target: "in-process-fixture",
+    recordedAt: "2026-09-23",
+    notes:
+      "Wrapper descriptors read from catalog metadata and migration text, and reads through a fake approved query port; nothing executes SQL.",
   },
   {
     adapterId: "vercel-connect",
@@ -605,6 +1004,30 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-19",
   },
   {
+    adapterId: "vercel-connect",
+    check: "tests/connectors/vercel/authorization.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, complete and verify, installation-aware and installation-free, through the adapter with the platform fetch against the loopback Vercel double (tests/connectors/doubles/vercel-connect.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "vercel-connect",
+    check: "tests/connectors/vercel/lifecycle.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Reconnect, disconnect and revoke, through the adapter with the platform fetch against the loopback Vercel double, which checks each request independently.",
+  },
+  {
+    adapterId: "vercel-connect",
+    check: "tests/connectors/vercel/management.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Discover and invoke, through the adapter with the platform fetch against the loopback Vercel double, which checks each request independently.",
+  },
+  {
     adapterId: "workos-pipes",
     check: "ledger:IDENTITY-BROKERS/IB-01",
     target: "in-process-fixture",
@@ -615,5 +1038,29 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     check: "ledger:IDENTITY-BROKERS/IB-02",
     target: "in-process-fixture",
     recordedAt: "2026-09-19",
+  },
+  {
+    adapterId: "workos-pipes",
+    check: "tests/connectors/workos/authorization.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Authorize, complete and verify, through the adapter with the platform fetch against the loopback WorkOS Pipes double (tests/connectors/doubles/workos-pipes.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "workos-pipes",
+    check: "tests/connectors/workos/credentials.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Access-token retrieval on invoke, disconnect and revoke, through the adapter with the platform fetch against the loopback WorkOS Pipes double, which checks each request independently.",
+  },
+  {
+    adapterId: "workos-pipes",
+    check: "tests/connectors/workos/relay.test.ts",
+    target: "local-double",
+    recordedAt: "2026-09-23",
+    notes:
+      "Relayed provider requests confined to the binding, through the adapter with the platform fetch against the loopback WorkOS Pipes double, which checks each request independently.",
   },
 ];

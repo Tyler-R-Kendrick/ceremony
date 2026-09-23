@@ -127,6 +127,22 @@
       ]
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "mcp-registry",
+      "check": "tests/connectors/registry-mcp/adapter.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Discovery, byte import with provenance and export, through the adapter with the platform fetch against the loopback MCP registry double (tests/connectors/doubles/mcp-registry.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "mcp-registry",
+      "check": "tests/connectors/registry-mcp/import.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "server.json import from in-process fixture documents."
+    }
+  ],
   "contractChanges": [
     {
       "target": "src/server/persistence/index.ts",

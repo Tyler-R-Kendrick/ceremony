@@ -324,9 +324,30 @@ test("the published matrix and the runtime's recorded evidence are exactly what 
   // never live, and marked as describing the code path, not a definition.
   assert.equal(labelOf("openapi-http"), "local (code path)");
   assert.equal(labelOf("catalog-http"), "local (code path)");
-  // The adapters whose ledgers used to be dropped now have a label.
+  // The adapters whose ledgers used to be dropped now have a label, earned
+  // by their own suites against loopback stand-ins.
   for (const id of ["camel-kamelet", "dapr", "open-service-broker"])
+    assert.equal(labelOf(id), "local", id);
+  // Two Supabase profiles never reach a stand-in server end to end (a fake
+  // MCP client port, a fake query port), so the backfill leaves them at
+  // `fixture` rather than rounding them up with their siblings.
+  for (const id of ["supabase-mcp", "supabase-wrappers"])
     assert.equal(labelOf(id), "fixture", id);
+  // A `local` label rests on an explicit, dated entry that cites the test
+  // file which ran against the stand-in, never on a legacy work-item level.
+  for (const line of matrix.split("\n")) {
+    const cells = line.split("|").map((cell) => cell.trim());
+    if (!line.startsWith("| `") || cells.length < 6) continue;
+    const basis = matrix
+      .split("\n")
+      .find(
+        (other) =>
+          other.startsWith(`| ${cells[1]} `) &&
+          other.includes("(local-double,"),
+      );
+    if (cells[5]?.startsWith("local"))
+      assert.match(basis ?? "", /`tests\/[^`]+\.test\.ts` \(local-double, /);
+  }
   assert.equal(matrix.includes("not-recorded"), false);
   for (const line of matrix.split("\n"))
     if (line.startsWith("| `") && line.includes("hosted-server"))

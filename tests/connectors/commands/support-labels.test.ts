@@ -255,7 +255,10 @@ test("the recorded entries never make a label live, and never fail a clock set b
     current.label(openapi, true, ["definition:anything-imported"]),
     "unverified",
   );
-  assert.equal(current.label({ id: "nango" }, true), "fixture");
+  // A single-provider adapter's own suites against its loopback double earn
+  // `local`; one whose suites never reach a stand-in server stays `fixture`.
+  assert.equal(current.label({ id: "nango" }, true), "local");
+  assert.equal(current.label({ id: "supabase-wrappers" }, true), "fixture");
 });
 
 test("a labeler whose clock is not a finite instant refuses rather than admits", () => {

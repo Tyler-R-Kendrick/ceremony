@@ -113,6 +113,29 @@
       "notes": "The cross-surface test asserts that nothing reached the agent after the stop, not only that the call returned an error."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "a2a",
+      "check": "tests/connectors/a2a/delegate.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Delegation on the 1.0 wire: start, status, cancel and owner-bound task references, through the adapter with the platform fetch against the loopback A2A agent double (tests/connectors/doubles/a2a-agent.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "a2a",
+      "check": "tests/connectors/a2a/security.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorize, verify, delegate, disconnect and revoke, with artifact URLs described and never fetched, through the adapter with the platform fetch against the loopback A2A agent double, which checks each request independently."
+    },
+    {
+      "adapterId": "a2a",
+      "check": "tests/connectors/a2a/card.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Agent card import and version handling; recorded as a fixture check because it asserts the imported description rather than a served exchange."
+    }
+  ],
   "contractChanges": [],
   "integrationPatches": [
     {

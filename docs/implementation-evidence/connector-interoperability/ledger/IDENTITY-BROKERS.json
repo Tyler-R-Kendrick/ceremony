@@ -137,6 +137,50 @@
       "provider": "auth0-token-vault"
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "auth0-token-vault",
+      "check": "tests/connectors/auth0/lifecycle.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Verify, token exchange on invoke, reconnect, expiry, disconnect and revoke mapping, through the adapter with the platform fetch against the loopback Token Vault double (tests/connectors/doubles/auth0-token-vault.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "auth0-token-vault",
+      "check": "tests/connectors/auth0/exchange.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Federated token exchange and its failure modes, through the adapter with the platform fetch against the loopback Token Vault double, which checks each request independently."
+    },
+    {
+      "adapterId": "auth0-token-vault",
+      "check": "tests/connectors/auth0/linking.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Account-linking authorize, complete and verify, through the adapter with the platform fetch against the loopback Token Vault double, which checks each request independently."
+    },
+    {
+      "adapterId": "workos-pipes",
+      "check": "tests/connectors/workos/authorization.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorize, complete and verify, through the adapter with the platform fetch against the loopback WorkOS Pipes double (tests/connectors/doubles/workos-pipes.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "workos-pipes",
+      "check": "tests/connectors/workos/credentials.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Access-token retrieval on invoke, disconnect and revoke, through the adapter with the platform fetch against the loopback WorkOS Pipes double, which checks each request independently."
+    },
+    {
+      "adapterId": "workos-pipes",
+      "check": "tests/connectors/workos/relay.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Relayed provider requests confined to the binding, through the adapter with the platform fetch against the loopback WorkOS Pipes double, which checks each request independently."
+    }
+  ],
   "providers": {
     "workos-pipes": {
       "adapter": "createWorkOsPipesAdapter(options) — id \"workos-pipes\", ecosystem \"workos\"",

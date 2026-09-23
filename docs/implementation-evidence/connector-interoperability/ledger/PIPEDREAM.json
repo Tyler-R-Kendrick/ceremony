@@ -191,6 +191,29 @@
       "notes": "The delivery URL is always an approved destination of the binding plus a deterministic per-intent segment; a caller cannot supply a webhook URL. Deliveries are authenticated with the documented x-pd-signature HMAC-SHA256 scheme over `${t}.${raw body}` with a bounded replay window (default 300s, configurable 30-3600)."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "pipedream-connect",
+      "check": "tests/connectors/pipedream/authorize.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Connect-token authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Pipedream Connect double (tests/connectors/doubles/pipedream.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "pipedream-connect",
+      "check": "tests/connectors/pipedream/invoke.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Action and proxy invocation, through the adapter with the platform fetch against the loopback Pipedream Connect double, which checks each request independently."
+    },
+    {
+      "adapterId": "pipedream-connect",
+      "check": "tests/connectors/pipedream/triggers.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Trigger deployment, verification, disconnect and revoke, through the adapter with the platform fetch against the loopback Pipedream Connect double, which checks each request independently."
+    }
+  ],
   "tests": {
     "command": "export NODE_OPTIONS=\"--max-old-space-size=8192\" && node --import tsx --test tests/connectors/pipedream/*.test.ts",
     "files": {

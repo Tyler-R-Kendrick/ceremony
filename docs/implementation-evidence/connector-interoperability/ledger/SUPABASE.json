@@ -138,6 +138,36 @@
       "notes": "Both doubles are written from the vendor documentation and the published OpenAPI document, never from the adapter, and they enforce the documented contract rather than accepting what arrives: the management double rejects a deprecated scope parameter, a non-S256 PKCE method, an unregistered redirect_uri, a mismatched redirect_uri at the token endpoint, a wrong PKCE verifier, a replayed authorization code, a replayed rotated refresh token and a missing client secret, and it gates every REST route on the grant's scopes. Covered fixtures: management OAuth authorize redirect, token, refresh with rotation, wrong-project target, organization listing; project Auth existing session; project Data access allowed vs disallowed table and the missing-RLS warning path; hosted MCP overbroad feature request and arbitrary URL rejection; Wrappers metadata boundaries; privilege-token confusion in both directions."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "supabase-management",
+      "check": "tests/connectors/supabase/management.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "OAuth authorize and complete with the provider redirect walked over HTTP, discover, invoke, disconnect and revoke, through the adapter with the platform fetch against the loopback Management API double (tests/connectors/doubles/supabase-management.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "supabase-data-api",
+      "check": "tests/connectors/supabase/data-api.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Data API authorize, verify and invoke with a session the double issued, through the adapter with the platform fetch against the loopback project double (tests/connectors/doubles/supabase-project.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "supabase-mcp",
+      "check": "tests/connectors/supabase/hosted-mcp.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Binding resolution and tool policy. Protocol execution goes through a fake of the MCP client port; the loopback double only observes the URL the binding dials, so this is not an end-to-end exchange."
+    },
+    {
+      "adapterId": "supabase-wrappers",
+      "check": "tests/connectors/supabase/wrappers.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Wrapper descriptors read from catalog metadata and migration text, and reads through a fake approved query port; nothing executes SQL."
+    }
+  ],
   "contractChanges": [
     {
       "target": "src/server/connectors/adapter.ts (INT, proposal only — no shared file was edited)",

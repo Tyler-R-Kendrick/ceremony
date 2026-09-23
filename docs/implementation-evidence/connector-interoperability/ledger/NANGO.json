@@ -160,6 +160,29 @@
       "notes": "X-Nango-Hmac-Sha256 is verified in constant time over the exact raw bytes before parsing; bodies are bounded and prototype-polluting keys refused. Auth webhooks map to lifecycle only after re-reading GET /connections, so a replayed deletion cannot unbind a live connection and a transient refresh failure Nango already recovered is degraded rather than reconnect-required. Local unlink is the default disconnect; DELETE /connections/{id} runs only under scope 'broker', and a shared Nango connection referenced by another local connection blocks it until an administrator approves the shared impact."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "nango",
+      "check": "tests/connectors/nango/sessions.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Connect-session authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Nango double (tests/connectors/doubles/nango.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "nango",
+      "check": "tests/connectors/nango/invoke.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Proxy invocation, through the adapter with the platform fetch against the loopback Nango double, which checks each request independently."
+    },
+    {
+      "adapterId": "nango",
+      "check": "tests/connectors/nango/syncs.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Sync delegation, disconnect and revoke, through the adapter with the platform fetch against the loopback Nango double, which checks each request independently."
+    }
+  ],
   "contractChanges": [],
   "integrationPatches": [
     {

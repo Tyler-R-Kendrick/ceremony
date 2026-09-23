@@ -149,6 +149,29 @@
       "notes": "A header that merely claims the provider signature was verified is ignored. Events are accepted only for a project that has a registered trigger destination in the binding, and only for a permitted team, project and environment. The provider-facing conformance harness runs Ceremony as the provider side against tests/fixtures/oidc-idp.ts and examples/issuer.ts (createDevIssuer), reporting each documented required/recommended/optional item as met, not-met or unknown; a guarded fetch fails the test if anything leaves loopback."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "vercel-connect",
+      "check": "tests/connectors/vercel/authorization.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorize, complete and verify, installation-aware and installation-free, through the adapter with the platform fetch against the loopback Vercel double (tests/connectors/doubles/vercel-connect.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "vercel-connect",
+      "check": "tests/connectors/vercel/lifecycle.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Reconnect, disconnect and revoke, through the adapter with the platform fetch against the loopback Vercel double, which checks each request independently."
+    },
+    {
+      "adapterId": "vercel-connect",
+      "check": "tests/connectors/vercel/management.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Discover and invoke, through the adapter with the platform fetch against the loopback Vercel double, which checks each request independently."
+    }
+  ],
   "acceptanceOracles": {
     "AC-VC-01": "tests/connectors/vercel/management.test.ts - per-operation version/path/method observed by the independent double; team/project/environment policy enforced before any call",
     "AC-VC-02": "tests/connectors/vercel/authorization.test.ts - installation-aware (explicit and default) and installation-free connectors each reach their own scoped verification",
