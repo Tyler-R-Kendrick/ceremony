@@ -277,12 +277,13 @@ test("a ledger dated in the future is refused rather than earning a label", () =
 });
 
 test("published labels are evaluated as of the newest recorded day, and live evidence needs configuration", () => {
+  // (An attended entry can no longer be typed into a ledger at all; a
+  // recorded live run shows the same configuration rule.)
   const live = {
     adapterId: "vendor-http",
-    check: "attended:2026-09-20-vendor",
-    target: "attended-live",
+    check: "live-run:2026-09-20-vendor",
+    target: "recorded-live",
     recordedAt: "2026-09-20",
-    attendedBy: "A. Reviewer",
   };
   const collection = collectSupportEvidence(
     [ledger({ supportEvidence: [live] })],

@@ -22,7 +22,9 @@ A support label is computed from dated evidence entries, never from the adapter 
 | `live`       | `recorded-live` or stronger          | 90 days   | yes                 |
 | `certified`  | `attended-live` or stronger          | 180 days  | yes                 |
 
-Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.
+Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran.
+
+An `attended-live` entry enters only from a signed record under `certifications/`, verified against the reviewed `certifiers.json` (see [attended certification](../certification.md)); an attended entry typed into a ledger is refused, and so is a rehearsal against local doubles. No entry anywhere is live, so no label here is `live` or `certified`.
 
 A generic adapter (`evidenceScope: definition`: the OpenAPI, provider-catalog, remote MCP and Microsoft custom-connector adapters) runs whatever description, server or connector a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.
 

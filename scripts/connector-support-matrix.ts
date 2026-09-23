@@ -16,6 +16,15 @@ import {
   type SupportEvidence,
   type SupportLabelResult,
 } from "../src/core/connectors/index.js";
+import {
+  attendedCertificationSchema,
+  certificationEvidence,
+  certificationProblems,
+  certificationTranscriptSchema,
+  certifiersSchema,
+  digestOf,
+  type Certifiers,
+} from "../src/server/connectors/certification.js";
 
 /*
  * Generates the public connector support matrix, the human-readable source
@@ -49,6 +58,8 @@ const recordedEvidencePath = join(
   root,
   "src/server/connectors/recorded-evidence.ts",
 );
+const certificationsDirectory = join(evidenceDirectory, "certifications");
+const certifiersPath = join(evidenceDirectory, "certifiers.json");
 
 /** The twelve reported dimensions, in the order `supportDimensions` declares them. */
 export const dimensions = [
@@ -204,6 +215,68 @@ export function loadLedgers(directory = ledgerDirectory): {
     }
   }
   return { ledgers, problems };
+}
+
+/** One attended certification record as found on disk, before verification. */
+export type CertificationFile = {
+  /** The record's file name, for naming it in a refusal. */
+  source: string;
+  record: unknown;
+  /** The value-free transcript shipped beside it, when there is one. */
+  transcript?: unknown;
+};
+
+/**
+ * Reads attended certification records (`certifications/<id>.json`, each with
+ * its value-free `<id>.transcript.json`) and the reviewed certifier list.
+ * Nothing here trusts a record: `collectSupportEvidence` verifies each one,
+ * and an unreadable file or list is a refusal, not an omission.
+ */
+export function loadCertifications(
+  directory = certificationsDirectory,
+  certifiersFile = certifiersPath,
+): { files: CertificationFile[]; certifiers: Certifiers; problems: string[] } {
+  const problems: string[] = [];
+  let certifiers: Certifiers = { certifiers: [] };
+  if (existsSync(certifiersFile)) {
+    const parsed = certifiersSchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(readFileSync(certifiersFile, "utf8"));
+        } catch {
+          return undefined;
+        }
+      })(),
+    );
+    if (parsed.success) certifiers = parsed.data;
+    else problems.push("certifiers.json: does not match the certifier list");
+  }
+  const files: CertificationFile[] = [];
+  if (!existsSync(directory)) return { files, certifiers, problems };
+  for (const name of readdirSync(directory).sort()) {
+    if (!name.endsWith(".json") || name.endsWith(".transcript.json")) continue;
+    const read = (file: string) => {
+      try {
+        return JSON.parse(readFileSync(join(directory, file), "utf8"));
+      } catch {
+        return undefined;
+      }
+    };
+    const record: unknown = read(name);
+    if (record === undefined) {
+      problems.push(`certifications/${name}: unreadable JSON`);
+      continue;
+    }
+    const transcriptName = name.replace(/\.json$/, ".transcript.json");
+    files.push({
+      source: `certifications/${name}`,
+      record,
+      ...(existsSync(join(directory, transcriptName))
+        ? { transcript: read(transcriptName) }
+        : {}),
+    });
+  }
+  return { files, certifiers, problems };
 }
 
 export type CapabilityRow = {
@@ -538,7 +611,14 @@ const entryKey = (entry: SupportEvidence) =>
 export function collectSupportEvidence(
   ledgers: Ledger[],
   adapters: AdapterFacts[],
-  options: { today: number; exists?: (path: string) => boolean },
+  options: {
+    today: number;
+    exists?: (path: string) => boolean;
+    /** Attended certification records; see `loadCertifications`. */
+    certifications?: readonly CertificationFile[];
+    /** The reviewed certifier list those records are verified against. */
+    certifiers?: Certifiers;
+  },
 ): SupportEvidenceCollection {
   const exists =
     options.exists ?? ((path: string) => existsSync(join(root, path)));
@@ -580,6 +660,14 @@ export function collectSupportEvidence(
       if (!entry.check.includes(":") && !exists(entry.check)) {
         refused.push(
           `ledger ${ledger.swarm}: evidence[${index}]: ${entry.check} does not exist`,
+        );
+        return;
+      }
+      // An attendee's name in a ledger is a claim anybody can type; only a
+      // signed record the certifier list vouches for is an attendance.
+      if (entry.target === "attended-live") {
+        refused.push(
+          `ledger ${ledger.swarm}: evidence[${index}]: an attended certification enters only as a signed record under certifications/`,
         );
         return;
       }
@@ -631,6 +719,42 @@ export function collectSupportEvidence(
         admit(supportEvidenceSchema.parse(candidate), ledger.swarm);
       }
     }
+  }
+  const scopes = new Map(
+    adapters.map((adapter) => [adapter.id, adapter.evidenceScope]),
+  );
+  for (const file of options.certifications ?? []) {
+    const problems = certificationProblems(
+      file.record,
+      options.certifiers ?? { certifiers: [] },
+      { asOf: options.today },
+    );
+    const record = attendedCertificationSchema.safeParse(file.record);
+    if (record.success) {
+      if (!known.has(record.data.adapterId))
+        problems.push(
+          `no constructible adapter is named ${record.data.adapterId}`,
+        );
+      // A generic adapter's certification is about the definition it ran;
+      // without one it would describe a code path, which no person attends.
+      if (
+        scopes.get(record.data.adapterId) === "definition" &&
+        !record.data.definition
+      )
+        problems.push("a generic adapter's certification names its definition");
+      const transcript = certificationTranscriptSchema.safeParse(
+        file.transcript,
+      );
+      if (!transcript.success)
+        problems.push("its value-free transcript is missing or malformed");
+      else if (digestOf(transcript.data) !== record.data.transcript.digest)
+        problems.push("its transcript does not match the signed digest");
+    }
+    if (problems.length > 0 || !record.success) {
+      refused.push(`${file.source}: ${problems.join("; ")}`);
+      continue;
+    }
+    admit(certificationEvidence(record.data), file.source);
   }
   const sorted = [...entries.values()].sort((a, b) =>
     entryKey(a).localeCompare(entryKey(b)),
@@ -685,8 +809,9 @@ export function renderRecordedEvidence(
     " * Generated by scripts/connector-support-matrix.ts from the dated evidence in",
     " * docs/implementation-evidence/connector-interoperability/ledger. Do not edit:",
     " * add a dated entry to a ledger and regenerate. `npm run docs:connectors:check`",
-    " * fails when this file drifts from the ledgers. None of these entries is live;",
-    " * a deployment adds its own live or attended entries through",
+    " * fails when this file drifts from the ledgers. An entry is live only when it",
+    " * came from a signed attended certification the generator verified; a",
+    " * deployment adds its own live or attended entries through",
     " * `ConnectorRuntimeOptions.support.evidence`.",
     " */",
     'import type { SupportEvidence } from "../../core/connectors/index.js";',
@@ -754,7 +879,16 @@ export function renderSupportMatrix(input: {
           ],
     ),
     "",
-    "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.",
+    "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran.",
+    "",
+    `An \`attended-live\` entry enters only from a signed record under \`certifications/\`, verified against the reviewed \`certifiers.json\` (see [attended certification](../certification.md)); an attended entry typed into a ledger is refused, and so is a rehearsal against local doubles. ${
+      input.evidence.entries.some(
+        (entry) =>
+          entry.target === "attended-live" || entry.target === "recorded-live",
+      )
+        ? "Live entries are listed in the label basis below."
+        : "No entry anywhere is live, so no label here is `live` or `certified`."
+    }`,
     "",
     "A generic adapter (`evidenceScope: definition`: the OpenAPI, provider-catalog, remote MCP and Microsoft custom-connector adapters) runs whatever description, server or connector a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.",
     "",
@@ -1359,8 +1493,15 @@ export async function generate(): Promise<Generated[]> {
   const lock = loadSourceLock();
   const { ledgers, problems: ledgerProblems } = loadLedgers();
   const { adapters, problems: adapterProblems } = await readAdapters();
+  const certifications = loadCertifications();
+  if (certifications.problems.length > 0)
+    throw new Error(
+      `attended certifications unreadable:\n${certifications.problems.map((line) => `  - ${line}`).join("\n")}`,
+    );
   const evidence = collectSupportEvidence(ledgers, adapters, {
     today: Date.now(),
+    certifications: certifications.files,
+    certifiers: certifications.certifiers,
   });
   // A refused entry is not reported and published around: a label must not
   // be computed while any evidence behind the ledgers is malformed or dated
