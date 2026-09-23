@@ -257,11 +257,20 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     ...(await authoring.listManifests(actor)).map((item) => item.id),
   ];
   /**
+   * How a context resolver says a connector is not usable by this actor now:
+   * an authorization refusal, or the reference host's "choose a target
+   * first" answers, which `teaching-http` returns as 409.
+   */
+  const contextRefusal = (error: unknown) =>
+    error instanceof AuthorizationError ||
+    (error instanceof Error &&
+      ["account-required", "jira-site-required"].includes(error.message));
+  /**
    * The connectors a draft's steps may be placed under: every connector the
    * host resolves a context for, for this actor, with the provider and
-   * profile it resolves to. A connector whose context cannot be resolved now
-   * (refused, no target selected, not configured) could not run a step
-   * either, so it is not a candidate. It is listed as unavailable rather than
+   * profile it resolves to. A connector whose context is refused now (not
+   * authorized, no target selected) could not run a step either, so it is
+   * not a candidate. It is listed as unavailable rather than
    * silently dropped, so a reviewer sees which connectors were not weighed.
    */
   const connectorCatalog = async (actor: ActorContext) => {
@@ -278,7 +287,11 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
           provider: context.provider,
           profile: context.profile,
         });
-      } catch {
+      } catch (error) {
+        // Only a refusal narrows the choice. Any other failure (a timeout, a
+        // storage error) fails the save: dropping that connector could turn
+        // a choice between two accounts into an automatic placement.
+        if (!contextRefusal(error)) throw error;
         unavailable.push(connectorId);
       }
     }

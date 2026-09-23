@@ -73,7 +73,12 @@ const scoped = (provider: string, profile: string): VocabularyEntry => ({
   profile,
 });
 
-function fixture(t: TestContext, connectors: string[] = ["alpha", "beta"]) {
+function fixture(
+  t: TestContext,
+  connectors: string[] = ["alpha", "beta"],
+  /** What resolving a connector's context throws instead, per connector. */
+  failures: Record<string, Error> = {},
+) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -290,6 +295,8 @@ function fixture(t: TestContext, connectors: string[] = ["alpha", "beta"]) {
       ]),
     ),
     context: async (_actor, connectorId) => {
+      const failure = failures[connectorId];
+      if (failure) throw failure;
       const resolved = connectors.includes(connectorId)
         ? catalog[connectorId]
         : undefined;
@@ -612,6 +619,42 @@ test("AMBIGUOUS: two approved connectors for one provider leave the choice, by n
     edited.revision,
     edited.digest,
   );
+});
+
+test("LOOKUP: only a refusal narrows the connectors; any other failure fails the save", async (t) => {
+  const draft = recipe("across", [
+    operationStep("create", "alpha.create-client"),
+    operationStep("use", "beta.use-client", client("create")),
+  ]);
+  // beta-eu times out: placing under beta would pick another account
+  // without asking, so nothing is saved.
+  const timeout = fixture(t, ["alpha", "beta", "beta-eu"], {
+    "beta-eu": new Error("context lookup timed out"),
+  });
+  await assert.rejects(
+    timeout.runtime.recipes.createDraft(actor, draft),
+    /context lookup timed out/,
+  );
+  assert.deepEqual(
+    await timeout.store.transaction((tx) =>
+      tx.list(actor.tenantId, "draft", 10),
+    ),
+    [],
+  );
+
+  // beta-eu has no target selected yet: a refusal. It could not run the
+  // step either, so beta is the one approved connector, and the report
+  // names beta-eu as not weighed.
+  const refused = fixture(t, ["alpha", "beta", "beta-eu"], {
+    "beta-eu": new Error("account-required"),
+  });
+  const saved = await refused.runtime.recipes.createDraft(actor, draft);
+  assert.deepEqual(saved.diagnostics, []);
+  assert.deepEqual(
+    saved.definition.invocations.map((node) => node.connector),
+    ["alpha", "beta"],
+  );
+  assert.deepEqual(saved.connectors?.unavailable, ["beta-eu", "unconfigured"]);
 });
 
 test("UNAVAILABLE: a provider with no approved connector is reported, not run under another", async (t) => {
