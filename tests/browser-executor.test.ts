@@ -3004,3 +3004,229 @@ for (const waitingOn of ["inference", "inbox"] as const)
       assert.equal(result.status, "blocked");
       if (result.status === "blocked") assert.equal(result.reason, "origin");
     });
+
+/**
+ * A provider whose sign-in happens in a window it opens, at a second origin:
+ * the shape of "Sign in with ...". The identity page posts its form, then
+ * sends the opener to the provider's callback and closes itself.
+ */
+async function windowedSignIn(options: {
+  /** Where the identity page's form POST is redirected, if anywhere. */
+  redirectPost?: string;
+  /** Where the button's window opens instead of the identity page. */
+  opens?: string;
+}) {
+  const posts: string[] = [];
+  const identity = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "POST") {
+      let body = "";
+      request.on("data", (chunk) => (body += chunk));
+      request.on("end", () => {
+        posts.push(body);
+        if (options.redirectPost) {
+          response.writeHead(307, { location: options.redirectPost }).end();
+          return;
+        }
+        response.writeHead(200, { "content-type": "text/html" }).end(
+          `<!doctype html><p>Signed in</p><script>
+            window.opener.location.href = ${JSON.stringify(
+              `${url.searchParams.get("return")}?code=fixture-code&state=fixture`,
+            )};
+            window.close();
+          </script>`,
+        );
+      });
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end(
+      `<!doctype html><form method="post" action="/login?return=${encodeURIComponent(url.searchParams.get("return") ?? "")}">
+        <input name="username" autocomplete="username">
+        <input name="password" type="password">
+        <button type="submit">Sign in</button>
+      </form>`,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    identity.listen(0, "127.0.0.1", resolve),
+  );
+  const identityOrigin = `http://127.0.0.1:${(identity.address() as { port: number }).port}`;
+  const provider = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/callback") {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end("<p>Done</p>");
+      return;
+    }
+    const target =
+      options.opens ??
+      `${identityOrigin}/login?return=${encodeURIComponent(`http://${request.headers.host}/callback`)}`;
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(target)}, "signin", "popup")'>Continue with Fixture ID</button>`,
+      );
+  });
+  await new Promise<void>((resolve) =>
+    provider.listen(0, "127.0.0.1", resolve),
+  );
+  const providerOrigin = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
+  return {
+    posts,
+    identityOrigin,
+    providerOrigin,
+    close: async () => {
+      await new Promise<void>((resolve) => identity.close(() => resolve()));
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    },
+  };
+}
+
+for (const mode of ["deterministic", "inferred"] as const)
+  test(`a declared window completes the authorization it was opened for (form into a window, ${mode})`, async (t) => {
+    let providerPosts = 0;
+    const provider = await listen({
+      loginTarget: "_blank",
+      onLogin: () => {
+        providerPosts++;
+      },
+    });
+    t.after(() => provider.close());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const executor = createAuthorizationBrowser({
+      open: async () => ({ browser, close: async () => {} }),
+      ...(mode === "inferred" ? { interpreter: scriptedInterpreter() } : {}),
+    });
+    let stored = false;
+    const result = await executor.complete({
+      startUrl: `${provider.origin}/login`,
+      redirectUri: `${provider.origin}/callback`,
+      allowedOrigins: [provider.origin],
+      popupOrigins: [provider.origin],
+      credentials: { username: "fixture-user", password: "fixture-password" },
+      vault: {
+        get: async () => undefined,
+        put: async () => {
+          stored = true;
+        },
+      },
+      timeoutMs: 10_000,
+    });
+    assert.equal(result.status, "callback");
+    if (result.status === "callback")
+      assert.match(result.url, /\/callback\?code=fixture-code/);
+    // One credential POST, in the window, and the account kept only after the
+    // window's document reached the callback.
+    assert.equal(providerPosts, 1);
+    assert.equal(stored, true);
+  });
+
+test("a sign-in window at a second declared origin posts once and returns the opener to the callback", async (t) => {
+  const fixture = await windowedSignIn({});
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 10_000,
+  });
+  assert.equal(result.status, "callback");
+  assert.equal(fixture.posts.length, 1);
+  assert.match(fixture.posts[0]!, /username=fixture-user/);
+});
+
+test("a window at an origin the authorization did not declare is refused before it loads", async (t) => {
+  let reached = 0;
+  const other = await listen({
+    onRequest: () => {
+      reached++;
+    },
+  });
+  t.after(() => other.close());
+  const fixture = await windowedSignIn({ opens: `${other.origin}/login` });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    // Allowed to navigate there, but a window there was never declared.
+    allowedOrigins: [
+      fixture.providerOrigin,
+      fixture.identityOrigin,
+      other.origin,
+    ],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "popup");
+  assert.equal(reached, 0);
+  assert.equal(fixture.posts.length, 0);
+});
+
+test("a declared window's redirect hop cannot carry its credential POST to an undeclared origin", async (t) => {
+  let forwarded = 0;
+  const other = await listen({
+    onRequest: () => {
+      forwarded++;
+    },
+  });
+  t.after(() => other.close());
+  const fixture = await windowedSignIn({
+    redirectPost: `${other.origin}/login`,
+  });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "origin");
+  assert.equal(fixture.posts.length, 1);
+  assert.equal(forwarded, 0);
+});
+
+test("declaring a window outside the authorization's origins is refused before a browser opens", async () => {
+  let opened = 0;
+  const executor = createAuthorizationBrowser({
+    open: async () => {
+      opened++;
+      throw new Error("not reached");
+    },
+  });
+  const result = await executor.complete({
+    startUrl: "http://127.0.0.1:9/login",
+    redirectUri: "http://127.0.0.1:9/callback",
+    allowedOrigins: ["http://127.0.0.1:9"],
+    popupOrigins: ["http://127.0.0.1:10"],
+    timeoutMs: 1_000,
+  });
+  assert.deepEqual(result, { status: "blocked", reason: "popup-undeclared" });
+  assert.equal(opened, 0);
+});

@@ -35,6 +35,7 @@ async function fixture(
   registering = false,
   device = false,
   collision: false | "username-in-use" | "email-in-use" = false,
+  declared: { popupOrigins?: string[] } = {},
 ) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "test",
@@ -84,6 +85,7 @@ async function fixture(
           methods: ["oauth-code"],
           grantTypes: [],
           searchUsed: false,
+          ...declared,
         },
       },
       null,
@@ -347,6 +349,22 @@ for (const reason of ["username-in-use", "email-in-use"] as const)
       undefined,
     );
   });
+
+test("a connector's declared sign-in window reaches the isolated browser as both a window and a navigation origin", async (t) => {
+  const f = await fixture(false, false, false, {
+    popupOrigins: ["https://id.provider.example"],
+  });
+  t.after(() => f.store.close());
+  const [first] = f.inputs;
+  assert.deepEqual(first?.popupOrigins, ["https://id.provider.example"]);
+  assert.ok(first?.allowedOrigins.includes("https://id.provider.example"));
+});
+
+test("a connector that declares no window gives the isolated browser none", async (t) => {
+  const f = await fixture();
+  t.after(() => f.store.close());
+  assert.equal(f.inputs[0]?.popupOrigins, undefined);
+});
 
 test("selected device ceremony uses one bound device grant without starting an OAuth-code browser", async (t) => {
   const f = await fixture(false, true);
