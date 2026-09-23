@@ -49,6 +49,10 @@ Stop assistant, cancel connection and discard demonstration remain separate oper
 
 Recipes MUST use registered operation/version leaves or pinned reviewed child recipes, explicit dependencies and typed bindings. The runtime rejects cycles, unknown versions, missing producers, incompatible contracts, secret literals and invalid evidence. Limit imports to 256 KiB, expansion to 32 leaves and eight nested levels. Publication requires review of the exact revision/digest plus required fixtures. Import always creates an untrusted draft. Sharing a recipe never shares credentials or the author's authorization.
 
+EXE-CTX: A run has one context: provider, profile, target, origin, environment and configuration version. An invocation MAY name a host `connector`. Its steps then run in that connector's context, which the host resolves for the actor when the run is planned. Each step MUST be admitted against its own context, and host authorization MUST evaluate that context, including a check before the run is created. A connector the host does not register, or will not authorize for the actor, MUST prevent the run from being created. An output crosses from one context into another only when its registered vocabulary is declared `crossProvider`. Secrets cross only as opaque, run-bound handles resolved server-side.
+
+EXE-OUT: An operation invocation MAY declare an `outcome`: Arazzo `simple` success criteria and one bounded retry policy. Criteria read only public bound values and the public transport facts the trusted handler reports. Missing criteria fail the attempt. A retry is permitted only for operations the host registered with replay evidence. Retries are bounded in number and spacing, and an exhausted step cannot run again. Outcomes do not branch, jump or run other steps.
+
 Before an external effect, admit the command and persist its canonical effect identity. A retry keeps that identity; changing actor, target, scope, arguments or operation under the same key is rejected. Work claims use generations; stale workers cannot commit. Transactions MUST NOT span HTTP, inference or human waits. Uncertain provider effects remain uncertain until reconciled. No provider exactly-once claim is implied.
 
 UI/WebMCP execution hooks and Arazzo step observers report success/failure at their respective action/step boundary. Observer success is not verification; observer failure cannot replay an effect. Durable semantic events and outbox continuation—not a tab callback or model prose—drive essential follow-up work. Consumers deduplicate by stable continuation identity.
@@ -59,7 +63,7 @@ Reviewed deterministic recipes execute without a model. Default assistant budget
 
 1. Read the formal manifest, trusted operation catalog and current safe state; use the structured selection/configuration result rather than guessing endpoints or credentials.
 2. Preserve variable account/scope choices as typed inputs. Never generalize one demonstrated approval into future authority.
-3. Draft the existing recipe format. Do not create JavaScript, HTTP destinations, verifier expressions or a second branch language.
+3. Draft the existing recipe format. Do not create JavaScript, HTTP destinations, verifier expressions or a second branch language. Success criteria are limited to the bounded outcome in EXE-OUT.
 4. At a human blocker, request the declared participation through the protected command path. Keep login and secrets outside narration, model context and recordings.
 5. After return, reread trusted state and verify; stop on denial, revocation, ambiguity or uncertainty. Only accepted evidence satisfies downstream dependencies.
 6. Validate, review and publish explicitly. Model output alone is neither an executable registry extension nor a published procedure.
