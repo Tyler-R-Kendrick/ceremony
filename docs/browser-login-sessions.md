@@ -289,6 +289,22 @@ reviewer sees what a replay keeps. `ISSUED-SERVICE` in
 `tests/browser-login-service.test.ts` runs this through the host against the
 auth double's developer settings and sweeps every surface for both values.
 
+**Enrolling an authenticator.** A provider that requires a second factor may
+show "Set up two-factor authentication" with a setup key, then ask for a code
+from the app before it turns the factor on. A draft keeps that key as
+`{ "kind": "totp-seed", "label": "Setup key" }`, and only into
+`credential-custody` (the schema refuses any other sink). The driver checks
+that the value parses as a seed before keeping it and guards it in every
+spelling from the moment it is read. From then on the attempt offers
+`totp-code`, computed from that seed at fill time inside the driver, so the
+enrolment page is confirmed without the interpreter seeing either value. A
+plan that keeps a seed may not also reference a held `totp-seed` or a
+`totp-code` (`plan-rejected` / `unknown-credential-reference`). A later plan
+references the custody copy as a held `totp-seed`, as above. `SEED-CUSTODY` in
+`tests/browser-login-service.test.ts` enrols through the host against the auth
+double (`enrollTotp`), signs in again from the custody copy, and sweeps every
+surface for each spelling of the seed and the codes it made.
+
 ### Choices
 
 A draft may name options for required `<select>` controls in `choices`, by the
