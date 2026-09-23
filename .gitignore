@@ -68,3 +68,8 @@ src/plugins/impeccable-live.client.ts
 # failure context for a deliberately failing case, which is local diagnostic
 # output and never project content.
 /.diagnostics-*/
+
+# Clients generated from docs/openapi/connectors.openapi.json by
+# tests/openapi-client.test.ts. They are regenerated on every run, so a
+# committed copy could only ever be stale.
+/tests/consumers/openapi-typescript/generated/
