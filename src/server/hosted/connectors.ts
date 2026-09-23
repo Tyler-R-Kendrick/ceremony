@@ -170,6 +170,12 @@ function connectorTools(runtime: ConnectorRuntime): ConnectorToolDependencies {
   return {
     catalog: (actor) => runtime.service.catalog(actor),
     status: (actor, connectionRef) => intents.status(actor, connectionRef),
+    // A label is information beside the status, never a reason the status
+    // read fails, so a refusal here reads as no label.
+    supportLabel: (actor, connectionRef) =>
+      runtime.service
+        .connectionSupportLabel(actor, connectionRef)
+        .catch(() => undefined),
     connect: async (actor, input) => {
       const summary = await intents.connect(actor, {
         bindingRef: await binding(actor, input.connectorId),

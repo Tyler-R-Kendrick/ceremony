@@ -258,6 +258,26 @@ drawer keeps each dimension's own implementation, configuration readiness and
 evidence. That is the distinction AC-UX-06 asks for: implemented, configured,
 proven against a fixture and proven live are four different statements.
 
+Every entry also carries a `supportLabel` computed from dated evidence rather
+than from the adapter family: `unverified`, `fixture` (in-process fixtures),
+`local` (local doubles such as loopback servers), `live` (a recorded run
+against the provider, 90 days) or `certified` (an attended live run, 180 days).
+The rules and windows are in `supportLabelRules`
+(`src/core/connectors/support-labels.ts`) and in the
+[support matrix](specifications/connector-support-matrix.md#support-labels).
+The repository's recorded entries ship with the runtime and none is live; a
+host adds its own through `createConnectorRuntime({ support: { evidence } })`,
+and those are refused at startup if malformed or dated in the future. Only a
+live or certified label, with its configuration present, turns a `fixture`
+adapter into `provider-backed`. `connector_catalog` and `connector_status`
+return the label to an assistant.
+
+A label gates nothing by default. A host that wants it to sets
+`support: { minimumForProduction: "local" }` (or any label): a binding that can
+reach anything but a loopback fixture is then refused with
+`support.below-minimum` at approval, at connect and at every invocation while
+its adapter's label is below the minimum, so expired evidence stops new work.
+
 Alternatives for one service are grouped under one heading and never merged.
 A native GitHub adapter and a brokered one differ in custody, evidence and
 grant, so they stay two cards; merging them would be the directory choosing an

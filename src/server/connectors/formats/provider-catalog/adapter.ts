@@ -27,6 +27,7 @@ import {
   callbackUri,
   completeAuthorizationCode,
   credentialAcceptedClaim,
+  createMetadataCache,
   credentialScopeFor,
   grantClientCredentials,
   issuerPolicy,
@@ -246,6 +247,8 @@ export function createCatalogHttpAdapter(
   const maxImportBytes = options.maxImportBytes ?? DEFAULTS.maxImportBytes;
   const evidence = options.evidence ?? "protocol-fixture";
   const executable = !pinned || pinned.auth.mode !== "unsupported";
+  // Issuer metadata for `openid` authorizations, keyed by tenant and issuer.
+  const metadataCache = createMetadataCache();
 
   function entryFor(ctx: AdapterCallContext): ProviderCatalogEntry {
     const approved = entryFromBinding(ctx.binding, parseOptions);
@@ -299,11 +302,24 @@ export function createCatalogHttpAdapter(
     return names.filter((name) => !present.has(name));
   }
 
+  /**
+   * The engine's view of the entry's issuer. Without `oidc` it is exactly the
+   * reviewed entry: discovery off, endpoints as declared. With `oidc` -- an
+   * authorization that asks for `openid` -- the issuer's own metadata is
+   * required, because an ID token names the account and only the issuer's
+   * published keys can prove it did. Discovery then has to agree with every
+   * endpoint the entry declared (a different token endpoint is a conflict,
+   * not a choice), its `issuer` must equal the entry's byte for byte, and
+   * the key set must sit on the issuer's origin or on the entry's declared
+   * `jwksUrl`. Both documents are fetched through the context's fetch, so
+   * the host's egress rules, size and time limits apply to them.
+   */
   async function oauthContext(
     ctx: AdapterCallContext,
     entry: ProviderCatalogEntry,
     auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
+    oidc = false,
   ): Promise<OAuthContext> {
     const allowLoopbackHttp = loopbackAllowed(ctx);
     const resolve = (template: string) =>
@@ -317,6 +333,10 @@ export function createCatalogHttpAdapter(
       auth.mode === "oauth2-authorization-code" && auth.refreshUrl
         ? resolve(auth.refreshUrl)
         : undefined;
+    const jwks =
+      oidc && auth.mode === "oauth2-authorization-code" && auth.jwksUrl
+        ? resolve(auth.jwksUrl)
+        : undefined;
     const issuer =
       auth.mode === "oauth2-authorization-code" && auth.issuer
         ? auth.issuer
@@ -324,7 +344,7 @@ export function createCatalogHttpAdapter(
     const issuerOrigin = new URL(issuer).origin;
     const trustedOrigins = [
       ...new Set(
-        [authorization, token, refresh]
+        [authorization, token, refresh, jwks]
           .filter((url): url is URL => url !== undefined)
           .map((url) => url.origin)
           .filter((origin) => origin !== issuerOrigin),
@@ -333,13 +353,14 @@ export function createCatalogHttpAdapter(
     const names = clientConfigurationNames(entry);
     const policy = issuerPolicy({
       issuer,
-      discovery: "disabled",
+      discovery: oidc ? "required" : "disabled",
       allowLoopbackHttp,
       trustedOrigins,
       acceptIssuerDeclaredOrigins: false,
       endpoints: {
         ...(authorization ? { authorization: authorization.href } : {}),
         token: token.href,
+        ...(jwks ? { jwks: jwks.href } : {}),
       },
       registration: {
         allowed: ["pre-registered"],
@@ -353,7 +374,14 @@ export function createCatalogHttpAdapter(
     const server = await resolveAuthorizationServer(policy, {
       fetch: ctx.environment.fetch,
       signal: ctx.signal,
+      now: ctx.environment.now,
+      tenantId: ctx.actor.tenantId,
+      cache: metadataCache,
     });
+    if (oidc && typeof server.metadata.jwks_uri !== "string")
+      throw new ConnectorError("unsupported", {
+        detail: "catalog.oidc.jwks-missing",
+      });
     const refreshServer: ResolvedAuthorizationServer = refresh
       ? {
           ...server,
@@ -379,12 +407,20 @@ export function createCatalogHttpAdapter(
     requested: readonly string[],
   ): string {
     const scopes = [...new Set([...auth.scopes, ...requested])];
-    // An ID token names the account, and without discovery there are no
-    // published keys to verify one against; so none is asked for.
-    if (scopes.includes("openid"))
-      throw new ConnectorError("unsupported", {
-        detail: "catalog.scope.openid",
-      });
+    // An ID token names the account. It is asked for only where the entry
+    // names its issuer, so discovery can find the keys that verify it (see
+    // `oauthContext`); a guessed issuer would verify nothing. OpenID Connect
+    // scopes are space-separated, so a comma-joined provider cannot carry it.
+    if (scopes.includes("openid")) {
+      if (auth.mode !== "oauth2-authorization-code" || !auth.issuer)
+        throw new ConnectorError("unsupported", {
+          detail: "catalog.scope.openid",
+        });
+      if (auth.scopeSeparator !== " ")
+        throw new ConnectorError("unsupported", {
+          detail: "catalog.scope.openid-separator",
+        });
+    }
     if (
       scopes.length > 64 ||
       scopes.some((scope) => !/^[^\s\p{Cc},]{1,200}$/u.test(scope))
@@ -671,7 +707,7 @@ export function createCatalogHttpAdapter(
 
   function tokenParameters(
     entry: ProviderCatalogEntry,
-    auth: ClientCredentials,
+    auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
   ): Record<string, string> {
     return Object.fromEntries(
@@ -818,8 +854,14 @@ export function createCatalogHttpAdapter(
     const { values } = await connectionValues(ctx, entry);
     switch (auth.mode) {
       case "oauth2-authorization-code": {
-        const context = await oauthContext(ctx, entry, auth, values);
         const scope = requestedScopes(auth, intent.requestedPermissions);
+        const context = await oauthContext(
+          ctx,
+          entry,
+          auth,
+          values,
+          scope.split(" ").includes("openid"),
+        );
         const start = await beginAuthorizationCode(ctx, {
           server: context.server,
           client: context.client,
@@ -1042,8 +1084,8 @@ export function createCatalogHttpAdapter(
           blocked
             ? [reason]
             : [
-                "OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry, never from discovery.",
-                "Client credentials is a local grant request pending the shared engine's own.",
+                "OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry. Only an openid request, for an entry that names its issuer, reads the issuer's metadata, which must agree with the entry, to verify the ID token.",
+                "Client credentials is the shared engine's grant (grantClientCredentials, renewClientCredentials), with the entry's token parameters.",
                 "API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.",
               ],
           blocked,
@@ -1269,13 +1311,26 @@ export function createCatalogHttpAdapter(
           claims: [],
           code: "catalog.callback.unexpected",
         };
-      const context = await oauthContext(ctx, entry, auth, values);
+      // The attempt asked for an ID token when its private record holds a
+      // nonce or its scope names `openid`; the keys to verify it come from
+      // the same discovery the authorization began with.
+      const context = await oauthContext(
+        ctx,
+        entry,
+        auth,
+        values,
+        handoff.private["nonce"] !== undefined ||
+          (handoff.private["scope"] ?? "").split(" ").includes("openid"),
+      );
       const result = await completeAuthorizationCode(ctx, {
         url: input.url,
         handoff,
         server: context.server,
         client: context.client,
         policy: context.policy,
+        // The reviewed entry's static values, filled with this connection's
+        // configured fields; nothing from the callback or the caller.
+        parameters: tokenParameters(entry, auth, values),
       });
       // The grant settled the handoff itself, under the generation fence,
       // for these outcomes; the command layer records it and moves on.

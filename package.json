@@ -2,9 +2,15 @@
   "name": "@ceremony/auth",
   "version": "0.1.0",
   "private": true,
+  "description": "Auth-ceremony connector broker: record, chain and run authentication ceremonies for people and agents.",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Tyler-R-Kendrick/ceremony.git"
+  },
+  "homepage": "https://github.com/Tyler-R-Kendrick/ceremony#readme",
+  "bugs": {
+    "url": "https://github.com/Tyler-R-Kendrick/ceremony/issues"
   },
   "engines": {
     "node": ">=22.12"
@@ -51,8 +57,11 @@
       "types": "./dist/server/connectors/index.d.ts",
       "import": "./dist/server/connectors/index.js"
     },
-    "./connectors.css": "./src/react/connectors.css"
+    "./connectors.css": "./src/react/connectors.css",
+    "./openapi/connectors.json": "./docs/openapi/connectors.openapi.json",
+    "./package.json": "./package.json"
   },
+  "types": "./dist/core/index.d.ts",
   "files": [
     "dist",
     "src/react/styles.css",
@@ -60,14 +69,17 @@
     "src/react/connectors.css",
     "README.md",
     "docs",
-    "!docs/implementation-evidence"
+    "!docs/implementation-evidence",
+    "!docs/demos",
+    "!docs/platform-review.md",
+    "!docs/impeccable-audit.md"
   ],
   "scripts": {
     "dev": "node --import tsx examples/server.ts",
     "setup:browsers": "playwright install --with-deps chromium firefox webkit",
     "clean": "node scripts/clean.mjs",
     "clean:apply": "node scripts/clean.mjs --apply",
-    "check": "tsc --noEmit && npm run docs:connectors:check",
+    "check": "tsc --noEmit && npm run docs:connectors:check && npm run openapi:check",
     "build": "npm run build:extension && tsc -p tsconfig.build.json && vite build && node scripts/build-mcp-app.mjs && node scripts/check-bundle.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "build:mcp-app": "node scripts/build-mcp-app.mjs",
@@ -78,6 +90,9 @@
     "specs:generate": "node --import tsx scripts/specifications.ts --write",
     "docs:connectors": "node --import tsx scripts/connector-support-matrix.ts",
     "docs:connectors:check": "node --import tsx scripts/connector-support-matrix.ts --check",
+    "openapi:generate": "node --import tsx scripts/connector-openapi.ts",
+    "openapi:check": "node --import tsx scripts/connector-openapi.ts --check",
+    "test:package": "node --import tsx --test tests/package-consumer.test.ts tests/connectors/packaging/consumer.test.ts",
     "test:integration": "node scripts/test.mjs integration",
     "test:security": "node scripts/test.mjs security",
     "test:agent": "node scripts/test.mjs agent",
@@ -145,6 +160,7 @@
     "@webreel/core": "0.1.4",
     "@workflow/vitest": "4.0.23",
     "agent-browser": "^0.37.1",
+    "ajv": "8.20.0",
     "c8": "12.0.0",
     "embedded-postgres": "18.4.0-beta.17",
     "esbuild": "0.28.2",

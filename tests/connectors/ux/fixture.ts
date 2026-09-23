@@ -660,7 +660,27 @@ export function createConnectorFixture(options: FixtureOptions = {}) {
       return fail(401, "unauthenticated", "Sign in again to continue.");
 
     if (path === "/catalog") return json({ entries, viewer });
-    if (path === "/definitions") return json({ definitions });
+    // The list is a summary, as the service projects it; the full
+    // definition only comes back from `/definitions/:ref`.
+    if (path === "/definitions")
+      return json({
+        definitions: definitions.map((definition) => ({
+          definitionRef: definition.definitionRef,
+          identity: definition.identity,
+          display: definition.display,
+          issues: {
+            blocking: definition.compatibility.issues.filter(
+              (issue) => issue.severity === "blocking",
+            ).length,
+            warning: definition.compatibility.issues.filter(
+              (issue) => issue.severity === "warning",
+            ).length,
+            info: definition.compatibility.issues.filter(
+              (issue) => issue.severity === "info",
+            ).length,
+          },
+        })),
+      });
     if (path.startsWith("/definitions/")) {
       const ref = decodeURIComponent(path.slice("/definitions/".length));
       const found =

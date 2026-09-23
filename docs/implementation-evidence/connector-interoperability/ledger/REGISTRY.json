@@ -1,5 +1,6 @@
 {
   "swarm": "REGISTRY",
+  "recordedAt": "2026-09-19",
   "summary": "Official MCP registry and subregistry support: a bounded read client for the /v0.1 REST API, inert server.json import, durable snapshots with tombstones, pins and interrupted-refresh safety, private and public read surfaces, guarded server.json export/publication, and a connector adapter whose execution dimensions are explicitly unsupported.",
   "sourceProfiles": [
     {

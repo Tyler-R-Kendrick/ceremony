@@ -1,8 +1,10 @@
 import {
   catalogEntrySchema,
+  isLiveSupportLabel,
   publicCatalogProjection,
   strongestEvidence,
   type CatalogEntry,
+  type SupportLabel,
 } from "../../core/connectors/index.js";
 import type { ConnectorAdapter, ConnectorAdapterRegistry } from "./adapter.js";
 
@@ -12,6 +14,14 @@ import type { ConnectorAdapter, ConnectorAdapterRegistry } from "./adapter.js";
  * unconfigured — implemented, not usable here — and a fixture adapter is shown
  * as a fixture. No static list in the browser can disagree with this, because
  * there is no static list in the browser.
+ *
+ * The support label is the one input here that is not the adapter's own
+ * declaration: it is computed from dated evidence (see `supportLabelRules`)
+ * by the caller's labeler. It also settles the one place the family default
+ * used to be final: a `fixture` adapter (the generic OpenAPI and catalog
+ * adapters) whose evidence earns `live` or `certified` here, which needs the
+ * configuration present, is provider-backed. Without such evidence it stays a
+ * fixture, however it is exercised locally; the label then says how well.
  */
 
 const authenticationKinds = (adapter: ConnectorAdapter) => [
@@ -39,16 +49,25 @@ export function catalogEntryFor(
   extra: {
     authentication?: CatalogEntry["authentication"];
     definitionRef?: string;
+    /** The evidence-derived label for this adapter; absent leaves the entry unlabelled. */
+    label?: (adapterId: string, configured: boolean) => SupportLabel;
   } = {},
 ): CatalogEntry {
   const capabilities = adapter.capabilities(present);
   const missingRequired = adapter.configuration.some(
     (item) => item.required && !present.has(item.name),
   );
-  const support: CatalogEntry["support"] =
-    adapter.support === "provider-backed" && missingRequired
-      ? "unconfigured"
+  const supportLabel = extra.label?.(adapter.id, !missingRequired);
+  const declared: CatalogEntry["support"] =
+    adapter.support === "fixture" &&
+    supportLabel &&
+    isLiveSupportLabel(supportLabel)
+      ? "provider-backed"
       : adapter.support;
+  const support: CatalogEntry["support"] =
+    declared === "provider-backed" && missingRequired
+      ? "unconfigured"
+      : declared;
   return publicCatalogProjection(
     catalogEntrySchema.parse({
       id: adapter.id,
@@ -75,6 +94,7 @@ export function catalogEntryFor(
       evidence: strongestEvidence(
         capabilities.map((status) => status.evidence),
       ),
+      ...(supportLabel ? { supportLabel } : {}),
       group: adapter.service,
       ...(extra.definitionRef ? { definitionRef: extra.definitionRef } : {}),
     }),
@@ -85,10 +105,13 @@ export function catalogEntryFor(
 export function catalogFor(
   registry: ConnectorAdapterRegistry,
   present: (adapter: ConnectorAdapter) => ReadonlySet<string>,
+  label?: (adapterId: string, configured: boolean) => SupportLabel,
 ): CatalogEntry[] {
   return registry
     .list()
-    .map((adapter) => catalogEntryFor(adapter, present(adapter)))
+    .map((adapter) =>
+      catalogEntryFor(adapter, present(adapter), label ? { label } : {}),
+    )
     .sort((a, b) =>
       a.group === b.group
         ? a.id.localeCompare(b.id)

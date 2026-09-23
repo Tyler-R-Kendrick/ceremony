@@ -476,6 +476,60 @@ test("catalog and status answer with public projections only", async () => {
   }
 });
 
+test("catalog and status carry the evidence-derived support label, and status asks for it only after the connection is found", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const asked: string[] = [];
+    const mcp = handlerFor(f.runtime, {
+      connectors: {
+        ...dependencies(seen),
+        catalog: async () => [
+          catalogEntrySchema.parse({ ...catalogEntry, supportLabel: "local" }),
+        ],
+        supportLabel: async (_who, connectionRef) => {
+          asked.push(connectionRef);
+          return "local";
+        },
+      },
+    });
+    await call(mcp, "good", initialize);
+    const catalog = JSON.parse(
+      await resultText(
+        await call(mcp, "good", {
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: { name: "connector_catalog", arguments: {} },
+        }),
+      ),
+    ) as { connectors: Array<{ supportLabel?: string }> };
+    assert.equal(catalog.connectors[0]?.supportLabel, "local");
+
+    const status = async (connectionRef: string, id: number) =>
+      JSON.parse(
+        await resultText(
+          await call(mcp, "good", {
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "connector_status", arguments: { connectionRef } },
+          }),
+        ),
+      ) as Record<string, unknown>;
+    assert.equal(
+      (await status(connection.connectionRef, 5)).supportLabel,
+      "local",
+    );
+    assert.deepEqual(await status("connection:unknown", 6), {
+      connection: "not-found",
+    });
+    assert.deepEqual(asked, [connection.connectionRef]);
+  } finally {
+    await f.store.close();
+  }
+});
+
 test("connect returns the handoff and the owner's page path, never a provider link or code", async () => {
   const f = runtimeFixture();
   try {
