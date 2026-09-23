@@ -160,18 +160,34 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (/totp|authenticat|two[- ]?factor|2fa/.test(text)) return "totp-code";
     if (/e-?mail|inbox/.test(text)) return "verification-code";
     if (
-      /check your (e-?mail|inbox)|we (have )?sent|confirm(ation)? (your )?e-?mail|verify your e-?mail/.test(
+      /check your (e-?mail|inbox)|we (have )?(sent|e-?mailed)|sent (it )?to (your )?e-?mail|sent to \S+@|confirm(ation)? (your )?e-?mail|verify your e-?mail/.test(
         page,
       )
     )
       return "verification-code";
-    if (/totp|authenticat|two[- ]?factor|2fa|one[- ]?time/.test(page))
-      return "totp-code";
+    if (/totp|authenticat|two[- ]?factor|2fa/.test(page)) return "totp-code";
     const totp = available.includes("totp-code");
     if (totp !== available.includes("verification-code"))
       return totp ? "totp-code" : "verification-code";
     return "verification-code";
   };
+
+  /** Autocomplete tokens that qualify a purpose rather than name one. */
+  const modifiers =
+    /^(on|off|section-.*|shipping|billing|home|work|mobile|fax|pager|webauthn)$/;
+  /** Autocomplete purposes these rules know how to answer. */
+  const handled = new Set([
+    "one-time-code",
+    "current-password",
+    "new-password",
+    "username",
+    "email",
+    "name",
+    "bday",
+  ]);
+  /** Codes that are not a sign-in code: typing one there is always wrong. */
+  const otherCodes =
+    /zip|postal|post code|promo|coupon|discount|voucher|gift|referral|invit|country|area|region|dialling|dialing|currency|product|tax/;
 
   /** What this control is asking for, or nothing when it cannot be told. */
   const roleOf = (
@@ -187,6 +203,13 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // new password from the current one, and a code field from a name field,
     // when the labels alone would not.
     const hint = new Set((element.autocomplete ?? "").split(/\s+/));
+    // A token naming some other purpose ("postal-code", "tel", "cc-number",
+    // "organization") is just as final: it says what the field is not.
+    const purposes = [...hint].filter(
+      (token) => token && !modifiers.test(token),
+    );
+    if (purposes.length > 0 && !purposes.some((token) => handled.has(token)))
+      return undefined;
     if (hint.has("one-time-code")) return codeRole(text, page, available);
     if (hint.has("current-password")) return "password";
     if (hint.has("new-password"))
@@ -197,7 +220,10 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (hint.has("email")) return "email";
     if (hint.has("name")) return "display-name";
     if (hint.has("bday")) return "birth-date";
-    if (/\b(code|otp|one[- ]?time|verification)\b/.test(text))
+    if (
+      /\b(code|otp|one[- ]?time|verification)\b/.test(text) &&
+      !otherCodes.test(text)
+    )
       return codeRole(text, page, available);
     if (element.type === "email" || /e-?mail/.test(text))
       return identifierWords.test(text) ? identifier(text, available) : "email";
@@ -401,12 +427,22 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // counted once the provider failed and its own retry link loaded the page
     // again: the earlier submission never reached a working provider, and a
     // person would press the same button a second time.
+    // A provider's retry link is followed once per run. A provider that fails
+    // again after a retry is down, not flaky, and each loop would post the
+    // password to it again.
+    const retries = history.filter(
+      (entry) => entry.action === "click" && retry.test(entry.note ?? ""),
+    );
+    const firstRetry = (entry: (typeof history)[number]) =>
+      entry === retries[0];
     const changed = history.findLastIndex(
       (entry) =>
         entry.path === snapshot.path &&
         (entry.action === "check" ||
           (entry.action === "fill" && entry.note === "retry-address") ||
-          (entry.action === "click" && retry.test(entry.note ?? ""))),
+          (entry.action === "click" &&
+            retry.test(entry.note ?? "") &&
+            firstRetry(entry))),
     );
     const lastPress = history.findLastIndex(
       (entry) => entry.action === "click" && entry.path === snapshot.path,
@@ -446,14 +482,20 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
 
     // A provider that failed and says so offers a way to try again; that is
     // the way forward whatever the goal, but only while the failure is shown.
-    const failed = /unavailable|went wrong|try again/.test(alerts);
-    const link = snapshot.elements.find(
-      (element) =>
-        element.kind === "link" &&
-        (toward[goal].test(words(element)) ||
-          (failed && retry.test(words(element)))) &&
-        !pressed.has(element.text),
-    );
+    // "Too many attempts, try again later" is a lockout, and trying again is
+    // how it gets longer. On a page showing a failure, a link back to the
+    // form is the retry whatever it is called ("Back to sign in" also reads
+    // as the way to sign in), so only the retry rule may follow it.
+    const showsFailure =
+      /unavailable|went wrong|try again|too many|locked/.test(alerts);
+    const failed = showsFailure && !/too many|later|locked|limit/.test(alerts);
+    const link = snapshot.elements.find((element) => {
+      if (element.kind !== "link" || pressed.has(element.text)) return false;
+      const text = words(element);
+      if (showsFailure && retry.test(text))
+        return failed && retries.length === 0;
+      return toward[goal].test(text) && !elsewhere.test(text);
+    });
     if (link) return { action: "click", element: link.index, note: link.text };
 
     // Nothing to fill and nothing to press. A page that says the thing
