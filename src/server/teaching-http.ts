@@ -35,6 +35,7 @@ import {
   teachingInputs,
 } from "./teaching-operations.js";
 import { browserToolFailure } from "./browser-login-tools.js";
+import { recordedCeremonyRoute } from "./recorded-ceremonies.js";
 import { agentStatusStream } from "./agent/stream.js";
 import { extraDiscoveredCeremonies } from "../core/connector-authoring.js";
 import { suggestRecipeLabels } from "./agent/authoring.js";
@@ -317,6 +318,10 @@ async function toolHttp(
       return reply(await browser.release(actor, body));
     if (path === "/tools/browser-backends")
       return reply(await browser.backends(actor, body));
+    if (path === "/tools/browser-record-login" && browser.recordings)
+      return reply(await browser.recordLogin(actor, body));
+    if (path === "/tools/browser-recording-read" && browser.recordings)
+      return reply(await browser.readRecording(actor, body));
   }
   return reply({ error: "unavailable" }, 404);
 }
@@ -1009,6 +1014,20 @@ export async function teachingHttp(
           (item) => item.id,
         ),
       });
+    // Reading, reviewing and publishing a recorded ceremony: the people's
+    // half of recording, which no MCP tool offers.
+    if (path.startsWith("/recorded-ceremonies/")) {
+      const answer = await recordedCeremonyRoute(
+        runtime.browserLogin?.recordings,
+        actor,
+        path,
+        post,
+        body,
+      );
+      return answer === undefined
+        ? reply({ error: "unavailable" }, 404)
+        : reply(answer);
+    }
     if (path === "/runs" || path.startsWith("/runs/"))
       return await runHttp(request, runtime, actor, path, post, body);
     if (path === "/demonstrations" || path.startsWith("/demonstrations/"))
