@@ -931,8 +931,8 @@ export async function startAuthProvider(
         markup.page(
           "Account",
           `<h1>You are signed in</h1>
-           <p data-account="${markup.escape(email)}">Signed in as ${markup.escape(email)}.</p>
-           <form method="post" action="/signout"><button type="submit">Sign out</button></form>`,
+           <p class="subtitle" data-account="${markup.escape(email)}">Signed in as ${markup.escape(email)}.</p>
+           <form method="post" action="/signout"><button type="submit" class="btn btn-secondary btn-block">Sign out</button></form>`,
         ),
       );
 
