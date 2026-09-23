@@ -452,6 +452,7 @@ test("production proxy rejects numeric loopback and mapped IPv4 before connectin
 for (const remote of [
   { browserbase: { apiKey: "synthetic", projectId: "synthetic" } },
   { cloudflare: { apiToken: "synthetic", accountId: "synthetic" } },
+  { cdp: { endpoint: "wss://cdp.example/devtools/browser" } },
 ])
   test(`remote browser requires vetted egress before opening ${Object.keys(remote)[0]}`, async (t) => {
     let attempted = 0;

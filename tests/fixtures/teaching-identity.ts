@@ -6,8 +6,10 @@ import { calculatePKCECodeChallenge } from "oauth4webapi";
 
 /** Local signed OIDC provider. No password, external identity, or production credential. */
 export async function teachingIdentityFixture(
-  claims: Record<string, unknown> = {},
+  initialClaims: Record<string, unknown> = {},
 ) {
+  // Claims for the next ID token; a test switches them to sign in as someone else.
+  let claims = initialClaims;
   const pair = await generateKeyPair("RS256");
   const jwk = {
     ...(await exportJWK(pair.publicKey)),
@@ -93,6 +95,26 @@ export async function teachingIdentityFixture(
     issuer,
     get tokenCalls() {
       return tokenCalls;
+    },
+    /** Replaces the claims of every ID token issued from now on. */
+    setClaims(next: Record<string, unknown>) {
+      claims = next;
+    },
+    /** An RFC 9068 access token for `audience`, signed by this issuer's key. */
+    accessToken(
+      audience: string,
+      extra: Record<string, unknown> = {},
+      subject = "fixture-subject",
+    ) {
+      return new SignJWT({ client_id: "fixture-chat", ...extra })
+        .setProtectedHeader({ alg: "RS256", kid: "fixture", typ: "at+jwt" })
+        .setIssuer(issuer)
+        .setAudience(audience)
+        .setSubject(subject)
+        .setJti(randomBytes(8).toString("hex"))
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(pair.privateKey);
     },
     async close() {
       server.closeAllConnections();

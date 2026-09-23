@@ -13,15 +13,32 @@ import {
   type SessionReleaseResult,
   type SessionStatus,
 } from "../core/browser-session-contracts.js";
-import { requireCapability } from "./identity.js";
+import {
+  recordingDescriptorTextSchema,
+  recordingReferenceSchema,
+} from "../core/recorded-ceremony.js";
+import { identifierSchema } from "../core/operation-contracts.js";
+import { AuthorizationError, requireCapability } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { LeaseConflict, SessionLost } from "./browser-sessions.js";
 import type { BrowserSessionRegistry } from "./browser-sessions.js";
-import type { BrowserLoginService } from "./browser-login-service.js";
+import type {
+  BrowserLoginService,
+  LoginRunInput,
+  RecordingOutcome,
+} from "./browser-login-service.js";
+import type { HumanParticipation, RecordingDrift } from "./browser-driver.js";
+import {
+  recordedCeremonyInputs,
+  type PublishedRecordedCeremony,
+  type RecordedCeremonies,
+  type RecordedCeremonyDraft,
+} from "./recorded-ceremonies.js";
 import {
   compileLoginPlan,
   connectionDraftSchema,
   PlanRejected,
+  type EffectiveLoginPlan,
   type PlanRejectionReason,
 } from "./login-plan.js";
 
@@ -109,6 +126,30 @@ export const browserLoginToolInputs = {
     kind: sessionReleaseKindSchema,
   }),
   backends: z.strictObject({}),
+  /**
+   * Log in with recording on, and save what worked as a draft recorded
+   * ceremony. The same draft and the same rules as `login`; the only
+   * additions are what to call the recording and, to repair one, which
+   * published version it is based on.
+   */
+  recordLogin: z.strictObject({
+    connectorId: identifier,
+    draft: clientDraftSchema.omit({ recording: true }),
+    // The recording format's own rules, asked here: a name it would refuse
+    // is a bad request, not a reason to lose the login it was recording.
+    recording: z.strictObject({
+      id: identifierSchema,
+      title: recordingDescriptorTextSchema,
+    }),
+    /**
+     * A published recording to replay. Where the provider no longer matches
+     * it and the plan lets the host's model decide, the model repairs that
+     * step and the result is saved as a new draft based on this version.
+     */
+    basedOn: recordingReferenceSchema.optional(),
+    idempotencyKey: z.string().min(1).max(200).optional(),
+  }),
+  recording: recordedCeremonyInputs.read,
 } as const;
 
 export type BrowserLoginToolName = keyof typeof browserLoginToolInputs;
@@ -167,6 +208,53 @@ export type BrowserLoginToolDeps = {
     actor: ActorContext,
     sessionRef: string,
   ): Promise<LoginEvidence | undefined>;
+  /**
+   * How this host brings a person into a step the browser cannot complete —
+   * a challenge, a passkey, a native dialog — for this actor and this plan.
+   *
+   * Without it such a step ends the login as `requires-human`, which is the
+   * right answer for a host with nobody to ask but leaves nothing to resume.
+   * With it, the driver asks, waits for the person's answer and re-reads the
+   * page, so the same attempt continues in the same browser. The plan's
+   * `interactionRounds` still bounds how often it may ask, and a person's
+   * "done" is still only a claim the verifier has to confirm.
+   *
+   * A host decision like every other one here: nothing in the tool arguments
+   * reaches it, and returning `undefined` for an actor is a refusal to
+   * interrupt that person, not an error.
+   */
+  human?(
+    actor: ActorContext,
+    plan: EffectiveLoginPlan,
+  ): HumanParticipation | undefined;
+  /**
+   * Where recorded ceremonies are kept. Without it a login cannot be
+   * recorded, and a plan naming a recording is refused as unavailable.
+   */
+  recordings?: RecordedCeremonies;
+  /**
+   * Whether this host has a model for plans that ask for one. Passed to the
+   * compiler so a draft asking for inference on a host without it is
+   * refused as a plan rather than as a login.
+   */
+  modelAvailable?: boolean;
+};
+
+/**
+ * What `recordLogin` reports: what the login established, and what became of
+ * the recording. Every field is value-free - the recording is the same
+ * artifact a reviewer reads, and the drift names a page pattern and a control
+ * description.
+ */
+export type RecordLoginResult = {
+  login: LoginResult;
+  /** The saved draft, when the login got far enough to be worth keeping. */
+  draft?: RecordedCeremonyDraft;
+  /** Why nothing was saved, when something should have been. */
+  notRecorded?: RecordingOutcome["rejected"] | "login-did-not-complete";
+  drift?: RecordingDrift;
+  /** Model calls made while replaying `basedOn`. Zero on a clean replay. */
+  interpreterCalls: number;
 };
 
 /** Structured failures. Finite codes and finite reasons, never free-form text. */
@@ -232,6 +320,100 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
       ? await deps.backends()
       : (await import("./browser-backends.js")).managedBackends();
 
+  /**
+   * Compile what a client asked for against this host's registrations. The
+   * draft is a request; every decision that matters is made here.
+   */
+  async function compile(
+    actor: ActorContext,
+    connectorId: string,
+    draft: z.infer<typeof clientDraftSchema>,
+  ): Promise<EffectiveLoginPlan> {
+    const usable = await deps.credentialRefs?.(actor);
+    return compileLoginPlan(
+      { ...draft, connectorId },
+      {
+        backends: await admitted(),
+        knownConnectors: await deps.knownConnectors(actor),
+        ...(usable ? { availableCredentialRefs: usable } : {}),
+        // Present only when the host set it. `allowUnverified` defaulting to
+        // undefined is what makes `requireVerification: false` a rejection.
+        ...(deps.allowUnverified === true ? { allowUnverified: true } : {}),
+        ...(deps.modelAvailable === true ? { modelAvailable: true } : {}),
+        revision: deps.revision?.() ?? 1,
+      },
+    );
+  }
+
+  /**
+   * The published recording a plan names, or a refusal as a plan.
+   *
+   * Refused before any browser starts: a recording that is not published at
+   * that digest, or that would act somewhere the plan does not admit, is a
+   * configuration a caller fixes, not a login that failed halfway.
+   */
+  async function publishedFor(
+    actor: ActorContext,
+    plan: EffectiveLoginPlan,
+  ): Promise<PublishedRecordedCeremony> {
+    const reference = plan.recording!;
+    const published = await deps.recordings?.getPublished(actor, reference);
+    if (!published || published.connectorId !== plan.connectorId)
+      throw new PlanRejected("recording-unavailable");
+    for (const origin of published.recording.origins)
+      if (!plan.navigationOrigins.includes(origin))
+        throw new PlanRejected("recording-origin-not-declared", origin);
+    return published;
+  }
+
+  /** Run a compiled plan and bind whatever session it retained to this client. */
+  async function run(
+    actor: ActorContext,
+    plan: EffectiveLoginPlan,
+    extra: Omit<LoginRunInput, "plan" | "human">,
+  ): Promise<LoginResult> {
+    // Resolved against the compiled plan, never the draft: which person may
+    // be interrupted, and how, is the host's answer for work it admitted.
+    const human = deps.human?.(actor, plan);
+    const result = loginResultSchema.parse(
+      await deps.service.login(actor, {
+        plan,
+        ...(human ? { human } : {}),
+        ...extra,
+      }),
+    );
+
+    const sessionRef =
+      "sessionRef" in result ? (result.sessionRef ?? undefined) : undefined;
+    // A `dispose` continuation ends its own session before returning, so
+    // there is nothing left to hand control of; anything else that retained
+    // one is bound to the client that asked for it, because a session with no
+    // controller is a session nobody — including its creator — may drive.
+    if (sessionRef && plan.continuation !== "dispose") {
+      planDigests.set(sessionRef, plan.digest);
+      try {
+        const retained = await deps.sessions.status(actor, sessionRef, {
+          planDigest: plan.digest,
+        });
+        // The scope the session already carries is carried across unchanged:
+        // moving control must not widen what that control may do.
+        await deps.sessions.transfer(actor, sessionRef, {
+          controllerRef: controllerOf(actor),
+          scope: retained.scope,
+        });
+      } catch (error) {
+        // An unbound retained session is a browser nobody can reach and
+        // nobody will close. Releasing it is the honest cleanup.
+        planDigests.delete(sessionRef);
+        await deps.sessions
+          .release(actor, sessionRef, "dispose-managed")
+          .catch(() => {});
+        throw error;
+      }
+    }
+    return result;
+  }
+
   return {
     /**
      * Compile what was asked for into what this server will do, run it, and
@@ -248,57 +430,110 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
       requireCapability(actor, "executor");
       const { connectorId, draft, idempotencyKey } =
         browserLoginToolInputs.login.parse(input);
-      const usable = await deps.credentialRefs?.(actor);
-      const plan = compileLoginPlan(
-        { ...draft, connectorId },
-        {
-          backends: await admitted(),
-          knownConnectors: await deps.knownConnectors(actor),
-          ...(usable ? { availableCredentialRefs: usable } : {}),
-          // Present only when the host set it. `allowUnverified` defaulting to
-          // undefined is what makes `requireVerification: false` a rejection.
-          ...(deps.allowUnverified === true ? { allowUnverified: true } : {}),
-          revision: deps.revision?.() ?? 1,
-        },
-      );
-
-      const result = loginResultSchema.parse(
-        await deps.service.login(actor, {
-          plan,
-          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-        }),
-      );
-
-      const sessionRef =
-        "sessionRef" in result ? (result.sessionRef ?? undefined) : undefined;
-      // A `dispose` continuation ends its own session before returning, so
-      // there is nothing left to hand control of; anything else that retained
-      // one is bound to the client that asked for it, because a session with no
-      // controller is a session nobody — including its creator — may drive.
-      if (sessionRef && plan.continuation !== "dispose") {
-        planDigests.set(sessionRef, plan.digest);
-        try {
-          const retained = await deps.sessions.status(actor, sessionRef, {
-            planDigest: plan.digest,
-          });
-          // The scope the session already carries is carried across unchanged:
-          // moving control must not widen what that control may do.
-          await deps.sessions.transfer(actor, sessionRef, {
-            controllerRef: controllerOf(actor),
-            scope: retained.scope,
-          });
-        } catch (error) {
-          // An unbound retained session is a browser nobody can reach and
-          // nobody will close. Releasing it is the honest cleanup.
-          planDigests.delete(sessionRef);
-          await deps.sessions
-            .release(actor, sessionRef, "dispose-managed")
-            .catch(() => {});
-          throw error;
-        }
-      }
-      return result;
+      const plan = await compile(actor, connectorId, draft);
+      // A plan that names a recording replays it, and replays nothing else:
+      // the recording is resolved by the reference the plan's digest covers.
+      const published = plan.recording
+        ? await publishedFor(actor, plan)
+        : undefined;
+      return run(actor, plan, {
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        ...(published
+          ? {
+              replay: {
+                recording: published.recording,
+                reference: plan.recording,
+              },
+            }
+          : {}),
+      });
     },
+
+    /**
+     * Log in and keep what worked as a draft recorded ceremony.
+     *
+     * Two capabilities, because it is two acts: driving a login (`executor`)
+     * and saving an artifact others may later be asked to approve
+     * (`author`). The draft is only a draft. Nothing here reviews or
+     * publishes it, and nothing can replay it until a person has.
+     */
+    async recordLogin(
+      actor: ActorContext,
+      input: unknown,
+    ): Promise<RecordLoginResult> {
+      requireCapability(actor, "executor");
+      requireCapability(actor, "author");
+      const recordings = deps.recordings;
+      if (!recordings) throw new AuthorizationError("denied");
+      const { connectorId, draft, recording, basedOn, idempotencyKey } =
+        browserLoginToolInputs.recordLogin.parse(input);
+      const plan = await compile(actor, connectorId, {
+        ...draft,
+        ...(basedOn ? { recording: basedOn } : {}),
+      });
+      const published = plan.recording
+        ? await publishedFor(actor, plan)
+        : undefined;
+      let outcome: RecordingOutcome | undefined;
+      const login = await run(actor, plan, {
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        ...(published
+          ? {
+              replay: {
+                recording: published.recording,
+                reference: plan.recording,
+                repair: true,
+              },
+            }
+          : { record: recording }),
+        onRecording: (value) => (outcome = value),
+      });
+      const reached =
+        login.status === "verified" || login.status === "submitted-unverified";
+      const draftSaved =
+        reached && outcome?.recording
+          ? // A first recording carries the id the caller gave it; a repair
+            // keeps the published one, so its next version lines up.
+            await recordings.saveDraft(actor, outcome.recording, {
+              connectorId,
+              outcome: login.status,
+            })
+          : undefined;
+      return {
+        login,
+        ...(draftSaved ? { draft: draftSaved } : {}),
+        ...(!draftSaved && !(published && !outcome?.repaired)
+          ? {
+              notRecorded: reached
+                ? (outcome?.rejected ?? "login-did-not-complete")
+                : "login-did-not-complete",
+            }
+          : {}),
+        ...(outcome?.drift ? { drift: outcome.drift } : {}),
+        interpreterCalls: outcome?.interpreterCalls ?? 0,
+      };
+    },
+
+    /**
+     * Read a recorded ceremony: a draft its author (or a reviewer or
+     * publisher) may see, or a published version by reference.
+     */
+    async readRecording(
+      actor: ActorContext,
+      input: unknown,
+    ): Promise<RecordedCeremonyDraft | PublishedRecordedCeremony> {
+      const recordings = deps.recordings;
+      if (!recordings) throw new AuthorizationError("denied");
+      const parsed = browserLoginToolInputs.recording.parse(input);
+      if (parsed.draftId !== undefined)
+        return recordings.readDraft(actor, parsed.draftId);
+      const published = await recordings.getPublished(actor, parsed.published!);
+      if (!published) throw new AuthorizationError("denied");
+      return published;
+    },
+
+    /** The store behind the recording tools, for the people's review routes. */
+    recordings: deps.recordings,
 
     /**
      * What this client may see about a session.

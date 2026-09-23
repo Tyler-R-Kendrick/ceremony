@@ -40,6 +40,7 @@ import type {
   ImportInput as AdapterImportInput,
   ImportOutcome,
   InvokeResult,
+  ReviewedOperation,
 } from "../adapter.js";
 import {
   boundOperation,
@@ -48,6 +49,12 @@ import {
   type BoundOperation,
   type RuntimeBinding,
 } from "../binding.js";
+import {
+  issuerPolicy,
+  issuerPolicyOrigins,
+  type IssuerPolicy,
+  type IssuerPolicyInput,
+} from "../auth/policy.js";
 import { ConnectorError } from "../errors.js";
 import { catalogFor } from "../inventory.js";
 import type {
@@ -117,6 +124,8 @@ export type InvokeResponse = {
   replayed?: true;
   handoff?: { kind: string; state: string };
   presentation?: HumanPresentation;
+  /** Personal output released to an assistant under the binding's owner consent. */
+  agentOutputConsent?: "personal";
 };
 
 export type DefinitionListEntry = {
@@ -191,9 +200,43 @@ type ConnectionEntry = { record: ConnectionRecord; revision: number };
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
 type HandoffHandle = { handoffRef: string; generation: number };
 
+/** A pending revocation request as recorded on a connection's server-side state. */
+const revocationRequestSchema = z.object({
+  requestedAt: z.string(),
+  requestedBy: z.string(),
+});
 const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
+/** Origins a definition declares for its OAuth profiles; candidates for review, never approval. */
+function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
+  const origins = new Set<string>();
+  for (const profile of definition.authentication)
+    for (const key of [
+      "issuer",
+      "authorizationEndpoint",
+      "tokenEndpoint",
+      "deviceAuthorizationEndpoint",
+    ] as const) {
+      const value = (profile as Partial<Record<typeof key, string>>)[key];
+      if (value && URL.canParse(value)) origins.add(new URL(value).origin);
+    }
+  return [...origins];
+}
+/** A configuration port that answers only for the names given; any other reads as absent. */
+function narrowConfiguration(
+  port: ConfigurationPort,
+  names: ReadonlySet<string>,
+): ConfigurationPort {
+  return {
+    read: async (name) => (names.has(name) ? port.read(name) : undefined),
+    present: async (asked) => {
+      const allowed = asked.filter((name) => names.has(name));
+      return allowed.length ? port.present(allowed) : new Set<string>();
+    },
+    revision: () => port.revision(),
+  };
+}
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
 /**
@@ -271,7 +314,15 @@ function presentationOf(
   material: Readonly<Record<string, string>>,
 ): HumanPresentation | undefined {
   const shown: HumanPresentation = {};
-  if (material.url !== undefined) shown.url = material.url;
+  // The OAuth grants in `connectors/auth` keep the page to open under their
+  // own names (an authorization URL, a device verification URI); those are
+  // the same one thing a person may see, never the state or codes beside them.
+  const url =
+    material.url ??
+    material.authorizationUrl ??
+    material.verificationUriComplete ??
+    material.verificationUri;
+  if (url !== undefined) shown.url = url;
   if (material.userCode !== undefined) shown.userCode = material.userCode;
   if (material.instructions !== undefined)
     shown.instructions = material.instructions;
@@ -391,10 +442,38 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         effects: this.ports.effects,
         evidence: this.ports.evidence,
-        configuration: this.options.configuration(actor),
+        configuration: narrowConfiguration(
+          this.options.configuration(actor),
+          this.configurationNames(binding),
+        ),
         origin: this.origin,
       },
     };
+  }
+
+  /**
+   * The configuration names an adapter may read under a binding. A hosted
+   * deployment's port holds every tenant-visible value the host keeps, so an
+   * adapter sees only what review approved: the binding's names, the names
+   * its host-registered adapter declares, and the client of the issuer
+   * policy a person pinned.
+   */
+  private configurationNames(binding: RuntimeBinding): ReadonlySet<string> {
+    const names = new Set(binding.configuration);
+    for (const item of this.registry.get(binding.adapterId)?.configuration ??
+      [])
+      names.add(item.name);
+    const oauth = binding.settings["oauth"] as
+      { registration?: Record<string, unknown> } | undefined;
+    for (const key of [
+      "clientIdConfiguration",
+      "clientSecretConfiguration",
+      "privateKeyConfiguration",
+    ]) {
+      const name = oauth?.registration?.[key];
+      if (typeof name === "string") names.add(name);
+    }
+    return names;
   }
 
   private adapterFor(binding: string | Pick<RuntimeBinding, "adapterId">) {
@@ -839,6 +918,13 @@ export class ConnectorCommandService {
   ): Promise<BindingReference> {
     requireAny(actor, ["reviewer", "publisher"]);
     const input: BindingApprovalInput = bindingApprovalSchema.parse(rawInput);
+    // Letting an assistant read personal output is a person's decision.
+    const agentOutputConsent =
+      input.approvals.agentOutputConsent === "personal"
+        ? ("personal" as const)
+        : undefined;
+    if (agentOutputConsent && actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "consent.human-only" });
     const definition = await this.definition(
       actor.tenantId,
       input.definitionRef,
@@ -876,15 +962,53 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
-    const operations = approvals.operations.map((approval, index) =>
+    const reviewed = await this.reviewInputs(
+      actor,
+      adapter,
+      definition,
+      approvals,
+    );
+    const compiled = approvals.operations.map((approval, index) =>
       this.compileOperation(
         definition,
         destinations,
         typeof approval === "string" ? { nativeId: approval } : approval,
         approvals.profileId,
         index,
+        Boolean(adapter.reviewBinding),
       ),
     );
+    let operations = compiled as BoundOperation[];
+    let settings: Record<string, unknown> = { ...approvals.settings };
+    if (adapter.reviewBinding) {
+      // The format compiles what the command layer resolved: transport and
+      // plan come from the source, every decision from the reviewer.
+      const result = await adapterCall(() =>
+        adapter.reviewBinding!({
+          definition,
+          ...(reviewed.source ? { source: reviewed.source } : {}),
+          destinations,
+          operations: compiled as ReviewedOperation[],
+          ...(approvals.profileId ? { profileId: approvals.profileId } : {}),
+          ...(approvals.verifier ? { verifier: approvals.verifier } : {}),
+        }),
+      );
+      // A format whose own settings reach an issuer gets the same gate as a
+      // reviewed issuer policy.
+      if (result.issuer)
+        await this.admitIssuer(
+          actor,
+          definition,
+          result.issuer.issuer,
+          result.issuer.origins,
+        );
+      operations = result.operations;
+      settings = { ...settings, ...result.settings };
+    } else if (approvals.verifier)
+      throw new ConnectorError("unsupported", {
+        detail: "verifier.adapter-unsupported",
+      });
+    if (reviewed.oauth) settings = { ...settings, oauth: reviewed.oauth };
     const configuration =
       approvals.configuration ??
       definition.configuration
@@ -922,8 +1046,9 @@ export class ConnectorCommandService {
       operations,
       permittedTargets: approvals.permittedTargets,
       configuration,
-      settings: approvals.settings,
+      settings,
       policyRevision: this.policy.revision,
+      ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
     const binding = runtimeBindingSchema.parse({
       bindingRef,
@@ -944,10 +1069,114 @@ export class ConnectorCommandService {
       configuration,
       permittedTargets: approvals.permittedTargets,
       reviewedDigest,
-      settings: approvals.settings,
+      settings,
+      ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
     await this.ports.definitions.putBinding(binding);
     return this.reference(binding);
+  }
+
+  /**
+   * What only the reviewed path writes into a binding. The OAuth issuer
+   * policy is set by a person and admitted by host policy for every origin it
+   * lets the grants contact; a format adapter that compiles its own plans is
+   * handed the exact, digest-checked bytes the definition was imported from.
+   * A reviewer's free-form settings can carry neither.
+   */
+  private async reviewInputs(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+    definition: NormalizedDefinition,
+    approvals: BindingApprovalInput["approvals"],
+  ): Promise<{
+    oauth?: IssuerPolicy;
+    source?: { bytes: Uint8Array; mediaType: string };
+  }> {
+    const reserved = new Set(["oauth", ...(adapter.reservedSettings ?? [])]);
+    if (Object.keys(approvals.settings).some((key) => reserved.has(key)))
+      throw new ConnectorError("invalid-request", {
+        detail: "settings.reserved",
+      });
+    let oauth: IssuerPolicy | undefined;
+    if (approvals.oauth !== undefined) {
+      if (actor.actorKind !== "human")
+        throw new ConnectorError("denied", {
+          detail: "oauth.policy.human-only",
+        });
+      try {
+        oauth = issuerPolicy(approvals.oauth as IssuerPolicyInput);
+      } catch (error) {
+        if (
+          error instanceof ConnectorError &&
+          error.code === "configuration-required"
+        )
+          throw new ConnectorError("invalid-request", {
+            detail: "oauth.policy.invalid",
+          });
+        throw error;
+      }
+      await this.admitIssuer(
+        actor,
+        definition,
+        oauth.issuer,
+        issuerPolicyOrigins(oauth),
+      );
+    }
+    let source: { bytes: Uint8Array; mediaType: string } | undefined;
+    if (adapter.reviewBinding) {
+      const record = await this.ports.definitions.getSource(
+        actor.tenantId,
+        definition.sourceRef,
+      );
+      const artifact = record?.artifactRef
+        ? await this.ports.artifacts.get(actor.tenantId, record.artifactRef)
+        : undefined;
+      if (record && artifact) {
+        const digest = createHash("sha256")
+          .update(artifact.bytes)
+          .digest("hex");
+        if (digest !== record.digest.value)
+          throw new ConnectorError("conflict", {
+            detail: "source.digest-mismatch",
+          });
+        source = { bytes: artifact.bytes, mediaType: artifact.mediaType };
+      }
+    }
+    return { ...(oauth ? { oauth } : {}), ...(source ? { source } : {}) };
+  }
+
+  /**
+   * Host policy's word on an OAuth issuer and the origins its grants may
+   * contact, for a person reviewing a binding. It is asked whether the
+   * issuer arrives as a reviewed policy or with a format's own settings.
+   */
+  private async admitIssuer(
+    actor: ActorContext,
+    definition: NormalizedDefinition,
+    issuer: string,
+    origins: string[],
+  ): Promise<void> {
+    if (actor.actorKind !== "human")
+      throw new ConnectorError("denied", {
+        detail: "oauth.policy.human-only",
+      });
+    let allowed = false;
+    try {
+      allowed = this.policy.allowIssuer
+        ? await this.policy.allowIssuer(actor, {
+            issuer,
+            origins,
+            declaredOrigins: declaredOAuthOrigins(definition),
+            definition,
+          })
+        : false;
+    } catch {
+      allowed = false;
+    }
+    if (!allowed)
+      throw new ConnectorError("network-policy", {
+        detail: "oauth.issuer.not-permitted",
+      });
   }
 
   private async approveDestinations(
@@ -1013,7 +1242,9 @@ export class ConnectorCommandService {
     approval: OperationApproval,
     profileId: string | undefined,
     index: number,
-  ): BoundOperation {
+    /** The adapter compiles transports itself (`reviewBinding`); none is required here. */
+    adapterCompiles = false,
+  ): BoundOperation | ReviewedOperation {
     const capability = definition.capabilities.find(
       (item) => item.nativeId === approval.nativeId,
     );
@@ -1028,9 +1259,15 @@ export class ConnectorCommandService {
       : declaredTransport !== undefined
         ? boundOperationTransport(declaredTransport)
         : undefined;
-    if (!transport)
+    if (!transport && !adapterCompiles)
       throw new ConnectorError("invalid-request", {
         detail: "operation.transport-unknown",
+      });
+    // A reviewer cannot hand a format adapter a transport of their own: its
+    // transport comes from the source it compiles.
+    if (adapterCompiles && approval.transport)
+      throw new ConnectorError("invalid-request", {
+        detail: "operation.transport-adapter-owned",
       });
     const destination = this.pickDestination(
       definition,
@@ -1059,17 +1296,26 @@ export class ConnectorCommandService {
       });
     const replay =
       approval.replay ?? (effect === "read" ? "read-only" : "none");
-    return {
-      operationRef: `operation:${sha256Hex([approval.nativeId, index]).slice(0, 32)}`,
+    const decisions: ReviewedOperation = {
       nativeId: approval.nativeId,
       destinationId: destination.id,
-      transport,
       effect,
       outputClassification,
       cost: approval.cost ?? capability.cost,
       consent: approval.consent ?? (effect === "read" ? "none" : "confirm"),
       replay: effect !== "read" && replay === "read-only" ? "none" : replay,
       targetParameters: approval.targetParameters ?? [],
+      ...(approval.authenticationProfile
+        ? { authenticationProfile: approval.authenticationProfile }
+        : {}),
+    };
+    if (!transport || adapterCompiles) return decisions;
+    const { authenticationProfile: _explicit, ...rest } = decisions;
+    void _explicit;
+    return {
+      ...rest,
+      operationRef: `operation:${sha256Hex([approval.nativeId, index]).slice(0, 32)}`,
+      transport,
       ...(authenticationProfile ? { authenticationProfile } : {}),
       ...(capability.label ? { description: capability.label } : {}),
     };
@@ -1414,13 +1660,16 @@ export class ConnectorCommandService {
       state: "completed" | "denied" | "expired" | "cancelled" | "superseded",
     ) => {
       if (!handoff) return;
-      await port(() =>
-        this.ports.handoffs.complete(
-          handoff.handoffRef,
-          handoff.generation,
-          state,
-        ),
-      );
+      // An adapter that settled the handoff itself did so under the same
+      // generation fence; completing it again would be refused as a repeat.
+      if (!result.handoffSettled)
+        await port(() =>
+          this.ports.handoffs.complete(
+            handoff.handoffRef,
+            handoff.generation,
+            state,
+          ),
+        );
       if (record.handoff?.handoffRef === handoff.handoffRef)
         patch.handoff = { ...record.handoff, state };
     };
@@ -1517,8 +1766,16 @@ export class ConnectorCommandService {
         return { patch };
       }
       case "pending":
+        // A pending answer can still carry state the next poll needs (a
+        // device grant's grown `slow_down` interval); dropping it would have
+        // the next poll ignore what the issuer asked for.
         return {
-          patch: { lastOutcome: code(result.code, "authorization.pending") },
+          patch: {
+            lastOutcome: code(result.code, "authorization.pending"),
+            ...(result.adapterState
+              ? { state: boundedState(record.state, result.adapterState) }
+              : {}),
+          },
         };
       case "denied":
         await finish("denied");
@@ -2012,11 +2269,13 @@ export class ConnectorCommandService {
       )
         throw new ConnectorError("denied", { detail: "target.policy" });
     }
+    const consent = { agentOutputConsent: binding.agentOutputConsent };
     if (
       !(await this.policy.allowOutput(
         actor,
         operation.outputClassification,
         operation,
+        consent,
       ))
     )
       throw new ConnectorError("denied", { detail: "output.classification" });
@@ -2167,16 +2426,24 @@ export class ConnectorCommandService {
       ...(result.code ? { code: code(result.code, "adapter.code") } : {}),
     };
     if (result.output !== undefined) {
-      const allowed = await this.policy.allowOutput(
-        actor,
-        classification,
-        operation,
-      );
+      // Secret output never reaches an assistant, whatever a policy says.
+      const allowed =
+        !(actor.actorKind === "agent" && classification === "secret") &&
+        (await this.policy.allowOutput(
+          actor,
+          classification,
+          operation,
+          consent,
+        ));
       const size = Buffer.byteLength(JSON.stringify(result.output) ?? "");
       if (!allowed || size > MAX_OUTPUT_BYTES) {
         response.outputWithheld = true;
         if (size > MAX_OUTPUT_BYTES) response.code = "output.too-large";
-      } else response.output = result.output;
+      } else {
+        response.output = result.output;
+        if (actor.actorKind === "agent" && classification === "personal")
+          response.agentOutputConsent = "personal";
+      }
     }
     if (result.state === "human-required" && result.handoff) {
       const issued = await this.issueHandoff(
@@ -2525,6 +2792,111 @@ export class ConnectorCommandService {
       result: { ...remote, local: "applied" },
       connection: this.project(actor, current),
     };
+  }
+
+  /**
+   * Asks for upstream revocation without performing it. Revocation is an
+   * administrator's decision taken by a person (`revoke`); anyone who may use
+   * the connection, an assistant included, may only put the request in front
+   * of them. The request is recorded on the connection and surfaces as its
+   * last outcome; nothing is revoked, disconnected or invalidated here.
+   */
+  async requestRevocation(
+    actor: ActorContext,
+    connectionRef: string,
+    rawInput: unknown = {},
+  ): Promise<{
+    connectionRef: string;
+    revocation: "pending-approval";
+    requestedAt: string;
+  }> {
+    requireCapability(actor, "executor");
+    z.strictObject({}).parse(rawInput ?? {});
+    const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke-request",
+    );
+    const prior = revocationRequestSchema.safeParse(
+      record.state.revocationRequest,
+    );
+    if (prior.success)
+      return {
+        connectionRef,
+        revocation: "pending-approval",
+        requestedAt: prior.data.requestedAt,
+      };
+    const requestedAt = iso(this.now());
+    await this.update(actor, entry, {
+      state: boundedState(record.state, {
+        revocationRequest: { requestedAt, requestedBy: actor.actorKind },
+      }),
+      lastOutcome: "revoke.requested",
+    });
+    return { connectionRef, revocation: "pending-approval", requestedAt };
+  }
+
+  /**
+   * An administrator declines a pending revocation request; approving it is
+   * `revoke`. Declining is the same decision taken the other way, so it is
+   * held to the same person, capability and policy: otherwise anyone who can
+   * read the connection could clear a request before an administrator saw it.
+   */
+  async declineRevocation(
+    actor: ActorContext,
+    connectionRef: string,
+    rawInput: unknown,
+  ): Promise<ConnectionView> {
+    requireCapability(actor, "admin");
+    if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "revoke.admin-only" });
+    const input = z
+      .strictObject({ expectedRevision: z.number().int().positive() })
+      .parse(rawInput);
+    const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
+    if (entry.revision !== input.expectedRevision)
+      throw new ConnectorError("conflict", { detail: "revision.stale" });
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke",
+      "revoke.denied",
+    );
+    if (
+      !revocationRequestSchema.safeParse(entry.record.state.revocationRequest)
+        .success
+    )
+      throw new ConnectorError("conflict", { detail: "revoke.not-requested" });
+    const state = { ...entry.record.state };
+    delete state.revocationRequest;
+    return this.project(
+      actor,
+      await this.update(actor, entry, {
+        state,
+        lastOutcome: "revoke.declined",
+      }),
+    );
   }
 
   /** Administrative purge of a disconnected connection's local record; never an upstream effect. */

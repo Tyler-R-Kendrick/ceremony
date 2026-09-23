@@ -98,6 +98,14 @@ export const issuerPolicySchema = z.strictObject({
   pushedAuthorization: z.enum(["if-required", "prefer"]).default("if-required"),
   /** Loopback HTTP is for fixtures only; a remote issuer is always HTTPS. */
   allowLoopbackHttp: z.boolean().default(false),
+  /**
+   * RFC 7009: whether an upstream disconnect or an administrative revoke
+   * presents the held tokens to the issuer's advertised revocation endpoint.
+   * Off unless the host turns it on; a local disconnect never does.
+   */
+  revocation: z
+    .enum(["disabled", "on-upstream-disconnect"])
+    .default("disabled"),
   tokenExchange: z
     .strictObject({
       enabled: z.boolean().default(false),
@@ -142,6 +150,20 @@ export function issuerPolicy(input: IssuerPolicyInput): IssuerPolicy {
       );
   }
   return parsed.data;
+}
+
+/**
+ * Every origin a policy lets the grants contact without discovery widening
+ * it: the issuer's, the listed trusted origins and each configured endpoint's.
+ * What host policy judges when a person pins the policy at binding review.
+ */
+export function issuerPolicyOrigins(policy: IssuerPolicy): string[] {
+  const origins = new Set<string>([new URL(policy.issuer).origin]);
+  for (const origin of policy.trustedOrigins) origins.add(origin);
+  for (const endpoint of Object.values(policy.endpoints))
+    if (endpoint) origins.add(new URL(endpoint).origin);
+  if (policy.resource) origins.add(new URL(policy.resource).origin);
+  return [...origins];
 }
 
 /** The policy pinned under an approved binding's inert settings; never caller-supplied. */

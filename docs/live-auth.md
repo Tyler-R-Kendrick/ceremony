@@ -92,15 +92,44 @@ Migration: the `requestOwner` option remains optional in the TypeScript shape fo
 
 The SDK transport test checks a sentinel against every JSON-RPC message. This does not certify host telemetry: before enabling a host, verify that its screenshots, accessibility/DOM capture, logs, recordings and analytics cannot observe private fields. Never enable model browser capture on a private collector or provider login screen.
 
+## Connector OAuth for imported descriptions
+
+An imported OpenAPI description, once a reviewer approves it into a runtime binding, can now obtain its own credential through the connector command service instead of refusing with `adapter.authorize-unsupported`. What happens is decided by the bound authentication profile and by host policy, never by the document:
+
+- **OAuth authorization code (PKCE S256) and OpenID Connect:** `connect` returns a provider-browser handoff; the provider redirects to the fixed `/api/v1/connectors/callback` route, which completes it for the person who started it. The grant settles its own handoff under the connection's generation fence (`CompletionResult.handoffSettled`).
+- **OAuth device authorization:** `connect` shows the user code and verification URL; `poll` completes it, keeping the issuer's `slow_down` interval between polls.
+- **OAuth client credentials:** no person takes part; the grant runs when `connect` verifies the connection, for a confidential client only.
+- **API key, HTTP Basic, HTTP bearer:** `connect` opens an input-required handoff; the initiating person submits the values to `POST /api/v1/connectors/connections/:ref/handoffs/:handoff/input`. They go to credential custody and nowhere else, and are checked against the destination only when the binding names a verifier operation.
+
+Every OAuth profile needs a host-written issuer policy pinned in the binding's settings — `settings.oauth`, or per profile under `settings["openapi-http-oauth"][profileId]` — naming the issuer, how the client exists there (pre-registered configuration names, CIMD or dynamic registration in order) and which origins may be contacted. The authorization and token URLs a description declares are hints for the reviewer to copy into that policy; they are never called on their own. Without a policy the answer is `openapi.oauth-policy-missing`; a missing client id or secret surfaces as `configuration-required` with the configuration names.
+
+On invocation, a token custody reports as expired, or one the destination refuses with 401, is renewed once — a refresh-token grant, or a fresh client-credentials grant — under custody's single-flight lock, and the call is retried once; the retry is its own effect-journal entry, and the refused attempt is recorded as not applied. A refusal that renewal cannot cure is returned as it came, without a loop. Tokens never appear in invocation results, connection records, handoff summaries or the effect journal.
+
+The remote MCP adapter uses the same authorization-code grant as its default OAuth profile when the binding carries `settings.oauth` and the server's protected-resource metadata names that issuer; the token is bound to the server's canonical resource (RFC 8707). A deployment passes the optional host seams — a store for dynamic client registrations, the metadata cache, a CIMD publisher — through `ConnectorInventoryOptions.oauth`.
+
+This is protocol-fixture evidence against the loopback authorization server double and a fixture API; it is not certified against any provider. Refresh for remote MCP connections, token revocation on disconnect and JWT assertion grants are not implemented.
+
 ## Remote browser and Agent2Human
 
 `CloudflareHumanBrowser` implements the fixed GitHub registration/installation scenario using [Browser Run human takeover](https://developers.cloudflare.com/browser-run/features/human-in-the-loop/). It automates only the trusted broker navigation, then yields provider login and approval to a human. No generic browser tools, screenshots, DOM extraction or recording are exposed to the model. Control URLs remain encrypted and resolve only through an authenticated human route. Takeover completion is not authentication proof; GitHub callbacks still verify access.
 
 The reference CLI enables this only when `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are configured. No paid resource is activated automatically. Remote failure preserves the same ceremony's own-browser option. Active local browser sessions close on cancellation/expiry; process restart cannot reattach their CDP event listeners. Human windows expire after five minutes.
 
+### Remote isolated browsers for authored connectors
+
+The isolated authorization browser (`createAuthorizationBrowser`) launches a local Chromium behind the local egress proxy by default. It can instead drive a remote browser: Browserbase (`BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID`), Cloudflare Browser Run (the same `CLOUDFLARE_*` pair), or **any Chrome DevTools Protocol endpoint** — Steel, browserless, or a Chromium the operator runs with a debugging port — via `CEREMONY_BROWSER_CDP_URL` and optional `CEREMONY_BROWSER_CDP_HEADERS` (a JSON object presented on the websocket upgrade). The endpoint must be `wss://`/`https://`, or `ws://`/`http://` on loopback only, with no userinfo; credentials go in the headers. `remoteBrowserOptionsFromEnv` validates all of this at startup, so a malformed value refuses to boot instead of failing a later login, and its errors never quote a value.
+
+**Every remote browser requires `CEREMONY_BROWSER_REMOTE_PROXY`.** A remote browser's traffic leaves from someone else's network, where the local egress proxy cannot see it, so the operator-vetted proxy is its only containment. Without one, the executor opens nothing and reports `browser-unavailable`; this is deliberate and is not relaxed for any provider. The proxy URL must be `http(s)://` without userinfo; use `CEREMONY_BROWSER_REMOTE_PROXY_USERNAME`/`_PASSWORD` for proxy credentials. The proxy has to be reachable _from the remote browser_, and whether it actually contains egress is the operator's claim to verify — Ceremony only guarantees that every context it opens is configured to use it, with loopback not bypassed.
+
+Evidence: `tests/browser-remote-cdp.test.ts` connects to a separately spawned local Chromium through its debugging port and asserts, from a fixture forward proxy's own record, that the provider was reached through the configured proxy. No hosted CDP provider was exercised.
+
 `Agent2Human` implements the signed AUTHORIZE/RESPONSE slice of [Twilio Agent2Human](https://github.com/twilio-labs/Agent2Human): gateway discovery, canonical JSON, detached Ed25519 signatures, stable pending delivery IDs, pinned response verification, principal/correlation/expiry/replay checks. Configure `ReferenceOptions.live.a2h` programmatically with gateway origin, agent/key IDs, private and pinned gateway keys, API credential and an authenticated `recipient(owner)` resolver. Contacts are never model-provided. Configure gateway response delivery to `POST /api/live/a2h/:instanceId`; this reference does not negotiate a callback subscription for you.
 
 Approval requests verification; it never grants a connection. Denial cancels the parent. The implementation does not claim complete A2H conformance: RESULT delivery, gateway cancellation and production transport/reconciliation remain outstanding. Cross-device delivery requires a host login that restores the same principal; the anonymous-cookie example alone cannot provide that. Without a configured transport, users continue directly in their browser. Private app recovery uses the collector, not remote browser capture.
+
+## Authored secret connectors and confidential clients
+
+Authored API-key, Basic and form connectors, and authored OAuth connectors with a confidential client, collect their secret on the run owner's native page and keep it in encrypted server custody; see [the workflow studio](workflow-studio.md) for the verification declaration, the allowlisted authorization parameters and the client-secret rules. Evidence: `tests/authored-secret-connectors.test.ts` and `tests/authored-confidential-client.test.ts` drive the real operations and human route against synthetic provider responses in memory. No live provider was exercised.
 
 ## Hooks and evidence
 

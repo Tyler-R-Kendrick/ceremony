@@ -12,6 +12,7 @@
 - [Connector interoperability profile](specifications/connector-interoperability.md): source provenance, normalized definitions, the version 2 envelope, support dimensions, evidence levels and projections.
 - [Connector dialects and versions](specifications/connector-dialects.md): which document dialects and protocol revisions are read, which subset of each can execute, and how to migrate when one moves.
 - [Connector support matrix](specifications/connector-support-matrix.md): per-adapter, per-dimension support, generated from the adapters and the ledgers.
+- [Provider catalog](provider-catalog.md): providers described as data, Nango `providers.yaml` import, and declared endpoints approved at binding review.
 
 ## Develop and operate
 
@@ -21,6 +22,7 @@
 - [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
 - [Browser login and retained sessions](browser-login-sessions.md): logging into a selected browser, proving which account arrived there, and what releasing it does and does not do — including which backends are proven and which are not.
 - [Ceremony discovery](ceremony-discovery.md): reading a provider to work out what getting in requires, without submitting anything, and writing it down as a shareable plan.
+- [Recorded ceremonies](recorded-ceremonies.md): recording a real browser login on a service the code has never seen as a value-free artifact, publishing it through human review, and replaying it with no model — stopping by name when the provider drifts.
 - [Agent integration](agent-integration.md): AI SDK, Workflow, model configuration and protected tools.
 - [MCP endpoint](mcp-endpoint.md): driving ceremonies from a chat client, and why no credential crosses MCP.
 - [Local MCP](mcp-local.md): pointing a chat client at the reference application through a tunnel.

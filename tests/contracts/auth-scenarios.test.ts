@@ -12,9 +12,10 @@ import {
   runCeremony,
   type CeremonyResult,
 } from "../../src/server/browser-driver.js";
-import type {
-  CeremonyInterpreter,
-  InterpreterInput,
+import {
+  createHeuristicInterpreter,
+  type CeremonyInterpreter,
+  type InterpreterInput,
 } from "../../src/server/browser-interpreter.js";
 import { createHttpCeremonyPage } from "../doubles/http-page.js";
 import { createScriptedInterpreter } from "../doubles/scripted-interpreter.js";
@@ -522,3 +523,28 @@ test("the documented catalog matches the one that runs", () => {
       );
   }
 });
+
+/*
+ * Registration is the ceremony agents and APIs most often cannot finish, so
+ * the model-free interpreter a deployment runs without a model is held to the
+ * same outcomes the scripted one reaches: every registration scenario, with
+ * the production heuristic, ends where the catalog says it must. In
+ * particular a taken address is recovered from when, and only when, the
+ * caller declared it can obtain another one.
+ */
+for (const scenario of authScenarios.filter(
+  (candidate) => candidate.flowKind === "account-registration",
+))
+  test(`heuristic registration: ${scenario.id}`, async (t) => {
+    const { result } = await attempt(t, scenario, {
+      interpreter: createHeuristicInterpreter(),
+    });
+    const summary = `${scenario.id}: ${detail(result)}`;
+    assert.equal(result.status, scenario.expect.status, summary);
+    if (scenario.expect.status === "blocked")
+      assert.equal(
+        result.status === "blocked" ? result.reason : undefined,
+        scenario.expect.reason,
+        summary,
+      );
+  });

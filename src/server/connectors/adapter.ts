@@ -14,7 +14,11 @@ import type {
   SupportLevel,
   VerificationClaim,
 } from "./adapter-types.js";
-import type { RuntimeBinding } from "./binding.js";
+import type {
+  ApprovedDestination,
+  BoundOperation,
+  RuntimeBinding,
+} from "./binding.js";
 import type {
   Clock,
   ConfigurationPort,
@@ -130,6 +134,13 @@ export type CompletionResult = {
   handoff?: HandoffProposal;
   /** Bounded, non-secret adapter state to persist on the connection. */
   adapterState?: Record<string, unknown>;
+  /**
+   * The adapter already moved the handoff to its terminal state itself, under
+   * the generation fence, before binding any credential (the OAuth grants in
+   * `connectors/auth` do). The command layer then records that state on the
+   * connection and does not complete the handoff a second time.
+   */
+  handoffSettled?: boolean;
 };
 
 export type InvokeRequest = {
@@ -287,7 +298,60 @@ export interface ConnectorAdapter {
     ctx: AdapterCallContext,
     request: DelegateRequest,
   ): Promise<InvokeResult>;
+  /**
+   * Compiles a reviewer's approval into this adapter's bound operations and
+   * inert settings, for formats whose operations cannot be executed from the
+   * normalized definition alone (an OpenAPI operation needs its parameter
+   * plan). The command layer has already resolved every reviewer decision;
+   * the adapter may only realise them, never widen them. Absent means the
+   * command layer compiles the operations itself.
+   */
+  reviewBinding?(input: BindingReview): Promise<BindingReviewResult>;
+  /**
+   * Settings keys only the reviewed path writes (plans, profiles, per-profile
+   * issuer policies). A reviewer's free-form `settings` naming one is refused,
+   * as is `oauth`, which only the reviewed issuer policy sets.
+   */
+  readonly reservedSettings?: readonly string[];
 }
+
+/** One approved operation with every reviewer decision already resolved. */
+export type ReviewedOperation = {
+  nativeId: string;
+  destinationId: string;
+  effect: BoundOperation["effect"];
+  outputClassification: BoundOperation["outputClassification"];
+  cost: BoundOperation["cost"];
+  consent: BoundOperation["consent"];
+  replay: BoundOperation["replay"];
+  targetParameters: string[];
+  authenticationProfile?: string;
+};
+
+export type BindingReview = {
+  definition: NormalizedDefinition;
+  /** The exact bytes the definition was imported from, digest-checked; absent when the host kept none. */
+  source?: { bytes: Uint8Array; mediaType: string };
+  destinations: readonly ApprovedDestination[];
+  operations: readonly ReviewedOperation[];
+  /** The profile the binding executes, when the reviewer chose one. */
+  profileId?: string;
+  /** A read operation the reviewer named to verify credentials with. */
+  verifier?: { nativeId: string; input?: unknown };
+};
+
+export type BindingReviewResult = {
+  operations: BoundOperation[];
+  /** Adapter-owned inert settings; merged under the reviewer's and pinned by the reviewed digest. */
+  settings: Record<string, unknown>;
+  /**
+   * The OAuth issuer and every origin the adapter-owned settings let the
+   * grants contact. The command layer admits them exactly as it admits a
+   * reviewed issuer policy: a person only, and only what host policy's
+   * `allowIssuer` admits. Absent when the settings reach no issuer.
+   */
+  issuer?: { issuer: string; origins: string[] };
+};
 
 /** Trusted host construction only; a client argument never selects or adds an adapter. */
 export class ConnectorAdapterRegistry {

@@ -79,12 +79,41 @@ export const heldSecretRoles: readonly CeremonyRole[] = [
   "password-confirm",
 ];
 
+/**
+ * Secrets a host may hold that are never typed as themselves.
+ *
+ * A `totp-seed` is the enrolment secret behind an authenticator. No page ever
+ * asks for it, and no interpreter may select it: what a page asks for is the
+ * `totp-code` derived from it at the moment of filling. So these are not
+ * roles. A plan names one by reference exactly as it names a password, the
+ * credential source resolves it inside the trusted path, and the driver only
+ * ever sees the role it derives.
+ *
+ * Kept apart from {@link ceremonyRoles} deliberately. Adding the seed there
+ * would offer it to an interpreter as a fillable value, and the one thing a
+ * seed must never be is typed into a page.
+ */
+export const heldCredentialKinds = ["totp-seed"] as const;
+export const heldCredentialKindSchema = z.enum(heldCredentialKinds);
+export type HeldCredentialKind = z.infer<typeof heldCredentialKindSchema>;
+
+/** The role each held credential kind produces a value for. */
+export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
+  { "totp-seed": "totp-code" };
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
     kind: z.enum(["input", "button", "link", "checkbox", "select"]),
     type: z.string().max(32).optional(),
     name: z.string().max(128).optional(),
+    /**
+     * The field's `autocomplete` hint — `username`, `current-password`,
+     * `one-time-code`. A published, stable signal a page gives about what a
+     * field is for, which is what lets a recorded step find the field again
+     * after its label is reworded.
+     */
+    autocomplete: z.string().max(64).optional(),
     label: z.string().max(200).optional(),
     placeholder: z.string().max(200).optional(),
     text: z.string().max(200).optional(),
@@ -381,6 +410,12 @@ export function snapshotDocument(
     if (entry.kind === "input" || entry.kind === "checkbox")
       entry.type = rawType || (tag === "textarea" ? "textarea" : "text");
     if (name) entry.name = name;
+    const autocomplete = trim(
+      control.getAttribute("autocomplete"),
+      64,
+    ).toLowerCase();
+    if (autocomplete && entry.kind === "input")
+      entry.autocomplete = autocomplete;
     if (label) entry.label = label;
     if (placeholder) entry.placeholder = placeholder;
     if (entry.kind === "button" || entry.kind === "link") {

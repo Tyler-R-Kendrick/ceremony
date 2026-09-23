@@ -23,6 +23,64 @@ export const bindingSchema = z.discriminatedUnion("from", [
   z.object({ from: z.literal("literal"), value: publicValueSchema }).strict(),
 ]);
 export type Binding = z.infer<typeof bindingSchema>;
+
+export const RECIPE_OUTCOME_LIMITS = Object.freeze({
+  criteria: 32,
+  condition: 2048,
+  values: 32,
+  retryLimit: 5,
+  retryAfterMs: 300_000,
+});
+const conditionSchema = z.string().min(1).max(RECIPE_OUTCOME_LIMITS.condition);
+/**
+ * The name a condition uses for a value: `$inputs.<name>` or
+ * `$steps.<step>.outputs.<name>`, spelled as an Arazzo runtime expression.
+ * The name is only a key; `values` binds it to a recipe value.
+ */
+export const outcomeReferenceSchema = z
+  .string()
+  .regex(
+    /^\$(?:inputs\.[A-Za-z0-9_.-]{1,96}|steps\.[A-Za-z0-9_-]{1,96}\.outputs\.[A-Za-z0-9_.-]{1,96})$/,
+  );
+/**
+ * Declarative success criteria and a bounded retry for one operation
+ * invocation: the part of an Arazzo step's `successCriteria` and
+ * `onFailure: retry` the command service can enforce without an expression
+ * language of its own. Conditions are Arazzo `simple` conditions, evaluated
+ * by the bounded evaluator over public values only: the recipe values bound
+ * in `values` (which may name the invocation's own outputs) and the public
+ * transport facts (`$statusCode`, `$url`, `$method`,
+ * `$response.header.<name>`) its trusted handler chose to report. A retry
+ * repeats the handler, so it is valid only for an operation the host
+ * registered as replay-safe.
+ */
+export const recipeOutcomeSchema = z
+  .object({
+    successCriteria: z
+      .array(conditionSchema)
+      .max(RECIPE_OUTCOME_LIMITS.criteria),
+    retry: z
+      .object({
+        limit: z.number().int().min(1).max(RECIPE_OUTCOME_LIMITS.retryLimit),
+        afterMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(RECIPE_OUTCOME_LIMITS.retryAfterMs),
+        criteria: z.array(conditionSchema).max(RECIPE_OUTCOME_LIMITS.criteria),
+      })
+      .strict()
+      .optional(),
+    values: z
+      .record(outcomeReferenceSchema, bindingSchema)
+      .refine((v) => Object.keys(v).length <= RECIPE_OUTCOME_LIMITS.values),
+  })
+  .strict()
+  .refine(
+    (outcome) => outcome.successCriteria.length > 0 || outcome.retry,
+    "An outcome needs success criteria or a retry",
+  );
+export type RecipeOutcome = z.infer<typeof recipeOutcomeSchema>;
 export const recipeInvocationSchema = z
   .object({
     id: identifierSchema,
@@ -47,6 +105,14 @@ export const recipeInvocationSchema = z
     bindings: z
       .record(identifierSchema, bindingSchema)
       .refine((v) => Object.keys(v).length <= 32),
+    /**
+     * The host connector whose authorization context this invocation, and
+     * every step beneath it, runs in. Absent means the run's own connector.
+     * Naming one grants nothing: the host resolves its context for the actor
+     * and authorizes every step against it, or the run is never created.
+     */
+    connector: identifierSchema.optional(),
+    outcome: recipeOutcomeSchema.optional(),
   })
   .strict();
 export type RecipeInvocation = z.infer<typeof recipeInvocationSchema>;
@@ -88,6 +154,22 @@ export const recipeDefinitionSchema = z
         )
           issue("Unbound input");
         if (binding.from === "output" && !node.dependsOn.includes(binding.node))
+          issue("Output producer must be an explicit dependency");
+      }
+      if (node.outcome && node.use.kind !== "operation")
+        issue("Outcomes apply to operation invocations");
+      for (const binding of Object.values(node.outcome?.values ?? {})) {
+        if (
+          binding.from === "input" &&
+          !Object.hasOwn(recipe.inputs, binding.name)
+        )
+          issue("Unbound input");
+        // A criterion may read the invocation's own outputs, or a dependency's.
+        if (
+          binding.from === "output" &&
+          binding.node !== node.id &&
+          !node.dependsOn.includes(binding.node)
+        )
           issue("Output producer must be an explicit dependency");
       }
     }

@@ -35,6 +35,8 @@ import {
   type SupportSnapshotStore,
 } from "./support.js";
 import type { HandoffPort } from "../ports.js";
+import type { ClientRegistrationStorePort } from "../auth/client.js";
+import { createClientRegistrationStore } from "./registrations.js";
 
 /*
  * The production state layer for connector interoperability: every port in
@@ -75,6 +77,8 @@ export type ConnectorPorts = {
   throttle: AuthorityThrottle;
   drift: DriftInvalidator;
   support: SupportSnapshotStore;
+  /** Where the OAuth grants persist RFC 7591 dynamic client registrations. */
+  registrations: ClientRegistrationStorePort;
   random: RandomPort;
   now: Clock;
   /** Composes the adapter environment for one call; configuration is bound per actor by the caller. */
@@ -142,6 +146,7 @@ export function createConnectorPorts(
   });
   const drift = createDriftInvalidator(store, shared);
   const support = createSupportSnapshotStore(store);
+  const registrations = createClientRegistrationStore(store);
   const random = options.random ?? systemRandom;
   const now = options.now ?? Date.now;
   return {
@@ -155,6 +160,7 @@ export function createConnectorPorts(
     throttle,
     drift,
     support,
+    registrations,
     random,
     now,
     environment(input) {
@@ -242,4 +248,5 @@ export {
   createSupportSnapshotStore,
   type SupportSnapshotStore,
 } from "./support.js";
+export { createClientRegistrationStore } from "./registrations.js";
 export { type DisconnectRecord, type SupportSnapshot } from "./schemas.js";

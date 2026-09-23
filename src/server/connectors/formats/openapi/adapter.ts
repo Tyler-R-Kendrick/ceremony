@@ -19,13 +19,31 @@ import {
   type InvokeResult,
   type CompletionResult,
 } from "../../adapter.js";
+import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
+import { beginAttempt } from "../../attempts.js";
 import { boundOperation, destinationFor } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialScope } from "../../ports.js";
+import {
+  acquireForVerification,
+  authorizeOpenApi,
+  completeOpenApi,
+  credentialRequired,
+  OAUTH_SETTINGS_KEY,
+  PROFILES_SETTINGS_KEY,
+  renewCredential,
+  revokeOpenApi,
+} from "./authorize.js";
 import { exportOpenApi } from "./export.js";
 import { OPENAPI_PROFILES, READER_VERSION, isReadResult } from "./model.js";
-import { planFromBinding, planSettingsOf, type OperationPlan } from "./plan.js";
+import {
+  PLAN_SETTINGS_KEY,
+  planFromBinding,
+  planSettingsOf,
+  type OperationPlan,
+} from "./plan.js";
 import { readOpenApi, type ReadOptions } from "./read.js";
+import { reviewOpenApiBinding } from "./review.js";
 import {
   InputRejected,
   RESERVED_REQUEST_HEADERS,
@@ -63,6 +81,40 @@ export interface OpenApiAdapterOptions {
   service?: string;
   /** Evidence level this deployment has measured for the adapter's dimensions. */
   evidence?: CapabilityStatus["evidence"];
+  /**
+   * Host seams for the OAuth profiles: where dynamic registrations persist,
+   * the metadata cache, the callback path, the CIMD publisher. Absent parts
+   * make the profiles that need them refuse with a code, never improvise.
+   */
+  oauth?: ConnectorOAuthOptions;
+}
+
+/**
+ * Thrown out of the credential callback when the destination answered 401 and
+ * the credential may be renewable. It carries only the already-journaled
+ * outcome to report if renewal is impossible; never material.
+ */
+class CredentialRefused extends Error {
+  constructor(
+    readonly result: InvokeResult,
+    /** Digest of the Authorization value that was refused; a digest, never the value. */
+    readonly presented: string,
+  ) {
+    super("credential refused");
+  }
+}
+
+/** Refresh margin matching the custody port's default: a token this close to expiry is stale. */
+const EXPIRY_MARGIN_MS = 30_000;
+
+/** A custody refusal because the stored credential is past, or at, its expiry. */
+function credentialExpired(error: unknown): boolean {
+  return (
+    error instanceof ConnectorError &&
+    error.code === "expired" &&
+    (error.detail === "credential.expired" ||
+      error.detail === "credential.expiring")
+  );
 }
 
 const DEFAULTS = {
@@ -182,9 +234,11 @@ async function withCredentials<T>(
         case "oauth-client-credentials":
         case "oauth-device":
         case "openid-connect": {
+          // `access_token` is what the OAuth grants in `connectors/auth` store.
           const value =
             material[`accessToken:${profile.id}`] ??
             material.accessToken ??
+            material.access_token ??
             material.token;
           if (!value)
             throw new ConnectorError("unauthenticated", {
@@ -213,6 +267,7 @@ export function createOpenApiHttpAdapter(
   const maxImportBytes = options.maxImportBytes ?? DEFAULTS.maxImportBytes;
   const parseDocument = options.parseDocument ?? defaultParse;
   const evidence = options.evidence ?? "protocol-fixture";
+  const oauthOptions = options.oauth ?? {};
   const configuration: readonly ConfigurationRequirement[] = [];
   const adapter: ConnectorAdapter = {
     id: ADAPTER_ID,
@@ -261,7 +316,10 @@ export function createOpenApiHttpAdapter(
           profile,
           evidence,
           limitations: [
-            "The adapter presents credentials the host already holds; obtaining them is the bound profile's own flow.",
+            "OAuth authorization code (PKCE S256), OpenID Connect, device and client-credentials profiles run only under a host-written issuer policy pinned in the approved binding; endpoints the description declares are never contacted on their own.",
+            "API key (header or query), HTTP basic and HTTP bearer values are entered by the initiating person through the private input route; they are checked only when the host names a verifier.",
+            "Tokens are refreshed once when expired or refused with 401, and only for OAuth profiles whose policy is bound; a profile that declares no refresh is not refreshed.",
+            "Cookie API keys, mutual TLS and signature schemes are not supported.",
           ],
         }),
         capabilityStatus(adapter, {
@@ -295,7 +353,7 @@ export function createOpenApiHttpAdapter(
           profile,
           evidence,
           limitations: [
-            "Reconnect replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.",
+            "Reconnect re-runs the bound profile's authorization and replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.",
           ],
         }),
         capabilityStatus(adapter, {
@@ -303,15 +361,17 @@ export function createOpenApiHttpAdapter(
           profile,
           evidence,
           limitations: [
-            "Local disconnect only; an OpenAPI description declares no upstream unlink operation.",
+            "A local disconnect releases host-held credentials only and never contacts the provider; an OpenAPI description declares no upstream unlink operation.",
+            "An upstream disconnect revokes an OAuth grant (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint; otherwise it reports not-attempted or unsupported.",
           ],
         }),
         capabilityStatus(adapter, {
           dimension: "revoke",
           profile,
-          implementation: "unsupported",
+          evidence,
           limitations: [
-            "An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.",
+            "Only OAuth grants, at the issuer's advertised RFC 7009 endpoint, when the reviewed issuer policy allows it; an issuer answers 200 for tokens it no longer knows, so success is the issuer's statement.",
+            "API key, HTTP basic and HTTP bearer values have no revocation protocol here; they are released locally and must be revoked at the provider.",
           ],
         }),
         capabilityStatus(adapter, {
@@ -455,248 +515,350 @@ export function createOpenApiHttpAdapter(
         throw error;
       }
 
-      return withCredentials(ctx, plan, async (authHeaders, authQuery) => {
-        const url = new URL(serialized.url.href);
-        for (const [name, value] of authQuery)
-          url.searchParams.append(name, value);
-        const headers = new Headers();
-        for (const [name, value] of Object.entries(serialized.headers)) {
-          if (
-            RESERVED_REQUEST_HEADERS.has(name) ||
-            Object.hasOwn(authHeaders, name)
-          )
-            throw new ConnectorError("invalid-request", {
-              detail: "openapi.header-collision",
-            });
-          headers.set(name, value);
-        }
-        for (const [name, value] of Object.entries(authHeaders))
-          headers.set(name, value);
-        headers.set("accept", "application/json");
-        if (serialized.body !== undefined)
-          headers.set("content-type", "application/json");
+      const attempt = (renewed: boolean): Promise<InvokeResult> =>
+        withCredentials<InvokeResult>(
+          ctx,
+          plan,
+          async (authHeaders, authQuery) => {
+            const url = new URL(serialized.url.href);
+            for (const [name, value] of authQuery)
+              url.searchParams.append(name, value);
+            const headers = new Headers();
+            for (const [name, value] of Object.entries(serialized.headers)) {
+              if (
+                RESERVED_REQUEST_HEADERS.has(name) ||
+                Object.hasOwn(authHeaders, name)
+              )
+                throw new ConnectorError("invalid-request", {
+                  detail: "openapi.header-collision",
+                });
+              headers.set(name, value);
+            }
+            for (const [name, value] of Object.entries(authHeaders))
+              headers.set(name, value);
+            headers.set("accept", "application/json");
+            if (serialized.body !== undefined)
+              headers.set("content-type", "application/json");
 
-        // The digest identifies "the same effect": method, destination-relative
-        // target and body. Credentials are deliberately not part of it.
-        const effectTarget = `${url.pathname}${url.search}`;
-        const digest = sha256(
-          canonicalConnectorJson({
-            method: plan.method,
-            destination: destination.id,
-            target: effectTarget,
-            body: serialized.body ?? null,
-          }),
-        );
-        const { effectRef, prior } = await ctx.environment.effects.begin({
-          actor: ctx.actor,
-          ...(ctx.connection
-            ? { connectionRef: ctx.connection.connectionRef }
-            : {}),
-          bindingRef: ctx.binding.bindingRef,
-          operation: request.operationRef,
-          digest,
-          ...(request.idempotencyKey &&
-          bound.replay === "upstream-idempotency-key"
-            ? {
-                idempotency: {
-                  key: request.idempotencyKey,
-                  scope: destination.id,
-                },
-              }
-            : {}),
-          commandId: request.commandId,
-        });
-        if (
-          prior &&
-          bound.replay !== "read-only" &&
-          prior.status !== "not-applied"
-        )
-          return {
-            state: prior.status === "applied" ? "complete" : "indeterminate",
-            outputClassification: bound.outputClassification,
-            effect: bound.effect,
-            ...(prior.code ? { code: prior.code } : {}),
-            effectRef,
-          };
-
-        const controller = new AbortController();
-        const onAbort = () => controller.abort();
-        ctx.signal.addEventListener("abort", onAbort, { once: true });
-        const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-        let response: Response;
-        try {
-          response = await ctx.environment.fetch(url, {
-            method: plan.method,
-            headers,
-            ...(serialized.body === undefined ? {} : { body: serialized.body }),
-            redirect: "error",
-            signal: controller.signal,
-          });
-        } catch {
-          clearTimeout(timer);
-          ctx.signal.removeEventListener("abort", onAbort);
-          // A request that never produced a response may still have been applied.
-          const lost = bound.effect !== "read";
-          await ctx.environment.effects.complete(effectRef, {
-            status: lost ? "indeterminate" : "not-applied",
-            code: "upstream-unavailable",
-            at: ctx.environment.now(),
-          });
-          return {
-            state: lost ? "indeterminate" : "failed",
-            outputClassification: bound.outputClassification,
-            effect: bound.effect,
-            code: "upstream-unavailable",
-            effectRef,
-          };
-        }
-        clearTimeout(timer);
-        ctx.signal.removeEventListener("abort", onAbort);
-
-        const { bytes, exceeded } = await readBoundedBody(response, limit);
-        // A body over the bound is a failure, never a truncation: half a JSON
-        // document is not the response the operation described. The upstream
-        // still acted, though, so a successful status is journalled as applied.
-        // An error status is classified below by its status, not by its size.
-        if (exceeded && response.ok) {
-          await ctx.environment.effects.complete(effectRef, {
-            status: "applied",
-            code: "openapi.response-too-large",
-            at: ctx.environment.now(),
-          });
-          return {
-            state: "failed",
-            outputClassification: bound.outputClassification,
-            effect: bound.effect,
-            code: "openapi.response-too-large",
-            effectRef,
-          };
-        }
-        const json = responseIsJson(response.headers.get("content-type"));
-        let output: unknown;
-        let parseFailed = false;
-        if (json && bytes.byteLength) {
-          try {
-            output = JSON.parse(
-              new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+            // The digest identifies "the same effect": method, destination-relative
+            // target and body. Credentials are deliberately not part of it.
+            const effectTarget = `${url.pathname}${url.search}`;
+            const digest = sha256(
+              canonicalConnectorJson({
+                method: plan.method,
+                destination: destination.id,
+                target: effectTarget,
+                body: serialized.body ?? null,
+              }),
             );
-          } catch {
-            parseFailed = true;
-          }
+            // A read-only read is its own entry every time; any other request
+            // is an attempt at one effect, and the attempt after a refusal
+            // that never applied (the 401 a renewal cures included) is the
+            // next entry of that effect. See `../../attempts.ts`.
+            const { effectRef, prior } = await beginAttempt(
+              ctx.environment.effects,
+              {
+                actor: ctx.actor,
+                ...(ctx.connection
+                  ? { connectionRef: ctx.connection.connectionRef }
+                  : {}),
+                bindingRef: ctx.binding.bindingRef,
+                operation: request.operationRef,
+                digest,
+                ...(request.idempotencyKey &&
+                bound.replay === "upstream-idempotency-key"
+                  ? {
+                      idempotency: {
+                        key: request.idempotencyKey,
+                        scope: destination.id,
+                      },
+                    }
+                  : {}),
+                commandId: request.commandId,
+              },
+              {
+                mode:
+                  bound.replay === "read-only"
+                    ? "each-request"
+                    : "until-applied",
+                random: ctx.environment.random,
+              },
+            );
+            if (prior)
+              return {
+                state:
+                  prior.status === "applied" || prior.status === "reconciled"
+                    ? "complete"
+                    : prior.status === "indeterminate"
+                      ? "indeterminate"
+                      : "failed",
+                outputClassification: bound.outputClassification,
+                effect: bound.effect,
+                ...(prior.code ? { code: prior.code } : {}),
+                effectRef,
+              };
+
+            const controller = new AbortController();
+            const onAbort = () => controller.abort();
+            ctx.signal.addEventListener("abort", onAbort, { once: true });
+            const timer = setTimeout(
+              () => controller.abort(),
+              requestTimeoutMs,
+            );
+            let response: Response;
+            try {
+              response = await ctx.environment.fetch(url, {
+                method: plan.method,
+                headers,
+                ...(serialized.body === undefined
+                  ? {}
+                  : { body: serialized.body }),
+                redirect: "error",
+                signal: controller.signal,
+              });
+            } catch {
+              clearTimeout(timer);
+              ctx.signal.removeEventListener("abort", onAbort);
+              // A request that never produced a response may still have been applied.
+              const lost = bound.effect !== "read";
+              await ctx.environment.effects.complete(effectRef, {
+                status: lost ? "indeterminate" : "not-applied",
+                code: "upstream-unavailable",
+                at: ctx.environment.now(),
+              });
+              return {
+                state: lost ? "indeterminate" : "failed",
+                outputClassification: bound.outputClassification,
+                effect: bound.effect,
+                code: "upstream-unavailable",
+                effectRef,
+              };
+            }
+            clearTimeout(timer);
+            ctx.signal.removeEventListener("abort", onAbort);
+
+            const { bytes, exceeded } = await readBoundedBody(response, limit);
+            // A body over the bound is a failure, never a truncation: half a JSON
+            // document is not the response the operation described. The upstream
+            // still acted, though, so a successful status is journalled as applied.
+            // An error status is classified below by its status, not by its size.
+            if (exceeded && response.ok) {
+              await ctx.environment.effects.complete(effectRef, {
+                status: "applied",
+                code: "openapi.response-too-large",
+                at: ctx.environment.now(),
+              });
+              return {
+                state: "failed",
+                outputClassification: bound.outputClassification,
+                effect: bound.effect,
+                code: "openapi.response-too-large",
+                effectRef,
+              };
+            }
+            const json = responseIsJson(response.headers.get("content-type"));
+            let output: unknown;
+            let parseFailed = false;
+            if (json && bytes.byteLength) {
+              try {
+                output = JSON.parse(
+                  new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+                );
+              } catch {
+                parseFailed = true;
+              }
+            }
+            if (!response.ok) {
+              await ctx.environment.effects.complete(effectRef, {
+                status:
+                  response.status >= 500 ? "indeterminate" : "not-applied",
+                code:
+                  response.status >= 500
+                    ? "upstream-unavailable"
+                    : "upstream-rejected",
+                at: ctx.environment.now(),
+              });
+              const failed: InvokeResult = {
+                state:
+                  response.status >= 500 && bound.effect !== "read"
+                    ? "indeterminate"
+                    : "failed",
+                outputClassification: bound.outputClassification,
+                effect: bound.effect,
+                code:
+                  response.status >= 500
+                    ? "upstream-unavailable"
+                    : "upstream-rejected",
+                effectRef,
+              };
+              // A 401 to a presented credential is a refusal of that credential,
+              // made before the operation ran. One renewal may cure it.
+              if (
+                response.status === 401 &&
+                !renewed &&
+                plan.security.profiles.length
+              )
+                throw new CredentialRefused(
+                  failed,
+                  sha256(authHeaders.authorization ?? ""),
+                );
+              return failed;
+            }
+            await ctx.environment.effects.complete(effectRef, {
+              status: "applied",
+              at: ctx.environment.now(),
+            });
+            if (parseFailed)
+              return {
+                state: "failed",
+                outputClassification: bound.outputClassification,
+                effect: bound.effect,
+                code: "openapi.response-not-json",
+                effectRef,
+              };
+            return {
+              state: "complete",
+              ...(output === undefined ? {} : { output }),
+              outputClassification: bound.outputClassification,
+              effect: bound.effect,
+              effectRef,
+            };
+          },
+        );
+
+      /*
+       * One renewal, then one retry. The trigger is either custody refusing a
+       * credential past its expiry (nothing was sent) or the destination
+       * refusing the presented one with 401 (journaled as not applied). The
+       * renewal itself is single-flight in custody, and it presents nothing
+       * upstream when the held credential is no longer the one that failed, so
+       * invocations failing together make one refresh. When nothing can renew
+       * the credential, the caller gets the original answer; when renewal
+       * fails, a sanitized code.
+       */
+      try {
+        return await attempt(false);
+      } catch (error) {
+        const refused = error instanceof CredentialRefused;
+        if (!refused && !credentialExpired(error)) throw error;
+        const stillStale = refused
+          ? (current: Readonly<Record<string, string>>) =>
+              sha256(`Bearer ${current.access_token ?? ""}`) === error.presented
+          : (current: Readonly<Record<string, string>>) => {
+              const held = Number(current.expires_at);
+              return !(
+                Number.isFinite(held) &&
+                held > ctx.environment.now() + EXPIRY_MARGIN_MS
+              );
+            };
+        let renewed: boolean;
+        try {
+          renewed = await renewCredential(ctx, plan, oauthOptions, stillStale);
+        } catch (failure) {
+          // The renewal's own code stays in the journal it wrote; the caller
+          // learns only that the credential needs a person again.
+          if (refused)
+            return {
+              ...error.result,
+              code: "openapi.credential-renewal-failed",
+            };
+          throw failure;
         }
-        if (!response.ok) {
-          await ctx.environment.effects.complete(effectRef, {
-            status: response.status >= 500 ? "indeterminate" : "not-applied",
-            code:
-              response.status >= 500
-                ? "upstream-unavailable"
-                : "upstream-rejected",
-            at: ctx.environment.now(),
-          });
-          return {
-            state:
-              response.status >= 500 && bound.effect !== "read"
-                ? "indeterminate"
-                : "failed",
-            outputClassification: bound.outputClassification,
-            effect: bound.effect,
-            code:
-              response.status >= 500
-                ? "upstream-unavailable"
-                : "upstream-rejected",
-            effectRef,
-          };
+        if (!renewed) {
+          if (refused) return error.result;
+          throw error;
         }
-        await ctx.environment.effects.complete(effectRef, {
-          status: "applied",
-          at: ctx.environment.now(),
-        });
-        if (parseFailed)
-          return {
-            state: "failed",
-            outputClassification: bound.outputClassification,
-            effect: bound.effect,
-            code: "openapi.response-not-json",
-            effectRef,
-          };
-        return {
-          state: "complete",
-          ...(output === undefined ? {} : { output }),
-          outputClassification: bound.outputClassification,
-          effect: bound.effect,
-          effectRef,
-        };
+        return attempt(true);
+      }
+    },
+
+    reservedSettings: [
+      PLAN_SETTINGS_KEY,
+      PROFILES_SETTINGS_KEY,
+      OAUTH_SETTINGS_KEY,
+    ],
+
+    async reviewBinding(input) {
+      return reviewOpenApiBinding(input, {
+        maxImportBytes,
+        parseDocument: options.parseDocument,
+        resolveExternal: options.resolveExternal,
       });
     },
 
+    async authorize(ctx, intent) {
+      return authorizeOpenApi(ctx, intent, oauthOptions);
+    },
+
+    async reconnect(ctx, intent) {
+      return authorizeOpenApi(ctx, intent, oauthOptions);
+    },
+
+    async complete(ctx, input) {
+      return completeOpenApi(ctx, input, oauthOptions, verifyHeld);
+    },
+
     async verify(ctx: AdapterCallContext): Promise<CompletionResult> {
-      const settings = planSettingsOf(ctx.binding);
-      if (!settings?.verifier)
-        return {
-          state: "pending",
-          claims: [],
-          code: "openapi.no-verifier",
-        };
-      const bound = boundOperation(ctx.binding, settings.verifier.operationRef);
-      if (!bound || bound.effect !== "read")
-        return { state: "pending", claims: [], code: "openapi.no-verifier" };
-      const result = await adapter.invoke!(ctx, {
-        operationRef: settings.verifier.operationRef,
-        input: settings.verifier.input ?? {},
-        commandId: `verify:${ctx.binding.bindingRef}:${ctx.generation}`,
+      // A client-credentials connection with no token yet gets one here: the
+      // grant has no person in it, so verification is where it is bound.
+      const acquired = await acquireForVerification(ctx, oauthOptions);
+      if (!acquired) return verifyHeld(ctx);
+      if (acquired.state !== "complete" || !acquired.credentialRef)
+        return acquired;
+      const checked = await verifyHeld({
+        ...ctx,
+        connection: {
+          ...ctx.connection!,
+          credentialRef: acquired.credentialRef,
+        },
       });
-      if (result.state !== "complete")
-        return {
-          state: result.state === "indeterminate" ? "indeterminate" : "denied",
-          claims: [],
-          ...(result.code ? { code: result.code } : {}),
-        };
-      const observedAt = new Date(ctx.environment.now()).toISOString();
-      // The verifier proves that the credential was accepted by the destination.
-      // It does not name an account: an OpenAPI description carries no identity
-      // claim, so none is invented here.
-      return {
-        state: "complete",
-        claims: [
+      if (checked.state === "complete")
+        return { ...acquired, claims: [...acquired.claims, ...checked.claims] };
+      if (checked.state === "pending" && checked.code === "openapi.no-verifier")
+        return acquired;
+      await ctx.environment.credentials
+        .revoke(
           {
-            kind: "credential-accepted",
-            evidenceRef: `evidence:${sha256(`${ctx.binding.bindingRef}:${observedAt}`).slice(0, 32)}`,
-            issuer: "provider",
-            target: {
-              kind: "http-destination",
-              id: destinationFor(ctx.binding, bound).origin,
-            },
-            observedAt,
-            verifierVersion: ADAPTER_VERSION,
-            bindingRevision: ctx.binding.revision,
-            policyRevision: ctx.binding.policyRevision,
-            limitations: [
-              "A successful read proves the credential was accepted, not which account it belongs to.",
-            ],
+            tenantId: ctx.connection!.tenantId,
+            ownerKind: ctx.connection!.ownerKind,
+            ownerId: ctx.connection!.ownerId,
+            connectionRef: ctx.connection!.connectionRef,
+            bindingRef: ctx.connection!.bindingRef,
+            custody: ctx.connection!.custody,
           },
-        ],
+          acquired.credentialRef,
+        )
+        .catch(() => {});
+      return {
+        state: checked.state === "indeterminate" ? "indeterminate" : "denied",
+        claims: [],
+        code: "openapi.credential-rejected",
       };
     },
 
     async disconnect(
-      _ctx: AdapterCallContext,
+      ctx: AdapterCallContext,
       scope: "local" | "broker" | "upstream",
     ): Promise<DisconnectResult> {
-      // Local custody is released by the command layer. An OpenAPI description
-      // declares no unlink or revocation endpoint, so nothing upstream is
-      // attempted and the report says so rather than claiming success.
+      // Local custody is released by the command layer. An OpenAPI
+      // description declares no unlink operation; the only upstream act is
+      // RFC 7009 revocation of an OAuth grant, and only when the host's
+      // reviewed issuer policy asked for it and the issuer advertises it.
       return {
         local: scope === "local" ? "applied" : "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream:
+          scope === "upstream"
+            ? await revokeOpenApi(ctx, oauthOptions)
+            : "not-attempted",
       };
     },
 
-    async revoke(_ctx: AdapterCallContext): Promise<DisconnectResult> {
+    async revoke(ctx: AdapterCallContext): Promise<DisconnectResult> {
       return {
         local: "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream: await revokeOpenApi(ctx, oauthOptions),
       };
     },
 
@@ -721,5 +883,63 @@ export function createOpenApiHttpAdapter(
       };
     },
   };
+
+  /** Evidence for the credential the connection already holds, from the host-named verifier. */
+  async function verifyHeld(
+    ctx: AdapterCallContext,
+  ): Promise<CompletionResult> {
+    const settings = planSettingsOf(ctx.binding);
+    if (!settings?.verifier) {
+      // A binding whose operations present no credential has nothing to
+      // verify and nothing to wait for; anything else waits for a verifier.
+      if (!credentialRequired(ctx.binding) && !ctx.connection?.credentialRef)
+        return { state: "complete", claims: [] };
+      return {
+        state: "pending",
+        claims: [],
+        code: "openapi.no-verifier",
+      };
+    }
+    const bound = boundOperation(ctx.binding, settings.verifier.operationRef);
+    if (!bound || bound.effect !== "read")
+      return { state: "pending", claims: [], code: "openapi.no-verifier" };
+    const result = await adapter.invoke!(ctx, {
+      operationRef: settings.verifier.operationRef,
+      input: settings.verifier.input ?? {},
+      commandId: `verify:${ctx.binding.bindingRef}:${ctx.generation}`,
+    });
+    if (result.state !== "complete")
+      return {
+        state: result.state === "indeterminate" ? "indeterminate" : "denied",
+        claims: [],
+        ...(result.code ? { code: result.code } : {}),
+      };
+    const observedAt = new Date(ctx.environment.now()).toISOString();
+    // The verifier proves that the credential was accepted by the destination.
+    // It does not name an account: an OpenAPI description carries no identity
+    // claim, so none is invented here.
+    return {
+      state: "complete",
+      claims: [
+        {
+          kind: "credential-accepted",
+          evidenceRef: `evidence:${sha256(`${ctx.binding.bindingRef}:${observedAt}`).slice(0, 32)}`,
+          issuer: "provider",
+          target: {
+            kind: "http-destination",
+            id: destinationFor(ctx.binding, bound).origin,
+          },
+          observedAt,
+          verifierVersion: ADAPTER_VERSION,
+          bindingRevision: ctx.binding.revision,
+          policyRevision: ctx.binding.policyRevision,
+          limitations: [
+            "A successful read proves the credential was accepted, not which account it belongs to.",
+          ],
+        },
+      ],
+    };
+  }
+
   return adapter;
 }

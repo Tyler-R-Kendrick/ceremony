@@ -16,7 +16,7 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 
 - Required work items in the charter: 154.
 - Delivered with a ledger entry: 144.
-- Implemented: 142. Partial or unmet: 2. No ledger entry at all: 10.
+- Implemented: 141. Partial or unmet: 3. No ledger entry at all: 10.
 - Ledgers read: 26 (AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, DOCS, EVENT, HTTP, IDENTITY-BROKERS, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, QA, REGISTRY, SECURITY, STATE, SUPABASE, UX, VERCEL, WORKFLOW).
 
 ## Recorded test run
@@ -25,7 +25,7 @@ It complements [README.md](README.md) and [report.json](report.json), which `scr
 - Tested commit: `bac4e068b3c9e45356e452aa7e6c8e06da4d1f32+dirty`
 - Environment: {"node":"v22.22.2","platform":"linux/x64","database":"PostgreSQL 18.4","browsers":[],"nativeWebMcpAvailable":false}
 - Test files in that run: 179; passed 1905, failed 0, skipped 0
-- Ledger-named test files covered by that run: 218 of 237.
+- Ledger-named test files covered by that run: 217 of 236.
 
 **10 of the paths a ledger names have no result in that run**, so their rows below read `not in the recorded run`. An absence is not a failure and is not reported as one. Each one, and why:
 
@@ -61,10 +61,11 @@ Named directly. These are required work items nobody delivered. They are listed 
 
 ## Partial and unmet requirements
 
-| Item  | Swarm | Status  | Why                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----- | ----- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UX-07 | UX    | partial | scripts/check-bundle.mjs enforces a total-download ceiling across every chunk, so mounting these surfaces in the reference application fails it even though the reference page itself grows by 0.77 kB raw / 0.30 kB gzip. The ceiling needs a deliberate raise (see integrationPatches); I did not change the script.; Splitting the connection surface into its own chunk was tried and reverted: Rollup keeps |
-| QA-05 | QA    | partial | The Playwright accessibility suites (tests/browser/connector-directory.spec.ts, connector-drawer.spec.ts) bind fixed ports 4173/4174 and were not executed: the charter forbids running browser suites while other swarms work. This suite asserts their presence, that they make keyboard and accessible-name assertions, and that they are reachable from npm run test:e2e.; npm run build, build:vercel and t |
+| Item  | Swarm          | Status  | Why                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----- | -------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AG-04 | AGENT-SURFACES | unmet   | Removed 2026-09-23 (platform review): the page-side connector WebMCP tools (createConnectorWebmcpTools / mountConnectorWebmcpTools) were never mounted by any page, and the React connector components have no authenticated dispatcher that projects every intent result through the agent projections, so the module and its test were deleted rather than left as unreachable code.; Connector operations rea |
+| UX-07 | UX             | partial | scripts/check-bundle.mjs enforces a total-download ceiling across every chunk, so mounting these surfaces in the reference application fails it even though the reference page itself grows by 0.77 kB raw / 0.30 kB gzip. The ceiling needs a deliberate raise (see integrationPatches); I did not change the script.; Splitting the connection surface into its own chunk was tried and reverted: Rollup keeps |
+| QA-05 | QA             | partial | The Playwright accessibility suites (tests/browser/connector-directory.spec.ts, connector-drawer.spec.ts) bind fixed ports 4173/4174 and were not executed: the charter forbids running browser suites while other swarms work. This suite asserts their presence, that they make keyboard and accessible-name assertions, and that they are reachable from npm run test:e2e.; npm run build, build:vercel and t |
 
 ## Blocked live prerequisites
 
@@ -1054,13 +1055,12 @@ Nobody delivered this required work item.
   - `node --import tsx --test tests/connectors/agent-tools/intents.test.ts` — pass 8
   - `node --import tsx --test tests/connectors/agent-tools/surfaces.test.ts` — pass 5
 
-### AG-04 (AGENT-SURFACES) — implemented, unit
+### AG-04 (AGENT-SURFACES) — unmet, not-tested
 
-- Files: `src/server/connectors/agents/webmcp.ts`
+- Files: none recorded
 - Acceptance: AC-AG-03
 - Pinned sources: `webmcp-cg-draft-2026-09-17`
-- Tests:
-  - `node --import tsx --test tests/connectors/agent-tools/webmcp.test.ts` — pass 8
+- Tests: none named
 
 ### AG-05 (AGENT-SURFACES) — implemented, protocol-fixture
 
@@ -1825,12 +1825,8 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
   - Additive on the MCP server: registerAgentConnectorTools skips any name already registered, so the MCP swarm's connector_catalog/status/connect/invoke are untouched and only five names are added.
   - The service wiring (an AgentConnectorDependencies built over ConnectorCommandService) is the integrator's mount; these tests exercise the intents against an in-memory dependency and a fake MCP server, so the evidence level is unit rather than local-integration.
 - **AG-04** (AGENT-SURFACES)
-  - Feature detection reuses the existing browserModelContext() unchanged, so the connector tools and the ceremony tools cannot drift apart; the mount also reports which spelling was found (document or navigator).
-  - No native model context means no registration and no installation of anything: the absent API stays absent, there is no polyfill, and the application's ordinary controls are the whole experience.
-  - Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.
-  - `exposedTo` is never passed, so nothing here claims to drive an iframe or another origin; the mount reports crossOriginExposure: "not-requested".
-  - Annotations are hints. The dispatcher is never told about them and the server never sees them; a rewritten readOnlyHint changes nothing.
-  - Supported-native-browser evidence here is a spec-shaped model-context double in Node, NOT a real browser. Real-browser (Playwright) evidence is not claimed; browser suites cannot be run while other swarms hold the fixed ports.
+  - Removed 2026-09-23 (platform review): the page-side connector WebMCP tools (createConnectorWebmcpTools / mountConnectorWebmcpTools) were never mounted by any page, and the React connector components have no authenticated dispatcher that projects every intent result through the agent projections, so the module and its test were deleted rather than left as unreachable code.
+  - Connector operations reach assistants over the MCP server (connector_* tools) instead. The ceremony WebMCP tools in src/core/webmcp.ts are unaffected.
 - **AG-05** (AGENT-SURFACES)
   - One decision function for HTTP, MCP, WebMCP and A2A. Every test asks the same question on all four surfaces and asserts one answer, so a surface with its own opinion fails rather than becoming the deployment's real policy.
   - A WebMCP call is delegated work by construction: it runs inside the person's own browser session, so the session alone cannot distinguish it from that person clicking a button, and the surface is used instead.
@@ -1976,7 +1972,7 @@ The [source lock](source-lock.md) pins 80 records as of 2026-09-18, each with it
 
 ## Adapter inventory read for this report
 
-27 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
+28 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
 
 ## Ledger problems
 

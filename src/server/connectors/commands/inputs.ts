@@ -171,6 +171,38 @@ export const bindingApprovalSchema = z.strictObject({
     configuration: z.array(configurationNameSchema).max(48).optional(),
     custody: credentialCustodySchema.optional(),
     authorityInstance: z.string().max(256).regex(noControl).optional(),
+    /**
+     * The OAuth issuer policy the binding pins (`settings.oauth`): which
+     * issuer, how the client exists there, which origins may be contacted.
+     * Only a human reviewer may set it, and only for an issuer host policy
+     * admits; validated against the issuer policy schema by the service.
+     */
+    oauth: z
+      .preprocess(
+        boundedJsonGuard(
+          { depth: 4, nodes: 256, bytes: 16 * 1024, stringLength: 2048 },
+          { maxKeys: 32 },
+        ),
+        z.record(z.string().min(1).max(120), z.unknown()),
+      )
+      .optional(),
+    /** An approved read operation the adapter verifies credentials with. */
+    verifier: z
+      .strictObject({
+        nativeId: nativeIdentifierSchema,
+        input: z
+          .preprocess(
+            boundedJsonGuard(
+              { depth: 4, nodes: 64, bytes: 4 * 1024, stringLength: 512 },
+              { maxKeys: 16 },
+            ),
+            z.record(z.string().min(1).max(120), z.unknown()),
+          )
+          .optional(),
+      })
+      .optional(),
+    /** Owner consent that assistants may read personal outputs; only a person can give it. */
+    agentOutputConsent: z.enum(["none", "personal"]).optional(),
     /** Inert adapter settings a reviewer approves (client id, API version); never a secret or an executable URL. */
     settings: z
       .preprocess(

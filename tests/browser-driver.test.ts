@@ -589,6 +589,223 @@ test("the heuristic follows the goal's alternative link without repeating a clic
   }
 });
 
+test("the heuristic swaps in another address only when registration declared it can obtain one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const here = "https://provider.example/join";
+  const page = snapshot({
+    path: here,
+    alerts: ["That email address is already in use."],
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email", filled: true },
+      { index: 1, kind: "input", type: "password", label: "Password" },
+      { index: 2, kind: "button", text: "Join" },
+    ],
+  });
+  const refused = [
+    { action: "fill", path: here },
+    { action: "click", note: "Join", path: here },
+  ];
+  const swap = {
+    action: "fill",
+    element: 0,
+    role: "alternate-email",
+    note: "retry-address",
+  };
+  // Without the declared role, or outside registration, a taken address is a wall.
+  for (const [goal, available] of [
+    ["registration", ["email", "password"]],
+    ["sign-in", ["email", "password", "alternate-email"]],
+  ] as const)
+    assert.deepEqual(
+      await interpret({ goal, snapshot: page, available, history: refused }),
+      { action: "blocked", reason: "account-exists" },
+    );
+  const available = ["email", "password", "alternate-email"] as const;
+  // Refused, even with the old address still in the field: swap it.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page,
+      available,
+      history: refused,
+    }),
+    swap,
+  );
+  // Swapped and not yet submitted: refill the rest, then press the same
+  // button again, because the form it would submit has changed.
+  const swapped = [
+    ...refused,
+    { action: "fill", note: "retry-address", path: here },
+  ];
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page,
+      available,
+      history: swapped,
+    }),
+    { action: "fill", element: 1, role: "password" },
+  );
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: snapshot({
+        ...page,
+        elements: page.elements.map((element) => ({
+          ...element,
+          ...(element.kind === "input" ? { filled: true } : {}),
+        })),
+      }),
+      available,
+      history: [...swapped, { action: "fill", path: here }],
+    }),
+    { action: "click", element: 2, note: "Join" },
+  );
+  // Refused again after a second swap: two replacements is the limit.
+  const twice = [
+    ...swapped,
+    { action: "click", note: "Join", path: here },
+    { action: "fill", note: "retry-address", path: here },
+    { action: "click", note: "Join", path: here },
+  ];
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page,
+      available,
+      history: twice,
+    }),
+    { action: "blocked", reason: "account-exists" },
+  );
+});
+
+test("the heuristic never presses a way back, and presses a lone unnamed submit only for input it just gave", async () => {
+  const interpret = createHeuristicInterpreter();
+  const here = "https://provider.example/join";
+  const page = snapshot({
+    path: here,
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email", filled: true },
+      { index: 1, kind: "button", text: "Resend confirmation" },
+      { index: 2, kind: "button", text: "Cancel" },
+      { index: 3, kind: "button", text: "Let's go" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page,
+      available: ["email"],
+      history: [{ action: "fill", path: here }],
+    }),
+    { action: "click", element: 3, note: "Let's go" },
+  );
+  // Nothing filled here since the last press: no guessing at a lone button.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page,
+      available: ["email"],
+      history: [
+        { action: "fill", path: here },
+        { action: "click", note: "Let's go", path: here },
+      ],
+    }),
+    { action: "wait" },
+  );
+});
+
+test("the heuristic ticks terms only to register, and waits longer only for mail", async () => {
+  const interpret = createHeuristicInterpreter();
+  const terms = snapshot({
+    elements: [
+      { index: 0, kind: "checkbox", label: "I agree to the Terms of Service" },
+      { index: 1, kind: "checkbox", label: "Send me offers" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: terms,
+      available: [],
+      history: [],
+    }),
+    { action: "check", element: 0 },
+  );
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      snapshot: terms,
+      available: [],
+      history: [],
+    }),
+    { action: "wait" },
+  );
+  // "Agree" alone is not terms: an optional marketing or data-sharing box
+  // worded as an agreement is never ticked, even to register.
+  for (const label of [
+    "I agree to receive marketing emails and share my data with partners",
+    "I accept promotional offers",
+    "I agree to the terms of the newsletter",
+    "Accept product updates",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "wait" },
+      label,
+    );
+  for (const label of [
+    "I accept the terms and the privacy policy",
+    "I confirm I am old enough to use this service",
+    "I am 16 years of age or older",
+    "I accept the EULA",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "check", element: 0 },
+      label,
+    );
+  const inbox = snapshot({
+    title: "Almost there",
+    headings: ["Check your inbox to confirm the account."],
+    elements: [],
+  });
+  const waited = (count: number) =>
+    Array.from({ length: count }, () => ({ action: "wait" }));
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: inbox,
+      available: [],
+      history: waited(3),
+    }),
+    { action: "wait" },
+  );
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: inbox,
+      available: [],
+      history: waited(4),
+    }),
+    { action: "blocked", reason: "unsupported-page" },
+  );
+});
+
 test("a button with the same label on the next document is not already pressed", async () => {
   // The defect this pins cost every identifier-first provider. Step one and
   // step two of such a flow both carry a button reading "Sign in" - so did

@@ -5,8 +5,13 @@ import type {
   CompletionResult,
   HandoffProposal,
 } from "../adapter.js";
+import { beginAttempt } from "../attempts.js";
 import { ConnectorError } from "../errors.js";
-import type { CredentialScope, HandoffRecord } from "../ports.js";
+import type {
+  CredentialMaterial,
+  CredentialScope,
+  HandoffRecord,
+} from "../ports.js";
 import type { ResolvedClient } from "./client.js";
 import type { ResolvedAuthorizationServer } from "./discovery.js";
 import { assertHandoffCurrent } from "./handoff.js";
@@ -628,6 +633,14 @@ export type RefreshAccessTokenInput = {
   scope: CredentialScope;
   /** A narrower scope to request on refresh (RFC 6749 §6); never wider than the grant. */
   scopes?: readonly string[] | undefined;
+  /**
+   * Whether the credential custody now holds is still the one the caller saw
+   * fail. False means another worker already renewed it between the failure
+   * and this worker taking the lock: the current material is kept and no
+   * refresh token is presented, so two failures one after the other still
+   * produce one refresh.
+   */
+  stillStale?: ((current: CredentialMaterial) => boolean) | undefined;
 };
 
 export type RefreshOutcome = {
@@ -683,21 +696,41 @@ export async function refreshAccessToken(
           throw new ConnectorError("denied", {
             detail: "oauth.refresh.client-mismatch",
           });
-        const begun = await ctx.environment.effects.begin({
-          actor: ctx.actor,
-          connectionRef: input.scope.connectionRef,
-          bindingRef: input.scope.bindingRef,
-          operation: OAUTH_REFRESH_OPERATION,
-          digest: sha256Hex(
-            "refresh",
-            input.server.issuer,
-            input.client.client.client_id,
-            refreshToken,
-          ),
-        });
-        if (begun.prior && begun.prior.status !== "not-applied")
+        if (input.stillStale && !input.stillStale(current)) {
+          const held = Number(current["expires_at"]);
+          return {
+            material: current,
+            ...(Number.isSafeInteger(held) && held > 0
+              ? { expiresAt: held }
+              : {}),
+          };
+        }
+        // An attempt that never reached the issuer leaves the next attempt its
+        // own journal entry; one that was applied or may have been is final.
+        const begun = await beginAttempt(
+          ctx.environment.effects,
+          {
+            actor: ctx.actor,
+            connectionRef: input.scope.connectionRef,
+            bindingRef: input.scope.bindingRef,
+            operation: OAUTH_REFRESH_OPERATION,
+            digest: sha256Hex(
+              "refresh",
+              input.server.issuer,
+              input.client.client.client_id,
+              refreshToken,
+            ),
+          },
+          { mode: "until-applied", random: ctx.environment.random },
+        );
+        const settled = begun.prior;
+        if (settled?.status === "not-applied")
+          throw new ConnectorError("upstream-unavailable", {
+            detail: "oauth.refresh.unreachable",
+          });
+        if (settled)
           throw new ConnectorError(
-            begun.prior.status === "applied" ? "conflict" : "indeterminate",
+            settled.status === "applied" ? "conflict" : "indeterminate",
             { detail: "oauth.refresh.already-used" },
           );
         const now = () => ctx.environment.now();

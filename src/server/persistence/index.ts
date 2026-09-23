@@ -49,6 +49,11 @@ export const recordKinds = [
   // route index. Both are additive and carry `schemaVersion`.
   "connector-event-inbox",
   "connector-event-subscription",
+  // RFC 7591 dynamic client registrations the OAuth grants made, one per
+  // (tenant, issuer, redirect URI, host origin). The value holds the client
+  // secret and registration access token, so it is a secret like a
+  // credential; additive and carries `schemaVersion`.
+  "connector-oauth-registration",
 ] as const;
 export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };

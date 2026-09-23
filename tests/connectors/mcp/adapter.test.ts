@@ -280,9 +280,19 @@ test("the adapter reports a capability row per profile and refuses stdio outrigh
       /stdio transports are not supported/,
     );
   }
+  // MCP has no revocation operation; what is implemented is the authorization
+  // server's, for the default profile's grant, and the row says exactly that.
   const revoke = rows.find((row) => row.dimension === "revoke");
-  assert.equal(revoke?.implementation, "unsupported");
-  assert.match(revoke!.limitations.join(" "), /no revocation operation/);
+  assert.equal(revoke?.implementation, "implemented");
+  assert.match(
+    revoke!.limitations.join(" "),
+    /authorization server's \(RFC 7009\)/,
+  );
+  const disconnect = rows.find((row) => row.dimension === "disconnect");
+  assert.match(
+    disconnect!.limitations.join(" "),
+    /MCP defines no disconnect or revocation operation/,
+  );
   // The authorization row states this revision's registration order rather
   // than claiming every server supports the newest mechanism.
   const authorize = rows.find(

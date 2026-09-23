@@ -361,6 +361,33 @@ test("an executor cannot register a client; registration is an owner's act", asy
   assert.equal(server.counts.registration, 0);
 });
 
+test("an executor uses a client the owner already registered: refresh behind an agent's call needs no author", async (t) => {
+  // The owner registers once (the harness actor holds `author`).
+  const harness = await authHarness(t, {
+    server: { dynamicRegistration: true },
+    policy: { registration: { allowed: ["dynamic"] } },
+  });
+  assert.equal(harness.server.counts.registration, 1);
+  const executor: ActorContext = {
+    ...fixtureActor,
+    capabilities: ["executor"],
+  };
+  const used = await resolveClientRegistration({
+    actor: executor,
+    policy: harness.policy,
+    server: harness.resolved,
+    redirectUri: CALLBACK_URI,
+    hostOrigin: HOST_ORIGIN,
+    configuration: harness.ports.configuration,
+    fetch: loopbackFetch,
+    registrations: harness.registrations,
+    effects: harness.ports.effects,
+  });
+  assert.equal(used.source, "stored-registration");
+  assert.equal(used.client.client_id, harness.client.client.client_id);
+  assert.equal(harness.server.counts.registration, 1);
+});
+
 test("a redirect URI outside the host origin is refused for every profile", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
@@ -402,4 +429,82 @@ test("a client registration replayed after a lost response reuses the stored cli
   });
   assert.equal(replay.client.client_id, harness.client.client.client_id);
   assert.equal(harness.server.counts.registration, 1);
+});
+
+/** A fresh journal and store against the harness's issuer, fetching through `fetchFor`. */
+async function freshRegistration(t: Parameters<typeof authHarness>[0]) {
+  const harness = await authHarness(t, {
+    server: { dynamicRegistration: true },
+    policy: { registration: { allowed: ["dynamic"] } },
+  });
+  const ports = memoryPorts();
+  const registrations = memoryRegistrationStore();
+  const register = (fetcher: typeof fetch) =>
+    resolveClientRegistration({
+      actor: fixtureActor,
+      policy: harness.policy,
+      server: harness.resolved,
+      redirectUri: CALLBACK_URI,
+      hostOrigin: HOST_ORIGIN,
+      configuration: ports.configuration,
+      fetch: fetcher,
+      registrations,
+      effects: ports.effects,
+    });
+  return { harness, ports, register };
+}
+
+test("a registration request that never left is not an unknown outcome: the next attempt registers", async (t) => {
+  const { harness, register } = await freshRegistration(t);
+  const before = harness.server.counts.registration;
+  const refused: typeof fetch = async () => {
+    throw new TypeError("fetch failed", {
+      cause: Object.assign(new Error("connect ECONNREFUSED"), {
+        code: "ECONNREFUSED",
+      }),
+    });
+  };
+  await assert.rejects(register(refused));
+  const client = await register(loopbackFetch);
+  assert.equal(client.source, "new-registration");
+  assert.equal(harness.server.counts.registration, before + 1);
+});
+
+test("a registration whose response was unusable is attempted again, journaled as its own attempt", async (t) => {
+  const { harness, ports, register } = await freshRegistration(t);
+  const before = harness.server.counts.registration;
+  // The issuer answers, but with a confidential client and no secret: that
+  // client cannot be used, and nothing about it is kept.
+  const unusable: typeof fetch = async (input, init) => {
+    const response = await fetch(input, init);
+    const body = (await response.json()) as Record<string, unknown>;
+    const { client_secret: _secret, ...rest } = body;
+    void _secret;
+    return new Response(
+      JSON.stringify({
+        ...rest,
+        token_endpoint_auth_method: "client_secret_basic",
+      }),
+      {
+        status: response.status,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  };
+  await assert.rejects(
+    register(unusable),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.registration.inconsistent",
+  );
+  const client = await register(loopbackFetch);
+  assert.equal(client.source, "new-registration");
+  assert.equal(harness.server.counts.registration, before + 2);
+  assert.deepEqual(
+    ports.inspect
+      .effects()
+      .filter((entry) => entry.intent.operation === "oauth.client.register")
+      .map((entry) => entry.outcome?.status),
+    ["failed", "applied"],
+  );
 });

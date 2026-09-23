@@ -163,3 +163,40 @@ describe("saved browser state", () => {
     );
   });
 });
+
+describe("the state kept for a login slot", () => {
+  test("a slot recalls the latest state and forgets the one it replaced", async () => {
+    const states = createBrowserStateStore({ store });
+    const first = await states.remember(actor, "slot-a", saved, sample);
+    const newer = storageStateSchema.parse({ ...sample, origins: [] });
+    const second = await states.remember(actor, "slot-a", saved, newer);
+    assert.notEqual(first, second);
+    assert.deepEqual(await (await states.recall(actor, "slot-a"))!(), newer);
+    // Two live cookie jars for one login is one too many.
+    await assert.rejects(
+      states.describe(actor, first),
+      (error: unknown) =>
+        error instanceof BrowserStateUnavailable && error.reason === "unknown",
+    );
+    assert.equal(await states.recall(actor, "slot-b"), undefined);
+  });
+
+  test("another subject in the same tenant finds nothing in the same slot", async () => {
+    const states = createBrowserStateStore({ store });
+    await states.remember(actor, "shared-slot", saved, sample);
+    const colleague: ActorContext = { ...actor, subjectId: "state-colleague" };
+    assert.equal(await states.recall(colleague, "shared-slot"), undefined);
+  });
+
+  test("an expired state is an absent one, not a failure at restore time", async () => {
+    let now = 1_000_000;
+    const states = createBrowserStateStore({
+      store,
+      now: () => now,
+      ttlMs: 60_000,
+    });
+    await states.remember(actor, "expiring-slot", saved, sample);
+    now += 61_000;
+    assert.equal(await states.recall(actor, "expiring-slot"), undefined);
+  });
+});

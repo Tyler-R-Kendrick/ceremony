@@ -14,6 +14,7 @@ import {
 import {
   ConnectorCommandService,
   type ConfigurationWriter,
+  type ConnectorImporter,
 } from "./commands/service.js";
 import {
   createConnectorHttp,
@@ -78,6 +79,13 @@ export interface ConnectorRuntimeOptions {
   policy?: ConnectorPolicy | ((base: ConnectorPolicy) => ConnectorPolicy);
   /** Host capabilities and extra adapters; see `ConnectorInventoryOptions`. */
   inventory?: ConnectorInventoryOptions;
+  /**
+   * Format importers tried, in order, for an import that names no adapter
+   * (OpenAPI, Arazzo, AsyncAPI ...). The service always supported them; the
+   * runtime used to drop them, so a composed deployment could import only
+   * through an adapter's own `import`.
+   */
+  importers?: readonly ConnectorImporter[];
   /** Where a completed callback sends the person; a path on this origin. */
   returnPath?: string;
   /** The events module's receiver; absent means the events mount answers 404. */
@@ -85,6 +93,8 @@ export interface ConnectorRuntimeOptions {
   rateLimit?: { limit: number; windowMs: number };
   /** Exact HTTPS origins the default policy admits beyond those a description declares. */
   destinations?: readonly string[];
+  /** Exact HTTPS origins the default policy admits for a reviewed OAuth issuer policy, beyond those a description declares. */
+  issuers?: readonly string[];
   callTimeoutMs?: number;
 }
 
@@ -111,8 +121,17 @@ export function createConnectorRuntime(
   if (new URL(options.origin).origin !== options.origin)
     throw new Error("Connector runtime origin must be an exact origin");
 
-  const registry = createConnectorRegistry(options.inventory ?? {});
   const ports = createConnectorPorts(options.store);
+  // A runtime always has a durable store, so dynamic client registration
+  // persists there unless the host supplies its own registrations store.
+  const inventory = options.inventory ?? {};
+  const registry = createConnectorRegistry({
+    ...inventory,
+    oauth: {
+      ...inventory.oauth,
+      registrations: inventory.oauth?.registrations ?? ports.registrations,
+    },
+  });
   const approved = createApprovedFetch(options.network);
   // The approved fetcher is the only way out. Narrowing it to `typeof fetch`
   // here rather than at each call site means a module that wants a plain
@@ -122,6 +141,7 @@ export function createConnectorRuntime(
   const base = defaultConnectorPolicy({
     store: options.store,
     ...(options.destinations ? { destinations: options.destinations } : {}),
+    ...(options.issuers ? { issuers: options.issuers } : {}),
     ...(options.network.mode === "loopback-fixture"
       ? { loopbackFixtures: true }
       : {}),
@@ -139,6 +159,7 @@ export function createConnectorRuntime(
     origin: options.origin,
     configuration: options.configuration,
     ...(options.configure ? { configure: options.configure } : {}),
+    ...(options.importers ? { importers: options.importers } : {}),
     ...(options.callTimeoutMs === undefined
       ? {}
       : { callTimeoutMs: options.callTimeoutMs }),

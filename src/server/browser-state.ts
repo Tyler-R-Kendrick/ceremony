@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   browserStateRefSchema,
@@ -117,7 +118,7 @@ export function createBrowserStateStore(options: BrowserStateStoreOptions) {
     return record;
   };
 
-  return {
+  const api = {
     /** Keep a context's storage state, and answer with a reference to it. */
     async save(
       actor: ActorContext,
@@ -181,6 +182,80 @@ export function createBrowserStateStore(options: BrowserStateStoreOptions) {
       await options.store.transaction((tx) =>
         tx.delete(key(actor, stateRef), stored.revision),
       );
+    },
+  };
+
+  /**
+   * Where "the state for this login" is found again.
+   *
+   * The key is a digest of the subject and a caller-chosen slot, so the
+   * pointer names nobody in the clear and one subject's slot can never resolve
+   * to another's pointer. The pointer holds only a reference; the state stays
+   * in its own record, under every rule above, and a pointer to a state that
+   * has expired or been forgotten simply finds nothing.
+   */
+  const slotKey = (actor: ActorContext, slot: string) => ({
+    tenant: actor.tenantId,
+    kind: "browser-state" as const,
+    id: `slot:${createHash("sha256")
+      .update(JSON.stringify([actor.subjectId, slot]))
+      .digest("hex")}`,
+  });
+
+  return {
+    ...api,
+
+    /**
+     * Keep a state as *the* state for a slot, replacing whatever held it.
+     *
+     * The previous state is forgotten rather than left to expire: two live
+     * cookie jars for one login is one more than anybody needs to hold.
+     */
+    async remember(
+      actor: ActorContext,
+      slot: string,
+      input: { browserGeneration: string; effectivePlanDigest: string },
+      state: StorageState,
+    ): Promise<string> {
+      const stateRef = await api.save(actor, input, state);
+      const previous = await options.store.transaction(async (tx) => {
+        const current = await tx.get<{ subject: string; stateRef: string }>(
+          slotKey(actor, slot),
+        );
+        await tx.put(
+          slotKey(actor, slot),
+          { subject: actor.subjectId, stateRef },
+          current?.revision ?? null,
+        );
+        return current?.value.stateRef;
+      });
+      if (previous && previous !== stateRef)
+        await api.forget(actor, previous).catch(() => {});
+      return stateRef;
+    },
+
+    /**
+     * The restore thunk for a slot's state, or nothing when there is none
+     * this actor may restore.
+     *
+     * Checked before the thunk is handed out, so an expired or foreign state
+     * is an absent one — a caller starts a fresh context — rather than a
+     * failure at context creation. The thunk still re-checks when called.
+     */
+    async recall(
+      actor: ActorContext,
+      slot: string,
+    ): Promise<(() => Promise<StorageState>) | undefined> {
+      const pointer = await options.store.transaction((tx) =>
+        tx.get<{ subject: string; stateRef: string }>(slotKey(actor, slot)),
+      );
+      if (!pointer || pointer.value.subject !== actor.subjectId) return;
+      try {
+        await api.describe(actor, pointer.value.stateRef);
+      } catch {
+        return;
+      }
+      return api.restore(actor, pointer.value.stateRef);
     },
   };
 }

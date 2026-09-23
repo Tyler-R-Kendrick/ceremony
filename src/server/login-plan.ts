@@ -13,6 +13,14 @@ import {
   type RequiredCapabilities,
 } from "../core/browser-session-contracts.js";
 import { unmetCapabilities } from "../core/browser-session-contracts.js";
+import {
+  derivedRoleOf,
+  heldCredentialKinds,
+} from "../core/browser-contracts.js";
+import {
+  recordingReferenceSchema,
+  type RecordingReference,
+} from "../core/recorded-ceremony.js";
 
 /**
  * Turning what a person asked for into what the server will actually do.
@@ -114,6 +122,15 @@ export const connectionDraftSchema = z
       .record(z.string().max(32), z.string().max(128))
       .optional(),
     sessionTtlMs: z.number().int().min(60_000).max(86_400_000),
+    /**
+     * A published recorded ceremony to replay instead of reading the page,
+     * pinned by version and digest. The login then consults no model at all;
+     * where the provider no longer matches the recording it stops by name.
+     *
+     * Part of the plan, and so of its digest: a login approved to replay one
+     * recording cannot quietly replay another.
+     */
+    recording: recordingReferenceSchema.optional(),
   })
   .strict();
 export type ConnectionDraft = z.infer<typeof connectionDraftSchema>;
@@ -131,6 +148,13 @@ export const planRejectionReasons = [
   "ambiguous-account",
   /** Inference was asked for and this host has no model to do it with. */
   "reasoning-unavailable",
+  /**
+   * The named recording is not published here at that version and digest,
+   * or it was retired.
+   */
+  "recording-unavailable",
+  /** The recording acts on an origin this plan does not admit. */
+  "recording-origin-not-declared",
 ] as const;
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
@@ -185,6 +209,8 @@ export type EffectiveLoginPlan = {
   required: RequiredCapabilities;
   credentialRefs: Readonly<Record<string, string>>;
   sessionTtlMs: number;
+  /** The published recording this login replays, when it replays one. */
+  recording?: RecordingReference;
   revision: number;
   digest: string;
 };
@@ -343,6 +369,15 @@ export function compileLoginPlan(
       throw new PlanRejected("unknown-credential-reference", role);
     credentialRefs[role] = reference;
   }
+  // A held credential and the role it derives are two answers to one question.
+  // A plan naming both a `totp-seed` and a `totp-code` would type whichever the
+  // service happened to prefer, which is a field silently ignored by another
+  // name, so the derived role's own reference is the one refused.
+  for (const kind of heldCredentialKinds) {
+    const derived = derivedRoleOf[kind];
+    if (credentialRefs[kind] !== undefined && credentialRefs[derived])
+      throw new PlanRejected("unknown-credential-reference", derived);
+  }
 
   // "Whichever account is there" has to be said, not assumed. Without an
   // explicit policy a run would quietly accept the first session it found.
@@ -371,6 +406,7 @@ export function compileLoginPlan(
     required,
     credentialRefs,
     sessionTtlMs: draft.sessionTtlMs,
+    ...(draft.recording ? { recording: draft.recording } : {}),
     revision: options.revision,
   };
   return { ...withoutDigest, digest: planDigest(withoutDigest) };

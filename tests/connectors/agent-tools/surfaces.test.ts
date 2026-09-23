@@ -100,6 +100,7 @@ test("AG-03: the intents mount beside the connector tools already on the MCP ser
   const before = tools.length;
   const added = registerAgentConnectorTools(server, deps, {
     actor: () => fixtureActor,
+    taken: connectorServerToolNames,
   });
   assert.deepEqual(added, [...agentConnectorToolNames]);
   assert.equal(tools.length, before + 5);
@@ -108,6 +109,30 @@ test("AG-03: the intents mount beside the connector tools already on the MCP ser
     assert.equal(tools.filter((tool) => tool.name === name).length, 1, name);
   for (const tool of tools.slice(before))
     assert.ok(tool.config.description.length > 20, tool.name);
+});
+
+/**
+ * Only names that are actually on the server are skipped. A host that mounts
+ * the intents without the four connector tools (as the example server does)
+ * would otherwise lose `connector_status` and `connector_connect` entirely:
+ * skipped because a tool of that name was assumed, and never registered by
+ * anything else.
+ */
+test("AG-03: without the connector tools mounted, the intents register status and connect too", () => {
+  const { tools, server } = fakeServer();
+  const added = registerAgentConnectorTools(server, deps, {
+    actor: () => fixtureActor,
+  });
+  assert.deepEqual(added.sort(), [
+    "connector_connect",
+    "connector_disconnect",
+    "connector_inspect",
+    "connector_list",
+    "connector_operations",
+    "connector_reconnect",
+    "connector_status",
+  ]);
+  assert.equal(tools.length, 7);
 });
 
 test("AG-03: an MCP intent without an authenticated actor refuses, and a failure never echoes upstream text", async () => {

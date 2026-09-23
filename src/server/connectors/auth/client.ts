@@ -5,6 +5,7 @@ import type { ActorContext } from "../../../core/operation-contracts.js";
 import { clientMetadataDocument } from "../../authored-oauth.js";
 import { AuthorizationError, requireCapability } from "../../identity.js";
 import { publicNativeClients } from "../../oauth-public-clients.js";
+import { beginAttempt } from "../attempts.js";
 import { ConnectorError } from "../errors.js";
 import type { ConfigurationPort, EffectJournalPort } from "../ports.js";
 import type { ResolvedAuthorizationServer } from "./discovery.js";
@@ -15,7 +16,7 @@ import {
   type ClientRegistrationProfile,
   type IssuerPolicy,
 } from "./policy.js";
-import { requestOptions, sha256Hex, wireError } from "./wire.js";
+import { neverSent, requestOptions, sha256Hex, wireError } from "./wire.js";
 
 /*
  * Three ways a client can exist at an issuer, chosen by host policy rather
@@ -541,16 +542,6 @@ function clientFromStored(
 async function dynamicClient(
   input: ResolveClientInput,
 ): Promise<ResolvedClient> {
-  try {
-    requireCapability(input.actor, "author");
-  } catch (error) {
-    if (error instanceof AuthorizationError)
-      throw new ConnectorError("denied", {
-        detail: "oauth.registration.owner-required",
-        cause: error,
-      });
-    throw error;
-  }
   if (!input.registrations)
     throw new ConnectorError("configuration-required", {
       detail: "oauth.registration.store-missing",
@@ -566,6 +557,9 @@ async function dynamicClient(
     redirectUri: input.redirectUri,
     hostOrigin: input.hostOrigin,
   });
+  // Using a client the tenant already registered is an executor's act: the
+  // refresh behind an agent's invocation, a person reconnecting. Creating one
+  // at the issuer is an owner's, so the capability is checked only there.
   const stored = await input.registrations.get(tenantId, key);
   if (stored) {
     if (stored.issuer !== input.policy.issuer)
@@ -573,6 +567,16 @@ async function dynamicClient(
         detail: "oauth.registration.issuer-conflict",
       });
     return clientFromStored(stored, input.redirectUri, "stored-registration");
+  }
+  try {
+    requireCapability(input.actor, "author");
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      throw new ConnectorError("denied", {
+        detail: "oauth.registration.owner-required",
+        cause: error,
+      });
+    throw error;
   }
   const supportedGrants = input.server.metadata.grant_types_supported ?? [
     "authorization_code",
@@ -600,18 +604,29 @@ async function dynamicClient(
     });
   // Intent first: a lost response must not lead to a second client at the
   // issuer, which is exactly the uncontrolled client creation to avoid.
+  // A request that never left, or an issuer that answered with a client
+  // nothing can use, created nothing usable: the next resolution is a new
+  // attempt with its own journal entry, never a rewrite of the settled one.
   let effectRef: string | undefined;
   if (input.effects) {
-    const begun = await input.effects.begin({
-      actor: input.actor,
-      operation: "oauth.client.register",
-      digest: sha256Hex(tenantId, key),
-    });
+    const begun = await beginAttempt(
+      input.effects,
+      {
+        actor: input.actor,
+        operation: "oauth.client.register",
+        digest: sha256Hex(tenantId, key),
+      },
+      { mode: "until-applied", retryAfter: ["failed"] },
+    );
+    // Every attempt the journal allows was spent without a client.
     if (
-      begun.prior &&
-      (begun.prior.status === "applied" ||
-        begun.prior.status === "indeterminate")
-    ) {
+      begun.prior?.status === "not-applied" ||
+      begun.prior?.status === "failed"
+    )
+      throw new ConnectorError("upstream-rejected", {
+        detail: "oauth.registration.attempts-exhausted",
+      });
+    if (begun.prior) {
       const again = await input.registrations.get(tenantId, key);
       if (again)
         return clientFromStored(
@@ -658,11 +673,20 @@ async function dynamicClient(
     );
   } catch (error) {
     if (effectRef && input.effects)
-      await input.effects.complete(effectRef, {
-        status: "indeterminate",
-        code: "oauth.registration.indeterminate",
-        at: now(),
-      });
+      await input.effects.complete(
+        effectRef,
+        neverSent(error)
+          ? {
+              status: "not-applied",
+              code: "oauth.registration.unreachable",
+              at: now(),
+            }
+          : {
+              status: "indeterminate",
+              code: "oauth.registration.indeterminate",
+              at: now(),
+            },
+      );
     throw wireError(error, "oauth.registration");
   }
   const returnedMethod = registered.token_endpoint_auth_method ?? method;

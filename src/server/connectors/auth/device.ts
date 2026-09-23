@@ -220,16 +220,32 @@ export async function pollDeviceAuthorization(
   };
   if (now < poll.nextPollAt) return pending("oauth.device.wait", poll);
   const scope = input.scope ?? credentialScopeFor(ctx, handoff);
+  // One journal entry per poll: a durable journal records an outcome once,
+  // and every `authorization_pending` is a poll that did not apply. The poll's
+  // slot (when it became due) tells polls apart; the handoff, settled once
+  // on success, is what stops a code being exchanged twice.
   const begun = await ctx.environment.effects.begin({
     actor: ctx.actor,
     connectionRef: scope.connectionRef,
     bindingRef: scope.bindingRef,
     operation: OAUTH_DEVICE_EXCHANGE_OPERATION,
-    digest: sha256Hex("device", issuer, clientId, deviceCode),
+    digest: sha256Hex(
+      "device",
+      issuer,
+      clientId,
+      deviceCode,
+      String(poll.nextPollAt),
+    ),
   });
   if (begun.prior?.status === "applied")
     throw new ConnectorError("conflict", {
       detail: "oauth.device.already-exchanged",
+    });
+  if (begun.prior)
+    // This slot was polled already, or is being polled: wait for the next.
+    return pending("oauth.device.wait", {
+      interval: poll.interval,
+      nextPollAt: Math.max(poll.nextPollAt, now) + poll.interval * 1000,
     });
   const as = input.server.metadata;
   const at = () => ctx.environment.now();

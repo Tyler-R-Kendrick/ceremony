@@ -929,7 +929,13 @@ export function applyProviderProposal(
   return proposal;
 }
 
-/** Parent ceremony that reuses selected child ceremonies as prerequisites. */
+/**
+ * Parent ceremony that reuses selected child ceremonies as prerequisites.
+ * Like every step in this portable outline, `verify-composed` is a
+ * placeholder, not a registered operation. The host derives the executable
+ * recipe from the prerequisites, in order: each child's own steps run, and
+ * then the parent is complete.
+ */
 export function composeAuthoredMethods(
   project: ConnectorDraft,
   childIds: string[],

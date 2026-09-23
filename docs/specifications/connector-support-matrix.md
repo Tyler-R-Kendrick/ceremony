@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 27 constructible adapters and 26 ledgers.
+Generated from 28 constructible adapters and 26 ledgers.
 
 ## Support by dimension
 
@@ -19,6 +19,7 @@ Generated from 27 constructible adapters and 26 ledgers.
 | `auth0-token-vault`             | auth0-token-vault             | hosted-server | provider-backed | external-credential-broker                            | unsupported                              | implemented / missing / unit             | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `aws-agentcore-gateway`         | aws-agentcore                 | hosted-server | provider-backed | host-owned, external-execution-broker                 | implemented / protocol-fixture           | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `camel-kamelet`                 | camel-kamelet                 | hosted-server | provider-backed | no-credential, external-execution-broker              | implemented / protocol-fixture           | unsupported                              | unsupported                              | unsupported                              | unsupported                              | unsupported                              | implemented / protocol-fixture |
+| `catalog-http`                  | provider-catalog              | hosted-server | fixture         | host-owned, no-credential                             | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                    |
 | `composio`                      | composio                      | hosted-server | provider-backed | external-credential-broker, external-execution-broker | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `dapr`                          | dapr                          | hosted-server | provider-backed | host-owned, no-credential                             | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                    |
 | `docker-mcp-catalog`            | docker-mcp                    | hosted-server | provider-backed | no-credential                                         | implemented / protocol-fixture           | unsupported                              | unsupported                              | unsupported                              | unsupported                              | unsupported                              | implemented / unit             |
@@ -53,18 +54,19 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `auth0-token-vault`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `aws-agentcore-gateway`         | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `camel-kamelet`                 | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
+| `catalog-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `composio`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `dapr`                          | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `docker-mcp-catalog`            | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
 | `google-integration-connectors` | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `hasura-ndc`                    | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `mcp-registry`                  | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
-| `mcp-remote`                    | implemented / protocol-fixture           | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
+| `mcp-remote`                    | implemented / protocol-fixture           | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `merge`                         | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `microsoft-custom-connector`    | not reported                             | not reported                             | reconnect: not reported; disconnect: not reported; revoke: not reported |
 | `nango`                         | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `open-service-broker`           | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
-| `openapi-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
+| `openapi-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `pipedream-connect`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `pulsemcp`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
 | `smithery`                      | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
@@ -87,6 +89,7 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `auth0-token-vault`             | 2026.09.18      | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret)                                                   | protocol-fixture | IDENTITY-BROKERS   | `external-broker`, `auth0-token-vault-exchange`                                                         |
 | `aws-agentcore-gateway`         | 1.0.0           | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret)                                                    | protocol-fixture | CLOUD              | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`                              |
 | `camel-kamelet`                 | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `camel-kamelet-v1`                                                                                      |
+| `catalog-http`                  | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `oauth-authorization-code`, `oauth-client-credentials`, `api-key`, `http-basic`, `http-bearer`, `none`  |
 | `composio`                      | 1.0.0           | `COMPOSIO_API_KEY` (secret)                                                                                                           | protocol-fixture | COMPOSIO           | `composio-hosted-authorization`, `external-broker`                                                      |
 | `dapr`                          | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `api-key`                                         |
 | `docker-mcp-catalog`            | 1.0.0           | none                                                                                                                                  | protocol-fixture | CATALOGS           | `docker-mcp-catalog-v2`                                                                                 |
@@ -187,6 +190,28 @@ Module: `src/server/connectors/formats/camel-kamelet/index.ts` (`createCamelKame
 - revoke: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
 - export: Export produces a run descriptor for a configured Camel runner; credential values are never exported, only host configuration names.
 - delegate: No Camel runner is configured for this deployment: Kamelets are imported as descriptions and exported as run descriptors only. Ceremony starts no JVM, resolves no dependency and deploys no integration.
+
+### `catalog-http` — Provider catalog (HTTP)
+
+Module: `src/server/connectors/formats/provider-catalog/index.ts` (`createCatalogHttpAdapter`).
+
+- discover: A catalog is imported as a document; there is no provider listing to discover.
+- import: Reads Ceremony provider catalogs and Nango providers.yaml; unsupported auth modes are kept as descriptions with a reason, never dropped.
+- import: An import creates drafts only; every endpoint in them is contacted only after a reviewer approves a binding.
+- configure: OAuth client ids and secrets, and per-connection values such as a subdomain, come from host configuration by name.
+- authorize: OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry, never from discovery.
+- authorize: Client credentials is a local grant request pending the shared engine's own.
+- authorize: API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.
+- verify: A collected credential is checked only when the entry declares a verification read; otherwise it is stored unverified.
+- verify: Acceptance proves a grant, not which account it belongs to.
+- invoke: The proxy reaches a caller-named path under the approved destination only; the destination must be the entry's declared proxy origin.
+- invoke: Expiring OAuth credentials are refreshed before use; a grant without refresh reports expiry.
+- events: The catalog format declares no webhooks.
+- reconnect: Reconnect repeats authorization under the current binding.
+- disconnect: Local disconnect only; a catalog entry declares no upstream unlink.
+- revoke: A catalog entry declares no revocation endpoint; upstream revocation is not attempted.
+- export: Catalog entries are not exported by this adapter.
+- delegate: There is no third party to delegate to.
 
 ### `composio` — Composio
 
@@ -302,13 +327,16 @@ Module: `src/server/connectors/mcp/index.ts` (`createMcpRemoteAdapter`).
 - import: A live server is not a portable definition; registry import belongs to the registry adapter.
 - configure: Configuration is the binding's pinned profile, endpoint and operations.
 - authorize: Delegated to the host OAuth profile; client registration follows this revision's order: pre-registered, dynamic.
+- authorize: The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata.
+- authorize: Its tokens are refreshed once, single-flight, when custody finds them expired or the server answers 401, and only when a refresh token is held; a custom OAuth hook or broker renews its own.
 - authorize: Dynamic Client Registration is documented in this revision.
 - verify: Server identity is not attested beyond the TLS origin.
 - invoke: stdio transports are not supported: a hosted connector does not launch local processes or run packages.
 - events: Change notifications through the bounded GET stream where the server offers one; no webhook delivery.
 - reconnect: Reconnect re-runs authorization against the same pinned resource.
-- disconnect: Local only: MCP defines no disconnect or revocation operation.
-- revoke: MCP has no revocation operation; revoking a grant belongs to the authorization server profile.
+- disconnect: MCP defines no disconnect or revocation operation; a local disconnect never contacts the server or its authorization server.
+- disconnect: An upstream disconnect revokes the default profile's grant at the authorization server (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint.
+- revoke: Revocation is the authorization server's (RFC 7009), for the default OAuth profile's grant only, under the reviewed issuer policy; an issuer answers 200 for tokens it no longer knows, so success is its statement.
 - export: Export of a server description belongs to the registry adapter.
 - delegate: No sampling, no roots, no task extension: this client offers a server no host capabilities.
 
@@ -383,15 +411,20 @@ Module: `src/server/connectors/formats/openapi/index.ts` (`createOpenApiHttpAdap
 - discover: An OpenAPI description is a document, not a catalog; there is no listing endpoint to discover.
 - import: External references are resolved only through a host-supplied hook under the deployment's network policy.
 - configure: Destinations, operations and credential profiles are chosen by host review, never by the document.
-- authorize: The adapter presents credentials the host already holds; obtaining them is the bound profile's own flow.
+- authorize: OAuth authorization code (PKCE S256), OpenID Connect, device and client-credentials profiles run only under a host-written issuer policy pinned in the approved binding; endpoints the description declares are never contacted on their own.
+- authorize: API key (header or query), HTTP basic and HTTP bearer values are entered by the initiating person through the private input route; they are checked only when the host names a verifier.
+- authorize: Tokens are refreshed once when expired or refused with 401, and only for OAuth profiles whose policy is bound; a profile that declares no refresh is not refreshed.
+- authorize: Cookie API keys, mutual TLS and signature schemes are not supported.
 - verify: Verification is only available when the host names an approved read operation as the verifier.
 - verify: A successful response proves credential acceptance, never account identity.
 - invoke: JSON request and response bodies only; path/header style simple, query style form.
 - invoke: A description cannot establish that a non-GET operation is safe or idempotent.
 - events: Webhooks and callbacks are imported as descriptions; delivery verification belongs to the events profile.
-- reconnect: Reconnect replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
-- disconnect: Local disconnect only; an OpenAPI description declares no upstream unlink operation.
-- revoke: An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.
+- reconnect: Reconnect re-runs the bound profile's authorization and replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
+- disconnect: A local disconnect releases host-held credentials only and never contacts the provider; an OpenAPI description declares no upstream unlink operation.
+- disconnect: An upstream disconnect revokes an OAuth grant (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint; otherwise it reports not-attempted or unsupported.
+- revoke: Only OAuth grants, at the issuer's advertised RFC 7009 endpoint, when the reviewed issuer policy allows it; an issuer answers 200 for tokens it no longer knows, so success is the issuer's statement.
+- revoke: API key, HTTP basic and HTTP bearer values have no revocation protocol here; they are released locally and must be revoked at the provider.
 - export: Export emits the approved description only; losses are reported as compatibility issues.
 - delegate: There is no third party to delegate to in this profile.
 

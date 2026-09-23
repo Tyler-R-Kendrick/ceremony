@@ -135,6 +135,99 @@
                 }
               ]
             }
+          },
+          "connector": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+          },
+          "outcome": {
+            "type": "object",
+            "properties": {
+              "successCriteria": {
+                "maxItems": 32,
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 2048 }
+              },
+              "retry": {
+                "type": "object",
+                "properties": {
+                  "limit": { "type": "integer", "minimum": 1, "maximum": 5 },
+                  "afterMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 300000
+                  },
+                  "criteria": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    }
+                  }
+                },
+                "required": ["limit", "afterMs", "criteria"],
+                "additionalProperties": false
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^\\$(?:inputs\\.[A-Za-z0-9_.-]{1,96}|steps\\.[A-Za-z0-9_-]{1,96}\\.outputs\\.[A-Za-z0-9_.-]{1,96})$"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": { "type": "string", "const": "input" },
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        }
+                      },
+                      "required": ["from", "name"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": { "type": "string", "const": "output" },
+                        "node": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        }
+                      },
+                      "required": ["from", "node", "name"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": { "type": "string", "const": "literal" },
+                        "value": {
+                          "anyOf": [
+                            { "type": "string", "maxLength": 512 },
+                            { "type": "number" },
+                            { "type": "boolean" },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["from", "value"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            },
+            "required": ["successCriteria", "values"],
+            "additionalProperties": false
           }
         },
         "required": ["id", "use", "dependsOn", "bindings"],

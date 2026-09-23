@@ -7,6 +7,10 @@ import { OperationRegistry } from "../src/server/recipes/registry.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
 import { ceremonyAgentTools } from "../src/server/agent-tools.js";
+import { teachingRefusals } from "../src/server/mcp-teaching.js";
+import { authoringTransportFor } from "../src/server/teaching-operations.js";
+import type { AgentConnectorDependencies } from "../src/server/connectors/agents/intents.js";
+import type { ConnectorToolDependencies } from "../src/server/connectors/mcp/server-tools.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
 
@@ -42,7 +46,9 @@ const recipe: RecipeDefinition = {
   outputs: {},
 };
 
-function fixture() {
+function fixture(
+  extra: Partial<Parameters<typeof createTeachingRuntime>[0]> = {},
+) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -93,6 +99,9 @@ function fixture() {
     ]),
     context: async () => context,
     authorize: async () => true,
+    // Authoring discovery never leaves the process in these tests.
+    authoringFetch: async () => new Response("", { status: 404 }),
+    ...extra,
   });
   return { store, runtime };
 }
@@ -347,6 +356,519 @@ test("a reviewer cannot drive ceremonies through the agent tools", async () => {
       tools.cancel(reader, { runId: run.id, revision: run.revision }),
     ])
       await assert.rejects(attempt, /denied/);
+  } finally {
+    await f.store.close();
+  }
+});
+
+/*
+ * Recording, authoring and chaining over MCP. These drive the real handler
+ * over its HTTP surface, so what is asserted is what a chat client sees:
+ * which tools are offered to whom, what a result carries, and how a refusal
+ * reads.
+ */
+
+const author: ActorContext = {
+  ...actor,
+  subjectId: "author",
+  capabilities: ["author", "executor"],
+};
+const reviewer: ActorContext = {
+  ...actor,
+  subjectId: "person-reviewing",
+  capabilities: ["reviewer"],
+};
+const publisher: ActorContext = {
+  ...actor,
+  subjectId: "person-publishing",
+  capabilities: ["publisher"],
+};
+
+type ToolListing = {
+  name: string;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+};
+type ToolResult = { isError?: boolean; content: Array<{ text: string }> };
+
+/** A JSON-RPC answer, whether the transport replied with JSON or an SSE frame. */
+async function rpc<T>(
+  mcp: ReturnType<typeof createCeremonyMcpHandler>,
+  token: string,
+  method: string,
+  params: unknown,
+): Promise<T> {
+  const response = await call(mcp, token, {
+    jsonrpc: "2.0",
+    id: 7,
+    method,
+    params,
+  });
+  const text = await response!.text();
+  const payload = text.trimStart().startsWith("{")
+    ? text
+    : text
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => line.slice(6))
+        .at(-1)!;
+  const message = JSON.parse(payload) as { result: T; error?: unknown };
+  assert.equal(message.error, undefined, JSON.stringify(message.error));
+  return message.result;
+}
+
+async function toolsFor(
+  mcp: ReturnType<typeof createCeremonyMcpHandler>,
+  token: string,
+) {
+  await call(mcp, token, initialize);
+  return (await rpc<{ tools: ToolListing[] }>(mcp, token, "tools/list", {}))
+    .tools;
+}
+
+async function invoke(
+  mcp: ReturnType<typeof createCeremonyMcpHandler>,
+  token: string,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
+  const result = await rpc<ToolResult>(mcp, token, "tools/call", {
+    name,
+    arguments: args,
+  });
+  return {
+    isError: result.isError === true,
+    text: result.content[0]!.text,
+    value: () => JSON.parse(result.content[0]!.text) as Record<string, any>,
+  };
+}
+
+const byToken = (token: string): ActorContext | null =>
+  ({ executor: actor, author, reviewer })[token] ?? null;
+
+const teachingTools = [
+  "ceremony_author_from_provider",
+  "ceremony_author_compose",
+  "ceremony_author_read",
+  "ceremony_author_delete",
+  "ceremony_demonstration_start",
+  "ceremony_demonstration_consent",
+  "ceremony_demonstration_read",
+  "ceremony_draft_compile",
+  "ceremony_draft_import",
+  "ceremony_draft_read",
+  "ceremony_draft_edit",
+  "ceremony_recipe_compose",
+];
+/** Every tool an agent holding every capability is offered. */
+const AGENT_TOOLS = [
+  "browser_backends",
+  "browser_login",
+  "browser_record_login",
+  "browser_release",
+  "browser_session_status",
+  "ceremony_advance",
+  "ceremony_author_compose",
+  "ceremony_author_delete",
+  "ceremony_author_from_provider",
+  "ceremony_author_read",
+  "ceremony_bind_private",
+  "ceremony_cancel",
+  "ceremony_collect_private",
+  "ceremony_connect",
+  "ceremony_connectors",
+  "ceremony_demonstration_consent",
+  "ceremony_demonstration_read",
+  "ceremony_demonstration_start",
+  "ceremony_draft_compile",
+  "ceremony_draft_edit",
+  "ceremony_draft_import",
+  "ceremony_draft_read",
+  "ceremony_recipe_compose",
+  "ceremony_recipe_execute",
+  "ceremony_recipe_preview",
+  "ceremony_recipes",
+  "ceremony_recording_read",
+  "ceremony_snapshot",
+  "connector_catalog",
+  "connector_connect",
+  "connector_disconnect",
+  "connector_inspect",
+  "connector_invoke",
+  "connector_list",
+  "connector_operations",
+  "connector_reconnect",
+  "connector_status",
+];
+const executorTools = [
+  "ceremony_recipes",
+  "ceremony_recipe_preview",
+  "ceremony_recipe_execute",
+];
+
+test("recording, authoring and chaining tools are offered only to actors who could use them", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, byToken);
+    const executorNames = (await toolsFor(mcp, "executor")).map((t) => t.name);
+    for (const name of executorTools)
+      assert.ok(executorNames.includes(name), `${name} missing for executor`);
+    for (const name of teachingTools)
+      assert.ok(!executorNames.includes(name), `${name} offered to executor`);
+
+    const authorNames = (await toolsFor(mcp, "author")).map((t) => t.name);
+    for (const name of [...teachingTools, ...executorTools])
+      assert.ok(authorNames.includes(name), `${name} missing for author`);
+
+    const reviewerNames = (await toolsFor(mcp, "reviewer")).map((t) => t.name);
+    assert.ok(reviewerNames.includes("ceremony_draft_read"));
+    assert.ok(reviewerNames.includes("ceremony_demonstration_read"));
+    assert.ok(!reviewerNames.includes("ceremony_draft_compile"));
+    assert.ok(!reviewerNames.includes("ceremony_recipe_execute"));
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an agent holding every capability is offered exactly this list, with every tool family mounted", async () => {
+  // Every optional family a deployment can mount: connector tools, connector
+  // intents, browser login with recordings, and the private collector. Only
+  // tool registration runs here, so the services behind them are never used.
+  const browserLogin = {
+    recordings: {},
+  } as unknown as NonNullable<
+    Parameters<typeof createTeachingRuntime>[0]["browserLogin"]
+  >;
+  const f = fixture({ browserLogin });
+  try {
+    // A person holding every capability is offered the same tools: review
+    // and publication are the people's routes, never a tool.
+    for (const actorKind of ["agent", "human"] as const) {
+      const holder: ActorContext = {
+        ...actor,
+        actorKind,
+        capabilities: ["executor", "author", "reviewer", "publisher", "admin"],
+      };
+      const mcp = createCeremonyMcpHandler(f.runtime, {
+        resourceUrl: endpoint,
+        issuer,
+        authenticate: () => holder,
+        connectors: {} as ConnectorToolDependencies,
+        connectorIntents: {} as AgentConnectorDependencies,
+        privateCollector: {
+          brokerOrigin: "https://broker.example",
+          appOrigin: "https://collector.example",
+          appHtml: "<!doctype html>",
+        } as unknown as NonNullable<
+          Parameters<typeof createCeremonyMcpHandler>[1]["privateCollector"]
+        >,
+      });
+      const names = (await toolsFor(mcp, actorKind)).map((t) => t.name).sort();
+      // Review, publication and retirement are a person's decision: none of
+      // them is here, for recipes, recordings or connectors, whatever the
+      // actor holds. A tool added to this list is a decision, not an accident.
+      assert.deepEqual(names, AGENT_TOOLS, actorKind);
+      for (const name of names)
+        assert.doesNotMatch(name, /_(publish|review|retire|approve)/, name);
+    }
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("tools carry read-only and destructive hints", async () => {
+  const f = fixture();
+  try {
+    const listed = await toolsFor(handlerFor(f.runtime, byToken), "author");
+    const hints = new Map(listed.map((t) => [t.name, t.annotations ?? {}]));
+    for (const name of [
+      "ceremony_snapshot",
+      "ceremony_connectors",
+      "ceremony_author_read",
+      "ceremony_draft_read",
+      "ceremony_demonstration_read",
+      "ceremony_recipes",
+      "ceremony_recipe_preview",
+    ])
+      assert.equal(hints.get(name)?.readOnlyHint, true, name);
+    for (const name of [
+      "ceremony_cancel",
+      "ceremony_author_delete",
+      "ceremony_demonstration_consent",
+    ])
+      assert.equal(hints.get(name)?.destructiveHint, true, name);
+    for (const name of ["ceremony_connect", "ceremony_recipe_execute"])
+      assert.equal(hints.get(name)?.destructiveHint, false, name);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an authored connector is listed for its author over MCP, and for nobody else", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "author", initialize);
+    const drafted = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_from_provider",
+      {
+        provider: "jira",
+      },
+    );
+    assert.equal(drafted.isError, false, drafted.text);
+    const result = drafted.value();
+    assert.equal(result.ok, true);
+    assert.equal(result.draft.connectorId, "jira");
+    assert.doesNotMatch(drafted.text, /clientSecret|refreshToken|accessToken/);
+
+    const read = await invoke(mcp, "author", "ceremony_author_read", {
+      draftId: result.draft.id,
+    });
+    assert.equal(read.value().draft.id, result.draft.id);
+
+    const mine = await invoke(mcp, "author", "ceremony_connectors");
+    assert.deepEqual(mine.value().connectors.sort(), ["fixture", "jira"]);
+    await call(mcp, "executor", initialize);
+    const theirs = await invoke(mcp, "executor", "ceremony_connectors");
+    assert.deepEqual(theirs.value().connectors, ["fixture"]);
+    assert.equal(theirs.value().privateCollection, "web-application-only");
+
+    // The same capability rule as `/authoring/*`: an executor reaching the
+    // service directly is refused, and the refusal does not name a run.
+    const refused = await authoringTransportFor(f.runtime, actor)
+      .read(result.draft.id)
+      .then(
+        () => false,
+        (error: unknown) => /denied/.test(String(error)),
+      );
+    assert.equal(refused, true);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an agent records a ceremony and compiles the recording into a recipe draft", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "author", initialize);
+    const connected = await invoke(mcp, "author", "ceremony_connect", {
+      connectorId: "fixture",
+      teach: true,
+    });
+    assert.equal(connected.isError, false, connected.text);
+    const run = connected.value();
+    assert.equal(run.status, "complete");
+    assert.equal(run.demonstration.consent, "recording");
+    const demonstrationId = run.demonstration.id as string;
+
+    const stopped = await invoke(
+      mcp,
+      "author",
+      "ceremony_demonstration_consent",
+      {
+        demonstrationId,
+        revision: run.demonstration.revision,
+        consent: "stopped",
+      },
+    );
+    assert.equal(stopped.value().consent, "stopped");
+
+    const timeline = (
+      await invoke(mcp, "author", "ceremony_demonstration_read", {
+        demonstrationId,
+      })
+    ).value();
+    const sequences = (timeline.events as Array<{ sequence: number }>).map(
+      (event) => event.sequence,
+    );
+    assert.ok(sequences.length > 0, "the connect steps were not recorded");
+
+    const compiled = await invoke(mcp, "author", "ceremony_draft_compile", {
+      demonstrationId,
+      first: Math.min(...sequences),
+      last: Math.max(...sequences),
+    });
+    assert.equal(compiled.isError, false, compiled.text);
+    const draft = compiled.value();
+    assert.equal(draft.author, "author");
+    assert.match(draft.id, /^draft-/);
+    const reread = await invoke(mcp, "author", "ceremony_draft_read", {
+      draftId: draft.id,
+    });
+    assert.equal(reread.value().digest, draft.digest);
+
+    // Recording needs `author`; an executor asking to teach is refused before
+    // any run is started for it.
+    await call(mcp, "executor", initialize);
+    const refused = await invoke(mcp, "executor", "ceremony_connect", {
+      connectorId: "fixture",
+      teach: true,
+    });
+    assert.equal(refused.isError, true);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an agent executes only a recipe a person published, and can then drive the run", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "author", initialize);
+    const imported = await invoke(mcp, "author", "ceremony_draft_import", {
+      definition: JSON.stringify(recipe),
+    });
+    assert.equal(imported.isError, false, imported.text);
+    const draft = imported.value();
+
+    // A draft is never executable, whatever an agent knows about it.
+    const early = await invoke(mcp, "author", "ceremony_recipe_execute", {
+      connectorId: "fixture",
+      id: recipe.id,
+      version: "1.0.1",
+      digest: draft.digest,
+      inputs: {},
+    });
+    assert.equal(early.isError, true);
+    assert.equal(early.text, teachingRefusals.fallback);
+
+    // A person reviews and publishes; no tool does this.
+    await f.runtime.recipes.review(
+      reviewer,
+      draft.id,
+      draft.revision,
+      draft.digest,
+    );
+    const published = await f.runtime.recipes.publish(
+      publisher,
+      draft.id,
+      draft.revision,
+      draft.digest,
+    );
+
+    await call(mcp, "executor", initialize);
+    const listed = (await invoke(mcp, "executor", "ceremony_recipes")).value()
+      .recipes as Array<{ id: string; version: string }>;
+    assert.deepEqual(
+      listed.map((item) => [item.id, item.version]),
+      [[recipe.id, published.version]],
+    );
+    const preview = await invoke(mcp, "executor", "ceremony_recipe_preview", {
+      definition: recipe,
+    });
+    assert.deepEqual(preview.value().diagnostics, []);
+
+    const executed = await invoke(mcp, "executor", "ceremony_recipe_execute", {
+      connectorId: "fixture",
+      id: recipe.id,
+      version: published.version,
+      digest: published.digest,
+      inputs: {},
+    });
+    assert.equal(executed.isError, false, executed.text);
+    const { run, delegated } = executed.value();
+    assert.equal(delegated, true);
+    const advanced = await invoke(mcp, "executor", "ceremony_advance", {
+      runId: run.id,
+      nodeId: "node",
+      revision: run.revision,
+      commandId: "execute-then-advance",
+    });
+    assert.equal(advanced.isError, false, advanced.text);
+    assert.equal(advanced.value().status, "complete");
+
+    // A private-looking input slot is refused, and the refusal does not echo it.
+    const bound = await invoke(mcp, "executor", "ceremony_recipe_execute", {
+      connectorId: "fixture",
+      id: recipe.id,
+      version: published.version,
+      digest: published.digest,
+      inputs: { password: "fixture-not-a-password" },
+    });
+    assert.equal(bound.isError, true);
+    assert.doesNotMatch(bound.text, /fixture-not-a-password/);
+  } finally {
+    await f.store.close();
+  }
+});
+
+/**
+ * The example server mounts the connector intents without the four connector
+ * tools. Status and connect then belong to the intents, and must be offered.
+ */
+test("connector intents mounted alone offer their own status and connect", async () => {
+  const f = fixture();
+  try {
+    const intentsOnly = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: () => actor,
+      connectorIntents: {} as AgentConnectorDependencies,
+    });
+    const names = (await toolsFor(intentsOnly, "good")).map((t) => t.name);
+    for (const name of [
+      "connector_list",
+      "connector_inspect",
+      "connector_status",
+      "connector_connect",
+      "connector_operations",
+      "connector_reconnect",
+      "connector_disconnect",
+    ])
+      assert.ok(names.includes(name), `${name} is not offered`);
+    assert.ok(!names.includes("connector_invoke"));
+    assert.equal(new Set(names).size, names.length);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("ceremony_recipes lists every recipe past one page, at its latest unretired version", async () => {
+  const f = fixture();
+  try {
+    const row = (id: string, version: string, retired = false) => ({
+      key: {
+        tenant: actor.tenantId,
+        kind: "recipe" as const,
+        id: `${id}@${version}`,
+      },
+      value: {
+        definition: { ...recipe, id, title: id },
+        version,
+        digest: `digest-${id}-${version}`,
+        closure: {},
+        retired,
+        publisher: "publisher",
+      },
+    });
+    const rows = [
+      ...Array.from({ length: 150 }, (_, index) =>
+        row(`recipe-${String(index).padStart(3, "0")}`, "1.0.1"),
+      ),
+      // A newer version supersedes; a retired newer one does not.
+      row("recipe-001", "1.0.2"),
+      row("recipe-002", "1.0.2", true),
+      row("recipe-003", "1.0.1", true),
+    ];
+    await f.store.transaction(async (tx) => {
+      for (const entry of rows) {
+        const prior = await tx.get(entry.key);
+        await tx.put(entry.key, entry.value, prior?.revision ?? null);
+      }
+    });
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "executor", initialize);
+    const listed = (await invoke(mcp, "executor", "ceremony_recipes")).value()
+      .recipes as Array<{ id: string; version: string }>;
+    const versions = new Map(listed.map((item) => [item.id, item.version]));
+    assert.equal(listed.length, versions.size, "one entry per recipe");
+    assert.equal(versions.size, 149);
+    assert.equal(versions.get("recipe-149"), "1.0.1");
+    assert.equal(versions.get("recipe-001"), "1.0.2");
+    assert.equal(versions.get("recipe-002"), "1.0.1");
+    assert.equal(versions.has("recipe-003"), false);
   } finally {
     await f.store.close();
   }

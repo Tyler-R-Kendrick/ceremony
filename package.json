@@ -112,6 +112,7 @@
     "test:connectors:mutation": "stryker run stryker.connectors.config.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.50",
     "@ai-sdk/openai-compatible": "3.0.45",
     "@huggingface/transformers": "4.3.0",
     "@modelcontextprotocol/ext-apps": "^2.0.0",

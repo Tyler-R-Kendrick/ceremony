@@ -13,9 +13,18 @@ import {
 } from "./browser-login-tools.js";
 import { AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
+import {
+  registerTeachingTools,
+  teachingRefusals,
+  type RefusalWording,
+} from "./mcp-teaching.js";
+import { PersistenceConflict } from "./persistence/index.js";
 import { registerPrivateCollector } from "./mcp-app.js";
 import type { PrivateCollectorOptions } from "./mcp-app.js";
-import { registerConnectorServerTools } from "./connectors/mcp/server-tools.js";
+import {
+  connectorServerToolNames,
+  registerConnectorServerTools,
+} from "./connectors/mcp/server-tools.js";
 import { registerAgentConnectorTools } from "./connectors/agents/mcp-intents.js";
 import type { AgentConnectorDependencies } from "./connectors/agents/intents.js";
 import type { ConnectorToolDependencies } from "./connectors/mcp/server-tools.js";
@@ -28,7 +37,10 @@ import type { TeachingRuntime } from "./teaching-runtime.js";
  *
  * A chat client drives ceremonies through the same four operations the browser
  * uses, against the same runtime, with the same authorization. The transport is
- * the only difference: a bearer token instead of a session cookie.
+ * the only difference: a bearer token instead of a session cookie. It can also
+ * record, author and chain ceremonies (`mcp-teaching.ts`) through the same
+ * operations the browser's teaching routes call — everything except review
+ * and publication, which stay with people.
  *
  * Two properties this file exists to keep:
  *
@@ -99,7 +111,7 @@ function refusal(message: string) {
 }
 
 /** A failure tells the model what to do next; it never echoes provider detail. */
-function explain(error: unknown): string {
+function explain(error: unknown, wording: RefusalWording = {}): string {
   // The browser-session failures are mapped by the shared module, so HTTP and
   // MCP disagree about nothing: the same exception yields the same finite code
   // and the same finite reason, and only the wording differs.
@@ -114,12 +126,18 @@ function explain(error: unknown): string {
   if (error instanceof AuthorizationError)
     return {
       unauthenticated: "Sign in to the ceremony application first.",
-      denied: "This run belongs to a different session or subject.",
+      denied:
+        wording.denied ?? "This run belongs to a different session or subject.",
       invalid_request: "That request is not valid for this ceremony.",
       rate_limited: "Too many attempts. Wait before retrying.",
     }[error.code];
   if (error instanceof z.ZodError) return "Those arguments are not valid.";
-  return "The ceremony could not be advanced. Read the run again.";
+  if (error instanceof PersistenceConflict)
+    return "That changed since you read it. Read it again and use its current revision.";
+  return (
+    wording.fallback ??
+    "The ceremony could not be advanced. Read the run again."
+  );
 }
 
 export function createCeremonyMcpHandler(
@@ -164,7 +182,10 @@ export function createCeremonyMcpHandler(
       name: options.serverName ?? "ceremony",
       version: options.serverVersion ?? "1.0.0",
     });
-    const run = async (operate: (actor: ActorContext) => Promise<unknown>) => {
+    const run = async (
+      operate: (actor: ActorContext) => Promise<unknown>,
+      wording?: RefusalWording,
+    ) => {
       if (!actor) return refusal("Sign in to the ceremony application first.");
       try {
         return {
@@ -179,7 +200,7 @@ export function createCeremonyMcpHandler(
         options.onerror?.(
           error instanceof Error ? error : new Error(String(error)),
         );
-        return refusal(explain(error));
+        return refusal(explain(error, wording));
       }
     };
 
@@ -192,7 +213,14 @@ export function createCeremonyMcpHandler(
           connectorId: z
             .string()
             .describe("A connector this deployment offers, such as github."),
+          teach: z
+            .boolean()
+            .optional()
+            .describe(
+              "Record this ceremony from its first step, so it can be compiled into a recipe draft. Needs the author capability.",
+            ),
         }),
+        annotations: { destructiveHint: false, openWorldHint: true },
       },
       async (input) => await run((who) => tools.connect(who, input)),
     );
@@ -202,6 +230,7 @@ export function createCeremonyMcpHandler(
         description:
           "Read the current state of a run. Use this after a person has been asked to do something.",
         inputSchema: z.strictObject({ runId: z.string() }),
+        annotations: { readOnlyHint: true },
       },
       async (input) => await run((who) => tools.snapshot(who, input)),
     );
@@ -220,6 +249,11 @@ export function createCeremonyMcpHandler(
               "Your own id for this attempt, so a retry is not a second attempt.",
             ),
         }),
+        annotations: {
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
       },
       async (input) => await run((who) => tools.advance(who, input)),
     );
@@ -232,29 +266,31 @@ export function createCeremonyMcpHandler(
           runId: z.string(),
           revision: z.number().int().positive(),
         }),
+        annotations: { destructiveHint: true },
       },
       async (input) => await run((who) => tools.cancel(who, input)),
     );
     server.registerTool(
       "ceremony_connectors",
       {
-        description: "List the services this deployment can connect.",
+        description:
+          "List the services you can connect here, including connectors you authored and installed.",
         inputSchema: z.strictObject({}),
+        annotations: { readOnlyHint: true },
       },
-      async () => ({
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              connectors: runtime.connectors,
-              privateCollection: collectorAvailable
-                ? "in-chat"
-                : "web-application-only",
-            }),
-          },
-        ],
-      }),
+      // The same list the browser's capabilities route reports: the host's
+      // registered connectors and this actor's own installed ones. Another
+      // author's installed connector is not listed, and cannot be started.
+      async () =>
+        await run(async (who) => ({
+          connectors: [...new Set(await runtime.listConnectors(who))],
+          privateCollection: collectorAvailable
+            ? "in-chat"
+            : "web-application-only",
+        })),
     );
+
+    registerTeachingTools(server, runtime, { actor, run });
 
     if (options.connectors)
       registerConnectorServerTools(server, options.connectors, {
@@ -265,6 +301,10 @@ export function createCeremonyMcpHandler(
     if (options.connectorIntents)
       registerAgentConnectorTools(server, options.connectorIntents, {
         actor: () => actor,
+        // Only names really mounted above are taken. Without the four
+        // connector tools, the intents' own status and connect are the only
+        // way to reach those operations, so they must not be skipped.
+        taken: options.connectors ? connectorServerToolNames : [],
         ...(options.onerror ? { onerror: options.onerror } : {}),
       });
 
@@ -277,8 +317,9 @@ export function createCeremonyMcpHandler(
         "browser_login",
         {
           description:
-            "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value.",
+            "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value. Name a published recorded ceremony in draft.recording to replay it with no model.",
           inputSchema: browserLoginToolInputs.login,
+          annotations: { destructiveHint: false, openWorldHint: true },
         },
         async (input) => await run((who) => browser.login(who, input)),
       );
@@ -288,6 +329,7 @@ export function createCeremonyMcpHandler(
           description:
             "Read what is known about a retained browser session, including whether you are the client permitted to drive it.",
           inputSchema: browserLoginToolInputs.sessionStatus,
+          annotations: { readOnlyHint: true },
         },
         async (input) => await run((who) => browser.sessionStatus(who, input)),
       );
@@ -297,6 +339,7 @@ export function createCeremonyMcpHandler(
           description:
             "Stop driving a browser session, dispose one this server launched, or cancel its run. None of these logs the account out at the provider.",
           inputSchema: browserLoginToolInputs.release,
+          annotations: { destructiveHint: true },
         },
         async (input) => await run((who) => browser.release(who, input)),
       );
@@ -306,9 +349,48 @@ export function createCeremonyMcpHandler(
           description:
             "List the browsers this deployment can offer and what each one actually enforces.",
           inputSchema: browserLoginToolInputs.backends,
+          annotations: { readOnlyHint: true },
         },
         async (input) => await run((who) => browser.backends(who, input)),
       );
+
+      // Recording is authoring: it saves an artifact that other logins may
+      // replay once a person publishes it. So it is offered only to an actor
+      // who could author at all, and only where the host keeps recordings.
+      // Review and publication are not offered here in any form - they are
+      // the people's routes, and a draft this tool saves can be replayed by
+      // nobody until one of them has run.
+      const authors = Boolean(
+        actor &&
+        (actor.capabilities.includes("author") ||
+          actor.capabilities.includes("admin")),
+      );
+      if (browser.recordings && authors) {
+        server.registerTool(
+          "browser_record_login",
+          {
+            description:
+              "Log in to a service in a real browser and record the steps as a draft recorded ceremony: value-free page and control descriptions plus the credential role each field takes, never a value. A person must review and publish the draft before browser_login can replay it. Pass basedOn to replay a published recording and, where the plan allows the host's model, repair a step the provider changed.",
+            inputSchema: browserLoginToolInputs.recordLogin,
+            annotations: { destructiveHint: false, openWorldHint: true },
+          },
+          async (input) => await run((who) => browser.recordLogin(who, input)),
+        );
+        server.registerTool(
+          "ceremony_recording_read",
+          {
+            description:
+              "Read a recorded ceremony: a draft you recorded, by draftId, or a published version by id, version and digest. Includes what a caller must be able to supply.",
+            inputSchema: browserLoginToolInputs.recording,
+            annotations: { readOnlyHint: true },
+          },
+          async (input) =>
+            await run(
+              (who) => browser.readRecording(who, input),
+              teachingRefusals,
+            ),
+        );
+      }
     }
 
     if (collectorOrigins && collectorAvailable)

@@ -34,6 +34,7 @@ import {
   recoverAuthoredRegistration,
   consumeAuthoredLogin,
   saveAuthoredAccount,
+  issueAuthoredHandle,
 } from "../src/server/authored-operations.js";
 import { discoverProviderAuth } from "../src/server/provider-discovery.js";
 import { AuthorizationError } from "../src/server/identity.js";
@@ -701,9 +702,11 @@ for (const change of ["unchanged", "unverified", "other"] as const)
     assert.equal((await f.human(callback)).status, 303);
     if (change === "unverified") emailClaim.verified = false;
     if (change === "other") emailClaim.email = "other@example.test";
+    // The same node asked again returns its existing per-run handle.
+    const session = await issueAuthoredHandle(f.store, f.context, "session");
     const verified = await f.registry
       .require("authored.verify-access", "1.0.0")
-      .handler(f.context, {});
+      .handler(f.context, { session });
     assert.equal(
       verified.state,
       change === "unchanged" ? "complete" : "awaiting-human",
@@ -753,9 +756,10 @@ for (const par of ["available", "optional"] as const)
         "chosen-account",
       );
       assert.equal(f.counts.token, 1);
+      const session = await issueAuthoredHandle(f.store, f.context, "session");
       const verified = await f.registry
         .require("authored.verify-access", "1.0.0")
-        .handler(f.context, {});
+        .handler(f.context, { session });
       assert.equal(verified.state, "complete");
       assert.equal(f.counts.userinfo, userinfoNonce ? 4 : 2);
       const stored = await f.store.transaction((tx) =>

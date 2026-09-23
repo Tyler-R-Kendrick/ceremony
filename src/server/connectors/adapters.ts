@@ -4,6 +4,11 @@ import type { ConnectorAdapter } from "./adapter.js";
 import { createOpenApiHttpAdapter } from "./formats/openapi/adapter.js";
 import { createMicrosoftCustomConnectorAdapter } from "./formats/microsoft/adapter.js";
 import { createCamelKameletAdapter } from "./formats/camel-kamelet/adapter.js";
+import {
+  createCatalogHttpAdapter,
+  createProviderCatalogAdapters,
+  type ProviderCatalogRegistration,
+} from "./formats/provider-catalog/adapter.js";
 
 import { createMcpRegistryAdapter } from "./registries/mcp/adapter.js";
 import { createSmitheryRegistryAdapter } from "./registries/smithery/adapter.js";
@@ -34,6 +39,7 @@ import type { ProjectSessionPort } from "./providers/supabase/data-api.js";
 import type { ApprovedQueryPort } from "./providers/supabase/wrappers.js";
 import type { WorkOsPrincipalPort } from "./providers/workos/ports.js";
 import type { HostIdentityTokenPort } from "./providers/auth0/ports.js";
+import type { ConnectorOAuthOptions } from "./auth/connector-oauth.js";
 
 /*
  * One inventory, so that what a deployment can reach and what its directory
@@ -76,6 +82,19 @@ export interface ConnectorInventoryOptions {
    * set. A duplicate id is an error, not a silent replacement.
    */
   additional?: readonly ConnectorAdapter[];
+  /**
+   * Host seams for the OAuth grants the OpenAPI and remote MCP adapters run:
+   * where RFC 7591 registrations persist, the metadata cache, the callback
+   * path, the CIMD publisher. Optional: without them those adapters still run
+   * pre-registered clients, and refuse dynamic registration or CIMD by code.
+   */
+  oauth?: ConnectorOAuthOptions;
+  /**
+   * Data-defined providers (catalog entries or a Nango providers.yaml). Each
+   * becomes its own `catalog-<id>` connector, still a draft until a reviewer
+   * approves a binding for it.
+   */
+  providerCatalog?: ProviderCatalogRegistration;
 }
 
 /**
@@ -84,11 +103,15 @@ export interface ConnectorInventoryOptions {
  * Each entry is a thunk so a construction failure names its own adapter
  * rather than aborting the whole inventory anonymously.
  */
-const standardAdapters: readonly (() => ConnectorAdapter)[] = [
+const standardAdapters: readonly ((
+  options: ConnectorInventoryOptions,
+) => ConnectorAdapter)[] = [
   // Descriptions compiled into HTTP operations.
-  () => createOpenApiHttpAdapter(),
+  (options) =>
+    createOpenApiHttpAdapter(options.oauth ? { oauth: options.oauth } : {}),
   () => createMicrosoftCustomConnectorAdapter(),
   () => createCamelKameletAdapter(),
+  () => createCatalogHttpAdapter(),
 
   // Catalogs and registries: discovery and import, never execution.
   () => createMcpRegistryAdapter(),
@@ -97,7 +120,8 @@ const standardAdapters: readonly (() => ConnectorAdapter)[] = [
   () => createPulseMcpAdapter(),
 
   // Runtimes and brokers.
-  () => createMcpRemoteAdapter(),
+  (options) =>
+    createMcpRemoteAdapter(options.oauth ? { oauth: options.oauth } : {}),
   () => createVercelConnectAdapter(),
   () => createNangoAdapter(),
   () => createPipedreamConnectAdapter(),
@@ -125,7 +149,7 @@ export function createConnectorRegistry(
   options: ConnectorInventoryOptions = {},
 ): ConnectorAdapterRegistry {
   const registry = new ConnectorAdapterRegistry();
-  for (const build of standardAdapters) registry.register(build());
+  for (const build of standardAdapters) registry.register(build(options));
 
   const ports = options.ports ?? {};
   // Registered only when the host can actually serve them; see the note above.
@@ -146,6 +170,8 @@ export function createConnectorRegistry(
       createAuth0TokenVaultAdapter({ identity: ports.auth0Identity }),
     );
 
+  for (const adapter of createProviderCatalogAdapters(options.providerCatalog))
+    registry.register(adapter);
   for (const adapter of options.additional ?? []) registry.register(adapter);
   return registry;
 }

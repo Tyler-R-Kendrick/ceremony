@@ -21,6 +21,7 @@ import type {
   RandomPort,
 } from "../../../src/server/connectors/ports.js";
 import type { AdapterEnvironment } from "../../../src/server/connectors/adapter.js";
+import { ConnectorError } from "../../../src/server/connectors/errors.js";
 
 /*
  * In-memory implementations of the connector ports, for adapter tests only.
@@ -71,8 +72,10 @@ export function memoryPorts(options: { now?: () => number } = {}) {
       const entry = credentials.get(ref);
       if (!entry || !sameScope(entry.scope, scope))
         throw new Error("unknown credential");
+      // The same refusal the state layer's custody port raises, so an adapter
+      // that renews on expiry is exercised against the code it will really see.
       if (entry.expiresAt !== undefined && entry.expiresAt <= now())
-        throw new Error("credential expired");
+        throw new ConnectorError("expired", { detail: "credential.expired" });
       return work(entry.material);
     },
     async refresh(scope, ref, work) {
@@ -222,6 +225,15 @@ export function memoryPorts(options: { now?: () => number } = {}) {
     async complete(effectRef, outcome) {
       const entry = effectRecords.get(effectRef);
       if (!entry) throw new Error("unknown effect");
+      // As the durable journal: an outcome is recorded once. Recording the
+      // same status again is a no-op; a different one is refused, so an
+      // adapter that reuses an entry for a second request fails here too.
+      if (entry.outcome) {
+        if (entry.outcome.status === outcome.status) return;
+        throw new ConnectorError("conflict", {
+          detail: "effect.already-completed",
+        });
+      }
       entry.outcome = outcome;
     },
     async get(actor, effectRef) {

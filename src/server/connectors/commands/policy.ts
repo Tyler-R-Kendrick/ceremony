@@ -39,6 +39,7 @@ export type ConnectorAction =
   | "disconnect-broker"
   | "disconnect-upstream"
   | "revoke"
+  | "revoke-request"
   | "delete"
   | "event";
 
@@ -58,6 +59,22 @@ export type DestinationCandidate = {
   origin: string;
   /** Whether the definition itself declares this server; a declaration is never approval. */
   declared: boolean;
+  definition: NormalizedDefinition;
+};
+
+/** An OAuth issuer policy a person is pinning in a binding under review. */
+export type IssuerCandidate = {
+  /** The issuer identifier, verbatim. */
+  issuer: string;
+  /**
+   * Every origin the policy lets the grants contact: the issuer's, listed
+   * trusted origins, configured endpoints. A host label a connection fills in
+   * is written `*` (`https://*.example.com`); that is never an exact origin,
+   * so only a policy that names it admits it.
+   */
+  origins: string[];
+  /** Origins the definition itself declares for its OAuth profiles; a declaration is never approval. */
+  declaredOrigins: string[];
   definition: NormalizedDefinition;
 };
 
@@ -96,17 +113,32 @@ export interface ConnectorPolicy {
     subject: PolicySubject,
     action: ConnectorAction,
   ): MaybePromise<boolean>;
-  /** Whether an output of this classification may be returned to this actor. */
+  /**
+   * Whether an output of this classification may be returned to this actor.
+   * `consent` carries what a person approved on the binding; a policy may
+   * honour it or be stricter, never looser for secret output.
+   */
   allowOutput(
     actor: ActorContext,
     classification: "public" | "personal" | "secret",
     operation: BoundOperation,
+    consent?: { agentOutputConsent?: "personal" | undefined },
   ): MaybePromise<boolean>;
   /** Which network class admits a destination a reviewer named, or false. */
   allowDestination(
     actor: ActorContext,
     candidate: DestinationCandidate,
   ): MaybePromise<ApprovedDestination["network"] | false>;
+  /**
+   * Whether a person may pin this OAuth issuer policy in a binding they
+   * review. Only a human reviewer reaches this; absent means no issuer is
+   * admitted, so OAuth profiles stay unbound rather than calling a declared
+   * endpoint nobody approved.
+   */
+  allowIssuer?(
+    actor: ActorContext,
+    candidate: IssuerCandidate,
+  ): MaybePromise<boolean>;
 }
 
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -166,6 +198,8 @@ export interface DefaultPolicyOptions {
   destinations?: readonly string[];
   /** Admit loopback HTTP destinations as `loopback-fixture`; only for local fixtures, never a deployment default. */
   loopbackFixtures?: boolean;
+  /** Exact HTTPS origins the host pre-approves for OAuth issuers and their endpoints, beyond those a definition declares. */
+  issuers?: readonly string[];
   revision?: string;
   now?: Clock;
 }
@@ -180,6 +214,7 @@ export function defaultConnectorPolicy(
   options: DefaultPolicyOptions = {},
 ): ConnectorPolicy {
   const allowlist = new Set(options.destinations ?? []);
+  const issuerAllowlist = new Set(options.issuers ?? []);
   const privileged = (actor: ActorContext) =>
     actor.capabilities.includes("admin") ||
     actor.capabilities.includes("publisher");
@@ -198,8 +233,11 @@ export function defaultConnectorPolicy(
     requireConsent: (_actor, operation) =>
       operation.consent === "confirm" || operation.effect !== "read",
     authorize: (actor) => live(actor),
-    allowOutput: (actor, classification) =>
-      actor.actorKind !== "agent" || classification === "public",
+    allowOutput: (actor, classification, _operation, consent) =>
+      actor.actorKind !== "agent" ||
+      classification === "public" ||
+      (classification === "personal" &&
+        consent?.agentOutputConsent === "personal"),
     allowDestination: (_actor, candidate) => {
       if (isLoopbackOrigin(candidate.origin))
         return options.loopbackFixtures ? "loopback-fixture" : false;
@@ -208,5 +246,18 @@ export function defaultConnectorPolicy(
         ? "public"
         : false;
     },
+    // Same rule as destinations, for every origin the policy may contact:
+    // HTTPS and either declared by the definition (the reviewer naming it is
+    // the approval) or pre-approved by the host.
+    allowIssuer: (actor, candidate) =>
+      actor.actorKind === "human" &&
+      candidate.origins.length > 0 &&
+      candidate.origins.every((origin) =>
+        isLoopbackOrigin(origin)
+          ? Boolean(options.loopbackFixtures)
+          : origin.startsWith("https://") &&
+            (candidate.declaredOrigins.includes(origin) ||
+              issuerAllowlist.has(origin)),
+      ),
   };
 }

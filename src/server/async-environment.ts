@@ -22,46 +22,77 @@ const githubNames = [
   "GITHUB_APP_SLUG",
   "GITHUB_APP_OWNER",
 ] as const;
-export function nextGitHubEnvironmentRevision(
-  previous: Record<string, string>,
-  values: Record<string, string>,
-  revision: number,
-): number {
-  return githubNames.some((name) => previous[name] !== values[name])
-    ? revision + 1
-    : revision;
-}
-type EnvironmentRecord = {
-  values: Record<string, string>;
-  githubRevision?: number;
-  stripeRevision?: number;
-  supabaseRevision?: number;
-  jiraRevision?: number;
-};
 const jiraNames = [
   "JIRA_CLIENT_ID",
   "JIRA_CLIENT_SECRET",
   "JIRA_SITE_URL",
 ] as const;
+const supabaseNames = [
+  "SUPABASE_URL",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "SUPABASE_ANON_KEY",
+] as const;
+const stripeNames = ["STRIPE_SECRET_KEY"] as const;
+
+/** The session facts a provider's resolver may read; values stay server-side. */
+export type EnvironmentSnapshot = {
+  revision: number;
+  values: Record<string, string>;
+  sessionId: string;
+};
+
+type RevisionField =
+  "githubRevision" | "stripeRevision" | "supabaseRevision" | "jiraRevision";
+
+/**
+ * One provider's slice of the shared session environment, keyed by connector
+ * id in `environmentProviders`.
+ *
+ * `names` are the variables whose change advances this provider's own
+ * revision, so editing an unrelated connector's variables never invalidates
+ * this one's runs. `field` is where that revision is kept in the stored
+ * record; it is part of the stored format and fixed for compatibility with
+ * environments written before this table existed.
+ */
+export interface EnvironmentProvider<Resolved> {
+  readonly names: readonly string[];
+  readonly field: RevisionField;
+  resolve(record: EnvironmentSnapshot, baseVersion: string): Resolved;
+}
+
+function nextRevision(
+  names: readonly string[],
+  previous: Record<string, string>,
+  values: Record<string, string>,
+  revision: number,
+): number {
+  return names.some((name) => previous[name] !== values[name])
+    ? revision + 1
+    : revision;
+}
+export function nextGitHubEnvironmentRevision(
+  previous: Record<string, string>,
+  values: Record<string, string>,
+  revision: number,
+): number {
+  return nextRevision(githubNames, previous, values, revision);
+}
+type EnvironmentRecord = {
+  values: Record<string, string>;
+} & Partial<Record<RevisionField, number>>;
 export function nextJiraEnvironmentRevision(
   previous: Record<string, string>,
   values: Record<string, string>,
   revision: number,
 ) {
-  return jiraNames.some((name) => previous[name] !== values[name])
-    ? revision + 1
-    : revision;
+  return nextRevision(jiraNames, previous, values, revision);
 }
 export function nextSupabaseEnvironmentRevision(
   previous: Record<string, string>,
   values: Record<string, string>,
   revision: number,
 ) {
-  return ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"].some(
-    (name) => previous[name] !== values[name],
-  )
-    ? revision + 1
-    : revision;
+  return nextRevision(supabaseNames, previous, values, revision);
 }
 
 /** Native user-session environment shared by every connector; read is a trusted server-only operation. */
@@ -132,83 +163,54 @@ export class AsyncCeremonyEnvironment {
         Buffer.byteLength(JSON.stringify(values)) > 64000
       )
         throw new AuthorizationError("invalid_request");
-      const githubRevision = nextGitHubEnvironmentRevision(
-        previousValues,
-        values,
-        record?.value.githubRevision ?? previousRevision,
+      // Each provider's revision advances only when its own names change.
+      const revisions = Object.fromEntries(
+        Object.values(environmentProviders).map((provider) => [
+          provider.field,
+          nextRevision(
+            provider.names,
+            previousValues,
+            values,
+            record?.value[provider.field] ?? previousRevision,
+          ),
+        ]),
       );
       const revision = await tx.put(
         key,
-        {
-          values,
-          githubRevision,
-          jiraRevision: nextJiraEnvironmentRevision(
-            previousValues,
-            values,
-            record?.value.jiraRevision ?? previousRevision,
-          ),
-          supabaseRevision: nextSupabaseEnvironmentRevision(
-            previousValues,
-            values,
-            record?.value.supabaseRevision ?? previousRevision,
-          ),
-          stripeRevision:
-            (record?.value.stripeRevision ?? previousRevision) +
-            (previousValues.STRIPE_SECRET_KEY !== values.STRIPE_SECRET_KEY
-              ? 1
-              : 0),
-        },
+        { values, ...revisions },
         record?.revision ?? null,
       );
       return { revision, names: Object.keys(values).sort() };
     });
   }
-  async resolveGitHub(
+  /** Resolves one provider's configuration candidate from this actor's session. */
+  async resolve<Id extends EnvironmentProviderId>(
+    id: Id,
     actor: ActorContext,
     baseVersion: string,
-  ): Promise<{ configurationVersion: string; app?: GitHubAppConfiguration }> {
+  ): Promise<ReturnType<(typeof environmentProviders)[Id]["resolve"]>> {
+    const provider: EnvironmentProvider<unknown> = environmentProviders[id];
     const record = await this.read(actor);
-    return resolveGitHubEnvironment(
+    return provider.resolve(
       {
-        revision: record.githubRevision,
+        revision: record[provider.field],
         values: record.values,
         sessionId: actor.sessionId,
       },
       baseVersion,
-    );
+    ) as ReturnType<(typeof environmentProviders)[Id]["resolve"]>;
   }
-  async resolveStripe(actor: ActorContext, baseVersion: string) {
-    const record = await this.read(actor);
-    return resolveStripeEnvironment(
-      {
-        revision: record.stripeRevision,
-        values: record.values,
-        sessionId: actor.sessionId,
-      },
-      baseVersion,
-    );
+  resolveGitHub(actor: ActorContext, baseVersion: string) {
+    return this.resolve("github", actor, baseVersion);
   }
-  async resolveSupabase(actor: ActorContext, baseVersion: string) {
-    const record = await this.read(actor);
-    return resolveSupabaseEnvironment(
-      {
-        revision: record.supabaseRevision,
-        values: record.values,
-        sessionId: actor.sessionId,
-      },
-      baseVersion,
-    );
+  resolveStripe(actor: ActorContext, baseVersion: string) {
+    return this.resolve("stripe", actor, baseVersion);
   }
-  async resolveJira(actor: ActorContext, baseVersion: string) {
-    const record = await this.read(actor);
-    return resolveJiraEnvironment(
-      {
-        revision: record.jiraRevision,
-        values: record.values,
-        sessionId: actor.sessionId,
-      },
-      baseVersion,
-    );
+  resolveSupabase(actor: ActorContext, baseVersion: string) {
+    return this.resolve("supabase", actor, baseVersion);
+  }
+  resolveJira(actor: ActorContext, baseVersion: string) {
+    return this.resolve("jira", actor, baseVersion);
   }
 }
 
@@ -322,3 +324,32 @@ export function resolveGitHubEnvironment(
   if (!parsed.success) throw new AuthorizationError("invalid_request");
   return { configurationVersion, app: parsed.data };
 }
+
+/**
+ * The providers whose configuration lives in the session environment, keyed by
+ * connector id. The runtime's provider registry reads through this table; the
+ * `resolve*Environment` functions above remain each provider's rules.
+ */
+export const environmentProviders = {
+  github: {
+    names: githubNames,
+    field: "githubRevision",
+    resolve: resolveGitHubEnvironment,
+  },
+  stripe: {
+    names: stripeNames,
+    field: "stripeRevision",
+    resolve: resolveStripeEnvironment,
+  },
+  supabase: {
+    names: supabaseNames,
+    field: "supabaseRevision",
+    resolve: resolveSupabaseEnvironment,
+  },
+  jira: {
+    names: jiraNames,
+    field: "jiraRevision",
+    resolve: resolveJiraEnvironment,
+  },
+} as const satisfies Record<string, EnvironmentProvider<unknown>>;
+export type EnvironmentProviderId = keyof typeof environmentProviders;

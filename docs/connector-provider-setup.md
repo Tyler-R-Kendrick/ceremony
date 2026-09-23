@@ -84,7 +84,8 @@ Rules that are enforced in code, not just recommended:
 2. **Credential kinds are checked.** A Supabase secret key (`sb_secret_…`) or legacy `service_role` JWT bypasses Row Level Security entirely and must never reach a browser. Presenting one to the project Data API adapter is refused before a request is built, by kind metadata and by documented key format. Publishable keys (`sb_publishable_…`) and legacy `anon` JWTs are the browser-safe pair.
 3. **Management credentials and workload credentials are separate legs.** A Vercel management token is not a workload authorization and vice versa; misuse is rejected rather than accommodated.
 4. **A broker reference is not a credential.** For an external-credential-broker connection the database holds a protected reference, not a token. Reading a Nango connection can _refresh_ the upstream token as a documented side effect, so that read is treated as privileged and serialized through the custody port's single-flight refresh — it is not a pure read and is not exposed on a generic agent route.
-5. **Refresh is single-flight and journaled.** Two workers refreshing the same rotating credential cannot commit a stale result over a newer one, and a lost refresh outcome becomes reconnect rather than a replayed refresh token.
+5. **Refresh is single-flight and journaled.** Two workers refreshing the same rotating credential cannot commit a stale result over a newer one, and a lost refresh outcome becomes reconnect rather than a replayed refresh token. The OpenAPI, remote MCP (default OAuth profile) and catalog adapters renew a token once when custody finds it expired or the provider refuses it (401; for a catalog entry, 401 or 403; a remote MCP server's 403 is reported as `mcp.scope.insufficient` or `mcp.permission-denied` instead, since a renewed token carries the same grant), then retry the request once; each request sent is its own effect-journal entry, so a refused attempt is never overwritten by the retry.
+6. **Dynamic client registrations are secrets too.** A client registered at an issuer through RFC 7591 (the policy lists `dynamic`) is stored insert-only in the deployment's encrypted store under its own record kind, per tenant, issuer, redirect URI and origin, and reused. A composed runtime does this by default; a host may supply its own registrations store instead. See [persistence migration](persistence-migration.md).
 
 ## Environment separation
 
@@ -122,13 +123,21 @@ This is the distinction most likely to be got wrong in a support conversation, s
 
 **A local disconnect unlinks the connection in this deployment. It does not contact the provider and it does not end the upstream grant.** The connection becomes `locally-disconnected`, which the runtime will not let anything read as `upstream-revoked`.
 
-**An upstream revocation ends the provider's grant.** It is a separate, separately authorized intent, and it is only available where the provider actually publishes an operation for it. Where they do not, the adapter reports `revoke: unsupported` and names the documented alternative rather than doing something adjacent and calling it revocation:
+**An upstream revocation ends the provider's grant.** It is a separate, separately authorized intent (a person choosing scope `upstream`, or an administrator's revoke), and it is only available where the provider actually publishes an operation for it. Where they do not, the adapter reports `revoke: unsupported` and names the documented alternative rather than doing something adjacent and calling it revocation:
 
 - **Nango** documents no upstream grant-revocation endpoint. Deleting the broker connection (scope `broker`) removes Nango's record; it does not revoke the provider's grant. If another local connection references the same Nango connection, deletion is blocked until an administrator approves the shared impact.
 - **Merge** documents no operation that revokes the end user's upstream grant. `delete-account` is wired as the separate `broker` scope only.
-- **MCP** defines no revocation operation at all. Disconnect is local.
+- **MCP** defines no revocation operation at all. A local disconnect is local. For a connection authorized through the remote MCP adapter's default OAuth profile, an upstream disconnect or revoke is sent to the _authorization server_ (below), not to the MCP server.
 - **Supabase** has `POST /v1/oauth/revoke`, but it needs the stored refresh token. A grant issued without one reports upstream `unsupported`, and the recorded alternative is that the user revokes the app in the Supabase dashboard. For the hosted MCP profile, a dynamically registered client holds no secret for that endpoint, so the dashboard is the route.
-- **An OpenAPI description** declares no revocation operation, so both disconnect and revoke report local scope only.
+- **An OpenAPI description** declares no revocation operation. API key, Basic and bearer values are released locally only and report upstream `unsupported`; revoke them at the provider. An OAuth grant can be revoked at its issuer (below).
+
+**When an upstream disconnect does revoke.** For an OAuth grant held by the OpenAPI adapter or the remote MCP adapter's default profile, scope `upstream` (and an administrative revoke) presents the refresh token, then the access token, to the issuer's RFC 7009 revocation endpoint when all of these hold:
+
+1. the issuer policy approved into the binding sets `revocation: "on-upstream-disconnect"` (the default is `disabled`, reported as upstream `not-attempted`);
+2. the issuer's verified metadata, or an endpoint the policy configures, advertises a revocation endpoint (otherwise upstream `unsupported`);
+3. the held tokens were issued by that issuer to that client (otherwise upstream `failed`, and nothing is sent).
+
+It runs under the custody lock that serializes refreshes, and it is journaled before anything is sent. Upstream `applied` means the issuer answered 200 for every token presented; an issuer also answers 200 for a token it no longer knows, so it is the issuer's statement, not proof. The connection is then `upstream-revoked`; in every other case it is `locally-disconnected`, and the local credential is released either way. A local disconnect never contacts the provider, whatever the policy says.
 
 Tell the user which one happened. "Disconnected" and "access revoked" are different sentences, and only one of them is true after a local unlink.
 
@@ -140,7 +149,7 @@ Two related distinctions worth the same care. Deleting a **shared** connector is
 2. Register the provider app for **this** environment, with the exact callback URL, and complete whatever review or approval the provider requires. Do not look for a way around it.
 3. Configure the named entries through the private collection path. Never paste a secret into a command body, a manifest, an issue, a log or a model conversation.
 4. Configure the webhook signing secret separately from the API key if the provider uses one, and confirm which header and algorithm the provider currently documents.
-5. Approve a runtime binding: exact destinations, registered operations, effect and output classification, permitted targets. A description is not a binding, and a binding is not a grant.
+5. Approve a runtime binding: exact destinations, registered operations, effect and output classification, permitted targets. A description is not a binding, and a binding is not a grant. For an imported OpenAPI description the approval compiles the operation plans from the imported bytes; name a read operation as `verifier` if credentials should be checked. For an OAuth profile, the approval carries the issuer policy (`approvals.oauth`: issuer, registration, trusted origins, `revocation`). Only a person may set it — an agent is refused, and free-form `settings` cannot carry it — and host policy must admit every origin it lets the grants contact: by default an HTTPS origin the description itself declares for that profile, or one listed in the runtime's `issuers`. The authorization and token URLs a description declares are never called on their own.
 6. Connect once as a real human and read the verification claim. Check what it says it does **not** establish — the limitations list is the useful part.
 7. Test a local disconnect and confirm your own UI says "disconnected here", not "revoked".
 8. Before believing any of it in production, remember that every claim in this repository rests on protocol fixtures. No adapter here has live or vendor-certified evidence, because no authorized vendor credentials exist in the environment it was built in.

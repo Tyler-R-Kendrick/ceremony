@@ -28,6 +28,7 @@ import {
   type SourceSnapshot,
 } from "./diff.js";
 import type { ParseLimits } from "./limits.js";
+import { SYSTEM_TENANT } from "../../system-tenants.js";
 import {
   createApprovedFetch,
   evaluateNetworkTarget,
@@ -530,7 +531,7 @@ const fixtureNamePattern = /^[a-z0-9][a-z0-9._-]{0,99}\.(json|ya?ml)$/;
 
 /** The system actor the air-gapped path runs as; it holds only the author capability. */
 export const fixtureImportActor: Readonly<ActorContext> = Object.freeze({
-  tenantId: "fixture",
+  tenantId: SYSTEM_TENANT.fixture,
   subjectId: "fixture-import",
   sessionId: "fixture-import",
   actorKind: "system" as const,

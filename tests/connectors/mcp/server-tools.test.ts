@@ -163,7 +163,13 @@ const connection = connectionSummarySchema.parse({
   updatedAt: "2026-09-18T00:00:00.000Z",
 });
 
-type Seen = { actors: ActorContext[]; invokes: unknown[]; connects: unknown[] };
+type Seen = {
+  actors: ActorContext[];
+  invokes: unknown[];
+  connects: unknown[];
+  verifies?: string[];
+  revocations?: string[];
+};
 
 function dependencies(seen: Seen): ConnectorToolDependencies {
   return {
@@ -186,9 +192,48 @@ function dependencies(seen: Seen): ConnectorToolDependencies {
         handoff: { kind: "provider-browser", state: "issued" },
       };
     },
+    async verify(who, connectionRef) {
+      seen.actors.push(who);
+      (seen.verifies ??= []).push(connectionRef);
+      return connectionRef === connection.connectionRef
+        ? connection
+        : undefined;
+    },
+    async requestRevocation(who, connectionRef) {
+      seen.actors.push(who);
+      (seen.revocations ??= []).push(connectionRef);
+      return {
+        connectionRef,
+        revocation: "pending-approval",
+        requestedAt: "2026-09-23T00:00:00.000Z",
+      };
+    },
     async invoke(who, input) {
       seen.actors.push(who);
       seen.invokes.push(input);
+      if (input.operationRef === "op:personal")
+        return {
+          state: "complete",
+          outputClassification: "personal",
+          effect: "read",
+          output: { email: "person@example.test" },
+        };
+      if (input.operationRef === "op:personal-consented")
+        return {
+          state: "complete",
+          outputClassification: "personal",
+          effect: "read",
+          output: { email: "person@example.test" },
+          agentOutputConsent: "personal",
+        };
+      if (input.operationRef === "op:secret-claiming-consent")
+        return {
+          state: "complete",
+          outputClassification: "secret",
+          effect: "read",
+          output: { token: "super-secret-value" },
+          agentOutputConsent: "personal",
+        };
       return input.operationRef === "op:secret"
         ? {
             state: "complete",
@@ -431,7 +476,7 @@ test("catalog and status answer with public projections only", async () => {
   }
 });
 
-test("connect returns the kind and state of a handoff and never a link", async () => {
+test("connect returns the handoff and the owner's page path, never a provider link or code", async () => {
   const f = runtimeFixture();
   try {
     const seen: Seen = { actors: [], invokes: [], connects: [] };
@@ -451,17 +496,22 @@ test("connect returns the kind and state of a handoff and never a link", async (
     const outcome = JSON.parse(text) as {
       connectionRef: string;
       lifecycle: string;
-      handoff: { kind: string; state: string };
+      handoff: { kind: string; state: string; path: string };
     };
     assert.deepEqual(outcome, {
       connectionRef: connection.connectionRef,
       lifecycle: "human-required",
-      handoff: { kind: "provider-browser", state: "issued" },
+      handoff: {
+        kind: "provider-browser",
+        state: "issued",
+        // The owner's own page for this connection, same origin, reference only.
+        path: "/connectors?connection=connection%3A1",
+      },
     });
     assert.equal(
       text.includes("http"),
       false,
-      "no URL may appear in a tool result",
+      "no absolute or provider URL may appear in a tool result",
     );
     assert.deepEqual(seen.connects, [{ connectorId: "mcp-remote" }]);
   } finally {
@@ -560,6 +610,170 @@ test("a failure from the service is explained without upstream text", async () =
     );
     assert.equal(text.includes("sk-live-123"), false);
     assert.ok(text.length > 0);
+  } finally {
+    await f.store.close();
+  }
+});
+
+async function callTool(
+  mcp: ReturnType<typeof createCeremonyMcpHandler>,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  return resultText(
+    await call(mcp, "good", {
+      jsonrpc: "2.0",
+      id: 20,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
+  );
+}
+
+test("connector tools carry MCP annotations that match what they do", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const mcp = handlerFor(f.runtime, { connectors: dependencies(seen) });
+    await call(mcp, "good", initialize);
+    const listed = await call(mcp, "good", {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
+    const body = await listed!.text();
+    const line = body
+      .split("\n")
+      .map((entry) =>
+        entry.startsWith("data:") ? entry.slice(5).trim() : entry,
+      )
+      .filter((entry) => entry.startsWith("{"))
+      .pop();
+    const tools = (
+      JSON.parse(line!) as {
+        result: {
+          tools: Array<{ name: string; annotations?: Record<string, boolean> }>;
+        };
+      }
+    ).result.tools;
+    const hints = (name: string) =>
+      tools.find((tool) => tool.name === name)?.annotations ?? {};
+    for (const name of connectorServerToolNames)
+      assert.ok(
+        Object.keys(hints(name)).length > 0,
+        `${name} has no annotations`,
+      );
+    assert.equal(hints("connector_catalog").readOnlyHint, true);
+    assert.equal(hints("connector_status").readOnlyHint, true);
+    assert.equal(hints("connector_invoke").readOnlyHint, false);
+    assert.equal(hints("connector_revoke_request").destructiveHint, false);
+    assert.equal(hints("connector_verify").destructiveHint, false);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("connector_verify refreshes evidence through the service and returns the agent projection", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const mcp = handlerFor(f.runtime, { connectors: dependencies(seen) });
+    await call(mcp, "good", initialize);
+    const view = JSON.parse(
+      await callTool(mcp, "connector_verify", {
+        connectionRef: connection.connectionRef,
+      }),
+    ) as Record<string, unknown>;
+    assert.deepEqual(seen.verifies, [connection.connectionRef]);
+    assert.equal(view.verified, true);
+    assert.equal(view.target, undefined);
+    assert.equal(JSON.stringify(view).includes("mcp.example"), false);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("connector_revoke_request queues a request for a person and revokes nothing", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const mcp = handlerFor(f.runtime, { connectors: dependencies(seen) });
+    await call(mcp, "good", initialize);
+    const outcome = JSON.parse(
+      await callTool(mcp, "connector_revoke_request", {
+        connectionRef: connection.connectionRef,
+      }),
+    ) as Record<string, unknown>;
+    assert.deepEqual(outcome, {
+      connectionRef: connection.connectionRef,
+      revocation: "pending-approval",
+      requestedAt: "2026-09-23T00:00:00.000Z",
+      approval: {
+        kind: "person",
+        path: "/connectors?connection=connection%3A1",
+      },
+    });
+    assert.deepEqual(seen.revocations, [connection.connectionRef]);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("personal output needs the binding's owner consent and secret output never leaves", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const mcp = handlerFor(f.runtime, { connectors: dependencies(seen) });
+    await call(mcp, "good", initialize);
+    const invoke = async (operationRef: string, commandId: string) =>
+      callTool(mcp, "connector_invoke", {
+        connectionRef: connection.connectionRef,
+        operationRef,
+        input: {},
+        commandId,
+      });
+    const withheld = await invoke("op:personal", "c-1");
+    assert.equal(withheld.includes("person@example.test"), false);
+    assert.ok(withheld.includes("withheld-by-policy"));
+
+    const released = JSON.parse(
+      await invoke("op:personal-consented", "c-2"),
+    ) as Record<string, unknown>;
+    assert.deepEqual(released.output, { email: "person@example.test" });
+    assert.equal(released.agentOutputConsent, "personal");
+
+    const secret = await invoke("op:secret-claiming-consent", "c-3");
+    assert.equal(secret.includes("super-secret-value"), false);
+    assert.ok(secret.includes("withheld-by-policy"));
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("verify and revoke-request are offered only when the host supplies them", async () => {
+  const f = runtimeFixture();
+  try {
+    const seen: Seen = { actors: [], invokes: [], connects: [] };
+    const {
+      verify: _verify,
+      requestRevocation: _revoke,
+      ...base
+    } = dependencies(seen);
+    void _verify;
+    void _revoke;
+    const mcp = handlerFor(f.runtime, { connectors: base });
+    await call(mcp, "good", initialize);
+    const listed = await call(mcp, "good", {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
+    const text = await listed!.text();
+    assert.ok(text.includes("connector_invoke"));
+    assert.equal(text.includes("connector_verify"), false);
+    assert.equal(text.includes("connector_revoke_request"), false);
   } finally {
     await f.store.close();
   }
