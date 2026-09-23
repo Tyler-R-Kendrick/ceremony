@@ -468,6 +468,9 @@ export class RecipeService {
         if (
           validated.diagnostics.length ||
           validated.leaves.some((leaf) => {
+            // Provider-neutral steps are admitted in any run; everything else must match.
+            if (this.registry.isNeutral(leaf.use.id, leaf.use.version))
+              return false;
             const operation = this.registry.require(
               leaf.use.id,
               leaf.use.version,

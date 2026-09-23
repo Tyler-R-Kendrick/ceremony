@@ -4,7 +4,12 @@ import { publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import { manifestSchema, type ConnectorManifest } from "../core/schema.js";
 import type { ConnectorDraft } from "../core/connector-authoring.js";
-import type { RecipeDefinition } from "../core/recipe-contracts.js";
+import {
+  RECIPE_LIMITS,
+  recipeDefinitionSchema,
+  type RecipeDefinition,
+  type RecipeInvocation,
+} from "../core/recipe-contracts.js";
 import type {
   OperationRegistry,
   OperationContext,
@@ -88,8 +93,14 @@ export function manifestFromProject(
     description:
       project.manifest.description ||
       `Authored ${project.manifest.name || id} ceremony.`,
-    methods: project.manifest.methods.map((method) => ({
-      id: method.kind,
+    methods: project.manifest.methods.map((method, index, methods) => ({
+      // The first method of a family keeps the family as its ID. A composed
+      // parent shares its first child's family, so a repeat is qualified by
+      // the draft's method ID instead of producing a duplicate manifest ID.
+      id:
+        methods.findIndex((other) => other.kind === method.kind) === index
+          ? method.kind
+          : `${method.kind}-${method.id}`.slice(0, 64),
       label: method.label,
       kind: method.kind,
       templateId: method.templateId,
@@ -130,7 +141,129 @@ export function manifestFromProject(
   });
 }
 
+type AuthoredMethod = ConnectorDraft["manifest"]["methods"][number];
+const secretKinds = ["api-key", "basic", "form", "account-registration"];
+const authoredStep = (id: string) =>
+  ({ kind: "operation", id, version: "1.0.0" }) as const;
+
+/** Sibling methods a composed method runs first, in the author's order. */
+function composedChildren(project: ConnectorDraft, method: AuthoredMethod) {
+  return (method.contract?.prerequisites ?? []).flatMap((prerequisite) => {
+    const child = project.manifest.methods.find(
+      (candidate) => candidate !== method && candidate.id === prerequisite.id,
+    );
+    return child ? [child] : [];
+  });
+}
+
+/**
+ * The executable authored steps for one method, appended after `after`.
+ * A composed child expands into its own children. Account registration runs
+ * the isolated-browser registration step, as the standalone registration
+ * recipe does, so "register, then authorize" composes into one run.
+ */
+function methodInvocations(
+  project: ConnectorDraft,
+  method: AuthoredMethod,
+  prefix: string,
+  after: string[],
+  active: Set<string>,
+): RecipeInvocation[] {
+  const children = composedChildren(project, method);
+  if (children.length) {
+    if (active.has(method.id))
+      throw new Error("Composed ceremony cannot include itself");
+    active.add(method.id);
+    const invocations: RecipeInvocation[] = [];
+    let previous = after;
+    for (const child of children) {
+      const steps = methodInvocations(
+        project,
+        child,
+        `${prefix}${child.id}.`,
+        previous,
+        active,
+      );
+      invocations.push(...steps);
+      previous = [steps.at(-1)!.id];
+    }
+    active.delete(method.id);
+    return invocations;
+  }
+  if (method.kind === "account-registration")
+    return [
+      {
+        id: `${prefix}account`,
+        use: authoredStep("authored.register-account"),
+        dependsOn: after,
+        bindings: {},
+      },
+    ];
+  const access = (session: string): RecipeInvocation => ({
+    id: `${prefix}access`,
+    use: authoredStep("authored.verify-access"),
+    dependsOn: [session],
+    bindings: { session: { from: "output", node: session, name: "session" } },
+  });
+  if (secretKinds.includes(method.kind))
+    return [
+      {
+        id: `${prefix}secret`,
+        use: authoredStep("authored.collect-credential"),
+        dependsOn: after,
+        bindings: {},
+      },
+      access(`${prefix}secret`),
+    ];
+  return [
+    {
+      id: `${prefix}app`,
+      use: authoredStep("authored.prepare-app"),
+      dependsOn: after,
+      bindings: {},
+    },
+    {
+      id: `${prefix}user`,
+      use: authoredStep("authored.authorize-user"),
+      dependsOn: [`${prefix}app`],
+      bindings: { app: { from: "output", node: `${prefix}app`, name: "app" } },
+    },
+    access(`${prefix}user`),
+  ];
+}
+
+/**
+ * Install honours composition: when the author composed ceremonies, the most
+ * recently composed method is the connector's recipe, running each child's
+ * steps in order in one run. Every step is still an authored operation under
+ * the authored profile, so composition adds no authority a child lacked.
+ */
+function composedRecipe(
+  project: ConnectorDraft,
+  method: AuthoredMethod,
+): RecipeDefinition {
+  const invocations = methodInvocations(project, method, "", [], new Set());
+  if (invocations.length > RECIPE_LIMITS.leaves)
+    throw new Error("Composed ceremony exceeds the recipe step limit");
+  const final = invocations.at(-1)!;
+  return recipeDefinitionSchema.parse({
+    schemaVersion: 1,
+    id: `${project.manifest.id || "authored"}-connect`,
+    title: `Connect ${project.manifest.name || "provider"}`,
+    description: `Complete ${composedChildren(project, method)
+      .map((child) => child.label)
+      .join(", then ")}.`.slice(0, 1000),
+    inputs: {},
+    invocations,
+    outputs: { connection: { node: final.id, name: "connection" } },
+  });
+}
+
 export function recipeFromProject(project: ConnectorDraft): RecipeDefinition {
+  const composed = project.manifest.methods.findLast(
+    (method) => composedChildren(project, method).length > 0,
+  );
+  if (composed) return composedRecipe(project, composed);
   const secret = project.manifest.methods.every((method) =>
     ["api-key", "basic", "form", "account-registration"].includes(method.kind),
   );

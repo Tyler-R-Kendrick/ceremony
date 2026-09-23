@@ -70,17 +70,23 @@ export const githubConnectionRecipe: RecipeDefinition = {
   outputs: { connection: { node: "access", name: "connection" } },
 };
 
+const accountRegistrationStep = {
+  kind: "operation",
+  id: "authored.register-account",
+  version: "1.0.0",
+} as const;
+/**
+ * Prepend account registration to a connector's recipe. Callers first check
+ * that the run's provider/profile admits the authored account step; connect()
+ * refuses with `account-registration-unsupported` where it does not.
+ */
 const registrationFirst = (definition: RecipeDefinition): RecipeDefinition => ({
   ...definition,
   id: `${definition.id}-registration-first`,
   invocations: [
     {
       id: "provider-account",
-      use: {
-        kind: "operation",
-        id: "authored.register-account",
-        version: "1.0.0",
-      },
+      use: { ...accountRegistrationStep },
       dependsOn: [],
       bindings: {},
     },
@@ -328,6 +334,17 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     requireCapability(actor, "executor");
     const authored = Boolean(await authoring.getInstalled(actor, connectorId));
     const context = await options.context(actor, connectorId, authored);
+    // Name the refusal before any lookup or run exists: the account step is
+    // authored, so a run for another provider's profile would only be denied.
+    if (
+      account &&
+      !commands.admits(
+        context,
+        accountRegistrationStep.id,
+        accountRegistrationStep.version,
+      )
+    )
+      throw new Error("account-registration-unsupported");
     const registered = await connection(
       actor,
       connectorId,
