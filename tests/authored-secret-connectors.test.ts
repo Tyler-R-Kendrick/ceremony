@@ -125,7 +125,7 @@ async function fixture(options: {
         operationVersion: "1.0.0",
         dependsOn: ["secret"],
         bindings: {
-          session: { from: "output", node: "secret", name: "session" },
+          session: { from: "output" as const, node: "secret", name: "session" },
         },
       },
       ...(options.twice
@@ -143,7 +143,11 @@ async function fixture(options: {
               operationVersion: "1.0.0",
               dependsOn: ["secret2"],
               bindings: {
-                session: { from: "output", node: "secret2", name: "session" },
+                session: {
+                  from: "output" as const,
+                  node: "secret2",
+                  name: "session",
+                },
               },
             },
           ]
