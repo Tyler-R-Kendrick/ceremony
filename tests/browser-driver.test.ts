@@ -1432,6 +1432,52 @@ test("the heuristic presses 'Generate' as a way forward, once per document", asy
   );
 });
 
+test("the heuristic presses 'Generate' only to obtain a credential, and never one that replaces or removes one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const settings = (text: string) =>
+    snapshot({
+      path: "https://provider.example/settings/security",
+      title: "Security",
+      headings: ["Security"],
+      elements: [{ index: 0, kind: "button", text }],
+    });
+  // Signing in, a page whose only button generates something is not a way
+  // forward: on a real provider it replaces what the person already has.
+  for (const text of ["Generate new recovery codes", "Regenerate token"])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "sign-in",
+          available: ["password"],
+          history: [],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
+  // Even to obtain a credential, one that revokes or replaces an existing
+  // one is never pressed.
+  for (const text of [
+    "Regenerate token",
+    "Revoke token",
+    "Reset client secret",
+    "Delete application",
+  ])
+    assert.notEqual(
+      (
+        await interpret({
+          goal: "obtain-credential",
+          available: [],
+          history: [{ action: "fill", path: settings(text).path }],
+          snapshot: settings(text),
+        })
+      )?.action,
+      "click",
+      text,
+    );
+});
+
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
   const interpret = createHeuristicInterpreter();
   assert.deepEqual(
