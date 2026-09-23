@@ -23,6 +23,10 @@ import {
   authoredVocabulary,
   registerAuthoredOperations,
 } from "./authored-operations.js";
+import {
+  commonVocabulary,
+  registerCommonOperations,
+} from "./recipes/common.js";
 import type { AuthorizationBrowser } from "./browser-executor.js";
 import type { ProgrammableInbox } from "./authored-inbox.js";
 import {
@@ -173,6 +177,7 @@ export function createGitHubRuntime(
     new Map([
       ...githubVocabulary,
       ...authoredVocabulary,
+      ...commonVocabulary,
       ...(options.stripe ? stripeVocabulary : []),
       ...(options.supabase ? supabaseVocabulary : []),
       ...(options.jira ? jiraVocabulary : []),
@@ -182,6 +187,10 @@ export function createGitHubRuntime(
     store,
     fetch: authoredFetch,
     ...(options.browser ? { browser: options.browser } : {}),
+    ...(options.inbox ? { inbox: options.inbox } : {}),
+  });
+  registerCommonOperations(registry, {
+    store,
     ...(options.inbox ? { inbox: options.inbox } : {}),
   });
   const targetKey = (actor: ActorContext) => ({

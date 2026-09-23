@@ -994,6 +994,11 @@ function errorResponse(error: unknown): Response {
     return reply({ error: "jira-site-required" }, 409);
   if (
     error instanceof Error &&
+    error.message === "account-registration-unsupported"
+  )
+    return reply({ error: "account-registration-unsupported" }, 409);
+  if (
+    error instanceof Error &&
     error.message === "incomplete-github-configuration"
   )
     return reply({ error: "incomplete-github-configuration" }, 409);

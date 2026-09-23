@@ -105,6 +105,39 @@ export class ProtectedCommandService {
     readonly registry: OperationRegistry,
     readonly reauthorize: Reauthorize,
   ) {}
+  /**
+   * Whether a run with this provider/profile may include the operation. A node
+   * must match the run's provider and profile, so one provider's operation
+   * never executes under another's authorization context. The exceptions are
+   * closed: steps the registry holds as provider-neutral, authored steps under
+   * an authored profile, and the authored account bootstrap ahead of a GitHub
+   * App installation. That bootstrap is not neutral: it finds the provider
+   * origin through authored discovery (or GitHub's known origin) and verifies
+   * against authored session state, so it stays scoped here.
+   */
+  admits(
+    context: Pick<RunContext, "provider" | "profile">,
+    operationId: string,
+    operationVersion: string,
+  ): boolean {
+    const operation = this.registry.get(operationId, operationVersion);
+    if (!operation) return false;
+    if (this.registry.isNeutral(operationId, operationVersion)) return true;
+    const { provider, profile } = operation.contract;
+    if (
+      provider === "authored" &&
+      profile === "authored" &&
+      context.profile === "authored"
+    )
+      return true;
+    if (
+      operationId === "authored.register-account" &&
+      context.provider === "github" &&
+      context.profile === "github-app"
+    )
+      return true;
+    return provider === context.provider && profile === context.profile;
+  }
   async createRun(
     actor: ActorContext,
     context: RunContext,
@@ -121,23 +154,9 @@ export class ProtectedCommandService {
       throw new AuthorizationError("invalid_request");
     const prior = new Set<string>();
     for (const node of nodes) {
-      const operation = this.registry.require(
-        node.operationId,
-        node.operationVersion,
-      );
-      const authored =
-        operation.contract.provider === "authored" &&
-        operation.contract.profile === "authored" &&
-        context.profile === "authored";
-      const githubAccountBootstrap =
-        node.operationId === "authored.register-account" &&
-        context.provider === "github" &&
-        context.profile === "github-app";
+      this.registry.require(node.operationId, node.operationVersion);
       if (
-        (!authored &&
-          !githubAccountBootstrap &&
-          (operation.contract.provider !== context.provider ||
-            operation.contract.profile !== context.profile)) ||
+        !this.admits(context, node.operationId, node.operationVersion) ||
         node.dependsOn.some((id) => !prior.has(id))
       )
         throw new AuthorizationError("denied");
