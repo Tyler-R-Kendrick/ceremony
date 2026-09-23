@@ -3303,3 +3303,103 @@ test("a local browser has no live view to offer", async (t) => {
   assert.equal(result.sessionPending, true);
   assert.equal(await executor.liveView?.("no-live-view"), undefined);
 });
+
+/**
+ * A provider whose sign-in window stops at a challenge only a person can
+ * answer, so the executor pauses with the window as its held page.
+ */
+async function pausedInWindow(t: { after(fn: () => unknown): void }) {
+  const identity = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/hop") {
+      response.writeHead(302, { location: `${providerOrigin}/plain` }).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        '<!doctype html><h1>Prove you are a person</h1><div class="h-captcha"><input name="answer"></div>',
+      );
+  });
+  await new Promise<void>((resolve) =>
+    identity.listen(0, "127.0.0.1", resolve),
+  );
+  t.after(
+    () => new Promise<void>((resolve) => identity.close(() => resolve())),
+  );
+  const identityOrigin = `http://127.0.0.1:${(identity.address() as { port: number }).port}`;
+  const provider = createServer((request, response) => {
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(`${identityOrigin}/challenge`)}, "signin", "popup")'>Continue with Fixture ID</button>`,
+      );
+  });
+  await new Promise<void>((resolve) =>
+    provider.listen(0, "127.0.0.1", resolve),
+  );
+  t.after(
+    () => new Promise<void>((resolve) => provider.close(() => resolve())),
+  );
+  const providerOrigin = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  t.after(() => executor.close?.("paused-window"));
+  const result = await executor.complete({
+    sessionKey: "paused-window",
+    startUrl: `${providerOrigin}/start`,
+    redirectUri: `${providerOrigin}/callback`,
+    allowedOrigins: [providerOrigin, identityOrigin],
+    popupOrigins: [identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "challenge");
+  assert.equal(result.sessionPending, true);
+  const window = browser
+    .contexts()[0]!
+    .pages()
+    .find((open) => open.url().startsWith(identityOrigin))!;
+  assert.ok(window, "the executor paused inside the sign-in window");
+  // The positive control: while nothing has changed, a person can act.
+  assert.equal(
+    await executor.interact?.("paused-window", { key: "Tab" }),
+    true,
+  );
+  return { executor, window, identityOrigin, providerOrigin };
+}
+
+test("a person's input is refused once the paused window has moved to an allowed but undeclared origin", async (t) => {
+  const { executor, window, providerOrigin } = await pausedInWindow(t);
+  // A redirect hop the window's guard allows - the provider is a navigation
+  // origin - but the provider is not where a window was declared.
+  await window.goto(`${new URL(window.url()).origin}/hop`);
+  assert.equal(new URL(window.url()).origin, providerOrigin);
+  assert.equal(
+    await executor.interact?.("paused-window", { text: "person-typed" }),
+    false,
+  );
+  assert.equal(await executor.screenshot?.("paused-window"), undefined);
+});
+
+test("a person's input is refused once a second window opens beside the paused one", async (t) => {
+  const { executor, window, identityOrigin } = await pausedInWindow(t);
+  const [second] = await Promise.all([
+    window.context().waitForEvent("page"),
+    window.evaluate(
+      (url) => void globalThis.open(url, "second", "popup"),
+      `${identityOrigin}/challenge`,
+    ),
+  ]);
+  await second.waitForLoadState("domcontentloaded");
+  assert.equal(
+    await executor.interact?.("paused-window", { code: "123456" }),
+    false,
+  );
+  assert.equal(await executor.screenshot?.("paused-window"), undefined);
+});

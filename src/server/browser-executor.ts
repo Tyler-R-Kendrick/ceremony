@@ -2066,12 +2066,30 @@ export function createAuthorizationBrowser(
         liveView: opened.liveView,
         privateValues,
         busy: true,
-        allowed: () =>
-          allowedAuthorizationOrigin(
-            held.page.url(),
-            input.allowedOrigins,
-            input.redirectUri,
-          ),
+        /**
+         * Whether a person may see or act in `held.page` now. Its origin must
+         * still be allowed, and - when windows were declared - it must still
+         * be the document the shared window rule picks: a paused window that
+         * navigated to an allowed but undeclared origin, or a second window
+         * that opened beside it, means a person's typing would land somewhere
+         * nobody approved. A rule that refuses (throws) is a refusal here.
+         */
+        allowed: () => {
+          if (
+            !allowedAuthorizationOrigin(
+              held.page.url(),
+              input.allowedOrigins,
+              input.redirectUri,
+            )
+          )
+            return false;
+          if (!tracker) return true;
+          try {
+            return (tracker.current() ?? page) === held.page;
+          } catch {
+            return false;
+          }
+        },
         close,
         verified: () => {
           progress.verificationDone = true;
