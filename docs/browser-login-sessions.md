@@ -162,6 +162,20 @@ channel — if such a channel exists, the deployment was never constrained.
 Expiry reclaims managed processes on its own, so a caller who never returns does
 not leave a browser running and a grant alive indefinitely.
 
+### Reusing a verified session
+
+A host may pass `reuseVerifiedSessions: true` (see _Enabling it in a host_).
+After a login is **verified** under a plan that retains its session, the
+context's storage state is written to the encrypted `browser-state` store under
+a slot for that subject, connector, entry origin and expected account; the
+previous state for the slot is forgotten. The next login for the same slot
+starts its context from that state. The drive still runs and the verifier still
+decides, so a stale or foreign cookie jar costs a login form, never a wrong
+answer. Off by default: a saved state is a bearer credential. Unverified and
+`dispose` logins are never saved; an expired state is simply absent.
+`HOST-REUSE` in `tests/browser-login-host.test.ts` shows a second login verified
+with no second submission reaching the fixture provider.
+
 ## Verification
 
 A verifier runs **through the selected context's own cookie jar**, so its answer
@@ -211,6 +225,24 @@ browser or operating system decides to show; those cannot be bypassed or
 fabricated, and a strict unattended plan that needs one reports an unmet
 requirement instead.
 
+### Authenticator codes from a held seed
+
+A plan may reference a held `totp-seed` in `credentialRefs` instead of a
+`totp-code`. The seed is not a role: no interpreter can select it and no page
+is ever given it. The service offers the derived `totp-code` role and computes
+the code with `src/server/totp.ts` (RFC 6238: SHA-1/256/512, 6 or 8 digits, any
+period; a bare base32 secret or an `otpauth://totp/` URI) **at fill time**, so a
+code does not age while an interpreter decides. The seed is guarded before the
+first page is read, in each spelling a page could show (raw, base32, grouped,
+lower-case); the typed code is guarded by the driver as a secret role. A page
+that shows either stops the attempt as `protected-value-exposed` (or
+`indeterminate` once something was dispatched). A plan naming both a seed and a
+static code is rejected. `tests/totp.test.ts` checks the RFC 4226 and RFC 6238
+Appendix B vectors; `tests/browser-login-totp.test.ts` logs in against an owned
+provider that checks the code, and covers both leak cases. The isolated
+authorization executor used by authored connectors does not read seeds yet; its
+code-entry path is still the agent inbox or a person.
+
 ## Handoffs
 
 A handoff identifies the **attempt**, not the run. Keying a wait by run alone let
@@ -222,6 +254,34 @@ attempt may answer it, once.
 A completed handoff is a claim to check. The attempt re-observes the same target
 and completion still requires the same provider evidence it always did.
 
+A host brings a person in through the tools' `human(actor, plan)` dependency,
+which returns the `HumanParticipation` for that actor and compiled plan (or
+nothing, to decline). With one, a challenge, passkey or native dialog within the
+plan's `interactionRounds` pauses the same attempt in the same browser and
+resumes it after the person answers. Without one, the login ends
+`requires-human`. The reference host configures none: its managed browsers are
+headless on the server, with no surface a person could act in.
+
+## Enabling it in a host
+
+`createGitHubRuntime({ browserLogin })` assembles the session registry, effect
+ledger, verifier registry, login service and shared tools
+(`src/server/browser-login-host.ts`) and hands them to the teaching runtime, so
+both `/api/v1/teaching/tools/browser-*` and the `browser_*` MCP tools appear.
+Without `browserLogin` neither transport offers them. The host supplies what
+only it can decide: `credentials` (how a collector reference resolves),
+`knownConnectors`, reviewed `verifiers`, and optionally `credentialRefs`,
+`human`, `allowUnverified`, `modelInterpreter` and `reuseVerifiedSessions`.
+Nothing heavy loads until the first call.
+
+The example server turns this on with `CEREMONY_BROWSER_LOGIN=true` (off by
+default). It launches managed browsers on the local machine, allows the Add
+Connection catalog's connector ids, and has **no** private collector for
+browser-login references and **no** provider verifier. So a plan that needs a
+credential stops without typing anything, and the best outcome it can reach is
+`submitted-unverified`. `HOST-WIRED` and `HOST-LOGIN` in
+`tests/browser-login-host.test.ts` cover the wiring with a fixture verifier.
+
 ## Running the suites
 
 ```sh
@@ -231,6 +291,8 @@ npx tsx --test tests/browser-targets.e2e.test.ts         # stale-target oracles,
 npx tsx --test tests/browser-session-lifetime.test.ts    # retention, leases, release
 npx tsx --test tests/login-plan.test.ts                  # effective configuration
 npx tsx --test tests/browser-login-handoff.test.ts       # attempt-bound handoffs
+npx tsx --test tests/totp.test.ts tests/browser-login-totp.test.ts  # held TOTP seeds
+npx tsx --test tests/browser-login-host.test.ts          # host wiring, session reuse
 ```
 
 All of these are discovered by `npm test` and `npm run verify` automatically.

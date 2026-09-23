@@ -18,10 +18,12 @@ import type { ActorContext } from "./identity.js";
 import { LeaseConflict, SessionLost } from "./browser-sessions.js";
 import type { BrowserSessionRegistry } from "./browser-sessions.js";
 import type { BrowserLoginService } from "./browser-login-service.js";
+import type { HumanParticipation } from "./browser-driver.js";
 import {
   compileLoginPlan,
   connectionDraftSchema,
   PlanRejected,
+  type EffectiveLoginPlan,
   type PlanRejectionReason,
 } from "./login-plan.js";
 
@@ -167,6 +169,25 @@ export type BrowserLoginToolDeps = {
     actor: ActorContext,
     sessionRef: string,
   ): Promise<LoginEvidence | undefined>;
+  /**
+   * How this host brings a person into a step the browser cannot complete —
+   * a challenge, a passkey, a native dialog — for this actor and this plan.
+   *
+   * Without it such a step ends the login as `requires-human`, which is the
+   * right answer for a host with nobody to ask but leaves nothing to resume.
+   * With it, the driver asks, waits for the person's answer and re-reads the
+   * page, so the same attempt continues in the same browser. The plan's
+   * `interactionRounds` still bounds how often it may ask, and a person's
+   * "done" is still only a claim the verifier has to confirm.
+   *
+   * A host decision like every other one here: nothing in the tool arguments
+   * reaches it, and returning `undefined` for an actor is a refusal to
+   * interrupt that person, not an error.
+   */
+  human?(
+    actor: ActorContext,
+    plan: EffectiveLoginPlan,
+  ): HumanParticipation | undefined;
 };
 
 /** Structured failures. Finite codes and finite reasons, never free-form text. */
@@ -262,9 +283,13 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
         },
       );
 
+      // Resolved against the compiled plan, never the draft: which person may
+      // be interrupted, and how, is the host's answer for work it admitted.
+      const human = deps.human?.(actor, plan);
       const result = loginResultSchema.parse(
         await deps.service.login(actor, {
           plan,
+          ...(human ? { human } : {}),
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
         }),
       );

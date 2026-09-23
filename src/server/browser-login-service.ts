@@ -7,8 +7,12 @@ import {
 } from "../core/browser-session-contracts.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
+  ceremonyRoles,
+  derivedRoleOf,
+  heldCredentialKinds,
   heldSecretRoles,
   type CeremonyRole,
+  type HeldCredentialKind,
 } from "../core/browser-contracts.js";
 import {
   launchManagedBrowser,
@@ -35,6 +39,8 @@ import {
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
+import { totpCode, totpSeedSpellings } from "./totp.js";
+import { storageStateSchema, type BrowserStateStore } from "./browser-state.js";
 
 /**
  * One authorized browser login, end to end.
@@ -56,11 +62,15 @@ export interface CredentialSource {
   /**
    * Resolve one role for one plan. Implementations read the existing private
    * collector; a reference is not a value and resolution is authorized here.
+   *
+   * A held credential kind — a `totp-seed` — is resolved the same way and is
+   * never handed onward: the service derives the role's value from it at fill
+   * time, and the kind itself is never offered to an interpreter.
    */
   resolve(
     actor: ActorContext,
     plan: EffectiveLoginPlan,
-    role: CeremonyRole,
+    role: CeremonyRole | HeldCredentialKind,
   ): Promise<string | undefined>;
 }
 
@@ -94,7 +104,35 @@ export type LoginServiceOptions = {
    * sent anywhere.
    */
   modelInterpreter?: () => CeremonyInterpreter | undefined;
+  /**
+   * Where verified sessions are kept between logins, when the host wants a
+   * later login for the same subject, connector, origin and account to start
+   * from the cookies the last one earned.
+   *
+   * Absent means every login starts from an empty browser, which is the
+   * conservative default: a saved state is a bearer credential, and keeping
+   * one is a decision a host makes, not one this service makes for it.
+   */
+  states?: BrowserStateStore;
 };
+
+/**
+ * Which saved state a plan may reuse.
+ *
+ * The subject is not here because the store already scopes every slot to it.
+ * What is here is everything that makes two logins "the same login": the
+ * connector, the origin the login starts at, and the account it expects. A
+ * plan that accepts whichever account is present shares a slot only with
+ * other such plans, so a state kept for an expected account is never offered
+ * to a plan that would accept anyone.
+ */
+function stateSlot(plan: EffectiveLoginPlan): string {
+  return JSON.stringify([
+    plan.connectorId,
+    new URL(plan.entryUrl).origin,
+    plan.account.kind === "expect" ? plan.account.accountRef : "*",
+  ]);
+}
 
 export type LoginRunInput = {
   plan: EffectiveLoginPlan;
@@ -233,8 +271,24 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
 
         let context: ManagedContext | undefined;
         let retained = false;
+        // A session this subject verified earlier for this same login, when
+        // the host keeps them. Restoring it is an optimisation and nothing
+        // more: the drive still runs, and the verifier still decides who is
+        // signed in, so a stale or foreign cookie jar costs a login form and
+        // never a wrong answer.
+        const slot = stateSlot(plan);
+        const restore =
+          options.states && browser.descriptor.capabilities.statePersistence
+            ? await options.states.recall(actor, slot).catch(() => undefined)
+            : undefined;
         try {
-          context = await browser.openContext();
+          context = restore
+            ? await browser
+                .openContext({ storageState: restore })
+                // A state that could not be restored is a fresh context, not a
+                // failed login: the person's credentials still work.
+                .catch(() => browser.openContext())
+            : await browser.openContext();
           const { page } = await context.openPage({
             // What the plan said about frames, and the only route it has to
             // the adapter. A plan that declares a frame origin requires the
@@ -358,6 +412,35 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             evidence,
             evidenceRef,
           );
+          // Kept only once the provider has said whose session this is, and
+          // only for a plan that asked for the session to outlive the call. A
+          // `dispose` continuation asked for nothing to remain; an unverified
+          // one has no account to key the state to. The export goes straight
+          // into the encrypted store and is never returned from here.
+          //
+          // Best-effort: failing to remember a session must not turn a
+          // verified login into a failed one.
+          if (
+            options.states &&
+            plan.continuation !== "dispose" &&
+            browser.descriptor.capabilities.statePersistence
+          ) {
+            const states = options.states;
+            await context
+              .saveState()
+              .then((state) =>
+                states.remember(
+                  actor,
+                  slot,
+                  {
+                    browserGeneration: browser.browserGeneration,
+                    effectivePlanDigest: plan.digest,
+                  },
+                  storageStateSchema.parse(state),
+                ),
+              )
+              .catch(() => {});
+          }
           if (plan.continuation === "dispose") {
             // The caller asked for the old ephemeral behaviour. The account was
             // still genuinely verified; the session simply does not outlive it.
@@ -545,9 +628,12 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     | { kind: "human"; reason: "human-challenge" | "passkey" | "native-dialog" }
   > {
     await page.goto(plan.entryUrl);
+    const declared = Object.keys(plan.credentialRefs);
+    const held = heldCredentialKinds.filter((kind) => declared.includes(kind));
     const roles: CeremonyRole[] = [];
-    for (const role of Object.keys(plan.credentialRefs) as CeremonyRole[])
-      roles.push(role);
+    for (const role of declared as CeremonyRole[])
+      if (!(heldCredentialKinds as readonly string[]).includes(role))
+        roles.push(role);
 
     const values: Partial<Record<CeremonyRole, () => Promise<string>>> = {};
     for (const role of roles)
@@ -556,6 +642,25 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         if (value === undefined) throw new Error("credential unavailable");
         return value;
       };
+    // A held seed offers the role it derives, and the value is computed at the
+    // moment of filling rather than when the attempt starts. A code minted
+    // before an interpreter has decided, or before a slow page has settled, is
+    // a code that can expire between being computed and being submitted.
+    //
+    // The seed is resolved inside this closure and goes no further. The only
+    // thing that leaves is the code, which the driver guards the moment it
+    // types it because `totp-code` is a secret role — so a page that echoes it
+    // back trips the canary like a page that echoes a password.
+    for (const kind of held) {
+      const role = derivedRoleOf[kind];
+      if (!ceremonyRoles.includes(role)) continue;
+      roles.push(role);
+      values[role] = async () => {
+        const seed = await options.credentials.resolve(actor, plan, kind);
+        if (seed === undefined) throw new Error("credential unavailable");
+        return totpCode(seed, now());
+      };
+    }
 
     // Arm the driver's canary before the first page is read, not after the
     // first field is typed.
@@ -597,6 +702,18 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         .resolve(actor, plan, role)
         .catch(() => undefined);
       if (value !== undefined && !guarded.includes(value)) guarded.push(value);
+    }
+    // A held seed is the most held secret there is: every future code comes
+    // out of it. It is guarded in each spelling a page could plausibly show,
+    // because enrolment screens print the same secret grouped, lower-cased or
+    // inside an `otpauth://` URI, and the canary matches exact text.
+    for (const kind of held) {
+      const seed = await options.credentials
+        .resolve(actor, plan, kind)
+        .catch(() => undefined);
+      if (seed === undefined) continue;
+      for (const spelling of totpSeedSpellings(seed))
+        if (!guarded.includes(spelling)) guarded.push(spelling);
     }
 
     const result = await runCeremony({

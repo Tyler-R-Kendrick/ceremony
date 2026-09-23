@@ -13,6 +13,10 @@ import {
   type RequiredCapabilities,
 } from "../core/browser-session-contracts.js";
 import { unmetCapabilities } from "../core/browser-session-contracts.js";
+import {
+  derivedRoleOf,
+  heldCredentialKinds,
+} from "../core/browser-contracts.js";
 
 /**
  * Turning what a person asked for into what the server will actually do.
@@ -342,6 +346,15 @@ export function compileLoginPlan(
     )
       throw new PlanRejected("unknown-credential-reference", role);
     credentialRefs[role] = reference;
+  }
+  // A held credential and the role it derives are two answers to one question.
+  // A plan naming both a `totp-seed` and a `totp-code` would type whichever the
+  // service happened to prefer, which is a field silently ignored by another
+  // name, so the derived role's own reference is the one refused.
+  for (const kind of heldCredentialKinds) {
+    const derived = derivedRoleOf[kind];
+    if (credentialRefs[kind] !== undefined && credentialRefs[derived])
+      throw new PlanRejected("unknown-credential-reference", derived);
   }
 
   // "Whichever account is there" has to be said, not assumed. Without an
