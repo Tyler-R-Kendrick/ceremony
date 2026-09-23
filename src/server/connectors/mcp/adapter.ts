@@ -19,7 +19,13 @@ import type {
 } from "../adapter.js";
 import { capabilityStatus } from "../adapter.js";
 import type { ConnectorOAuthOptions } from "../auth/connector-oauth.js";
-import { completeMcpOAuth, createMcpOAuth } from "./oauth.js";
+import {
+  completeMcpOAuth,
+  createMcpOAuth,
+  renewMcpCredential,
+  revokeMcpGrant,
+} from "./oauth.js";
+import { beginAttempt } from "../attempts.js";
 import {
   boundOperation,
   destinationFor,
@@ -27,7 +33,11 @@ import {
   type RuntimeBinding,
 } from "../binding.js";
 import { ConnectorError } from "../errors.js";
-import type { CredentialScope, HandoffRecord } from "../ports.js";
+import type {
+  CredentialMaterial,
+  CredentialScope,
+  HandoffRecord,
+} from "../ports.js";
 import type { AuthorizationChallenge } from "./authorization.js";
 import { McpResultCache } from "./cache.js";
 import {
@@ -154,6 +164,33 @@ export type McpRemoteAdapterOptions = {
 
 const BEARER_FIELDS = ["bearer", "access_token", "token", "apiKey"] as const;
 
+/** The bearer a credential presents, by the same field order `authFor` uses. */
+function bearerOf(material: Readonly<CredentialMaterial>): string | undefined {
+  return BEARER_FIELDS.map((field) => material[field]).find(
+    (value) => typeof value === "string" && value.length > 0,
+  );
+}
+
+function tokenDigest(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** A custody refusal because the stored credential is past, or at, its expiry: nothing was sent. */
+function credentialExpired(error: unknown): boolean {
+  return (
+    error instanceof ConnectorError &&
+    error.code === "expired" &&
+    (error.detail === "credential.expired" ||
+      error.detail === "credential.expiring")
+  );
+}
+
+/** Refresh margin matching the custody port's default: a token this close to expiry is stale. */
+const EXPIRY_MARGIN_MS = 30_000;
+
+/** Where the digest of the bearer last presented is kept for one invocation; never the bearer. */
+type Presented = { digest?: string };
+
 function settingsOf(binding: RuntimeBinding): McpBindingSettings {
   const raw = (binding.settings as Record<string, unknown>).mcp;
   if (raw === undefined)
@@ -217,6 +254,7 @@ function authFor(
   ctx: AdapterCallContext,
   options: McpRemoteAdapterOptions,
   settings: McpBindingSettings,
+  presented?: Presented,
 ): McpAuth {
   if (settings.auth === "none") return { kind: "none" };
   if (settings.auth === "broker") {
@@ -237,13 +275,12 @@ function authFor(
     kind: "bearer",
     use: (work) =>
       ctx.environment.credentials.use(scope, ref, async (material) => {
-        const token = BEARER_FIELDS.map((field) => material[field]).find(
-          (value) => typeof value === "string" && value.length > 0,
-        );
+        const token = bearerOf(material);
         if (!token)
           throw new ConnectorError("unauthenticated", {
             detail: "mcp.credential.not-a-bearer",
           });
+        if (presented) presented.digest = tokenDigest(token);
         return work(token);
       }),
   };
@@ -262,6 +299,7 @@ function clientFor(
   extra: {
     operation?: BoundOperation;
     onElicitation?: Parameters<typeof createMcpClient>[0]["onElicitation"];
+    presented?: Presented;
   } = {},
 ): ClientBundle {
   const settings = settingsOf(ctx.binding);
@@ -273,7 +311,7 @@ function clientFor(
     compatibility: settings.compatibility,
     endpoint,
     fetch: ctx.environment.fetch,
-    auth: authFor(ctx, options, settings),
+    auth: authFor(ctx, options, settings, extra.presented),
     limits: settings.limits ?? {},
     now: ctx.environment.now,
     ...(settings.clientInfo ? { clientInfo: settings.clientInfo } : {}),
@@ -544,6 +582,7 @@ async function invokeInternal(
       action: ResumeAction;
       requests: ParsedInputRequest[];
     };
+    presented?: Presented;
   },
 ): Promise<InvokeResult> {
   const { operation } = input;
@@ -565,16 +604,23 @@ async function invokeInternal(
       request: input.request ?? null,
       round: input.round,
     });
-    const begun = await ctx.environment.effects.begin({
-      actor: ctx.actor,
-      ...(ctx.connection
-        ? { connectionRef: ctx.connection.connectionRef }
-        : {}),
-      bindingRef: ctx.binding.bindingRef,
-      operation: operation.operationRef,
-      digest,
-      commandId: input.commandId,
-    });
+    // An attempt refused before it ran (a 401 a token renewal then cures, a
+    // credential custody found expired) leaves the next attempt its own
+    // journal entry; see `../attempts.ts`.
+    const begun = await beginAttempt(
+      ctx.environment.effects,
+      {
+        actor: ctx.actor,
+        ...(ctx.connection
+          ? { connectionRef: ctx.connection.connectionRef }
+          : {}),
+        bindingRef: ctx.binding.bindingRef,
+        operation: operation.operationRef,
+        digest,
+        commandId: input.commandId,
+      },
+      { mode: "until-applied", random: ctx.environment.random },
+    );
     effectRef = begun.effectRef;
     const prior = begun.prior;
     if (prior) {
@@ -595,19 +641,19 @@ async function invokeInternal(
           code: "reconciliation-required",
           effectRef,
         };
-      if (prior.status === "failed")
-        return {
-          ...base,
-          state: "failed",
-          code: "previous-attempt-failed",
-          effectRef,
-        };
+      return {
+        ...base,
+        state: "failed",
+        code: "previous-attempt-failed",
+        effectRef,
+      };
     }
   }
 
   const legacyAnswer = input.legacyAnswer;
   const bundle = clientFor(ctx, options, {
     operation,
+    ...(input.presented ? { presented: input.presented } : {}),
     ...(legacyAnswer
       ? {
           onElicitation: async (params) => {
@@ -642,9 +688,15 @@ async function invokeInternal(
       input.continuation,
     );
   } catch (error) {
+    // Custody refusing an expired credential happens before any byte is
+    // sent, so even a consequential call is known not to have run.
     if (effectRef)
       await ctx.environment.effects.complete(effectRef, {
-        status: consequential ? "indeterminate" : "not-applied",
+        status:
+          consequential && !credentialExpired(error)
+            ? "indeterminate"
+            : "not-applied",
+        ...(credentialExpired(error) ? { code: "credential.expired" } : {}),
         at: ctx.environment.now(),
       });
     throw error;
@@ -875,6 +927,18 @@ export function createMcpRemoteAdapter(
   const adapterVersion = options.adapterVersion ?? MCP_ADAPTER_VERSION;
   const identity = { adapterVersion, runtime: "hosted-server" as const };
   const beginOAuth = options.beginOAuth ?? createMcpOAuth(options.oauth);
+  /** Upstream revocation of the default profile's grant; a custom hook or broker owns its own. */
+  const revokeGrant = async (
+    ctx: AdapterCallContext,
+  ): Promise<DisconnectResult["upstream"]> => {
+    if (options.beginOAuth) return "unsupported";
+    const settings = settingsOf(ctx.binding);
+    if (settings.auth !== "bearer") return "unsupported";
+    return revokeMcpGrant(ctx, {
+      endpoint: endpointFor(ctx),
+      options: options.oauth ?? {},
+    });
+  };
 
   const capabilities = (present: ReadonlySet<string>): CapabilityStatus[] => {
     void present;
@@ -907,7 +971,8 @@ export function createMcpRemoteAdapter(
         authorize: {
           limitations: [
             `Delegated to the host OAuth profile; client registration follows this revision's order: ${era.clientRegistration.join(", ")}.`,
-            "The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata; tokens are not refreshed by this adapter.",
+            "The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata.",
+            "Its tokens are refreshed once, single-flight, when custody finds them expired or the server answers 401, and only when a refresh token is held; a custom OAuth hook or broker renews its own.",
             era.dynamicClientRegistration === "deprecated"
               ? "Dynamic Client Registration is deprecated in this revision and kept only for servers without Client ID Metadata Documents."
               : "Dynamic Client Registration is documented in this revision.",
@@ -938,13 +1003,13 @@ export function createMcpRemoteAdapter(
         },
         disconnect: {
           limitations: [
-            "Local only: MCP defines no disconnect or revocation operation.",
+            "MCP defines no disconnect or revocation operation; a local disconnect never contacts the server or its authorization server.",
+            "An upstream disconnect revokes the default profile's grant at the authorization server (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint.",
           ],
         },
         revoke: {
-          implementation: "unsupported",
           limitations: [
-            "MCP has no revocation operation; revoking a grant belongs to the authorization server profile.",
+            "Revocation is the authorization server's (RFC 7009), for the default OAuth profile's grant only, under the reviewed issuer policy; an issuer answers 200 for tokens it no longer knows, so success is its statement.",
           ],
         },
         export: {
@@ -1134,12 +1199,68 @@ export function createMcpRemoteAdapter(
 
     async invoke(ctx, request: InvokeRequest): Promise<InvokeResult> {
       const operation = requireOperation(ctx, request.operationRef);
-      return invokeInternal(ctx, options, {
-        operation,
-        request: request.input,
-        commandId: request.commandId,
-        round: 0,
-      });
+      const presented: Presented = {};
+      const run = () =>
+        invokeInternal(ctx, options, {
+          operation,
+          request: request.input,
+          commandId: request.commandId,
+          round: 0,
+          presented,
+        });
+      // Only the default OAuth profile's own tokens are renewed here: a
+      // custom hook or a broker owns the tokens it hands out.
+      const renewable =
+        !options.beginOAuth && settingsOf(ctx.binding).auth === "bearer";
+      const renew = (
+        stillStale: (current: Readonly<CredentialMaterial>) => boolean,
+      ) =>
+        renewMcpCredential(ctx, {
+          endpoint: endpointFor(ctx, operation),
+          options: options.oauth ?? {},
+          stillStale,
+        });
+      /*
+       * One renewal, then one retry, as the OpenAPI adapter does. Custody
+       * refusing an expired token sends nothing; a 401 to a presented token
+       * is recorded as not applied. The renewal is single-flight in custody
+       * and presents nothing upstream when the held token is no longer the
+       * one that failed, so invocations failing together make one refresh.
+       */
+      let result: InvokeResult;
+      try {
+        result = await run();
+      } catch (error) {
+        if (!renewable || !credentialExpired(error)) throw error;
+        const renewed = await renew((current) => {
+          const held = Number(current["expires_at"]);
+          return !(
+            Number.isFinite(held) &&
+            held > ctx.environment.now() + EXPIRY_MARGIN_MS
+          );
+        });
+        if (!renewed) throw error;
+        return run();
+      }
+      const refused = presented.digest;
+      if (
+        !renewable ||
+        result.code !== "authorization-required" ||
+        refused === undefined
+      )
+        return result;
+      let renewed: boolean;
+      try {
+        renewed = await renew((current) => {
+          const bearer = bearerOf(current);
+          return bearer !== undefined && tokenDigest(bearer) === refused;
+        });
+      } catch {
+        // The refresh's own code stays in the journal it wrote; the caller
+        // learns only that the connection needs a person again.
+        return { ...result, code: "mcp.credential-renewal-failed" };
+      }
+      return renewed ? run() : result;
     },
 
     async disconnect(ctx, scope: DisconnectScope): Promise<DisconnectResult> {
@@ -1148,21 +1269,22 @@ export function createMcpRemoteAdapter(
           ctx.connection.connectionRef,
           "disconnect",
         );
-      // MCP has no disconnect, delete or revoke operation. Forgetting the
-      // connection locally is all that can honestly be claimed; a grant is
-      // revoked at the authorization server, which is a different intent.
+      // MCP has no disconnect, delete or revoke operation. The only upstream
+      // act is the authorization server's: RFC 7009 revocation of a
+      // default-profile grant, when the reviewed issuer policy asks for it.
       return {
         local: "applied",
         broker: scope === "broker" ? "unsupported" : "not-attempted",
-        upstream: scope === "upstream" ? "unsupported" : "not-attempted",
+        upstream:
+          scope === "upstream" ? await revokeGrant(ctx) : "not-attempted",
       };
     },
 
-    async revoke(): Promise<DisconnectResult> {
+    async revoke(ctx): Promise<DisconnectResult> {
       return {
         local: "not-attempted",
         broker: "not-attempted",
-        upstream: "unsupported",
+        upstream: await revokeGrant(ctx),
       };
     },
 
