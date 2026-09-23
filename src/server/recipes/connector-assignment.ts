@@ -69,6 +69,7 @@ export type ConnectorIssue = {
   code:
     | "connector-ambiguous"
     | "connector-unavailable"
+    | "connector-inadmissible"
     | "connector-mixed"
     | "connector-inherit-ambiguous"
     | "cross-connector-artifact";
@@ -185,6 +186,8 @@ export function assignConnectors(input: {
   const nodes = new Map<string, NodeConnector>();
   const neutralOnly = new Set<string>();
   for (const top of tops) {
+    const own = leavesOf(top.id);
+    const pending = own.filter((leaf) => !leaf.connector && !neutral(leaf));
     if (top.connector) {
       resolved.set(top.id, top.connector);
       nodes.set(top.id, {
@@ -192,10 +195,37 @@ export function assignConnectors(input: {
         connector: top.connector,
         source: "declared",
       });
+      // A named connector is kept, but checked: one the host does not offer,
+      // or one whose context would refuse the node's own steps, fails only
+      // at createRun otherwise, after a person has reviewed the draft.
+      if (!spans) continue;
+      // Validation already gave every step beneath the node this connector,
+      // except those a pinned child placed elsewhere itself.
+      const governed = own.filter(
+        (leaf) => leaf.connector === top.connector && !neutral(leaf),
+      );
+      const binding = connectors.find(
+        (connector) => connector.connectorId === top.connector,
+      );
+      if (!binding && !input.unavailable?.includes(top.connector))
+        issues.push({
+          code: "connector-unavailable",
+          node: top.id,
+          message: `Connector ${top.connector} is not one this host offers you. Name an approved connector.`,
+        });
+      else if (
+        binding &&
+        !governed.every((leaf) =>
+          admits(binding, leaf.use.id, leaf.use.version),
+        )
+      )
+        issues.push({
+          code: "connector-inadmissible",
+          node: top.id,
+          message: `Connector ${top.connector} runs ${binding.provider}/${binding.profile} steps, and this step's operations (${[...new Set(governed.map(pair))].sort().join(", ")}) cannot run in its context. Name a connector for their provider.`,
+        });
       continue;
     }
-    const own = leavesOf(top.id);
-    const pending = own.filter((leaf) => !leaf.connector && !neutral(leaf));
     if (!spans) {
       nodes.set(top.id, { node: top.id, source: "run" });
       continue;

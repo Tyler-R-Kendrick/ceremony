@@ -707,6 +707,99 @@ test("CROSS: an artifact that is not crossProvider may not cross providers or co
   assert.deepEqual(within.diagnostics, []);
 });
 
+test("DECLARED: a named connector is checked: offered by the host, and able to run the step", async (t) => {
+  const f = fixture(t);
+  // Alpha's step named under beta: kept as written, but it cannot run there.
+  const misplaced = await f.runtime.recipes.createDraft(
+    actor,
+    recipe("alpha-under-beta", [
+      operationStep("create", "alpha.create-client", {}, { connector: "beta" }),
+      operationStep("use", "beta.use-client", client("create")),
+    ]),
+  );
+  assert.deepEqual(
+    misplaced.definition.invocations.map((node) => node.connector),
+    ["beta", "beta"],
+  );
+  assert.deepEqual(misplaced.diagnostics, [
+    {
+      code: "connector-inadmissible",
+      node: "create",
+      message:
+        "Connector beta runs beta/beta-oauth steps, and this step's operations (alpha/alpha-app) cannot run in its context. Name a connector for their provider.",
+    },
+  ]);
+  await assert.rejects(
+    f.runtime.recipes.review(
+      actor,
+      misplaced.id,
+      misplaced.revision,
+      misplaced.digest,
+    ),
+    /Review does not match a valid draft/,
+  );
+
+  // A connector this host does not offer at all, sent back on an edit.
+  const edited = await f.runtime.recipes.editDraft(
+    actor,
+    misplaced.id,
+    misplaced.revision,
+    recipe("alpha-under-nowhere", [
+      operationStep(
+        "create",
+        "alpha.create-client",
+        {},
+        {
+          connector: "retired-alpha",
+        },
+      ),
+      operationStep("use", "beta.use-client", client("create")),
+    ]),
+  );
+  assert.deepEqual(edited.diagnostics, [
+    {
+      code: "connector-unavailable",
+      node: "create",
+      message:
+        "Connector retired-alpha is not one this host offers you. Name an approved connector.",
+    },
+  ]);
+
+  // One the host offers but cannot resolve now is listed as unavailable in
+  // the report, not refused: its provider is unknown until it resolves.
+  const offered = await f.runtime.recipes.createDraft(
+    actor,
+    recipe("alpha-under-unconfigured", [
+      operationStep(
+        "create",
+        "alpha.create-client",
+        {},
+        {
+          connector: "unconfigured",
+        },
+      ),
+      operationStep("use", "beta.use-client", client("create")),
+    ]),
+  );
+  assert.deepEqual(offered.diagnostics, []);
+  assert.deepEqual(offered.connectors?.unavailable, ["unconfigured"]);
+
+  // Named correctly, it saves clean.
+  const placed = await f.runtime.recipes.createDraft(
+    actor,
+    recipe("alpha-under-alpha", [
+      operationStep(
+        "create",
+        "alpha.create-client",
+        {},
+        { connector: "alpha" },
+      ),
+      operationStep("use", "beta.use-client", client("create")),
+    ]),
+  );
+  assert.deepEqual(placed.diagnostics, []);
+});
+
 test("NEUTRAL: a provider-neutral step takes the connector of the step whose artifact it reads, and runs there", async (t) => {
   const f = fixture(t);
   const draft = await f.runtime.recipes.createDraft(
