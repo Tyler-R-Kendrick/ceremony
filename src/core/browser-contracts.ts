@@ -101,6 +101,32 @@ export type HeldCredentialKind = z.infer<typeof heldCredentialKindSchema>;
 export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
   { "totp-seed": "totp-code" };
 
+/**
+ * Values a provider issues on a page, which a plan may declare it keeps.
+ *
+ * The direction is the opposite of a role. A role is a value the caller has
+ * and the page asks for; an issued value is one the page shows once and the
+ * caller must take away — an OAuth client's ID and secret on a developer
+ * settings page, after "Register application" and "Generate a new client
+ * secret". So these are deliberately not roles either: no interpreter selects,
+ * fills or sees one. The plan names the read-only field that displays each by
+ * its exact label, the driver reads it through the page adapter, and the value
+ * goes to the plan's own sink — in a run, straight into a run-bound
+ * `common.oauth-client` record — and nowhere else.
+ */
+export const issuedValueKinds = ["client-id", "client-secret"] as const;
+export const issuedValueKindSchema = z.enum(issuedValueKinds);
+export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
+/**
+ * The issued values that are secrets. Once read, each is guarded exactly as a
+ * typed password is: a later snapshot or note that reproduces it fails the
+ * attempt. A client ID is an identifier the provider puts in every
+ * authorization URL, so it is kept but not guarded.
+ */
+export const secretIssuedValueKinds: readonly IssuedValueKind[] = [
+  "client-secret",
+];
+
 export const snapshotElementSchema = z
   .object({
     index: z.number().int().nonnegative(),
@@ -284,11 +310,13 @@ export type CeremonyCallback = { code: string; state?: string };
 /**
  * What a transcript entry records. `handoff` is a person being brought in;
  * `reobserve` is the page having been replaced under an approval, so the
- * attempt read it again instead of ending. Neither is something an
- * interpreter proposed, which is why they are not `DriverAction`s.
+ * attempt read it again instead of ending; `kept` is every issued value the
+ * plan declared having been read and handed to its sink, named by kind and
+ * never by value. None is something an interpreter proposed, which is why
+ * they are not `DriverAction`s.
  */
 export type CeremonyStepAction =
-  DriverAction["action"] | "handoff" | "reobserve";
+  DriverAction["action"] | "handoff" | "reobserve" | "kept";
 
 /** One transcript entry. Values are excluded, so this is safe to persist. */
 export type CeremonyStep = {
@@ -572,6 +600,7 @@ export function boundSnapshotSource(): string {
     const destination = ${destinationReaderSource};
     const usable = ${elementUsableSource};
     const sameForm = ${sameFormSource};
+    const readOnlyValue = ${readOnlyValueSource};
     const elements = [];
     const forms = [];
     const result = snapshot(document, ${JSON.stringify(snapshotSelectors)}, (element, index) => {
@@ -601,6 +630,7 @@ export function boundSnapshotSource(): string {
       destination,
       usable,
       sameForm,
+      readOnlyValue,
       /**
        * Whether the page still shows the document this observation describes.
        * Defined here, where \`document\` means the live one, so the driver
@@ -626,6 +656,29 @@ export const elementUsableSource = `((element) => {
   if (rects.length === 0) return false;
   const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
   return !style || (style.visibility !== 'hidden' && style.display !== 'none');
+})`;
+
+/**
+ * The value a held, read-only field displays, or `null` for any other control.
+ *
+ * Read-only is the whole point. It is what makes the value one the page
+ * *shows* — a provider displaying an issued secret — rather than one somebody
+ * typed: the driver never fills a read-only control (`elementUsableSource`
+ * refuses it), so nothing the attempt itself supplied, a password included,
+ * can come back out through here. A hidden or invisible field is not a value
+ * the page is showing anyone, so it is not read either.
+ */
+export const readOnlyValueSource = `((element) => {
+  if (!element || !element.isConnected) return null;
+  const tag = String(element.tagName || '').toLowerCase();
+  if (tag !== 'input' && tag !== 'textarea') return null;
+  if (element.readOnly !== true || element.disabled === true) return null;
+  if (String(element.type || '').toLowerCase() === 'hidden') return null;
+  const rects = typeof element.getClientRects === 'function' ? element.getClientRects() : [];
+  if (rects.length === 0) return null;
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
+  if (style && (style.visibility === 'hidden' || style.display === 'none')) return null;
+  return typeof element.value === 'string' ? element.value : null;
 })`;
 
 /** Whether a held control still belongs to the exact form it was approved in. */

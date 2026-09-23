@@ -1,6 +1,7 @@
 import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
   driverActionSchema,
+  secretIssuedValueKinds,
   secretRoles,
   type BlockedReason,
   type CeremonyCallback,
@@ -10,6 +11,7 @@ import {
   type CeremonyStepAction,
   type DriverAction,
   type HumanStepReason,
+  type IssuedValueKind,
   type PageSnapshot,
   type SnapshotElement,
 } from "../core/browser-contracts.js";
@@ -121,7 +123,21 @@ export interface CeremonyPage {
     origin: string,
     credentials: { username: string; password: string },
   ): Promise<void>;
+  /**
+   * The value an observed read-only field displays, or `undefined` when the
+   * control is not one. Revalidated against the observation exactly as an
+   * action is, so it reads the field that was observed or refuses.
+   *
+   * The driver calls this only for a field whose label a plan named in
+   * `issued`, and the value goes to that plan's sink and nowhere else.
+   * Optional: an adapter without it cannot keep an issued value, and a plan
+   * that declares one then never completes on it.
+   */
+  readIssued?(element: SnapshotElement): Promise<string | undefined>;
 }
+
+/** Issued values by kind, as the driver hands them to a plan's sink. */
+export type IssuedValues = Readonly<Partial<Record<IssuedValueKind, string>>>;
 
 /**
  * Resolves a role to a value. A verification code normally resolves by waiting
@@ -199,6 +215,28 @@ export interface CeremonyRunOptions {
   stallLimit?: number;
   /** Extra values that must never reach the interpreter or a transcript. */
   protectedValues?: readonly string[];
+  /**
+   * Values the provider issues on a page and this plan keeps, such as an
+   * OAuth client's ID and secret on a developer settings page.
+   *
+   * `fields` names, for each kind, the exact label of the read-only field
+   * that displays it. The plan declares this, not the interpreter: an
+   * interpreter never learns a value was read, cannot point the driver at a
+   * field, and cannot name one. Each observation on an allowed origin is
+   * checked for exactly one input carrying a declared label; a field that
+   * matches twice identifies nothing and is not read.
+   *
+   * Once every declared value has been read, `keep` receives them, once. A
+   * secret kind is guarded from that moment like a typed password, so a later
+   * snapshot or note reproducing it fails the attempt. The values are never in
+   * the result, the transcript or anything the interpreter is given; the
+   * transcript records a `kept` step naming the kinds. While any declared
+   * value is still unread, a claim of completion is not accepted.
+   */
+  issued?: {
+    fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
+    keep(values: IssuedValues): Promise<void>;
+  };
   onStep?: (step: CeremonyStep) => void;
   /**
    * Called once an action has actually taken effect, with the observation it
@@ -320,6 +358,13 @@ export async function runCeremony(
   let followed: string | undefined;
   let handoffs = 0;
   const maxHandoffs = options.human?.maxRequests ?? 2;
+  /** The issued values the plan declared, and those read so far. */
+  const declared = Object.entries(options.issued?.fields ?? {}) as [
+    IssuedValueKind,
+    string,
+  ][];
+  const issued = new Map<IssuedValueKind, string>();
+  let kept = declared.length === 0;
 
   const record = (
     snapshot: PageSnapshot,
@@ -459,6 +504,56 @@ export async function runCeremony(
     if (outcome === "declined") return "human-declined";
     if (outcome === "unavailable") return fallback;
     return undefined;
+  };
+
+  /**
+   * Read the issued values the plan declared from the page in front of the
+   * attempt, and hand them to the plan's sink once all are in.
+   *
+   * This is driven by the plan and by nothing an interpreter says: it runs on
+   * every observation on an allowed origin, looks only for inputs whose label
+   * is exactly one the plan named, and reads a field only when exactly one
+   * matches. The adapter reads a value only from a read-only control the
+   * observation still describes, so neither a field the driver filled nor one
+   * that moved since the read can be taken for an issued value.
+   *
+   * It runs before the interpreter sees this snapshot, and a secret joins the
+   * guarded values the moment it is read, so a provider that also printed it
+   * into a heading or an alert on the same page fails the attempt as a leak
+   * rather than delivering it to the interpreter.
+   */
+  const collectIssued = async (snapshot: PageSnapshot): Promise<void> => {
+    if (kept || !options.issued || !page.readIssued) return;
+    for (const [kind, label] of declared) {
+      if (issued.has(kind)) continue;
+      const matches = snapshot.elements.filter(
+        (element) => element.kind === "input" && element.label === label,
+      );
+      if (matches.length !== 1) continue;
+      let value: string | undefined;
+      try {
+        value = await page.readIssued(matches[0]!);
+      } catch (error) {
+        // The page moved since it was read: nothing is taken from it, and
+        // the next observation looks again.
+        if (error instanceof StaleTargetError) continue;
+        throw error;
+      }
+      const secret = secretIssuedValueKinds.includes(kind);
+      // A secret too short to recognise could not be guarded afterwards, so
+      // it is not one this driver will carry.
+      if (!value || value.length > 4096 || (secret && value.length < 8))
+        continue;
+      issued.set(kind, value);
+      if (secret && !guarded.includes(value)) guarded.push(value);
+    }
+    if (issued.size < declared.length) return;
+    await options.issued.keep(Object.fromEntries(issued) as IssuedValues);
+    kept = true;
+    record(snapshot, "kept", {
+      note: declared.map(([kind]) => kind).join(", "),
+      remembered: false,
+    });
   };
 
   /**
@@ -677,7 +772,9 @@ export async function runCeremony(
       refusals = 0;
       record(snapshot, "done", action.note ? { note: action.note } : {});
       options.onApplied?.({ snapshot, action: "done" });
-      if (options.verify && (await options.verify()))
+      // A declared issued value still unread means the thing the plan came
+      // for is not in hand, whatever the page says.
+      if (kept && options.verify && (await options.verify()))
         return finish({ status: "completed", steps });
       if (++unverifiedClaims >= 2)
         return finish({ status: "unverified", steps });
@@ -741,6 +838,7 @@ export async function runCeremony(
     const observed = await observe();
     if ("blocked" in observed) return observed.blocked;
     const snapshot = observed.snapshot;
+    await collectIssued(snapshot);
     // A step needing a person is never handed to an interpreter to solve.
     // A passkey hint beside a password box is conditional UI: the page still
     // accepts a password, so it is driven normally. So is the hint on an
