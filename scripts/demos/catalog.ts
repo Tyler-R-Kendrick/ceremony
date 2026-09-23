@@ -78,6 +78,24 @@ export const demoCatalog: readonly DemoEntry[] = [
     load: () => import("./connect-without-account.js"),
   },
   {
+    id: "connect-with-account",
+    title: "Connect an API for someone who has an account",
+    summary:
+      "The same OAuth request, but the person already has an account: the agent signs in identifier-first, answers the authenticator with a code derived from the held seed, approves consent, and the connector redeems the code with PKCE.",
+    scenario: "sign-in-with-second-factor",
+    interpreter: "heuristic",
+    chain: [
+      "authorize",
+      "sign-in",
+      "second-factor",
+      "consent",
+      "token-exchange",
+      "verified",
+    ],
+    docsPreview: true,
+    load: () => import("./connect-with-account.js"),
+  },
+  {
     id: "record-once-replay",
     title: "Record once, replay with no model",
     summary:

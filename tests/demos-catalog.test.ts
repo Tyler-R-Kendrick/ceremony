@@ -34,10 +34,15 @@ test("DEMO-ORDER: every demo is uniquely named, has a module, and a stitched one
     (entry) => (entry.chain?.length ?? 0) > 1,
   );
   assert.ok(stitched.length >= 1);
-  for (const entry of stitched) {
-    assert.ok(entry.chain!.includes("register"), entry.id);
+  for (const entry of stitched)
     assert.ok(entry.chain!.includes("verified"), entry.id);
-  }
+  // The stitched run the docs feature chains registration into access.
+  assert.ok(
+    stitched.some(
+      (entry) =>
+        entry.chain!.includes("register") && entry.chain!.includes("consent"),
+    ),
+  );
   assert.throws(() => findDemos(["no-such-demo"]), /Unknown demo/);
 });
 

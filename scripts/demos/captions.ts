@@ -64,7 +64,8 @@ export type ValueSource =
   | "inbox-message"
   | "person-profile"
   | "person-address"
-  | "private-collector";
+  | "private-collector"
+  | "totp-seed";
 
 const sourceNames: Record<ValueSource, string> = {
   "agent-inbox": "new agent-inbox address",
@@ -73,6 +74,7 @@ const sourceNames: Record<ValueSource, string> = {
   "person-profile": "synthetic profile",
   "person-address": "the person's usual address",
   "private-collector": "private collector",
+  "totp-seed": "derived from the held seed",
 };
 
 /** Named ceremony walls the driver reports; the reason list is closed. */
@@ -129,6 +131,7 @@ export type CaptionEvent =
         | "state-matches"
         | "exchange"
         | "subject-matches"
+        | "subject-is-person"
         | "replay-refused";
     }
   | { kind: "step"; index: number; total: number; phase: Phase }
@@ -143,6 +146,7 @@ const connectorLines: Record<string, string> = {
   "state-matches": "Connector: state matches the request ✓",
   exchange: "Connector: code + PKCE verifier → access token",
   "subject-matches": "Verified: token is for the account just made ✓",
+  "subject-is-person": "Verified: token is for the person's own account ✓",
   "replay-refused": "Verified: same code refused on replay ✓",
 };
 
@@ -278,7 +282,7 @@ export function caption(event: CaptionEvent): string {
             ? "Verified: provider confirms the session ✓"
             : event.what === "single-use-code"
               ? "Verified: code refused on replay (single use) ✓"
-              : "Verified access: token issued for the new account ✓",
+              : "Verified access: API token issued and checked ✓",
       );
     case "handoff":
       return bounded(
