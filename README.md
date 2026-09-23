@@ -2,6 +2,8 @@
 
 Composable authentication ceremonies with browser-native teaching and optional agent assistance. A host chooses a service; Ceremony reuses compatible setup, guides necessary human participation, verifies access and resumes the authorized task. OpenUI renders presentation; registered server operations execute protocols.
 
+**Demos:** [videos of an agent creating an account, recovering from a taken address and connecting an API for someone with no account yet](docs/demos.md), recorded with webreel against self-hosted test providers.
+
 ## Run
 
 Use Node **24** (see [.nvmrc](.nvmrc)) and npm:
