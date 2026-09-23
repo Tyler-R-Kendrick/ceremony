@@ -123,6 +123,14 @@ export type DemoSession = {
    * only: nothing is pressed, and the driver re-reads the page anyway.
    */
   reveal(): Promise<void>;
+  /**
+   * Cover the element `selector` names with a solid box in the video for as
+   * long as it is on screen, or stop watching with `undefined`. For a value
+   * a provider page itself displays (an issued client secret): the page is
+   * left alone and the box is drawn into the composited video, starting a
+   * little before the element was first seen so no captured frame shows it.
+   */
+  redact(selector: string | undefined): void;
   /** Use the current frame as the poster image. */
   poster(): void;
   /** A full-frame card: title, facts. Text is fixed or built from captions. */
@@ -421,6 +429,43 @@ export async function recordDemo(
     raw = recorder.getTempVideoPath();
 
     let posterFrame: number | undefined;
+    type Box = { x: number; y: number; w: number; h: number };
+    const redactions: (Box & { start: number; end: number })[] = [];
+    let redacting: { selector: string; timer: NodeJS.Timeout } | undefined;
+    let openBox: (Box & { start: number }) | undefined;
+    const closeBox = () => {
+      if (openBox)
+        redactions.push({ ...openBox, end: timeline.getFrameCount() });
+      openBox = undefined;
+    };
+    const pollRedaction = async (selector: string) => {
+      const found = await page
+        .evaluate((query: string) => {
+          const element = document.querySelector(query);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0
+            ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height }
+            : null;
+        }, selector)
+        .catch(() => null);
+      const same =
+        found &&
+        openBox &&
+        Math.abs(found.x - openBox.x) < 1 &&
+        Math.abs(found.y - openBox.y) < 1 &&
+        Math.abs(found.w - openBox.w) < 1;
+      if (same) return;
+      closeBox();
+      if (found)
+        // Back-dated: a frame may have been captured between the page
+        // painting the value and this read. A box over the page before the
+        // value arrived hides nothing that matters; a missed frame would.
+        openBox = {
+          ...found,
+          start: Math.max(0, timeline.getFrameCount() - 12),
+        };
+    };
     let current: Extract<CaptionEvent, { kind: "step" }> | undefined;
     let line: CaptionEvent | undefined;
     const render = () => {
@@ -518,6 +563,17 @@ export async function recordDemo(
         openPanel = { key, png: image.png, start: timeline.getFrameCount() };
       },
       hold: (ms) => pause(ms),
+      redact(selector) {
+        if (redacting) {
+          clearInterval(redacting.timer);
+          redacting = undefined;
+          closeBox();
+        }
+        if (!selector) return;
+        const timer = setInterval(() => void pollRedaction(selector), 60);
+        timer.unref();
+        redacting = { selector, timer };
+      },
       reveal: async () => {
         await page
           .evaluate(() => {
@@ -557,6 +613,9 @@ export async function recordDemo(
         await pause(160);
         shown.push(input.title, ...input.lines);
         await page.setContent(cardHtml(input));
+        // A redacted element is gone once the card replaces its page; the
+        // box stops here, not when the scenario stopped asking for it.
+        session.redact(undefined);
         await pause(ms);
       },
       applied(entry) {
@@ -633,6 +692,7 @@ export async function recordDemo(
     const outcome = await body(session);
     await pause(400);
     closePanel();
+    session.redact(undefined);
     await recorder.stop();
     recorder = undefined;
     // The video must cover the run. Under load webreel folds slow captures
@@ -666,7 +726,13 @@ export async function recordDemo(
 
     await compose(raw, timeline.toJSON(), video);
     const ffmpeg = await ensureFfmpeg();
-    overlayPanels(ffmpeg, video, panelSpans, entry.panelSide ?? "right");
+    overlayPanels(
+      ffmpeg,
+      video,
+      panelSpans,
+      entry.panelSide ?? "right",
+      redactions,
+    );
     const seconds = timeline.getFrameCount() / fps;
     extractThumbnail(
       ffmpeg,
@@ -733,9 +799,17 @@ function overlayPanels(
   video: string,
   spans: readonly { png: Buffer; start: number; end: number }[],
   side: "left" | "right",
+  redactions: readonly {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    start: number;
+    end: number;
+  }[] = [],
 ): void {
   const visible = spans.filter((span) => span.end > span.start);
-  if (visible.length === 0) return;
+  if (visible.length === 0 && redactions.length === 0) return;
   const directory = mkdtempSync(join(tmpdir(), "ceremony-demo-panels-"));
   try {
     const inputs: string[] = [];
@@ -748,6 +822,17 @@ function overlayPanels(
       const next = `v${index}`;
       filters.push(
         `[${previous}][${index + 1}:v]overlay=x=${side === "left" ? panelPosition.margin : `W-w-${panelPosition.margin}`}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
+      );
+      previous = next;
+    });
+    // Redaction boxes go on last, over everything, a few pixels larger than
+    // the field and a few frames longer than it was seen.
+    redactions.forEach((box, index) => {
+      const next = `r${index}`;
+      const x = Math.max(0, Math.floor(box.x) - 4);
+      const y = Math.max(0, Math.floor(box.y) - 4);
+      filters.push(
+        `[${previous}]drawbox=x=${x}:y=${y}:w=${Math.ceil(box.w) + 8}:h=${Math.ceil(box.h) + 8}:color=0x334155@1:t=fill:enable='between(n,${box.start},${box.end + 3})'[${next}]`,
       );
       previous = next;
     });
