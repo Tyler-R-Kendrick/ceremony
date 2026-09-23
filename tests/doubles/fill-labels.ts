@@ -73,7 +73,21 @@ export function fieldKinds(element: SnapshotElement): Set<FieldKind> {
     /user\s?name|login|handle|account name|sign[- ]?in name|user id/.test(text)
   )
     kinds.add("username");
-  if (hint.has("one-time-code") || /\bcode\b|\botp\b|one[- ]?time/.test(text))
+  // A ZIP, promo or referral code, or a field whose autocomplete names some
+  // other purpose, is a code nobody signs in with.
+  const otherPurpose = [...hint].some((token) =>
+    /^(postal-code|tel.*|cc-.*|address-.*|street-address|country.*|organization.*|transaction-.*)$/.test(
+      token,
+    ),
+  );
+  if (
+    hint.has("one-time-code") ||
+    (/\bcode\b|\botp\b|one[- ]?time/.test(text) &&
+      !otherPurpose &&
+      !/zip|postal|post code|promo|coupon|discount|voucher|gift|referral|invit|country|area|region|dialling|dialing|currency|product|tax/.test(
+        text,
+      ))
+  )
     kinds.add("code");
   if (hint.has("name") || /full name|display name|your name/.test(text))
     kinds.add("name");
