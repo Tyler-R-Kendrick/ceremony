@@ -3250,7 +3250,11 @@ test("SELECT: a report that a choice is needed is not a handoff where no select 
     },
   });
   assert.equal(asked, 0);
-  assert.equal(result.status === "blocked" && result.reason, "choice-required");
+  // Nor is the claim passed on: the caller is not told a person could help.
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
 });
 
 test("SELECT: a plan's choice reaches past the snapshot's first twenty options; nothing else does", async () => {
@@ -3594,12 +3598,11 @@ test("DEVICE: a plan holding the user code is not handed off, and nobody to ask 
     human,
   });
   assert.equal(asked, 0);
-  assert.equal(
-    held.status === "blocked" && held.reason,
-    "device-code-required",
-  );
-  // The same report on a page that is not a device page asks nobody either.
-  await runCeremony({
+  // The claim is not passed on: nobody is needed, the page went unread.
+  assert.equal(held.status === "blocked" && held.reason, "unsupported-page");
+  // The same report on a page that is not a device page asks nobody either,
+  // and says nothing about a person.
+  const elsewhere = await runCeremony({
     page: inertPage(),
     goal: "sign-in",
     allowedOrigins: ["https://provider.example"],
@@ -3611,6 +3614,10 @@ test("DEVICE: a plan holding the user code is not handed off, and nobody to ask 
     human,
   });
   assert.equal(asked, 0);
+  assert.equal(
+    elsewhere.status === "blocked" && elsewhere.reason,
+    "unsupported-page",
+  );
   const alone = await runCeremony({
     page: { ...inertPage(devicePath), snapshot: async () => devicePage() },
     goal: "sign-in",

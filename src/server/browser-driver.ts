@@ -904,11 +904,20 @@ export async function runCeremony(
         steps++;
         return;
       }
+      // A claim that a person is needed which the page does not bear out -
+      // no device page, a plan that holds the user code, no select waiting -
+      // is not passed on under its own name. A caller told
+      // `device-code-required` goes looking for a person with a device; what
+      // happened is that the interpreter could not read this page.
+      const ending: BlockedReason =
+        reason === "device-code-required" || reason === "choice-required"
+          ? "unsupported-page"
+          : reason;
       record(snapshot, "blocked", {
-        reason,
+        reason: ending,
         ...(action.note ? { note: action.note } : {}),
       });
-      return finish({ status: "blocked", reason, steps });
+      return finish({ status: "blocked", reason: ending, steps });
     }
     if (action.action === "done") {
       refusals = 0;
