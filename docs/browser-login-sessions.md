@@ -275,9 +275,12 @@ A newly generated personal access token is often not in a field at all but in
 a `<code>` or `<pre>` block beside a copy button. Such a block is described in
 the snapshot like a read-only field (`kind: "input"`, `type: "code"`,
 `readOnly`, `filled`) when it is labelled by `aria-label`, `aria-labelledby`, a
-`<label for>`, or a heading or label right before it, and never by its text; a
-label that contains the block's text, or a wrapping `<label>`, labels nothing,
-because it would carry the value into the snapshot. `issued` names it by that
+`<label for>`, or a heading or label right before it, and never by its text.
+An element that wraps the block (a wrapping `<label>`, or a `<label for>` or
+`aria-labelledby` target around it) labels nothing, and neither does any label
+sharing eight characters in a row with what the block shows: either would
+carry the value, or a slice of it once the label is cut to 200 characters,
+into the snapshot. `issued` names it by that
 label (`{ "sink": "credential-custody", "fields": [{ "kind": "access-token",
 "label": "Personal access token" }] }`) and the same rules apply: every field
 from one page or none, the value guarded like a typed password once read, and

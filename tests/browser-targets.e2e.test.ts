@@ -94,7 +94,8 @@ before(async () => {
       <pre><code>${shownToken}</code></pre>
       <button type="button">Copy</button>
       <code>npm install ceremony</code>
-      <code hidden aria-label="Old token">pat_hidden_never_read_0000</code>`,
+      <code hidden aria-label="Old token">pat_hidden_never_read_0000</code>
+      <div><label for="wrapped">${"Copy it now, you will not see it again. ".repeat(5)}<code id="wrapped">${shownToken}</code></label></div>`,
   );
   for (const engine of browserEngines)
     browsers.set(engine, await launchManagedBrowser(engine));

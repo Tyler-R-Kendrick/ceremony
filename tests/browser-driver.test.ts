@@ -4905,6 +4905,53 @@ test("ISSUED-CODE: a code block is described by its label, never by its text, an
     assert.deepEqual(shown(block), [], block);
 });
 
+test("ISSUED-CODE: a long label that wraps the block labels nothing, and no slice of the value reaches the snapshot", () => {
+  // Long enough that a 200-character label ends part-way into the token.
+  const prose =
+    "Make sure to copy your personal access token now. You will not be able to see it again. Store it somewhere safe like a password manager, and treat it like a password for your account here: ";
+  for (const block of [
+    `<div><label for="tok">${prose}<code id="tok">${shownToken}</code></label></div>`,
+    `<div id="lb">${prose}<pre aria-labelledby="lb">${shownToken}</pre></div>`,
+  ]) {
+    const snapshot = snapshotDocument(
+      tokenDocument(block) as unknown as Document,
+      snapshotSelectors,
+    );
+    const text = JSON.stringify(snapshot);
+    for (let at = 0; at + 8 <= shownToken.length; at++)
+      assert.equal(
+        text.includes(shownToken.slice(at, at + 8)),
+        false,
+        `a slice of the value reached the snapshot: ${block.slice(0, 60)}`,
+      );
+    assert.deepEqual(
+      snapshot.elements.filter((element) => element.type === "code"),
+      [],
+      block.slice(0, 60),
+    );
+  }
+  // A label beside the block that repeats a slice of the value is not used
+  // as its label either. (The page printing it in a heading is the page's
+  // doing; the driver's guard fails such an attempt once the value is read.)
+  assert.deepEqual(
+    snapshotDocument(
+      tokenDocument(
+        `<h2>Token ${shownToken.slice(0, 12)}</h2><pre><code>${shownToken}</code></pre>`,
+      ) as unknown as Document,
+      snapshotSelectors,
+    ).elements.filter((element) => element.type === "code"),
+    [],
+  );
+  // A label beside the block, not around it, still names it.
+  const beside = snapshotDocument(
+    tokenDocument(
+      `<p id="lb">${prose}</p><pre aria-labelledby="lb">${shownToken}</pre>`,
+    ) as unknown as Document,
+    snapshotSelectors,
+  ).elements.filter((element) => element.type === "code");
+  assert.equal(beside.length, 1);
+});
+
 test("ISSUED-CODE: the driver keeps a token shown in a code block, into custody, and never acts on the block", async () => {
   const kept: IssuedValues[] = [];
   const snapshots: PageSnapshot[] = [];

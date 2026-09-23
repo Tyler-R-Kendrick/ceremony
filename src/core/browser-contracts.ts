@@ -561,6 +561,13 @@ export function snapshotDocument(
   // the value into the snapshot. A wrapping `<label>` always would, so it is
   // not consulted here at all.
   const shownLabel = (block: Element): string => {
+    // An element that wraps the block - a `<label for>` or an
+    // `aria-labelledby` target around it - has the value in its own text, so
+    // it labels nothing. Checked by containment rather than by comparing
+    // text: the label is cut to 200 characters, and a long prose label cut
+    // part-way into the value would otherwise carry a prefix of it.
+    const apart = (element: Element | null | undefined): element is Element =>
+      element != null && !element.contains(block) && !block.contains(element);
     const own = (element: Element): string => {
       const aria = trim(element.getAttribute("aria-label"), 200);
       if (aria) return aria;
@@ -569,7 +576,10 @@ export function snapshotDocument(
         const named = labelledBy
           .split(/\s+/)
           .filter(Boolean)
-          .map((id) => doc.getElementById(id)?.textContent ?? "")
+          .map((id) => doc.getElementById(id))
+          .map((labelling) =>
+            apart(labelling) ? (labelling.textContent ?? "") : "",
+          )
           .filter(Boolean)
           .join(" ");
         if (named) return trim(named, 200);
@@ -577,7 +587,7 @@ export function snapshotDocument(
       const id = element.getAttribute("id");
       if (id && /^[A-Za-z][\w:.-]*$/.test(id)) {
         const explicit = doc.querySelector(`label[for="${id}"]`);
-        if (explicit) return trim(explicit.textContent, 200);
+        if (apart(explicit)) return trim(explicit.textContent, 200);
       }
       return "";
     };
@@ -591,7 +601,12 @@ export function snapshotDocument(
       if (before && /^(h[1-6]|label)$/i.test(before.tagName))
         label = trim(before.textContent, 200);
     }
-    const shown = trim(block.textContent, 4096);
+    // And whatever labelled it, a label sharing any eight characters in a row
+    // with what the block shows is not used: the whole value, or a slice of
+    // it, would reach the snapshot as page text.
+    const shown = (block.textContent ?? "").replace(/\s+/g, " ").trim();
+    for (let at = 0; at + 8 <= shown.length; at++)
+      if (label.includes(shown.slice(at, at + 8))) return "";
     return shown.length >= 4 && label.includes(shown) ? "" : label;
   };
   for (const block of Array.from(doc.querySelectorAll("pre,code"))) {
