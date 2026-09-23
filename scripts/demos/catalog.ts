@@ -27,6 +27,10 @@ export type DemoEntry = {
   interpreter: "heuristic";
   /** The chain the title card lists, when the run is stitched. */
   chain?: readonly Phase[];
+  /** The provider layout the demo is recorded on (`tests/doubles/auth-provider/layouts.ts`). */
+  layout: "classic-card" | "identifier-first" | "split-panel";
+  /** Which side of the frame the chain/inbox panel sits on, clear of the form. */
+  panelSide?: "left" | "right";
   /** Also published as a small preview under `docs/demos/`. */
   docsPreview: boolean;
   load: () => Promise<{ record: DemoRecorder }>;
@@ -40,6 +44,7 @@ export type DemoRecorder = (
 export const demoCatalog: readonly DemoEntry[] = [
   {
     id: "agent-creates-account",
+    layout: "classic-card",
     title: "The agent creates an account",
     summary:
       "The agent registers a brand-new account on a provider it has never seen: a fresh agent-inbox address, a generated password, the emailed code read from the inbox, and a provider-verified account at the end.",
@@ -50,6 +55,8 @@ export const demoCatalog: readonly DemoEntry[] = [
   },
   {
     id: "registration-recovers",
+    layout: "split-panel",
+    panelSide: "left",
     title: "Registration recovers from a taken address",
     summary:
       "The person's usual address is already registered. The driver reads the provider's refusal, asks the agent inbox for a fresh address, and finishes registration with it instead of stopping at the wall.",
@@ -60,6 +67,7 @@ export const demoCatalog: readonly DemoEntry[] = [
   },
   {
     id: "connect-without-account",
+    layout: "identifier-first",
     title: "Connect an API for someone with no account yet",
     summary:
       "One stitched run: OAuth authorization finds no account, so the agent registers one, verifies it through the agent inbox, approves consent, and the connector redeems the code with PKCE for verified access.",
@@ -79,6 +87,7 @@ export const demoCatalog: readonly DemoEntry[] = [
   },
   {
     id: "connect-with-account",
+    layout: "identifier-first",
     title: "Connect an API for someone who has an account",
     summary:
       "The same OAuth request, but the person already has an account: the agent signs in identifier-first, answers the authenticator with a code derived from the held seed, approves consent, and the connector redeems the code with PKCE.",
@@ -97,6 +106,7 @@ export const demoCatalog: readonly DemoEntry[] = [
   },
   {
     id: "record-once-replay",
+    layout: "classic-card",
     title: "Record once, replay with no model",
     summary:
       "The first registration is interpreted and recorded as value-free steps; a second registration on the same provider, for a different fresh address, is replayed from that recording with zero interpreter calls.",

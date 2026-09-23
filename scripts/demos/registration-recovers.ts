@@ -8,6 +8,7 @@ import {
   authScenarios,
   createIdentity,
   startScenario,
+  withLayout,
 } from "../../tests/doubles/auth-provider/scenarios.js";
 import { startAgentInbox } from "./agent-inbox.js";
 import { caption } from "./captions.js";
@@ -31,7 +32,10 @@ export async function record(session: DemoSession) {
   );
   if (!scenario) throw new Error(`Missing scenario ${session.entry.scenario}`);
   const identity = createIdentity();
-  const context = await startScenario(scenario, identity);
+  const context = await startScenario(
+    withLayout(scenario, session.entry.layout),
+    identity,
+  );
   const agentInbox = await startAgentInbox(context.provider, session.protect);
   try {
     const { provider } = context;
@@ -145,6 +149,7 @@ export async function record(session: DemoSession) {
         replacement !== undefined && provider.verifyAccess(replacement),
     });
 
+    session.checkFills(result);
     await session.park();
     session.panel(undefined);
     const recovered =

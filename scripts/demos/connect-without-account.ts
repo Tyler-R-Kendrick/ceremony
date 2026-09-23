@@ -41,6 +41,7 @@ export async function record(session: DemoSession) {
     ...scenario.behavior({}),
     accounts: [],
     redirectUri: callback.uri,
+    layout: session.entry.layout,
   });
   const agentInbox = await startAgentInbox(provider, session.protect);
   try {
@@ -154,7 +155,11 @@ export async function record(session: DemoSession) {
       if (!decided && pathnameOf(input.snapshot.path) === "/signin") {
         decided = true;
         session.step("sign-in");
-        session.say({ kind: "decision", what: "no-account-register" });
+        session.say({
+          kind: "decision",
+          what: "no-account-register",
+          layout: session.entry.layout,
+        });
         await session.hold(2_400);
       }
       const atConsent =
@@ -188,6 +193,7 @@ export async function record(session: DemoSession) {
       protectedValues: [account.password],
       maxSteps: 30,
     });
+    session.checkFills(result);
     await session.park();
 
     const accountReady =

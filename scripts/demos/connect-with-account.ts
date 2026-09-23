@@ -49,6 +49,7 @@ export async function record(session: DemoSession) {
       },
     ],
     redirectUri: callback.uri,
+    layout: session.entry.layout,
   });
   try {
     await session.card(
@@ -106,7 +107,11 @@ export async function record(session: DemoSession) {
       if (!decided && pathnameOf(input.snapshot.path) === "/signin") {
         decided = true;
         session.step("sign-in");
-        session.say({ kind: "decision", what: "has-account-sign-in" });
+        session.say({
+          kind: "decision",
+          what: "has-account-sign-in",
+          layout: session.entry.layout,
+        });
         await session.hold(2_000);
       }
       const atConsent =
@@ -136,6 +141,7 @@ export async function record(session: DemoSession) {
       protectedValues: [password, ...totpSeedSpellings(seed)],
       maxSteps: 30,
     });
+    session.checkFills(result);
     await session.park();
 
     const verified = await redeemOnScreen(session, provider, request, result, {

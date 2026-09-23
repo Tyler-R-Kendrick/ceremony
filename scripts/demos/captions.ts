@@ -135,7 +135,11 @@ export type CaptionEvent =
         | "replay-refused";
     }
   | { kind: "step"; index: number; total: number; phase: Phase }
-  | { kind: "decision"; what: "no-account-register" | "has-account-sign-in" }
+  | {
+      kind: "decision";
+      what: "no-account-register" | "has-account-sign-in";
+      layout?: string;
+    }
   | {
       kind: "recording";
       stage: "capturing" | "compiled" | "replaying" | "replayed";
@@ -156,6 +160,17 @@ const recordingLines: Record<string, string> = {
   compiled: "Recording compiled: value-free, ready to publish",
   replaying: "Replay: the recording drives, no model is asked",
   replayed: "Replay finished with zero interpreter calls ✓",
+};
+
+/**
+ * The invented product each realistic layout of the test provider shows
+ * (`tests/doubles/auth-provider/layouts.ts`). Fixed names from a fixed list,
+ * never read from a page; a test holds them to what the pages render.
+ */
+export const productNames: Record<string, string> = {
+  "classic-card": "Northwind Cloud",
+  "identifier-first": "Acme Accounts",
+  "split-panel": "Globex Workspace",
 };
 
 const actorNames: Record<Actor, string> = {
@@ -291,12 +306,14 @@ export function caption(event: CaptionEvent): string {
           ? "Handoff: consent approved"
           : "Handoff: a person is asked to act",
       );
-    case "decision":
+    case "decision": {
+      const at = lookup(productNames, event.layout, "this provider");
       return bounded(
         event.what === "has-account-sign-in"
-          ? "Decision: the person has an account here → sign in"
-          : "Decision: no account for this person here → register",
+          ? `Decision: account exists at ${at} → sign in`
+          : `Decision: no account at ${at} → register`,
       );
+    }
     case "recording":
       return bounded(recordingLines[event.stage] ?? "Recording: working");
     case "connector":

@@ -26,6 +26,11 @@ import {
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 import type { CeremonyRole } from "../../src/core/browser-contracts.js";
 import type { RecordedTraceEntry } from "../../src/core/recorded-ceremony.js";
+import type { DriverAction } from "../../src/core/browser-contracts.js";
+import {
+  assertFillsMatchLabels,
+  type Decision,
+} from "../../tests/doubles/fill-labels.js";
 import type {
   CeremonyPage,
   CeremonyResult,
@@ -50,7 +55,6 @@ import {
   type ValueSource,
 } from "./captions.js";
 import type { DemoEntry } from "./catalog.js";
-import { fillMismatches } from "./label-gate.js";
 import { pathnameOf } from "./phases.js";
 
 /**
@@ -74,12 +78,13 @@ import { pathnameOf } from "./phases.js";
  */
 
 /**
- * CSS viewport; the device scale makes the video 1280x720. The provider
- * pages are unstyled HTML, so they are shown at 2x rather than restyled —
- * nothing is injected into a page the driver reads.
+ * CSS viewport; the device scale makes the video 1280x720. A 960-wide
+ * viewport is a laptop browser window scaled up, which is how the provider's
+ * realistic layouts are meant to be seen. Nothing is injected into a page
+ * the driver reads.
  */
-const viewport = { width: 640, height: 360 };
-const zoom = 2;
+const viewport = { width: 960, height: 540 };
+const zoom = 4 / 3;
 const videoSize = { width: 1280, height: 720 };
 const fps = 25;
 const hud = {
@@ -128,11 +133,15 @@ export type DemoSession = {
   ): Promise<void>;
   /** The driver's page adapter, instrumented to move the cursor before acting. */
   ceremonyPage(): CeremonyPage;
-  /**
-   * Pass as the driver's `onApplied`. Every applied fill is checked against
-   * the control's own label before the video is kept.
-   */
+  /** Pass as the driver's `onApplied`; collects what `checkFills` judges. */
   applied(entry: RecordedTraceEntry): void;
+  /**
+   * After each driver run: every fill applied since the last check must have
+   * gone into the field labelled for it, and no forward button may have been
+   * pressed with a required field still empty (`assertFillsMatchLabels`, the
+   * same gate the contract suites use). A failure ends the recording.
+   */
+  checkFills(result: CeremonyResult): void;
   /** Caption each proposal before the driver acts on it. */
   narrate(
     inner: CeremonyInterpreter,
@@ -185,6 +194,7 @@ function cardHtml(input: {
         ? "Connector · server side, not in the browser"
         : "Ceremony demo · self-hosted test provider";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html{zoom:1.5}
     html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;font-family:"DejaVu Sans",sans-serif}
     main{box-sizing:border-box;height:100%;padding:22px 30px;display:flex;flex-direction:column;justify-content:center${input.keepPanel ? ";max-width:420px" : ""}}
     .kicker{color:${accent};font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
@@ -215,6 +225,7 @@ const panelMarks = {
 
 function panelHtml(content: Panel): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html{zoom:1.1}
     html,body{margin:0;background:transparent;font-family:"DejaVu Sans",sans-serif}
     .panel{display:inline-block;width:196px;box-sizing:border-box;padding:9px 11px 7px;border-radius:8px;
       background:rgba(15,23,42,.92);color:#e2e8f0;border:1px solid #334155}
@@ -231,7 +242,7 @@ function panelHtml(content: Panel): string {
 }
 
 /** Where a panel sits in the 1280x720 frame: right side, below any heading. */
-const panelPosition = { right: 28, top: 150 };
+const panelPosition = { margin: 28, top: 150 };
 
 /**
  * webreel's own headless mode starts chrome-headless-shell with begin-frame
@@ -279,7 +290,8 @@ export async function recordDemo(
   const video = join(outputDirectory, `${entry.id}.mp4`);
   const poster = join(outputDirectory, `${entry.id}.png`);
   const protectedValues = new Set<string>();
-  const appliedEntries: RecordedTraceEntry[] = [];
+  let appliedEntries: RecordedTraceEntry[] = [];
+  let fillChecks = 0;
   const shown: string[] = [];
 
   const wrapper = headlessChromeWrapper();
@@ -393,7 +405,17 @@ export async function recordDemo(
       kind: "fill" | "click" | "check",
       handle: ElementHandle,
     ) => {
-      await handle.scrollIntoViewIfNeeded().catch(() => {});
+      // Bring the control to the middle of the window, clear of the caption
+      // row, the way a person scrolls a tall form while filling it in.
+      await handle
+        .evaluate((element: Element) =>
+          element.scrollIntoView({
+            block: "center",
+            inline: "nearest",
+            behavior: "instant",
+          }),
+        )
+        .catch(() => {});
       const box = await handle.boundingBox().catch(() => null);
       if (box) {
         // Aim inside the control, a little in from its left edge for a
@@ -487,6 +509,25 @@ export async function recordDemo(
       applied(entry) {
         appliedEntries.push(entry);
       },
+      checkFills(result) {
+        // What the driver applied, in the decision shape the gate reads: the
+        // snapshot the step was decided on and the action taken on it.
+        const decisions: Decision[] = appliedEntries.map((applied) => ({
+          snapshot: applied.snapshot,
+          action: {
+            action: applied.action,
+            ...(applied.element === undefined
+              ? {}
+              : { element: applied.element }),
+            ...(applied.role ? { role: applied.role } : {}),
+          } as DriverAction,
+        }));
+        appliedEntries = [];
+        if (!decisions.some((decision) => decision.action.action === "fill"))
+          throw new Error(`${entry.id}: a run applied no fills to check`);
+        assertFillsMatchLabels(result.transcript, decisions);
+        fillChecks += 1;
+      },
       ceremonyPage: () =>
         createPlaywrightCeremonyPage(observedPage(page, before, after)),
       narrate(inner, narration) {
@@ -555,23 +596,14 @@ export async function recordDemo(
           `${entry.id}: a protected value reached the transcript`,
         );
     }
-    const mismatches = fillMismatches(appliedEntries);
-    if (mismatches.length)
-      throw new Error(
-        `${entry.id}: a value went into a control labelled for something else: ${mismatches
-          .map((item) => `${item.role} → ${item.control}`)
-          .join("; ")}`,
-      );
-    if (appliedEntries.length === 0)
-      throw new Error(
-        `${entry.id}: no applied steps were reported to the label gate`,
-      );
+    if (fillChecks === 0)
+      throw new Error(`${entry.id}: no driver run was checked for its fills`);
     if (!outcome.ok)
       throw new Error(`${entry.id}: the run did not show what it set out to`);
 
     await compose(raw, timeline.toJSON(), video);
     const ffmpeg = await ensureFfmpeg();
-    overlayPanels(ffmpeg, video, panelSpans);
+    overlayPanels(ffmpeg, video, panelSpans, entry.panelSide ?? "right");
     const seconds = timeline.getFrameCount() / fps;
     extractThumbnail(
       ffmpeg,
@@ -637,6 +669,7 @@ function overlayPanels(
   ffmpeg: string,
   video: string,
   spans: readonly { png: Buffer; start: number; end: number }[],
+  side: "left" | "right",
 ): void {
   const visible = spans.filter((span) => span.end > span.start);
   if (visible.length === 0) return;
@@ -651,7 +684,7 @@ function overlayPanels(
       inputs.push("-i", file);
       const next = `v${index}`;
       filters.push(
-        `[${previous}][${index + 1}:v]overlay=x=W-w-${panelPosition.right}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
+        `[${previous}][${index + 1}:v]overlay=x=${side === "left" ? panelPosition.margin : `W-w-${panelPosition.margin}`}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
       );
       previous = next;
     });

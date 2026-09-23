@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { demoCatalog, findDemos } from "../scripts/demos/catalog.js";
 import { providerPhase } from "../scripts/demos/phases.js";
 import { disclosure } from "../scripts/demos/story.js";
+import { productNames } from "../scripts/demos/captions.js";
+import { startAuthProvider } from "./doubles/auth-provider/server.js";
 
 /**
  * The demo catalog and its pure helpers. Nothing here records video: that
@@ -50,7 +52,10 @@ test("DEMO-HONESTY: every title card says the provider is a self-hosted double",
   for (const entry of demoCatalog) {
     const card = disclosure(entry, 21).join("\n");
     assert.match(card, /self-hosted test provider/);
-    assert.match(card, /Not a real service; no real accounts/);
+    assert.match(
+      card,
+      /An invented product: not a real service, no real accounts/,
+    );
     assert.match(card, /seed 21/);
     assert.match(card, /no model is called/);
   }
@@ -76,4 +81,19 @@ test("DEMO-PHASES: the chain position follows the driver's page and proposal", (
   assert.equal(at(undefined, "/signin", "fill", "totp-code"), "second-factor");
   // A page the map does not know leaves the phase where it was.
   assert.equal(at("consent", "/elsewhere", "wait"), "consent");
+});
+
+test("DEMO-HONESTY: the product a caption names is the one the layout renders", async () => {
+  for (const entry of demoCatalog) {
+    const provider = await startAuthProvider({ layout: entry.layout });
+    try {
+      const page = await (await fetch(`${provider.origin}/signin`)).text();
+      assert.ok(
+        page.includes(productNames[entry.layout]!),
+        `${entry.layout} does not render ${productNames[entry.layout]}`,
+      );
+    } finally {
+      await provider.close();
+    }
+  }
 });
