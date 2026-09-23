@@ -6,7 +6,11 @@ import type {
   HandoffProposal,
 } from "../adapter.js";
 import { ConnectorError } from "../errors.js";
-import type { CredentialScope, HandoffRecord } from "../ports.js";
+import type {
+  CredentialMaterial,
+  CredentialScope,
+  HandoffRecord,
+} from "../ports.js";
 import type { ResolvedClient } from "./client.js";
 import type { ResolvedAuthorizationServer } from "./discovery.js";
 import { assertHandoffCurrent } from "./handoff.js";
@@ -628,6 +632,14 @@ export type RefreshAccessTokenInput = {
   scope: CredentialScope;
   /** A narrower scope to request on refresh (RFC 6749 §6); never wider than the grant. */
   scopes?: readonly string[] | undefined;
+  /**
+   * Whether the credential custody now holds is still the one the caller saw
+   * fail. False means another worker already renewed it between the failure
+   * and this worker taking the lock: the current material is kept and no
+   * refresh token is presented, so two failures one after the other still
+   * produce one refresh.
+   */
+  stillStale?: ((current: CredentialMaterial) => boolean) | undefined;
 };
 
 export type RefreshOutcome = {
@@ -683,6 +695,15 @@ export async function refreshAccessToken(
           throw new ConnectorError("denied", {
             detail: "oauth.refresh.client-mismatch",
           });
+        if (input.stillStale && !input.stillStale(current)) {
+          const held = Number(current["expires_at"]);
+          return {
+            material: current,
+            ...(Number.isSafeInteger(held) && held > 0
+              ? { expiresAt: held }
+              : {}),
+          };
+        }
         const begun = await ctx.environment.effects.begin({
           actor: ctx.actor,
           connectionRef: input.scope.connectionRef,

@@ -4,7 +4,8 @@
  * Specifications this module implements, pinned at the revisions observed on
  * 2026-09-17/18. Drafts are named as drafts; nothing here claims certification.
  *
- * - RFC 6749 / RFC 6750  OAuth 2.0 and bearer usage (baseline)
+ * - RFC 6749 / RFC 6750  OAuth 2.0 and bearer usage (baseline), including the
+ *                        client credentials grant (§4.4) for confidential clients
  * - RFC 7636             PKCE; S256 only, via oauth4webapi
  * - RFC 7591             Dynamic client registration
  * - RFC 7662             Token introspection (exchange verification fallback)
@@ -144,6 +145,23 @@ export {
   type RefreshAccessTokenInput,
   type RefreshOutcome,
 } from "./authorization-code.js";
+
+export {
+  acquireClientCredentials,
+  CLIENT_CREDENTIALS_GRANT,
+  OAUTH_CLIENT_CREDENTIALS_OPERATION,
+  renewClientCredentials,
+  type ClientCredentialsInput,
+} from "./client-credentials.js";
+
+export {
+  connectionCredentialScope,
+  missingClientConfiguration,
+  optionalIssuerPolicy,
+  resolveConnectorOAuth,
+  type ConnectorOAuth,
+  type ConnectorOAuthOptions,
+} from "./connector-oauth.js";
 
 export {
   beginDeviceAuthorization,

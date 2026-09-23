@@ -361,6 +361,33 @@ test("an executor cannot register a client; registration is an owner's act", asy
   assert.equal(server.counts.registration, 0);
 });
 
+test("an executor uses a client the owner already registered: refresh behind an agent's call needs no author", async (t) => {
+  // The owner registers once (the harness actor holds `author`).
+  const harness = await authHarness(t, {
+    server: { dynamicRegistration: true },
+    policy: { registration: { allowed: ["dynamic"] } },
+  });
+  assert.equal(harness.server.counts.registration, 1);
+  const executor: ActorContext = {
+    ...fixtureActor,
+    capabilities: ["executor"],
+  };
+  const used = await resolveClientRegistration({
+    actor: executor,
+    policy: harness.policy,
+    server: harness.resolved,
+    redirectUri: CALLBACK_URI,
+    hostOrigin: HOST_ORIGIN,
+    configuration: harness.ports.configuration,
+    fetch: loopbackFetch,
+    registrations: harness.registrations,
+    effects: harness.ports.effects,
+  });
+  assert.equal(used.source, "stored-registration");
+  assert.equal(used.client.client_id, harness.client.client.client_id);
+  assert.equal(harness.server.counts.registration, 1);
+});
+
 test("a redirect URI outside the host origin is refused for every profile", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },
