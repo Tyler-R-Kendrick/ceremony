@@ -707,6 +707,13 @@ export type RefreshAccessTokenInput = {
   /** A narrower scope to request on refresh (RFC 6749 §6); never wider than the grant. */
   scopes?: readonly string[] | undefined;
   /**
+   * Extra parameters for the refresh request that a reviewed definition
+   * names (Nango's `refresh_params`). Held to the code exchange's rule: a
+   * name the grant owns - grant type, refresh token, client authentication,
+   * scope, resource - is refused before the refresh token is presented.
+   */
+  parameters?: Readonly<Record<string, string>> | undefined;
+  /**
    * Whether the credential custody now holds is still the one the caller saw
    * fail. False means another worker already renewed it between the failure
    * and this worker taking the lock: the current material is kept and no
@@ -743,6 +750,9 @@ export async function refreshAccessToken(
     throw new ConnectorError("unsupported", {
       detail: "oauth.token-endpoint.missing",
     });
+  // Checked before the lock is taken: a refresh token spent on a request
+  // the reviewer never approved cannot be spent again.
+  const extra = tokenRequestParameters(input.parameters);
   let observed: { rotated: boolean; permissions: PermissionRecord } | undefined;
   let result: { ref: string; expiresAt?: number };
   try {
@@ -816,6 +826,7 @@ export async function refreshAccessToken(
             {
               ...requestOptions(wire(ctx, input.server.allowLoopbackHttp)),
               additionalParameters: {
+                ...extra,
                 ...resourceParameters(
                   current["resource"] ?? input.policy.resource,
                 ),

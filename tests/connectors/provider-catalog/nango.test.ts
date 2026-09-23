@@ -239,6 +239,59 @@ test("OAUTH2 token_params become the entry's static code-exchange parameters", (
   }
 });
 
+test("OAUTH2 refresh_params become static refresh parameters, and refresh stays on", () => {
+  const imported = (refresh_params: Record<string, string>) =>
+    importNangoProviders(
+      JSON.stringify({
+        probe: {
+          auth_mode: "OAUTH2",
+          authorization_url: "https://auth.probe.example/authorize",
+          token_url: "https://auth.probe.example/token",
+          token_params: { audience: "https://api.probe.example" },
+          refresh_params: refresh_params,
+        },
+      }),
+    ).providers[0]!;
+  const item = imported({
+    grant_type: "refresh_token",
+    audience: "https://api.probe.example/${connectionConfig.region}",
+  });
+  assert.equal(item.executable, true);
+  const auth = item.entry.auth;
+  assert.equal(auth.mode, "oauth2-authorization-code");
+  if (auth.mode !== "oauth2-authorization-code") return;
+  assert.equal(auth.refresh, true);
+  // The code exchange's and the refresh's extras stay apart.
+  assert.deepEqual(auth.tokenParams, { audience: "https://api.probe.example" });
+  assert.deepEqual(auth.refreshParams, {
+    audience: "https://api.probe.example/${connectionConfig.region}",
+  });
+  assert.ok(codes(item).includes("catalog.nango.parameter-redundant"));
+  assert.deepEqual(
+    item.entry.connectionConfig.map((field) => field.name),
+    ["region"],
+  );
+  // No refresh extras is no field at all, so an entry digested before the
+  // field existed digests the same now and its bindings still resolve.
+  assert.equal("refreshParams" in imported({}).entry.auth, false);
+  // The same reserved names as token_params, reported under their own code.
+  for (const [name, value] of [
+    ["refresh_token", "x"],
+    ["grant_type", "authorization_code"],
+    ["client_secret", "x"],
+    ["scope", "admin"],
+    ["resource", "https://api.example"],
+    ["audience", "${apiKey}"],
+  ] as Array<[string, string]>) {
+    const refused = imported({ [name]: value });
+    assert.equal(refused.executable, false, name);
+    assert.ok(
+      codes(refused).includes("catalog.nango.refresh-params-unsupported"),
+      name,
+    );
+  }
+});
+
 test("loopback HTTP endpoints import only when the host opts in", () => {
   const document = {
     local: {

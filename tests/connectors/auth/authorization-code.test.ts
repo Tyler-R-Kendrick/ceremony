@@ -932,6 +932,59 @@ test("an extra token parameter that names one the grant owns is refused before t
   }
 });
 
+test("declared refresh parameters ride on the refresh request, under the same reserved names", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx, { scopes: ["profile"] });
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  const completed = await completeAuthorizationCode(ctx, {
+    url: new URL(callback),
+    handoff: record,
+    server: harness.resolved,
+    client: harness.client,
+    policy: harness.policy,
+  });
+  const scope = credentialScopeFor(ctx, record);
+  const refresh = (parameters: Record<string, string>) =>
+    refreshAccessToken(ctx, {
+      server: harness.resolved,
+      client: harness.client,
+      policy: harness.policy,
+      credentialRef: completed.credentialRef!,
+      scope,
+      parameters,
+    });
+  // A name the refresh grant owns is refused before the refresh token is
+  // presented: nothing reaches the wire or the journal.
+  const before = harness.server.counts.token;
+  for (const name of [
+    "refresh_token",
+    "grant_type",
+    "client_secret",
+    "client_assertion",
+    "scope",
+    "resource",
+    "not a name",
+  ])
+    await assert.rejects(
+      refresh({ [name]: "chosen-elsewhere" }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "oauth.token-parameter.reserved",
+      name,
+    );
+  assert.equal(harness.server.counts.token, before);
+  await refresh({ audience: "https://api.fixture.example" });
+  const sent = harness.server.tokenRequests.find(
+    (item) => item.grantType === "refresh_token",
+  );
+  assert.equal(sent?.parameters["audience"], "https://api.fixture.example");
+});
+
 test("a pre-joined scope value containing openid still binds a nonce", async (t) => {
   const harness = await authHarness(t, {
     configuration: { OAUTH_CLIENT_ID: "fixture-client" },

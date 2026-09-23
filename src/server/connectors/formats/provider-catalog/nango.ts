@@ -409,17 +409,21 @@ function mapAuthorizationParams(
   return { params, scopes };
 }
 
+/**
+ * `token_params`, or `refresh_params` for the refresh grant: static extras
+ * for one kind of token request. A parameter the grant sends itself is
+ * dropped when it only repeats it, and refused when it would change it.
+ */
 function tokenParameters(
   raw: Raw,
   key: string,
-  grant: "authorization_code" | "client_credentials",
+  grant: "authorization_code" | "client_credentials" | "refresh_token",
   issues: CompatibilityIssue[],
 ): Record<string, string> {
+  const from = grant === "refresh_token" ? "refresh_params" : "token_params";
   const params: Record<string, string> = {};
-  for (const [name, value] of Object.entries(
-    stringRecord(raw["token_params"]),
-  )) {
-    const at = pointer(key, "token_params", name);
+  for (const [name, value] of Object.entries(stringRecord(raw[from]))) {
+    const at = pointer(key, from, name);
     if (name === "grant_type" && value === grant) {
       issues.push(
         catalogIssue({
@@ -437,9 +441,11 @@ function tokenParameters(
       nonConnectionVariables(value).length
     )
       throw new Unsupported(
-        grant === "authorization_code" ? "OAUTH2" : "OAUTH2_CC",
+        grant === "client_credentials" ? "OAUTH2_CC" : "OAUTH2",
         "A token parameter overrides the grant or references a value the catalog cannot supply.",
-        "catalog.nango.token-params-unsupported",
+        grant === "refresh_token"
+          ? "catalog.nango.refresh-params-unsupported"
+          : "catalog.nango.token-params-unsupported",
         at,
       );
     params[name] = value;
@@ -619,29 +625,14 @@ function mapProvider(
         issues,
       );
       // Sent on the code exchange only; Nango keeps refresh-time extras in
-      // `refresh_params`, handled below.
+      // `refresh_params`, which ride on refresh requests only.
       const tokenParams = tokenParameters(
         raw,
         key,
         "authorization_code",
         issues,
       );
-      let refresh = true;
-      if (
-        isRecord(raw["refresh_params"]) &&
-        Object.keys(raw["refresh_params"]).length
-      ) {
-        refresh = false;
-        issues.push(
-          catalogIssue({
-            kind: "warning",
-            code: "catalog.nango.refresh-params",
-            pointer: pointer(key, "refresh_params"),
-            message:
-              "The provider needs extra refresh parameters the engine does not send, so refresh is disabled; the person reconnects when the token expires.",
-          }),
-        );
-      }
+      const refreshParams = tokenParameters(raw, key, "refresh_token", issues);
       if (raw["disable_pkce"] === true)
         issues.push(
           catalogIssue({
@@ -667,8 +658,9 @@ function mapProvider(
         scopeSeparator,
         authorizationParams: mapped.params,
         tokenParams,
+        ...(Object.keys(refreshParams).length ? { refreshParams } : {}),
         tokenRequestAuth: clientAuth(raw, key, "client_secret_post"),
-        refresh,
+        refresh: true,
       };
       break;
     }
@@ -772,6 +764,7 @@ function mapProvider(
       (auth["authorizationParams"] as Record<string, string>) ?? {},
     ),
     ...Object.values((auth["tokenParams"] as Record<string, string>) ?? {}),
+    ...Object.values((auth["refreshParams"] as Record<string, string>) ?? {}),
     ...Object.values(proxyHeaders),
   ].filter((value): value is string => typeof value === "string");
   const used = new Set<string>();

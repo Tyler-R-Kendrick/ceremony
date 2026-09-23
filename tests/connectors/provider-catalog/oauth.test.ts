@@ -335,13 +335,14 @@ test("a binding whose settings were altered after review is refused", async (t) 
   );
 });
 
-test("a provider's token_params ride on the code exchange only, as the reviewed entry wrote them", async (t) => {
+test("a provider's token_params ride on the code exchange and refresh_params on refresh, as the reviewed entry wrote them", async (t) => {
   const { server, harness, approved, connectionRef } = await connected(t, {
     provider: {
       token_params: {
         grant_type: "authorization_code",
         audience: "https://api.local-crm.example",
       },
+      refresh_params: { refresh_audience: "https://refresh.local-crm.example" },
     },
   });
   const exchange = server.tokenRequests.find(
@@ -354,6 +355,7 @@ test("a provider's token_params ride on the code exchange only, as the reviewed 
   // The grant's own parameters are the engine's, not the entry's.
   assert.equal(exchange?.parameters["grant_type"], "authorization_code");
   assert.ok(exchange?.parameters["code_verifier"]);
+  assert.equal(exchange?.parameters["refresh_audience"], undefined);
   // Refresh is a different message: Nango keeps its extras in refresh_params.
   harness.clock.advance(3600_000);
   const read = await harness.service.invoke(harness.actor, connectionRef, {
@@ -367,6 +369,10 @@ test("a provider's token_params ride on the code exchange only, as the reviewed 
   );
   assert.ok(refresh);
   assert.equal(refresh.parameters["audience"], undefined);
+  assert.equal(
+    refresh.parameters["refresh_audience"],
+    "https://refresh.local-crm.example",
+  );
 });
 
 test("an ID token is never asked for without keys to verify it", async (t) => {
