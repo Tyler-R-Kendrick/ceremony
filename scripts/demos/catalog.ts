@@ -48,6 +48,16 @@ export const demoCatalog: readonly DemoEntry[] = [
     docsPreview: true,
     load: () => import("./agent-creates-account.js"),
   },
+  {
+    id: "registration-recovers",
+    title: "Registration recovers from a taken address",
+    summary:
+      "The person's usual address is already registered. The driver reads the provider's refusal, asks the agent inbox for a fresh address, and finishes registration with it instead of stopping at the wall.",
+    scenario: "registration-recovers-with-fresh-address",
+    interpreter: "heuristic",
+    docsPreview: false,
+    load: () => import("./registration-recovers.js"),
+  },
 ];
 
 export function findDemos(names: readonly string[]): DemoEntry[] {
