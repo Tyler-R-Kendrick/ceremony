@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import * as oauth from "oauth4webapi";
 import { z } from "zod";
 import {
   canonicalConnectorJson,
@@ -29,15 +28,15 @@ import {
   completeAuthorizationCode,
   credentialAcceptedClaim,
   credentialScopeFor,
+  grantClientCredentials,
   issuerPolicy,
   permissionRecord,
   refreshAccessToken,
-  requestOptions,
+  renewClientCredentials,
   resolveAuthorizationServer,
   resolveClientRegistration,
-  splitScope,
-  wireError,
   type IssuerPolicy,
+  type PermissionRecord,
   type ResolvedAuthorizationServer,
   type ResolvedClient,
 } from "../../auth/index.js";
@@ -49,12 +48,8 @@ import {
 } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { parseBoundedDocument } from "../../import/parse.js";
-import type {
-  CredentialMaterial,
-  CredentialScope,
-  HandoffPort,
-  HandoffRecord,
-} from "../../ports.js";
+import { beginAttempt } from "../../attempts.js";
+import type { CredentialMaterial, CredentialScope } from "../../ports.js";
 import { readBoundedBody, responseIsJson } from "../openapi/serialize.js";
 import {
   CATALOG_ECOSYSTEM,
@@ -107,9 +102,12 @@ import {
  *   material, and a provider response that echoes a credential back has that
  *   value redacted before it leaves the callback.
  * - OAuth goes through the shared engine in `auth/*`: authorization code with
- *   S256 PKCE, one-use codes journaled before exchange, refresh under the
- *   custody port's single-flight lock. Client credentials is a small local
- *   request (see `requestClientCredentials`) until the engine exports one.
+ *   S256 PKCE, one-use codes journaled before exchange, client credentials,
+ *   and renewal under the custody port's single-flight lock -- ahead of
+ *   expiry, and once more when the provider refuses a presented token.
+ *   The engine settles the authorization handoff itself, as it does for every
+ *   other adapter, and says so (`handoffSettled`), so the command layer makes
+ *   the one state transition and never a second.
  * - Support is reported as a fixture. The adapter is exercised against
  *   loopback protocol fixtures; that is not evidence any particular provider
  *   in a catalog works, and nothing here says it is.
@@ -204,102 +202,6 @@ const credentialValue = z
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-/**
- * Client credentials (RFC 6749 §4.4), local to this adapter until the shared
- * engine exports its own; the call shape matches the other grants so it can
- * be swapped without touching the adapter. Same wire rules: the injected
- * fetch, redirects refused, a bounded time, provider errors reduced to codes.
- */
-export async function requestClientCredentials(
-  ctx: AdapterCallContext,
-  input: {
-    server: ResolvedAuthorizationServer;
-    client: ResolvedClient;
-    scope: string;
-    parameters: Record<string, string>;
-  },
-): Promise<{
-  material: Record<string, string>;
-  expiresAt?: number;
-  scope?: string;
-}> {
-  const parameters = new URLSearchParams(input.parameters);
-  if (input.scope) parameters.set("scope", input.scope);
-  let tokens: oauth.TokenEndpointResponse;
-  try {
-    const response = await oauth.clientCredentialsGrantRequest(
-      input.server.metadata,
-      input.client.client,
-      input.client.authentication(),
-      parameters,
-      requestOptions({
-        fetch: ctx.environment.fetch,
-        signal: ctx.signal,
-        allowLoopbackHttp: input.server.allowLoopbackHttp,
-      }),
-    );
-    tokens = await oauth.processClientCredentialsResponse(
-      input.server.metadata,
-      input.client.client,
-      response,
-    );
-  } catch (error) {
-    throw wireError(error, "oauth.client-credentials");
-  }
-  const expiresAt =
-    typeof tokens.expires_in === "number" && tokens.expires_in > 0
-      ? ctx.environment.now() + tokens.expires_in * 1000
-      : undefined;
-  return {
-    material: {
-      access_token: tokens.access_token,
-      token_type: tokens.token_type,
-      issuer: input.server.issuer,
-      client_id: input.client.client.client_id,
-      ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
-      ...(expiresAt !== undefined ? { expires_at: String(expiresAt) } : {}),
-    },
-    ...(expiresAt !== undefined ? { expiresAt } : {}),
-    ...(tokens.scope !== undefined ? { scope: tokens.scope } : {}),
-  };
-}
-
-/**
- * The engine completes the handoff itself, but under the command layer the
- * one-use transition belongs to the service, which completes it after the
- * adapter returns (and would otherwise find it already consumed). So the
- * engine's completion is turned into the fence it exists for -- same handoff,
- * current generation, still pending -- and the state change is left to the
- * service. The code itself is still one-use: the engine journals it before
- * exchange.
- */
-function deferHandoffCompletion(
-  ctx: AdapterCallContext,
-  handoff: HandoffRecord,
-): AdapterCallContext {
-  const real = ctx.environment.handoffs;
-  const handoffs: HandoffPort = {
-    issue: (input) => real.issue(input),
-    present: (actor, ref) => real.present(actor, ref),
-    resolveCorrelation: (tenantId, key) =>
-      real.resolveCorrelation(tenantId, key),
-    cancelAll: (connectionRef, reason) => real.cancelAll(connectionRef, reason),
-    async complete(handoffRef, expectedGeneration, state) {
-      if (
-        handoffRef !== handoff.handoffRef ||
-        expectedGeneration !== handoff.generation ||
-        expectedGeneration !== ctx.generation ||
-        (handoff.state !== "issued" && handoff.state !== "waiting")
-      )
-        throw new ConnectorError("conflict", {
-          detail: "oauth.handoff.stale-generation",
-        });
-      return { ...handoff, state };
-    },
-  };
-  return { ...ctx, environment: { ...ctx.environment, handoffs } };
 }
 
 /** Replaces every occurrence of a secret value in strings of a JSON value. */
@@ -666,6 +568,14 @@ export function createCatalogHttpAdapter(
       described.expiresAt - ctx.environment.now() > REFRESH_SKEW_MS
     )
       return;
+    // A worker that renewed while this one waited on the lock leaves nothing
+    // to do: only a token still inside the skew is renewed.
+    const stale = (current: Readonly<CredentialMaterial>) => {
+      const held = Number(current["expires_at"]);
+      return !(
+        Number.isFinite(held) && held - ctx.environment.now() > REFRESH_SKEW_MS
+      );
+    };
     const context = await oauthContext(ctx, entry, auth, values);
     if (auth.mode === "oauth2-authorization-code") {
       if (!auth.refresh)
@@ -678,21 +588,85 @@ export function createCatalogHttpAdapter(
         policy: context.policy,
         credentialRef: ref,
         scope,
+        stillStale: stale,
       });
       return;
     }
-    await ctx.environment.credentials.refresh(scope, ref, async (current) => {
-      const next = await requestClientCredentials(ctx, {
-        server: context.server,
-        client: context.client,
-        scope: current["scope"] ?? requestedScopes(auth, []),
-        parameters: tokenParameters(entry, auth, values),
-      });
-      return {
-        material: next.material,
-        ...(next.expiresAt !== undefined ? { expiresAt: next.expiresAt } : {}),
-      };
+    await renewClientCredentials(ctx, {
+      ...clientCredentialsInput(ctx, entry, auth, values, context),
+      credentialRef: ref,
+      stillStale: stale,
     });
+  }
+
+  /**
+   * One renewal after the provider refused the token this call presented.
+   * Custody's single-flight lock makes invocations refused together renew
+   * once: a follower finds the held token is no longer the one refused and
+   * presents nothing. False when this entry cannot renew (no refresh, not
+   * OAuth, no refresh token held), so the caller keeps the refusal.
+   */
+  async function renewRefused(
+    ctx: AdapterCallContext,
+    entry: ProviderCatalogEntry,
+    values: Record<string, string>,
+    scope: CredentialScope,
+    ref: string,
+    refused: string,
+  ): Promise<boolean> {
+    const auth = entry.auth;
+    const stillStale = (current: Readonly<CredentialMaterial>) =>
+      sha256(current["access_token"] ?? "") === refused;
+    if (auth.mode === "oauth2-client-credentials") {
+      const context = await oauthContext(ctx, entry, auth, values);
+      await renewClientCredentials(ctx, {
+        ...clientCredentialsInput(ctx, entry, auth, values, context),
+        credentialRef: ref,
+        stillStale,
+      });
+      return true;
+    }
+    if (auth.mode !== "oauth2-authorization-code" || !auth.refresh)
+      return false;
+    const context = await oauthContext(ctx, entry, auth, values);
+    try {
+      await refreshAccessToken(ctx, {
+        server: context.refreshServer,
+        client: context.client,
+        policy: context.policy,
+        credentialRef: ref,
+        scope,
+        stillStale,
+      });
+    } catch (error) {
+      if (
+        error instanceof ConnectorError &&
+        error.detail === "oauth.refresh.no-refresh-token"
+      )
+        return false;
+      throw error;
+    }
+    return true;
+  }
+
+  /** The engine's client-credentials input for this entry and connection. */
+  function clientCredentialsInput(
+    ctx: AdapterCallContext,
+    entry: ProviderCatalogEntry,
+    auth: ClientCredentials,
+    values: Record<string, string>,
+    context: OAuthContext,
+  ) {
+    const requested = requestedScopes(auth, []);
+    return {
+      server: context.server,
+      client: context.client,
+      policy: context.policy,
+      scopes: requested ? requested.split(auth.scopeSeparator) : [],
+      scopeSeparator: auth.scopeSeparator,
+      scope: scopeFor(ctx),
+      parameters: tokenParameters(entry, auth, values),
+    };
   }
 
   function tokenParameters(
@@ -719,11 +693,15 @@ export function createCatalogHttpAdapter(
       response: Response,
       secrets: readonly string[],
     ) => Promise<InvokeResult>,
+    /** Receives a digest of the OAuth access token presented; never the token. */
+    presented?: { digest?: string },
   ): Promise<InvokeResult> {
     const perform = async (material: CredentialMaterial | undefined) => {
       const url = new URL(request.url.href);
       const headers = new Headers(request.headers);
       if (material) placeCredential(entry, material, headers, url);
+      if (presented && material?.["access_token"])
+        presented.digest = sha256(material["access_token"]);
       const controller = new AbortController();
       const onAbort = () => controller.abort();
       ctx.signal.addEventListener("abort", onAbort, { once: true });
@@ -1292,13 +1270,18 @@ export function createCatalogHttpAdapter(
           code: "catalog.callback.unexpected",
         };
       const context = await oauthContext(ctx, entry, auth, values);
-      return completeAuthorizationCode(deferHandoffCompletion(ctx, handoff), {
+      const result = await completeAuthorizationCode(ctx, {
         url: input.url,
         handoff,
         server: context.server,
         client: context.client,
         policy: context.policy,
       });
+      // The grant settled the handoff itself, under the generation fence,
+      // for these outcomes; the command layer records it and moves on.
+      return ["complete", "denied", "expired"].includes(result.state)
+        ? { ...result, handoffSettled: true }
+        : result;
     },
 
     async verify(ctx: AdapterCallContext): Promise<CompletionResult> {
@@ -1316,55 +1299,36 @@ export function createCatalogHttpAdapter(
       if (auth.mode === "none") return { state: "complete", claims: [] };
       if (auth.mode === "oauth2-client-credentials") {
         const context = await oauthContext(ctx, entry, auth, values);
-        const scope = scopeFor(ctx);
-        const requested = requestedScopes(auth, []);
-        const parameters = tokenParameters(entry, auth, values);
+        const input = clientCredentialsInput(ctx, entry, auth, values, context);
         let credentialRef = ctx.connection?.credentialRef;
-        let reported: string | undefined;
+        let permissions: PermissionRecord | undefined;
         let expiresAt: number | undefined;
         if (credentialRef) {
-          const result = await ctx.environment.credentials.refresh(
-            scope,
+          // Verification re-runs the grant: a token proves the client is
+          // still accepted only if the issuer just issued it.
+          const renewed = await renewClientCredentials(ctx, {
+            ...input,
             credentialRef,
-            async () => {
-              const next = await requestClientCredentials(ctx, {
-                server: context.server,
-                client: context.client,
-                scope: requested,
-                parameters,
-              });
-              reported = next.scope;
-              return {
-                material: next.material,
-                ...(next.expiresAt !== undefined
-                  ? { expiresAt: next.expiresAt }
-                  : {}),
-              };
-            },
-          );
-          credentialRef = result.ref;
-          expiresAt = result.expiresAt;
-        } else {
-          const next = await requestClientCredentials(ctx, {
-            server: context.server,
-            client: context.client,
-            scope: requested,
-            parameters,
           });
-          reported = next.scope;
-          expiresAt = next.expiresAt;
+          credentialRef = renewed.credentialRef;
+          expiresAt = renewed.expiresAt;
+          permissions = renewed.permissions;
+        } else {
+          const granted = await grantClientCredentials(ctx, input);
+          expiresAt = granted.expiresAt;
+          permissions = granted.permissions;
           credentialRef = await ctx.environment.credentials.store(
-            scope,
-            next.material,
-            next.expiresAt !== undefined ? { expiresAt: next.expiresAt } : {},
+            input.scope,
+            granted.material,
+            expiresAt !== undefined ? { expiresAt } : {},
           );
         }
         return {
           state: "complete",
           claims: [
             acceptedClaim(ctx, entry, context.server.issuer, {
-              requested: splitScope(requested.replace(/,/g, " ")),
-              reported: splitScope(reported?.replace(/,/g, " ")),
+              requested: permissions?.requested ?? input.scopes,
+              reported: permissions?.reported ?? [],
               ...(expiresAt !== undefined ? { validUntil: expiresAt } : {}),
             }),
           ],
@@ -1469,158 +1433,190 @@ export function createCatalogHttpAdapter(
       // upstream call whose outcome is unknown.
       if (scope && ref) await ensureFresh(ctx, entry, values, scope, ref);
 
-      // The digest identifies "the same effect": method, destination and
-      // target, body. Credentials are deliberately not part of it.
-      const digest = sha256(
-        canonicalConnectorJson({
-          method,
-          destination: destination.id,
-          target: `${url.pathname}${url.search}`,
-          body: body ?? null,
-        }),
-      );
-      const { effectRef, prior } = await ctx.environment.effects.begin({
-        actor: ctx.actor,
-        ...(ctx.connection
-          ? { connectionRef: ctx.connection.connectionRef }
-          : {}),
-        bindingRef: ctx.binding.bindingRef,
-        operation: request.operationRef,
-        digest,
-        ...(request.idempotencyKey &&
-        bound.replay === "upstream-idempotency-key"
-          ? {
-              idempotency: {
-                key: request.idempotencyKey,
-                scope: destination.id,
-              },
-            }
-          : {}),
-        commandId: request.commandId,
-      });
-      if (
-        prior &&
-        bound.replay !== "read-only" &&
-        prior.status !== "not-applied"
-      )
-        return {
-          state: prior.status === "applied" ? "complete" : "indeterminate",
-          outputClassification: bound.outputClassification,
-          effect: bound.effect,
-          ...(prior.code ? { code: prior.code } : {}),
-          effectRef,
-        };
-      if (request.idempotencyKey && bound.replay === "upstream-idempotency-key")
-        headers.set("idempotency-key", request.idempotencyKey);
-
-      const finish = async (
-        status: "applied" | "not-applied" | "failed" | "indeterminate",
-        code?: string,
-      ) =>
-        ctx.environment.effects.complete(effectRef, {
-          status,
-          ...(code ? { code } : {}),
-          at: ctx.environment.now(),
-        });
-      const outcome = (
-        state: InvokeResult["state"],
-        extra: Partial<InvokeResult> = {},
-      ): InvokeResult => ({
-        state,
-        outputClassification: bound.outputClassification,
-        effect: bound.effect,
-        effectRef,
-        ...extra,
-      });
-
-      try {
-        return await send(
-          ctx,
-          entry,
-          { method, url, headers, ...(body !== undefined ? { body } : {}) },
-          scope,
-          ref,
-          async (response, secrets) => {
-            const { bytes, exceeded } = await readBoundedBody(
-              response,
-              maxResponseBytes,
-            );
-            if (!response.ok) {
-              const status = response.status;
-              const rejected = status === 401 || status === 403;
-              const code = rejected
-                ? "credential.rejected"
-                : status >= 500
-                  ? "upstream-unavailable"
-                  : "upstream-rejected";
-              await finish(
-                status >= 500 ? "indeterminate" : "not-applied",
-                code,
-              );
-              // An error body can quote the request back, credential and all;
-              // only the status leaves.
-              return outcome(
-                status >= 500 && bound.effect !== "read"
-                  ? "indeterminate"
-                  : "failed",
-                { code, output: { status } },
-              );
-            }
-            await finish(
-              "applied",
-              exceeded ? "catalog.response-too-large" : undefined,
-            );
-            if (exceeded)
-              return outcome("failed", {
-                code: "catalog.response-too-large",
-                output: { status: response.status },
-              });
-            const contentType = response.headers.get("content-type");
-            let payload: unknown;
-            if (bytes.byteLength && responseIsJson(contentType)) {
-              try {
-                payload = JSON.parse(
-                  new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-                );
-              } catch {
-                return outcome("failed", {
-                  code: "catalog.response-not-json",
-                  output: { status: response.status },
-                });
-              }
-            } else if (bytes.byteLength && /^text\//i.test(contentType ?? ""))
-              payload = new TextDecoder("utf-8").decode(bytes);
-            return outcome("complete", {
-              output: redact(
-                {
-                  status: response.status,
-                  ...(payload !== undefined ? { body: payload } : {}),
-                  ...(payload === undefined && bytes.byteLength
-                    ? { bodyOmitted: "not-json-or-text" }
-                    : {}),
-                },
-                secrets,
-              ),
-            });
+      const presented: { digest?: string } = {};
+      const attempt = async (): Promise<InvokeResult> => {
+        // The digest identifies "the same effect": method, destination and
+        // target, body. Credentials are deliberately not part of it.
+        const digest = sha256(
+          canonicalConnectorJson({
+            method,
+            destination: destination.id,
+            target: `${url.pathname}${url.search}`,
+            body: body ?? null,
+          }),
+        );
+        // A read-only read is its own entry each time; anything else is an
+        // attempt at one effect, and the attempt after a refusal that never
+        // applied (the 401 a renewal cures included) is the next entry of it.
+        const { effectRef, prior } = await beginAttempt(
+          ctx.environment.effects,
+          {
+            actor: ctx.actor,
+            ...(ctx.connection
+              ? { connectionRef: ctx.connection.connectionRef }
+              : {}),
+            bindingRef: ctx.binding.bindingRef,
+            operation: request.operationRef,
+            digest,
+            ...(request.idempotencyKey &&
+            bound.replay === "upstream-idempotency-key"
+              ? {
+                  idempotency: {
+                    key: request.idempotencyKey,
+                    scope: destination.id,
+                  },
+                }
+              : {}),
+            commandId: request.commandId,
+          },
+          {
+            mode:
+              bound.replay === "read-only" ? "each-request" : "until-applied",
+            random: ctx.environment.random,
           },
         );
-      } catch (error) {
-        if (error instanceof ConnectorError) {
-          await finish("not-applied", error.detail ?? error.code).catch(
-            () => {},
-          );
-          throw error;
-        }
-        // No response: a write may still have landed upstream.
-        const lost = bound.effect !== "read";
-        await finish(
-          lost ? "indeterminate" : "not-applied",
-          "upstream-unavailable",
-        );
-        return outcome(lost ? "indeterminate" : "failed", {
-          code: "upstream-unavailable",
+        if (prior)
+          return {
+            state:
+              prior.status === "applied" || prior.status === "reconciled"
+                ? "complete"
+                : prior.status === "indeterminate"
+                  ? "indeterminate"
+                  : "failed",
+            outputClassification: bound.outputClassification,
+            effect: bound.effect,
+            ...(prior.code ? { code: prior.code } : {}),
+            effectRef,
+          };
+        if (
+          request.idempotencyKey &&
+          bound.replay === "upstream-idempotency-key"
+        )
+          headers.set("idempotency-key", request.idempotencyKey);
+
+        const finish = async (
+          status: "applied" | "not-applied" | "failed" | "indeterminate",
+          code?: string,
+        ) =>
+          ctx.environment.effects.complete(effectRef, {
+            status,
+            ...(code ? { code } : {}),
+            at: ctx.environment.now(),
+          });
+        const outcome = (
+          state: InvokeResult["state"],
+          extra: Partial<InvokeResult> = {},
+        ): InvokeResult => ({
+          state,
+          outputClassification: bound.outputClassification,
+          effect: bound.effect,
+          effectRef,
+          ...extra,
         });
+
+        try {
+          return await send(
+            ctx,
+            entry,
+            { method, url, headers, ...(body !== undefined ? { body } : {}) },
+            scope,
+            ref,
+            async (response, secrets) => {
+              const { bytes, exceeded } = await readBoundedBody(
+                response,
+                maxResponseBytes,
+              );
+              if (!response.ok) {
+                const status = response.status;
+                const rejected = status === 401 || status === 403;
+                const code = rejected
+                  ? "credential.rejected"
+                  : status >= 500
+                    ? "upstream-unavailable"
+                    : "upstream-rejected";
+                await finish(
+                  status >= 500 ? "indeterminate" : "not-applied",
+                  code,
+                );
+                // An error body can quote the request back, credential and all;
+                // only the status leaves.
+                return outcome(
+                  status >= 500 && bound.effect !== "read"
+                    ? "indeterminate"
+                    : "failed",
+                  { code, output: { status } },
+                );
+              }
+              await finish(
+                "applied",
+                exceeded ? "catalog.response-too-large" : undefined,
+              );
+              if (exceeded)
+                return outcome("failed", {
+                  code: "catalog.response-too-large",
+                  output: { status: response.status },
+                });
+              const contentType = response.headers.get("content-type");
+              let payload: unknown;
+              if (bytes.byteLength && responseIsJson(contentType)) {
+                try {
+                  payload = JSON.parse(
+                    new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+                  );
+                } catch {
+                  return outcome("failed", {
+                    code: "catalog.response-not-json",
+                    output: { status: response.status },
+                  });
+                }
+              } else if (bytes.byteLength && /^text\//i.test(contentType ?? ""))
+                payload = new TextDecoder("utf-8").decode(bytes);
+              return outcome("complete", {
+                output: redact(
+                  {
+                    status: response.status,
+                    ...(payload !== undefined ? { body: payload } : {}),
+                    ...(payload === undefined && bytes.byteLength
+                      ? { bodyOmitted: "not-json-or-text" }
+                      : {}),
+                  },
+                  secrets,
+                ),
+              });
+            },
+            presented,
+          );
+        } catch (error) {
+          if (error instanceof ConnectorError) {
+            await finish("not-applied", error.detail ?? error.code).catch(
+              () => {},
+            );
+            throw error;
+          }
+          // No response: a write may still have landed upstream.
+          const lost = bound.effect !== "read";
+          await finish(
+            lost ? "indeterminate" : "not-applied",
+            "upstream-unavailable",
+          );
+          return outcome(lost ? "indeterminate" : "failed", {
+            code: "upstream-unavailable",
+          });
+        }
+      };
+
+      const first = await attempt();
+      const refused = presented.digest;
+      if (first.code !== "credential.rejected" || !scope || !ref || !refused)
+        return first;
+      let renewed: boolean;
+      try {
+        renewed = await renewRefused(ctx, entry, values, scope, ref, refused);
+      } catch {
+        // The renewal's own code stays in the journal it wrote.
+        return { ...first, code: "catalog.credential-renewal-failed" };
       }
+      return renewed ? attempt() : first;
     },
 
     async disconnect(

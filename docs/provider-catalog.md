@@ -132,16 +132,21 @@ from Nango.
 4. **Use.** `invoke` sends a caller-named path under the approved base. The
    destination's origin must equal the entry's declared proxy origin. Expiring
    OAuth credentials are refreshed first, under the custody port's
-   single-flight lock. Error responses return only their status, and a
-   response that quotes a credential back has it redacted.
+   single-flight lock; a token the provider refuses with 401 or 403 is renewed
+   once (refresh token, or a new client-credentials grant) and the request
+   retried once, each request journaled as its own attempt. Error responses
+   return only their status, and a response that quotes a credential back has
+   it redacted.
 
 ## Limits
 
 - Evidence is `protocol-fixture`: the adapter is exercised end to end against
   loopback fixtures (`tests/connectors/provider-catalog/`). That is not
   evidence that any provider in a catalog works, and no entry is labelled live.
-- Client credentials is a small local request in the adapter, pending a shared
-  engine export.
+- Client credentials uses the shared engine grant (`grantClientCredentials`,
+  `renewClientCredentials`), with the entry's `tokenParams` as extra token
+  parameters; parameters the grant owns (grant type, client authentication,
+  scope, resource) cannot be set that way.
 - Not described by the format: OAuth 1.0a, request signing, app installations,
   custom multi-step flows, webhooks, pagination and retries, extra token
   parameters on the authorization-code grant, and upstream revocation.

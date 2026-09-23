@@ -50,13 +50,39 @@ export type ClientCredentialsInput = {
   scopes: readonly string[];
   /** The custody scope the token is stored under; the connection's own. */
   scope: CredentialScope;
+  /**
+   * Extra token-request parameters a reviewed definition names (an
+   * `audience`, say). Host-authored inert values only; a parameter the grant
+   * itself owns -- grant type, client authentication, scope, resource -- is
+   * never taken from here.
+   */
+  parameters?: Readonly<Record<string, string>> | undefined;
+  /** How this issuer separates scopes; RFC 6749 says a space, some providers use a comma. */
+  scopeSeparator?: " " | "," | undefined;
 };
 
-type Granted = {
+export type ClientCredentialsGrant = {
   material: Record<string, string>;
   expiresAt?: number;
   permissions: PermissionRecord;
 };
+
+/** Parameters the grant sets itself; a definition's extra parameters cannot replace them. */
+const RESERVED_PARAMETERS = new Set([
+  "grant_type",
+  "scope",
+  "resource",
+  "client_id",
+  "client_secret",
+  "client_assertion",
+  "client_assertion_type",
+]);
+
+function scopesOf(value: string | undefined, separator: " " | ","): string[] {
+  return separator === ","
+    ? splitScope(value?.replace(/,/g, " "))
+    : splitScope(value);
+}
 
 function assertConfidential(client: ResolvedClient): void {
   // A public client has nothing to authenticate with; a token endpoint that
@@ -67,17 +93,29 @@ function assertConfidential(client: ResolvedClient): void {
     });
 }
 
-async function grant(
+/**
+ * One client-credentials token request, journaled, returning the material to
+ * store and the permissions the issuer reported. `acquireClientCredentials`
+ * stores it for a connection; an adapter with its own storage and claims (a
+ * data-defined catalog entry, say) may call this directly.
+ */
+export async function grantClientCredentials(
   ctx: AdapterCallContext,
   input: ClientCredentialsInput,
-): Promise<Granted> {
+): Promise<ClientCredentialsGrant> {
   const as = input.server.metadata;
   if (typeof as.token_endpoint !== "string")
     throw new ConnectorError("unsupported", {
       detail: "oauth.token-endpoint.missing",
     });
   assertConfidential(input.client);
-  const scope = joinScope([...new Set(input.scopes)]);
+  const separator = input.scopeSeparator ?? " ";
+  const requested = [...new Set(input.scopes)];
+  const scope =
+    separator === " " ? joinScope(requested) : requested.join(separator);
+  const extra: Record<string, string> = {};
+  for (const [name, value] of Object.entries(input.parameters ?? {}))
+    if (!RESERVED_PARAMETERS.has(name)) extra[name] = value;
   const clientId = input.client.client.client_id;
   const begun = await ctx.environment.effects.begin({
     actor: ctx.actor,
@@ -111,6 +149,7 @@ async function grant(
       input.client.client,
       input.client.authentication(),
       {
+        ...extra,
         ...(scope ? { scope } : {}),
         ...resourceParameters(input.policy.resource),
       },
@@ -169,8 +208,8 @@ async function grant(
     },
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     permissions: permissionRecord({
-      requested: splitScope(scope),
-      reported: splitScope(tokens.scope),
+      requested,
+      reported: scopesOf(tokens.scope, separator),
       source: tokens.scope !== undefined ? "token-response" : "none",
     }),
   };
@@ -186,7 +225,7 @@ export async function acquireClientCredentials(
   ctx: AdapterCallContext,
   input: ClientCredentialsInput,
 ): Promise<CompletionResult> {
-  const granted = await grant(ctx, input);
+  const granted = await grantClientCredentials(ctx, input);
   const credentialRef = await ctx.environment.credentials.store(
     input.scope,
     granted.material,
@@ -228,9 +267,15 @@ export async function renewClientCredentials(
     /** As for `refreshAccessToken`: false keeps a token another worker already renewed. */
     stillStale?: ((current: CredentialMaterial) => boolean) | undefined;
   },
-): Promise<{ credentialRef: string; expiresAt?: number }> {
+): Promise<{
+  credentialRef: string;
+  expiresAt?: number;
+  /** What the issuer reported, when this call ran the grant (not when another worker had). */
+  permissions?: PermissionRecord;
+}> {
   assertConfidential(input.client);
   let result: { ref: string; expiresAt?: number };
+  let permissions: PermissionRecord | undefined;
   try {
     result = await ctx.environment.credentials.refresh(
       input.scope,
@@ -257,12 +302,13 @@ export async function renewClientCredentials(
               : {}),
           };
         }
-        const granted = await grant(ctx, {
+        const granted = await grantClientCredentials(ctx, {
           ...input,
           scopes: input.scopes.length
             ? input.scopes
-            : splitScope(current["scope"]),
+            : scopesOf(current["scope"], input.scopeSeparator ?? " "),
         });
+        permissions = granted.permissions;
         return {
           material: granted.material,
           ...(granted.expiresAt !== undefined
@@ -281,5 +327,6 @@ export async function renewClientCredentials(
   return {
     credentialRef: result.ref,
     ...(result.expiresAt !== undefined ? { expiresAt: result.expiresAt } : {}),
+    ...(permissions ? { permissions } : {}),
   };
 }
