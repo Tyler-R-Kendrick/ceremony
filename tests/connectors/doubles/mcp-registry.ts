@@ -53,6 +53,12 @@ export type RegistryDoubleFaults = {
   oversizedList?: boolean | undefined;
   /** Serve syntactically broken JSON. */
   malformedList?: boolean | undefined;
+  /**
+   * Hold every list response this long before answering. A client timeout
+   * shorter than this is then certain to fire, instead of racing a loopback
+   * reply that can arrive inside a millisecond.
+   */
+  stallListMs?: number | undefined;
 };
 
 export type McpRegistryDoubleOptions = {
@@ -144,6 +150,8 @@ export async function startMcpRegistryDouble(
       segments.length === 2
     ) {
       listRequests++;
+      if (faults.stallListMs)
+        await new Promise((resolve) => setTimeout(resolve, faults.stallListMs));
       const fault = faults.failListRequest;
       if (
         fault &&
