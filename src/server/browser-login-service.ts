@@ -40,6 +40,7 @@ import {
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
 import { totpCode, totpSeedSpellings } from "./totp.js";
+import { storageStateSchema, type BrowserStateStore } from "./browser-state.js";
 
 /**
  * One authorized browser login, end to end.
@@ -103,7 +104,35 @@ export type LoginServiceOptions = {
    * sent anywhere.
    */
   modelInterpreter?: () => CeremonyInterpreter | undefined;
+  /**
+   * Where verified sessions are kept between logins, when the host wants a
+   * later login for the same subject, connector, origin and account to start
+   * from the cookies the last one earned.
+   *
+   * Absent means every login starts from an empty browser, which is the
+   * conservative default: a saved state is a bearer credential, and keeping
+   * one is a decision a host makes, not one this service makes for it.
+   */
+  states?: BrowserStateStore;
 };
+
+/**
+ * Which saved state a plan may reuse.
+ *
+ * The subject is not here because the store already scopes every slot to it.
+ * What is here is everything that makes two logins "the same login": the
+ * connector, the origin the login starts at, and the account it expects. A
+ * plan that accepts whichever account is present shares a slot only with
+ * other such plans, so a state kept for an expected account is never offered
+ * to a plan that would accept anyone.
+ */
+function stateSlot(plan: EffectiveLoginPlan): string {
+  return JSON.stringify([
+    plan.connectorId,
+    new URL(plan.entryUrl).origin,
+    plan.account.kind === "expect" ? plan.account.accountRef : "*",
+  ]);
+}
 
 export type LoginRunInput = {
   plan: EffectiveLoginPlan;
@@ -242,8 +271,24 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
 
         let context: ManagedContext | undefined;
         let retained = false;
+        // A session this subject verified earlier for this same login, when
+        // the host keeps them. Restoring it is an optimisation and nothing
+        // more: the drive still runs, and the verifier still decides who is
+        // signed in, so a stale or foreign cookie jar costs a login form and
+        // never a wrong answer.
+        const slot = stateSlot(plan);
+        const restore =
+          options.states && browser.descriptor.capabilities.statePersistence
+            ? await options.states.recall(actor, slot).catch(() => undefined)
+            : undefined;
         try {
-          context = await browser.openContext();
+          context = restore
+            ? await browser
+                .openContext({ storageState: restore })
+                // A state that could not be restored is a fresh context, not a
+                // failed login: the person's credentials still work.
+                .catch(() => browser.openContext())
+            : await browser.openContext();
           const { page } = await context.openPage({
             // What the plan said about frames, and the only route it has to
             // the adapter. A plan that declares a frame origin requires the
@@ -367,6 +412,35 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
             evidence,
             evidenceRef,
           );
+          // Kept only once the provider has said whose session this is, and
+          // only for a plan that asked for the session to outlive the call. A
+          // `dispose` continuation asked for nothing to remain; an unverified
+          // one has no account to key the state to. The export goes straight
+          // into the encrypted store and is never returned from here.
+          //
+          // Best-effort: failing to remember a session must not turn a
+          // verified login into a failed one.
+          if (
+            options.states &&
+            plan.continuation !== "dispose" &&
+            browser.descriptor.capabilities.statePersistence
+          ) {
+            const states = options.states;
+            await context
+              .saveState()
+              .then((state) =>
+                states.remember(
+                  actor,
+                  slot,
+                  {
+                    browserGeneration: browser.browserGeneration,
+                    effectivePlanDigest: plan.digest,
+                  },
+                  storageStateSchema.parse(state),
+                ),
+              )
+              .catch(() => {});
+          }
           if (plan.continuation === "dispose") {
             // The caller asked for the old ephemeral behaviour. The account was
             // still genuinely verified; the session simply does not outlive it.
