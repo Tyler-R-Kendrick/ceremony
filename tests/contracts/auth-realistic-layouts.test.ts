@@ -65,8 +65,6 @@ const heuristicExclusions: Record<string, string> = {
     "`stalled` is the driver's verdict on an interpreter that keeps pressing a dead button; the heuristic reports the page unsupported instead of pressing again, by design",
   "sign-in-that-never-accepts":
     "`exhausted` is the driver's verdict on an interpreter that keeps resubmitting; the heuristic stops after one refill rather than spending the step budget, by design",
-  "device-approval":
-    "the heuristic has no user-code role; device authorization is outside the sign-in, registration, two-factor and authorization-code pages these layouts model",
   "access-token-issued-for-private-collection":
     "the heuristic does not recognise a page displaying an issued credential as the end of the ceremony, on any layout; issuing a credential is outside what these layouts model",
 };
@@ -95,7 +93,7 @@ async function run(
   await page.goto(plan.entryUrl);
   const recorded = recordDecisions(interpreter);
   const { entryUrl: _entry, state, ...options } = plan;
-  const human = scenario.human?.(page, identity);
+  const human = scenario.human?.(page, identity, context);
   const result = await runCeremony({
     ...options,
     page,

@@ -128,7 +128,7 @@ export type ScriptedInterpreterOptions = {
 export function createScriptedInterpreter(
   options: ScriptedInterpreterOptions = {},
 ): CeremonyInterpreter {
-  return async ({ goal, snapshot, available, history }) => {
+  return async ({ goal, snapshot, available, history, choices = {} }) => {
     const alerts = snapshot.alerts.join(" ");
     const headings = snapshot.headings.join(" ");
     const has = (role: CeremonyRole) => available.includes(role);
@@ -221,6 +221,10 @@ export function createScriptedInterpreter(
           role: "username",
         });
       if (!has(role)) {
+        // The code a device shows is on the device, not in this caller's
+        // hands; only a person holding it can enter it.
+        if (role === "user-code" && element.filled !== true)
+          return act({ action: "blocked", reason: "device-code-required" });
         // A confirmation field with no code on offer means the confirmation
         // arrives out of band; waiting is the only honest move.
         if (role === "verification-code" && element.filled !== true)
@@ -232,6 +236,19 @@ export function createScriptedInterpreter(
     }
     if (awaited && count(history, "wait") < 4)
       return act({ action: "wait", note: "awaiting confirmation" });
+
+    // A choice the plan made is made by the label the page shows; a required
+    // one it did not make is a person's, never the first option's.
+    const selects = snapshot.elements.filter(
+      (element) => element.kind === "select" && element.filled !== true,
+    );
+    for (const element of selects) {
+      const option = element.label ? choices[element.label] : undefined;
+      if (option !== undefined && element.options?.includes(option))
+        return act({ action: "select", element: element.index, option });
+    }
+    if (selects.some((element) => element.required))
+      return act({ action: "blocked", reason: "choice-required" });
 
     const checkbox = snapshot.elements.find(
       (element) =>

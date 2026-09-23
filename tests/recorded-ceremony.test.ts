@@ -21,7 +21,10 @@ import {
   runCeremony,
   runRecordedCeremony,
 } from "../src/server/browser-driver.js";
-import type { CeremonyInterpreter } from "../src/server/browser-interpreter.js";
+import {
+  createHeuristicInterpreter,
+  type CeremonyInterpreter,
+} from "../src/server/browser-interpreter.js";
 import { totpCode, totpSeedSpellings } from "../src/server/totp.js";
 import { startAuthProvider } from "./doubles/auth-provider/server.js";
 import { createHttpCeremonyPage } from "./doubles/http-page.js";
@@ -626,5 +629,212 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
       (error: unknown) =>
         error instanceof RecordingRejected && error.reason === "empty",
     );
+  });
+});
+
+describe("choices and issued values in a recording", () => {
+  const origin = "https://idp.example";
+  const signupPage = (option = "Canada"): PageSnapshot => ({
+    path: `${origin}/signup`,
+    title: "Create your account",
+    headings: ["Create your account"],
+    alerts: [],
+    challenge: false,
+    passkey: false,
+    elements: [
+      {
+        index: 0,
+        kind: "select",
+        name: "country",
+        label: "Country or region",
+        options: ["Select a country", option],
+        required: true,
+      },
+      { index: 1, kind: "button", text: "Create account" },
+    ],
+  });
+  const options = {
+    id: "region-sign-up",
+    title: "Sign up with a region",
+    goal: "registration" as const,
+    entryUrl: `${origin}/signup`,
+    origins: [origin],
+    recordedWith: "deterministic" as const,
+    excluded: [],
+  };
+
+  test("a choice is recorded by the option's label, and one that reads like a value is not recorded at all", () => {
+    const recording = compileRecording(
+      [
+        {
+          snapshot: signupPage(),
+          action: "select",
+          element: 0,
+          option: "Canada",
+        },
+        { snapshot: signupPage(), action: "click", element: 1 },
+      ],
+      options,
+    );
+    assert.equal(recording.steps[0]?.action.kind, "select");
+    assert.deepEqual(recording.roles, []);
+    for (const option of ["casey@example.test", "Account 12345678"])
+      assert.throws(
+        () =>
+          compileRecording(
+            [
+              {
+                snapshot: signupPage(option),
+                action: "select",
+                element: 0,
+                option,
+              },
+            ],
+            options,
+          ),
+        (error: unknown) =>
+          error instanceof RecordingRejected &&
+          error.reason === "unrecordable-choice",
+      );
+  });
+
+  test("a choice is only ever made in a select", () => {
+    const recording = compileRecording(
+      [
+        {
+          snapshot: signupPage(),
+          action: "select",
+          element: 0,
+          option: "Canada",
+        },
+      ],
+      options,
+    );
+    const edited = structuredClone(recording) as {
+      steps: { action: { target: { kind: string } } }[];
+    };
+    edited.steps[0]!.action.target.kind = "input";
+    assert.equal(recordedCeremonySchema.safeParse(edited).success, false);
+  });
+
+  test("what a recording keeps is part of what is reviewed, and is held to the declaration's rules", async () => {
+    const plain = compileRecording(
+      [{ snapshot: signupPage(), action: "click", element: 1 }],
+      options,
+    );
+    const issued = {
+      sink: "oauth-client" as const,
+      fields: [
+        { kind: "client-id" as const, label: "Client ID" },
+        { kind: "client-secret" as const, label: "Client secret" },
+      ],
+    };
+    const keeping = compileRecording(
+      [{ snapshot: signupPage(), action: "click", element: 1 }],
+      { ...options, issued },
+    );
+    assert.deepEqual(keeping.issued, issued);
+    // A different digest: a review of the recording without it covers
+    // nothing about keeping.
+    assert.notEqual(
+      await digestRecordedCeremony(plain),
+      await digestRecordedCeremony(keeping),
+    );
+    const refused = [
+      { ...issued, fields: [{ kind: "api-key", label: "Key" }] },
+      {
+        ...issued,
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client ID" },
+        ],
+      },
+      {
+        ...issued,
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client secret" },
+          { kind: "client-secret", label: "Secret" },
+        ],
+      },
+      { sink: "oauth-client", fields: [{ kind: "client-secret", label: "S" }] },
+      { sink: "anywhere", fields: issued.fields },
+      { ...issued, fields: [{ kind: "client-id", label: "oac_1234567890" }] },
+    ];
+    for (const declaration of refused)
+      assert.equal(
+        recordedCeremonySchema.safeParse({ ...plain, issued: declaration })
+          .success,
+        false,
+        JSON.stringify(declaration),
+      );
+  });
+
+  test("a registration with a required choice is recorded on the double and replays with no interpreter", async (t) => {
+    const record = await startAuthProvider({
+      seed: 91,
+      requireRegion: true,
+      verification: "none",
+    });
+    t.after(() => record.close());
+    const secrets = () =>
+      createSecrets({
+        email: EMAIL,
+        password: PASSWORD,
+        "password-confirm": PASSWORD,
+        "display-name": "Casey Rivers",
+      });
+    const page = createHttpCeremonyPage();
+    await page.goto(`${record.origin}${record.signupPath}`);
+    const trace: RecordedTraceEntry[] = [];
+    const recorded = await runCeremony({
+      page,
+      interpreter: createHeuristicInterpreter(),
+      goal: "registration",
+      secrets: secrets(),
+      allowedOrigins: [record.origin],
+      choices: { "Country or region": "Germany" },
+      onApplied: (entry) => trace.push(entry),
+      verify: () => record.verifyAccess(EMAIL),
+    });
+    assert.equal(recorded.status, "completed");
+    assert.equal(record.regionOf(EMAIL), "DE");
+    const recording = compileRecording(trace, {
+      ...options,
+      entryUrl: `${record.origin}${record.signupPath}`,
+      origins: [record.origin],
+      excluded: [EMAIL, PASSWORD],
+    });
+    assert.ok(
+      recording.steps.some(
+        (step) =>
+          step.action.kind === "select" && step.action.option === "Germany",
+      ),
+    );
+    assertNoCanary(recording, "the recording");
+
+    // The same pages at a fresh provider, replayed with nothing to ask.
+    const replayAt = await startAuthProvider({
+      seed: 91,
+      requireRegion: true,
+      verification: "none",
+    });
+    t.after(() => replayAt.close());
+    const fresh = createHttpCeremonyPage();
+    await fresh.goto(`${replayAt.origin}${replayAt.signupPath}`);
+    const at = (text: string) =>
+      text.split(record.origin).join(replayAt.origin);
+    const moved = JSON.parse(at(JSON.stringify(recording))) as RecordedCeremony;
+    const replayed = await runRecordedCeremony({
+      page: fresh,
+      recording: moved,
+      goal: "registration",
+      secrets: secrets(),
+      allowedOrigins: [replayAt.origin],
+      verify: () => replayAt.verifyAccess(EMAIL),
+    });
+    assert.equal(replayed.status, "completed");
+    assert.equal(replayed.interpreterCalls, 0);
+    assert.equal(replayAt.regionOf(EMAIL), "DE");
   });
 });

@@ -163,6 +163,11 @@ h3{font-size:14px;font-weight:650;margin:0 0 2px}
 .crumbs a{font-weight:500}
 input[type=url],textarea{display:block;width:100%;padding:10px 12px;font:inherit;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:8px}
 input[type=url]{height:42px;padding:0 12px}
+select{display:block;width:100%;height:42px;padding:0 36px 0 12px;font:inherit;color:var(--text);background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%235d6b82' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center;border:1px solid var(--border);border-radius:8px;appearance:none;-webkit-appearance:none}
+select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--ring)}
+input.user-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:22px;letter-spacing:.3em;text-align:center;text-transform:uppercase;height:52px}
+.device-icon{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;margin:0 auto 16px;background:#f2f4f7;color:var(--accent)}
+.center{text-align:center}
 textarea{resize:vertical}
 .copy-row{display:flex;gap:8px}
 .copy-row input{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:#f9fafb}
@@ -218,6 +223,7 @@ const escape = (value: string) =>
   );
 
 const errorIcon = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5v4.2M8 11h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+const deviceIcon = `<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><rect x="3" y="5" width="22" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 23h8M14 19v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const checkIcon = `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><circle cx="9" cy="9" r="8" fill="currentColor" opacity=".12"/><path d="M5.5 9.2l2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /** "owner@example.com" as "o***@example.com": enough to recognise, no more. */
@@ -380,8 +386,24 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
       error?: string;
       /** The address is already registered: offer the way back to sign-in. */
       inUse?: boolean;
+      /**
+       * Ask for a country or region from these, in a required select whose
+       * first option is an empty prompt - the picker many sign-up forms put
+       * after the address, for tax, data residency or a default workspace.
+       */
+      regions?: readonly { code: string; name: string }[];
     }) {
       const signIn = hrefWithNext("/signin", options.next);
+      const region = options.regions
+        ? `<div class="field"><label for="sign-up-country">Country or region</label><select id="sign-up-country" name="country" autocomplete="country" required aria-describedby="sign-up-country-hint"><option value="">Select a country</option>${options.regions
+            .map(
+              (entry) =>
+                `<option value="${escape(entry.code)}">${escape(entry.name)}</option>`,
+            )
+            .join(
+              "",
+            )}</select><p class="hint" id="sign-up-country-hint">Where your account&#39;s data is stored.</p></div>`
+        : "";
       return page(
         "Create your account",
         `<h1>Create your ${product} account</h1>
@@ -390,6 +412,7 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
          <form method="post" action="${options.action}">
            ${input({ id: "sign-up-name", label: "Full name", name: names.displayName, type: "text", autocomplete: "name" })}
            ${input({ id: "sign-up-email", label: "Work email", name: names.email, type: "email", autocomplete: "email", extra: 'autocapitalize="none" spellcheck="false"' })}
+           ${region}
            ${input({ id: "sign-up-password", label: "Password", name: names.password, type: "password", autocomplete: "new-password", extra: 'minlength="8"', hint: "Use 8 or more characters with a mix of letters, numbers and symbols." })}
            ${input({ id: "sign-up-confirm", label: "Confirm password", name: names.confirm, type: "password", autocomplete: "new-password", extra: 'minlength="8"' })}
            <div class="check"><input id="sign-up-terms" name="${names.terms}" type="checkbox" value="yes" required><label for="sign-up-terms">I agree to the <a href="/legal/terms">Terms of Service</a> and <a href="/legal/privacy">Privacy Policy</a></label></div>
@@ -485,6 +508,45 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
            </form>
            <p class="fine">Make sure you trust ${app}. You can remove its access at any time in your account settings.</p>
          </div>`,
+      );
+    },
+
+    /**
+     * An RFC 8628 verification page: the person is signed in here, and types
+     * the short code their TV, console or command-line tool is showing. The
+     * code is never on this page - it is on the device - and the query of a
+     * `verification_uri_complete` link is not read back into the field.
+     */
+    device(options: { action: string; account: string; error?: string }) {
+      return page(
+        "Connect a device",
+        `<div class="device-icon" aria-hidden="true">${deviceIcon}</div>
+         <h1 class="center">Connect a device</h1>
+         <p class="subtitle center">Enter the code displayed on your device to let it use your ${product} account.</p>
+         ${banner(options.error)}
+         <form method="post" action="${options.action}">
+           ${input({
+             id: "device-user-code",
+             label: "Device code",
+             name: names.userCode,
+             type: "text",
+             autocomplete: "off",
+             extra:
+               'class="user-code" autocapitalize="characters" spellcheck="false" maxlength="9" autofocus',
+             hint: "The code is on your device's screen. It expires after a few minutes.",
+           })}
+           <div class="actions"><a href="/">Cancel</a><button type="submit" class="btn btn-primary">Continue</button></div>
+         </form>
+         <p class="fine">Signed in as <strong>${escape(options.account)}</strong>. Only enter a code from a device you are setting up yourself.</p>`,
+      );
+    },
+
+    deviceConnected() {
+      return page(
+        "Device connected",
+        `<div class="device-icon" aria-hidden="true">${checkIcon}</div>
+         <h1 class="center">You are signed in</h1>
+         <p class="subtitle center">Your device is connected. You can close this window and return to it.</p>`,
       );
     },
 
