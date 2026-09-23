@@ -2847,20 +2847,42 @@ export class ConnectorCommandService {
     return { connectionRef, revocation: "pending-approval", requestedAt };
   }
 
-  /** A person declines a pending revocation request; approving it is `revoke`. */
+  /**
+   * An administrator declines a pending revocation request; approving it is
+   * `revoke`. Declining is the same decision taken the other way, so it is
+   * held to the same person, capability and policy: otherwise anyone who can
+   * read the connection could clear a request before an administrator saw it.
+   */
   async declineRevocation(
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
   ): Promise<ConnectionView> {
-    if (actor.actorKind !== "human")
-      throw new ConnectorError("denied", { detail: "revoke.human-only" });
+    requireCapability(actor, "admin");
+    if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "revoke.admin-only" });
     const input = z
       .strictObject({ expectedRevision: z.number().int().positive() })
       .parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke",
+      "revoke.denied",
+    );
     if (
       !revocationRequestSchema.safeParse(entry.record.state.revocationRequest)
         .success
