@@ -93,6 +93,7 @@
     "openapi:generate": "node --import tsx scripts/connector-openapi.ts",
     "openapi:check": "node --import tsx scripts/connector-openapi.ts --check",
     "test:package": "node --import tsx --test tests/package-consumer.test.ts tests/connectors/packaging/consumer.test.ts",
+    "test:clients": "node --no-experimental-webstorage --import tsx --test tests/openapi-client.test.ts tests/openapi-python-client.test.ts",
     "test:integration": "node scripts/test.mjs integration",
     "test:security": "node scripts/test.mjs security",
     "test:agent": "node scripts/test.mjs agent",

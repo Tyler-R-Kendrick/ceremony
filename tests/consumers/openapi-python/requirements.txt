@@ -1,0 +1,4 @@
+# The generator tests/openapi-python-client.test.ts runs. It brings httpx,
+# attrs and python-dateutil, which the generated client imports, so nothing
+# else is needed. Pinned: the test checks the installed version against this.
+openapi-python-client==0.29.1

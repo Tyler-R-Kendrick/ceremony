@@ -5,16 +5,15 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
-import { connectorRequestNeedsActor } from "../src/server/connectors/commands/index.js";
 import {
   agent,
   completeOauthCallback,
   createHarness,
   delegate,
   FIXTURE_DOCUMENT,
+  handlerFetch,
   human,
   ORIGIN,
-  type Harness,
 } from "./connectors/commands/harness.js";
 
 /*
@@ -109,26 +108,6 @@ async function generate(): Promise<string> {
   return source;
 }
 
-/**
- * The fetch a generated client is given: the Request it builds goes to the
- * real handler, with the harness's host identity resolving its cookie exactly
- * as `harness.fetch` does. Nothing about the request is rewritten.
- */
-function throughHandler(harness: Harness) {
-  return async (request: Request): Promise<Response> => {
-    const needsActor = connectorRequestNeedsActor(
-      new URL(request.url).pathname,
-    );
-    const actor = needsActor
-      ? await harness.identity.authenticate(request)
-      : null;
-    if (needsActor && !actor)
-      return Response.json({ error: "unauthenticated" }, { status: 401 });
-    const response = await harness.http(request, actor ?? undefined);
-    return response ?? Response.json({ error: "not-found" }, { status: 404 });
-  };
-}
-
 const PERSON = "generated-client-human";
 const ASSISTANT = "generated-client-agent";
 
@@ -165,7 +144,7 @@ test("OAC-01: openapi-typescript generates a client that type-checks and drives 
   const { connectorClient, ConnectorApiError, isHumanView } = (await import(
     pathToFileURL(join(consumer, "client.ts")).href
   )) as ConsumerModule;
-  const fetch = throughHandler(harness);
+  const fetch = handlerFetch(harness);
   const client = connectorClient({
     baseUrl: ORIGIN,
     origin: ORIGIN,

@@ -70,6 +70,7 @@ src/plugins/impeccable-live.client.ts
 /.diagnostics-*/
 
 # Clients generated from docs/openapi/connectors.openapi.json by
-# tests/openapi-client.test.ts. They are regenerated on every run, so a
-# committed copy could only ever be stale.
+# tests/openapi-client.test.ts and tests/openapi-python-client.test.ts. They
+# are regenerated on every run, so a committed copy could only ever be stale.
 /tests/consumers/openapi-typescript/generated/
+/tests/consumers/openapi-python/generated/
