@@ -292,6 +292,73 @@ test("OAUTH2 refresh_params become static refresh parameters, and refresh stays 
   }
 });
 
+test("an OAUTH2 entry that names its issuer, or a discovery URL, keeps it; one that does not keeps refusing openid", () => {
+  const issuerOf = (extra: Record<string, unknown>) => {
+    const [item] = importNangoProviders(
+      JSON.stringify({
+        probe: {
+          auth_mode: "OAUTH2",
+          authorization_url: "https://auth.probe.example/authorize",
+          token_url: "https://auth.probe.example/token",
+          ...extra,
+        },
+      }),
+    ).providers;
+    assert.equal(item?.executable, true, JSON.stringify(extra));
+    const auth = item!.entry.auth;
+    return {
+      issuer: auth.mode === "oauth2-authorization-code" ? auth.issuer : "?",
+      codes: codes(item!),
+    };
+  };
+  // Named: kept exactly as written.
+  assert.equal(
+    issuerOf({ issuer: "https://auth.probe.example/" }).issuer,
+    "https://auth.probe.example/",
+  );
+  // Read back out of a discovery URL, by either convention.
+  for (const [wellKnown, issuer] of [
+    [
+      "https://auth.probe.example/.well-known/openid-configuration",
+      "https://auth.probe.example",
+    ],
+    [
+      "https://auth.probe.example/tenant-a/.well-known/openid-configuration",
+      "https://auth.probe.example/tenant-a",
+    ],
+    [
+      "https://auth.probe.example/.well-known/oauth-authorization-server/tenant-a",
+      "https://auth.probe.example/tenant-a",
+    ],
+    [
+      "https://auth.probe.example/.well-known/oauth-authorization-server",
+      "https://auth.probe.example",
+    ],
+  ]) {
+    const read = issuerOf({ well_known_url: wellKnown });
+    assert.equal(read.issuer, issuer, wellKnown);
+    assert.ok(read.codes.includes("catalog.nango.issuer-from-discovery"));
+  }
+  // Nothing named: nothing guessed, and openid stays refused.
+  assert.equal(issuerOf({}).issuer, undefined);
+  // Unusable as an issuer: left out with a warning, never half-kept.
+  for (const extra of [
+    { issuer: "https://${connectionConfig.tenant}.probe.example" },
+    { issuer: "http://auth.probe.example" },
+    { issuer: "https://auth.probe.example?tenant=a" },
+    { issuer: 42 },
+    { well_known_url: "https://auth.probe.example/metadata.json" },
+    {
+      well_known_url:
+        "https://${connectionConfig.tenant}.probe.example/.well-known/openid-configuration",
+    },
+  ]) {
+    const read = issuerOf(extra);
+    assert.equal(read.issuer, undefined, JSON.stringify(extra));
+    assert.ok(read.codes.includes("catalog.nango.issuer-dropped"));
+  }
+});
+
 test("loopback HTTP endpoints import only when the host opts in", () => {
   const document = {
     local: {
