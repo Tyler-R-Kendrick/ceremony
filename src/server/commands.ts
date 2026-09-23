@@ -133,7 +133,8 @@ export function scopedRunFor(run: RunRecord, nodeId: string): RunRecord {
  * verified that runs in `context`'s provider, with its stored state. Steps of
  * other providers are skipped, so inside another provider's run the page finds
  * its own step and never another provider's. A step whose scoped context is
- * not `context` (another target or configuration) yields nothing, so the page
+ * not `context` under the page's `profile` (any of provider, profile, target,
+ * origin, environment or configuration differs) yields nothing, so the page
  * refuses rather than acting on it under the wrong authority.
  */
 export async function pendingProviderStep(
@@ -144,10 +145,12 @@ export async function pendingProviderStep(
     | "runId"
     | "provider"
     | "target"
+    | "origin"
     | "environment"
     | "configurationVersion"
   >,
   run: RunRecord,
+  profile: string,
 ): Promise<
   | {
       node: RunPlanNode;
@@ -155,17 +158,24 @@ export async function pendingProviderStep(
     }
   | undefined
 > {
+  const provider = context.provider;
+  if (!provider) return undefined;
   for (const node of run.nodes) {
     const scoped = scopedRun(run, node);
-    if (scoped.provider !== context.provider) continue;
+    if (scoped.provider !== provider) continue;
     const state = await tx.get<NodeRecord>(
       key(context.actor, "node", `${context.runId}:${node.id}`),
     );
     if (state?.value.verified) continue;
     if (
-      scoped.target !== context.target ||
-      scoped.environment !== context.environment ||
-      scoped.configurationVersion !== context.configurationVersion
+      !sameContext(contextOf(run, node), {
+        provider,
+        profile,
+        target: context.target,
+        origin: context.origin,
+        environment: context.environment,
+        configurationVersion: context.configurationVersion,
+      })
     )
       return undefined;
     return { node, ...(state ? { state: state.value } : {}) };

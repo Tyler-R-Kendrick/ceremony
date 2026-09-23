@@ -44,7 +44,7 @@ export async function supabaseHuman(
     "x-content-type-options": "nosniff",
   };
   const step = await store.transaction((tx) =>
-    pendingProviderStep(tx, context, record.value),
+    pendingProviderStep(tx, context, record.value, "supabase-password"),
   );
   const pending = step && {
     node: step.node,

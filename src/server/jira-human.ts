@@ -55,7 +55,7 @@ export async function jiraHuman(
     "x-content-type-options": "nosniff",
   };
   const step = await store.transaction((tx) =>
-    pendingProviderStep(tx, context, record.value),
+    pendingProviderStep(tx, context, record.value, "jira-3lo"),
   );
   const pending = step && { node: step.node, state: step.state?.state };
   if (

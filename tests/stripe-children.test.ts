@@ -719,3 +719,52 @@ test("a person completes a Stripe step waiting inside a GitHub run on Stripe's o
     );
   }
 });
+
+for (const [field, value] of [
+  ["target", "other"],
+  ["origin", "https://other.example"],
+] as const)
+  test(`Stripe's page refuses a waiting Stripe step planned under another ${field}`, async (t) => {
+    const f = await fixture(t);
+    const context = {
+      provider: "stripe",
+      profile: "stripe-api-key",
+      target: "self",
+      origin: "https://app.example",
+      environment: "test",
+      configurationVersion: "v1",
+    };
+    // The run is Stripe's own, but its first step is planned under a Stripe
+    // connector whose context differs in one field.
+    const run = await f.runtime.commands.createRun(
+      f.actor,
+      context,
+      [
+        {
+          id: "account",
+          operationId: "stripe.prepare-account",
+          operationVersion: "1.0.0",
+          dependsOn: [],
+          bindings: {},
+          context: { ...context, connectorId: "stripe", [field]: value },
+        },
+      ],
+      {},
+    );
+    assert.equal((await f.advance(run.id, "account")).state, "awaiting-human");
+    const page = await teachingHttp(
+      new Request(`https://app.example/api/v1/teaching/stripe/${run.id}/human`),
+      f.runtime,
+    );
+    // The page would act under the run's context, not the step's: refused
+    // before any ticket is issued.
+    assert.equal(page.status, 403);
+    const tickets = await f.store.transaction((tx) =>
+      tx.list(f.actor.tenantId, "handoff"),
+    );
+    assert.equal(
+      JSON.stringify(tickets).includes("stripe-collector:"),
+      false,
+      "No collector ticket may be written for the mismatched step",
+    );
+  });

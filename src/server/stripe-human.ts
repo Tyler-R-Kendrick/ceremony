@@ -44,7 +44,7 @@ export async function stripeHuman(
     "x-content-type-options": "nosniff",
   };
   const nodes = await store.transaction((tx) =>
-    pendingProviderStep(tx, context, record.value),
+    pendingProviderStep(tx, context, record.value, "stripe-api-key"),
   );
   if (
     !nodes ||
