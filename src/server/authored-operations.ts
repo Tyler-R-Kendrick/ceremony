@@ -995,7 +995,11 @@ export async function deleteAuthoredSession(
   revocationEndpoint?: string,
 ) {
   const run = await store.transaction((tx) =>
-    tx.get<{ subjectId: string; sessionId: string }>({
+    tx.get<{
+      subjectId: string;
+      sessionId: string;
+      nodes?: Array<{ id: string; operationId: string }>;
+    }>({
       tenant: actor.tenantId,
       kind: "run",
       id: runId,
@@ -1028,9 +1032,15 @@ export async function deleteAuthoredSession(
     const pendingKey = pendingRegistrationKey(actor, runId);
     const pending = await tx.get(pendingKey);
     if (pending) await tx.delete(pendingKey, pending.revision);
-    const credentialKey = authoredCredentialKey(actor, runId);
-    const credential = await tx.get(credentialKey);
-    if (credential) await tx.delete(credentialKey, credential.revision);
+    let credential = false;
+    for (const node of run.value.nodes ?? []) {
+      if (node.operationId !== "authored.collect-credential") continue;
+      const credentialKey = authoredCredentialKey(actor, runId, node.id);
+      const stored = await tx.get(credentialKey);
+      if (!stored) continue;
+      await tx.delete(credentialKey, stored.revision);
+      credential = true;
+    }
     return Boolean(record || pending || credential);
   });
 }
@@ -1676,12 +1686,49 @@ export async function readAuthoredLog(
  * request. It never enters a run snapshot, an event, a demonstration or a
  * tool result: the run carries an opaque handle to it.
  */
-export function authoredCredentialKey(actor: ActorContext, runId: string) {
+export function authoredCredentialKey(
+  actor: ActorContext,
+  runId: string,
+  nodeId: string,
+) {
+  // Per node, not per run: a composed run collects one secret on each of its
+  // steps, and a run-wide key kept only the last of them.
   return {
     tenant: actor.tenantId,
     kind: "handoff" as const,
-    id: `authored-credential:${digest([actor.subjectId, runId])}`,
+    id: `authored-credential:${digest([actor.subjectId, runId, nodeId])}`,
   };
+}
+/**
+ * The collect-credential step whose value a verify-access step checks: the
+ * one its `session` input is bound to in the stored plan.
+ */
+async function credentialNodeOf(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  nodeId: string,
+) {
+  const run = await store.transaction((tx) =>
+    tx.get<{
+      subjectId: string;
+      nodes: Array<{
+        id: string;
+        operationId: string;
+        bindings?: Record<string, { from?: string; node?: string }>;
+      }>;
+    }>({ tenant: actor.tenantId, kind: "run", id: runId }),
+  );
+  if (!run || run.value.subjectId !== actor.subjectId) return undefined;
+  const binding = run.value.nodes.find((node) => node.id === nodeId)?.bindings
+    ?.session;
+  const upstream =
+    binding?.from === "output"
+      ? run.value.nodes.find((node) => node.id === binding.node)
+      : undefined;
+  return upstream?.operationId === "authored.collect-credential"
+    ? upstream.id
+    : undefined;
 }
 const credentialFieldValue = z.string().min(1).max(4096);
 const credentialRecordSchema = z.strictObject({
@@ -1734,7 +1781,11 @@ export async function writeAuthoredCredential(
     nodeId: context.nodeId,
     fields,
   });
-  const key = authoredCredentialKey(context.actor, context.runId);
+  const key = authoredCredentialKey(
+    context.actor,
+    context.runId,
+    context.nodeId,
+  );
   const prior = await tx.get(key);
   await tx.put(key, value, prior?.revision ?? null);
 }
@@ -1743,34 +1794,38 @@ async function readAuthoredCredential(
   store: AsyncCeremonyStore,
   actor: ActorContext,
   runId: string,
+  nodeId: string | undefined,
 ): Promise<(CredentialRecord & { revision: number }) | undefined> {
+  if (nodeId === undefined) return undefined;
   const record = await store.transaction((tx) =>
-    tx.get(authoredCredentialKey(actor, runId)),
+    tx.get(authoredCredentialKey(actor, runId, nodeId)),
   );
   const parsed = credentialRecordSchema.safeParse(record?.value);
   if (
     !record ||
     !parsed.success ||
     parsed.data.subject !== actor.subjectId ||
-    parsed.data.runId !== runId
+    parsed.data.runId !== runId ||
+    parsed.data.nodeId !== nodeId
   )
     return undefined;
   return { ...parsed.data, revision: record.revision };
 }
 
-/** Whether the collected credential for this run exists (and, when asked, has passed verification). */
+/** Whether the credential a step collected exists (and, when asked, has passed verification). */
 export async function authoredCredentialStored(
   store: AsyncCeremonyStore,
   actor: ActorContext,
   runId: string,
-  options: { verified?: boolean; nodeId?: string } = {},
+  options: { verified?: boolean; nodeId: string | undefined },
 ) {
-  const credential = await readAuthoredCredential(store, actor, runId);
-  return Boolean(
-    credential &&
-    (!options.verified || credential.verified) &&
-    (options.nodeId === undefined || credential.nodeId === options.nodeId),
+  const credential = await readAuthoredCredential(
+    store,
+    actor,
+    runId,
+    options.nodeId,
   );
+  return Boolean(credential && (!options.verified || credential.verified));
 }
 
 /** Origins the authored provider itself declared; a verification request may go only to one of them. */
@@ -1887,9 +1942,10 @@ async function markAuthoredCredentialVerified(
   store: AsyncCeremonyStore,
   actor: ActorContext,
   runId: string,
+  nodeId: string,
   revision: number,
 ) {
-  const key = authoredCredentialKey(actor, runId);
+  const key = authoredCredentialKey(actor, runId, nodeId);
   await store.transaction(async (tx) => {
     const current = await tx.get<CredentialRecord>(key);
     if (!current || current.revision !== revision)
@@ -2688,8 +2744,9 @@ export function registerAuthoredOperations(
           options.store,
           context.actor,
           context.runId,
+          context.nodeId,
         );
-        if (!credential || credential.nodeId !== context.nodeId)
+        if (!credential)
           return {
             state: "awaiting-human" as const,
             outputs: {},
@@ -2722,6 +2779,12 @@ export function registerAuthoredOperations(
           options.store,
           context.actor,
           context.runId,
+          await credentialNodeOf(
+            options.store,
+            context.actor,
+            context.runId,
+            context.nodeId,
+          ),
         );
         if (credential) {
           const verification = discovery?.credentialVerification;
@@ -2769,6 +2832,7 @@ export function registerAuthoredOperations(
               options.store,
               context.actor,
               context.runId,
+              credential.nodeId,
               credential.revision,
             );
           await saveAuthoredBlocker(
@@ -2873,7 +2937,15 @@ export function registerAuthoredOperations(
             options.store,
             context.actor,
             context.runId,
-            { verified: true },
+            {
+              verified: true,
+              nodeId: await credentialNodeOf(
+                options.store,
+                context.actor,
+                context.runId,
+                context.nodeId,
+              ),
+            },
           ))
         )
           return true;
