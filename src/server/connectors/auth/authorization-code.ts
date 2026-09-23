@@ -723,13 +723,14 @@ export async function refreshAccessToken(
           },
           { mode: "until-applied", random: ctx.environment.random },
         );
-        if (begun.prior?.status === "not-applied")
+        const settled = begun.prior;
+        if (settled?.status === "not-applied")
           throw new ConnectorError("upstream-unavailable", {
             detail: "oauth.refresh.unreachable",
           });
-        if (begun.prior)
+        if (settled)
           throw new ConnectorError(
-            begun.prior.status === "applied" ? "conflict" : "indeterminate",
+            settled.status === "applied" ? "conflict" : "indeterminate",
             { detail: "oauth.refresh.already-used" },
           );
         const now = () => ctx.environment.now();
