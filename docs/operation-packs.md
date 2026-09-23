@@ -133,47 +133,60 @@ const value = sign(
 
 ## Trust configuration
 
+Loading has two steps. `prepareOperationPacks(options)` is asynchronous and
+runs before the runtime exists. It reads and verifies every pack and
+evaluates each bundle once in the sandbox, to check that it defines every
+operation the manifest declares. `registerOperationPacks(registry, packs)` is
+synchronous. It runs inside the runtime, checks each operation against the
+registry's vocabulary and registers it. Registration accepts only a set that
+`prepareOperationPacks` produced, so an unchecked pack never reaches a
+registry.
+
 ```ts
+const packs = await prepareOperationPacks({
+  directory: "/etc/ceremony/packs",
+  publishers: [
+    {
+      keyId: "fixture-publisher",
+      publicKey: "-----BEGIN PUBLIC KEY-----\n…", // Ed25519 SPKI PEM
+      notBefore: "2026-01-01T00:00:00Z",
+      notAfter: "2027-01-01T00:00:00Z",
+      packs: ["fixture-pack"], // optional: the pack ids this key may sign
+    },
+  ],
+  revokedKeys: ["old-publisher"],
+  secrets: async ({ pack, operationId, name, actor }) =>
+    vault.read(pack, name, actor.tenantId),
+  allowDestination: (pack, origin) => reviewed.has(`${pack} ${origin}`),
+});
 createGitHubRuntime({
   // …
   operationPacks: {
-    directory: "/etc/ceremony/packs",
-    publishers: [
-      {
-        keyId: "fixture-publisher",
-        publicKey: "-----BEGIN PUBLIC KEY-----\n…", // Ed25519 SPKI PEM
-        notBefore: "2026-01-01T00:00:00Z",
-        notAfter: "2027-01-01T00:00:00Z",
-        packs: ["fixture-pack"], // optional: the pack ids this key may sign
-      },
-    ],
-    revokedKeys: ["old-publisher"],
-    secrets: async ({ pack, operationId, name, actor }) =>
-      vault.read(pack, name, actor.tenantId),
-    allowDestination: (pack, origin) => reviewed.has(`${pack} ${origin}`),
+    packs,
     // onRefused: (refusals) => log(refusals), // otherwise a refusal stops startup
   },
 });
 ```
 
-`loadOperationPacks(registry, options)` does the same for any host that
-builds its own `OperationRegistry`. It returns
-`{ loaded, refused }`, and every refusal carries one fixed reason and message
-(it never quotes the pack's text):
+A host that builds its own `OperationRegistry` can await
+`loadOperationPacks(registry, options)`, which does both steps. The report is
+`{ loaded, refused }`. Every refusal carries one fixed reason and message and
+never quotes the pack's text:
 
-| Reason                                                                | Cause                                                                                                                                   |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid-layout`                                                      | Not a directory, a symlink, or `pack.json` is missing or too large.                                                                     |
-| `invalid-manifest`                                                    | The envelope does not parse, or the signature names a different key than the manifest.                                                  |
-| `unknown-publisher`                                                   | The manifest's key id is not configured.                                                                                                |
-| `publisher-revoked`, `publisher-expired`, `publisher-not-yet-valid`   | The key is in `revokedKeys` or outside `notBefore`/`notAfter`.                                                                          |
-| `bad-signature`                                                       | The signature does not verify, for example because the manifest was edited after signing or someone else signed under a trusted key id. |
-| `publisher-not-allowed`                                               | The key is limited to other pack ids.                                                                                                   |
-| `bundle-digest-mismatch`                                              | `handler.js` is missing or differs from the signed size and digest.                                                                     |
-| `unknown-vocabulary`, `provider-mismatch`, `forbidden-classification` | The vocabulary rules above.                                                                                                             |
-| `destination-refused`                                                 | Loopback without `loopbackFixtures`, or `allowDestination` said no.                                                                     |
-| `credential-unavailable`                                              | A credential the host has no resolver for, or an `oauth-client` credential over the wrong contract.                                     |
-| `duplicate-operation`                                                 | The pack id is already loaded, or an operation id and version already exists.                                                           |
+| Reason                                                                | Cause                                                                                                                                                                     |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid-layout`                                                      | Not a directory, a symlink, or `pack.json` is missing or too large.                                                                                                       |
+| `invalid-manifest`                                                    | The envelope does not parse, or the signature names a different key than the manifest.                                                                                    |
+| `unknown-publisher`                                                   | The manifest's key id is not configured.                                                                                                                                  |
+| `publisher-revoked`, `publisher-expired`, `publisher-not-yet-valid`   | The key is in `revokedKeys` or outside `notBefore`/`notAfter`.                                                                                                            |
+| `bad-signature`                                                       | The signature does not verify, for example because the manifest was edited after signing or someone else signed under a trusted key id.                                   |
+| `publisher-not-allowed`                                               | The key is limited to other pack ids.                                                                                                                                     |
+| `bundle-digest-mismatch`                                              | `handler.js` is missing or differs from the signed size and digest.                                                                                                       |
+| `unknown-vocabulary`, `provider-mismatch`, `forbidden-classification` | The vocabulary rules above.                                                                                                                                               |
+| `destination-refused`                                                 | Loopback without `loopbackFixtures`, or `allowDestination` said no.                                                                                                       |
+| `credential-unavailable`                                              | A credential the host has no resolver for, or an `oauth-client` credential over the wrong contract.                                                                       |
+| `duplicate-operation`                                                 | The pack id is already loaded, or an operation id and version already exists.                                                                                             |
+| `missing-export`                                                      | `handler.js` throws or runs past the time limit when evaluated, or does not define `run` for every declared operation, or `verify` for every operation that declares one. |
 
 A pack loads all or nothing. A trusted key that is not Ed25519, or an invalid
 date, is host misconfiguration and throws. The key's validity window and
@@ -185,7 +198,9 @@ next start, because the list is read at startup.
 
 `handler.js` is a plain script. It defines a top-level `operations` object
 whose entries have `run(input, ceremony)` and, when the manifest says so,
-`verify(outputs, ceremony)`:
+`verify(outputs, ceremony)`. Preparation checks this by evaluating the bundle
+in the sandbox and listing which of these functions each entry defines. No
+entry runs during that check, and the bundle's top level gets no `ceremony`:
 
 ```js
 const operations = {
@@ -276,15 +291,15 @@ channels are not addressed.
 Everything the handler does wrong maps to the existing operation codes. None
 carries the handler's message, stack or output:
 
-| What happened                                                                                        | Step result                                          |
-| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Throws, times out, runs out of memory, crashes, has no entry, or returns oversized or invalid output | `failed` / `unavailable`                             |
-| Breaks a destination or method rule                                                                  | `failed` / `denied`                                  |
-| The run's signal aborts                                                                              | `failed` / `cancelled`                               |
-| Any of the above after a write was sent                                                              | `uncertain` (reconciliation, never a silent retry)   |
-| Returns `{ failed: code }`                                                                           | `failed` / that code                                 |
-| The publisher key has expired or been revoked since load                                             | `failed` / `denied`                                  |
-| `verify` is absent or does not return `true`                                                         | `failed` / `verification-rejected` (command service) |
+| What happened                                                                          | Step result                                          |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Throws, times out, runs out of memory, crashes, or returns oversized or invalid output | `failed` / `unavailable`                             |
+| Breaks a destination or method rule                                                    | `failed` / `denied`                                  |
+| The run's signal aborts                                                                | `failed` / `cancelled`                               |
+| Any of the above after a write was sent                                                | `uncertain` (reconciliation, never a silent retry)   |
+| Returns `{ failed: code }`                                                             | `failed` / that code                                 |
+| The publisher key has expired or been revoked since load                               | `failed` / `denied`                                  |
+| `verify` is absent or does not return `true`                                           | `failed` / `verification-rejected` (command service) |
 
 ## What a pack can and cannot do
 

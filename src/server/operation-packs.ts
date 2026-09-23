@@ -36,13 +36,16 @@ import { runInSandbox, type SandboxReply } from "./operation-pack-sandbox.js";
 /*
  * Loading and running operation packs (see docs/operation-packs.md).
  *
- * At startup the host reads each pack in its configured directory, verifies
- * the publisher's Ed25519 signature over the manifest and the bundle digest
- * the manifest carries, checks every operation against the host's own
- * vocabulary, and only then registers the operations as `pack:<id>/<name>`.
- * A pack that fails any check registers nothing and is reported with a
- * fixed reason. Nothing is fetched: a pack is whatever bytes the host put in
- * the directory.
+ * Before creating its runtime the host awaits `prepareOperationPacks`, which
+ * reads each pack in the configured directory, verifies the publisher's
+ * Ed25519 signature over the manifest and the bundle digest the manifest
+ * carries, and evaluates the bundle once in the sandbox to check that it
+ * defines every operation the manifest declares. `registerOperationPacks`
+ * then checks every operation against the host's own vocabulary and
+ * registers it as `pack:<id>/<name>`; it accepts only a prepared set, so no
+ * pack reaches a registry unchecked. A pack that fails any check registers
+ * nothing and is reported with a fixed reason. Nothing is fetched: a pack is
+ * whatever bytes the host put in the directory.
  *
  * At run time a pack operation is an ordinary registered operation, so the
  * command service admits, authorizes and records it exactly as it does a
@@ -110,7 +113,8 @@ export type OperationPackRefusalReason =
   | "forbidden-classification"
   | "destination-refused"
   | "credential-unavailable"
-  | "duplicate-operation";
+  | "duplicate-operation"
+  | "missing-export";
 
 /** Fixed wording per reason: a refusal never quotes the pack's own text. */
 export const operationPackRefusals: Record<OperationPackRefusalReason, string> =
@@ -142,6 +146,8 @@ export const operationPackRefusals: Record<OperationPackRefusalReason, string> =
       "An operation declares a credential this host has no resolver for, or names an input of the wrong contract.",
     "duplicate-operation":
       "An operation id and version is already registered, or the pack was already loaded.",
+    "missing-export":
+      "handler.js does not evaluate in the sandbox, or does not define run (and verify, where declared) for every operation the manifest declares.",
   };
 
 export type OperationPackRefusal = {
@@ -219,6 +225,16 @@ function keyStanding(
   if (publisher.notAfter !== undefined && now >= publisher.notAfter)
     return "publisher-expired";
   return undefined;
+}
+
+/** What decides a key's standing at a given moment. */
+type Trust = { revoked: ReadonlySet<string>; now: () => number };
+/** The key's validity window and the revocation list, now. */
+async function currentStanding(
+  publisher: Publisher,
+  trust: Trust,
+): Promise<OperationPackRefusalReason | undefined> {
+  return keyStanding(publisher, trust.revoked, trust.now());
 }
 
 function readRegularFile(path: string, limit: number): Buffer {
@@ -355,10 +371,14 @@ async function readCapped(
 }
 
 type LoadedPack = {
+  /** The directory entry it was read from. */
+  entry: string;
   manifest: OperationPackManifest;
   source: string;
   publisher: Publisher;
 };
+/** What every invocation of a prepared set shares. */
+type Runtime = { trust: Trust };
 
 /**
  * One invocation of one entry. Holds what the host learns while the handler
@@ -514,7 +534,7 @@ function packOperation(
   operation: PackOperation,
   vocabulary: ReadonlyMap<string, VocabularyEntry>,
   options: OperationPackOptions,
-  revoked: ReadonlySet<string>,
+  runtime: Runtime,
 ): RegisteredOperation {
   const id = packOperationId(pack.manifest.id, operation.name);
   const [provider, profile] =
@@ -564,12 +584,7 @@ function packOperation(
     inputs: Record<string, unknown>,
     argument: unknown,
   ) {
-    const standing = keyStanding(
-      pack.publisher,
-      revoked,
-      options.now?.() ?? Date.now(),
-    );
-    if (standing) return undefined;
+    if (await currentStanding(pack.publisher, runtime.trust)) return undefined;
     const controller = new AbortController();
     const signal = AbortSignal.any([context.signal, controller.signal]);
     const invocation = new Invocation(
@@ -664,21 +679,95 @@ function packOperation(
   };
 }
 
+const refusal = (entry: string, error: unknown): OperationPackRefusal => {
+  const reason = error instanceof Refusal ? error.reason : "invalid-layout";
+  return { entry, reason, message: operationPackRefusals[reason] };
+};
+
+/** Evaluate the bundle once and read which entries each operation defines. */
+async function checkExports(manifest: OperationPackManifest, source: string) {
+  const outcome = await runInSandbox({
+    source,
+    entry: "exports",
+    operation: "",
+    input: "null",
+    timeoutMs: OPERATION_PACK_LIMITS.timeoutMs.default,
+    memoryMb: Math.max(
+      OPERATION_PACK_LIMITS.memoryMb.default,
+      ...manifest.operations.map(
+        (operation) => operation.limits?.memoryMb ?? 0,
+      ),
+    ),
+    outputBytes: OPERATION_PACK_LIMITS.outputBytes.max,
+    signal: new AbortController().signal,
+    request: async () => ({ ok: false, code: "denied" }),
+  });
+  const exported = z
+    .record(
+      z.string(),
+      z.strictObject({ run: z.boolean(), verify: z.boolean() }),
+    )
+    .safeParse(outcome.kind === "done" ? JSON.parse(outcome.text) : undefined);
+  if (
+    !exported.success ||
+    manifest.operations.some((operation) => {
+      const found = Object.hasOwn(exported.data, operation.name)
+        ? exported.data[operation.name]
+        : undefined;
+      return !found?.run || (operation.verify && !found.verify);
+    })
+  )
+    throw new Refusal("missing-export");
+}
+
+type Prepared = {
+  packs: readonly LoadedPack[];
+  refused: readonly OperationPackRefusal[];
+  options: OperationPackOptions;
+  runtime: Runtime;
+};
+const prepared = new WeakMap<PreparedOperationPacks, Prepared>();
+
 /**
- * Read, verify and register every pack in `options.directory`. Refused packs
- * register nothing and are listed with their reason; the rest are live in
- * `registry` when this returns. Host misconfiguration (an unreadable
- * directory, a trusted key that is not Ed25519) throws instead.
+ * Packs whose signature, digest and exports have been checked, ready to
+ * register. Only `prepareOperationPacks` makes one, and
+ * `registerOperationPacks` accepts nothing else.
  */
-export function loadOperationPacks(
-  registry: OperationRegistry,
+export class PreparedOperationPacks {
+  private constructor(
+    /** Packs refused before registration. */
+    readonly refused: readonly OperationPackRefusal[],
+  ) {}
+  /** @internal */
+  static create(value: Prepared): PreparedOperationPacks {
+    const packs = new PreparedOperationPacks(value.refused);
+    prepared.set(packs, value);
+    return packs;
+  }
+  /** The packs that passed, by pack id. */
+  get ready(): string[] {
+    return prepared.get(this)!.packs.map((pack) => pack.manifest.id);
+  }
+}
+
+/**
+ * Read and verify every pack in `options.directory`: the layout, the
+ * publisher's key and its standing, the signature, the bundle digest, and
+ * that the bundle defines every declared operation. Nothing is registered.
+ * Host misconfiguration (an unreadable directory, a trusted key that is not
+ * Ed25519) throws instead of refusing.
+ */
+export async function prepareOperationPacks(
   options: OperationPackOptions,
-): OperationPackReport {
+): Promise<PreparedOperationPacks> {
   const publishers = trustedPublishers(options.publishers);
-  const revoked = new Set(options.revokedKeys ?? []);
-  const now = options.now?.() ?? Date.now();
-  const report: OperationPackReport = { loaded: [], refused: [] };
-  const loadedIds = new Set<string>();
+  const trust: Trust = {
+    revoked: new Set(options.revokedKeys ?? []),
+    now: options.now ?? Date.now,
+  };
+  const packs: LoadedPack[] = [];
+  const refused: OperationPackRefusal[] = [];
+  const seen = new Set<string>();
   const entries = readdirSync(options.directory, { withFileTypes: true })
     .filter((entry) => !entry.name.startsWith("."))
     .sort((a, b) => (a.name < b.name ? -1 : 1));
@@ -705,7 +794,7 @@ export function loadOperationPacks(
         throw new Refusal("invalid-manifest");
       const publisher = publishers.get(manifest.publisher);
       if (!publisher) throw new Refusal("unknown-publisher");
-      const standing = keyStanding(publisher, revoked, now);
+      const standing = await currentStanding(publisher, trust);
       if (standing) throw new Refusal(standing);
       if (
         !verifySignature(
@@ -733,21 +822,57 @@ export function loadOperationPacks(
           manifest.bundle.sha256
       )
         throw new Refusal("bundle-digest-mismatch");
-      if (loadedIds.has(manifest.id)) throw new Refusal("duplicate-operation");
+      if (seen.has(manifest.id)) throw new Refusal("duplicate-operation");
+      const source = bundle.toString("utf8");
+      await checkExports(manifest, source);
+      seen.add(manifest.id);
+      packs.push({ entry: entry.name, manifest, source, publisher });
+    } catch (error) {
+      refused.push(refusal(entry.name, error));
+    }
+  }
+  return PreparedOperationPacks.create({
+    packs,
+    refused,
+    options,
+    runtime: { trust },
+  });
+}
+
+/**
+ * Register prepared packs into `registry`, after checking each operation
+ * against the registry's vocabulary and the host's destination and
+ * credential policy. All or nothing per pack. The report lists what loaded
+ * and every refusal, from preparation or from here, in directory order.
+ */
+export function registerOperationPacks(
+  registry: OperationRegistry,
+  packs: PreparedOperationPacks,
+  overrides: { store?: AsyncCeremonyStore } = {},
+): OperationPackReport {
+  const state = prepared.get(packs);
+  // Only a set prepareOperationPacks checked can register.
+  if (!state) throw new Error("Operation packs must be prepared first");
+  const options: OperationPackOptions = {
+    ...state.options,
+    ...(overrides.store ? { store: overrides.store } : {}),
+  };
+  const report: OperationPackReport = {
+    loaded: [],
+    refused: [...state.refused],
+  };
+  for (const pack of state.packs) {
+    const { manifest, publisher } = pack;
+    try {
       for (const operation of manifest.operations)
         checkOperation(operation, registry.vocabulary, options, manifest.id);
-      const pack: LoadedPack = {
-        manifest,
-        source: bundle.toString("utf8"),
-        publisher,
-      };
       const registrations = manifest.operations.map((operation) => ({
         operation: packOperation(
           pack,
           operation,
           registry.vocabulary,
           options,
-          revoked,
+          state.runtime,
         ),
         provenance: {
           kind: "pack" as const,
@@ -776,7 +901,6 @@ export function loadOperationPacks(
         throw new Refusal("duplicate-operation");
       for (const { operation, provenance } of registrations)
         registry.registerPack(operation, provenance);
-      loadedIds.add(manifest.id);
       report.loaded.push({
         pack: manifest.id,
         version: manifest.version,
@@ -787,15 +911,19 @@ export function loadOperationPacks(
         })),
       });
     } catch (error) {
-      const reason = error instanceof Refusal ? error.reason : "invalid-layout";
-      report.refused.push({
-        entry: entry.name,
-        reason,
-        message: operationPackRefusals[reason],
-      });
+      report.refused.push(refusal(pack.entry, error));
     }
   }
+  report.refused.sort((a, b) => (a.entry < b.entry ? -1 : 1));
   return report;
+}
+
+/** Prepare and register in one step, for hosts that build their own registry. */
+export async function loadOperationPacks(
+  registry: OperationRegistry,
+  options: OperationPackOptions,
+): Promise<OperationPackReport> {
+  return registerOperationPacks(registry, await prepareOperationPacks(options));
 }
 
 /** Thrown by a host that requires every configured pack to load. */

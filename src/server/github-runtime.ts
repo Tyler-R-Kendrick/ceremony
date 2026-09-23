@@ -74,10 +74,10 @@ import { jiraHuman, jiraOwnerPage } from "./jira-human.js";
 import { JiraSetupAssignments } from "./jira-setup.js";
 import { ProviderRegistry, type ProviderEntry } from "./provider-registry.js";
 import {
-  loadOperationPacks,
+  registerOperationPacks,
   OperationPackRefused,
-  type OperationPackOptions,
   type OperationPackRefusal,
+  type PreparedOperationPacks,
 } from "./operation-packs.js";
 
 export interface GitHubRuntimeOptions {
@@ -157,11 +157,14 @@ export interface GitHubRuntimeOptions {
   allowTarget?(actor: ActorContext, target: string): Promise<boolean>;
   continuation?: TeachingRuntimeOptions["continuation"];
   /**
-   * Signed operation packs to load at startup (docs/operation-packs.md).
-   * `oauth-client` credentials resolve through this runtime's store. A
-   * refused pack stops startup unless `onRefused` takes the report instead.
+   * Signed operation packs, prepared (verified and export-checked) by
+   * awaiting `prepareOperationPacks` before this runtime is created
+   * (docs/operation-packs.md). `oauth-client` credentials resolve through
+   * this runtime's store. A refused pack stops startup unless `onRefused`
+   * takes the refusals instead.
    */
-  operationPacks?: Omit<OperationPackOptions, "store"> & {
+  operationPacks?: {
+    packs: PreparedOperationPacks;
     onRefused?(refusals: readonly OperationPackRefusal[]): void;
   };
   /** Trusted private session configuration; checked again at each provider boundary. */
@@ -526,8 +529,8 @@ export function createGitHubRuntime(
   // Packs register last, into the same registry and vocabulary, so a pack
   // can use any host contract but never replace a host operation.
   if (options.operationPacks) {
-    const { onRefused, ...packs } = options.operationPacks;
-    const report = loadOperationPacks(registry, { ...packs, store });
+    const { onRefused, packs } = options.operationPacks;
+    const report = registerOperationPacks(registry, packs, { store });
     if (report.refused.length) {
       if (!onRefused) throw new OperationPackRefused(report.refused);
       onRefused(report.refused);

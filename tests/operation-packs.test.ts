@@ -40,7 +40,10 @@ import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import {
   loadOperationPacks,
   OperationPackRefused,
+  prepareOperationPacks,
+  registerOperationPacks,
   type OperationPackOptions,
+  type PreparedOperationPacks,
 } from "../src/server/operation-packs.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { loopbackAuthFetch } from "../src/server/public-auth-fetch.js";
@@ -376,13 +379,15 @@ type Setup = {
   stray: Awaited<ReturnType<typeof fixtureServer>>;
   store: SQLiteCeremonyStore;
 };
-type LoadOptions = Partial<OperationPackOptions> & { withoutSecrets?: true };
+type LoadOptions = Partial<OperationPackOptions> & {
+  withoutSecrets?: true;
+};
 /** Load one signed pack with the given operations into a fresh registry. */
 async function loaded(
   t: TestContext,
   operations: (base: string, stray: string) => PackOperation[],
   options: LoadOptions = {},
-): Promise<Setup & { report: ReturnType<typeof loadOperationPacks> }> {
+): Promise<Setup & { report: Awaited<ReturnType<typeof loadOperationPacks>> }> {
   const { withoutSecrets, ...overrides } = options;
   const server = await fixtureServer(t);
   const stray = await fixtureServer(t);
@@ -423,7 +428,7 @@ async function loaded(
     }),
     verify: async () => true,
   });
-  const report = loadOperationPacks(registry, {
+  const report = await loadOperationPacks(registry, {
     directory,
     publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
     fetch: loopbackAuthFetch,
@@ -934,7 +939,7 @@ test("tampered, unknown, expired and revoked packs are refused with a reason and
   });
   symlinkSync(join(directory, "a-good"), join(directory, "o-link"));
   const registry = new OperationRegistry(vocabulary);
-  const report = loadOperationPacks(registry, {
+  const report = await loadOperationPacks(registry, {
     directory,
     publishers: [trusted, expired, revoked, future, narrow].map((key) => ({
       keyId: key.keyId,
@@ -975,7 +980,7 @@ test("tampered, unknown, expired and revoked packs are refused with a reason and
     ["pack:good/big"],
   );
   // Host misconfiguration is not a refusal: it stops startup.
-  assert.throws(
+  await assert.rejects(
     () =>
       loadOperationPacks(new OperationRegistry(vocabulary), {
         directory,
@@ -1218,7 +1223,6 @@ test("timeouts, memory, oversized output and handler errors map to operation cod
       destinations: [base],
       limits: { timeoutMs: 1000 },
     }),
-    fixtureOperation("missing"),
   ]);
   assert.deepEqual(setup.report.refused, []);
   const call = (name: string, signal?: AbortSignal) =>
@@ -1243,7 +1247,6 @@ test("timeouts, memory, oversized output and handler errors map to operation cod
     diagnosticCode: "conflict",
   });
   assert.deepEqual(await call("malformed"), unavailable);
-  assert.deepEqual(await call("missing"), unavailable);
   // A write that left before the handler died may have landed.
   assert.deepEqual(await call("writer"), {
     state: "uncertain",
@@ -1272,7 +1275,7 @@ test("a key that expires or is revoked after load stops its operations", async (
     signer,
   });
   const registry = new OperationRegistry(vocabulary);
-  const report = loadOperationPacks(registry, {
+  const report = await loadOperationPacks(registry, {
     directory,
     publishers: [
       {
@@ -1319,8 +1322,10 @@ test("the reference runtime loads packs at startup and marks them in the MCP and
     allowTarget: async () => true,
     authorize: async (subject, run) => subject.subjectId === run.subjectId,
     operationPacks: {
-      directory,
-      publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+      packs: await prepareOperationPacks({
+        directory,
+        publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+      }),
     },
   });
   const listed = listOperations(runtime, actor);
@@ -1416,6 +1421,10 @@ test("the reference runtime loads packs at startup and marks them in the MCP and
 
   // Without onRefused, a refused pack stops startup; with it, the host decides.
   writeFileSync(join(directory, "neutral", "handler.js"), "tampered");
+  const tampered = await prepareOperationPacks({
+    directory,
+    publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+  });
   const options = {
     store: store(t),
     identity: { authenticate: async () => actor },
@@ -1428,10 +1437,7 @@ test("the reference runtime loads packs at startup and marks them in the MCP and
     () =>
       createGitHubRuntime({
         ...options,
-        operationPacks: {
-          directory,
-          publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
-        },
+        operationPacks: { packs: tampered },
       }),
     (error: unknown) =>
       error instanceof OperationPackRefused &&
@@ -1441,10 +1447,74 @@ test("the reference runtime loads packs at startup and marks them in the MCP and
   createGitHubRuntime({
     ...options,
     operationPacks: {
-      directory,
-      publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+      packs: tampered,
       onRefused: (list) => refusals.push(...list.map(({ reason }) => reason)),
     },
   });
   assert.deepEqual(refusals, ["bundle-digest-mismatch"]);
+});
+
+test("a bundle that does not define every declared operation is refused at load", async (t) => {
+  const directory = packDirectory(t);
+  const signer = publisher();
+  const handler = handlerSource("https://api.fixture.example", "");
+  writePack(directory, "a-absent", {
+    id: "absent",
+    operations: [fixtureOperation("big"), fixtureOperation("not-there")],
+    handler,
+    signer,
+  });
+  writePack(directory, "b-no-verify", {
+    id: "no-verify",
+    operations: [fixtureOperation("big", { verify: true })],
+    handler,
+    signer,
+  });
+  writePack(directory, "c-throws", {
+    id: "throws",
+    operations: [fixtureOperation("big")],
+    handler: 'throw new Error("at load");',
+    signer,
+  });
+  writePack(directory, "d-no-table", {
+    id: "no-table",
+    operations: [fixtureOperation("big")],
+    handler: "const unrelated = 1;",
+    signer,
+  });
+  writePack(directory, "e-good", {
+    id: "good",
+    operations: [fixtureOperation("big"), fixtureOperation("host")],
+    handler,
+    signer,
+  });
+  const registry = new OperationRegistry(vocabulary);
+  const packs = await prepareOperationPacks({
+    directory,
+    publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+  });
+  assert.deepEqual(packs.ready, ["good"]);
+  const report = registerOperationPacks(registry, packs);
+  assert.deepEqual(
+    report.refused.map(({ entry, reason }) => [entry, reason]),
+    [
+      ["a-absent", "missing-export"],
+      ["b-no-verify", "missing-export"],
+      ["c-throws", "missing-export"],
+      ["d-no-table", "missing-export"],
+    ],
+  );
+  assert.deepEqual(
+    registry.catalog().map(({ id }) => id),
+    ["pack:good/big", "pack:good/host"],
+  );
+  // Registration takes only what preparation checked.
+  assert.throws(
+    () =>
+      registerOperationPacks(new OperationRegistry(vocabulary), {
+        refused: [],
+        ready: [],
+      } as unknown as PreparedOperationPacks),
+    /prepared first/,
+  );
 });
