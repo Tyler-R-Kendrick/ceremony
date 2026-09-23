@@ -93,6 +93,8 @@ export interface ConnectorRuntimeOptions {
   rateLimit?: { limit: number; windowMs: number };
   /** Exact HTTPS origins the default policy admits beyond those a description declares. */
   destinations?: readonly string[];
+  /** Exact HTTPS origins the default policy admits for a reviewed OAuth issuer policy, beyond those a description declares. */
+  issuers?: readonly string[];
   callTimeoutMs?: number;
 }
 
@@ -130,6 +132,7 @@ export function createConnectorRuntime(
   const base = defaultConnectorPolicy({
     store: options.store,
     ...(options.destinations ? { destinations: options.destinations } : {}),
+    ...(options.issuers ? { issuers: options.issuers } : {}),
     ...(options.network.mode === "loopback-fixture"
       ? { loopbackFixtures: true }
       : {}),

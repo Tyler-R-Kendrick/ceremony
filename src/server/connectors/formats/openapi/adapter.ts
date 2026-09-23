@@ -29,12 +29,20 @@ import {
   authorizeOpenApi,
   completeOpenApi,
   credentialRequired,
+  OAUTH_SETTINGS_KEY,
+  PROFILES_SETTINGS_KEY,
   renewCredential,
 } from "./authorize.js";
 import { exportOpenApi } from "./export.js";
 import { OPENAPI_PROFILES, READER_VERSION, isReadResult } from "./model.js";
-import { planFromBinding, planSettingsOf, type OperationPlan } from "./plan.js";
+import {
+  PLAN_SETTINGS_KEY,
+  planFromBinding,
+  planSettingsOf,
+  type OperationPlan,
+} from "./plan.js";
 import { readOpenApi, type ReadOptions } from "./read.js";
+import { reviewOpenApiBinding } from "./review.js";
 import {
   InputRejected,
   RESERVED_REQUEST_HEADERS,
@@ -759,6 +767,20 @@ export function createOpenApiHttpAdapter(
         }
         return attempt(true);
       }
+    },
+
+    reservedSettings: [
+      PLAN_SETTINGS_KEY,
+      PROFILES_SETTINGS_KEY,
+      OAUTH_SETTINGS_KEY,
+    ],
+
+    async reviewBinding(input) {
+      return reviewOpenApiBinding(input, {
+        maxImportBytes,
+        parseDocument: options.parseDocument,
+        resolveExternal: options.resolveExternal,
+      });
     },
 
     async authorize(ctx, intent) {
