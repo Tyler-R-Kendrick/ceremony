@@ -8,11 +8,15 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { managedBackends } from "../src/server/browser-backends.js";
 import { createBrowserLoginTools } from "../src/server/browser-login-tools.js";
 import { createFixtureVerifier } from "../src/server/browser-verification.js";
-import type { HostBrowserLoginOptions } from "../src/server/browser-login-host.js";
+import {
+  withEvidenceLedger,
+  type HostBrowserLoginOptions,
+} from "../src/server/browser-login-host.js";
 import type { BrowserLoginService } from "../src/server/browser-login-service.js";
 import type { BrowserSessionRegistry } from "../src/server/browser-sessions.js";
 import type { HumanParticipation } from "../src/server/browser-driver.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
+import type { LoginEvidence } from "../src/core/browser-session-contracts.js";
 import {
   createIdentityFixture,
   defaultFixtureAccounts,
@@ -298,5 +302,24 @@ describe("HOST-HUMAN: the host's participation reaches the login, bound to the c
     await tools.login(actor, loginArguments());
     assert.equal(seen.human, participation);
     assert.match(seen.digest ?? "", /^[0-9a-f]{64}$/);
+  });
+});
+
+describe("HOST-LEDGER: the host's evidence ledger forgets a released session", () => {
+  test("evidence goes with the session, and a cancelled run keeps it", async () => {
+    const evidence = { kind: "fixture-verified" } as unknown as LoginEvidence;
+    const registry = {
+      recordEvidence: async () => ({}),
+      release: async () => ({}),
+    } as unknown as BrowserSessionRegistry;
+    const { sessions, evidenceFor } = withEvidenceLedger(registry);
+    for (const kind of ["dispose-managed", "release-control"] as const) {
+      await sessions.recordEvidence(actor, "bses_one", evidence, "bevd_one");
+      assert.equal(await evidenceFor(actor, "bses_one"), evidence);
+      await sessions.release(actor, "bses_one", "cancel-run");
+      assert.equal(await evidenceFor(actor, "bses_one"), evidence);
+      await sessions.release(actor, "bses_one", kind);
+      assert.equal(await evidenceFor(actor, "bses_one"), undefined, kind);
+    }
   });
 });

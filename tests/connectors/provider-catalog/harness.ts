@@ -3,10 +3,8 @@ import { randomBytes } from "node:crypto";
 import type { TestContext } from "node:test";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
 import { ConnectorAdapterRegistry } from "../../../src/server/connectors/index.js";
-import {
-  createCatalogHttpAdapter,
-  providerCatalogBindingSettings,
-} from "../../../src/server/connectors/formats/provider-catalog/index.js";
+import type { ConnectorPolicy } from "../../../src/server/connectors/commands/index.js";
+import { createCatalogHttpAdapter } from "../../../src/server/connectors/formats/provider-catalog/index.js";
 import {
   createHarness,
   human,
@@ -111,7 +109,11 @@ export async function startOAuthServer(
 
 export async function catalogHarness(
   t: TestContext,
-  options: { clock?: Clock; extra?: ConnectorAdapterRegistry } = {},
+  options: {
+    clock?: Clock;
+    extra?: ConnectorAdapterRegistry;
+    policy?: (base: ConnectorPolicy) => ConnectorPolicy;
+  } = {},
 ): Promise<Harness & { actor: ActorContext; clock: Clock }> {
   const time = options.clock ?? clock();
   const registry = options.extra ?? new ConnectorAdapterRegistry();
@@ -120,6 +122,7 @@ export async function catalogHarness(
   const harness = await createHarness({
     now: time.now,
     service: { registry },
+    ...(options.policy ? { policy: options.policy } : {}),
   });
   t.after(() => harness.close());
   return Object.assign(harness, { actor: human(), clock: time });
@@ -147,7 +150,7 @@ export async function importDocument(
   return { result, definitions };
 }
 
-/** Approves a binding through the service's review, with the entry copied into settings. */
+/** Approves a binding through the service's review; the entry comes from the definition, never the reviewer. */
 export async function approve(
   harness: Harness & { actor: ActorContext },
   input: {
@@ -157,6 +160,8 @@ export async function approve(
     profileId?: string;
     adapterId?: string;
     settings?: Record<string, unknown>;
+    configuration?: string[];
+    actor?: ActorContext;
   },
 ) {
   const definition = await harness.definitions.getDefinition(
@@ -164,18 +169,22 @@ export async function approve(
     input.definitionRef,
   );
   assert.ok(definition);
-  const reference = await harness.service.approveBinding(harness.actor, {
-    definitionRef: input.definitionRef,
-    adapterId: input.adapterId ?? "catalog-http",
-    approvals: {
-      destinations: [input.destination],
-      operations: input.operations ?? [
-        { nativeId: "proxy.get", outputClassification: "public" },
-      ],
-      ...(input.profileId ? { profileId: input.profileId } : {}),
-      settings: input.settings ?? providerCatalogBindingSettings(definition),
+  const reference = await harness.service.approveBinding(
+    input.actor ?? harness.actor,
+    {
+      definitionRef: input.definitionRef,
+      adapterId: input.adapterId ?? "catalog-http",
+      approvals: {
+        destinations: [input.destination],
+        operations: input.operations ?? [
+          { nativeId: "proxy.get", outputClassification: "public" },
+        ],
+        ...(input.profileId ? { profileId: input.profileId } : {}),
+        settings: input.settings ?? {},
+        ...(input.configuration ? { configuration: input.configuration } : {}),
+      },
     },
-  });
+  );
   const binding = harness.definitions
     .bindings()
     .filter((item) => item.bindingRef === reference.bindingRef)

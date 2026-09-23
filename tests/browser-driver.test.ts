@@ -742,6 +742,44 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
     }),
     { action: "wait" },
   );
+  // "Agree" alone is not terms: an optional marketing or data-sharing box
+  // worded as an agreement is never ticked, even to register.
+  for (const label of [
+    "I agree to receive marketing emails and share my data with partners",
+    "I accept promotional offers",
+    "I agree to the terms of the newsletter",
+    "Accept product updates",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "wait" },
+      label,
+    );
+  for (const label of [
+    "I accept the terms and the privacy policy",
+    "I confirm I am old enough to use this service",
+    "I am 16 years of age or older",
+    "I accept the EULA",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "checkbox", label }],
+        }),
+        available: [],
+        history: [],
+      }),
+      { action: "check", element: 0 },
+      label,
+    );
   const inbox = snapshot({
     title: "Almost there",
     headings: ["Check your inbox to confirm the account."],
