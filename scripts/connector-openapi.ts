@@ -270,6 +270,14 @@ const responseSchemas = {
     bindings: z.array(bindingReferenceSchema),
   }),
   ConfigureResponse: configureResponseSchema,
+  // Each projection is its own component, so `ConnectionView` is an `anyOf`
+  // of two `$ref`s rather than two inline objects. Generators name inline
+  // union branches positionally, and openapi-python-client 0.29 gives both
+  // branches' inline `handoff` the same model name, rejects the clash, and
+  // then drops both branch models -- which leaves every connection route in
+  // the generated package importing a module that does not exist.
+  HumanConnectionView: humanConnectionViewSchema,
+  AgentConnectionView: agentConnectionViewSchema,
   ConnectionView: connectionViewSchema,
   ConnectionListResponse: z.strictObject({
     connections: z.array(connectionViewSchema),
