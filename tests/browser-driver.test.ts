@@ -769,6 +769,78 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
   );
 });
 
+test("the sign-up link is only for starting registration, and only a plain one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const available = ["email", "password", "password-confirm"] as const;
+  // Someone else's sign-up, or a passwordless one, is not the way in.
+  const offers = snapshot({
+    title: "Get started with Acme",
+    headings: ["Get started with Acme"],
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email" },
+      { index: 1, kind: "input", type: "password", label: "Password" },
+      { index: 2, kind: "link", text: "Sign up with Google" },
+      { index: 3, kind: "link", text: "Sign up with a passkey" },
+      { index: 4, kind: "button", text: "Continue" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: offers,
+      available,
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // A sign-in page reached after confirming the address is signed in to;
+  // following its sign-up link would make a second account.
+  const confirmed = snapshot({
+    title: "Sign in",
+    headings: ["Your email is confirmed", "Sign in"],
+    elements: [
+      { index: 0, kind: "input", type: "email", label: "Email" },
+      { index: 1, kind: "input", type: "password", label: "Password" },
+      { index: 2, kind: "button", text: "Sign in" },
+      { index: 3, kind: "link", text: "Create an account" },
+    ],
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: confirmed,
+      available,
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // Nor once registration has typed anything, even on an unmarked page.
+  const plain = snapshot({
+    ...confirmed,
+    headings: ["Sign in"],
+    path: "/login",
+  });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: plain,
+      available,
+      history: [{ action: "fill", note: "password-confirm", path: "/signup" }],
+    }),
+    { action: "fill", element: 0, role: "email" },
+  );
+  // Before any of that, the same page is left for its sign-up link.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: plain,
+      available,
+      history: [],
+    }),
+    { action: "click", element: 3, note: "Create an account" },
+  );
+});
+
 test("registering from a sign-in page follows the sign-up link before typing anything", async () => {
   const interpret = createHeuristicInterpreter();
   const available = [
