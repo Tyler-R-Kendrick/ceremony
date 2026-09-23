@@ -170,43 +170,62 @@ test("a host-registered entry connects through its pinned adapter after review",
   assert.equal(api.requests.at(-1)!.url.pathname, "/v2/items");
 });
 
-test("a pinned adapter refuses a binding whose settings name another entry", async (t) => {
+test("a pinned adapter refuses to bind a definition carrying another entry", async (t) => {
   const server = await startOAuthServer(t);
   const api = await startProviderApi(t);
   const entry = localEntry(server, api);
-  const altered = { ...entry, displayName: "Someone else's CRM" };
+  // Same id, somebody else's endpoints: imported through the open adapter.
+  const altered = parseProviderCatalogEntry({
+    id: entry.id,
+    displayName: "Someone else's CRM",
+    auth: {
+      mode: "oauth2-authorization-code",
+      authorizationUrl: "https://crm.example/authorize",
+      tokenUrl: "https://crm.example/token",
+      scopes: ["items.read"],
+    },
+    proxy: { baseUrl: "https://crm.example/v2" },
+  });
   const registry = createConnectorRegistry({
     providerCatalog: { entries: [entry], allowLoopbackHttp: true },
   });
   const harness = await catalogHarness(t, { extra: registry });
-  harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
-  harness.setConfiguration(
-    harness.actor,
-    "LOCAL_CRM_CLIENT_SECRET",
-    CLIENT_SECRET,
-  );
   const imported = await harness.service.import(harness.actor, {
+    kind: "upload",
+    mediaType: "application/json",
+    text: providerCatalogDocument([altered]),
+    adapterId: "catalog-http",
+  });
+  // The host's entry is authoritative: a definition describing another one
+  // is refused at review, not bound and trusted.
+  await assert.rejects(
+    approve(harness, {
+      definitionRef: imported.definitions[0]!,
+      destination: "https://crm.example/v2",
+      adapterId: "catalog-local-crm",
+      profileId: "oauth2",
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "catalog.binding.entry-differs",
+  );
+  // Nor can a reviewer hand it one through settings.
+  const own = await harness.service.import(harness.actor, {
     kind: "upload",
     mediaType: "application/json",
     text: providerCatalogDocument([entry]),
     adapterId: "catalog-local-crm",
   });
-  // Settings naming another entry are refused at use, not trusted.
-  const mismatched = await approve(harness, {
-    definitionRef: imported.definitions[0]!,
-    destination: `${api.origin}/v2`,
-    adapterId: "catalog-local-crm",
-    profileId: "oauth2",
-    settings: providerCatalogBindingSettings(altered),
-  });
   await assert.rejects(
-    harness.service.connect(harness.actor, {
-      bindingRef: mismatched.reference.bindingRef,
-      intent: { profileId: "oauth2" },
+    approve(harness, {
+      definitionRef: own.definitions[0]!,
+      destination: `${api.origin}/v2`,
+      adapterId: "catalog-local-crm",
+      profileId: "oauth2",
+      settings: providerCatalogBindingSettings(altered),
     }),
     (error: unknown) =>
-      error instanceof ConnectorError &&
-      error.detail === "catalog.binding.entry-differs",
+      error instanceof ConnectorError && error.detail === "settings.reserved",
   );
 });
 
