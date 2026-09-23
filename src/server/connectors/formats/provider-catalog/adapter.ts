@@ -413,6 +413,12 @@ export function createCatalogHttpAdapter(
       throw new ConnectorError("unsupported", {
         detail: "catalog.scope.openid",
       });
+    // The entry's defaults are the only scopes a reviewer saw; a caller may
+    // name them, never add one.
+    if (requested.some((scope) => !auth.scopes.includes(scope)))
+      throw new ConnectorError("invalid-request", {
+        detail: "catalog.scope.undeclared",
+      });
     if (
       scopes.length > 64 ||
       scopes.some((scope) => !/^[^\s\p{Cc},]{1,200}$/u.test(scope))

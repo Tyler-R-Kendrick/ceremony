@@ -159,3 +159,6 @@ from Nango.
 - The `openid` scope is refused for catalog providers: an ID token would name
   the account, and without discovery there are no published keys to verify
   it against.
+- A connection asks for the entry's scopes (`default_scopes`), the only ones a
+  reviewer saw. A caller may name them but not add others; a scope beyond them
+  is refused (`catalog.scope.undeclared`) before anything is sent.

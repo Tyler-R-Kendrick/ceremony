@@ -29,7 +29,7 @@ function nangoDocument(server: { origin: string }, api: { origin: string }) {
       authorization_url: `${server.origin}/authorize`,
       token_url: `${server.origin}/token`,
       authorization_params: { response_type: "code", access_type: "offline" },
-      default_scopes: ["items.read"],
+      default_scopes: ["items.read", "items.write"],
       proxy: {
         base_url: `${api.origin}/v2`,
         headers: { "accept-version": "2026-01" },
@@ -96,7 +96,7 @@ test("authorize → callback → proxy → refresh on expiry, all through the se
     await connected(t);
 
   // The authorization request is the engine's: S256 PKCE, the reviewed
-  // parameters, default plus requested scopes, and the deployment's callback.
+  // parameters, the reviewed scopes, and the deployment's callback.
   assert.equal(authorization.origin, server.origin);
   assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorization.searchParams.get("access_type"), "offline");
@@ -326,6 +326,36 @@ test("a binding whose settings were altered after review is refused", async (t) 
       error instanceof ConnectorError &&
       error.detail === "catalog.binding.entry-digest",
   );
+});
+
+test("a scope beyond the entry's reviewed defaults is refused, not asked for", async (t) => {
+  const server = await startOAuthServer(t);
+  const api = await startProviderApi(t);
+  const harness = await catalogHarness(t);
+  harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
+  harness.setConfiguration(
+    harness.actor,
+    "LOCAL_CRM_CLIENT_SECRET",
+    CLIENT_SECRET,
+  );
+  const document = nangoDocument(server, api);
+  document["local-crm"].default_scopes = ["items.read"];
+  const { definitions } = await importDocument(harness, document);
+  const approved = await approve(harness, {
+    definitionRef: definitions[0]!.definitionRef,
+    destination: `${api.origin}/v2`,
+    profileId: "oauth2",
+  });
+  await assert.rejects(
+    harness.service.connect(harness.actor, {
+      bindingRef: approved.reference.bindingRef,
+      intent: { profileId: "oauth2", requestedPermissions: ["items.admin"] },
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "catalog.scope.undeclared",
+  );
+  assert.equal(server.counts.authorize, 0);
 });
 
 test("an ID token is never asked for without keys to verify it", async (t) => {
