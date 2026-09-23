@@ -299,3 +299,88 @@ test("a takeover route is refused unless it stays on the broker and hands off el
   assert.equal(opened, 0);
   db.close();
 });
+
+test("a Browserbase browser for a person is opened unrecorded and keeps its session for the live view", async (t) => {
+  const local = await chromium.launch({ headless: true });
+  t.after(() => local.close());
+  const dialled: string[] = [];
+  t.mock.method(chromium, "connectOverCDP", async (endpoint: string) => {
+    dialled.push(endpoint);
+    return local;
+  });
+  const sent: { url: string; body?: string }[] = [];
+  let available = true;
+  const fetcher: typeof fetch = async (input, init) => {
+    sent.push({
+      url: String(input),
+      ...(typeof init?.body === "string" ? { body: init.body } : {}),
+    });
+    if (!available) return new Response("", { status: 503 });
+    if (String(input).endsWith("/v1/sessions"))
+      return Response.json({
+        id: "fixture-session",
+        connectUrl: "wss://connect.browserbase.example/fixture",
+      });
+    return Response.json({
+      debuggerFullscreenUrl: "https://www.browserbase.example/devtools/all",
+    });
+  };
+  const source = {
+    kind: "browserbase" as const,
+    apiKey: "synthetic-browserbase-key",
+    projectId: "fixture-project",
+  };
+  const live = await openLiveBrowser(source, { fetch: fetcher });
+  assert.deepEqual(dialled, ["wss://connect.browserbase.example/fixture"]);
+  assert.deepEqual(JSON.parse(sent[0]!.body!).browserSettings, {
+    recordSession: false,
+    logSession: false,
+    solveCaptchas: false,
+  });
+  const page = await live.browser.newPage();
+  assert.equal(
+    await live.liveView(page),
+    "https://www.browserbase.example/devtools/all",
+  );
+  assert.equal(
+    sent[1]!.url,
+    "https://api.browserbase.com/v1/sessions/fixture-session/debug",
+  );
+  assert.equal(live.handoff, undefined);
+  available = false;
+  await assert.rejects(openLiveBrowser(source, { fetch: fetcher }));
+});
+
+test("a CDP browser for a person presents its headers and names tabs through the operator's template", async (t) => {
+  const local = await chromium.launch({ headless: true });
+  t.after(() => local.close());
+  const dialled: unknown[] = [];
+  t.mock.method(
+    chromium,
+    "connectOverCDP",
+    async (endpoint: string, options: unknown) => {
+      dialled.push([endpoint, options]);
+      return local;
+    },
+  );
+  const live = await openLiveBrowser({
+    kind: "cdp",
+    endpoint: "wss://browser.example/cdp",
+    headers: { authorization: "Bearer synthetic" },
+    liveViewUrlTemplate: "https://viewer.example/live/{targetId}",
+  });
+  assert.deepEqual(dialled, [
+    [
+      "wss://browser.example/cdp",
+      { headers: { authorization: "Bearer synthetic" }, timeout: 20_000 },
+    ],
+  ]);
+  const context = await live.browser.newContext();
+  const page = await context.newPage();
+  const session = await context.newCDPSession(page);
+  const { targetInfo } = await session.send("Target.getTargetInfo");
+  assert.equal(
+    await live.liveView(page),
+    `https://viewer.example/live/${targetInfo.targetId}`,
+  );
+});
