@@ -228,10 +228,33 @@ function redact(value: unknown, secrets: readonly string[]): unknown {
   return value;
 }
 
-function secretsOf(material: CredentialMaterial): string[] {
-  return Object.entries(material)
-    .filter(([key, value]) => SECRET_KEYS.has(key) && value.length >= 4)
-    .map(([, value]) => value)
+/**
+ * Every form in which this call could have sent the credential: each secret
+ * value, and the exact forms `placeCredential` wrote -- the API key with its
+ * prefix, and for Basic the username and the encoded `user:pass` pair, which
+ * contains neither half verbatim.
+ */
+function secretsOf(
+  entry: ProviderCatalogEntry,
+  material: CredentialMaterial,
+): string[] {
+  const values = Object.entries(material)
+    .filter(([key]) => SECRET_KEYS.has(key))
+    .map(([, value]) => value);
+  const auth = entry.auth;
+  if (auth.mode === "api-key" && material["api_key"])
+    values.push(`${auth.prefix}${material["api_key"]}`);
+  if (auth.mode === "basic" && material["username"] !== undefined) {
+    const username = material["username"];
+    values.push(
+      username,
+      Buffer.from(`${username}:${material["password"] ?? ""}`, "utf8").toString(
+        "base64",
+      ),
+    );
+  }
+  return [...new Set(values)]
+    .filter((value) => value.length >= 4)
     .sort((a, b) => b.length - a.length);
 }
 
@@ -719,7 +742,7 @@ export function createCatalogHttpAdapter(
           redirect: "error",
           signal: controller.signal,
         });
-        return await read(response, material ? secretsOf(material) : []);
+        return await read(response, material ? secretsOf(entry, material) : []);
       } finally {
         clearTimeout(timer);
         ctx.signal.removeEventListener("abort", onAbort);
