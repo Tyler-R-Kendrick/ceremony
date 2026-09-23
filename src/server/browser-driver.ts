@@ -551,6 +551,11 @@ export async function runCeremony(
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
       if (!value || value.length > 4096 || (secret && value.length < 8)) return;
+      // A field showing something the driver typed is not an issued value,
+      // whatever it is labelled: keeping it would hand the password to the
+      // plan's next step, which may send it to another origin. This holds for
+      // an ID as much as a secret, since an ID is carried unguarded.
+      if (guarded.includes(value) || contains(value, guarded)) return;
       issued.set(kind, value);
       if (secret && !guarded.includes(value)) guarded.push(value);
     }

@@ -2885,6 +2885,79 @@ test("ISSUED-STALE: a read the adapter refuses takes nothing, and undeclared fie
   assert.deepEqual(undeclared.reads, []);
 });
 
+test("ISSUED-TYPED: a read-only field showing a value the driver typed is never kept as an issued one", async () => {
+  const password = "hunter2-typed-pass";
+  // Each field that displays something the driver typed: the password itself,
+  // and a longer value with the password inside it.
+  for (const echoed of [
+    { "client-id": issuedClientId, "client-secret": password },
+    { "client-id": `id-${password}`, "client-secret": issuedCanary },
+  ]) {
+    let signedIn = false;
+    const page: CeremonyPage = {
+      ...inertPage(),
+      snapshot: async () =>
+        signedIn
+          ? snapshot({
+              path: "https://provider.example/settings/developers/oauth-apps/1",
+              headings: ["Example app"],
+              elements: [
+                {
+                  index: 0,
+                  kind: "input",
+                  type: "text",
+                  label: "Client ID",
+                  filled: true,
+                },
+                {
+                  index: 1,
+                  kind: "input",
+                  type: "text",
+                  label: "Client secret",
+                  filled: true,
+                },
+              ],
+            })
+          : snapshot(),
+      click: async (element) => {
+        if (element.text === "Sign in") signedIn = true;
+      },
+      readIssued: async (element) =>
+        element.label === "Client ID"
+          ? echoed["client-id"]
+          : element.label === "Client secret"
+            ? echoed["client-secret"]
+            : undefined,
+    };
+    let filled = false;
+    const result = await runCeremony({
+      page,
+      interpreter: async ({ snapshot: current }) => {
+        const signIn = current.elements.find((e) => e.text === "Sign in");
+        if (!signIn) return { action: "done" };
+        if (!filled) {
+          filled = true;
+          return { action: "fill", element: 1, role: "password" };
+        }
+        return { action: "click", element: signIn.index };
+      },
+      goal: "obtain-credential",
+      secrets: createSecrets({ password }),
+      allowedOrigins: ["https://provider.example"],
+      issued: {
+        fields: issuedFields,
+        keep: async () => assert.fail("a typed value may not be kept"),
+      },
+      verify: async () => true,
+    });
+    assert.equal(result.status, "unverified");
+    assert.equal(
+      result.transcript.some((step) => step.action === "kept"),
+      false,
+    );
+  }
+});
+
 test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on the observed document", async () => {
   const graph = handleGraph({ displays: { 0: "displayed-value-1" } });
   const page = createPlaywrightCeremonyPage(graph.page);
