@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { after, before, describe, test } from "node:test";
+import { randomUUID } from "node:crypto";
+import { after, before, describe, test, type TestContext } from "node:test";
 import {
   managedBackends,
   UnsupportedBackend,
@@ -15,11 +16,25 @@ import {
   createFixtureVerifier,
   createVerifierRegistry,
 } from "../src/server/browser-verification.js";
-import { compileLoginPlan } from "../src/server/login-plan.js";
-import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
+import { compileLoginPlan, PlanRejected } from "../src/server/login-plan.js";
+import {
+  recordKinds,
+  SQLiteCeremonyStore,
+} from "../src/server/persistence/index.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
-import type { PageSnapshot } from "../src/core/browser-contracts.js";
+import type {
+  IssuedSinkKind,
+  PageSnapshot,
+} from "../src/core/browser-contracts.js";
 import type { CeremonyPage } from "../src/server/browser-driver.js";
+import { createHostBrowserLogin } from "../src/server/browser-login-host.js";
+import {
+  mintOAuthClient,
+  readOAuthClient,
+} from "../src/server/recipes/common.js";
+import { createHttpCeremonyPage } from "./doubles/http-page.js";
+import { startAuthProvider } from "./doubles/auth-provider/server.js";
+import { oauthAppsPath } from "./doubles/auth-provider/developer-settings.js";
 
 /**
  * The login service's decisions, with the browser replaced by a stub.
@@ -89,7 +104,8 @@ const loginPage: PageSnapshot = {
 /** A managed browser that opens nothing and records whether it was disposed. */
 function stubBackend(
   answer: { status: number; body: string },
-  page: Partial<CeremonyPage> = {},
+  /** A page, or a factory for a fresh one per launch, as a real browser gives. */
+  page: Partial<CeremonyPage> | (() => Partial<CeremonyPage>) = {},
 ) {
   const state = { disposed: 0, contextsClosed: 0 };
   const launch = (async () => ({
@@ -119,7 +135,7 @@ function stubBackend(
               click: async () => {},
               check: async () => {},
               settle: async () => {},
-              ...page,
+              ...(typeof page === "function" ? page() : page),
             },
           };
         },
@@ -569,5 +585,417 @@ describe("a submission whose outcome never came back", () => {
     } finally {
       await sessions.disposeAll();
     }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Issued values in production plans                                          */
+/* -------------------------------------------------------------------------- */
+
+const issuedDeclaration = {
+  sink: "oauth-client",
+  fields: [
+    { kind: "client-id", label: "Client ID" },
+    { kind: "client-secret", label: "Client secret" },
+  ],
+} as const;
+
+describe("a plan that keeps what a provider page issues", () => {
+  const compileWith = (
+    overrides: Record<string, unknown>,
+    sinks: readonly IssuedSinkKind[] = ["oauth-client"],
+  ) =>
+    compileLoginPlan(
+      {
+        connectorId: "owned-fixture-login",
+        engine: "chromium",
+        ownership: "managed",
+        entryUrl: `${origin}/signin`,
+        navigationOrigins: [origin],
+        account: { kind: "accept-existing" },
+        continuation: "dispose",
+        trustMode: "constrained-auth",
+        interactionRounds: 0,
+        requireVerification: true,
+        sessionTtlMs: 600_000,
+        ...overrides,
+      },
+      {
+        backends: managedBackends(),
+        knownConnectors: new Set(["owned-fixture-login"]),
+        issuedSinks: new Set(sinks),
+        revision: 1,
+      },
+    );
+
+  test("the declaration is part of the plan and of its digest", () => {
+    const plain = compileWith({});
+    const keeping = compileWith({ issued: issuedDeclaration });
+    assert.deepEqual(keeping.issued, issuedDeclaration);
+    assert.notEqual(plain.digest, keeping.digest);
+    const chosen = compileWith({ choices: { "Country or region": "Canada" } });
+    assert.deepEqual(chosen.choices, { "Country or region": "Canada" });
+    assert.notEqual(plain.digest, chosen.digest);
+  });
+
+  test("a declaration is refused for an unknown kind, a repeated label, too many labels or a sink nobody registered", () => {
+    const refusedAsInput = [
+      // Not a kind a plan may keep.
+      { sink: "oauth-client", fields: [{ kind: "api-key", label: "Key" }] },
+      // Two kinds named by one label identify neither.
+      {
+        sink: "oauth-client",
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client ID" },
+        ],
+      },
+      // More labels than there are kinds.
+      {
+        sink: "oauth-client",
+        fields: [
+          { kind: "client-id", label: "Client ID" },
+          { kind: "client-secret", label: "Client secret" },
+          { kind: "client-secret", label: "Secret" },
+        ],
+      },
+      // A kind read from two fields.
+      {
+        sink: "credential-custody",
+        fields: [
+          { kind: "client-secret", label: "Client secret" },
+          { kind: "client-secret", label: "Secret" },
+        ],
+      },
+      // A client handle with no client in it.
+      {
+        sink: "oauth-client",
+        fields: [{ kind: "client-secret", label: "Client secret" }],
+      },
+      // Not a sink at all: a sink is a kind, never a callback or an address.
+      { sink: "https://collector.example/keep", fields: [] },
+      { sink: "oauth-client", fields: [] },
+      // A label that is itself shaped like a value.
+      {
+        sink: "oauth-client",
+        fields: [{ kind: "client-id", label: "oac_1234567890abcdef" }],
+      },
+    ];
+    for (const issued of refusedAsInput)
+      assert.throws(
+        () => compileWith({ issued }),
+        (error: unknown) => !(error instanceof PlanRejected),
+        JSON.stringify(issued),
+      );
+    // Well-formed, and nowhere trusted to put it on this host.
+    assert.throws(
+      () => compileWith({ issued: issuedDeclaration }, []),
+      (error: unknown) =>
+        error instanceof PlanRejected &&
+        error.reason === "issued-sink-unavailable",
+    );
+    assert.throws(
+      () =>
+        compileWith(
+          {
+            issued: {
+              sink: "credential-custody",
+              fields: [{ kind: "client-secret", label: "Client secret" }],
+            },
+          },
+          ["oauth-client"],
+        ),
+      (error: unknown) =>
+        error instanceof PlanRejected &&
+        error.reason === "issued-sink-unavailable",
+    );
+    // A choice is page text, and a secret is not one.
+    for (const choices of [
+      { "Country or region": "pw-Canary-1234567890" },
+      { "Country or region": "casey@example.test" },
+      Object.fromEntries(
+        Array.from({ length: 9 }, (_, index) => [`Field ${index}`, "Yes"]),
+      ),
+    ])
+      assert.throws(() => compileWith({ choices }), JSON.stringify(choices));
+  });
+
+  test("the service refuses a plan whose sink it was not given, before a browser starts", async () => {
+    const backend = stubBackend({ status: 200, body: '{"account":"ada"}' });
+    const { service } = serviceWith(backend);
+    const result = await service.login(actor, {
+      plan: compileWith({ issued: issuedDeclaration }),
+    });
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "unsupported-capability",
+    );
+    assert.equal(backend.state.disposed, 0);
+  });
+
+  test("a login that never reads the declared values does not report what it was for", async () => {
+    const backend = stubBackend({ status: 200, body: '{"account":"ada"}' });
+    const sessions = createBrowserSessionRegistry({ store });
+    let kept = 0;
+    const service = createBrowserLoginService({
+      sessions,
+      verifiers: createVerifierRegistry([createFixtureVerifier({ origin })]),
+      credentials: { resolve: async () => undefined },
+      launch: backend.launch,
+      issuedSinks: {
+        "oauth-client": async () => {
+          kept++;
+        },
+      },
+    });
+    const result = await service.login(actor, {
+      plan: compileWith({
+        issued: issuedDeclaration,
+        verifierOrigin: origin,
+      }),
+    });
+    // Signed in, verifiably - and still not what the plan was for.
+    assert.equal(
+      result.status === "blocked" && result.reason,
+      "issued-value-missing",
+    );
+    assert.equal(kept, 0);
+    await sessions.disposeAll();
+  });
+});
+
+describe("ISSUED-SERVICE: keeping a client's values through browser_login", () => {
+  const credentialIds = { username: randomUUID(), password: randomUUID() };
+  const subject: ActorContext = {
+    tenantId: "tenant-issued",
+    subjectId: "subject-issued",
+    sessionId: "client-issued",
+    actorKind: "human",
+    capabilities: ["executor", "author", "reviewer", "publisher"],
+  };
+
+  async function fixture(t: TestContext) {
+    const account = {
+      email: "owner-issued@ceremony.invalid",
+      username: "owner-issued",
+      password: `pw-${randomUUID()}`,
+    };
+    const provider = await startAuthProvider({
+      layout: "classic-card",
+      strictClients: true,
+      accounts: [account],
+    });
+    t.after(() => provider.close());
+    const keys = new SQLiteCeremonyStore(":memory:", {
+      current: "issued",
+      keys: { issued: new Uint8Array(32).fill(7) },
+    });
+    t.after(() => keys.close());
+    /** Every snapshot the drive took, whoever it was for. */
+    const snapshots: PageSnapshot[] = [];
+    // A fresh browser per login, as a managed backend opens one: no cookie
+    // from an earlier login carries over.
+    const backend = stubBackend(
+      { status: 200, body: `{"account":"${account.email}"}` },
+      () => {
+        const page = createHttpCeremonyPage();
+        const snapshot = page.snapshot;
+        page.snapshot = async () => {
+          const taken = await snapshot();
+          snapshots.push(structuredClone(taken));
+          return taken;
+        };
+        return page;
+      },
+    );
+    /** Handles the host's sink minted, by the run that minted them. */
+    const handles = new Map<string, string>();
+    const host = createHostBrowserLogin({
+      store: keys,
+      knownConnectors: () => new Set(["alpha-developer"]),
+      verifiers: [createFixtureVerifier({ origin: provider.origin })],
+      credentials: {
+        resolve: async (_actor, _plan, role) =>
+          role === "username"
+            ? account.username
+            : role === "password"
+              ? account.password
+              : undefined,
+      },
+      launch: backend.launch,
+      issuedSinks: {
+        // The host's own sink: a run-bound `common.oauth-client` record.
+        "oauth-client": async (who, { runRef }, values) => {
+          handles.set(
+            runRef,
+            await mintOAuthClient(
+              keys,
+              { actor: who, runId: runRef },
+              {
+                clientId: values["client-id"]!,
+                ...(values["client-secret"]
+                  ? { clientSecret: values["client-secret"] }
+                  : {}),
+              },
+            ),
+          );
+        },
+      },
+    });
+    const entry = new URL(`${provider.origin}${oauthAppsPath}/new`);
+    entry.searchParams.set("name", "Relying Workspace");
+    entry.searchParams.set("homepage_url", "https://relying.example");
+    entry.searchParams.set("callback_url", "https://relying.example/callback");
+    const draft = (extra: Record<string, unknown> = {}) => ({
+      engine: "chromium",
+      ownership: "managed",
+      entryUrl: entry.href,
+      navigationOrigins: [provider.origin],
+      credentialRecipients: { password: [provider.origin] },
+      account: { kind: "accept-existing" },
+      continuation: "dispose",
+      trustMode: "constrained-auth",
+      interactionRounds: 0,
+      requireVerification: true,
+      verifierOrigin: provider.origin,
+      credentialRefs: credentialIds,
+      sessionTtlMs: 600_000,
+      ...extra,
+    });
+    /** Every stored record but the handle records themselves. */
+    const stored = async () => {
+      const all: unknown[] = [];
+      for (const kind of recordKinds)
+        for (const record of await keys.transaction((tx) =>
+          tx.list<unknown>(subject.tenantId, kind, 500),
+        ))
+          if (!(kind === "artifact" && record.id.startsWith("common-step:")))
+            all.push(record);
+      return all;
+    };
+    return { provider, account, host, draft, snapshots, handles, keys, stored };
+  }
+
+  test("the values reach the host's sink and nothing else: no snapshot, step, stored record, recording or tool result", async (t) => {
+    const f = await fixture(t);
+    const recorded = await f.host.recordLogin(subject, {
+      connectorId: "alpha-developer",
+      draft: f.draft({ issued: issuedDeclaration }),
+      recording: { id: "alpha-register-app", title: "Register an OAuth app" },
+    });
+    assert.equal(recorded.login.status, "verified", JSON.stringify(recorded));
+    const runRef = recorded.login.runRef!;
+    const handle = f.handles.get(runRef);
+    assert.ok(handle, "the sink minted a handle for this run");
+    const client = await readOAuthClient(
+      f.keys,
+      { actor: subject, runId: runRef },
+      handle,
+    );
+    const [app] = f.provider.oauthApps();
+    assert.equal(client?.clientId, app?.clientId);
+    assert.equal(app?.secrets, 1, "Generate was pressed exactly once");
+    const secret = client?.clientSecret;
+    assert.ok(secret && secret.length >= 8);
+    // The handle is bound to the run that minted it.
+    assert.equal(
+      await readOAuthClient(
+        f.keys,
+        { actor: subject, runId: "brun_another" },
+        handle,
+      ),
+      undefined,
+    );
+
+    for (const [surface, value] of [
+      ["a snapshot", f.snapshots],
+      ["the tool result", recorded],
+      ["a stored record", await f.stored()],
+    ] as const) {
+      const text = JSON.stringify(value);
+      assert.equal(
+        text.includes(secret),
+        false,
+        `the secret reached ${surface}`,
+      );
+      assert.equal(
+        text.includes(client!.clientId),
+        false,
+        `the client ID reached ${surface}`,
+      );
+      assert.equal(text.includes(f.account.password), false, surface);
+    }
+    // The recording a reviewer reads says what is kept, and where, by label.
+    assert.deepEqual(recorded.draft?.recording.issued, issuedDeclaration);
+    assert.equal(recorded.draft?.recording.goal, "obtain-credential");
+  });
+
+  test("a published recording keeps exactly what it was reviewed keeping", async (t) => {
+    const f = await fixture(t);
+    const recorded = await f.host.recordLogin(subject, {
+      connectorId: "alpha-developer",
+      draft: f.draft({ issued: issuedDeclaration }),
+      recording: { id: "alpha-register-app", title: "Register an OAuth app" },
+    });
+    // The app's settings page is numbered per provider, so its author widens
+    // that one segment before review - an edit is a new revision, and the
+    // review below is of the edited bytes.
+    const draft = await f.host.recordings!.editDraft(
+      subject,
+      recorded.draft!.draftId,
+      {
+        revision: recorded.draft!.revision,
+        recording: JSON.parse(
+          JSON.stringify(recorded.draft!.recording).replaceAll(
+            `${oauthAppsPath}/1"`,
+            `${oauthAppsPath}/*"`,
+          ),
+        ),
+      },
+    );
+    assert.deepEqual(draft.recording.issued, issuedDeclaration);
+    await f.host.recordings!.review(subject, draft.draftId, {
+      revision: draft.revision,
+      digest: draft.digest,
+    });
+    const reference = await f.host.recordings!.publish(subject, draft.draftId, {
+      revision: draft.revision,
+      digest: draft.digest,
+    });
+    // Replaying it without the declaration, or with a different one, is a
+    // different plan from the one that was reviewed.
+    for (const issued of [
+      undefined,
+      {
+        sink: "oauth-client",
+        fields: [{ kind: "client-id", label: "Client ID" }],
+      },
+    ])
+      await assert.rejects(
+        f.host.login(subject, {
+          connectorId: "alpha-developer",
+          draft: f.draft({
+            recording: reference,
+            ...(issued ? { issued } : {}),
+          }),
+        }),
+        (error: unknown) =>
+          error instanceof PlanRejected &&
+          error.reason === "recording-issued-mismatch",
+      );
+    // The same declaration, in another order, replays it with no model.
+    const replayed = await f.host.login(subject, {
+      connectorId: "alpha-developer",
+      draft: f.draft({
+        recording: reference,
+        issued: {
+          ...issuedDeclaration,
+          fields: [...issuedDeclaration.fields].reverse(),
+        },
+      }),
+    });
+    assert.equal(replayed.status, "verified", JSON.stringify(replayed));
+    assert.ok(f.handles.get(replayed.runRef!));
+    assert.equal(f.provider.oauthApps().length, 2);
   });
 });

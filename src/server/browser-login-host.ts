@@ -59,6 +59,15 @@ export type HostBrowserLoginOptions = {
    * unless a host turns it on: a saved state is a bearer credential.
    */
   reuseVerifiedSessions?: boolean;
+  /**
+   * Where a plan's issued values go, by sink kind: `oauth-client` to mint a
+   * run-bound `common.oauth-client` handle (`mintOAuthClient` against the
+   * run's `runRef`), `credential-custody` to write into the host's private
+   * collector. Only kinds registered here may be named by a plan, and the
+   * functions are the host's own - nothing a caller sends can stand in for
+   * one. Absent, no plan may keep an issued value.
+   */
+  issuedSinks?: LoginServiceOptions["issuedSinks"];
 };
 
 export function createHostBrowserLogin(
@@ -117,6 +126,7 @@ export function createHostBrowserLogin(
         ...(options.reuseVerifiedSessions === true
           ? { states: createBrowserStateStore({ store: options.store }) }
           : {}),
+        ...(options.issuedSinks ? { issuedSinks: options.issuedSinks } : {}),
       });
       return createBrowserLoginTools({
         service,
@@ -132,6 +142,17 @@ export function createHostBrowserLogin(
         // model. Without this a host that configured one had every such draft
         // refused anyway, which read as "no model" to a host that had one.
         ...(options.modelInterpreter ? { modelAvailable: true } : {}),
+        ...(options.issuedSinks
+          ? {
+              issuedSinks: new Set(
+                (
+                  Object.keys(options.issuedSinks) as (keyof NonNullable<
+                    HostBrowserLoginOptions["issuedSinks"]
+                  >)[]
+                ).filter((kind) => options.issuedSinks?.[kind] !== undefined),
+              ),
+            }
+          : {}),
         recordings,
         evidenceFor: async (actor, sessionRef) =>
           ledger.get(evidenceKey(actor, sessionRef)),
