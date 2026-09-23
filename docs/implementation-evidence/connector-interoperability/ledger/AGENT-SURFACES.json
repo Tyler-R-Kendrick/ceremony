@@ -78,21 +78,17 @@
     },
     {
       "id": "AG-04",
-      "status": "implemented",
-      "files": ["src/server/connectors/agents/webmcp.ts"],
-      "tests": ["tests/connectors/agent-tools/webmcp.test.ts"],
+      "status": "unmet",
+      "files": [],
+      "tests": [],
       "acceptanceIds": ["AC-AG-03"],
-      "evidenceLevel": "unit",
+      "evidenceLevel": "not-tested",
       "sourceProfileIds": ["webmcp-cg-draft-2026-09-17"],
       "limitations": [
-        "Feature detection reuses the existing browserModelContext() unchanged, so the connector tools and the ceremony tools cannot drift apart; the mount also reports which spelling was found (document or navigator).",
-        "No native model context means no registration and no installation of anything: the absent API stays absent, there is no polyfill, and the application's ordinary controls are the whole experience.",
-        "Ownership is by AbortSignal, as the draft specifies. A mount records exactly the names it registered, refuses a second mount of a live name, and unmounts by aborting only its own controller; tools another owner registered are untouched.",
-        "`exposedTo` is never passed, so nothing here claims to drive an iframe or another origin; the mount reports crossOriginExposure: \"not-requested\".",
-        "Annotations are hints. The dispatcher is never told about them and the server never sees them; a rewritten readOnlyHint changes nothing.",
-        "Supported-native-browser evidence here is a spec-shaped model-context double in Node, NOT a real browser. Real-browser (Playwright) evidence is not claimed; browser suites cannot be run while other swarms hold the fixed ports."
+        "Removed 2026-09-23 (platform review): the page-side connector WebMCP tools (createConnectorWebmcpTools / mountConnectorWebmcpTools) were never mounted by any page, and the React connector components have no authenticated dispatcher that projects every intent result through the agent projections, so the module and its test were deleted rather than left as unreachable code.",
+        "Connector operations reach assistants over the MCP server (connector_* tools) instead. The ceremony WebMCP tools in src/core/webmcp.ts are unaffected."
       ],
-      "notes": "Fallback-browser evidence and native-API-double evidence are separate tests and are named as such; the fallback test additionally asserts that document and navigator are left untouched."
+      "notes": "Restoring this requires a page-side dispatcher that strips presentation material and a mount in a connector page; neither exists today."
     },
     {
       "id": "AG-05",
