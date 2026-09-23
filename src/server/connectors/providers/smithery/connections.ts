@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalDigest } from "../../../../core/connectors/identity.js";
+import { beginAttempt } from "../../attempts.js";
 import {
   boundOperation,
   destinationFor,
@@ -719,12 +720,28 @@ export function createSmitheryConnectionsAdapter(
         namespace: settings.namespace,
         connectionId: settings.connectionId,
       });
-      const effect = await ctx.environment.effects.begin({
-        actor: ctx.actor,
-        bindingRef: ctx.binding.bindingRef,
-        operation: "smithery.connection.delete",
-        digest,
-      });
+      // A delete already applied is answered from the journal; one refused
+      // before it applied (404) leaves the next request its own entry.
+      const effect = await beginAttempt(
+        ctx.environment.effects,
+        {
+          actor: ctx.actor,
+          bindingRef: ctx.binding.bindingRef,
+          operation: "smithery.connection.delete",
+          digest,
+        },
+        { mode: "until-applied", random: ctx.environment.random },
+      );
+      if (effect.prior)
+        return {
+          ...result,
+          broker:
+            effect.prior.status === "indeterminate"
+              ? "indeterminate"
+              : effect.prior.status === "failed"
+                ? "failed"
+                : "not-attempted",
+        };
       const response = await ctx.environment.fetch(url, {
         method: "DELETE",
         redirect: "error",

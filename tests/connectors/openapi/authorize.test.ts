@@ -350,7 +350,7 @@ test("an expired token is refreshed once and the call proceeds, even when two ca
   assertNoSecrets(state, [], "refresh", first, second);
 });
 
-test("a 401 to a live-looking token triggers one refresh and one retry, journaled as two attempts", async (t) => {
+test("a 401 to a live-looking token triggers one refresh and one retry, each journaled as its own attempt", async (t) => {
   const state = await setup(t, { document: description("authorizationCode") });
   const { done } = await connectWithBrowser(state);
   const first = await state.harness.service.invoke(
@@ -387,10 +387,10 @@ test("a 401 to a live-looking token triggers one refresh and one retry, journale
     .effects()
     .filter((entry) => entry.intent.operation === state.operationRef)
     .map((entry) => entry.outcome?.status);
-  // Identical reads share one journal entry (read-only replay), so the first
-  // call and the refused one are the same entry, now recorded as refused; the
-  // retry after renewal is an entry of its own.
-  assert.deepEqual(attempts, ["not-applied", "applied"]);
+  // Every request sent is its own journal entry: the first read, the one the
+  // destination refused (not applied), and the retry after renewal. None of
+  // them overwrites another's outcome.
+  assert.deepEqual(attempts, ["applied", "not-applied", "applied"]);
   assertNoSecrets(state, [revoked], "401 retry", result);
 });
 

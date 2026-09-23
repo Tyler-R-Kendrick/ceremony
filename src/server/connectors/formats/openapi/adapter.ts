@@ -20,6 +20,7 @@ import {
   type CompletionResult,
 } from "../../adapter.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
+import { beginAttempt } from "../../attempts.js";
 import { boundOperation, destinationFor } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialScope } from "../../ports.js";
@@ -537,38 +538,49 @@ export function createOpenApiHttpAdapter(
                 destination: destination.id,
                 target: effectTarget,
                 body: serialized.body ?? null,
-                // The attempt after a renewal is its own journal entry: the first
-                // was refused before it was applied and already recorded as such.
-                ...(renewed ? { attempt: "credential-renewed" } : {}),
               }),
             );
-            const { effectRef, prior } = await ctx.environment.effects.begin({
-              actor: ctx.actor,
-              ...(ctx.connection
-                ? { connectionRef: ctx.connection.connectionRef }
-                : {}),
-              bindingRef: ctx.binding.bindingRef,
-              operation: request.operationRef,
-              digest,
-              ...(request.idempotencyKey &&
-              bound.replay === "upstream-idempotency-key"
-                ? {
-                    idempotency: {
-                      key: request.idempotencyKey,
-                      scope: destination.id,
-                    },
-                  }
-                : {}),
-              commandId: request.commandId,
-            });
-            if (
-              prior &&
-              bound.replay !== "read-only" &&
-              prior.status !== "not-applied"
-            )
+            // A read-only read is its own entry every time; any other request
+            // is an attempt at one effect, and the attempt after a refusal
+            // that never applied (the 401 a renewal cures included) is the
+            // next entry of that effect. See `../../attempts.ts`.
+            const { effectRef, prior } = await beginAttempt(
+              ctx.environment.effects,
+              {
+                actor: ctx.actor,
+                ...(ctx.connection
+                  ? { connectionRef: ctx.connection.connectionRef }
+                  : {}),
+                bindingRef: ctx.binding.bindingRef,
+                operation: request.operationRef,
+                digest,
+                ...(request.idempotencyKey &&
+                bound.replay === "upstream-idempotency-key"
+                  ? {
+                      idempotency: {
+                        key: request.idempotencyKey,
+                        scope: destination.id,
+                      },
+                    }
+                  : {}),
+                commandId: request.commandId,
+              },
+              {
+                mode:
+                  bound.replay === "read-only"
+                    ? "each-request"
+                    : "until-applied",
+                random: ctx.environment.random,
+              },
+            );
+            if (prior)
               return {
                 state:
-                  prior.status === "applied" ? "complete" : "indeterminate",
+                  prior.status === "applied" || prior.status === "reconciled"
+                    ? "complete"
+                    : prior.status === "indeterminate"
+                      ? "indeterminate"
+                      : "failed",
                 outputClassification: bound.outputClassification,
                 effect: bound.effect,
                 ...(prior.code ? { code: prior.code } : {}),

@@ -12,6 +12,7 @@ import type {
 } from "../../adapter.js";
 import type { BoundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
+import { attemptDigest, beginAttempt } from "../../attempts.js";
 import type { EffectOutcome } from "../../ports.js";
 import { callVercel } from "./client.js";
 import {
@@ -688,14 +689,15 @@ export async function invokeManagement(
     input,
     commandId: request.commandId,
   });
-  const begun = await ctx.environment.effects.begin({
+  const intent = {
     actor: ctx.actor,
     ...(ctx.connection ? { connectionRef: ctx.connection.connectionRef } : {}),
     bindingRef: ctx.binding.bindingRef,
     operation: vercelOperationRef(id),
     digest,
     commandId: request.commandId,
-  });
+  };
+  let begun = await ctx.environment.effects.begin(intent);
   if (begun.prior) {
     if (begun.prior.status === "applied" || begun.prior.status === "reconciled")
       return result(bound, "complete", {
@@ -723,6 +725,26 @@ export async function invokeManagement(
         code: "vercel.effect.indeterminate",
         effectRef: begun.effectRef,
       });
+    // Reconciliation proved the earlier attempt absent. Its entry keeps the
+    // outcome it has; this attempt is journaled as the next one, so a
+    // durable journal records both rather than refusing a second outcome.
+    const next = await beginAttempt(
+      ctx.environment.effects,
+      { ...intent, digest: attemptDigest(digest, 1) },
+      { mode: "until-applied", random: ctx.environment.random },
+    );
+    if (next.prior)
+      return next.prior.status === "applied" ||
+        next.prior.status === "reconciled"
+        ? result(bound, "complete", {
+            code: "vercel.effect.already-applied",
+            effectRef: next.effectRef,
+          })
+        : result(bound, "indeterminate", {
+            code: "vercel.effect.indeterminate",
+            effectRef: next.effectRef,
+          });
+    begun = next;
   }
   const finish = (outcome: EffectOutcome) =>
     ctx.environment.effects.complete(begun.effectRef, outcome);
