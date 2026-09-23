@@ -127,6 +127,10 @@ Evidence: `tests/browser-remote-cdp.test.ts` connects to a separately spawned lo
 
 Approval requests verification; it never grants a connection. Denial cancels the parent. The implementation does not claim complete A2H conformance: RESULT delivery, gateway cancellation and production transport/reconciliation remain outstanding. Cross-device delivery requires a host login that restores the same principal; the anonymous-cookie example alone cannot provide that. Without a configured transport, users continue directly in their browser. Private app recovery uses the collector, not remote browser capture.
 
+## Authored secret connectors and confidential clients
+
+Authored API-key, Basic and form connectors, and authored OAuth connectors with a confidential client, collect their secret on the run owner's native page and keep it in encrypted server custody; see [the workflow studio](workflow-studio.md) for the verification declaration, the allowlisted authorization parameters and the client-secret rules. Evidence: `tests/authored-secret-connectors.test.ts` and `tests/authored-confidential-client.test.ts` drive the real operations and human route against synthetic provider responses in memory. No live provider was exercised.
+
 ## Hooks and evidence
 
 Browser success/failure hooks stay best-effort and secret-free. With durable storage, state transitions and action outcomes also produce encrypted outbox records. Deliver them from a trusted worker:
