@@ -72,6 +72,7 @@ import {
 } from "./jira-auth.js";
 import { jiraHuman, jiraOwnerPage } from "./jira-human.js";
 import { JiraSetupAssignments } from "./jira-setup.js";
+import { ProviderRegistry, type ProviderEntry } from "./provider-registry.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -82,6 +83,13 @@ export interface GitHubRuntimeOptions {
   /** Trusted host UI route. Never accepted from a callback, recipe, or tool argument. */
   returnPath?: string;
   expectedAccount?: string;
+  /**
+   * Offer the reference GitHub connection. Default true. A host that cannot
+   * say which account it may act on turns it off: GitHub is then absent from
+   * the connector list and its runs are never authorized, rather than offered
+   * and refused at the first step.
+   */
+  githubEnabled?: boolean;
   modelConfiguration?: ModelConfiguration;
   browser?: AuthorizationBrowser;
   /**
@@ -184,26 +192,6 @@ export function createGitHubRuntime(
       ? loopbackAuthFetch
       : publicAuthFetch);
   const broker = new AsyncPrivateCollectionBroker(store);
-  const registry = new OperationRegistry(
-    new Map([
-      ...githubVocabulary,
-      ...authoredVocabulary,
-      ...commonVocabulary,
-      ...(options.stripe ? stripeVocabulary : []),
-      ...(options.supabase ? supabaseVocabulary : []),
-      ...(options.jira ? jiraVocabulary : []),
-    ]),
-  );
-  registerAuthoredOperations(registry, {
-    store,
-    fetch: authoredFetch,
-    ...(options.browser ? { browser: options.browser } : {}),
-    ...(options.inbox ? { inbox: options.inbox } : {}),
-  });
-  registerCommonOperations(registry, {
-    store,
-    ...(options.inbox ? { inbox: options.inbox } : {}),
-  });
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
     kind: "session" as const,
@@ -222,41 +210,20 @@ export function createGitHubRuntime(
       configurationVersion: options.configurationVersion,
       ...(options.github?.app ? { app: options.github.app } : {}),
     });
+  // The provider's own current configuration and admission rules first, then
+  // the host's policy. `providers` is assembled below, once every provider's
+  // children exist; nothing calls this before then.
   const authorize = async (
     actor: ActorContext,
     run: RunRecord,
     operationId: string,
-  ) => {
-    if (run.provider === "jira" && operationId !== "continuation") {
-      const config = await options.jira?.configuration(actor);
-      if (!config || config.version !== run.configurationVersion) return false;
-      if (config.siteUrl) {
-        const site = jiraOAuthConfigurationSchema.shape.siteUrl.safeParse(
-          config.siteUrl,
-        );
-        if (!site.success || new URL(site.data).origin !== run.target)
-          return false;
-      } else if (!(await options.jira?.allowTarget?.(actor, run.target)))
-        return false;
-    }
-    const expected =
-      run.profile === "authored"
-        ? options.configurationVersion
-        : run.provider === "stripe"
-          ? (await options.stripe?.configuration(actor))?.version
-          : run.provider === "jira"
-            ? (await options.jira?.configuration(actor))?.version
-            : run.provider === "supabase"
-              ? (await options.supabase?.configuration(actor))?.version
-              : run.provider === "github"
-                ? (await configuration(actor)).configurationVersion
-                : run.configurationVersion;
-    return (
-      (operationId === "continuation" ||
-        expected === run.configurationVersion) &&
-      (await options.authorize(actor, run, operationId))
-    );
-  };
+  ) =>
+    (await providers.authorizes(
+      actor,
+      run,
+      operationId,
+      options.configurationVersion,
+    )) && (await options.authorize(actor, run, operationId));
   const childOptions = {
     origin,
     environment: options.environment,
@@ -290,8 +257,17 @@ export function createGitHubRuntime(
         ...(options.stripe.fetch ? { fetch: options.stripe.fetch } : {}),
       })
     : undefined;
-  stripe?.register(registry);
-  const supabase = registerSupabase();
+  const supabase = options.supabase
+    ? new AsyncSupabaseChildren(store, {
+        configuration: (context) =>
+          options.supabase!.configuration(context.actor),
+        authorize: childOptions.authorize,
+        ...(options.supabase.fetch ? { fetch: options.supabase.fetch } : {}),
+        ...(options.supabase.requiredAssurance
+          ? { requiredAssurance: options.supabase.requiredAssurance }
+          : {}),
+      })
+    : undefined;
   const jiraScopes = options.jira?.scopes ?? ["read:jira-user"];
   const jiraSetup = options.jira?.setupOwner
     ? new JiraSetupAssignments(store, {
@@ -336,7 +312,6 @@ export function createGitHubRuntime(
         ...(options.jira.allowLoopbackHttp ? { allowLoopbackHttp: true } : {}),
       })
     : undefined;
-  jira?.register(registry);
   const childrenFor = async (context: OperationContext) => {
     const config = await configuration(context.actor);
     if (config.configurationVersion !== context.configurationVersion)
@@ -347,23 +322,193 @@ export function createGitHubRuntime(
       ...(config.app ? { app: config.app } : {}),
     });
   };
-  const contractRegistry = new OperationRegistry(githubVocabulary);
-  new AsyncGitHubChildren(store, childOptions).register(contractRegistry);
-  for (const contract of contractRegistry.catalog()) {
-    const operation = contractRegistry.require(contract.id, contract.version);
-    const bound = async (context: OperationContext) => {
-      const registered = new OperationRegistry(githubVocabulary);
-      (await childrenFor(context)).register(registered);
-      return registered.require(contract.id, contract.version);
-    };
-    registry.register({
-      ...operation,
-      handler: async (context, inputs) =>
-        (await bound(context)).handler(context, inputs),
-      verify: async (context, result) =>
-        Boolean(await (await bound(context)).verify?.(context, result)),
-    });
-  }
+  // A run for a provider that needs a human-chosen target starts only once
+  // that target is recorded; the lookup is shared by context and selection.
+  const storedTarget = async (key: ReturnType<typeof targetKey>) =>
+    (await store.transaction((tx) => tx.get<{ target: string }>(key)))?.value
+      .target;
+  const selfContext = (
+    provider: string,
+    profile: string,
+    configurationVersion: string,
+  ) => ({
+    provider,
+    profile,
+    target: "self",
+    origin,
+    environment: options.environment,
+    configurationVersion,
+  });
+  const github: ProviderEntry = {
+    id: "github",
+    vocabulary: githubVocabulary,
+    // Registered once for its contracts, then bound per call to the actor's
+    // current configuration: the app a handler uses is the one the actor's
+    // configuration names at that moment, never one captured at startup.
+    register(registry) {
+      const contractRegistry = new OperationRegistry(githubVocabulary);
+      new AsyncGitHubChildren(store, childOptions).register(contractRegistry);
+      for (const contract of contractRegistry.catalog()) {
+        const operation = contractRegistry.require(
+          contract.id,
+          contract.version,
+        );
+        const bound = async (context: OperationContext) => {
+          const registered = new OperationRegistry(githubVocabulary);
+          (await childrenFor(context)).register(registered);
+          return registered.require(contract.id, contract.version);
+        };
+        registry.register({
+          ...operation,
+          handler: async (context, inputs) =>
+            (await bound(context)).handler(context, inputs),
+          verify: async (context, result) =>
+            Boolean(await (await bound(context)).verify?.(context, result)),
+        });
+      }
+    },
+    connection: {
+      definition: githubConnectionRecipe,
+      outputContract: "github.connection",
+      revalidateOperation: "github.verify-access",
+    },
+    configurationVersion: async (actor) =>
+      (await configuration(actor)).configurationVersion,
+    context: async (actor) => {
+      const config = await configuration(actor);
+      const target =
+        options.expectedAccount ?? (await storedTarget(targetKey(actor)));
+      if (!target) throw new Error("account-required");
+      return {
+        provider: "github",
+        profile: "github-app",
+        target,
+        origin,
+        environment: options.environment,
+        configurationVersion: config.configurationVersion,
+      };
+    },
+    yieldsToAuthored: true,
+  };
+  const providers = new ProviderRegistry([
+    ...(options.githubEnabled === false ? [] : [github]),
+    ...(jira
+      ? [
+          {
+            id: "jira",
+            vocabulary: jiraVocabulary,
+            register: (registry) => jira.register(registry),
+            connection: {
+              definition: jiraConnectionRecipe,
+              outputContract: "jira.connection",
+              revalidateOperation: "jira.verify-access",
+            },
+            configurationVersion: async (actor) =>
+              (await options.jira!.configuration(actor)).version,
+            context: async (actor) => {
+              const config = await options.jira!.configuration(actor);
+              const selected =
+                config.siteUrl ?? (await storedTarget(jiraTargetKey(actor)));
+              if (!selected) throw new Error("jira-site-required");
+              const target = new URL(
+                jiraOAuthConfigurationSchema.shape.siteUrl.parse(selected),
+              ).origin;
+              if (
+                !config.siteUrl &&
+                !(await options.jira!.allowTarget?.(actor, target))
+              )
+                throw new AuthorizationError("denied");
+              return {
+                provider: "jira",
+                profile: "jira-3lo",
+                target,
+                origin,
+                environment: options.environment,
+                configurationVersion: config.version,
+              };
+            },
+            // The site is part of the authority: a configured site must still
+            // be the run's, and a chosen one must still be allowed.
+            admits: async (actor, run) => {
+              const config = await options.jira!.configuration(actor);
+              if (config.version !== run.configurationVersion) return false;
+              if (config.siteUrl) {
+                const site =
+                  jiraOAuthConfigurationSchema.shape.siteUrl.safeParse(
+                    config.siteUrl,
+                  );
+                return site.success && new URL(site.data).origin === run.target;
+              }
+              return Boolean(
+                await options.jira!.allowTarget?.(actor, run.target),
+              );
+            },
+          } satisfies ProviderEntry,
+        ]
+      : []),
+    ...(stripe
+      ? [
+          {
+            id: "stripe",
+            vocabulary: stripeVocabulary,
+            register: (registry) => stripe.register(registry),
+            connection: {
+              definition: stripeConnectionRecipe,
+              outputContract: "stripe.connection",
+              revalidateOperation: "stripe.verify-access",
+            },
+            configurationVersion: async (actor) =>
+              (await options.stripe!.configuration(actor)).version,
+            context: async (actor) =>
+              selfContext(
+                "stripe",
+                "stripe-api-key",
+                (await options.stripe!.configuration(actor)).version,
+              ),
+          } satisfies ProviderEntry,
+        ]
+      : []),
+    ...(supabase
+      ? [
+          {
+            id: "supabase",
+            vocabulary: supabaseVocabulary,
+            register: (registry) => supabase.register(registry),
+            connection: {
+              definition: supabaseConnectionRecipe,
+              outputContract: "supabase.connection",
+              revalidateOperation: "supabase.verify-access",
+            },
+            configurationVersion: async (actor) =>
+              (await options.supabase!.configuration(actor)).version,
+            context: async (actor) =>
+              selfContext(
+                "supabase",
+                "supabase-password",
+                (await options.supabase!.configuration(actor)).version,
+              ),
+          } satisfies ProviderEntry,
+        ]
+      : []),
+  ]);
+  const registry = new OperationRegistry(
+    new Map([
+      ...providers.vocabulary(),
+      ...authoredVocabulary,
+      ...commonVocabulary,
+    ]),
+  );
+  registerAuthoredOperations(registry, {
+    store,
+    fetch: authoredFetch,
+    ...(options.browser ? { browser: options.browser } : {}),
+    ...(options.inbox ? { inbox: options.inbox } : {}),
+  });
+  registerCommonOperations(registry, {
+    store,
+    ...(options.inbox ? { inbox: options.inbox } : {}),
+  });
+  providers.register(registry);
   const operationContext = (
     actor: ActorContext,
     record: RunRecord,
@@ -400,52 +545,7 @@ export function createGitHubRuntime(
         }
       : {}),
     authoringFetch: authoredFetch,
-    connections: new Map([
-      [
-        "github",
-        {
-          definition: githubConnectionRecipe,
-          outputContract: "github.connection",
-          revalidateOperation: "github.verify-access",
-        },
-      ],
-      ...(jira
-        ? [
-            [
-              "jira",
-              {
-                definition: jiraConnectionRecipe,
-                outputContract: "jira.connection",
-                revalidateOperation: "jira.verify-access",
-              },
-            ] as const,
-          ]
-        : []),
-      ...(stripe
-        ? [
-            [
-              "stripe",
-              {
-                definition: stripeConnectionRecipe,
-                outputContract: "stripe.connection",
-                revalidateOperation: "stripe.verify-access",
-              },
-            ] as const,
-          ]
-        : []),
-      ...(supabase
-        ? [
-            [
-              "supabase",
-              {
-                definition: supabaseConnectionRecipe,
-                outputContract: "supabase.connection",
-                revalidateOperation: "supabase.verify-access",
-              },
-            ] as const,
-          ]
-        : []),
-    ]),
+    connections: providers.connections(),
     ...(options.modelConfiguration
       ? { modelConfiguration: options.modelConfiguration }
       : {}),
@@ -622,53 +722,8 @@ export function createGitHubRuntime(
         await (await childrenFor(context)).cancel(context);
     },
     context: async (actor, connectorId, authored = false) => {
-      if (connectorId === "jira" && options.jira) {
-        const config = await options.jira.configuration(actor);
-        const selected =
-          config.siteUrl ??
-          (
-            await store.transaction((tx) =>
-              tx.get<{ target: string }>(jiraTargetKey(actor)),
-            )
-          )?.value.target;
-        if (!selected) throw new Error("jira-site-required");
-        const target = new URL(
-          jiraOAuthConfigurationSchema.shape.siteUrl.parse(selected),
-        ).origin;
-        if (
-          !config.siteUrl &&
-          !(await options.jira.allowTarget?.(actor, target))
-        )
-          throw new AuthorizationError("denied");
-        return {
-          provider: "jira",
-          profile: "jira-3lo",
-          target,
-          origin,
-          environment: options.environment,
-          configurationVersion: config.version,
-        };
-      }
-      if (connectorId === "supabase" && options.supabase)
-        return {
-          provider: "supabase",
-          profile: "supabase-password",
-          target: "self",
-          origin,
-          environment: options.environment,
-          configurationVersion: (await options.supabase.configuration(actor))
-            .version,
-        };
-      if (connectorId === "stripe" && options.stripe)
-        return {
-          provider: "stripe",
-          profile: "stripe-api-key",
-          target: "self",
-          origin,
-          environment: options.environment,
-          configurationVersion: (await options.stripe.configuration(actor))
-            .version,
-        };
+      const registered = await providers.context(actor, connectorId, authored);
+      if (registered) return registered;
       if (authored)
         return {
           provider: connectorId,
@@ -678,23 +733,8 @@ export function createGitHubRuntime(
           environment: options.environment,
           configurationVersion: options.configurationVersion,
         };
-      const config = await configuration(actor);
-      const target =
-        options.expectedAccount ??
-        (
-          await store.transaction((tx) =>
-            tx.get<{ target: string }>(targetKey(actor)),
-          )
-        )?.value.target;
-      if (!target) throw new Error("account-required");
-      return {
-        provider: "github",
-        profile: "github-app",
-        target,
-        origin,
-        environment: options.environment,
-        configurationVersion: config.configurationVersion,
-      };
+      // Neither a provider this host offers nor an installed connector.
+      throw new AuthorizationError("invalid_request");
     },
     selectTarget: async (actor, target, connectorId = "github") => {
       if (connectorId === "jira" && options.jira) {
@@ -884,21 +924,6 @@ export function createGitHubRuntime(
       );
     },
   });
-  function registerSupabase() {
-    const supabase = options.supabase
-      ? new AsyncSupabaseChildren(store, {
-          configuration: (context) =>
-            options.supabase!.configuration(context.actor),
-          authorize: childOptions.authorize,
-          ...(options.supabase.fetch ? { fetch: options.supabase.fetch } : {}),
-          ...(options.supabase.requiredAssurance
-            ? { requiredAssurance: options.supabase.requiredAssurance }
-            : {}),
-        })
-      : undefined;
-    supabase?.register(registry);
-    return supabase;
-  }
   async function authoredHumanResponse(
     actor: ActorContext,
     runId: string,

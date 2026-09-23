@@ -70,7 +70,9 @@ That collector requires stable HTTPS origins for both the broker and the app. On
 
 ## Configuration
 
-The endpoint is built from the same protected environment as the web application, so a deployment cannot offer chat access under a different issuer or tenant than the application beside it. It needs `CEREMONY_PUBLIC_ORIGIN`, `CEREMONY_OIDC_ISSUER` and `CEREMONY_TENANT_ID`, all of which the hosted server already requires.
+The endpoint is built from the same protected environment as the web application, so a deployment cannot offer chat access under a different issuer or tenant than the application beside it. It needs `CEREMONY_PUBLIC_ORIGIN`, `CEREMONY_OIDC_ISSUER` and the hosted tenancy (`CEREMONY_TENANT_ID`, `CEREMONY_TENANT_CLAIM` or both), all of which the hosted server already requires. Tenant and capabilities are mapped from the access token's signed claims by the same object the browser identity uses (see [host identity](host-identity.md)), so a token without a configured tenant claim, or with a malformed roles claim, is refused.
+
+The hosted endpoint passes both `connectors` and `connectorIntents` when its connector runtime is on (the default; `CEREMONY_CONNECTORS=disabled` turns it off). There, `connector_connect` takes a connector id and resolves it against the tenant's approved bindings: a binding reference names itself, and an adapter id names its binding only when exactly one is approved. Anything else is refused rather than guessed.
 
 Absent or invalid configuration produces no handler rather than an open one: the route answers `503` and no ceremony is reachable over MCP at all.
 

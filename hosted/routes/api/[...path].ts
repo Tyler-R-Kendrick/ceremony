@@ -3,7 +3,7 @@ import { getHostedRuntime } from "../../../src/server/hosted/runtime.js";
 import { hostedHttp } from "../../../src/server/hosted/http.js";
 import { ceremonyAgentWorkflow } from "../../../src/server/agent/workflow.js";
 import { start } from "workflow/api";
-import { dispatchHostedContinuations } from "../../../src/server/hosted/continuations.js";
+import { dispatchHostedTenants } from "../../../src/server/hosted/continuations.js";
 
 export default defineHandler(async (event) => {
   try {
@@ -16,12 +16,13 @@ export default defineHandler(async (event) => {
       },
       {
         secret: process.env.CRON_SECRET,
-        dispatch: () =>
-          dispatchHostedContinuations(
-            runtime,
-            process.env.CEREMONY_TENANT_ID ?? "",
-          ),
+        // Every tenant with possible pending work, not one pinned tenant.
+        dispatch: () => dispatchHostedTenants(runtime, runtime.hosted.tenancy),
       },
+      undefined,
+      // The `/api/v1/connectors/*` route table, including the signed events
+      // route when the operator enabled it. Absent when connectors are off.
+      runtime.hosted.connectors?.runtime.http,
     );
   } catch {
     return Response.json(
