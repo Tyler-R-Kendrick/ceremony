@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Browser, Locator, Page } from "playwright-core";
+import type { Browser, CDPSession, Locator, Page } from "playwright-core";
 import { z } from "zod";
 import { chromium } from "./playwright.js";
 import { createBrowserEgressProxy } from "./browser-egress.js";
@@ -234,6 +234,124 @@ export function remoteBrowserOptionsFromEnv(
     };
   }
   return options;
+}
+
+/**
+ * End every navigation that a window other than the opener has in flight,
+ * while this process's interception is still attached to it.
+ *
+ * This exists because of how a context is torn down. Chromium *continues* a
+ * request that is paused for interception when the DevTools client holding it
+ * detaches, and closing a context detaches every client in it. A popup's first
+ * request is reported before Playwright has created the popup's page, and the
+ * route handler that would abort it can still be queued behind other work -
+ * so a close meant to contain a popup would itself send the popup's
+ * credential POST. That was the intermittent failure of "popup form delegates
+ * before its first credential POST": the provider saw the POST moments after
+ * the executor had already decided to refuse it.
+ *
+ * Stopping the window's load ends the navigation inside the browser, and a
+ * paused request belonging to a navigation that no longer exists is dropped
+ * instead of continued. A popup with no Playwright page yet is reachable only
+ * as a CDP target, so it is attached through the opener's own session.
+ * Best-effort and bounded: a target that has already gone needs nothing.
+ */
+export async function stopWindows(
+  session: CDPSession,
+  targetIds: Iterable<string>,
+) {
+  await Promise.all(
+    [...targetIds].map(async (targetId) => {
+      const { sessionId } = await session.send("Target.attachToTarget", {
+        targetId,
+        flatten: false,
+      });
+      // Wait for the reply rather than only the dispatch: the close that
+      // follows must not overtake the stop it depends on.
+      const replied = new Promise<void>((resolve) => {
+        const timer = setTimeout(done, 2_000);
+        timer.unref();
+        function done() {
+          clearTimeout(timer);
+          session.off("Target.receivedMessageFromTarget", listener);
+          resolve();
+        }
+        function listener(event: { sessionId: string }) {
+          if (event.sessionId === sessionId) done();
+        }
+        session.on("Target.receivedMessageFromTarget", listener);
+      });
+      await session.send("Target.sendMessageToTarget", {
+        sessionId,
+        message: JSON.stringify({ id: 1, method: "Page.stopLoading" }),
+      });
+      await replied;
+    }),
+  );
+}
+
+/**
+ * The windows in `own`'s browser context other than `own` itself, kept from
+ * the browser's own target notifications so that stopping them at close needs
+ * no enumeration of its own - the final inspection before a result is
+ * published stays the one read of the target list it is.
+ *
+ * A window the opener has just announced (`Page.windowOpen`) can be reported
+ * by the opener before the browser reports its target, and a close that raced
+ * ahead of that report would not know the window was there to stop. `expect`
+ * records the announcement, and `stop` waits - bounded - for the browser to
+ * name every window it was told about.
+ */
+export async function watchForeignWindows(
+  session: CDPSession,
+  own: { targetId: string; browserContextId?: string | undefined },
+) {
+  const windows = new Set<string>();
+  let discovered = 0;
+  let announced = 0;
+  let arrivals: (() => void)[] = [];
+  session.on("Target.targetCreated", ({ targetInfo }) => {
+    if (
+      targetInfo.type !== "page" ||
+      targetInfo.browserContextId !== own.browserContextId ||
+      targetInfo.targetId === own.targetId
+    )
+      return;
+    windows.add(targetInfo.targetId);
+    discovered++;
+    for (const arrived of arrivals.splice(0)) arrived();
+  });
+  session.on("Target.targetDestroyed", ({ targetId }) => {
+    windows.delete(targetId);
+  });
+  await session.send("Target.setDiscoverTargets", { discover: true });
+  return {
+    expect() {
+      announced++;
+    },
+    /** Whether there is anything for `stop` to do. */
+    get idle() {
+      return windows.size === 0 && discovered >= announced;
+    },
+    async stop() {
+      // A timer rather than the clock: this runs at teardown, and a caller
+      // that has frozen `Date.now` must still get its browser closed.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<true>((resolve) => {
+        timer = setTimeout(() => resolve(true), 2_000);
+        timer.unref();
+      });
+      while (discovered < announced) {
+        const arrived = new Promise<false>((resolve) =>
+          arrivals.push(() => resolve(false)),
+        );
+        if (await Promise.race([arrived, deadline])) break;
+      }
+      clearTimeout(timer);
+      arrivals = [];
+      await stopWindows(session, windows);
+    },
+  };
 }
 
 async function requiresAuthenticator(page: Page) {
@@ -1400,6 +1518,25 @@ export function createAuthorizationBrowser(
         await opened.close().catch(() => {});
         return { status: "blocked", reason: "browser-unavailable" };
       }
+      // Every close below goes through here, so none of them can release a
+      // popup request that is still paused. See `stopWindows`.
+      let windows: { idle: boolean; stop(): Promise<void> } | undefined;
+      const closeContext = async () => {
+        // Nothing to stop is the ordinary case, and it closes at once.
+        if (!windows || windows.idle) return context.close();
+        const stopping = windows;
+        let bound: ReturnType<typeof setTimeout> | undefined;
+        // Bounded: a browser that stopped answering must still be closed.
+        await Promise.race([
+          stopping.stop().catch(() => {}),
+          new Promise<void>((resolve) => {
+            bound = setTimeout(resolve, 5_000);
+            bound.unref();
+          }),
+        ]);
+        clearTimeout(bound);
+        await context.close();
+      };
       const privateValues = new Set<string>();
       let originBlocked = false;
       let popupBlocked = false;
@@ -1446,7 +1583,7 @@ export function createAuthorizationBrowser(
             ) {
               popupBlocked = true;
               await route.abort("blockedbyclient");
-              await context.close();
+              await closeContext();
             } else {
               const body = request.postData();
               const values = body
@@ -1489,7 +1626,7 @@ export function createAuthorizationBrowser(
                 if (submittedRequests.has(fingerprint)) {
                   submissionUncertain = true;
                   await route.abort("blockedbyclient");
-                  await context.close();
+                  await closeContext();
                   return;
                 }
                 submittedRequests.add(fingerprint);
@@ -1508,13 +1645,20 @@ export function createAuthorizationBrowser(
               await route.continue();
             }
           } catch {
-            await context.close().catch(() => {});
+            // Decide the request before tearing down: a request left paused
+            // is continued by the browser when the context closes, which here
+            // would send exactly the submission the failure was about - a
+            // registration whose journal entry could not be written.
+            await route.abort("blockedbyclient").catch(() => {});
+            await closeContext().catch(() => {});
           }
         });
         const session = await context.newCDPSession(page);
         const { targetInfo } = await session.send("Target.getTargetInfo");
         if (!targetInfo.browserContextId)
           throw new Error("Isolated browser context is unavailable");
+        const watched = await watchForeignWindows(session, targetInfo);
+        windows = watched;
         hasUnexpectedPage = async () => {
           let deadline: ReturnType<typeof setTimeout> | undefined;
           try {
@@ -1543,7 +1687,8 @@ export function createAuthorizationBrowser(
         // interpreter can otherwise finish on the unchanged opener too early.
         session.on("Page.windowOpen", () => {
           popupBlocked = true;
-          void context.close().catch(() => {});
+          watched.expect();
+          void closeContext().catch(() => {});
         });
         await session.send("Page.enable");
         const { frameTree } = await session.send("Page.getFrameTree");
@@ -1562,21 +1707,28 @@ export function createAuthorizationBrowser(
                 requestId: request.requestId,
                 errorReason: "BlockedByClient",
               });
-              await context.close();
+              await closeContext();
             } else {
               await session.send("Fetch.continueRequest", {
                 requestId: request.requestId,
               });
             }
           } catch {
-            await context.close().catch(() => {});
+            // As above: fail it rather than leave it for teardown to continue.
+            await session
+              .send("Fetch.failRequest", {
+                requestId: request.requestId,
+                errorReason: "BlockedByClient",
+              })
+              .catch(() => {});
+            await closeContext().catch(() => {});
           }
         });
         await session.send("Fetch.enable", {
           patterns: [{ resourceType: "Document", requestStage: "Request" }],
         });
       } catch {
-        await context.close().catch(() => {});
+        await closeContext().catch(() => {});
         await opened.close().catch(() => {});
         return { status: "blocked", reason: "browser-unavailable" };
       }
@@ -1597,7 +1749,7 @@ export function createAuthorizationBrowser(
       const close = async () => {
         if (timer) clearTimeout(timer);
         if (input.sessionKey) sessions.delete(input.sessionKey);
-        await context.close().catch(() => {});
+        await closeContext().catch(() => {});
         await opened.close().catch(() => {});
       };
       const finish = async () => {

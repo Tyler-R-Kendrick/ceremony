@@ -5,6 +5,7 @@ import { chromium } from "playwright-core";
 import {
   allowedAuthorizationOrigin,
   createAuthorizationBrowser,
+  watchForeignWindows,
   type IsolatedAccount,
 } from "../src/server/browser-executor.js";
 import type {
@@ -2083,6 +2084,56 @@ for (const guard of ["creation", "network", "settlement"] as const)
         },
       );
     }
+
+// The root cause behind the intermittent "settlement" variants above, made
+// deterministic. Chromium continues a request paused for interception when the
+// client holding it detaches, so closing a context *sent* a popup's held POST:
+// without the stop, all but one or two of these nine popups reached the server
+// on close in every local run. Stopping the popups' loads first drops them.
+test("closing a context after stopping its popups never sends a paused popup POST", async (t) => {
+  let posts = 0;
+  const server = createServer((request, response) => {
+    if (request.method === "POST") {
+      posts++;
+      response.writeHead(302, { location: "/done" }).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        '<form method="post" action="/login" target="_blank"><input name="password" value="fixture-password"><button>Sign in</button></form>',
+      );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  for (let round = 0; round < 3; round++) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    let held = 0;
+    // A handler that has not settled: the executor's own guard never runs for
+    // these requests, so nothing but the teardown decides them.
+    await context.route("**/*", async (route, request) => {
+      if (request.isNavigationRequest() && request.method() === "POST") {
+        held++;
+        await new Promise(() => {});
+      }
+      return route.continue();
+    });
+    const session = await context.newCDPSession(page);
+    const { targetInfo } = await session.send("Target.getTargetInfo");
+    const windows = await watchForeignWindows(session, targetInfo);
+    await page.goto(`http://127.0.0.1:${port}/login`);
+    for (let click = 0; click < 3; click++) await page.click("button");
+    while (held < 3) await new Promise((resolve) => setTimeout(resolve, 20));
+    await windows.stop();
+    await context.close();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  assert.equal(posts, 0);
+});
 
 test("browser replay guard preserves reads, background traffic and distinct requests", async (t) => {
   const requests: string[] = [];
