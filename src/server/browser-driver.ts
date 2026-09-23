@@ -17,6 +17,14 @@ import type {
   CeremonyInterpreter,
   InterpreterInput,
 } from "./browser-interpreter.js";
+import {
+  describePage,
+  locateElement,
+  matchesPage,
+  type ElementFingerprint,
+  type RecordedCeremony,
+  type RecordedTraceEntry,
+} from "../core/recorded-ceremony.js";
 import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
 export {
   humanStepReasons,
@@ -192,6 +200,17 @@ export interface CeremonyRunOptions {
   /** Extra values that must never reach the interpreter or a transcript. */
   protectedValues?: readonly string[];
   onStep?: (step: CeremonyStep) => void;
+  /**
+   * Called once an action has actually taken effect, with the observation it
+   * was decided on. This is the recording seam: a refused, re-read or
+   * unusable proposal never reaches it, so what it sees is the procedure and
+   * not the attempts at one.
+   *
+   * The observation is the same sanitized snapshot the interpreter was given
+   * — already checked against every protected value before the interpreter
+   * saw it — and the entry carries a role, never the value it resolved to.
+   */
+  onApplied?: (entry: RecordedTraceEntry) => void;
 }
 
 const defaultMaxSteps = 24;
@@ -552,6 +571,12 @@ export async function runCeremony(
         role,
         ...(action.note ? { note: action.note } : {}),
       });
+      options.onApplied?.({
+        snapshot,
+        action: "fill",
+        element: element.index,
+        role,
+      });
     } else if (action.action === "check") {
       try {
         await page.check(element);
@@ -559,6 +584,11 @@ export async function runCeremony(
         return refused(error);
       }
       record(snapshot, "check", action.note ? { note: action.note } : {});
+      options.onApplied?.({
+        snapshot,
+        action: "check",
+        element: element.index,
+      });
     } else {
       // A control that belongs to a form is the only thing here that can change
       // the provider's state, so it is the only thing announced. Clicking a
@@ -578,6 +608,11 @@ export async function runCeremony(
         return refused(error);
       }
       record(snapshot, "click", action.note ? { note: action.note } : {});
+      options.onApplied?.({
+        snapshot,
+        action: "click",
+        element: element.index,
+      });
     }
 
     refusals = 0;
@@ -641,6 +676,7 @@ export async function runCeremony(
     if (action.action === "done") {
       refusals = 0;
       record(snapshot, "done", action.note ? { note: action.note } : {});
+      options.onApplied?.({ snapshot, action: "done" });
       if (options.verify && (await options.verify()))
         return finish({ status: "completed", steps });
       if (++unverifiedClaims >= 2)
@@ -651,6 +687,7 @@ export async function runCeremony(
     if (action.action === "wait") {
       refusals = 0;
       record(snapshot, "wait", action.note ? { note: action.note } : {});
+      options.onApplied?.({ snapshot, action: "wait" });
       const link = await options.confirmationLink?.();
       if (link && allowed.has(originOf(link)) && link !== followed) {
         followed = link;
@@ -732,4 +769,272 @@ export async function runCeremony(
     if (outcome) return outcome;
   }
   return finish({ status: "exhausted", steps });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Replaying a recorded ceremony                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Why a replay could not place the page in front of it. Every kind names what
+ * the recording expected and what was there instead, by page pattern and
+ * control description — never by value, because a recording has none.
+ */
+export type RecordingDrift = {
+  kind:
+    | "unexpected-page"
+    | "element-missing"
+    | "element-ambiguous"
+    | "undeclared-origin"
+    | "missing-role";
+  /** The step the replay expected next, when there was one. */
+  step?: string;
+  /** The page the recording expected, as origin plus path pattern. */
+  expected?: string;
+  /** The control the recording expected, as the descriptors it recorded. */
+  target?: string;
+  /** Origin and pathname of the page in front of the replay. */
+  observed?: string;
+  /** A role the recording fills and this login cannot supply. */
+  role?: CeremonyRole;
+};
+
+export type RecordedRunOptions = Omit<CeremonyRunOptions, "interpreter"> & {
+  recording: RecordedCeremony;
+  /**
+   * The host's interpreter, for a page the recording cannot place.
+   *
+   * Absent — the default — means a replay makes no inference call at all and
+   * stops at the first drift, by name. Present, the interpreter is asked about
+   * the drifted page only, the replay picks the recording up again as soon as
+   * a page matches, and the result says a repair happened so the caller can
+   * save what worked as a new draft. It is never a reason to publish anything.
+   */
+  fallback?: CeremonyInterpreter;
+};
+
+export type RecordedRunResult = CeremonyResult & {
+  /** The first place the recording and the provider disagreed. */
+  drift?: RecordingDrift;
+  /** How many times the fallback interpreter was consulted. Zero on a clean replay. */
+  interpreterCalls: number;
+  /** Whether the fallback interpreter chose any action that was applied. */
+  repaired: boolean;
+  /** What this run applied, replayed and repaired alike, for recompiling. */
+  trace: readonly RecordedTraceEntry[];
+};
+
+function describeTarget(target: ElementFingerprint): string {
+  const parts = [
+    target.kind,
+    target.type ? `type=${target.type}` : "",
+    target.name ? `name=${target.name}` : "",
+    target.autocomplete ? `autocomplete=${target.autocomplete}` : "",
+    target.label ? `label="${target.label}"` : "",
+    target.placeholder ? `placeholder="${target.placeholder}"` : "",
+    target.text ? `text="${target.text}"` : "",
+    target.of > 1 ? `#${target.ordinal + 1} of ${target.of}` : "",
+  ];
+  return parts.filter(Boolean).join(" ").slice(0, 400);
+}
+
+/** A drift, as the one-line note a transcript carries. */
+export function describeDrift(drift: RecordingDrift): string {
+  const at = drift.step ? `step ${drift.step}: ` : "";
+  const line = (() => {
+    switch (drift.kind) {
+      case "element-missing":
+        return `${at}no ${drift.target} on ${drift.observed}`;
+      case "element-ambiguous":
+        return `${at}more than one ${drift.target} on ${drift.observed}`;
+      case "unexpected-page":
+        return `${at}expected ${drift.expected}, found ${drift.observed}`;
+      case "undeclared-origin":
+        return `recording names ${drift.observed}, which this login does not admit`;
+      case "missing-role":
+        return `recording fills ${drift.role}, which this login cannot supply`;
+    }
+  })();
+  // A transcript note is bounded; the structured drift keeps every field.
+  return line.slice(0, 200);
+}
+
+/**
+ * Run a recorded ceremony with no model in the loop.
+ *
+ * The recording does not drive the browser itself. It becomes the
+ * interpreter: at each observation it finds the next recorded step whose page
+ * matches, finds that step's control by its fingerprint, and proposes exactly
+ * what the recording did there. Everything else is {@link runCeremony}, so a
+ * replay is held to every rule a live login is — origin policy, a secret typed
+ * only where a plan admits it, the canary on every snapshot, the dispatch
+ * ledger, stale-document refusals, human handoff and the step budget. A
+ * recording can make a login faster and cheaper; it cannot make one less
+ * careful.
+ *
+ * Where the recording and the page disagree, the replay stops and says where
+ * and how. Only a host that configured a fallback interpreter gets anything
+ * else, and then only for the page that drifted.
+ */
+export async function runRecordedCeremony(
+  options: RecordedRunOptions,
+): Promise<RecordedRunResult> {
+  const { recording, fallback } = options;
+  const allowed = new Set(
+    options.allowedOrigins.map((origin) => originOf(origin)),
+  );
+  const trace: RecordedTraceEntry[] = [];
+  let drift: RecordingDrift | undefined;
+  let interpreterCalls = 0;
+  let repaired = false;
+
+  const refuse = (found: RecordingDrift): RecordedRunResult => ({
+    status: "blocked",
+    reason:
+      found.kind === "undeclared-origin"
+        ? "untrusted-origin"
+        : "unsupported-page",
+    steps: 0,
+    transcript: [],
+    handoffs: 0,
+    drift: found,
+    interpreterCalls: 0,
+    repaired: false,
+    trace: [],
+  });
+  // Checked before a page is opened, so a recording that could only ever
+  // fail does not cost the provider a request.
+  const undeclared = recording.origins.find((origin) => !allowed.has(origin));
+  if (undeclared !== undefined)
+    return refuse({ kind: "undeclared-origin", observed: undeclared });
+  const unsupplied = recording.roles.find(
+    (role) => !options.secrets.roles.includes(role),
+  );
+  if (unsupplied !== undefined)
+    return refuse({ kind: "missing-role", role: unsupplied });
+
+  const steps = recording.steps;
+  const index = new Map(steps.map((step, position) => [step.id, position]));
+  /** The next recorded step that has not been applied. */
+  let cursor = 0;
+  /** The step whose action was last proposed, until it is applied. */
+  let pending: number | undefined;
+  /** Whether the last proposal came from the fallback. */
+  let fromFallback = false;
+
+  type Decision =
+    { propose: DriverAction; step?: number } | { drift: RecordingDrift };
+
+  const decide = (snapshot: PageSnapshot): Decision => {
+    if (recording.success.some((match) => matchesPage(match, snapshot.path)))
+      return { propose: { action: "done", note: "recorded success page" } };
+    for (const branch of recording.branches) {
+      if (!matchesPage(branch.when, snapshot.path)) continue;
+      if (branch.then.do === "finish")
+        return { propose: { action: "done", note: `branch ${branch.id}` } };
+      if (branch.then.do === "stop")
+        return {
+          propose: {
+            action: "blocked",
+            reason: branch.then.reason,
+            note: `branch ${branch.id}`,
+          },
+        };
+      cursor = index.get(branch.then.step) ?? cursor;
+      break;
+    }
+    for (let position = cursor; position < steps.length; position++) {
+      const step = steps[position]!;
+      if (!matchesPage(step.page, snapshot.path)) {
+        if (step.optional) continue;
+        break;
+      }
+      const note = `step ${step.id}`;
+      if (step.action.kind === "wait-for")
+        return { propose: { action: "wait", note }, step: position };
+      const located = locateElement(step.action.target, snapshot.elements);
+      if (!("found" in located)) {
+        if (step.optional) continue;
+        return {
+          drift: {
+            kind:
+              "missing" in located ? "element-missing" : "element-ambiguous",
+            step: step.id,
+            expected: describePage(step.page),
+            target: describeTarget(step.action.target),
+            observed: snapshot.path,
+          },
+        };
+      }
+      const element = located.found.index;
+      const action: DriverAction =
+        step.action.kind === "fill"
+          ? { action: "fill", element, role: step.action.role, note }
+          : { action: step.action.kind, element, note };
+      return { propose: action, step: position };
+    }
+    // Every recorded step has been applied and no success page was recorded
+    // for this one. Claiming the end is safe: a claim is only ever a claim,
+    // and whoever runs the replay decides with a verifier.
+    if (cursor >= steps.length)
+      return { propose: { action: "done", note: "recording complete" } };
+    const expected = steps[cursor]!;
+    const previous = steps[cursor - 1];
+    return {
+      drift: {
+        kind: "unexpected-page",
+        step: expected.id,
+        expected: describePage(expected.page),
+        observed: snapshot.path,
+        // A click that was recorded navigating and left the page where it was
+        // is the more useful thing to name than the page that did not appear.
+        ...(previous?.action.kind === "click" &&
+        previous.action.expect === "navigation" &&
+        matchesPage(previous.page, snapshot.path)
+          ? { target: describeTarget(previous.action.target) }
+          : {}),
+      },
+    };
+  };
+
+  const interpreter: CeremonyInterpreter = async (input) => {
+    const decision = decide(input.snapshot);
+    if ("propose" in decision) {
+      pending = decision.step;
+      fromFallback = false;
+      return decision.propose;
+    }
+    drift ??= decision.drift;
+    pending = undefined;
+    if (!fallback)
+      return {
+        action: "blocked",
+        reason: "unsupported-page",
+        note: describeDrift(decision.drift),
+      };
+    interpreterCalls++;
+    fromFallback = true;
+    return fallback(input);
+  };
+
+  const result = await runCeremony({
+    ...options,
+    interpreter,
+    onApplied: (entry) => {
+      trace.push(entry);
+      if (fromFallback) repaired = true;
+      else if (pending !== undefined) {
+        cursor = pending + 1;
+        pending = undefined;
+      }
+      options.onApplied?.(entry);
+    },
+  });
+  return {
+    ...result,
+    ...(drift ? { drift } : {}),
+    interpreterCalls,
+    repaired,
+    trace,
+  };
 }

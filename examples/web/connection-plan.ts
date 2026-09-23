@@ -655,6 +655,16 @@ export const rejectionGuidance: Record<
       "This configuration asks a model to read the sign-in page and decide what to do, and this host has no model configured. Nothing was run on the built-in rules instead, because that would not be the configuration you asked for.",
     step: 3,
   },
+  "recording-unavailable": {
+    message:
+      "The recorded sign-in this configuration names is not published here at that version, or it was retired. Choose a published recording or remove it.",
+    step: 3,
+  },
+  "recording-origin-not-declared": {
+    message:
+      "The recorded sign-in acts on a site this configuration does not allow. Add that site to the allowed sites, or choose a different recording.",
+    step: 2,
+  },
   "unknown-credential-reference": {
     message:
       "The stored credential this configuration names is not one this workspace holds.",

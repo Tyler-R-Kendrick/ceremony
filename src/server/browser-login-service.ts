@@ -21,11 +21,22 @@ import {
   type ManagedContext,
 } from "./browser-backends.js";
 import {
+  compileRecording,
+  RecordingRejected,
+  type RecordedCeremony,
+  type RecordedTraceEntry,
+  type RecordingReference,
+  type RecordingRejectionReason,
+} from "../core/recorded-ceremony.js";
+import {
   CeremonySecretLeak,
   createSecrets,
   runCeremony,
+  runRecordedCeremony,
   type CeremonyPage,
+  type CeremonyResult,
   type HumanParticipation,
+  type RecordingDrift,
 } from "./browser-driver.js";
 import {
   createHeuristicInterpreter,
@@ -147,6 +158,60 @@ export type LoginRunInput = {
    * which is the old behaviour and is only safe when the caller knows it.
    */
   idempotencyKey?: string | undefined;
+  /**
+   * Capture what this login does, so it can be saved as a recorded ceremony.
+   *
+   * Recording changes nothing about how the login runs: the same interpreter
+   * decides, under the same rules. It only keeps the value-free trace of the
+   * actions that were applied and compiles it at the end. What comes out is
+   * handed to `onRecording`, and only when the login got as far as a
+   * submission — a failed login is not a procedure worth replaying.
+   */
+  record?: { id: string; title: string } | undefined;
+  /**
+   * Replay a recorded ceremony instead of asking an interpreter.
+   *
+   * No model is consulted. With `repair`, and only when the plan says a model
+   * may decide (`reasoning: "host-model"`) and this host has one, a page the
+   * recording cannot place is handed to that model and what worked is
+   * compiled as a new recording based on `reference`. A repair is a draft for
+   * a person to review; nothing here publishes it.
+   */
+  replay?:
+    | {
+        recording: RecordedCeremony;
+        reference?: RecordingReference | undefined;
+        repair?: boolean | undefined;
+      }
+    | undefined;
+  /** What recording or replay produced. Value-free; called once, at the end. */
+  onRecording?: ((outcome: RecordingOutcome) => void) | undefined;
+};
+
+/**
+ * What a recording or a replay produced.
+ *
+ * `recording` is present only when the login reached a submission and the
+ * trace compiled; `rejected` says why a trace that should have compiled did
+ * not. Neither carries a value: the recording is checked against every value
+ * the login resolved before it is handed out.
+ */
+export type RecordingOutcome = {
+  recording?: RecordedCeremony;
+  rejected?: RecordingRejectionReason;
+  drift?: RecordingDrift;
+  /** Calls to a model during a replay. Zero means none was consulted. */
+  interpreterCalls: number;
+  repaired: boolean;
+};
+
+/** What a drive left behind for the recording, filled in as it runs. */
+type Capture = {
+  recording?: RecordedCeremony;
+  rejected?: RecordingRejectionReason;
+  drift?: RecordingDrift;
+  interpreterCalls: number;
+  repaired: boolean;
 };
 
 export function createBrowserLoginService(options: LoginServiceOptions) {
@@ -243,13 +308,20 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         }
       };
 
+      const capture: Capture = { interpreterCalls: 0, repaired: false };
       const run = async (): Promise<LoginResult> => {
         // Asked before anything launches, for the same reason the capability
         // check is: an attempt that cannot be run as its plan describes should
         // fail as a plan, not halfway through a login with a browser open and
         // a credential already released.
-        const interpreter = interpreterFor(plan);
-        if (!interpreter)
+        const replay = input.replay;
+        // A replay decides from the recording; an interpreter is only its
+        // fallback, and only where the plan lets a model decide at all.
+        const repairing =
+          replay?.repair === true && plan.reasoning === "host-model";
+        const interpreter =
+          replay && !repairing ? undefined : interpreterFor(plan);
+        if (!interpreter && (!replay || repairing))
           return { status: "blocked", runRef, reason: "reasoning-unavailable" };
 
         let browser: ManagedBrowser;
@@ -325,6 +397,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
               dispatched = true;
             },
             interpreter,
+            capture,
           );
           if (outcome.kind === "indeterminate")
             return {
@@ -509,6 +582,24 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
 
       const result = await run();
       await settle(result.status, JSON.stringify(result));
+      if (input.onRecording) {
+        // A recording is kept only from a login that got somewhere. A refusal,
+        // a person's challenge or an unknown outcome is not a procedure.
+        const reached =
+          result.status === "verified" ||
+          result.status === "submitted-unverified";
+        input.onRecording({
+          ...(reached && capture.recording
+            ? { recording: capture.recording }
+            : {}),
+          ...(reached && capture.rejected
+            ? { rejected: capture.rejected }
+            : {}),
+          ...(capture.drift ? { drift: capture.drift } : {}),
+          interpreterCalls: capture.interpreterCalls,
+          repaired: capture.repaired,
+        });
+      }
       return result;
     },
 
@@ -620,7 +711,8 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
     page: CeremonyPage,
     input: LoginRunInput,
     onDispatch: (info: { destination: string }) => Promise<void> | void,
-    interpreter: CeremonyInterpreter,
+    interpreter: CeremonyInterpreter | undefined,
+    capture: Capture,
   ): Promise<
     | { kind: "done" }
     | { kind: "indeterminate" }
@@ -635,11 +727,17 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       if (!(heldCredentialKinds as readonly string[]).includes(role))
         roles.push(role);
 
+    /**
+     * Every value this drive resolved, secret or not. Kept only so a recording
+     * can be checked against them before it leaves; it never leaves itself.
+     */
+    const resolved: string[] = [];
     const values: Partial<Record<CeremonyRole, () => Promise<string>>> = {};
     for (const role of roles)
       values[role] = async () => {
         const value = await options.credentials.resolve(actor, plan, role);
         if (value === undefined) throw new Error("credential unavailable");
+        resolved.push(value);
         return value;
       };
     // A held seed offers the role it derives, and the value is computed at the
@@ -658,7 +756,9 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       values[role] = async () => {
         const seed = await options.credentials.resolve(actor, plan, kind);
         if (seed === undefined) throw new Error("credential unavailable");
-        return totpCode(seed, now());
+        const code = totpCode(seed, now());
+        resolved.push(code);
+        return code;
       };
     }
 
@@ -716,10 +816,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         if (!guarded.includes(spelling)) guarded.push(spelling);
     }
 
-    const result = await runCeremony({
+    const trace: RecordedTraceEntry[] = [];
+    const common = {
       page,
-      interpreter,
-      goal: "sign-in",
+      goal: "sign-in" as const,
       secrets: createSecrets(values),
       // The driver's origin rule is the union of everywhere a secret may go,
       // and its per-role narrowing is applied by the plan before we get here.
@@ -731,15 +831,84 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         : {}),
       ...(input.onStep
         ? {
-            onStep: (step) =>
+            onStep: (step: { path: string; action: string }) =>
               input.onStep?.({ path: step.path, action: step.action }),
           }
         : {}),
-    });
+    };
+    let result: CeremonyResult;
+    if (input.replay) {
+      const replayed = await runRecordedCeremony({
+        ...common,
+        recording: input.replay.recording,
+        ...(interpreter ? { fallback: interpreter } : {}),
+      });
+      trace.push(...replayed.trace);
+      if (replayed.drift) capture.drift = replayed.drift;
+      capture.interpreterCalls = replayed.interpreterCalls;
+      capture.repaired = replayed.repaired;
+      result = replayed;
+    } else {
+      if (!interpreter) throw new Error("No interpreter for a live drive");
+      result = await runCeremony({
+        ...common,
+        interpreter,
+        ...(input.record ? { onApplied: (entry) => trace.push(entry) } : {}),
+      });
+    }
+
+    // Compile while the resolved values are still in hand, so the recording
+    // is checked against every one of them and none of them has to leave
+    // this function to do it.
+    const recordAs = input.record
+      ? { ...input.record, recordedWith: plan.reasoning }
+      : input.replay && capture.repaired
+        ? {
+            id: input.replay.recording.id,
+            title: input.replay.recording.title,
+            recordedWith: "repair" as const,
+          }
+        : undefined;
+    if (recordAs) {
+      try {
+        capture.recording = compileRecording(trace, {
+          id: recordAs.id,
+          title: recordAs.title,
+          goal: "sign-in",
+          entryUrl: plan.entryUrl,
+          origins: plan.navigationOrigins,
+          recordedWith: recordAs.recordedWith,
+          ...(input.replay?.reference && recordAs.recordedWith === "repair"
+            ? { basedOn: input.replay.reference }
+            : {}),
+          excluded: [
+            ...resolved,
+            ...guarded,
+            ...(plan.account.kind === "expect"
+              ? [plan.account.accountRef]
+              : []),
+          ],
+        });
+      } catch (error) {
+        if (!(error instanceof RecordingRejected)) throw error;
+        capture.rejected = error.reason;
+      }
+    }
 
     // Uncertainty travels first: it is the one ending that must never be
     // rewritten into a cheerier or a more retryable one further down.
     if (result.status === "indeterminate") return { kind: "indeterminate" };
+    // A recording that stopped where the provider no longer matched it is its
+    // own ending. It is not a provider error and not a login that ran out of
+    // ideas - nothing is handed to a verifier - and the drift says exactly
+    // which step and which control.
+    if (
+      input.replay &&
+      capture.drift &&
+      !capture.repaired &&
+      result.status === "blocked"
+    )
+      return { kind: "blocked", reason: "recording-drift" };
     if (result.status === "blocked") {
       if (result.reason === "human-challenge")
         return { kind: "human", reason: "human-challenge" };

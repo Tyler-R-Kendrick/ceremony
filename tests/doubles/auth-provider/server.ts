@@ -8,6 +8,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import type { AddressInfo } from "node:net";
 import { createMarkup, type Markup } from "./markup.js";
+import { totpCode } from "../../../src/server/totp.js";
 import {
   verifyRequestSignature,
   type SignatureVerdict,
@@ -41,6 +42,17 @@ export type ProviderBehavior = {
   requireTerms?: boolean;
   /** Sign-in is followed by a one-time code page. */
   requireMfa?: boolean;
+  /**
+   * The one-time code is RFC 6238, derived from this base32 enrolment seed,
+   * rather than a fixed code per account. What a real authenticator step is,
+   * and what a caller holding the seed can answer.
+   */
+  totpSeed?: string;
+  /**
+   * Sign-in asks for the identifier alone, then shows the password on its
+   * own page - the identifier-first shape most large providers use.
+   */
+  identifierFirst?: boolean;
   /** How a new account is confirmed. */
   verification?: "code" | "link" | "none";
   /** Serve a human challenge instead of the named page. */
@@ -108,6 +120,12 @@ export type Account = SeedAccount & { verified: boolean; totp: string };
 export type ProviderDouble = {
   origin: string;
   markup: Markup;
+  /**
+   * Regenerate every page's shape from a new seed, on the same origin and
+   * with the same accounts: what a provider redeploying its sign-in pages
+   * looks like to anything that recorded the old ones.
+   */
+  restyle(seed: number): void;
   signupPath: string;
   behavior: ProviderBehavior;
   clientId: string;
@@ -213,7 +231,7 @@ const digits = (length: number) =>
 export async function startAuthProvider(
   behavior: ProviderBehavior = {},
 ): Promise<ProviderDouble> {
-  const markup = createMarkup(behavior.seed ?? 1);
+  let markup = createMarkup(behavior.seed ?? 1);
   const clientId = behavior.clientId ?? "ceremony-test-client";
   const verification = behavior.verification ?? "code";
   const accounts = new Map<string, Account>();
@@ -239,6 +257,8 @@ export async function startAuthProvider(
     }
   >();
   const devices = new Map<string, { approved: boolean; email?: string }>();
+  /** Identifier-first: which account a browser named before its password. */
+  const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
   const challenges = new Set<string>();
   const cleared = new Set<string>();
@@ -438,12 +458,16 @@ export async function startAuthProvider(
             ? 'required autocomplete="username webauthn"'
             : "required",
         ),
-        markup.field(
-          markup.labels.password,
-          markup.names.password,
-          "password",
-          "required",
-        ),
+        ...(behavior.identifierFirst
+          ? []
+          : [
+              markup.field(
+                markup.labels.password,
+                markup.names.password,
+                "password",
+                "required",
+              ),
+            ]),
       ]);
       if (behavior.inertSignIn)
         return send(
@@ -560,6 +584,38 @@ export async function startAuthProvider(
         { "set-cookie": `sid=${id}; Path=/; HttpOnly` },
       );
 
+    const passwordPage = (next: string, error?: string) =>
+      send(
+        200,
+        markup.page(
+          "Password",
+          `${markup.alert(error)}
+           <h1>${markup.headings.signIn}</h1>
+           <form method="post" action="/signin/password?next=${encodeURIComponent(next)}">
+             ${markup.field(markup.labels.password, markup.names.password, "password", "required")}
+             <button type="submit">${markup.captions.signIn}</button>
+           </form>`,
+        ),
+      );
+
+    /** Whether a submitted second factor is the one this account expects. */
+    const codeAccepted = (account: Account, code: string) =>
+      behavior.totpSeed
+        ? [-30_000, 0, 30_000].some(
+            (skew) => totpCode(behavior.totpSeed!, Date.now() + skew) === code,
+          )
+        : code === account.totp;
+
+    /** A verified account's password was accepted: the second factor, or in. */
+    const signedIn = (found: Account) => {
+      const cookie = openSession(found.email, behavior.requireMfa ? 1 : 2);
+      if (behavior.requireMfa) {
+        const id = cookie.slice("sid=".length, cookie.indexOf(";"));
+        return mfaPage(id, next);
+      }
+      return redirect(next, { "set-cookie": cookie });
+    };
+
     const dashboard = (email: string) =>
       send(
         200,
@@ -614,6 +670,16 @@ export async function startAuthProvider(
       }
       if (behavior.neverAccept) return signInPage(next);
       const identifier = (body.get(markup.names.identifier) ?? "").trim();
+      if (behavior.identifierFirst) {
+        const named = [...accounts.values()].find(
+          (account) =>
+            account.username.toLowerCase() === identifier.toLowerCase() ||
+            account.email.toLowerCase() === identifier.toLowerCase(),
+        );
+        if (!named) return signInPage(next, markup.messages.rejected);
+        identified.set(browser(), named.email.toLowerCase());
+        return redirect(`/signin/password?next=${encodeURIComponent(next)}`);
+      }
       const password = body.get(markup.names.password) ?? "";
       const found = [...accounts.values()].find(
         (account) =>
@@ -635,12 +701,28 @@ export async function startAuthProvider(
         deliver(found.email, code, token);
         return confirmPage(token, next, markup.messages.unverified);
       }
-      const cookie = openSession(found.email, behavior.requireMfa ? 1 : 2);
-      if (behavior.requireMfa) {
-        const id = cookie.slice("sid=".length, cookie.indexOf(";"));
-        return mfaPage(id, next);
-      }
-      return redirect(next, { "set-cookie": cookie });
+      return signedIn(found);
+    }
+
+    if (url.pathname === "/signin/password" && behavior.identifierFirst) {
+      const email = identified.get(browser());
+      const found = email ? accounts.get(email) : undefined;
+      if (!found) return redirect(`/signin?next=${encodeURIComponent(next)}`);
+      if (method === "GET") return passwordPage(next);
+      if ((body.get(markup.names.password) ?? "") !== found.password)
+        return passwordPage(next, markup.messages.rejected);
+      identified.delete(browser());
+      return signedIn(found);
+    }
+
+    // Who this browser is signed in as, for a verifier asking through the
+    // browser's own cookies. A session still owed its second factor is not
+    // signed in.
+    if (url.pathname === "/api/whoami") {
+      const session = sessionOf(request);
+      if (!session || session.factors < 2) return json(401, {});
+      const account = accounts.get(session.email.toLowerCase());
+      return json(200, { account: account?.username ?? session.email });
     }
 
     if (url.pathname === "/mfa") {
@@ -651,7 +733,10 @@ export async function startAuthProvider(
         return mfaPage(id, next);
       }
       const account = accounts.get(session.email.toLowerCase());
-      if (!account || body.get(markup.names.code) !== account.totp) {
+      if (
+        !account ||
+        !codeAccepted(account, body.get(markup.names.code) ?? "")
+      ) {
         const id = cookies(request)["sid"] ?? "";
         return mfaPage(id, next, markup.messages.badCode);
       }
@@ -1229,7 +1314,12 @@ export async function startAuthProvider(
 
   return {
     origin,
-    markup,
+    get markup() {
+      return markup;
+    },
+    restyle(seed: number) {
+      markup = createMarkup(seed);
+    },
     behavior,
     clientId,
     redirectUri,
