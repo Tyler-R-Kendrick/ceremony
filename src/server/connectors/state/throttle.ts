@@ -1,4 +1,10 @@
-import type { AsyncCeremonyStore } from "../../persistence/index.js";
+import type { z } from "zod";
+import {
+  PersistenceConflict,
+  type AsyncCeremonyStore,
+  type AsyncTransaction,
+  type RecordKey,
+} from "../../persistence/index.js";
 import { ConnectorError } from "../errors.js";
 import type { Clock } from "../ports.js";
 import { checkTenant, readRecord, timeSource, transact } from "./common.js";
@@ -49,6 +55,41 @@ const positive = (value: number, detail: string) => {
   return value;
 };
 
+type Budget = z.output<typeof budgetSchema>;
+type StoredBudget = { revision: number; value: Budget };
+
+/**
+ * Writes an authority's budget from what is stored, or from nothing on its
+ * first write. Reading the row locks it, and that lock orders every write
+ * after the first; the first write has no row to lock, so two workers can both
+ * read nothing and both insert. The insert is what orders those two: it waits
+ * for the other worker's insert of the same key and inserts nothing once that
+ * commits. The worker that inserted nothing then reads the row, now there and
+ * locked, and writes from it like any later write, rather than failing its
+ * caller with a conflict nobody could have avoided.
+ */
+async function writeBudget(
+  tx: AsyncTransaction,
+  key: RecordKey,
+  next: (record: StoredBudget | undefined) => Promise<Budget>,
+): Promise<Budget> {
+  let record = await readRecord(tx, key, budgetSchema);
+  if (!record) {
+    const value = await next(undefined);
+    try {
+      await tx.put(key, value, null);
+      return value;
+    } catch (error) {
+      if (!(error instanceof PersistenceConflict)) throw error;
+    }
+    record = await readRecord(tx, key, budgetSchema);
+    if (!record) throw new PersistenceConflict();
+  }
+  const value = await next(record);
+  await tx.put(key, value, record.revision);
+  return value;
+}
+
 export function createAuthorityThrottle(
   store: AsyncCeremonyStore,
   options: AuthorityThrottleOptions = {},
@@ -93,31 +134,34 @@ export function createAuthorityThrottle(
         "throttle.window",
       );
       return transact(store, async (tx) => {
-        const key = budgetKey(tenantId, authority);
-        const record = await readRecord(tx, key, budgetSchema);
-        const now = await time(tx);
-        if (
-          record?.value.openUntil !== undefined &&
-          record.value.openUntil > now
-        )
-          throw new ConnectorError("rate-limited", {
-            detail: "authority.circuit-open",
-          });
-        const current =
-          record && record.value.expires > now
-            ? { count: record.value.count, expires: record.value.expires }
-            : { count: 0, expires: now + windowMs };
-        if (current.count >= limit)
-          throw new ConnectorError("rate-limited", {
-            detail: "authority.budget",
-          });
-        const next = {
-          schemaVersion: 1 as const,
-          count: current.count + 1,
-          expires: current.expires,
-        };
-        await tx.put(key, next, record?.revision ?? null);
-        return view(next, limit);
+        const next = await writeBudget(
+          tx,
+          budgetKey(tenantId, authority),
+          async (record) => {
+            const now = await time(tx);
+            if (
+              record?.value.openUntil !== undefined &&
+              record.value.openUntil > now
+            )
+              throw new ConnectorError("rate-limited", {
+                detail: "authority.circuit-open",
+              });
+            const current =
+              record && record.value.expires > now
+                ? { count: record.value.count, expires: record.value.expires }
+                : { count: 0, expires: now + windowMs };
+            if (current.count >= limit)
+              throw new ConnectorError("rate-limited", {
+                detail: "authority.budget",
+              });
+            return {
+              schemaVersion: 1 as const,
+              count: current.count + 1,
+              expires: current.expires,
+            };
+          },
+        );
+        return view({ count: next.count, expires: next.expires }, limit);
       });
     },
 
@@ -130,25 +174,21 @@ export function createAuthorityThrottle(
         throw new ConnectorError("invalid-request", {
           detail: "throttle.code",
         });
-      await transact(store, async (tx) => {
-        const key = budgetKey(tenantId, authority);
-        const record = await readRecord(tx, key, budgetSchema);
-        const now = await time(tx);
-        const base =
-          record && record.value.expires > now
-            ? { count: record.value.count, expires: record.value.expires }
-            : { count: 0, expires: now + defaultWindow };
-        await tx.put(
-          key,
-          {
+      await transact(store, (tx) =>
+        writeBudget(tx, budgetKey(tenantId, authority), async (record) => {
+          const now = await time(tx);
+          const base =
+            record && record.value.expires > now
+              ? { count: record.value.count, expires: record.value.expires }
+              : { count: 0, expires: now + defaultWindow };
+          return {
             schemaVersion: 1 as const,
             ...base,
             openUntil: now + cooldown,
             openCode: parsedCode.data,
-          },
-          record?.revision ?? null,
-        );
-      });
+          };
+        }),
+      );
     },
 
     async state(rawTenant, rawAuthority) {
