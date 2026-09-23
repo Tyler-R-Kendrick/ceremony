@@ -560,25 +560,55 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
   });
 
   test("a value that survives the scrub anywhere refuses the whole recording", () => {
-    // A path segment is not a descriptor, so it is not scrubbed one by one;
-    // the check over the finished bytes is what catches it.
+    // The title is the caller's, not a descriptor, so it is not scrubbed one
+    // by one; the check over the finished bytes is what catches it.
     assert.throws(
       () =>
         compileRecording(
           [
             {
-              snapshot: snapshot(`https://idp.example/u/${USERNAME}`, [
+              snapshot: snapshot("https://idp.example/signin", [
                 { index: 0, kind: "button", name: "go", text: "Go" },
               ]),
               action: "click",
               element: 0,
             },
           ],
-          options,
+          { ...options, title: `Sign in as ${USERNAME}` },
         ),
       (error: unknown) =>
         error instanceof RecordingRejected &&
         error.reason === "protected-value",
+    );
+  });
+
+  test("a path segment carrying a value the login used becomes a wildcard, encoded or not", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const pathOf = (url: string) =>
+      compileRecording(
+        [{ snapshot: snapshot(url, [go]), action: "click", element: 0 }],
+        { ...options, excluded: [...options.excluded, EMAIL, "alice"] },
+      ).steps[0]!.page.path;
+    assert.equal(
+      pathOf(`https://idp.example/u/${USERNAME}/password`),
+      "/u/*/password",
+    );
+    // An address hidden from the address pattern by its own encoding.
+    assert.equal(
+      pathOf("https://idp.example/u/bob%40corp.example/password"),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf(`https://idp.example/u/${encodeURIComponent(EMAIL)}/password`),
+      "/u/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/Alice/password"),
+      "/users/*/password",
+    );
+    assert.equal(
+      pathOf("https://idp.example/users/%41lice/password"),
+      "/users/*/password",
     );
   });
 

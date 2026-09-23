@@ -559,9 +559,29 @@ export type CompileRecordingOptions = {
   excluded: readonly string[];
 };
 
-/** Segments that identify an attempt rather than a page. */
-function generalizeSegment(segment: string): string {
+/**
+ * Segments that identify an attempt, or a person, rather than a page.
+ *
+ * Judged on the decoded segment: `alice%40corp.example` is an address, and
+ * the encoding is exactly what would otherwise hide it from the value
+ * patterns. A segment naming a value the login used is a wildcard rather than
+ * the reason the whole recording is refused, since `/users/<name>/password`
+ * is an ordinary shape for a page.
+ */
+function generalizeSegment(
+  segment: string,
+  excluded: readonly string[],
+): string {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // A malformed escape is judged as it stands; the raw checks still apply.
+  }
+  const forms = [segment.toLowerCase(), decoded.toLowerCase()];
   if (
+    excluded.some((value) => forms.some((form) => form.includes(value))) ||
+    looksLikeValue(decoded) ||
     /^\d{3,}$/.test(segment) ||
     /^[0-9a-f]{12,}$/i.test(segment) ||
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -575,14 +595,18 @@ function generalizeSegment(segment: string): string {
   return segment;
 }
 
-export function pageMatchOf(observed: string): PageMatch {
+/** `excluded` are lower-cased values the login used; see {@link generalizeSegment}. */
+export function pageMatchOf(
+  observed: string,
+  excluded: readonly string[] = [],
+): PageMatch {
   const url = new URL(observed);
   const segments = url.pathname.split("/").slice(1);
   const trailing = segments.at(-1) === "";
   const path =
     "/" +
     (trailing ? segments.slice(0, -1) : segments)
-      .map(generalizeSegment)
+      .map((segment) => generalizeSegment(segment, excluded))
       .join("/");
   // A pattern holds whole segments: one cut mid-way, or left ending in a
   // slash, would be a page nobody visited, or no pattern at all.
@@ -674,7 +698,7 @@ export function compileRecording(
   const roles: CeremonyRole[] = [];
   let previousKey = "";
   for (const [position, entry] of trace.entries()) {
-    const page = pageMatchOf(entry.snapshot.path);
+    const page = pageMatchOf(entry.snapshot.path, excluded);
     if (!allowed.has(page.origin))
       throw new RecordingRejected("undeclared-origin");
     if (entry.action === "done") {
@@ -726,7 +750,7 @@ export function compileRecording(
     success.length,
     ...success.filter((match) => !stepPages.has(describePage(match))),
   );
-  const entry = pageMatchOf(options.entryUrl);
+  const entry = pageMatchOf(options.entryUrl, excluded);
   const used = new Set([
     entry.origin,
     ...steps.map((step) => step.page.origin),
