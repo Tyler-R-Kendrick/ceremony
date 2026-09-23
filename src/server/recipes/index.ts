@@ -832,7 +832,11 @@ export class RecipeService {
     validation: Awaited<ReturnType<typeof validateRecipe>>,
   ): Promise<ConnectorListing | undefined> {
     return this.connectorCatalog &&
-      spansConnectors(validation.leaves, this.registry)
+      spansConnectors(
+        validation.leaves,
+        this.registry,
+        this.connectorCatalog.admits,
+      )
       ? this.connectorCatalog.list(actor)
       : undefined;
   }

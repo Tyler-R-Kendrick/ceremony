@@ -109,22 +109,37 @@ type Edge = {
 };
 
 /**
- * Whether a draft needs connector placement: its steps belong to more than one
- * provider and profile, or its author (or a pinned child's) named a connector.
+ * Whether a draft needs connector placement: its author (or a pinned child's)
+ * named a connector, or no single context admits all of its provider steps.
+ * The contexts tried are each step's own provider and profile, plus any
+ * connectors the host resolved; admission is the command service's rule, so
+ * a draft that one context runs whole today (a GitHub App run that includes
+ * authored account registration, say) still runs under the run's connector.
  * Provider-neutral steps run anywhere and do not count.
  */
 export function spansConnectors(
   leaves: readonly RecipeInvocation[],
   registry: OperationRegistry,
+  admits: ConnectorCatalog["admits"],
+  connectors: readonly ConnectorBinding[] = [],
 ): boolean {
-  const pairs = new Set<string>();
-  for (const leaf of leaves) {
-    if (leaf.connector !== undefined) return true;
-    if (registry.isNeutral(leaf.use.id, leaf.use.version)) continue;
-    const contract = registry.get(leaf.use.id, leaf.use.version)?.contract;
-    if (contract) pairs.add(`${contract.provider}/${contract.profile}`);
-  }
-  return pairs.size > 1;
+  if (leaves.some((leaf) => leaf.connector !== undefined)) return true;
+  const steps = leaves.filter(
+    (leaf) => !registry.isNeutral(leaf.use.id, leaf.use.version),
+  );
+  if (!steps.length) return false;
+  const contexts = [
+    ...steps.flatMap((leaf) => {
+      const contract = registry.get(leaf.use.id, leaf.use.version)?.contract;
+      return contract
+        ? [{ provider: contract.provider, profile: contract.profile }]
+        : [];
+    }),
+    ...connectors,
+  ];
+  return !contexts.some((context) =>
+    steps.every((leaf) => admits(context, leaf.use.id, leaf.use.version)),
+  );
 }
 
 /**
@@ -164,7 +179,7 @@ export function assignConnectors(input: {
     return found ? `${found.provider}/${found.profile}` : "";
   };
 
-  const spans = spansConnectors(leaves, registry);
+  const spans = spansConnectors(leaves, registry, admits, connectors);
 
   const resolved = new Map<string, string>();
   const nodes = new Map<string, NodeConnector>();

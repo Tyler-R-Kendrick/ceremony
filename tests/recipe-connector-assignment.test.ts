@@ -61,6 +61,9 @@ const catalog: Record<string, RunContext> = {
   beta: context("beta", "beta-oauth", "beta-site"),
   // A second approved binding for the same provider and profile.
   "beta-eu": context("beta", "beta-oauth", "beta-eu-site"),
+  // A GitHub App connector, and an installed authored connector.
+  github: context("github", "github-app", "octo-org"),
+  "authored-demo": context("authored-demo", "authored", "authored-demo"),
 };
 
 const scoped = (provider: string, profile: string): VocabularyEntry => ({
@@ -204,6 +207,28 @@ function fixture(t: TestContext, connectors: string[] = ["alpha", "beta"]) {
       { grant: "beta.grant" },
       { connection: "beta.connection" },
       async () => ({ connection: "granted" }),
+    ),
+  );
+  // The closed admission exceptions: a GitHub App context admits authored
+  // account registration, and an authored context admits authored steps.
+  registry.register(
+    operation(
+      "authored.register-account",
+      "authored",
+      "authored",
+      {},
+      {},
+      async () => ({}),
+    ),
+  );
+  registry.register(
+    operation(
+      "github.install-app",
+      "github",
+      "github-app",
+      {},
+      {},
+      async () => ({}),
     ),
   );
   // Provider-neutral steps: one only reads a client handle, one passes it on.
@@ -768,6 +793,34 @@ test("NEUTRAL-AMBIGUOUS: a neutral step between two connectors is left for a per
     lonely.diagnostics.map((item) => [item.code, item.node]),
     [["connector-inherit-ambiguous", "check"]],
   );
+});
+
+test("SINGLE-ADMITTED: a GitHub App draft that registers an account first is not split, even with an authored connector installed", async (t) => {
+  const f = fixture(t, ["alpha", "github", "authored-demo"]);
+  const draft = await f.runtime.recipes.createDraft(
+    actor,
+    recipe("register-then-install", [
+      operationStep("account", "authored.register-account"),
+      operationStep(
+        "install",
+        "github.install-app",
+        {},
+        {
+          dependsOn: ["account"],
+        },
+      ),
+    ]),
+  );
+  // Two contract providers, but one context (the GitHub App's) admits both,
+  // so the draft runs whole under the run's connector, as it always has.
+  // Placing by provider would have made "account" a choice between the
+  // GitHub and authored connectors.
+  assert.deepEqual(draft.diagnostics, []);
+  assert.deepEqual(
+    draft.definition.invocations.map((node) => node.connector),
+    [undefined, undefined],
+  );
+  assert.equal(draft.connectors?.spansConnectors, false);
 });
 
 test("SINGLE: a draft within one provider is saved as written and runs under the run's connector", async (t) => {
