@@ -20,6 +20,7 @@ import {
 } from "./recipes/registry.js";
 import { evaluateOutcome } from "./recipes/outcome.js";
 import { appendSemanticTransition } from "./demonstrations.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 export type RunPlanNode = {
   id: string;
@@ -945,7 +946,7 @@ export class ProtectedCommandService {
         const delegation = await tx.get<{
           revoked: boolean;
           expiresAt: number;
-        }>({ tenant: "workload", kind: "session", id: run.id });
+        }>({ tenant: SYSTEM_TENANT.workload, kind: "session", id: run.id });
         const budget = await tx.get<{ stopped: boolean }>({
           tenant: actor.tenantId,
           kind: "budget",
