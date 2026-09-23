@@ -10,6 +10,7 @@ import { ceremonyAgentTools } from "../src/server/agent-tools.js";
 import { teachingRefusals } from "../src/server/mcp-teaching.js";
 import { authoringTransportFor } from "../src/server/teaching-operations.js";
 import type { AgentConnectorDependencies } from "../src/server/connectors/agents/intents.js";
+import type { ConnectorToolDependencies } from "../src/server/connectors/mcp/server-tools.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
 
@@ -45,7 +46,9 @@ const recipe: RecipeDefinition = {
   outputs: {},
 };
 
-function fixture() {
+function fixture(
+  extra: Partial<Parameters<typeof createTeachingRuntime>[0]> = {},
+) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -98,6 +101,7 @@ function fixture() {
     authorize: async () => true,
     // Authoring discovery never leaves the process in these tests.
     authoringFetch: async () => new Response("", { status: 404 }),
+    ...extra,
   });
   return { store, runtime };
 }
@@ -455,6 +459,46 @@ const teachingTools = [
   "ceremony_draft_edit",
   "ceremony_recipe_compose",
 ];
+/** Every tool an agent holding every capability is offered. */
+const AGENT_TOOLS = [
+  "browser_backends",
+  "browser_login",
+  "browser_record_login",
+  "browser_release",
+  "browser_session_status",
+  "ceremony_advance",
+  "ceremony_author_compose",
+  "ceremony_author_delete",
+  "ceremony_author_from_provider",
+  "ceremony_author_read",
+  "ceremony_bind_private",
+  "ceremony_cancel",
+  "ceremony_collect_private",
+  "ceremony_connect",
+  "ceremony_connectors",
+  "ceremony_demonstration_consent",
+  "ceremony_demonstration_read",
+  "ceremony_demonstration_start",
+  "ceremony_draft_compile",
+  "ceremony_draft_edit",
+  "ceremony_draft_import",
+  "ceremony_draft_read",
+  "ceremony_recipe_compose",
+  "ceremony_recipe_execute",
+  "ceremony_recipe_preview",
+  "ceremony_recipes",
+  "ceremony_recording_read",
+  "ceremony_snapshot",
+  "connector_catalog",
+  "connector_connect",
+  "connector_disconnect",
+  "connector_inspect",
+  "connector_invoke",
+  "connector_list",
+  "connector_operations",
+  "connector_reconnect",
+  "connector_status",
+];
 const executorTools = [
   "ceremony_recipes",
   "ceremony_recipe_preview",
@@ -480,15 +524,52 @@ test("recording, authoring and chaining tools are offered only to actors who cou
     assert.ok(reviewerNames.includes("ceremony_demonstration_read"));
     assert.ok(!reviewerNames.includes("ceremony_draft_compile"));
     assert.ok(!reviewerNames.includes("ceremony_recipe_execute"));
+  } finally {
+    await f.store.close();
+  }
+});
 
-    // Review and publication are a person's decision: no agent tool for them,
-    // whatever the actor holds.
-    const admin = handlerFor(f.runtime, () => ({
-      ...actor,
-      capabilities: ["admin"],
-    }));
-    for (const name of (await toolsFor(admin, "admin")).map((t) => t.name))
-      assert.doesNotMatch(name, /_(publish|review|retire)/, name);
+test("an agent holding every capability is offered exactly this list, with every tool family mounted", async () => {
+  // Every optional family a deployment can mount: connector tools, connector
+  // intents, browser login with recordings, and the private collector. Only
+  // tool registration runs here, so the services behind them are never used.
+  const browserLogin = {
+    recordings: {},
+  } as unknown as NonNullable<
+    Parameters<typeof createTeachingRuntime>[0]["browserLogin"]
+  >;
+  const f = fixture({ browserLogin });
+  try {
+    // A person holding every capability is offered the same tools: review
+    // and publication are the people's routes, never a tool.
+    for (const actorKind of ["agent", "human"] as const) {
+      const holder: ActorContext = {
+        ...actor,
+        actorKind,
+        capabilities: ["executor", "author", "reviewer", "publisher", "admin"],
+      };
+      const mcp = createCeremonyMcpHandler(f.runtime, {
+        resourceUrl: endpoint,
+        issuer,
+        authenticate: () => holder,
+        connectors: {} as ConnectorToolDependencies,
+        connectorIntents: {} as AgentConnectorDependencies,
+        privateCollector: {
+          brokerOrigin: "https://broker.example",
+          appOrigin: "https://collector.example",
+          appHtml: "<!doctype html>",
+        } as unknown as NonNullable<
+          Parameters<typeof createCeremonyMcpHandler>[1]["privateCollector"]
+        >,
+      });
+      const names = (await toolsFor(mcp, actorKind)).map((t) => t.name).sort();
+      // Review, publication and retirement are a person's decision: none of
+      // them is here, for recipes, recordings or connectors, whatever the
+      // actor holds. A tool added to this list is a decision, not an accident.
+      assert.deepEqual(names, AGENT_TOOLS, actorKind);
+      for (const name of names)
+        assert.doesNotMatch(name, /_(publish|review|retire|approve)/, name);
+    }
   } finally {
     await f.store.close();
   }
