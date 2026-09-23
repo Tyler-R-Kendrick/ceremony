@@ -8,6 +8,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import type { AddressInfo } from "node:net";
 import { createMarkup, type Markup } from "./markup.js";
+import type { AuthLayout } from "./layouts.js";
 import { totpCode } from "../../../src/server/totp.js";
 import {
   verifyRequestSignature,
@@ -25,7 +26,9 @@ import {
  *
  * Because every page is regenerated per instance from a seed, the double is a
  * contract fixture rather than a golden page: passing it means the driver
- * understood the page, not that it memorised this provider.
+ * understood the page, not that it memorised this provider. A realistic
+ * `layout` swaps that shape for a fixed, styled page modelled on common
+ * real-world sign-in patterns; the protocol behind it is the same.
  */
 
 export type SeedAccount = {
@@ -37,6 +40,15 @@ export type SeedAccount = {
 
 export type ProviderBehavior = {
   seed?: number;
+  /**
+   * How pages look. `randomized` (the default) regenerates field names, label
+   * wording and attachment, control order and captions per seed, to stress a
+   * driver. The realistic layouts in `layouts.ts` render the conventional,
+   * styled pages real providers ship, for demonstrations and to prove the
+   * driver reads those too. Markup only: sessions, codes and redirects are
+   * unchanged, except that `identifier-first` implies `identifierFirst`.
+   */
+  layout?: AuthLayout;
   accounts?: readonly SeedAccount[];
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
@@ -231,7 +243,11 @@ const digits = (length: number) =>
 export async function startAuthProvider(
   behavior: ProviderBehavior = {},
 ): Promise<ProviderDouble> {
-  let markup = createMarkup(behavior.seed ?? 1);
+  const layout = behavior.layout ?? "randomized";
+  let markup = createMarkup(behavior.seed ?? 1, layout);
+  /** A two-step sign-in, asked for directly or implied by the layout. */
+  const identifierFirst =
+    behavior.identifierFirst ?? layout === "identifier-first";
   const clientId = behavior.clientId ?? "ceremony-test-client";
   const verification = behavior.verification ?? "code";
   const accounts = new Map<string, Account>();
@@ -449,6 +465,19 @@ export async function startAuthProvider(
       const action =
         behavior.hijackSignInTo ??
         `${url.pathname}?next=${encodeURIComponent(next)}`;
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.signIn({
+            action,
+            next,
+            signupPath: markup.signupPath,
+            ...(error ? { error } : {}),
+            identifierOnly: identifierFirst,
+            conditionalPasskey: behavior.conditionalPasskey === true,
+            inert: behavior.inertSignIn === true,
+          }),
+        );
       const fields = markup.arrange("sign-in", [
         markup.field(
           markup.labels.identifier,
@@ -458,7 +487,7 @@ export async function startAuthProvider(
             ? 'required autocomplete="username webauthn"'
             : "required",
         ),
-        ...(behavior.identifierFirst
+        ...(identifierFirst
           ? []
           : [
               markup.field(
@@ -497,6 +526,16 @@ export async function startAuthProvider(
 
     const signUpPage = (next: string, error?: string) => {
       if (blocked("sign-up")) return challengePage();
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.signUp({
+            action: `${markup.signupPath}?next=${encodeURIComponent(next)}`,
+            next,
+            ...(error ? { error } : {}),
+            inUse: error === markup.messages.emailInUse,
+          }),
+        );
       const fields = markup.arrange("sign-up", [
         markup.field(
           markup.labels.email,
@@ -553,11 +592,22 @@ export async function startAuthProvider(
     };
 
     const confirmPage = (token: string, next: string, error?: string) =>
-      send(
-        200,
-        markup.page(
-          "Confirm your account",
-          `${markup.alert(error)}
+      markup.pages
+        ? send(
+            200,
+            markup.pages.verifyEmail({
+              action: `/confirm?p=${token}&next=${encodeURIComponent(next)}`,
+              resendAction: `/resend?p=${token}`,
+              address: pending.get(token)?.email ?? "",
+              mode: verification === "link" ? "link" : "code",
+              ...(error ? { error } : {}),
+            }),
+          )
+        : send(
+            200,
+            markup.page(
+              "Confirm your account",
+              `${markup.alert(error)}
            <h1>${markup.messages.checkInbox}</h1>
            <form method="post" action="/confirm?p=${token}&next=${encodeURIComponent(next)}">
              ${markup.field(markup.labels.verification, markup.names.code, "text", 'required inputmode="numeric"')}
@@ -566,37 +616,51 @@ export async function startAuthProvider(
            <form method="post" action="/resend?p=${token}">
              <button type="submit">${markup.captions.resend}</button>
            </form>`,
-        ),
-      );
+            ),
+          );
 
     const mfaPage = (id: string, target: string, error?: string) =>
       send(
         200,
-        markup.page(
-          "Two-factor",
-          `${markup.alert(error)}
+        markup.pages
+          ? markup.pages.twoFactor({
+              action: `/mfa?next=${encodeURIComponent(target)}`,
+              ...(error ? { error } : {}),
+            })
+          : markup.page(
+              "Two-factor",
+              `${markup.alert(error)}
            <h1>Enter your ${markup.escape(markup.labels.totp)}</h1>
            <form method="post" action="/mfa?next=${encodeURIComponent(target)}">
              ${markup.field(markup.labels.totp, markup.names.code, "text", "required")}
              <button type="submit">${markup.captions.submitCode}</button>
            </form>`,
-        ),
+            ),
         { "set-cookie": `sid=${id}; Path=/; HttpOnly` },
       );
 
     const passwordPage = (next: string, error?: string) =>
-      send(
-        200,
-        markup.page(
-          "Password",
-          `${markup.alert(error)}
+      markup.pages
+        ? send(
+            200,
+            markup.pages.password({
+              next,
+              identifier: identified.get(browser()) ?? "",
+              ...(error ? { error } : {}),
+            }),
+          )
+        : send(
+            200,
+            markup.page(
+              "Password",
+              `${markup.alert(error)}
            <h1>${markup.headings.signIn}</h1>
            <form method="post" action="/signin/password?next=${encodeURIComponent(next)}">
              ${markup.field(markup.labels.password, markup.names.password, "password", "required")}
              <button type="submit">${markup.captions.signIn}</button>
            </form>`,
-        ),
-      );
+            ),
+          );
 
     /** Whether a submitted second factor is the one this account expects. */
     const codeAccepted = (account: Account, code: string) =>
@@ -673,6 +737,13 @@ export async function startAuthProvider(
       if (method === "GET") return signInPage(next);
       if (faults > 0) {
         faults--;
+        if (markup.pages)
+          return send(
+            503,
+            markup.pages.unavailable({
+              retryHref: `${url.pathname}?next=${encodeURIComponent(next)}`,
+            }),
+          );
         return send(
           503,
           markup.page(
@@ -685,7 +756,7 @@ export async function startAuthProvider(
       }
       if (behavior.neverAccept) return signInPage(next);
       const identifier = (body.get(markup.names.identifier) ?? "").trim();
-      if (behavior.identifierFirst) {
+      if (identifierFirst) {
         const named = [...accounts.values()].find(
           (account) =>
             account.username.toLowerCase() === identifier.toLowerCase() ||
@@ -707,7 +778,7 @@ export async function startAuthProvider(
       return signedIn(found);
     }
 
-    if (url.pathname === "/signin/password" && behavior.identifierFirst) {
+    if (url.pathname === "/signin/password" && identifierFirst) {
       const email = identified.get(browser());
       const found = email ? accounts.get(email) : undefined;
       if (!found) return redirect(`/signin?next=${encodeURIComponent(next)}`);
@@ -854,6 +925,17 @@ export async function startAuthProvider(
       });
       // Delegation is a different question from access, so the page asks it
       // out loud: this names the agent, not just the client asking.
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.consent({
+            requestId,
+            clientId: url.searchParams.get("client_id") ?? clientId,
+            scope: url.searchParams.get("scope") ?? "",
+            account: session.email,
+            actor: behavior.delegation ? actor : "",
+          }),
+        );
       const delegation =
         behavior.delegation && actor
           ? `<p>${markup.escape(actor)} will act on your behalf.</p>`
@@ -1324,7 +1406,7 @@ export async function startAuthProvider(
       return markup;
     },
     restyle(seed: number) {
-      markup = createMarkup(seed);
+      markup = createMarkup(seed, layout);
     },
     behavior,
     clientId,
