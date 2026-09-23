@@ -17,10 +17,7 @@ import type {
   CertificationStep,
 } from "../../src/server/connectors/attended-harness.js";
 import type { CertificationFlow } from "../../src/server/connectors/certification.js";
-import {
-  createCatalogHttpAdapter,
-  providerCatalogBindingSettings,
-} from "../../src/server/connectors/formats/provider-catalog/index.js";
+import { createCatalogHttpAdapter } from "../../src/server/connectors/formats/provider-catalog/index.js";
 import { ConnectorAdapterRegistry } from "../../src/server/connectors/index.js";
 import {
   ConnectorCommandService,
@@ -347,7 +344,8 @@ async function catalogConnectAt(
               { nativeId: "proxy.get", outputClassification: "personal" },
             ],
             profileId: "oauth2",
-            settings: providerCatalogBindingSettings(definition),
+            // The service hands the catalog adapter the reviewed entry itself.
+            settings: {},
           },
         });
         const binding = harness.definitions
