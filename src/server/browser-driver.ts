@@ -745,16 +745,24 @@ export async function runCeremony(
     // A passkey hint beside a password box is conditional UI: the page still
     // accepts a password, so it is driven normally. So is the hint on an
     // identifier field with no password beside it yet - the first step of an
-    // identifier-first page, where the `webauthn` token sits on the field a
-    // person types their address into. Only a prompt with nothing else to
-    // fill actually requires the authenticator, and so a person.
+    // identifier-first page. Conditional UI is spelled `username webauthn`
+    // (or `email webauthn`): the token rides on a field a person types their
+    // identifier into. A bare `webauthn` field is the authenticator's own
+    // prompt, not an identifier, and with nothing else to fill that page
+    // requires the authenticator, and so a person.
+    const conditionalIdentifier = (element: SnapshotElement) => {
+      const tokens = (element.autocomplete ?? "").split(/\s+/);
+      return (
+        element.kind === "input" &&
+        tokens.includes("webauthn") &&
+        (tokens.includes("username") || tokens.includes("email"))
+      );
+    };
     const passkeyOnly =
       snapshot.passkey &&
       !snapshot.elements.some(
         (element) =>
-          element.type === "password" ||
-          (element.kind === "input" &&
-            /\bwebauthn\b/.test(element.autocomplete ?? "")),
+          element.type === "password" || conditionalIdentifier(element),
       );
     const humanStep: HumanStepReason | undefined = snapshot.challenge
       ? "human-challenge"

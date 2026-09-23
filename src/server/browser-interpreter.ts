@@ -223,7 +223,7 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
    * right one. Checked before `forward`, so "Send a new link" is not a submit.
    */
   const backward =
-    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip/;
+    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip|passkey|security key/;
   /** A provider's own way back after it failed: not a way back from the goal. */
   const retry = /try again|retry|back to sign in/i;
   /** A page telling the person to go and read their mail. */
@@ -240,7 +240,21 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   return async ({ goal, snapshot, available, history }) => {
     if (snapshot.challenge)
       return { action: "blocked", reason: "human-challenge" };
-    if (snapshot.passkey && !available.includes("password"))
+    // A passkey hint is conditional UI only on a field that also takes
+    // typing - a password box, or an identifier spelled `username webauthn`.
+    // A page with neither is the authenticator's own prompt, whatever roles
+    // are on offer: pressing its "Continue" asks for an assertion no
+    // interpreter can give.
+    const typedPath = snapshot.elements.some((element) => {
+      const tokens = (element.autocomplete ?? "").split(/\s+/);
+      return (
+        element.type === "password" ||
+        (element.kind === "input" &&
+          tokens.includes("webauthn") &&
+          (tokens.includes("username") || tokens.includes("email")))
+      );
+    });
+    if (snapshot.passkey && (!available.includes("password") || !typedPath))
       return { action: "blocked", reason: "passkey-required" };
 
     // An alert that names a wall is a wall, whatever else is on the page —

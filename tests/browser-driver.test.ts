@@ -1240,6 +1240,41 @@ test("a passkey hint on an identifier field alone is conditional UI, not a promp
   );
   assert.equal(result.handoffs, 0);
 
+  // A field carrying a bare `webauthn` token is the authenticator's own
+  // prompt, not an identifier: conditional UI is spelled `username webauthn`.
+  // Taking any webauthn field for conditional UI pressed "Continue" on an
+  // authenticator-only page instead of handing it to a person.
+  const authenticatorOnly = inertPage();
+  authenticatorOnly.snapshot = async () =>
+    snapshot({
+      passkey: true,
+      elements: [
+        {
+          index: 0,
+          kind: "input",
+          type: "text",
+          label: "Passkey",
+          name: "credential",
+          autocomplete: "webauthn",
+        },
+        { index: 1, kind: "button", text: "Continue" },
+      ],
+    });
+  const walled = await runCeremony({
+    page: authenticatorOnly,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      throw new Error("An authenticator-only page must not be interpreted");
+    },
+    secrets: createSecrets({ username: "casey", password: "hunter2xyz" }),
+  });
+  assert.equal(
+    walled.status === "blocked" && walled.reason,
+    "passkey-required",
+  );
+  assert.deepEqual(authenticatorOnly.calls, [], "nothing is pressed or typed");
+
   // A prompt with nothing to type is still a person's step.
   const prompt = inertPage();
   prompt.snapshot = async () =>
@@ -1259,6 +1294,93 @@ test("a passkey hint on an identifier field alone is conditional UI, not a promp
   assert.equal(
     handedOff.status === "blocked" && handedOff.reason,
     "passkey-required",
+  );
+});
+
+test("the heuristic fills a conditional-UI identifier but never presses a passkey", async () => {
+  const interpret = createHeuristicInterpreter();
+  const identifier: SnapshotElement = {
+    index: 0,
+    kind: "input",
+    type: "text",
+    label: "Email or username",
+    autocomplete: "username webauthn",
+  };
+  // Identifier-first with conditional UI: the identifier is typed as usual.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [identifier, { index: 1, kind: "button", text: "Next" }],
+      }),
+    }),
+    { action: "fill", element: 0, role: "username" },
+  );
+  // Filled, the way on is Next - not the passkey offered beside it.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [{ action: "fill", path: "https://provider.example/signin" }],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [
+          { ...identifier, filled: true },
+          { index: 1, kind: "button", text: "Sign in with a passkey" },
+          { index: 2, kind: "button", text: "Next" },
+        ],
+      }),
+    }),
+    { action: "click", element: 2, note: "Next" },
+  );
+  // An authenticator-only page is a wall even with a password on offer, and
+  // its lone "Continue" is never pressed.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [
+          {
+            index: 0,
+            kind: "input",
+            type: "text",
+            label: "Passkey",
+            autocomplete: "webauthn",
+          },
+          { index: 1, kind: "button", text: "Continue" },
+        ],
+      }),
+    }),
+    { action: "blocked", reason: "passkey-required" },
+  );
+  // Nor is a passkey button pressed on a page that offers nothing else.
+  assert.notDeepEqual(
+    (
+      await interpret({
+        goal: "sign-in",
+        available: ["username", "password"],
+        history: [{ action: "fill", path: "https://provider.example/signin" }],
+        snapshot: snapshot({
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "text",
+              label: "Username",
+              filled: true,
+            },
+            { index: 1, kind: "button", text: "Use a passkey" },
+          ],
+        }),
+      })
+    )?.action,
+    "click",
   );
 });
 

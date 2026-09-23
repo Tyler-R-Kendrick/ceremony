@@ -653,10 +653,12 @@ for (const engine of browserEngines) {
       //     snapshot.passkey &&
       //     !snapshot.elements.some(
       //       (element) =>
-      //         element.type === "password" ||
-      //         (element.kind === "input" &&
-      //           /\bwebauthn\b/.test(element.autocomplete ?? "")),
+      //         element.type === "password" || conditionalIdentifier(element),
       //     );
+      //
+      // where a conditional identifier is an input whose autocomplete reads
+      // `username webauthn` or `email webauthn`. A bare `webauthn` field, as
+      // on AUTH-PASSKEY's page, is the authenticator's prompt, not one.
       //
       // `[autocomplete~="webauthn"]` is a real published signal, and its own
       // comment calls it conditional passkey UI - a browser *may* offer a
