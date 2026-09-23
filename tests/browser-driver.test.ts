@@ -3917,3 +3917,51 @@ test("ISSUED-HELD: a value the attempt typed or holds is never kept as an issued
     assert.equal(result.status, "unverified");
   }
 });
+
+test("SELECT: options are listed by the label a browser shows and matches, not by their raw text", () => {
+  const { document } = parseHTML(
+    `<!doctype html><html><body><form action="/signup">
+       <label for="c">Country or region</label>
+       <select id="c" name="country">
+         <option value="">Select a country</option>
+         <option value="CA" label="Canada">CA — ignored text</option>
+         <option value="JP">  Japan  </option>
+       </select>
+     </form></body></html>`,
+  );
+  document.documentElement.setAttribute(
+    "data-ceremony-href",
+    "https://provider.example/signup",
+  );
+  const [choice] = snapshotDocument(
+    document as unknown as Document,
+    snapshotSelectors,
+  ).elements;
+  // `selectOption({ label: "Canada" })` matches the attribute; the text
+  // beside it is not what a browser shows or matches.
+  assert.deepEqual(choice?.options, ["Select a country", "Canada", "Japan"]);
+});
+
+test("SELECT: a plan's option missing from a complete list is not chosen", async () => {
+  const page = choicePage();
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    // The page lists three options, which is the whole control: the plan's
+    // country is not among them.
+    choices: { "Country or region": "Uruguay" },
+    interpreter: async () => ({
+      action: "select",
+      element: 0,
+      option: "Uruguay",
+    }),
+  });
+  assert.equal(page.chosen(), undefined);
+  assert.ok(!page.calls.some((call) => call.startsWith("select")));
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+});

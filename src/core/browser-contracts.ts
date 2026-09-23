@@ -583,9 +583,20 @@ export function snapshotDocument(
         entry.filled = checked;
       } else if (tag === "select") {
         entry.kind = "select";
+        // Each option by its label - what a browser shows and what
+        // Playwright's `selectOption({ label })` matches - which is the
+        // option's own text unless a `label` attribute overrides it.
         entry.options = Array.from(control.querySelectorAll("option"))
           .slice(0, 20)
-          .map((option) => trim(option.textContent, 100));
+          .map((option) => {
+            const shown = (option as { label?: unknown }).label;
+            return trim(
+              typeof shown === "string" && shown !== ""
+                ? shown
+                : option.getAttribute("label") || option.textContent,
+              100,
+            );
+          });
         entry.filled = value.length > 0;
       } else if (
         tag === "button" ||

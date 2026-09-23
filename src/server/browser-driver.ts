@@ -753,13 +753,18 @@ export async function runCeremony(
           ? undefined
           : options.choices?.[element.label];
       const recorded = reviewedReplays.get(options)?.() === true;
+      const listed = element.options ?? [];
+      // A snapshot lists at most twenty options, so only a shorter list is
+      // known to be the whole control - and a planned option missing from a
+      // whole list is not on this page, whatever the plan hoped.
+      const complete = listed.length < 20;
       if (
         element.kind !== "select" ||
         !page.select ||
         option === undefined ||
         (planned !== undefined
-          ? planned !== option
-          : !recorded || !(element.options ?? []).includes(option))
+          ? planned !== option || (complete && !listed.includes(option))
+          : !recorded || !listed.includes(option))
       )
         return unusable();
       if (contains(option, guarded))

@@ -189,7 +189,7 @@ export function createAgentBrowserPage(
             const wanted = ${JSON.stringify(option)};
             const match = Array.from(field.options).find(
               (candidate) =>
-                (candidate.textContent || "").replace(/\\s+/g, " ").trim() === wanted,
+                (candidate.label || candidate.textContent || "").replace(/\\s+/g, " ").trim() === wanted,
             );
             return { value: match ? match.value : null };
           })()`,
