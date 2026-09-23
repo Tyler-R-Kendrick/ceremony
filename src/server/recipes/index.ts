@@ -19,6 +19,13 @@ import type {
   AsyncTransaction,
 } from "../persistence/index.js";
 import { OperationRegistry, type RegisteredOperation } from "./registry.js";
+import {
+  assignConnectors,
+  spansConnectors,
+  type ConnectorCatalog,
+  type ConnectorListing,
+  type ConnectorReport,
+} from "./connector-assignment.js";
 
 export { OperationRegistry } from "./registry.js";
 export type {
@@ -27,7 +34,22 @@ export type {
   OperationResult,
   VocabularyEntry,
 } from "./registry.js";
-export type RecipeDiagnostic = { code: string; node?: string };
+export type {
+  ConnectorBinding,
+  ConnectorCatalog,
+  ConnectorListing,
+  ConnectorReport,
+} from "./connector-assignment.js";
+/**
+ * A reason a recipe cannot run yet. `message` and `choices` are fixed text,
+ * connector ids and contract names, never a bound value.
+ */
+export type RecipeDiagnostic = {
+  code: string;
+  node?: string;
+  message?: string;
+  choices?: string[];
+};
 export type PublishedRecipe = {
   definition: RecipeDefinition;
   version: string;
@@ -41,6 +63,11 @@ export type RecipeDraft = {
   author: string;
   digest: string;
   diagnostics: RecipeDiagnostic[];
+  /**
+   * The connector each top-level node runs under, when the service has the
+   * host's connector catalog. Its issues are also in `diagnostics`.
+   */
+  connectors?: ConnectorReport;
 };
 type ResolveChild = (
   id: string,
@@ -64,8 +91,12 @@ export async function validateRecipe(
   const diagnostics: RecipeDiagnostic[] = [];
   const leaves: RecipeInvocation[] = [];
   const closure: Record<string, RecipeDefinition> = {};
-  const fail = (code: string, node?: string) =>
-    diagnostics.push(node === undefined ? { code } : { code, node });
+  const fail = (code: string, node?: string, message?: string) =>
+    diagnostics.push({
+      code,
+      ...(node === undefined ? {} : { node }),
+      ...(message === undefined ? {} : { message }),
+    });
   const active = new Set<string>();
   let visited = 0;
   let exhausted = false;
@@ -111,7 +142,11 @@ export async function validateRecipe(
           producerOperation.contract.provider !== operation.contract.provider &&
           !vocabulary?.crossProvider
         )
-          fail("cross-provider-binding", id);
+          fail(
+            "cross-provider-binding",
+            id,
+            `"${input.contract}" is produced by a step of provider ${producerOperation.contract.provider} and consumed by a step of provider ${operation.contract.provider}. Only an artifact whose vocabulary is declared crossProvider may cross between providers.`,
+          );
       }
     }
     for (const name of Object.keys(bindings))
@@ -360,6 +395,12 @@ export class RecipeService {
   constructor(
     private readonly store: AsyncCeremonyStore,
     readonly registry: OperationRegistry,
+    /**
+     * The host's connectors and admission rule. With it, saving a draft whose
+     * steps span providers places each node under its connector
+     * (`assignConnectors`); without it, drafts are saved as written.
+     */
+    private readonly connectorCatalog?: ConnectorCatalog,
   ) {}
   async composePublished(
     actor: ActorContext,
@@ -697,9 +738,8 @@ export class RecipeService {
     sourceDiagnostics: RecipeDiagnostic[],
   ) {
     allowed(actor, "author");
-    const parsed = recipeDefinitionSchema.parse(definition);
     const validation = await validateRecipe(
-      parsed,
+      recipeDefinitionSchema.parse(definition),
       this.registry,
       async (id, version, digest) =>
         this.store.transaction(
@@ -707,17 +747,65 @@ export class RecipeService {
             (await this.published(tx, actor, id, version, digest)).definition,
         ),
     );
+    const placed = this.place(
+      validation,
+      await this.connectorsFor(actor, validation),
+    );
     const value: RecipeDraft = {
-      definition: parsed,
+      definition: placed.definition,
       author: actor.subjectId,
-      digest: await digestRecipeDefinition(parsed),
-      diagnostics: [...sourceDiagnostics, ...validation.diagnostics],
+      digest: await digestRecipeDefinition(placed.definition),
+      diagnostics: [
+        ...sourceDiagnostics,
+        ...validation.diagnostics,
+        ...placed.issues,
+      ],
+      ...(placed.report ? { connectors: placed.report } : {}),
     };
     const id = `draft-${randomUUID()}`;
     await this.store.transaction((tx) =>
       tx.put({ tenant: actor.tenantId, kind: "draft", id }, value, null),
     );
     return { id, revision: 1, ...value };
+  }
+  /**
+   * Place a draft's nodes under connectors, when the host supplied its
+   * catalog. A draft that does not validate is placed too, so its report
+   * still shows where each node stands; a node whose steps could not be
+   * expanded stays unresolved, and review is blocked by validation anyway.
+   */
+  private place(
+    validation: Awaited<ReturnType<typeof validateRecipe>>,
+    catalog: ConnectorListing | undefined,
+  ): {
+    definition: RecipeDefinition;
+    issues: RecipeDiagnostic[];
+    report?: ConnectorReport;
+  } {
+    if (!this.connectorCatalog)
+      return { definition: validation.definition, issues: [] };
+    const { definition, report } = assignConnectors({
+      definition: validation.definition,
+      leaves: validation.leaves,
+      registry: this.registry,
+      connectors: catalog?.connectors ?? [],
+      unavailable: catalog?.unavailable ?? [],
+      admits: this.connectorCatalog.admits,
+    });
+    return { definition, issues: report.issues, report };
+  }
+  /**
+   * The host's connectors, read only for a draft that needs more than one:
+   * resolving each connector's context can mean reading its configuration.
+   */
+  private async connectorsFor(
+    actor: ActorContext,
+    validation: Awaited<ReturnType<typeof validateRecipe>>,
+  ): Promise<ConnectorListing | undefined> {
+    return this.connectorCatalog &&
+      spansConnectors(validation.leaves, this.registry)
+      ? this.connectorCatalog.list(actor)
+      : undefined;
   }
   async getDraft(actor: ActorContext, id: string) {
     return this.store.transaction(async (tx) => {
@@ -745,7 +833,18 @@ export class RecipeService {
   ) {
     allowed(actor, "author");
     const parsed = recipeDefinitionSchema.parse(definition);
-    const digest = await digestRecipeDefinition(parsed);
+    // Host resolvers may perform I/O: read the catalog before any lock is
+    // held, from an expansion made outside the transaction. Pinned children
+    // cannot change underneath it; one retired meanwhile fails validation.
+    const connectors = await this.connectorsFor(
+      actor,
+      await validateRecipe(parsed, this.registry, async (id, version, digest) =>
+        this.store.transaction(
+          async (tx) =>
+            (await this.published(tx, actor, id, version, digest)).definition,
+        ),
+      ),
+    );
     return this.store.transaction(async (tx) => {
       const record = await tx.get<RecipeDraft>({
         tenant: actor.tenantId,
@@ -760,11 +859,13 @@ export class RecipeService {
         async (child, version, pin) =>
           (await this.published(tx, actor, child, version, pin)).definition,
       );
+      const placed = this.place(validation, connectors);
       const value: RecipeDraft = {
-        definition: parsed,
+        definition: placed.definition,
         author: actor.subjectId,
-        digest,
-        diagnostics: validation.diagnostics,
+        digest: await digestRecipeDefinition(placed.definition),
+        diagnostics: [...validation.diagnostics, ...placed.issues],
+        ...(placed.report ? { connectors: placed.report } : {}),
       };
       const next = await tx.put(
         { tenant: actor.tenantId, kind: "draft", id },
