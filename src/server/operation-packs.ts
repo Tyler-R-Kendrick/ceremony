@@ -32,6 +32,7 @@ import {
   type VocabularyEntry,
 } from "./recipes/registry.js";
 import { runInSandbox, type SandboxReply } from "./operation-pack-sandbox.js";
+import { packPublisherKeyIdSchema } from "../core/operation-packs.js";
 
 /*
  * Loading and running operation packs (see docs/operation-packs.md).
@@ -85,6 +86,13 @@ export interface OperationPackOptions {
   publishers: readonly TrustedPackPublisher[];
   /** Key ids withdrawn after issue; their packs never load or run. */
   revokedKeys?: readonly string[];
+  /**
+   * Live revocation, asked at load and again before every invocation, so a
+   * key revoked while the server runs stops its operations without a
+   * restart. A throw or rejection counts as revoked. `revocationList` builds
+   * one from a file the host re-reads on an interval.
+   */
+  isRevoked?(keyId: string): boolean | Promise<boolean>;
   /** Egress transport. Defaults to the server's public-only, no-redirect fetch. */
   fetch?: typeof fetch;
   /** Admit `http://` loopback destinations, for local fixtures only. */
@@ -228,13 +236,62 @@ function keyStanding(
 }
 
 /** What decides a key's standing at a given moment. */
-type Trust = { revoked: ReadonlySet<string>; now: () => number };
-/** The key's validity window and the revocation list, now. */
+type Trust = {
+  revoked: ReadonlySet<string>;
+  isRevoked?: OperationPackOptions["isRevoked"];
+  now: () => number;
+};
+/** The static window and list, then the live source; a failing source revokes. */
 async function currentStanding(
   publisher: Publisher,
   trust: Trust,
 ): Promise<OperationPackRefusalReason | undefined> {
-  return keyStanding(publisher, trust.revoked, trust.now());
+  const fixed = keyStanding(publisher, trust.revoked, trust.now());
+  if (fixed || !trust.isRevoked) return fixed;
+  try {
+    return (await trust.isRevoked(publisher.keyId))
+      ? "publisher-revoked"
+      : undefined;
+  } catch {
+    return "publisher-revoked";
+  }
+}
+
+/**
+ * A live revocation source backed by a file of key ids, one per line (blank
+ * lines and `#` comments ignored), re-read at most every `refreshMs`. It
+ * fails closed: while the file is missing, unreadable or holds anything but
+ * key ids, every key counts as revoked, so a deleted or corrupted list stops
+ * packs rather than silently re-admitting a revoked key.
+ */
+export function revocationList(
+  path: string,
+  options: { refreshMs?: number; now?: () => number } = {},
+): (keyId: string) => boolean {
+  const refreshMs = options.refreshMs ?? 30_000;
+  const now = options.now ?? Date.now;
+  let readAt = -Infinity;
+  let revoked: ReadonlySet<string> | undefined;
+  return (keyId) => {
+    const instant = now();
+    if (instant - readAt >= refreshMs) {
+      readAt = instant;
+      try {
+        const ids = readFileSync(path, "utf8")
+          .split(/\r?\n/)
+          .map((line) => line.replace(/#.*$/, "").trim())
+          .filter(Boolean);
+        revoked = ids.every(
+          (id) => packPublisherKeyIdSchema.safeParse(id).success,
+        )
+          ? new Set(ids)
+          : undefined;
+      } catch {
+        revoked = undefined;
+      }
+    }
+    return revoked ? revoked.has(keyId) : true;
+  };
 }
 
 function readRegularFile(path: string, limit: number): Buffer {
@@ -763,6 +820,7 @@ export async function prepareOperationPacks(
   const publishers = trustedPublishers(options.publishers);
   const trust: Trust = {
     revoked: new Set(options.revokedKeys ?? []),
+    ...(options.isRevoked ? { isRevoked: options.isRevoked } : {}),
     now: options.now ?? Date.now,
   };
   const packs: LoadedPack[] = [];

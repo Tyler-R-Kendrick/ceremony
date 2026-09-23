@@ -42,6 +42,7 @@ import {
   OperationPackRefused,
   prepareOperationPacks,
   registerOperationPacks,
+  revocationList,
   type OperationPackOptions,
   type PreparedOperationPacks,
 } from "../src/server/operation-packs.js";
@@ -1517,4 +1518,74 @@ test("a bundle that does not define every declared operation is refused at load"
       } as unknown as PreparedOperationPacks),
     /prepared first/,
   );
+});
+
+test("a live revocation source stops a key's operations without a restart", async (t) => {
+  const server = await fixtureServer(t);
+  const directory = packDirectory(t);
+  const signer = publisher();
+  writePack(directory, "fixture", {
+    operations: [fixtureOperation("refuse")],
+    handler: handlerSource(server.origin, ""),
+    signer,
+  });
+  const revoked = new Set<string>();
+  let failing = false;
+  const registry = new OperationRegistry(vocabulary);
+  const report = await loadOperationPacks(registry, {
+    directory,
+    publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+    isRevoked: async (keyId) => {
+      if (failing) throw new Error("revocation source down");
+      return revoked.has(keyId);
+    },
+  });
+  assert.deepEqual(report.refused, []);
+  const conflict = { state: "failed", outputs: {}, diagnosticCode: "conflict" };
+  const denied = { state: "failed", outputs: {}, diagnosticCode: "denied" };
+  assert.deepEqual(await direct({ registry }, "refuse"), conflict);
+  revoked.add(signer.keyId);
+  assert.deepEqual(await direct({ registry }, "refuse"), denied);
+  revoked.clear();
+  assert.deepEqual(await direct({ registry }, "refuse"), conflict);
+  // A source that cannot answer revokes.
+  failing = true;
+  assert.deepEqual(await direct({ registry }, "refuse"), denied);
+  // Revoked before load: refused like a statically revoked key.
+  const again = await loadOperationPacks(new OperationRegistry(vocabulary), {
+    directory,
+    publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+    isRevoked: () => true,
+  });
+  assert.deepEqual(
+    again.refused.map(({ reason }) => reason),
+    ["publisher-revoked"],
+  );
+});
+
+test("a revocation file is re-read on its interval and fails closed", (t) => {
+  const directory = packDirectory(t);
+  const path = join(directory, "revoked.txt");
+  let now = 0;
+  const isRevoked = revocationList(path, { refreshMs: 1000, now: () => now });
+  // Missing: every key is revoked.
+  assert.equal(isRevoked("fixture-publisher"), true);
+  writeFileSync(path, "# withdrawn keys\nold-key\n\n");
+  // Not re-read inside the interval.
+  now = 500;
+  assert.equal(isRevoked("fixture-publisher"), true);
+  now = 1000;
+  assert.equal(isRevoked("fixture-publisher"), false);
+  assert.equal(isRevoked("old-key"), true);
+  writeFileSync(path, "old-key\nfixture-publisher # compromised\n");
+  now = 1500;
+  assert.equal(isRevoked("fixture-publisher"), false);
+  now = 2000;
+  assert.equal(isRevoked("fixture-publisher"), true);
+  // Anything but key ids: fail closed.
+  writeFileSync(path, "not a key id!\n");
+  now = 3000;
+  assert.equal(isRevoked("other-key"), true);
+  const defaults = revocationList(path);
+  assert.equal(defaults("other-key"), true);
 });

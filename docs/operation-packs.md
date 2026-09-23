@@ -155,6 +155,9 @@ const packs = await prepareOperationPacks({
     },
   ],
   revokedKeys: ["old-publisher"],
+  isRevoked: revocationList("/etc/ceremony/revoked-publishers", {
+    refreshMs: 30_000,
+  }),
   secrets: async ({ pack, operationId, name, actor }) =>
     vault.read(pack, name, actor.tenantId),
   allowDestination: (pack, origin) => reviewed.has(`${pack} ${origin}`),
@@ -189,10 +192,21 @@ never quotes the pack's text:
 | `missing-export`                                                      | `handler.js` throws or runs past the time limit when evaluated, or does not define `run` for every declared operation, or `verify` for every operation that declares one. |
 
 A pack loads all or nothing. A trusted key that is not Ed25519, or an invalid
-date, is host misconfiguration and throws. The key's validity window and
-revocation are checked again at every invocation, so an operation stops
-running once its key expires. A key added to `revokedKeys` takes effect at the
-next start, because the list is read at startup.
+date, is host misconfiguration and throws.
+
+### Revocation
+
+The key's validity window, `revokedKeys` and the host's live revocation
+source are checked at load and again before every invocation. A key that
+expires or is revoked while the server runs stops its operations at their
+next call (`failed` / `denied`), with no restart:
+
+- `isRevoked(keyId)` may be synchronous or asynchronous. A throw or rejection counts as revoked.
+- `revocationList(path, { refreshMs })` builds a live source from a file of key ids, one per line, with blank lines and `#` comments ignored. The file is re-read at most every `refreshMs` (default 30 s), so a revocation takes effect within that interval. The source fails closed: while the file is missing, unreadable, or holds anything other than key ids, every key counts as revoked.
+- `revokedKeys` is a static list fixed at startup.
+
+An invocation that is already running when its key is revoked finishes; the
+check happens before each call, not during one.
 
 ## What a handler sees
 
@@ -298,7 +312,7 @@ carries the handler's message, stack or output:
 | The run's signal aborts                                                                | `failed` / `cancelled`                               |
 | Any of the above after a write was sent                                                | `uncertain` (reconciliation, never a silent retry)   |
 | Returns `{ failed: code }`                                                             | `failed` / that code                                 |
-| The publisher key has expired or been revoked since load                               | `failed` / `denied`                                  |
+| The publisher key has expired, or the host revoked it (live)                           | `failed` / `denied`                                  |
 | `verify` is absent or does not return `true`                                           | `failed` / `verification-rejected` (command service) |
 
 ## What a pack can and cannot do
