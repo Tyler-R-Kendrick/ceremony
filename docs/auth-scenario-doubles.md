@@ -191,6 +191,16 @@ Two scenarios are excluded from the browser catalog rather than skipped inside i
 - It does not cover script-driven providers in the Node runner. A provider that builds its form in JavaScript is covered by the browser suite only.
 - The scripted interpreter is a test double and must never be shipped. It lives in `tests/doubles/` for that reason. Deterministic page parsing was tried as a production approach and failed on the first provider it had not been written for.
 
+## Shapes for recorded ceremonies
+
+The provider double has three additions for [recorded ceremonies](recorded-ceremonies.md). They are behaviour flags and methods, not catalog scenarios:
+
+- `identifierFirst` asks for the identifier alone, then shows the password on `/signin/password`.
+- `totpSeed` makes the second factor an RFC 6238 code derived from that seed, instead of a fixed code per account.
+- `restyle(seed)` regenerates every page's markup on the same origin with the same accounts. To anything that recorded the old pages, that is what a provider redeploying looks like.
+
+`/api/whoami` answers the fixture verifier for a session that has both factors.
+
 ## Adding a scenario
 
 Add an entry to `authScenarios` in `tests/doubles/auth-provider/scenarios.ts` with its family, preconditions, required roles and required outcome, and add whatever provider behaviour it needs to `ProviderBehavior`. Prefer a new behaviour flag over a new endpoint, so the new situation composes with existing ones. A scenario whose outcome is `completed` should also carry a `confirm` that checks provider-side state: a returned status is not proof that a ceremony happened, and an authorization scenario should redeem its code and prove the code cannot be redeemed twice.

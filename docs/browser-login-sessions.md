@@ -225,6 +225,10 @@ browser or operating system decides to show; those cannot be bypassed or
 fabricated, and a strict unattended plan that needs one reports an unmet
 requirement instead.
 
+### Replaying a recorded ceremony
+
+A draft may name a published [recorded ceremony](recorded-ceremonies.md) in `recording: { id, version, digest }`. The reference is compiled into the plan and its digest. The login then replays the recording instead of reading the page. No model is consulted, whatever `reasoning` says. Where the provider no longer matches, the login stops as `blocked` with `recording-drift`. A recording that is not published at that digest is refused as `plan-rejected` / `recording-unavailable`, and so is one naming an origin the plan does not admit (`recording-origin-not-declared`). Either refusal happens before any browser starts.
+
 ### Authenticator codes from a held seed
 
 A plan may reference a held `totp-seed` in `credentialRefs` instead of a
