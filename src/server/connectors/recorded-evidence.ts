@@ -275,10 +275,10 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
   {
     adapterId: "dapr",
     check: "tests/connectors/dapr/events.test.ts",
-    target: "local-double",
+    target: "in-process-fixture",
     recordedAt: "2026-09-23",
     notes:
-      "Input-binding event verification, through the adapter with the platform fetch against the loopback Dapr sidecar double, which checks each request independently.",
+      "Input-binding delivery verification through the adapter, with deliveries built in process: the app API token, an unapproved component and a deployment with no token configured each produce nothing. No sidecar double is started, so this is a fixture check.",
   },
   {
     adapterId: "dapr",
