@@ -130,6 +130,13 @@ export type CompletionResult = {
   handoff?: HandoffProposal;
   /** Bounded, non-secret adapter state to persist on the connection. */
   adapterState?: Record<string, unknown>;
+  /**
+   * The adapter already moved the handoff to its terminal state itself, under
+   * the generation fence, before binding any credential (the OAuth grants in
+   * `connectors/auth` do). The command layer then records that state on the
+   * connection and does not complete the handoff a second time.
+   */
+  handoffSettled?: boolean;
 };
 
 export type InvokeRequest = {

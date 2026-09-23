@@ -302,6 +302,7 @@ Module: `src/server/connectors/mcp/index.ts` (`createMcpRemoteAdapter`).
 - import: A live server is not a portable definition; registry import belongs to the registry adapter.
 - configure: Configuration is the binding's pinned profile, endpoint and operations.
 - authorize: Delegated to the host OAuth profile; client registration follows this revision's order: pre-registered, dynamic.
+- authorize: The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata; tokens are not refreshed by this adapter.
 - authorize: Dynamic Client Registration is documented in this revision.
 - verify: Server identity is not attested beyond the TLS origin.
 - invoke: stdio transports are not supported: a hosted connector does not launch local processes or run packages.
@@ -383,13 +384,16 @@ Module: `src/server/connectors/formats/openapi/index.ts` (`createOpenApiHttpAdap
 - discover: An OpenAPI description is a document, not a catalog; there is no listing endpoint to discover.
 - import: External references are resolved only through a host-supplied hook under the deployment's network policy.
 - configure: Destinations, operations and credential profiles are chosen by host review, never by the document.
-- authorize: The adapter presents credentials the host already holds; obtaining them is the bound profile's own flow.
+- authorize: OAuth authorization code (PKCE S256), OpenID Connect, device and client-credentials profiles run only under a host-written issuer policy pinned in the approved binding; endpoints the description declares are never contacted on their own.
+- authorize: API key (header or query), HTTP basic and HTTP bearer values are entered by the initiating person through the private input route; they are checked only when the host names a verifier.
+- authorize: Tokens are refreshed once when expired or refused with 401, and only for OAuth profiles whose policy is bound; a profile that declares no refresh is not refreshed.
+- authorize: Cookie API keys, mutual TLS and signature schemes are not supported.
 - verify: Verification is only available when the host names an approved read operation as the verifier.
 - verify: A successful response proves credential acceptance, never account identity.
 - invoke: JSON request and response bodies only; path/header style simple, query style form.
 - invoke: A description cannot establish that a non-GET operation is safe or idempotent.
 - events: Webhooks and callbacks are imported as descriptions; delivery verification belongs to the events profile.
-- reconnect: Reconnect replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
+- reconnect: Reconnect re-runs the bound profile's authorization and replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
 - disconnect: Local disconnect only; an OpenAPI description declares no upstream unlink operation.
 - revoke: An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.
 - export: Export emits the approved description only; losses are reported as compatibility issues.

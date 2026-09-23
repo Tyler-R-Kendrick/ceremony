@@ -81,6 +81,7 @@ export {
   type McpOAuthRequest,
   type McpRemoteAdapterOptions,
 } from "./adapter.js";
+export { completeMcpOAuth, createMcpOAuth } from "./oauth.js";
 export {
   connectorServerToolNames,
   connectorToolInputs,

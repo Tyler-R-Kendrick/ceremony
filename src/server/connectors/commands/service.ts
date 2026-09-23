@@ -271,7 +271,15 @@ function presentationOf(
   material: Readonly<Record<string, string>>,
 ): HumanPresentation | undefined {
   const shown: HumanPresentation = {};
-  if (material.url !== undefined) shown.url = material.url;
+  // The OAuth grants in `connectors/auth` keep the page to open under their
+  // own names (an authorization URL, a device verification URI); those are
+  // the same one thing a person may see, never the state or codes beside them.
+  const url =
+    material.url ??
+    material.authorizationUrl ??
+    material.verificationUriComplete ??
+    material.verificationUri;
+  if (url !== undefined) shown.url = url;
   if (material.userCode !== undefined) shown.userCode = material.userCode;
   if (material.instructions !== undefined)
     shown.instructions = material.instructions;
@@ -1414,13 +1422,16 @@ export class ConnectorCommandService {
       state: "completed" | "denied" | "expired" | "cancelled" | "superseded",
     ) => {
       if (!handoff) return;
-      await port(() =>
-        this.ports.handoffs.complete(
-          handoff.handoffRef,
-          handoff.generation,
-          state,
-        ),
-      );
+      // An adapter that settled the handoff itself did so under the same
+      // generation fence; completing it again would be refused as a repeat.
+      if (!result.handoffSettled)
+        await port(() =>
+          this.ports.handoffs.complete(
+            handoff.handoffRef,
+            handoff.generation,
+            state,
+          ),
+        );
       if (record.handoff?.handoffRef === handoff.handoffRef)
         patch.handoff = { ...record.handoff, state };
     };
@@ -1517,8 +1528,16 @@ export class ConnectorCommandService {
         return { patch };
       }
       case "pending":
+        // A pending answer can still carry state the next poll needs (a
+        // device grant's grown `slow_down` interval); dropping it would have
+        // the next poll ignore what the issuer asked for.
         return {
-          patch: { lastOutcome: code(result.code, "authorization.pending") },
+          patch: {
+            lastOutcome: code(result.code, "authorization.pending"),
+            ...(result.adapterState
+              ? { state: boundedState(record.state, result.adapterState) }
+              : {}),
+          },
         };
       case "denied":
         await finish("denied");

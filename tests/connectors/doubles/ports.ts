@@ -21,6 +21,7 @@ import type {
   RandomPort,
 } from "../../../src/server/connectors/ports.js";
 import type { AdapterEnvironment } from "../../../src/server/connectors/adapter.js";
+import { ConnectorError } from "../../../src/server/connectors/errors.js";
 
 /*
  * In-memory implementations of the connector ports, for adapter tests only.
@@ -71,8 +72,10 @@ export function memoryPorts(options: { now?: () => number } = {}) {
       const entry = credentials.get(ref);
       if (!entry || !sameScope(entry.scope, scope))
         throw new Error("unknown credential");
+      // The same refusal the state layer's custody port raises, so an adapter
+      // that renews on expiry is exercised against the code it will really see.
       if (entry.expiresAt !== undefined && entry.expiresAt <= now())
-        throw new Error("credential expired");
+        throw new ConnectorError("expired", { detail: "credential.expired" });
       return work(entry.material);
     },
     async refresh(scope, ref, work) {

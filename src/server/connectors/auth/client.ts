@@ -541,16 +541,6 @@ function clientFromStored(
 async function dynamicClient(
   input: ResolveClientInput,
 ): Promise<ResolvedClient> {
-  try {
-    requireCapability(input.actor, "author");
-  } catch (error) {
-    if (error instanceof AuthorizationError)
-      throw new ConnectorError("denied", {
-        detail: "oauth.registration.owner-required",
-        cause: error,
-      });
-    throw error;
-  }
   if (!input.registrations)
     throw new ConnectorError("configuration-required", {
       detail: "oauth.registration.store-missing",
@@ -566,6 +556,9 @@ async function dynamicClient(
     redirectUri: input.redirectUri,
     hostOrigin: input.hostOrigin,
   });
+  // Using a client the tenant already registered is an executor's act: the
+  // refresh behind an agent's invocation, a person reconnecting. Creating one
+  // at the issuer is an owner's, so the capability is checked only there.
   const stored = await input.registrations.get(tenantId, key);
   if (stored) {
     if (stored.issuer !== input.policy.issuer)
@@ -573,6 +566,16 @@ async function dynamicClient(
         detail: "oauth.registration.issuer-conflict",
       });
     return clientFromStored(stored, input.redirectUri, "stored-registration");
+  }
+  try {
+    requireCapability(input.actor, "author");
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      throw new ConnectorError("denied", {
+        detail: "oauth.registration.owner-required",
+        cause: error,
+      });
+    throw error;
   }
   const supportedGrants = input.server.metadata.grant_types_supported ?? [
     "authorization_code",

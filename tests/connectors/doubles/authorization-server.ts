@@ -90,6 +90,8 @@ export type AuthorizationServerOptions = {
   exchangeAudiences?: string[];
   /** Enable RFC 8628 device authorization. */
   deviceFlow?: boolean;
+  /** Enable the RFC 6749 §4.4 client credentials grant, for confidential clients only. */
+  clientCredentials?: boolean;
   /** Device polling interval in seconds (default 1, to keep tests quick). */
   deviceInterval?: number;
   /** Serve RFC 9728 protected-resource metadata for these resource URLs. */
@@ -130,6 +132,14 @@ export type AuthorizationServerDouble = {
   approveDevice(userCode: string, subject?: string): boolean;
   /** Denies a pending device code. */
   denyDevice(userCode: string): boolean;
+  /**
+   * Whether an opaque access token this server issued is still active, as a
+   * protected resource would ask its authorization server. JWT access tokens
+   * are not tracked here.
+   */
+  accessTokenActive(token: string): boolean;
+  /** Revokes one issued access token, as an administrator or an expiry would. */
+  revokeAccessToken(token: string): void;
   /** Mints a signed JWT for token-exchange subject tokens. */
   mintToken(input: {
     subject: string;
@@ -299,6 +309,7 @@ export async function startAuthorizationServer(
       ...(options.tokenExchange
         ? ["urn:ietf:params:oauth:grant-type:token-exchange"]
         : []),
+      ...(options.clientCredentials ? ["client_credentials"] : []),
     ],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: options.tokenEndpointAuthMethods ?? [
@@ -743,6 +754,27 @@ export async function startAuthorizationServer(
         });
       }
 
+      if (grantType === "client_credentials") {
+        if (!options.clientCredentials)
+          return oauthError(400, "unsupported_grant_type");
+        // RFC 6749 §4.4: confidential clients only. A client this server holds
+        // no secret for authenticated with nothing, so it gets nothing.
+        if (clients.get(authenticated.clientId)?.secret === undefined)
+          return oauthError(401, "invalid_client");
+        const granted = bad.grantScopes?.join(" ") ?? parameters["scope"] ?? "";
+        const issued = await issueAccessToken({
+          subject: authenticated.clientId,
+          scope: granted,
+          resource: parameters["resource"],
+        });
+        return json(200, {
+          access_token: issued.token,
+          token_type: "Bearer",
+          expires_in: 3600,
+          ...(bad.omitScope ? {} : { scope: granted }),
+        });
+      }
+
       if (grantType === "urn:ietf:params:oauth:grant-type:token-exchange") {
         if (!options.tokenExchange)
           return oauthError(400, "unsupported_grant_type");
@@ -892,6 +924,13 @@ export async function startAuthorizationServer(
       if (!grant) return false;
       grant.state = "denied";
       return true;
+    },
+    accessTokenActive(token) {
+      const record = accessTokens.get(token);
+      return record !== undefined && record.expiresAt > now();
+    },
+    revokeAccessToken(token) {
+      accessTokens.delete(token);
     },
     mintToken: (input) => signJwt(input),
     counts,

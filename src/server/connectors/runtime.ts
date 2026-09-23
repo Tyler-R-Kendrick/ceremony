@@ -14,6 +14,7 @@ import {
 import {
   ConnectorCommandService,
   type ConfigurationWriter,
+  type ConnectorImporter,
 } from "./commands/service.js";
 import {
   createConnectorHttp,
@@ -78,6 +79,13 @@ export interface ConnectorRuntimeOptions {
   policy?: ConnectorPolicy | ((base: ConnectorPolicy) => ConnectorPolicy);
   /** Host capabilities and extra adapters; see `ConnectorInventoryOptions`. */
   inventory?: ConnectorInventoryOptions;
+  /**
+   * Format importers tried, in order, for an import that names no adapter
+   * (OpenAPI, Arazzo, AsyncAPI ...). The service always supported them; the
+   * runtime used to drop them, so a composed deployment could import only
+   * through an adapter's own `import`.
+   */
+  importers?: readonly ConnectorImporter[];
   /** Where a completed callback sends the person; a path on this origin. */
   returnPath?: string;
   /** The events module's receiver; absent means the events mount answers 404. */
@@ -139,6 +147,7 @@ export function createConnectorRuntime(
     origin: options.origin,
     configuration: options.configuration,
     ...(options.configure ? { configure: options.configure } : {}),
+    ...(options.importers ? { importers: options.importers } : {}),
     ...(options.callTimeoutMs === undefined
       ? {}
       : { callTimeoutMs: options.callTimeoutMs }),

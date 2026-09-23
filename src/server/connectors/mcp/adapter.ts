@@ -18,6 +18,8 @@ import type {
   CapabilityStatus,
 } from "../adapter.js";
 import { capabilityStatus } from "../adapter.js";
+import type { ConnectorOAuthOptions } from "../auth/connector-oauth.js";
+import { completeMcpOAuth, createMcpOAuth } from "./oauth.js";
 import {
   boundOperation,
   destinationFor,
@@ -135,7 +137,14 @@ export type McpRemoteAdapterOptions = {
   displayName?: string;
   description?: string;
   service?: string;
+  /**
+   * Replaces the default OAuth profile (`createMcpOAuth`, over the grants in
+   * `connectors/auth` and the issuer policy pinned in the binding). A custom
+   * hook owns its own completion; the default one's redirect is completed here.
+   */
   beginOAuth?: BeginMcpOAuth;
+  /** Host seams for the default OAuth profile: registrations store, metadata cache, CIMD publisher. */
+  oauth?: ConnectorOAuthOptions;
   broker?: McpBrokerPort;
   /** Shared, principal-keyed cache; one per deployment is expected. */
   cache?: McpResultCache;
@@ -865,6 +874,7 @@ export function createMcpRemoteAdapter(
 } {
   const adapterVersion = options.adapterVersion ?? MCP_ADAPTER_VERSION;
   const identity = { adapterVersion, runtime: "hosted-server" as const };
+  const beginOAuth = options.beginOAuth ?? createMcpOAuth(options.oauth);
 
   const capabilities = (present: ReadonlySet<string>): CapabilityStatus[] => {
     void present;
@@ -897,6 +907,7 @@ export function createMcpRemoteAdapter(
         authorize: {
           limitations: [
             `Delegated to the host OAuth profile; client registration follows this revision's order: ${era.clientRegistration.join(", ")}.`,
+            "The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata; tokens are not refreshed by this adapter.",
             era.dynamicClientRegistration === "deprecated"
               ? "Dynamic Client Registration is deprecated in this revision and kept only for servers without Client ID Metadata Documents."
               : "Dynamic Client Registration is documented in this revision.",
@@ -1025,9 +1036,7 @@ export function createMcpRemoteAdapter(
       // authorization server itself.
       const challenge = await probeChallenge(ctx, settings);
       if (!challenge) return { kind: "verify" };
-      if (!options.beginOAuth)
-        return { kind: "unsupported", code: "mcp.oauth.hook-missing" };
-      return options.beginOAuth(ctx, {
+      return beginOAuth(ctx, {
         challenge,
         intent,
         resource: challenge.canonicalResource,
@@ -1103,6 +1112,16 @@ export function createMcpRemoteAdapter(
     },
 
     async complete(ctx, input: CompletionInput): Promise<CompletionResult> {
+      // The default OAuth profile's provider redirect. A host that replaced
+      // the profile with its own hook completes its own handoffs.
+      if (!options.beginOAuth) {
+        const completed = await completeMcpOAuth(
+          ctx,
+          input,
+          options.oauth ?? {},
+        );
+        if (completed) return completed;
+      }
       if (input.kind === "poll") return this.verify!(ctx);
       // Input values are continued through resumeInput, which needs the
       // handoff record the command layer holds; they are not accepted here.
