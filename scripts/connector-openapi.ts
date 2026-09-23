@@ -11,10 +11,10 @@ import {
   connectorImportResultSchema,
   connectorReferenceSchema,
   credentialCustodySchema,
+  definitionListEntrySchema,
   ecosystemSchema,
   handoffKindSchema,
   handoffStateSchema,
-  normalizedDefinitionSchema,
 } from "../src/core/connectors/index.js";
 import {
   definitionReviewSchema,
@@ -121,17 +121,6 @@ const connectionViewSchema = z
     description:
       "The projection is chosen by the caller's actor kind, never by the request.",
   });
-
-const definitionListEntrySchema = z.strictObject({
-  definitionRef: connectorReferenceSchema,
-  identity: normalizedDefinitionSchema.shape.identity,
-  display: normalizedDefinitionSchema.shape.display,
-  issues: z.strictObject({
-    blocking: z.number().int().nonnegative(),
-    warning: z.number().int().nonnegative(),
-    info: z.number().int().nonnegative(),
-  }),
-});
 
 const invokeResponseSchema = z.strictObject({
   state: z.enum(invokeStates),
