@@ -54,6 +54,42 @@ test("a bucket allows its burst, then refuses with the wait until one call is ba
   assert.equal(limiter.take(ada, "ceremony_snapshot").allowed, false);
 });
 
+test("a clock stepped back and forward again refills nothing twice", () => {
+  const time = clock();
+  const limiter = createMcpRateLimiter({
+    capacity: 1,
+    refillPerSecond: 0.1,
+    now: time.now,
+  });
+  assert.equal(limiter.take(ada, "ceremony_snapshot").allowed, true);
+  // A wall clock corrected backwards, then forwards to where it was.
+  time.advance(-60_000);
+  assert.equal(limiter.take(ada, "ceremony_snapshot").allowed, false);
+  time.advance(60_000);
+  assert.deepEqual(limiter.take(ada, "ceremony_snapshot"), {
+    allowed: false,
+    retryAfterSeconds: 10,
+  });
+});
+
+test("the default clock is monotonic, not the wall clock", () => {
+  const realNow = Date.now;
+  let offset = 0;
+  try {
+    Date.now = () => realNow() + offset;
+    const limiter = createMcpRateLimiter({
+      capacity: 1,
+      refillPerSecond: 0.01,
+    });
+    assert.equal(limiter.take(ada, "ceremony_snapshot").allowed, true);
+    // Jumping the wall clock a day ahead does not refill the bucket.
+    offset = 86_400_000;
+    assert.equal(limiter.take(ada, "ceremony_snapshot").allowed, false);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test("budgets are per actor and per tool, and a person's sessions share one", () => {
   const limiter = createMcpRateLimiter({
     capacity: 1,

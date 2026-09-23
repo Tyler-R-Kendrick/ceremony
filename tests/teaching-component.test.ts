@@ -1640,3 +1640,82 @@ for (const [status, message] of [
     }
   });
 }
+
+test("a proposed credential check is shown to its person, who approves that exact digest", async () => {
+  const digest = "a".repeat(64);
+  let pending = true;
+  const view = await mount(
+    { connectorId: "acme" },
+    200,
+    { connectors: ["acme"], authoredConnectors: ["acme"] },
+    waiting,
+    (url) => {
+      if (url.endsWith("/authoring/installed/acme"))
+        return new Response(
+          JSON.stringify({
+            id: "acme",
+            name: "Acme",
+            methods: [{ id: "m", kind: "api-key", label: "API key" }],
+            discovery: {
+              origin: "https://acme.example",
+              ...(pending
+                ? {
+                    pendingCredentialVerification: {
+                      digest,
+                      declaration: {
+                        url: "https://acme.example/v1/me",
+                        placement: {
+                          in: "header",
+                          name: "Authorization",
+                          prefix: "Bearer ",
+                        },
+                      },
+                    },
+                  }
+                : {}),
+            },
+          }),
+        );
+      if (url.endsWith("/credential-verification/approve")) {
+        pending = false;
+        return new Response(
+          JSON.stringify({ connectorId: "acme", state: "active", digest }),
+        );
+      }
+      return undefined;
+    },
+  );
+  try {
+    // The installed connector is read once capabilities name it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const card = view.document.querySelector(
+      '[aria-label="Proposed credential check"]',
+    );
+    assert.ok(card, "the pending declaration is rendered");
+    const text = card.textContent ?? "";
+    assert.match(text, /GET https:\/\/acme\.example\/v1\/me/);
+    assert.match(text, /Header Authorization, after "Bearer "/);
+    assert.match(text, new RegExp(digest));
+    await view.click("Approve this credential check");
+    const approval = view.calls.find((call) =>
+      call.path.endsWith(
+        "/authoring/installed/acme/credential-verification/approve",
+      ),
+    );
+    assert.deepEqual(approval?.body, { digest });
+    assert.equal(
+      view.document.querySelector('[aria-label="Proposed credential check"]'),
+      null,
+      "an approved check is no longer offered",
+    );
+    assert.ok(
+      Array.from(view.document.querySelectorAll('[role="status"]')).some(
+        (node) => node.textContent === "Credential check approved.",
+      ),
+    );
+  } finally {
+    await view.close();
+  }
+});

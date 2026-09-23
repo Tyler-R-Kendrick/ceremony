@@ -133,7 +133,7 @@ export function registerTeachingTools(
   if (holds("author"))
     tool(
       "ceremony_author_verification_propose",
-      "Propose how an authored connector you installed checks a collected API key or password: one HTTPS request to an origin its provider already declared, with the credential placed in a header, a query parameter, HTTP Basic or a form. The proposal verifies nothing until a person approves it in the application; the result gives the digest they approve. Never include a credential value here.",
+      "Propose how an authored connector you installed checks a collected API key or password: one HTTPS request to an origin its provider already declared, with the credential placed in a header, a query parameter, HTTP Basic or a form. The proposal verifies nothing until a person approves it on the connector's page in the application; the result gives the digest they approve. Never include a credential value here.",
       teachingInputs.verificationPropose,
       { destructiveHint: false, idempotentHint: true, openWorldHint: false },
       (who, input) =>

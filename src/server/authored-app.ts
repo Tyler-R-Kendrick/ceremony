@@ -11,6 +11,7 @@ import {
   type ClientAuthentication,
   type TokenEndpointAuthMethod,
 } from "./authored-oauth.js";
+import { SYSTEM_TENANT } from "./system-tenants.js";
 
 export type AuthoredApp = {
   clientId: string;
@@ -351,7 +352,7 @@ export async function ensureAuthoredApp(
     // The client is unusable until its public metadata exists. Commit both or neither.
     if (clientId.includes("/oauth-clients/")) {
       const publicKey = {
-        tenant: "public",
+        tenant: SYSTEM_TENANT.public,
         kind: "artifact" as const,
         id: `oauth-client:${context.target}:${context.runId}`,
       };

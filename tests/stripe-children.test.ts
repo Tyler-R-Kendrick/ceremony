@@ -457,3 +457,79 @@ test("GitHub target syntax remains enforced when host target policy is permissiv
   );
   assert.equal(f.reads(), 0);
 });
+
+test("a Stripe step planned under its own connector runs inside another provider's run", async (t) => {
+  const f = await fixture(t, true);
+  // A version of its own, so nothing passes by matching the run's.
+  f.behavior.version = "stripe-v2";
+  const stripe = {
+    connectorId: "stripe",
+    provider: "stripe",
+    profile: "stripe-api-key",
+    target: "self",
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "stripe-v2",
+  };
+  const run = await f.runtime.commands.createRun(
+    f.actor,
+    {
+      provider: "github",
+      profile: "github-app",
+      target: "acme",
+      origin: "https://app.example",
+      environment: "test",
+      configurationVersion: "v1",
+    },
+    [
+      {
+        id: "account",
+        operationId: "stripe.prepare-account",
+        operationVersion: "1.0.0",
+        dependsOn: [],
+        bindings: {},
+        context: stripe,
+      },
+      {
+        id: "credential",
+        operationId: "stripe.obtain-key",
+        operationVersion: "1.0.0",
+        dependsOn: ["account"],
+        bindings: {
+          account: { from: "output", node: "account", name: "account" },
+        },
+        context: stripe,
+      },
+      {
+        id: "access",
+        operationId: "stripe.verify-access",
+        operationVersion: "1.0.0",
+        dependsOn: ["credential"],
+        bindings: {
+          credential: {
+            from: "output",
+            node: "credential",
+            name: "credential",
+          },
+        },
+        context: stripe,
+      },
+    ],
+    {},
+  );
+  // Each step is checked against the connector it was planned under, not
+  // the run's own provider.
+  assert.equal((await f.advance(run.id, "account")).state, "complete");
+  assert.equal((await f.advance(run.id, "credential")).state, "complete");
+  assert.equal((await f.advance(run.id, "access")).state, "complete");
+  assert.equal(f.reads(), 1);
+  // And a step that claims a node it is not is still refused.
+  await assert.rejects(
+    f.children.prepareAccount({
+      ...f.inputContext(run.id, "account"),
+      configurationVersion: "stripe-v2",
+      nodeId: "not-a-node",
+    }),
+    /denied/,
+  );
+});

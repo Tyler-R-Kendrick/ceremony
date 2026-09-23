@@ -15,6 +15,7 @@ import {
 import { teachingHttp } from "../src/server/teaching-http.js";
 import { installedDiscovery } from "../src/server/authored-operations.js";
 import type { AgentConnectorDependencies } from "../src/server/connectors/agents/intents.js";
+import type { ConnectorToolDependencies } from "../src/server/connectors/mcp/server-tools.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
 
@@ -51,8 +52,14 @@ const recipe: RecipeDefinition = {
 };
 
 function fixture(
-  options: { waitsOnPerson?: boolean; person?: () => ActorContext } = {},
+  options: {
+    waitsOnPerson?: boolean;
+    person?: () => ActorContext;
+  } & Partial<Parameters<typeof createTeachingRuntime>[0]> = {},
 ) {
+  const { waitsOnPerson: _waits, person: _person, ...runtimeOptions } = options;
+  void _waits;
+  void _person;
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -109,6 +116,7 @@ function fixture(
     authorize: async () => true,
     // Authoring discovery never leaves the process in these tests.
     authoringFetch: async () => new Response("", { status: 404 }),
+    ...runtimeOptions,
   });
   return { store, runtime };
 }
@@ -466,6 +474,47 @@ const teachingTools = [
   "ceremony_draft_edit",
   "ceremony_recipe_compose",
 ];
+/** Every tool an agent holding every capability is offered. */
+const AGENT_TOOLS = [
+  "browser_backends",
+  "browser_login",
+  "browser_record_login",
+  "browser_release",
+  "browser_session_status",
+  "ceremony_advance",
+  "ceremony_author_compose",
+  "ceremony_author_delete",
+  "ceremony_author_from_provider",
+  "ceremony_author_read",
+  "ceremony_author_verification_propose",
+  "ceremony_bind_private",
+  "ceremony_cancel",
+  "ceremony_collect_private",
+  "ceremony_connect",
+  "ceremony_connectors",
+  "ceremony_demonstration_consent",
+  "ceremony_demonstration_read",
+  "ceremony_demonstration_start",
+  "ceremony_draft_compile",
+  "ceremony_draft_edit",
+  "ceremony_draft_import",
+  "ceremony_draft_read",
+  "ceremony_recipe_compose",
+  "ceremony_recipe_execute",
+  "ceremony_recipe_preview",
+  "ceremony_recipes",
+  "ceremony_recording_read",
+  "ceremony_snapshot",
+  "connector_catalog",
+  "connector_connect",
+  "connector_disconnect",
+  "connector_inspect",
+  "connector_invoke",
+  "connector_list",
+  "connector_operations",
+  "connector_reconnect",
+  "connector_status",
+];
 const executorTools = [
   "ceremony_recipes",
   "ceremony_recipe_preview",
@@ -491,15 +540,52 @@ test("recording, authoring and chaining tools are offered only to actors who cou
     assert.ok(reviewerNames.includes("ceremony_demonstration_read"));
     assert.ok(!reviewerNames.includes("ceremony_draft_compile"));
     assert.ok(!reviewerNames.includes("ceremony_recipe_execute"));
+  } finally {
+    await f.store.close();
+  }
+});
 
-    // Review and publication are a person's decision: no agent tool for them,
-    // whatever the actor holds.
-    const admin = handlerFor(f.runtime, () => ({
-      ...actor,
-      capabilities: ["admin"],
-    }));
-    for (const name of (await toolsFor(admin, "admin")).map((t) => t.name))
-      assert.doesNotMatch(name, /_(publish|review|retire)/, name);
+test("an agent holding every capability is offered exactly this list, with every tool family mounted", async () => {
+  // Every optional family a deployment can mount: connector tools, connector
+  // intents, browser login with recordings, and the private collector. Only
+  // tool registration runs here, so the services behind them are never used.
+  const browserLogin = {
+    recordings: {},
+  } as unknown as NonNullable<
+    Parameters<typeof createTeachingRuntime>[0]["browserLogin"]
+  >;
+  const f = fixture({ browserLogin });
+  try {
+    // A person holding every capability is offered the same tools: review
+    // and publication are the people's routes, never a tool.
+    for (const actorKind of ["agent", "human"] as const) {
+      const holder: ActorContext = {
+        ...actor,
+        actorKind,
+        capabilities: ["executor", "author", "reviewer", "publisher", "admin"],
+      };
+      const mcp = createCeremonyMcpHandler(f.runtime, {
+        resourceUrl: endpoint,
+        issuer,
+        authenticate: () => holder,
+        connectors: {} as ConnectorToolDependencies,
+        connectorIntents: {} as AgentConnectorDependencies,
+        privateCollector: {
+          brokerOrigin: "https://broker.example",
+          appOrigin: "https://collector.example",
+          appHtml: "<!doctype html>",
+        } as unknown as NonNullable<
+          Parameters<typeof createCeremonyMcpHandler>[1]["privateCollector"]
+        >,
+      });
+      const names = (await toolsFor(mcp, actorKind)).map((t) => t.name).sort();
+      // Review, publication and retirement are a person's decision: none of
+      // them is here, for recipes, recordings or connectors, whatever the
+      // actor holds. A tool added to this list is a decision, not an accident.
+      assert.deepEqual(names, AGENT_TOOLS, actorKind);
+      for (const name of names)
+        assert.doesNotMatch(name, /_(publish|review|retire|approve)/, name);
+    }
   } finally {
     await f.store.close();
   }
@@ -1000,6 +1086,55 @@ test("the endpoint throttles each actor per tool and says when to retry", async 
         (await invoke(open, "executor", "ceremony_connectors")).isError,
         false,
       );
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("ceremony_recipes lists every recipe past one page, at its latest unretired version", async () => {
+  const f = fixture();
+  try {
+    const row = (id: string, version: string, retired = false) => ({
+      key: {
+        tenant: actor.tenantId,
+        kind: "recipe" as const,
+        id: `${id}@${version}`,
+      },
+      value: {
+        definition: { ...recipe, id, title: id },
+        version,
+        digest: `digest-${id}-${version}`,
+        closure: {},
+        retired,
+        publisher: "publisher",
+      },
+    });
+    const rows = [
+      ...Array.from({ length: 150 }, (_, index) =>
+        row(`recipe-${String(index).padStart(3, "0")}`, "1.0.1"),
+      ),
+      // A newer version supersedes; a retired newer one does not.
+      row("recipe-001", "1.0.2"),
+      row("recipe-002", "1.0.2", true),
+      row("recipe-003", "1.0.1", true),
+    ];
+    await f.store.transaction(async (tx) => {
+      for (const entry of rows) {
+        const prior = await tx.get(entry.key);
+        await tx.put(entry.key, entry.value, prior?.revision ?? null);
+      }
+    });
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "executor", initialize);
+    const listed = (await invoke(mcp, "executor", "ceremony_recipes")).value()
+      .recipes as Array<{ id: string; version: string }>;
+    const versions = new Map(listed.map((item) => [item.id, item.version]));
+    assert.equal(listed.length, versions.size, "one entry per recipe");
+    assert.equal(versions.size, 149);
+    assert.equal(versions.get("recipe-149"), "1.0.1");
+    assert.equal(versions.get("recipe-001"), "1.0.2");
+    assert.equal(versions.get("recipe-002"), "1.0.1");
+    assert.equal(versions.has("recipe-003"), false);
   } finally {
     await f.store.close();
   }

@@ -15,6 +15,7 @@ import {
   authoredHandleBound,
   authoredVocabulary,
   declareAuthoredCredentialVerification,
+  authoredCredentialStored,
   deleteAuthoredSession,
   discoveredAuthSchema,
   registerAuthoredOperations,
@@ -491,6 +492,14 @@ test("a composed run collects each secret on its own step", async (t) => {
   const page = await (await f.human()).text();
   assert.match(page, /name="token"/);
   await f.human(form({ token: "key-two" }));
+  // Each step keeps its own secret: the second is not written over the first.
+  assert.equal(
+    await authoredCredentialStored(f.store, actor, f.run.id, {
+      nodeId: "secret",
+      verified: true,
+    }),
+    true,
+  );
   await f.advance("access2");
   const snapshot = await f.commands.snapshot(actor, f.run.id);
   assert.equal(snapshot.status, "complete");
@@ -498,4 +507,20 @@ test("a composed run collects each secret on its own step", async (t) => {
     f.requests.map((request) => request.headers.get("x-api-key")),
     ["key-one", "key-two"],
   );
+  assert.equal(
+    await authoredCredentialStored(f.store, actor, f.run.id, {
+      nodeId: "secret2",
+      verified: true,
+    }),
+    true,
+  );
+  // Deleting the connection removes every step's custody.
+  assert.equal(await deleteAuthoredSession(f.store, actor, f.run.id), true);
+  const stored = JSON.stringify(
+    await f.store.transaction((tx) =>
+      tx.list(actor.tenantId, "handoff", 1000, ""),
+    ),
+  );
+  assert.equal(stored.includes("key-one"), false);
+  assert.equal(stored.includes("key-two"), false);
 });
