@@ -149,6 +149,26 @@ export const browserLoginToolInputs = {
 
 export type BrowserLoginToolName = keyof typeof browserLoginToolInputs;
 
+/**
+ * The same inputs as offered to an agent, over MCP.
+ *
+ * `consents` is taken out of the draft. Advance consent to a provider's terms,
+ * privacy policy or an age attestation is the person's to give, so an agent
+ * tool does not offer the field at all - a model is never shown a knob that
+ * agrees to things on somebody's behalf. The compiler refuses it from any
+ * actor who is not the person as well, so a transport that forgot this
+ * narrowing still could not carry it.
+ */
+export const browserLoginAgentToolInputs = {
+  ...browserLoginToolInputs,
+  login: browserLoginToolInputs.login.extend({
+    draft: clientDraftSchema.omit({ consents: true }),
+  }),
+  recordLogin: browserLoginToolInputs.recordLogin.extend({
+    draft: clientDraftSchema.omit({ recording: true, consents: true }),
+  }),
+} as const;
+
 /** What a client is told about the browsers this host can actually offer. */
 export type BackendNegotiation = {
   backends: readonly BackendDescriptor[];
@@ -341,6 +361,9 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
         ...(deps.allowUnverified === true ? { allowUnverified: true } : {}),
         ...(deps.modelAvailable === true ? { modelAvailable: true } : {}),
         ...(deps.issuedSinks ? { issuedSinks: deps.issuedSinks } : {}),
+        // Whether this is the person, from the authenticated actor and
+        // nothing the caller sent: only the person can consent to terms.
+        fromPerson: actor.actorKind === "human",
         revision: deps.revision?.() ?? 1,
       },
     );

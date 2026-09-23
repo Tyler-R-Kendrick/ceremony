@@ -365,6 +365,13 @@ export const blockedReasons = [
    * no value for. Choosing on somebody's behalf is not something to guess at.
    */
   "choice-required",
+  /**
+   * A box accepting terms, a privacy policy or an age attestation that the
+   * plan carries no advance consent for, or a required marketing opt-in, and
+   * nobody to tick it. Accepting on somebody's behalf is a legal act, never a
+   * form detail.
+   */
+  "consent-required",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -429,6 +436,12 @@ export type CeremonyStep = {
   role?: CeremonyRole;
   reason?: BlockedReason;
   note?: string;
+  /**
+   * On a `check`: the legal acts ticking that box performed under the plan's
+   * advance consent. Kinds, never page text, so a transcript says "accepted
+   * the terms" without repeating the provider's wording.
+   */
+  consent?: ConsentKind[];
 };
 
 const alertSelector =
@@ -827,8 +840,113 @@ export const humanStepReasons = [
   "device-code",
   /** A required choice the plan provided no value for. */
   "choice",
+  /**
+   * A box accepting a provider's terms, privacy policy or an age attestation
+   * that the plan carries no advance consent for, or a required marketing
+   * opt-in. Ticking one is a legal act on the person's behalf, so it is the
+   * person's to tick.
+   */
+  "consent",
 ] as const;
 export type HumanStepReason = (typeof humanStepReasons)[number];
+
+/**
+ * What a person may consent to in advance, so that a login ticks the box
+ * saying so on their behalf.
+ *
+ * Accepting a provider's terms of service or privacy policy, or attesting to
+ * being old enough, is a legal act. An agent does not get to perform one
+ * because the form happens to need it: it performs one only when the plan
+ * carries the person's explicit consent for that kind, set by the person, part
+ * of the plan's digest and of any recording's review. Nothing a model says and
+ * no agent tool can add one.
+ *
+ * Marketing and newsletter opt-ins are deliberately not a kind. There is no
+ * advance consent that ticks one: a person who wants the newsletter can tick
+ * it themselves.
+ */
+export const consentKinds = ["terms", "privacy", "age"] as const;
+export const consentKindSchema = z.enum(consentKinds);
+export type ConsentKind = z.infer<typeof consentKindSchema>;
+
+/**
+ * A set of consent kinds, as a plan or a recording carries one: no repeats,
+ * so two that say the same thing digest the same once sorted.
+ */
+export const consentKindsSchema = z
+  .array(consentKindSchema)
+  .max(consentKinds.length)
+  .refine(
+    (kinds) => new Set(kinds).size === kinds.length,
+    "Duplicate consent kind",
+  );
+
+/** Consent kinds in their canonical order, so equal sets are equal bytes. */
+export function sortedConsent(kinds: readonly ConsentKind[]): ConsentKind[] {
+  return consentKinds.filter((kind) => kinds.includes(kind));
+}
+
+/** What a checkbox asks a person to agree to, read from its own words. */
+export type CheckboxConsent = {
+  /** The legal acts ticking it performs. Empty for an ordinary box. */
+  kinds: ConsentKind[];
+  /**
+   * The box opts into marketing or a newsletter, alone or bundled with
+   * anything else. Never ticked by an agent, whatever the plan says.
+   */
+  marketing: boolean;
+};
+
+const marketingWords =
+  /newsletter|marketing|promotion|special offers|\boffers\b|product (news|updates)|news and (updates|offers)|(e-?mail|send) me (news|updates|offers|tips)|subscribe/i;
+const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
+  // A bare "I agree" or "I accept" is read as terms: it is the conservative
+  // reading, since it asks a person rather than ticking.
+  terms:
+    /terms|conditions|\beula\b|user agreement|acceptable use|\bi (agree|accept)\b|\bagree to\b|\baccept the\b/i,
+  privacy: /privacy|data (processing|protection)|personal data|cookie/i,
+  age: /old enough|\b(1[3-9]|2[01]) ?(\+|years|or (older|over))|of (legal )?age|age of (majority|consent)|\b(over|at least) (1[3-9]|2[01])\b|minimum age/i,
+};
+
+/**
+ * What ticking a checkbox would agree to, from the words the page shows for
+ * it.
+ *
+ * Shared by the model-free interpreter, which decides whether to tick, and by
+ * the driver, which refuses any interpreter's tick the plan did not consent
+ * to - so a model reading the same box differently cannot tick it anyway. It
+ * errs toward consent on purpose: a false positive asks a person to tick an
+ * ordinary box, a false negative would perform a legal act nobody agreed to.
+ */
+export function checkboxConsent(
+  element: Pick<SnapshotElement, "label" | "text" | "name" | "placeholder">,
+): CheckboxConsent {
+  const text = [element.label, element.text, element.name, element.placeholder]
+    .filter((part): part is string => typeof part === "string")
+    .join(" ");
+  return {
+    kinds: consentKinds.filter((kind) => consentWords[kind].test(text)),
+    marketing: marketingWords.test(text),
+  };
+}
+
+/**
+ * Whether a plan's advance consent covers ticking this box. A marketing
+ * opt-in is never covered; a box naming several kinds needs every one.
+ */
+export function consentCovers(
+  consent: CheckboxConsent,
+  given: readonly ConsentKind[],
+): boolean {
+  return (
+    !consent.marketing && consent.kinds.every((kind) => given.includes(kind))
+  );
+}
+
+/** Whether ticking this box is a person's decision rather than a form detail. */
+export function needsConsent(consent: CheckboxConsent): boolean {
+  return consent.marketing || consent.kinds.length > 0;
+}
 
 /**
  * Wording that names a device authorization verification page, read from the

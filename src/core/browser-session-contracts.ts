@@ -453,6 +453,12 @@ export const loginResultSchema = z.discriminatedUnion("status", [
       "device-code",
       /** A required choice the plan did not make. */
       "choice",
+      /**
+       * A box accepting terms, a privacy policy or an age attestation the
+       * person has not consented to in advance, or a required marketing
+       * opt-in: theirs to tick.
+       */
+      "consent",
     ]),
   }),
   z.strictObject({

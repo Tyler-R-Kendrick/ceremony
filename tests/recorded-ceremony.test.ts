@@ -401,6 +401,38 @@ describe("SCHEMA: a recording cannot hold a value", () => {
     assert.ok(recordedCeremonySchema.safeParse(base()).success);
   });
 
+  test("a tick says what it accepts, and a newsletter is never a step", () => {
+    const ticking = (label: string, consent?: unknown) => {
+      const recording = base() as unknown as { steps: unknown[] };
+      recording.steps.push({
+        id: "step-2",
+        page: { origin: "https://idp.example", path: "/signin" },
+        action: {
+          kind: "check",
+          target: { kind: "checkbox", label, ordinal: 0, of: 1 },
+          ...(consent === undefined ? {} : { consent }),
+        },
+        optional: false,
+      });
+      return recordedCeremonySchema.safeParse(recording).success;
+    };
+    assert.equal(ticking("Keep me signed in"), true);
+    assert.equal(ticking("I agree to the Terms of Service", ["terms"]), true);
+    // A reviewer reading the step has to read the whole of what it accepts.
+    assert.equal(ticking("I agree to the Terms of Service"), false);
+    assert.equal(
+      ticking("I accept the terms and the privacy policy", ["terms"]),
+      false,
+    );
+    assert.equal(ticking("I agree to the Terms", ["terms", "terms"]), false);
+    assert.equal(ticking("I agree to the Terms", ["marketing"]), false);
+    // Whatever it declares, a marketing opt-in is not something to replay.
+    assert.equal(
+      ticking("Send me product news and special offers", ["terms"]),
+      false,
+    );
+  });
+
   test("a value field is not a field", () => {
     const withValue = base() as unknown as {
       steps: { action: Record<string, unknown> }[];

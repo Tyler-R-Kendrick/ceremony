@@ -301,6 +301,28 @@ the control exactly as it does for `fill`. A secret role is never filled into a
 select. A required choice the plan did not make is not guessed: it is handed to
 a person (`choice`), or ends `choice-required`.
 
+### Consent
+
+Ticking a box that accepts a provider's terms of service or privacy policy, or
+attests to the person's age, is a legal act on their behalf. The driver (not
+the interpreter) reads every proposed `check` against the box's own words
+(`checkboxConsent` in `src/core/browser-contracts.ts`) and ticks such a box only
+when the plan carries the person's advance consent to **every** kind it names:
+`consents: ["terms", "privacy", "age"]`, any subset. The kinds are canonical and
+part of the digest. Without them the box is handed to a person (`consent`), who
+ticks it themselves, or the login ends `consent-required` (`requires-human` /
+`consent` through the service). A marketing or newsletter opt-in is never
+ticked, whatever the plan says: an optional one is left alone and a required
+one is the person's.
+
+`consents` is the person's to set and nobody else's. The compiler refuses it
+with `consent-not-delegable` unless the host identified the caller as the
+person (`actorKind: "human"`), and the MCP `browser_login` and
+`browser_record_login` tools do not offer the field at all, so a model is never
+shown a knob that agrees to anything. A recording keeps the kinds a tick
+accepted and never widens them; see
+[recorded ceremonies](recorded-ceremonies.md#drift).
+
 ## Handoffs
 
 A handoff identifies the **attempt**, not the run. Keying a wait by run alone let
@@ -327,10 +349,11 @@ when the plan supplied a `user-code` role; the device code never reaches a
 page. Without it the request's reason is `device-code` and its `path` is the
 verification URI - origin and pathname, so the code a
 `verification_uri_complete` query carries is not in it - and a person holding
-the device enters the code there. An unmade required choice is `choice`. The
+the device enters the code there. An unmade required choice is `choice`, and a terms, privacy or age box the
+person did not consent to in advance is `consent`. The
 interpreter only reports these walls; the driver checks the page really is one
 before asking anybody. With nobody to ask they end as `requires-human` with
-`device-code` or `choice`. The reference host configures none: its managed browsers are
+`device-code`, `choice` or `consent`. The reference host configures none: its managed browsers are
 headless on the server, with no surface a person could act in.
 
 ## Enabling it in a host

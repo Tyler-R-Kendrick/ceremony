@@ -58,6 +58,12 @@ export type ProviderBehavior = {
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
   /**
+   * Registration offers an optional "send me product news and offers" box,
+   * and remembers who ticked it. A marketing opt-in is never an agent's to
+   * tick, so a scenario can check nobody did.
+   */
+  offerNewsletter?: boolean;
+  /**
    * Registration asks for a country or region from a required `<select>`,
    * whose first option is an empty "Select a country". The account is not
    * created without one of the listed regions.
@@ -208,6 +214,8 @@ export type ProviderDouble = {
   deviceApprovedBy(userCode: string): string | undefined;
   /** The region an address registered with, when registration asked. */
   regionOf(email: string): string | undefined;
+  /** Addresses whose registration ticked the newsletter box. */
+  newsletterSubscribers(): readonly string[];
   account(email: string): Account | undefined;
   accounts(): readonly Account[];
   mailbox: {
@@ -361,6 +369,8 @@ export async function startAuthProvider(
   const devices = new Map<string, { approved: boolean; email?: string }>();
   /** Region chosen at registration, by address. */
   const regions = new Map<string, string>();
+  const newsletter = new Set<string>();
+  const newsletterField = "news_opt_in";
   /** Identifier-first: which account a browser named before its password. */
   const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
@@ -642,6 +652,9 @@ export async function startAuthProvider(
             ...(error ? { error } : {}),
             inUse: error === markup.messages.emailInUse,
             ...(behavior.requireRegion ? { regions: regionList } : {}),
+            ...(behavior.offerNewsletter
+              ? { newsletter: newsletterField }
+              : {}),
           }),
         );
       const fields = markup.arrange("sign-up", [
@@ -690,6 +703,14 @@ export async function startAuthProvider(
           : []),
         ...(behavior.requireTerms
           ? [markup.checkbox(markup.labels.terms, markup.names.terms)]
+          : []),
+        ...(behavior.offerNewsletter
+          ? [
+              markup.checkbox(
+                "Send me product news and special offers",
+                newsletterField,
+              ),
+            ]
           : []),
       ]);
       send(
@@ -1019,6 +1040,8 @@ export async function startAuthProvider(
       if (accounts.has(email))
         return signUpPage(next, markup.messages.emailInUse);
       if (behavior.requireRegion) regions.set(email, region);
+      if (behavior.offerNewsletter && body.get(newsletterField) === "yes")
+        newsletter.add(email);
       const username = email.split("@")[0] ?? email;
       if (verification === "none") {
         accounts.set(email, {
@@ -1850,6 +1873,7 @@ export async function startAuthProvider(
       return device?.approved ? device.email : undefined;
     },
     regionOf: (email) => regions.get(email.toLowerCase()),
+    newsletterSubscribers: () => [...newsletter],
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });

@@ -29,6 +29,10 @@ import type {
 import type { CeremonyPage } from "../src/server/browser-driver.js";
 import { createHostBrowserLogin } from "../src/server/browser-login-host.js";
 import {
+  browserLoginAgentToolInputs,
+  browserLoginToolInputs,
+} from "../src/server/browser-login-tools.js";
+import {
   mintOAuthClient,
   readOAuthClient,
 } from "../src/server/recipes/common.js";
@@ -997,5 +1001,194 @@ describe("ISSUED-SERVICE: keeping a client's values through browser_login", () =
     assert.equal(replayed.status, "verified", JSON.stringify(replayed));
     assert.ok(f.handles.get(replayed.runRef!));
     assert.equal(f.provider.oauthApps().length, 2);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Advance consent                                                            */
+/* -------------------------------------------------------------------------- */
+
+describe("CONSENT-SERVICE: only the person's advance consent ticks their terms", () => {
+  const draftFields = {
+    engine: "chromium",
+    ownership: "managed",
+    entryUrl: `${origin}/signin`,
+    navigationOrigins: [origin],
+    credentialRecipients: { password: [origin] },
+    account: { kind: "accept-existing" },
+    continuation: "dispose",
+    trustMode: "constrained-auth",
+    interactionRounds: 0,
+    requireVerification: true,
+    verifierOrigin: origin,
+    sessionTtlMs: 600_000,
+  } as const;
+  const compileWith = (
+    extra: Record<string, unknown>,
+    who: { fromPerson?: boolean } = { fromPerson: true },
+  ) =>
+    compileLoginPlan(
+      {
+        connectorId: "owned-fixture-login",
+        ...draftFields,
+        credentialRefs: { password: "ref-password" },
+        ...extra,
+      },
+      {
+        backends: managedBackends(),
+        knownConnectors: new Set(["owned-fixture-login"]),
+        ...who,
+        revision: 1,
+      },
+    );
+
+  /**
+   * A sign-in page that makes the person accept updated terms before it
+   * lets them in, and whether anybody ticked the box.
+   */
+  function termsPage() {
+    let ticked = false;
+    return {
+      ticked: () => ticked,
+      page: (): Partial<CeremonyPage> => ({
+        snapshot: async () => ({
+          ...emptyPage,
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "password",
+              name: "password",
+              label: "Password",
+              filled: true,
+            },
+            {
+              index: 1,
+              kind: "checkbox",
+              name: "accept",
+              label: "I accept the updated Terms of Service",
+              required: true,
+              filled: ticked,
+            },
+            { index: 2, kind: "button", text: "Sign in" },
+          ],
+        }),
+        check: async () => {
+          ticked = true;
+        },
+      }),
+    };
+  }
+
+  test("consent is part of the plan and its digest, canonical, and only the person's", () => {
+    const plain = compileWith({});
+    const consenting = compileWith({ consents: ["privacy", "terms"] });
+    assert.deepEqual(consenting.consents, ["terms", "privacy"]);
+    assert.equal(plain.consents, undefined);
+    assert.notEqual(plain.digest, consenting.digest);
+    // Two orders of one consent are one plan.
+    assert.equal(
+      compileWith({ consents: ["terms", "privacy"] }).digest,
+      consenting.digest,
+    );
+    // An empty list is no consent, and says the same as none.
+    assert.equal(compileWith({ consents: [] }).digest, plain.digest);
+    // Not the person - an agent, or a caller the host never identified.
+    for (const who of [{ fromPerson: false }, {}])
+      assert.throws(
+        () => compileWith({ consents: ["terms"] }, who),
+        (error: unknown) =>
+          error instanceof PlanRejected &&
+          error.reason === "consent-not-delegable",
+      );
+    // A newsletter is not a kind anybody consents to in advance.
+    for (const consents of [["marketing"], ["terms", "terms"]])
+      assert.throws(
+        () => compileWith({ consents }),
+        (error: unknown) => !(error instanceof PlanRejected),
+        JSON.stringify(consents),
+      );
+  });
+
+  test("the terms box is ticked under the plan's consent, and is the person's without it", async () => {
+    const consented = termsPage();
+    const { sessions, service } = serviceWith(
+      stubBackend({ status: 200, body: '{"account":"ada"}' }, consented.page),
+    );
+    const result = await service.login(actor, {
+      plan: compileWith({ consents: ["terms"] }),
+    });
+    assert.equal(result.status, "verified", JSON.stringify(result));
+    assert.equal(consented.ticked(), true);
+
+    const unconsented = termsPage();
+    const second = serviceWith(
+      stubBackend({ status: 200, body: '{"account":"ada"}' }, unconsented.page),
+    );
+    const refused = await second.service.login(actor, {
+      plan: compileWith({}),
+    });
+    assert.equal(
+      refused.status === "requires-human" && refused.reason,
+      "consent",
+      JSON.stringify(refused),
+    );
+    assert.equal(unconsented.ticked(), false);
+    await sessions.disposeAll();
+    await second.sessions.disposeAll();
+  });
+
+  test("an agent cannot give it: refused by the compiler, and not offered over MCP", async () => {
+    const keys = new SQLiteCeremonyStore(":memory:", {
+      current: "consent",
+      keys: { consent: new Uint8Array(32).fill(3) },
+    });
+    after(() => keys.close());
+    const host = createHostBrowserLogin({
+      store: keys,
+      knownConnectors: () => new Set(["owned-fixture-login"]),
+      verifiers: [createFixtureVerifier({ origin })],
+      credentials: { resolve: async () => "correct-horse" },
+      launch: stubBackend(
+        { status: 200, body: '{"account":"ada"}' },
+        termsPage().page,
+      ).launch,
+    });
+    const agent: ActorContext = { ...actor, actorKind: "agent" };
+    const request = {
+      connectorId: "owned-fixture-login",
+      draft: {
+        ...draftFields,
+        credentialRefs: { password: randomUUID() },
+        consents: ["terms"],
+      },
+    };
+    await assert.rejects(
+      host.login(agent, request),
+      (error: unknown) =>
+        error instanceof PlanRejected &&
+        error.reason === "consent-not-delegable",
+    );
+    // The person sending the same draft compiles it.
+    const person = await host.login(actor, request);
+    assert.equal(person.status, "verified", JSON.stringify(person));
+    // The MCP tools never show a model the field at all.
+    for (const tool of ["login", "recordLogin"] as const) {
+      const shape = browserLoginAgentToolInputs[tool].shape.draft.shape;
+      assert.equal("consents" in shape, false, tool);
+      assert.ok("consents" in browserLoginToolInputs[tool].shape.draft.shape);
+    }
+    assert.equal(
+      browserLoginAgentToolInputs.login.safeParse(request).success,
+      false,
+    );
+    const { consents: _dropped, ...withoutConsent } = request.draft;
+    assert.equal(
+      browserLoginAgentToolInputs.login.safeParse({
+        ...request,
+        draft: withoutConsent,
+      }).success,
+      true,
+    );
   });
 });

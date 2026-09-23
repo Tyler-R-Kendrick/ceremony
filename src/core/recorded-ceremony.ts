@@ -3,8 +3,12 @@ import {
   blockedReasonSchema,
   ceremonyGoalSchema,
   ceremonyRoleSchema,
+  checkboxConsent,
+  consentKindsSchema,
   issuedDeclarationSchema,
   secretRoles,
+  sortedConsent,
+  type ConsentKind,
   type IssuedDeclaration,
   type CeremonyGoal,
   type CeremonyRole,
@@ -229,6 +233,14 @@ export const recordedActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("check"),
     target: elementFingerprintSchema,
+    /**
+     * The legal acts ticking this box performs - accepting terms, a privacy
+     * policy, an age attestation - exactly as the recording saw them. Written
+     * down so a reviewer approves them by name, and never widened: a replay
+     * ticks this box only where the live box names the same kinds, and only
+     * under a plan that carries the person's consent to every one of them.
+     */
+    consent: consentKindsSchema.optional(),
   }),
   /**
    * Choose an option in a `<select>` by the label the page showed. The
@@ -351,6 +363,16 @@ export const recordedCeremonySchema = z
       }
       if (action.kind === "check" && action.target.kind !== "checkbox")
         issue(`step ${step.id} checks something that is not a checkbox`);
+      if (action.kind === "check") {
+        // What the box says it accepts has to be what the step says it
+        // accepts, so a reviewer reading "consent: terms" is reading the
+        // whole of it. A marketing opt-in is never a step at all.
+        const read = checkboxConsent(action.target);
+        if (read.marketing) issue(`step ${step.id} ticks a marketing opt-in`);
+        const recorded = action.consent ?? [];
+        if (read.kinds.some((kind) => !recorded.includes(kind)))
+          issue(`step ${step.id} accepts something it does not declare`);
+      }
       if (action.kind === "select" && action.target.kind !== "select")
         issue(`step ${step.id} chooses in something that is not a select`);
     }
@@ -532,6 +554,8 @@ export type RecordedTraceEntry = {
   role?: CeremonyRole;
   /** For `select`: the option's visible label, as the snapshot listed it. */
   option?: string;
+  /** For `check`: the legal acts the tick performed, under the plan's consent. */
+  consent?: readonly ConsentKind[];
 };
 
 export const recordingRejectionReasons = [
@@ -711,7 +735,14 @@ export function compileRecording(
         if (!entry.role) throw new RecordingRejected("unidentifiable-element");
         action = { kind: "fill", target, role: entry.role };
         if (!roles.includes(entry.role)) roles.push(entry.role);
-      } else if (entry.action === "check") action = { kind: "check", target };
+      } else if (entry.action === "check")
+        action = {
+          kind: "check",
+          target,
+          ...(entry.consent?.length
+            ? { consent: sortedConsent(entry.consent) }
+            : {}),
+        };
       else if (entry.action === "select") {
         const option = clean(entry.option);
         if (option === undefined || option !== entry.option)

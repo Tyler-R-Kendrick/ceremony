@@ -4,7 +4,10 @@ import { MockLanguageModelV3 } from "ai/test";
 import { parseHTML } from "linkedom";
 import {
   ceremonyRoles,
+  checkboxConsent,
+  consentCovers,
   deviceVerificationField,
+  needsConsent,
   driverActionSchema,
   secretRoles,
   snapshotDocument,
@@ -722,7 +725,7 @@ test("the heuristic never presses a way back, and presses a lone unnamed submit 
   );
 });
 
-test("the heuristic ticks terms only to register, and waits longer only for mail", async () => {
+test("the heuristic ticks terms only to register, only under consent, and waits longer only for mail", async () => {
   const interpret = createHeuristicInterpreter();
   const terms = snapshot({
     elements: [
@@ -736,8 +739,19 @@ test("the heuristic ticks terms only to register, and waits longer only for mail
       snapshot: terms,
       available: [],
       history: [],
+      consents: ["terms"],
     }),
     { action: "check", element: 0 },
+  );
+  // The same box with no advance consent is the person's to tick.
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: terms,
+      available: [],
+      history: [],
+    }),
+    { action: "blocked", reason: "consent-required" },
   );
   assert.deepEqual(
     await interpret({
@@ -2931,6 +2945,402 @@ test("ISSUED-ADAPTER: the Playwright adapter reads only the observed field, on t
   );
   graph.navigate("https://provider.example/elsewhere");
   await assert.rejects(page.readIssued!(field), refusedAs("stale-document"));
+});
+
+/* -------------------------------------------------------------------------- */
+/* Consent                                                                    */
+/* -------------------------------------------------------------------------- */
+
+test("CONSENT: a checkbox is read for the legal acts ticking it performs", () => {
+  const read = (label: string) => checkboxConsent({ label });
+  assert.deepEqual(read("I agree to the Terms of Service"), {
+    kinds: ["terms"],
+    marketing: false,
+  });
+  assert.deepEqual(read("I accept the terms and the privacy policy"), {
+    kinds: ["terms", "privacy"],
+    marketing: false,
+  });
+  assert.deepEqual(read("I confirm I am 16 or older"), {
+    kinds: ["age"],
+    marketing: false,
+  });
+  assert.deepEqual(read("I confirm I am old enough to use this service"), {
+    kinds: ["age"],
+    marketing: false,
+  });
+  // A bare "I agree" is read as terms: the reading that asks rather than ticks.
+  assert.deepEqual(read("I agree").kinds, ["terms"]);
+  assert.equal(read("Send me product news and special offers").marketing, true);
+  assert.equal(read("Subscribe to our newsletter").marketing, true);
+  // Bundled with the terms, a newsletter is still a newsletter.
+  const bundled = read("I agree to the Terms and to receive marketing emails");
+  assert.deepEqual(bundled, { kinds: ["terms"], marketing: true });
+  assert.equal(consentCovers(bundled, ["terms", "privacy", "age"]), false);
+  // Ordinary boxes are nobody's legal act.
+  for (const label of ["Remember me", "Keep me signed in", "I understand"])
+    assert.equal(needsConsent(read(label)), false, label);
+  // Every kind a box names has to be covered, not just one of them.
+  assert.equal(
+    consentCovers(read("I accept the terms and the privacy policy"), ["terms"]),
+    false,
+  );
+  assert.equal(
+    consentCovers(read("I accept the terms and the privacy policy"), [
+      "privacy",
+      "terms",
+    ]),
+    true,
+  );
+});
+
+test("CONSENT: the heuristic never ticks a marketing opt-in, and a required one is a person's", async () => {
+  const interpret = createHeuristicInterpreter();
+  const all = ["terms", "privacy", "age"] as const;
+  const page = (required: boolean) =>
+    snapshot({
+      path: "https://provider.example/signup",
+      title: "Create your account",
+      headings: ["Create your account"],
+      elements: [
+        {
+          index: 0,
+          kind: "checkbox",
+          label: "Send me product news and special offers",
+          ...(required ? { required: true } : {}),
+        },
+        { index: 1, kind: "button", text: "Create account" },
+      ],
+    });
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page(false),
+      available: [],
+      history: [],
+      consents: all,
+    }),
+    { action: "click", element: 1, note: "Create account" },
+  );
+  assert.deepEqual(
+    await interpret({
+      goal: "registration",
+      snapshot: page(true),
+      available: [],
+      history: [],
+      consents: all,
+    }),
+    { action: "blocked", reason: "consent-required" },
+  );
+  // A required box that accepts nothing legal is still ticked for any goal.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      snapshot: snapshot({
+        elements: [
+          {
+            index: 0,
+            kind: "checkbox",
+            label: "I understand this token grants access",
+            required: true,
+          },
+        ],
+      }),
+      available: [],
+      history: [],
+    }),
+    { action: "check", element: 0 },
+  );
+  // A required terms box outside registration needs consent too.
+  assert.deepEqual(
+    await interpret({
+      goal: "authorize",
+      snapshot: snapshot({
+        elements: [
+          {
+            index: 0,
+            kind: "checkbox",
+            label: "I accept the acceptable use policy",
+            required: true,
+          },
+        ],
+      }),
+      available: [],
+      history: [],
+    }),
+    { action: "blocked", reason: "consent-required" },
+  );
+});
+
+test("CONSENT: the model is told what the person consented to, and never to tick a newsletter", () => {
+  const prompt = interpreterPrompt({
+    goal: "registration",
+    snapshot: snapshot(),
+    available: [],
+    history: [],
+    consents: ["terms", "age"],
+  });
+  assert.match(prompt, /\["terms","age"\]/);
+  assert.match(prompt, /consent-required/);
+  assert.match(prompt, /Never check a marketing or newsletter opt-in/);
+});
+
+/** A sign-up page with one box, and whether anybody ticked it. */
+function consentPage(label: string): CeremonyPage & {
+  calls: string[];
+  ticked: () => boolean;
+  tick: () => void;
+} {
+  let ticked = false;
+  const page = inertPage("https://provider.example/signup");
+  return {
+    ...page,
+    ticked: () => ticked,
+    tick: () => {
+      ticked = true;
+    },
+    snapshot: async () =>
+      snapshot({
+        path: "https://provider.example/signup",
+        title: "Create your account",
+        headings: ["Create your account"],
+        elements: [
+          { index: 0, kind: "checkbox", name: "box_1", label, filled: ticked },
+          { index: 1, kind: "button", text: "Create account" },
+        ],
+      }),
+    check: async (element) => {
+      page.calls.push(`check:${element.index}`);
+      ticked = true;
+    },
+  };
+}
+
+const personContract = {
+  surface: "provider-browser",
+  recipient: "initiating-subject",
+  delegation: "a2h-authorize",
+  resume: "verify",
+} as const;
+
+test("CONSENT: the driver refuses any interpreter's tick the plan did not consent to", async () => {
+  // A model that reads "I agree to the Terms" as an ordinary box, over and
+  // over: the driver reads the box itself.
+  const rogue: CeremonyInterpreter = async ({ snapshot: current }) =>
+    current.elements[0]?.filled
+      ? { action: "click", element: 1 }
+      : { action: "check", element: 0 };
+  const alone = consentPage("I agree to the Terms of Service");
+  const refused = await runCeremony({
+    page: alone,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: rogue,
+    maxSteps: 6,
+  });
+  assert.equal(
+    refused.status === "blocked" && refused.reason,
+    "consent-required",
+  );
+  assert.equal(alone.ticked(), false);
+  assert.ok(!alone.calls.some((call) => call.startsWith("click")));
+
+  // Consent to terms alone does not cover a box that also takes a privacy
+  // policy; consent to both does, and the transcript names what was accepted.
+  const partial = consentPage("I accept the terms and the privacy policy");
+  const narrow = await runCeremony({
+    page: partial,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: rogue,
+    consents: ["terms"],
+    maxSteps: 6,
+  });
+  assert.equal(
+    narrow.status === "blocked" && narrow.reason,
+    "consent-required",
+  );
+  assert.equal(partial.ticked(), false);
+
+  const covered = consentPage("I accept the terms and the privacy policy");
+  const applied: RecordedTraceEntry[] = [];
+  const done = await runCeremony({
+    page: covered,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: rogue,
+    consents: ["privacy", "terms"],
+    onApplied: (entry) => applied.push(entry),
+    maxSteps: 3,
+  });
+  assert.equal(covered.ticked(), true);
+  const check = done.transcript.find((step) => step.action === "check");
+  assert.deepEqual(check?.consent, ["terms", "privacy"]);
+  assert.deepEqual(applied[0]?.consent, ["terms", "privacy"]);
+});
+
+test("CONSENT: a newsletter is never ticked whatever the plan says; a required one goes to a person", async () => {
+  const optional = consentPage("Send me product news and special offers");
+  const result = await runCeremony({
+    page: optional,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({ action: "check", element: 0 }),
+    consents: ["terms", "privacy", "age"],
+    human: {
+      contract: personContract,
+      request: async () => {
+        throw new Error("Nobody is asked about an optional newsletter");
+      },
+    },
+  });
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+  assert.equal(optional.ticked(), false);
+});
+
+test("CONSENT: terms nobody consented to are handed to the person, who ticks them in the same browser", async () => {
+  const page = consentPage("I agree to the Terms of Service");
+  const requests: HumanParticipationRequest[] = [];
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+    human: {
+      contract: personContract,
+      request: async (request) => {
+        requests.push(request);
+        page.tick();
+        return "completed";
+      },
+    },
+    maxSteps: 4,
+  });
+  assert.deepEqual(
+    requests.map(({ reason, path }) => ({ reason, path })),
+    [{ reason: "consent", path: "https://provider.example/signup" }],
+  );
+  assert.equal(result.handoffs, 1);
+  // The person ticked it; the agent never did, and then submitted.
+  assert.ok(!page.calls.includes("check:0"));
+  assert.ok(page.calls.includes("click:1"));
+  // A person who declines ends the attempt as declined.
+  const declined = await runCeremony({
+    page: consentPage("I agree to the Terms of Service"),
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+    human: { contract: personContract, request: async () => "declined" },
+  });
+  assert.equal(
+    declined.status === "blocked" && declined.reason,
+    "human-declined",
+  );
+});
+
+test("CONSENT: a report that consent is needed is not a handoff where no such box is waiting", async () => {
+  let asked = 0;
+  const result = await runCeremony({
+    page: inertPage(),
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({
+      action: "blocked",
+      reason: "consent-required",
+    }),
+    human: {
+      contract: personContract,
+      request: async () => {
+        asked++;
+        return "completed";
+      },
+    },
+  });
+  assert.equal(asked, 0);
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "consent-required",
+  );
+});
+
+test("CONSENT: a recording writes the consent down and a replay does not stretch it", async () => {
+  const page = consentPage("I agree to the Terms of Service");
+  const trace: RecordedTraceEntry[] = [];
+  await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: createHeuristicInterpreter(),
+    consents: ["terms"],
+    onApplied: (entry) => trace.push(entry),
+    maxSteps: 3,
+  });
+  const recording = compileRecording(trace, {
+    id: "consent-demo",
+    title: "Register with consent",
+    goal: "registration",
+    entryUrl: "https://provider.example/signup",
+    origins: ["https://provider.example"],
+    recordedWith: "deterministic",
+    excluded: [],
+  });
+  const tick = recording.steps.find((step) => step.action.kind === "check");
+  assert.deepEqual(tick?.action, {
+    kind: "check",
+    target: {
+      kind: "checkbox",
+      name: "box_1",
+      label: "I agree to the Terms of Service",
+      ordinal: 0,
+      of: 1,
+    },
+    consent: ["terms"],
+  });
+
+  // Replayed under a plan without that consent, the box goes to a person.
+  const unconsented = consentPage("I agree to the Terms of Service");
+  const replay = await runRecordedCeremony({
+    page: unconsented,
+    recording,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+  });
+  assert.equal(
+    replay.status === "blocked" && replay.reason,
+    "consent-required",
+  );
+  assert.equal(unconsented.ticked(), false);
+
+  // The same label now bundling a newsletter, or a privacy policy, is not the
+  // box whose consent was reviewed - found, but refused by name.
+  for (const label of [
+    "I agree to the Terms of Service and privacy policy",
+    "I agree to the Terms of Service and to marketing emails",
+  ]) {
+    const changed = consentPage(label);
+    const drifted = await runRecordedCeremony({
+      page: changed,
+      recording,
+      goal: "registration",
+      allowedOrigins: ["https://provider.example"],
+      secrets: createSecrets({}),
+      consents: ["terms", "privacy", "age"],
+    });
+    assert.equal(drifted.drift?.kind, "consent-changed", label);
+    assert.equal(changed.ticked(), false, label);
+  }
 });
 
 /* -------------------------------------------------------------------------- */

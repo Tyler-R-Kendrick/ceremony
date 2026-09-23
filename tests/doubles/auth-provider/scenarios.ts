@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type {
   BlockedReason,
   CeremonyGoal,
+  ConsentKind,
 } from "../../../src/core/browser-contracts.js";
 import type { FlowKind } from "../../../src/core/schema.js";
 import {
@@ -183,6 +184,16 @@ export type AuthScenario = {
     state: ScenarioState,
   ) => Promise<void>;
 };
+
+/**
+ * The advance consent the person behind a registration gave before it ran:
+ * to the provider's terms and privacy policy, which every realistic layout
+ * asks for, and that they are old enough, which some `requireTerms` pages ask
+ * instead. Accepting them is a legal act, so the driver ticks those boxes
+ * only because this says the person agreed; the scenarios without it show
+ * what happens otherwise.
+ */
+const personConsent: readonly ConsentKind[] = ["terms", "privacy", "age"];
 
 export function createIdentity(seed = randomBytes(4).toString("hex")) {
   let issued = 0;
@@ -401,6 +412,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
@@ -425,6 +437,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: createSecrets({
         email: identity.email,
         password: identity.password,
@@ -442,7 +455,8 @@ export const authScenarios: readonly AuthScenario[] = [
   },
   {
     id: "registration-requiring-terms",
-    title: "a required terms checkbox is accepted before the account is made",
+    title:
+      "a required terms checkbox is accepted under the person's advance consent",
     family: "Forms/session auth",
     flowKind: "account-registration",
     goal: "registration",
@@ -452,12 +466,88 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
       verify: () => provider.verifyAccess(identity.email),
     }),
     expect: { status: "completed" },
+  },
+  {
+    id: "registration-terms-accepted-by-a-person",
+    title: "terms the person did not consent to in advance are theirs to tick",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: [
+      "account-absent",
+      "address-unused",
+      "mailbox-readable",
+      "human-available",
+    ],
+    provides: ["email", "password", "password-confirm", "verification-code"],
+    behavior: () => ({ seed: 28, requireTerms: true }),
+    human: (page) => createHumanParticipant(page),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "completed", handoffs: 1 },
+  },
+  {
+    id: "registration-terms-with-nobody-to-accept",
+    title: "terms nobody consented to are not accepted on anybody's behalf",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused"],
+    provides: ["email", "password", "password-confirm", "verification-code"],
+    behavior: () => ({ seed: 29, requireTerms: true }),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "blocked", reason: "consent-required" },
+    confirm: async ({ provider, identity }) => {
+      if (provider.account(identity.email))
+        throw new Error(
+          "No account may be created without the person's consent",
+        );
+    },
+  },
+  {
+    id: "registration-leaves-the-newsletter-alone",
+    title: "a marketing opt-in is never ticked, whatever was consented to",
+    family: "Forms/session auth",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused", "mailbox-readable"],
+    provides: ["email", "password", "password-confirm", "verification-code"],
+    behavior: () => ({ seed: 30, requireTerms: true, offerNewsletter: true }),
+    plan: ({ provider, identity }) => ({
+      entryUrl: `${provider.origin}${provider.signupPath}`,
+      goal: "registration",
+      // Every kind there is: none of them is a newsletter.
+      consents: ["terms", "privacy", "age"],
+      secrets: registrationSecrets(identity, provider, identity.email, {}),
+      allowedOrigins: [provider.origin],
+      protectedValues: [identity.password],
+      verify: () => provider.verifyAccess(identity.email),
+    }),
+    expect: { status: "completed" },
+    confirm: async ({ provider }) => {
+      if (provider.newsletterSubscribers().length > 0)
+        throw new Error("Nobody may be signed up for marketing by an agent");
+    },
   },
   {
     id: "registration-with-a-region-choice",
@@ -471,6 +561,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
@@ -500,6 +591,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
@@ -523,6 +615,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
@@ -546,6 +639,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: createSecrets({
         email: identity.email,
         password: identity.password,
@@ -586,6 +680,7 @@ export const authScenarios: readonly AuthScenario[] = [
       return {
         entryUrl: `${provider.origin}${provider.signupPath}`,
         goal: "registration",
+        consents: personConsent,
         secrets: withAlternateAddress(
           registrationSecrets(identity, provider, identity.email, state),
           async () => {
@@ -624,6 +719,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}/signin`,
       goal: "registration",
+      consents: personConsent,
       secrets: registrationSecrets(identity, provider, identity.email, {}),
       allowedOrigins: [provider.origin],
       protectedValues: [identity.password],
@@ -643,6 +739,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}${provider.signupPath}`,
       goal: "registration",
+      consents: personConsent,
       secrets: createSecrets({
         email: identity.email,
         password: identity.password,
@@ -766,6 +863,7 @@ export const authScenarios: readonly AuthScenario[] = [
         // The account does not exist yet, so the ceremony is a registration
         // that happens to end at a consent screen.
         goal: "registration",
+        consents: personConsent,
         secrets: registrationSecrets(identity, provider, identity.email, state),
         allowedOrigins: [provider.origin],
         redirectUri: provider.redirectUri,
@@ -1178,6 +1276,7 @@ export const authScenarios: readonly AuthScenario[] = [
     plan: ({ provider, identity }) => ({
       entryUrl: `${provider.origin}/anonymous`,
       goal: "registration",
+      consents: personConsent,
       secrets: createSecrets({
         email: identity.email,
         "verification-code": async () =>

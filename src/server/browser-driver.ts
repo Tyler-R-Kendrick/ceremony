@@ -1,7 +1,10 @@
 import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
+  checkboxConsent,
+  consentCovers,
   deviceVerificationField,
   driverActionSchema,
+  needsConsent,
   secretIssuedValueKinds,
   secretRoles,
   type BlockedReason,
@@ -10,6 +13,7 @@ import {
   type CeremonyRole,
   type CeremonyStep,
   type CeremonyStepAction,
+  type ConsentKind,
   type DriverAction,
   type HumanStepReason,
   type IssuedValueKind,
@@ -256,6 +260,18 @@ export interface CeremonyRunOptions {
    * person's to make.
    */
   choices?: Readonly<Record<string, string>>;
+  /**
+   * The person's advance consent: which kinds of legal box - terms, privacy
+   * policy, age - this attempt may tick on their behalf. From the plan, never
+   * from an interpreter.
+   *
+   * Every `check` an interpreter proposes is read against it here, whoever
+   * proposed it: a box that accepts terms, a privacy policy or an age
+   * attestation the person did not consent to is handed to a person to tick
+   * (`consent`), or ends the attempt as `consent-required` with nobody to
+   * ask. A marketing or newsletter opt-in is never ticked, consent or not.
+   */
+  consents?: readonly ConsentKind[];
   onStep?: (step: CeremonyStep) => void;
   /**
    * Called once an action has actually taken effect, with the observation it
@@ -277,6 +293,7 @@ const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   "native-dialog": "native-dialog",
   "device-code": "device-code-required",
   choice: "choice-required",
+  consent: "consent-required",
 };
 
 const defaultMaxSteps = 24;
@@ -400,6 +417,7 @@ export async function runCeremony(
       role?: CeremonyRole;
       reason?: BlockedReason;
       note?: string;
+      consent?: readonly ConsentKind[];
       /**
        * Whether the interpreter should see this step. Everything it *did* to
        * the page belongs in its history; a re-read is not something it did,
@@ -414,6 +432,7 @@ export async function runCeremony(
     if (extra.role) step.role = extra.role;
     if (extra.reason) step.reason = extra.reason;
     if (extra.note) step.note = redact(extra.note, guarded);
+    if (extra.consent) step.consent = [...extra.consent];
     transcript.push(step);
     // The document goes into the history too. An interpreter asking "have I
     // tried this already?" has to be able to tell one page's button from
@@ -701,16 +720,45 @@ export async function runCeremony(
         role,
       });
     } else if (action.action === "check") {
+      // Ticking a box that accepts terms, a privacy policy or an age
+      // attestation is a legal act, and the plan's advance consent is the
+      // only thing that lets anyone but the person perform it. Read here, on
+      // the box itself, rather than trusted to the interpreter's reading of
+      // it: a model that takes "I agree to the Terms" for an ordinary box
+      // still cannot tick it. Without consent a person ticks it - or leaves
+      // it - and the attempt reads the page again either way.
+      const consent = checkboxConsent(element);
+      // An optional opt-in is simply left alone: nobody needs asking about a
+      // newsletter the form does not require.
+      if (consent.marketing && element.required !== true) return unusable();
+      if (
+        needsConsent(consent) &&
+        !consentCovers(consent, options.consents ?? [])
+      ) {
+        const declined = await handOff(snapshot, "consent");
+        if (declined) {
+          record(snapshot, "blocked", { reason: declined });
+          return finish({ status: "blocked", reason: declined, steps });
+        }
+        refusals = 0;
+        await page.settle();
+        steps++;
+        return;
+      }
       try {
         await page.check(element);
       } catch (error) {
         return refused(error);
       }
-      record(snapshot, "check", action.note ? { note: action.note } : {});
+      record(snapshot, "check", {
+        ...(action.note ? { note: action.note } : {}),
+        ...(consent.kinds.length ? { consent: consent.kinds } : {}),
+      });
       options.onApplied?.({
         snapshot,
         action: "check",
         element: element.index,
+        ...(consent.kinds.length ? { consent: consent.kinds } : {}),
       });
     } else if (action.action === "select") {
       // An option is chosen by the label the page shows. Where the plan named
@@ -820,6 +868,16 @@ export async function runCeremony(
       )
     )
       return "choice";
+    if (
+      reason === "consent-required" &&
+      snapshot.elements.some(
+        (element) =>
+          element.kind === "checkbox" &&
+          element.filled !== true &&
+          needsConsent(checkboxConsent(element)),
+      )
+    )
+      return "consent";
     return undefined;
   };
 
@@ -842,6 +900,7 @@ export async function runCeremony(
         ? { issuedLabels: declared.map(([, label]) => label) }
         : {}),
       ...(options.choices ? { choices: options.choices } : {}),
+      ...(options.consents?.length ? { consents: options.consents } : {}),
     };
     const proposed = await interpreter(input);
     const parsed = proposed
@@ -1016,6 +1075,12 @@ export type RecordingDrift = {
     | "unexpected-page"
     | "element-missing"
     | "element-ambiguous"
+    /**
+     * The box the recording ticks now accepts something other than what was
+     * reviewed - more terms, a privacy policy, a bundled newsletter. Found,
+     * but not the box whose consent was approved.
+     */
+    | "consent-changed"
     | "undeclared-origin"
     | "missing-role";
   /** The step the replay expected next, when there was one. */
@@ -1078,6 +1143,8 @@ export function describeDrift(drift: RecordingDrift): string {
         return `${at}no ${drift.target} on ${drift.observed}`;
       case "element-ambiguous":
         return `${at}more than one ${drift.target} on ${drift.observed}`;
+      case "consent-changed":
+        return `${at}${drift.target} on ${drift.observed} accepts something the recording did not`;
       case "unexpected-page":
         return `${at}expected ${drift.expected}, found ${drift.observed}`;
       case "undeclared-origin":
@@ -1196,6 +1263,28 @@ export async function runRecordedCeremony(
             observed: snapshot.path,
           },
         };
+      }
+      // A recorded tick is a recorded legal act, and it is not generalised:
+      // the box found has to accept exactly what the reviewed step says it
+      // accepts. A box that now also bundles a newsletter, or adds a privacy
+      // policy, is a different agreement under a familiar label.
+      if (step.action.kind === "check") {
+        const live = checkboxConsent(located.found);
+        const recorded = step.action.consent ?? [];
+        if (
+          live.marketing ||
+          live.kinds.length !== recorded.length ||
+          live.kinds.some((kind) => !recorded.includes(kind))
+        )
+          return {
+            drift: {
+              kind: "consent-changed",
+              step: step.id,
+              expected: describePage(step.page),
+              target: describeTarget(step.action.target),
+              observed: snapshot.path,
+            },
+          };
       }
       const element = located.found.index;
       const action: DriverAction =

@@ -8,6 +8,7 @@ import {
 import { z } from "zod";
 import { ceremonyAgentTools } from "./agent-tools.js";
 import {
+  browserLoginAgentToolInputs,
   browserLoginToolInputs,
   browserToolFailure,
 } from "./browser-login-tools.js";
@@ -378,7 +379,7 @@ export function createCeremonyMcpHandler(
         {
           description:
             "Log in to a service in a real browser and keep the session. Credentials are passed as collector references; this tool never accepts a value. Name a published recorded ceremony in draft.recording to replay it with no model.",
-          inputSchema: browserLoginToolInputs.login,
+          inputSchema: browserLoginAgentToolInputs.login,
           annotations: { destructiveHint: false, openWorldHint: true },
         },
         async (input) => await run((who) => browser.login(who, input)),
@@ -431,7 +432,7 @@ export function createCeremonyMcpHandler(
           {
             description:
               "Log in to a service in a real browser and record the steps as a draft recorded ceremony: value-free page and control descriptions plus the credential role each field takes, never a value. A person must review and publish the draft before browser_login can replay it. Pass basedOn to replay a published recording and, where the plan allows the host's model, repair a step the provider changed.",
-            inputSchema: browserLoginToolInputs.recordLogin,
+            inputSchema: browserLoginAgentToolInputs.recordLogin,
             annotations: { destructiveHint: false, openWorldHint: true },
           },
           async (input) => await run((who) => browser.recordLogin(who, input)),
