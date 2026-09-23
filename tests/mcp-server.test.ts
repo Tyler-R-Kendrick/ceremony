@@ -743,3 +743,52 @@ test("connector intents mounted alone offer their own status and connect", async
     await f.store.close();
   }
 });
+
+test("ceremony_recipes lists every recipe past one page, at its latest unretired version", async () => {
+  const f = fixture();
+  try {
+    const row = (id: string, version: string, retired = false) => ({
+      key: {
+        tenant: actor.tenantId,
+        kind: "recipe" as const,
+        id: `${id}@${version}`,
+      },
+      value: {
+        definition: { ...recipe, id, title: id },
+        version,
+        digest: `digest-${id}-${version}`,
+        closure: {},
+        retired,
+        publisher: "publisher",
+      },
+    });
+    const rows = [
+      ...Array.from({ length: 150 }, (_, index) =>
+        row(`recipe-${String(index).padStart(3, "0")}`, "1.0.1"),
+      ),
+      // A newer version supersedes; a retired newer one does not.
+      row("recipe-001", "1.0.2"),
+      row("recipe-002", "1.0.2", true),
+      row("recipe-003", "1.0.1", true),
+    ];
+    await f.store.transaction(async (tx) => {
+      for (const entry of rows) {
+        const prior = await tx.get(entry.key);
+        await tx.put(entry.key, entry.value, prior?.revision ?? null);
+      }
+    });
+    const mcp = handlerFor(f.runtime, byToken);
+    await call(mcp, "executor", initialize);
+    const listed = (await invoke(mcp, "executor", "ceremony_recipes")).value()
+      .recipes as Array<{ id: string; version: string }>;
+    const versions = new Map(listed.map((item) => [item.id, item.version]));
+    assert.equal(listed.length, versions.size, "one entry per recipe");
+    assert.equal(versions.size, 149);
+    assert.equal(versions.get("recipe-149"), "1.0.1");
+    assert.equal(versions.get("recipe-001"), "1.0.2");
+    assert.equal(versions.get("recipe-002"), "1.0.1");
+    assert.equal(versions.has("recipe-003"), false);
+  } finally {
+    await f.store.close();
+  }
+});
