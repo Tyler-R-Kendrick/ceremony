@@ -8,6 +8,7 @@ import {
 } from "../src/server/hosted/runtime.js";
 import { createHostedMcp } from "../src/server/hosted/mcp.js";
 import { hostedHttp } from "../src/server/hosted/http.js";
+import { dispatchHostedTenants } from "../src/server/hosted/continuations.js";
 import { HostedTenancy } from "../src/server/hosted/tenancy.js";
 import { AsyncCeremonyEnvironment } from "../src/server/async-environment.js";
 import { SubscriptionRegistry } from "../src/server/connectors/events/subscriptions.js";
@@ -184,6 +185,27 @@ test("a tenant claim places each identity in its own tenant, and a missing claim
     (await runtime.hosted.tenancy.tenants(runtime.store)).sort(),
     ["org-a", "org-b"],
   );
+  await dispatchHostedTenants(runtime, runtime.hosted.tenancy);
+  // One tenant's failure is reported, after every other tenant had its turn:
+  // the first store read fails, and the second tenant is still read.
+  let reads = 0;
+  const flaky = {
+    ...runtime,
+    store: {
+      transaction: ((work) => {
+        reads++;
+        return reads === 1
+          ? Promise.reject(new Error("synthetic outage"))
+          : runtime.store.transaction(work);
+      }) as HostedRuntime["store"]["transaction"],
+      close: async () => {},
+    },
+  } as HostedRuntime;
+  await assert.rejects(
+    dispatchHostedTenants(flaky, { tenants: async () => ["org-a", "org-b"] }),
+    /dispatch incomplete/,
+  );
+  assert.ok(reads > 1);
 
   // No claim, a malformed claim, or a claim naming a server tenant: no session.
   for (const claims of [
