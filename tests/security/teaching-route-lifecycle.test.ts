@@ -143,10 +143,21 @@ test("AC-10 AC-14 AC-19: mounted authoring lifecycle and reconnect reads preserv
   const waiting = await runtime.agent.turn(owner, run.id, "human-wait");
   assert.equal(waiting, "awaiting-human");
   for (let i = 0; i < 3; i++) {
+    // The owner's status names the waiting node and the same-origin human
+    // route that serves it; no code, token or query rides along.
     assert.deepEqual(await (await call(`/agent/${run.id}/status`)).json(), {
       status: "awaiting-human",
       calls: 0,
       tools: 0,
+      handoff: {
+        kind: "person",
+        runId: run.id,
+        nodeId: "verify",
+        operationId: "verify",
+        nodeState: "awaiting-human",
+        reason: "human-step",
+        path: `/api/v1/teaching/github/${encodeURIComponent(run.id)}/human`,
+      },
     });
     assert.equal((await call(`/runs/${run.id}`)).status, 200);
   }

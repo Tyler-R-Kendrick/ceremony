@@ -25,6 +25,8 @@ export async function agentStatusStream(
             status: state.status,
             modelCalls: state.calls,
             requestedTools: state.tools,
+            // Same owner-only descriptor as the status route: ids and a path, no secret.
+            ...("handoff" in state ? { handoff: state.handoff } : {}),
           };
           controller.enqueue(
             new TextEncoder().encode(

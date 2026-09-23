@@ -60,11 +60,28 @@ test("AC-14 AC-26 AC-34: human waits persist zero-call status and reconnect neve
     const turn = `wait-${wait}`;
     assert.equal(await agent.turn(actor, "run", turn), "awaiting-human");
     const restored = new AgentCoordinator(store, commands);
+    // The wait now names who continues and where; still zero calls, and only
+    // a person-owned wait has a page to open.
     for (let i = 0; i < 3; i++)
       assert.deepEqual(await restored.status(actor, "run"), {
         status: "awaiting-human",
         calls: 0,
         tools: 0,
+        handoff: {
+          kind: "person",
+          runId: "run",
+          nodeId: "verify",
+          operationId: "verify",
+          nodeState: wait,
+          reason: {
+            "awaiting-human": "human-step",
+            verifying: "verification",
+            uncertain: "uncertain-outcome",
+          }[wait],
+          ...(wait === "awaiting-human"
+            ? { path: "/api/v1/teaching/github/run/human" }
+            : {}),
+        },
       });
     assert.equal(await restored.turn(actor, "run", turn), "awaiting-human");
   }
