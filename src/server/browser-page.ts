@@ -109,10 +109,13 @@ export function createPlaywrightCeremonyPage(
    * the same browser is not the same as being this page's doing.
    */
   const windows = new Set<PopupLike>();
+  /** Whoever is waiting for the next window to be reported, told once. */
+  let arrivals: (() => void)[] = [];
   const watch = (opened: PopupLike) => {
     windows.add(opened);
     opened.on("close", () => windows.delete(opened));
     opened.on("popup", watch);
+    for (const arrived of arrivals.splice(0)) arrived();
   };
   if (popupOrigins.length > 0) {
     if (!page.on)
@@ -123,6 +126,27 @@ export function createPlaywrightCeremonyPage(
   }
   /** The window the latest resolution chose, for the click that closes it. */
   let adopted: PopupLike | undefined;
+  const noWindowOpen = () => [...windows].every((opened) => opened.isClosed());
+  /**
+   * Whether the latest action was a click made while no window was open -
+   * the one action that can open the window this attempt continues in.
+   *
+   * Playwright reports a window once it has set it up, which is after the
+   * click that opened it has returned and can be after the opener has already
+   * reported itself idle. Nothing in the opener says a window is on its way,
+   * so `settle` cannot wait for one unless it is told that a click might have
+   * asked for one; this is that telling. Any other action disarms it.
+   */
+  let windowMayOpen = false;
+  /**
+   * How long `settle` gives such a click to produce its window: the settle
+   * timeout, capped at two seconds. The report it waits for is normally
+   * milliseconds behind the click, so the margin is wide even on a loaded
+   * machine, and the wait ends the moment a window is reported. The cap is
+   * what a click that opens nothing costs on a plan that admits windows -
+   * paid per settle until the next action, never on a plan that does not.
+   */
+  const windowGrace = Math.min(settleTimeout, 2_000);
 
   /**
    * The window this attempt acts in, when a window is where it is.
@@ -210,6 +234,25 @@ export function createPlaywrightCeremonyPage(
       // A page that keeps a connection open is not a failed step; the driver's
       // own stall detection decides whether progress stopped.
     }
+    // The opener being idle says nothing about a window it has just asked
+    // for: Playwright's report of it can still be on its way. Reading now
+    // would read the opener, whose only button has already been pressed, and
+    // an interpreter shown that page has nothing left to do but wait and then
+    // give up - which is how TARGET-POPUP failed on a loaded CI runner. So a
+    // click that may have opened a window waits, bounded, for the page to say
+    // what it opened. It is closed here rather than by making the driver's
+    // `wait` sleep, because only the adapter knows a click happened while a
+    // window could still arrive, and so only here can the wait end the moment
+    // the report does.
+    if (windowMayOpen && noWindowOpen()) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await new Promise<void>((resolve) => {
+        arrivals.push(resolve);
+        timer = setTimeout(resolve, windowGrace);
+      });
+      clearTimeout(timer);
+      arrivals = [];
+    }
     // A window that has just opened is at `about:blank` until its first
     // document commits. Waiting here, bounded the same way, is what lets the
     // next read see where the window went instead of reading past it.
@@ -238,6 +281,7 @@ export function createPlaywrightCeremonyPage(
       return opened ? opened.url() : page.url();
     },
     goto: async (target) => {
+      windowMayOpen = false;
       await targets.release();
       await page.goto(target, { waitUntil: "domcontentloaded" });
       // `domcontentloaded` means the document has started, not that it is the
@@ -256,12 +300,14 @@ export function createPlaywrightCeremonyPage(
     },
     snapshot: async (): Promise<PageSnapshot> => targets.observe(),
     fill: async (element, value) => {
+      windowMayOpen = false;
       await targets.act(element, async (handle) => {
         if (element.kind === "select") await handle.selectOption(value);
         else await handle.fill(value);
       });
     },
     check: async (element) => {
+      windowMayOpen = false;
       await targets.act(element, (handle) => handle.check());
     },
     click: async (element) => {
@@ -269,6 +315,7 @@ export function createPlaywrightCeremonyPage(
       // post-action destination re-read, so a form re-pointed during
       // Playwright's actionability wait is reported as uncertainty rather than
       // as a step that went where it was approved to go.
+      windowMayOpen = popupOrigins.length > 0 && noWindowOpen();
       try {
         await targets.act(element, (handle) => handle.click(), {
           dispatches: true,
