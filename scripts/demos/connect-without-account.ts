@@ -146,7 +146,17 @@ export async function record(session: DemoSession) {
         providerPhase(previous, observed, provider.signupPath),
     });
     let consentShown = false;
+    let decided = false;
     const interpreter: CeremonyInterpreter = async (input) => {
+      // The fork this demo is about, said out loud before anything is done
+      // on the sign-in page: nobody holds an account here, so the agent
+      // registers rather than trying to sign in.
+      if (!decided && pathnameOf(input.snapshot.path) === "/signin") {
+        decided = true;
+        session.step("sign-in");
+        session.say({ kind: "decision", what: "no-account-register" });
+        await session.hold(2_400);
+      }
       const atConsent =
         !consentShown && pathnameOf(input.snapshot.path) === "/authorize";
       // Let the consent screen register before anything happens on it: it is

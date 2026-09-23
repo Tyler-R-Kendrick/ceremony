@@ -86,6 +86,8 @@ const events: CaptionEvent[] = [
   { kind: "verified", what: "token" },
   { kind: "handoff", what: "consent-approved" },
   { kind: "connector", stage: "exchange" },
+  { kind: "decision", what: "no-account-register" },
+  { kind: "recording", stage: "replayed" },
   { kind: "step", index: 3, total: 7, phase: "verify-email" },
 ];
 

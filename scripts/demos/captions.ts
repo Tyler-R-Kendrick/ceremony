@@ -135,6 +135,7 @@ export type CaptionEvent =
         | "replay-refused";
     }
   | { kind: "step"; index: number; total: number; phase: Phase }
+  | { kind: "decision"; what: "no-account-register" | "has-account-sign-in" }
   | {
       kind: "recording";
       stage: "capturing" | "compiled" | "replaying" | "replayed";
@@ -289,6 +290,12 @@ export function caption(event: CaptionEvent): string {
         event.what === "consent-approved"
           ? "Handoff: consent approved"
           : "Handoff: a person is asked to act",
+      );
+    case "decision":
+      return bounded(
+        event.what === "has-account-sign-in"
+          ? "Decision: the person has an account here → sign in"
+          : "Decision: no account for this person here → register",
       );
     case "recording":
       return bounded(recordingLines[event.stage] ?? "Recording: working");

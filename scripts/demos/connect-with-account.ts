@@ -101,7 +101,14 @@ export async function record(session: DemoSession) {
         providerPhase(previous, observed, provider.signupPath),
     });
     let consentShown = false;
+    let decided = false;
     const interpreter: CeremonyInterpreter = async (input) => {
+      if (!decided && pathnameOf(input.snapshot.path) === "/signin") {
+        decided = true;
+        session.step("sign-in");
+        session.say({ kind: "decision", what: "has-account-sign-in" });
+        await session.hold(2_000);
+      }
       const atConsent =
         !consentShown && pathnameOf(input.snapshot.path) === "/authorize";
       if (atConsent) {
