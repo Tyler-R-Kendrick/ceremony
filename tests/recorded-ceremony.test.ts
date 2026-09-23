@@ -620,6 +620,60 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
     assert.equal(recording.steps[0]!.page.path, "/flows/*/password");
   });
 
+  test("a trace the recording format cannot hold is refused by name, never thrown as a parse error", () => {
+    const go = { index: 0, kind: "button" as const, name: "go", text: "Go" };
+    const click = (path: string, elements = [go]) => ({
+      snapshot: snapshot(path, elements),
+      action: "click" as const,
+      element: 0,
+    });
+    const invalid = (error: unknown) =>
+      error instanceof RecordingRejected && error.reason === "invalid";
+    // More identical controls than a fingerprint can count.
+    const twins = Array.from({ length: 61 }, (_, index) => ({ ...go, index }));
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin", twins)], options),
+      invalid,
+    );
+    // A title the host would have to refuse, reaching the compiler anyway.
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          title: "Acme tenant 12345678",
+        }),
+      invalid,
+    );
+    assert.throws(
+      () =>
+        compileRecording([click("https://idp.example/signin")], {
+          ...options,
+          id: "constructor",
+        }),
+      invalid,
+    );
+  });
+
+  test("a path longer than a pattern may be is cut at a segment, never left ending in a slash", () => {
+    const long = `https://idp.example/${"abcdefghijklmnop/".repeat(16)}tail`;
+    const recording = compileRecording(
+      [
+        {
+          snapshot: snapshot(long, [
+            { index: 0, kind: "button", name: "go", text: "Go" },
+          ]),
+          action: "click",
+          element: 0,
+        },
+      ],
+      options,
+    );
+    const path = recording.steps[0]!.page.path;
+    assert.ok(path.length <= 256);
+    assert.ok(!path.endsWith("/"), path);
+  });
+
   test("an empty trace is not a recording", () => {
     assert.throws(
       () => compileRecording([], options),

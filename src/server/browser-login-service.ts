@@ -890,8 +890,11 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           ],
         });
       } catch (error) {
-        if (!(error instanceof RecordingRejected)) throw error;
-        capture.rejected = error.reason;
+        // The login has already happened by now. Whatever stops the trace
+        // becoming a recording costs the recording, never the login's answer:
+        // rethrowing here would report a signed-in session as indeterminate.
+        capture.rejected =
+          error instanceof RecordingRejected ? error.reason : "invalid";
       }
     }
 
