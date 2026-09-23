@@ -33,6 +33,12 @@ export type DemoEntry = {
   panelSide?: "left" | "right";
   /** Whether the run reads mail through the agent inbox. Most do. */
   mail?: boolean;
+  /**
+   * The video shows an RFC 8628 user code and verification URL, as a device
+   * shows them to a person by design; the title card says so rather than
+   * claim no code or link is ever shown.
+   */
+  showsUserCode?: boolean;
   /** Also published as a small preview under `docs/demos/`. */
   docsPreview: boolean;
   load: () => Promise<{ record: DemoRecorder }>;
@@ -136,6 +142,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     interpreter: "heuristic",
     chain: ["device-request", "sign-in", "device-code", "consent", "verified"],
     mail: false,
+    showsUserCode: true,
     docsPreview: true,
     load: () => import("./device-authorization.js"),
   },

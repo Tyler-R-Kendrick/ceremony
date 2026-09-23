@@ -20,7 +20,9 @@ export function disclosure(entry: DemoEntry, seed: number): string[] {
       : [
           "Email: the provider's outbox, read through Ceremony's HTTP agent-inbox adapter. Mail transport is simulated.",
         ]),
-    "Captions name roles and steps. No password, code, link or token is ever shown.",
+    entry.showsUserCode
+      ? "Captions name roles and steps. No password, secret or token is ever shown; the device's user code and verification URL are, as a device shows them to a person."
+      : "Captions name roles and steps. No password, code, link or token is ever shown.",
   ];
 }
 

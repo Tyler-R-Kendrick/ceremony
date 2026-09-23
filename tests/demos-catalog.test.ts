@@ -65,6 +65,13 @@ test("DEMO-HONESTY: every title card says the provider is a self-hosted double",
     assert.match(card, /no model is called/);
     // A run that reads no mail does not claim an inbox on its title card.
     assert.equal(/agent-inbox adapter/.test(card), entry.mail !== false);
+    // Nor does one that shows a device's user code claim that no code or
+    // link is ever shown.
+    assert.equal(
+      /No password, code, link or token is ever shown/.test(card),
+      entry.showsUserCode !== true,
+      entry.id,
+    );
   }
 });
 
