@@ -2655,6 +2655,8 @@ function issuingPage(
     duplicateSecret?: boolean;
     /** Refuse every read, as an adapter does when the page moved on. */
     stale?: boolean;
+    /** Reveal the secret on a page that no longer shows the client ID. */
+    secretAlone?: boolean;
   } = {},
 ): CeremonyPage & { reads: string[] } {
   const reads: string[] = [];
@@ -2680,7 +2682,8 @@ function issuingPage(
           index: 0,
           kind: "input",
           type: "text",
-          label: "Client ID",
+          label:
+            revealed && options.secretAlone ? "Application name" : "Client ID",
           filled: true,
         },
         ...(revealed
@@ -2812,6 +2815,25 @@ test("ISSUED-AMBIGUOUS: a label that matches two fields identifies neither, and 
   assert.equal(result.status, "unverified");
   assert.equal(kept, 0);
   assert.ok(!page.reads.includes("Client secret"));
+});
+
+test("ISSUED-ONE-PAGE: values seen on different pages are not kept together", async () => {
+  const page = issuingPage({ secretAlone: true });
+  const result = await runCeremony({
+    page,
+    interpreter: generateThenDone,
+    goal: "obtain-credential",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    issued: {
+      fields: issuedFields,
+      keep: async () => assert.fail("nothing may be kept"),
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "unverified");
+  // A page missing a declared field is not read at all.
+  assert.deepEqual(page.reads, []);
 });
 
 test("ISSUED-LEAK: a page that also prints the issued secret fails the attempt before the interpreter sees it", async () => {

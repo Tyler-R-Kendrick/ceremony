@@ -223,14 +223,16 @@ export interface CeremonyRunOptions {
    * that displays it. The plan declares this, not the interpreter: an
    * interpreter never learns a value was read, cannot point the driver at a
    * field, and cannot name one. Each observation on an allowed origin is
-   * checked for exactly one input carrying a declared label; a field that
-   * matches twice identifies nothing and is not read.
+   * checked for exactly one input carrying each declared label; a label that
+   * matches twice identifies nothing, and a page that does not show every
+   * declared field is not read at all.
    *
-   * Once every declared value has been read, `keep` receives them, once. A
-   * secret kind is guarded from that moment like a typed password, so a later
-   * snapshot or note reproducing it fails the attempt. The values are never in
-   * the result, the transcript or anything the interpreter is given; the
-   * transcript records a `kept` step naming the kinds. While any declared
+   * Once every declared value has been read from one page, `keep` receives
+   * them, once. A secret kind is guarded from that moment like a typed
+   * password, so a later snapshot or note reproducing it fails the attempt.
+   * The values are never in the result, the transcript or anything the
+   * interpreter is given; the transcript records a `kept` step naming the
+   * kinds. While any declared
    * value is still unread, a claim of completion is not accepted.
    */
   issued?: {
@@ -358,12 +360,11 @@ export async function runCeremony(
   let followed: string | undefined;
   let handoffs = 0;
   const maxHandoffs = options.human?.maxRequests ?? 2;
-  /** The issued values the plan declared, and those read so far. */
+  /** The issued values the plan declared, and whether they are in hand. */
   const declared = Object.entries(options.issued?.fields ?? {}) as [
     IssuedValueKind,
     string,
   ][];
-  const issued = new Map<IssuedValueKind, string>();
   let kept = declared.length === 0;
 
   const record = (
@@ -508,7 +509,7 @@ export async function runCeremony(
 
   /**
    * Read the issued values the plan declared from the page in front of the
-   * attempt, and hand them to the plan's sink once all are in.
+   * attempt, and hand them to the plan's sink.
    *
    * This is driven by the plan and by nothing an interpreter says: it runs on
    * every observation on an allowed origin, looks only for inputs whose label
@@ -517,6 +518,10 @@ export async function runCeremony(
    * observation still describes, so neither a field the driver filled nor one
    * that moved since the read can be taken for an issued value.
    *
+   * Every declared value comes from one page or none does. A client ID read on
+   * one page and a secret on another need not belong to the same client, and
+   * the page that reveals a secret shows the client it belongs to.
+   *
    * It runs before the interpreter sees this snapshot, and a secret joins the
    * guarded values the moment it is read, so a provider that also printed it
    * into a heading or an alert on the same page fails the attempt as a leak
@@ -524,30 +529,31 @@ export async function runCeremony(
    */
   const collectIssued = async (snapshot: PageSnapshot): Promise<void> => {
     if (kept || !options.issued || !page.readIssued) return;
-    for (const [kind, label] of declared) {
-      if (issued.has(kind)) continue;
+    const fields = declared.map(([kind, label]) => {
       const matches = snapshot.elements.filter(
         (element) => element.kind === "input" && element.label === label,
       );
-      if (matches.length !== 1) continue;
+      return { kind, field: matches.length === 1 ? matches[0] : undefined };
+    });
+    if (fields.some(({ field }) => !field)) return;
+    const issued = new Map<IssuedValueKind, string>();
+    for (const { kind, field } of fields) {
       let value: string | undefined;
       try {
-        value = await page.readIssued(matches[0]!);
+        value = await page.readIssued(field!);
       } catch (error) {
         // The page moved since it was read: nothing is taken from it, and
         // the next observation looks again.
-        if (error instanceof StaleTargetError) continue;
+        if (error instanceof StaleTargetError) return;
         throw error;
       }
       const secret = secretIssuedValueKinds.includes(kind);
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
-      if (!value || value.length > 4096 || (secret && value.length < 8))
-        continue;
+      if (!value || value.length > 4096 || (secret && value.length < 8)) return;
       issued.set(kind, value);
       if (secret && !guarded.includes(value)) guarded.push(value);
     }
-    if (issued.size < declared.length) return;
     await options.issued.keep(Object.fromEntries(issued) as IssuedValues);
     kept = true;
     record(snapshot, "kept", {
