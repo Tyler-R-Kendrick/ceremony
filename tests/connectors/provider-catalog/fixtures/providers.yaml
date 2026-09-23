@@ -1,0 +1,160 @@
+# Synthetic providers written for these tests in the shape of Nango's
+# providers.yaml. Every host is under a reserved example domain; none of
+# these describe a real provider and nothing here is copied from Nango.
+
+acme-crm:
+  display_name: Acme CRM
+  categories:
+    - crm
+    - sales
+  auth_mode: OAUTH2
+  authorization_url: https://auth.acme-crm.example/oauth/authorize
+  token_url: https://auth.acme-crm.example/oauth/token
+  authorization_params:
+    response_type: code
+    access_type: offline
+    prompt: consent
+  default_scopes:
+    - contacts.read
+    - deals.read
+  proxy:
+    base_url: https://api.acme-crm.example/v2
+    headers:
+      accept-version: "2026-01"
+    verification:
+      method: GET
+      endpoints:
+        - /me
+  docs: https://docs.acme-crm.example/integrations/oauth
+
+tenant-desk:
+  display_name: Tenant Desk
+  categories:
+    - support
+  auth_mode: OAUTH2
+  authorization_url: https://${connectionConfig.subdomain}.tenant-desk.example/oauth/authorizations/new
+  token_url: https://${connectionConfig.subdomain}.tenant-desk.example/oauth/tokens
+  proxy:
+    base_url: https://${connectionConfig.subdomain}.tenant-desk.example/api
+  connection_config:
+    subdomain:
+      type: string
+      title: Desk subdomain
+      pattern: "^[a-z0-9-]+$"
+      suffix: .tenant-desk.example
+  webhook_routing_script: tenantDeskWebhookRouting
+
+team-chat:
+  display_name: Team Chat
+  categories:
+    - communication
+  auth_mode: OAUTH2
+  authorization_url: https://chat.example/oauth/v2/authorize?user_scope=identify
+  token_url: https://chat.example/api/oauth.v2.access
+  scope_separator: ","
+  token_request_auth_method: basic
+  default_scopes:
+    - channels:read
+    - chat:write
+  proxy:
+    base_url: https://chat.example/api
+  docs: https://docs.chat.example/oauth
+
+metrics-hub:
+  display_name: Metrics Hub
+  categories:
+    - analytics
+  auth_mode: OAUTH2_CC
+  token_url: https://login.metrics-hub.example/oauth2/token
+  token_params:
+    grant_type: client_credentials
+    audience: api-metrics-hub
+  default_scopes:
+    - metrics.read
+  proxy:
+    base_url: https://api.metrics-hub.example
+
+bearer-notes:
+  display_name: Bearer Notes
+  categories:
+    - productivity
+  auth_mode: API_KEY
+  proxy:
+    base_url: https://api.bearer-notes.example
+    headers:
+      authorization: Bearer ${apiKey}
+
+header-mail:
+  display_name: Header Mail
+  auth_mode: API_KEY
+  proxy:
+    base_url: https://api.header-mail.example/v3
+    headers:
+      X-Api-Key: ${apiKey}
+    retry:
+      at: x-ratelimit-reset
+
+query-weather:
+  display_name: Query Weather
+  auth_mode: API_KEY
+  proxy:
+    base_url: https://api.query-weather.example
+    query:
+      appid: ${apiKey}
+
+issue-board:
+  display_name: Issue Board
+  categories:
+    - ticketing
+  auth_mode: BASIC
+  proxy:
+    base_url: https://${connectionConfig.workspace}.issue-board.example/rest
+  connection_config:
+    workspace:
+      type: string
+      title: Workspace
+
+open-data:
+  display_name: Open Data
+  auth_mode: NONE
+  proxy:
+    base_url: https://data.open-data.example
+
+legacy-signer:
+  display_name: Legacy Signer
+  auth_mode: OAUTH1
+  authorization_url: https://legacy-signer.example/oauth/authorize
+  token_url: https://legacy-signer.example/oauth/access_token
+  request_url: https://legacy-signer.example/oauth/request_token
+  proxy:
+    base_url: https://api.legacy-signer.example
+
+app-installer:
+  display_name: App Installer
+  auth_mode: APP
+  authorization_url: https://app-installer.example/apps/install
+  token_url: https://api.app-installer.example/app/installations/${connectionConfig.installation_id}/access_tokens
+  proxy:
+    base_url: https://api.app-installer.example
+
+tenant-desk-sandbox:
+  alias: tenant-desk
+  display_name: Tenant Desk (sandbox)
+
+extra-token-params:
+  display_name: Extra Token Params
+  auth_mode: OAUTH2
+  authorization_url: https://auth.extra-token.example/authorize
+  token_url: https://auth.extra-token.example/token
+  token_params:
+    resource: https://api.extra-token.example
+  proxy:
+    base_url: https://api.extra-token.example
+
+plain-http:
+  display_name: Plain HTTP
+  auth_mode: OAUTH2
+  authorization_url: http://auth.plain-http.example/authorize
+  token_url: http://auth.plain-http.example/token
+  proxy:
+    base_url: http://api.plain-http.example
