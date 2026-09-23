@@ -838,6 +838,9 @@ export type HumanStepReason = (typeof humanStepReasons)[number];
  */
 const devicePageWords =
   /(enter|type) the code (shown|displayed) on (your|the) (device|screen|tv)|code (shown|displayed) on your device|connect (a|your) device|activate (a |your )?(device|tv)|device (activation|authori[sz]ation|login|sign[- ]?in|verification)|link (a|your) device/i;
+/** Wording that names a sign-in identifier, which a user code never is. */
+const identifierWords =
+  /user\s?name|e-?mail|login|account|sign[- ]?in|phone|mobile|handle|^user$|^identifier$/i;
 /** Wording that names the user code field itself. */
 const userCodeWords =
   /\b(user|device|pairing|activation)[ _-]?code\b|code (shown|displayed) on (your|the) (device|screen|tv)|^user_?code$/i;
@@ -863,9 +866,18 @@ export function deviceVerificationField(
     )
   )
     return undefined;
-  const typed = snapshot.elements.filter(
-    (element) => element.kind === "input" && element.readOnly !== true,
-  );
+  // An identifier field is never the code field, however the page is
+  // headed: "Connect a device" above a lone email box is the sign-in step
+  // before the verification page, and a user code typed there goes to the
+  // provider as somebody's address.
+  const typed = snapshot.elements.filter((element) => {
+    if (element.kind !== "input" || element.readOnly === true) return false;
+    if (element.type === "email" || element.type === "tel") return false;
+    if (/\b(username|email)\b/.test(element.autocomplete ?? "")) return false;
+    return ![element.name, element.label, element.placeholder].some(
+      (text) => text !== undefined && identifierWords.test(text),
+    );
+  });
   const page = devicePageWords.test(
     `${snapshot.title} ${snapshot.headings.join(" ")}`,
   );

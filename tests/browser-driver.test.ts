@@ -3452,6 +3452,24 @@ test("DEVICE: a verification page is recognised by what it says and what its fie
     )?.index,
     0,
   );
+  // A lone identifier under a device heading is the sign-in step before the
+  // verification page, never the code field: by type, by autocomplete, or by
+  // what it is called.
+  for (const identifier of [
+    { name: "login", type: "email", label: "Continue with" },
+    { name: "id", type: "text", autocomplete: "username", label: "You" },
+    { name: "id", type: "text", autocomplete: "email", label: "You" },
+    { name: "who", type: "text", label: "Email or username" },
+    { name: "phone", type: "tel", label: "Number" },
+    { name: "account", type: "text", label: "Account" },
+  ])
+    assert.equal(
+      deviceVerificationField(
+        devicePage({ title: "Connect a device", headings: [] }, identifier),
+      ),
+      undefined,
+      JSON.stringify(identifier),
+    );
   // A "device code" on a settings page is not a verification page.
   assert.equal(
     deviceVerificationField(
