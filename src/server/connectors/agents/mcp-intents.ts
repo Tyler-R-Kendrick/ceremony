@@ -1,7 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import { explainConnectorError } from "../errors.js";
-import { connectorServerToolNames } from "../mcp/server-tools.js";
 import {
   agentIntentInputs,
   createAgentConnectorIntents,
@@ -16,10 +15,13 @@ import {
  * This is additive twice over. The five ceremony tools are untouched, and so
  * are the four connector tools the MCP swarm already registers
  * (`connector_catalog`, `connector_status`, `connector_connect`,
- * `connector_invoke`): any intent whose name is already taken is skipped
- * rather than re-registered, so mounting this beside them adds
+ * `connector_invoke`): any intent whose name the caller reports as taken is
+ * skipped rather than re-registered, so mounting this beside them adds
  * `connector_list`, `connector_inspect`, `connector_operations`,
  * `connector_reconnect` and `connector_disconnect` and changes nothing else.
+ * Mounted without them, `connector_status` and `connector_connect` are the
+ * intents' own. A name is skipped only when something really holds it: a
+ * tool skipped for a neighbour that was never mounted is simply missing.
  *
  * The rules are the same two as everywhere on that server: the actor comes
  * from the host's `authenticate` path and never from an argument, and nothing
@@ -30,7 +32,10 @@ export type AgentIntentContext = {
   /** The actor for the current request, resolved by the host's authenticate path. */
   actor(): ActorContext | undefined;
   onerror?(error: Error): void;
-  /** Names already registered on this server; those intents are skipped. */
+  /**
+   * Names already registered on this server; those intents are skipped. The
+   * caller says what it mounted, and nothing else is assumed to be present.
+   */
   taken?: readonly string[];
 };
 
@@ -55,10 +60,7 @@ export function registerAgentConnectorTools(
   context: AgentIntentContext,
   options: { prefix?: string; intents?: readonly AgentIntentName[] } = {},
 ): string[] {
-  const taken = new Set([
-    ...connectorServerToolNames,
-    ...(context.taken ?? []),
-  ]);
+  const taken = new Set(context.taken ?? []);
   const wanted = options.intents;
   const intents = createAgentConnectorIntents(deps, {
     ...(options.prefix ? { prefix: options.prefix } : {}),
@@ -85,6 +87,13 @@ function registerOne(
     {
       description: intent.description,
       inputSchema: agentIntentInputs[intent.intent],
+      annotations: {
+        readOnlyHint: intent.readOnly,
+        // Only disconnect removes anything. Connect and reconnect add or
+        // restore access, which a client should still confirm, but they are
+        // not destructive.
+        destructiveHint: intent.intent === "disconnect",
+      },
     },
     async (input: unknown) => {
       const actor = context.actor();

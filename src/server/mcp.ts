@@ -15,7 +15,10 @@ import { AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { registerPrivateCollector } from "./mcp-app.js";
 import type { PrivateCollectorOptions } from "./mcp-app.js";
-import { registerConnectorServerTools } from "./connectors/mcp/server-tools.js";
+import {
+  connectorServerToolNames,
+  registerConnectorServerTools,
+} from "./connectors/mcp/server-tools.js";
 import { registerAgentConnectorTools } from "./connectors/agents/mcp-intents.js";
 import type { AgentConnectorDependencies } from "./connectors/agents/intents.js";
 import type { ConnectorToolDependencies } from "./connectors/mcp/server-tools.js";
@@ -265,6 +268,10 @@ export function createCeremonyMcpHandler(
     if (options.connectorIntents)
       registerAgentConnectorTools(server, options.connectorIntents, {
         actor: () => actor,
+        // Only names really mounted above are taken. Without the four
+        // connector tools, the intents' own status and connect are the only
+        // way to reach those operations, so they must not be skipped.
+        taken: options.connectors ? connectorServerToolNames : [],
         ...(options.onerror ? { onerror: options.onerror } : {}),
       });
 
