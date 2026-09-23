@@ -232,6 +232,20 @@ function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
     }
   return [...origins];
 }
+/** A configuration port that answers only for the names given; any other reads as absent. */
+function narrowConfiguration(
+  port: ConfigurationPort,
+  names: ReadonlySet<string>,
+): ConfigurationPort {
+  return {
+    read: async (name) => (names.has(name) ? port.read(name) : undefined),
+    present: async (asked) => {
+      const allowed = asked.filter((name) => names.has(name));
+      return allowed.length ? port.present(allowed) : new Set<string>();
+    },
+    revision: () => port.revision(),
+  };
+}
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
 /**
@@ -437,10 +451,44 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         effects: this.ports.effects,
         evidence: this.ports.evidence,
-        configuration: this.options.configuration(actor),
+        configuration: narrowConfiguration(
+          this.options.configuration(actor),
+          this.configurationNames(binding),
+        ),
         origin: this.origin,
       },
     };
+  }
+
+  /**
+   * The configuration names an adapter may read under a binding. A hosted
+   * deployment's port holds every tenant-visible value the host keeps, so an
+   * adapter sees only what review approved: the binding's names, the names
+   * its host-registered adapter declares, and the client of each issuer
+   * policy a person pinned, binding-wide or per profile.
+   */
+  private configurationNames(binding: RuntimeBinding): ReadonlySet<string> {
+    const names = new Set(binding.configuration);
+    for (const item of this.registry.get(binding.adapterId)?.configuration ??
+      [])
+      names.add(item.name);
+    const perProfile = binding.settings[PROFILE_ISSUER_POLICIES_SETTING];
+    const policies = [
+      binding.settings["oauth"],
+      ...(perProfile && typeof perProfile === "object"
+        ? Object.values(perProfile)
+        : []),
+    ] as Array<{ registration?: Record<string, unknown> } | undefined>;
+    for (const oauth of policies)
+      for (const key of [
+        "clientIdConfiguration",
+        "clientSecretConfiguration",
+        "privateKeyConfiguration",
+      ]) {
+        const name = oauth?.registration?.[key];
+        if (typeof name === "string") names.add(name);
+      }
+    return names;
   }
 
   private adapterFor(binding: string | Pick<RuntimeBinding, "adapterId">) {
@@ -960,6 +1008,15 @@ export class ConnectorCommandService {
           ...(approvals.verifier ? { verifier: approvals.verifier } : {}),
         }),
       );
+      // A format whose own settings reach an issuer gets the same gate as a
+      // reviewed issuer policy.
+      if (result.issuer)
+        await this.admitIssuer(
+          actor,
+          definition,
+          result.issuer.issuer,
+          result.issuer.origins,
+        );
       operations = result.operations;
       settings = { ...settings, ...result.settings };
     } else if (approvals.verifier)
@@ -1172,6 +1229,40 @@ export class ConnectorCommandService {
         detail: "oauth.issuer.not-permitted",
       });
     return oauth;
+  }
+
+  /**
+   * Host policy's word on an OAuth issuer and the origins its grants may
+   * contact, for a person reviewing a binding. It is asked whether the
+   * issuer arrives as a reviewed policy or with a format's own settings.
+   */
+  private async admitIssuer(
+    actor: ActorContext,
+    definition: NormalizedDefinition,
+    issuer: string,
+    origins: string[],
+  ): Promise<void> {
+    if (actor.actorKind !== "human")
+      throw new ConnectorError("denied", {
+        detail: "oauth.policy.human-only",
+      });
+    let allowed = false;
+    try {
+      allowed = this.policy.allowIssuer
+        ? await this.policy.allowIssuer(actor, {
+            issuer,
+            origins,
+            declaredOrigins: declaredOAuthOrigins(definition),
+            definition,
+          })
+        : false;
+    } catch {
+      allowed = false;
+    }
+    if (!allowed)
+      throw new ConnectorError("network-policy", {
+        detail: "oauth.issuer.not-permitted",
+      });
   }
 
   private async approveDestinations(
@@ -2842,20 +2933,42 @@ export class ConnectorCommandService {
     return { connectionRef, revocation: "pending-approval", requestedAt };
   }
 
-  /** A person declines a pending revocation request; approving it is `revoke`. */
+  /**
+   * An administrator declines a pending revocation request; approving it is
+   * `revoke`. Declining is the same decision taken the other way, so it is
+   * held to the same person, capability and policy: otherwise anyone who can
+   * read the connection could clear a request before an administrator saw it.
+   */
   async declineRevocation(
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
   ): Promise<ConnectionView> {
-    if (actor.actorKind !== "human")
-      throw new ConnectorError("denied", { detail: "revoke.human-only" });
+    requireCapability(actor, "admin");
+    if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
+      throw new ConnectorError("denied", { detail: "revoke.admin-only" });
     const input = z
       .strictObject({ expectedRevision: z.number().int().positive() })
       .parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
+    const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
+    if (closed(record))
+      throw new ConnectorError("conflict", {
+        detail: `connection.${record.lifecycle}`,
+      });
+    const binding = await this.binding(
+      actor.tenantId,
+      record.bindingRef,
+      record.bindingRevision,
+    );
+    await this.authorize(
+      actor,
+      { kind: "connection", connection: record, binding },
+      "revoke",
+      "revoke.denied",
+    );
     if (
       !revocationRequestSchema.safeParse(entry.record.state.revocationRequest)
         .success

@@ -311,3 +311,54 @@ test("AUT-01 AC-09 selected fragments require fresh inputs and do not retain dem
     await digestRecipeDefinition(changed),
   );
 });
+
+test("recipe review and publication never reach a draft of another kind", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "test",
+    keys: { test: new Uint8Array(32).fill(7) },
+  });
+  try {
+    const service = new RecipeService(store, registry());
+    // Recorded-ceremony drafts share the draft and review record kinds. Even
+    // one shaped like a recipe draft is not a recipe draft.
+    const digest = await digestRecipeDefinition(definition);
+    const id = `recorded-ceremony:${crypto.randomUUID()}`;
+    await store.transaction(async (tx) => {
+      await tx.put(
+        { tenant: actor.tenantId, kind: "draft", id },
+        { definition, author: actor.subjectId, digest, diagnostics: [] },
+        null,
+      );
+      await tx.put(
+        { tenant: actor.tenantId, kind: "review", id: `${id}:1` },
+        { digest, reviewer: actor.subjectId },
+        null,
+      );
+    });
+    await assert.rejects(service.getDraft(actor, id), /unavailable/);
+    await assert.rejects(
+      service.editDraft(actor, id, 1, definition),
+      /unavailable/,
+    );
+    await assert.rejects(service.review(actor, id, 1, digest));
+    await assert.rejects(service.publish(actor, id, 1, digest));
+    // A recipe draft whose stored value is not one is refused too.
+    const own = await service.createDraft(actor, definition);
+    await store.transaction(async (tx) => {
+      const key = {
+        tenant: actor.tenantId,
+        kind: "draft" as const,
+        id: own.id,
+      };
+      const current = await tx.get(key);
+      await tx.put(
+        key,
+        { schemaVersion: 1, author: actor.subjectId },
+        current!.revision,
+      );
+    });
+    await assert.rejects(service.getDraft(actor, own.id), /unavailable/);
+  } finally {
+    await store.close();
+  }
+});

@@ -122,10 +122,16 @@ from Nango.
    as the destination (an exact origin; for a templated host, the concrete
    tenant origin, which is not a declared server, so host policy must admit
    it, for example through the default policy's `destinations` allowlist), the `proxy.get` / `proxy.post` / ... methods with
-   their output classification and consent, and the entry as settings via
-   `providerCatalogBindingSettings(definition)`. The reviewed digest covers
-   the entry. A host-registered provider's own entry is authoritative, so its
-   binding needs no entry in its settings and refuses a different one.
+   their output classification and consent. Review copies the entry from the
+   definition into the binding's settings, where the reviewed digest covers
+   it; a reviewer's own settings cannot carry it (`settings.reserved`), so the
+   endpoints and client-secret names a binding uses are the imported ones. An
+   OAuth entry's issuer and authorization, token, refresh and `jwksUrl` origins go
+   through host policy's `allowIssuer`, for a person only, as a reviewed
+   issuer policy does; a templated host is named `https://*.<suffix>`, which
+   only a host that lists it admits. A host-registered provider's own entry
+   is authoritative, so review refuses a definition carrying a different one.
+   An adapter reads only the configuration names the binding approved.
 3. **Connect.** OAuth authorization code goes through the shared engine in
    `auth/*` (state, S256 PKCE, one-use codes, RFC 9207 `iss` checks). Client
    credentials is acquired at connect. API keys, Basic and bearer credentials
@@ -163,7 +169,8 @@ from Nango.
   custom multi-step flows, webhooks, pagination and retries, extra refresh
   parameters, and upstream revocation.
 - The `openid` scope is accepted only for an authorization-code entry that
-  names its `issuer` and uses the space scope separator; otherwise it is
+  names its `issuer`, declares `openid` among its scopes (a caller cannot add
+  it, see below) and uses the space scope separator; otherwise it is
   refused (`catalog.scope.openid`, `catalog.scope.openid-separator`). An ID
   token names the account, so an `openid` authorization reads the issuer's
   metadata (RFC 8414 or OpenID Connect discovery, through the same approved
@@ -181,3 +188,6 @@ from Nango.
   `openid`, an entry is used exactly as reviewed and nothing is discovered.
   Evidence is the loopback fixture issuer in
   `tests/connectors/provider-catalog/oidc.test.ts`, not a live provider.
+- A connection asks for the entry's scopes (`default_scopes`), the only ones a
+  reviewer saw. A caller may name them but not add others; a scope beyond them
+  is refused (`catalog.scope.undeclared`) before anything is sent.
