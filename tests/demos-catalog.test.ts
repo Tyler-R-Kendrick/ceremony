@@ -63,6 +63,8 @@ test("DEMO-HONESTY: every title card says the provider is a self-hosted double",
     );
     assert.match(card, /seed 21/);
     assert.match(card, /no model is called/);
+    // A run that reads no mail does not claim an inbox on its title card.
+    assert.equal(/agent-inbox adapter/.test(card), entry.mail !== false);
   }
 });
 
@@ -96,6 +98,15 @@ test("DEMO-PHASES: the chain position follows the driver's page and proposal", (
   assert.equal(
     at(undefined, "/signin/password", "fill", "password"),
     "sign-in",
+  );
+  // Enrolment asks for an authenticator code too; its page names the step.
+  assert.equal(
+    at("verify-email", "/mfa/setup", "fill", "totp-code"),
+    "enroll-authenticator",
+  );
+  assert.equal(
+    at("enroll-authenticator", "/mfa/setup", "click"),
+    "enroll-authenticator",
   );
   // A page the map does not know leaves the phase where it was.
   assert.equal(at("consent", "/elsewhere", "wait"), "consent");

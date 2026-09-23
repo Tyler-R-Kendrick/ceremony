@@ -9,6 +9,7 @@ import {
   type CaptionEvent,
   type PanelEvent,
 } from "../scripts/demos/captions.js";
+import { deviceScreen } from "../scripts/demos/device.js";
 import { outcomeFacts } from "../scripts/demos/story.js";
 import type { CeremonyResult } from "../src/server/browser-driver.js";
 
@@ -89,6 +90,29 @@ const events: CaptionEvent[] = [
   { kind: "decision", what: "no-account-register" },
   { kind: "recording", stage: "replayed" },
   { kind: "step", index: 3, total: 7, phase: "verify-email" },
+  { kind: "step", index: 3, total: 6, phase: "enroll-authenticator" },
+  { kind: "fill", actor: "agent", role: "totp-code", source: "totp-seed" },
+  { kind: "fill", actor: "agent", role: "user-code", source: "plan" },
+  { kind: "fill", actor: "person", role: "user-code", source: "device-screen" },
+  { kind: "click", actor: "agent", control: "button", phase: "device-code" },
+  {
+    kind: "click",
+    actor: "agent",
+    control: "button",
+    phase: "enroll-authenticator",
+  },
+  { kind: "blocked", reason: "device-code-required" },
+  { kind: "handoff", what: "device-code" },
+  { kind: "decision", what: "code-in-plan" },
+  { kind: "decision", what: "no-code-hand-off" },
+  { kind: "device", stage: "requested" },
+  { kind: "device", stage: "polling" },
+  { kind: "device", stage: "connected" },
+  { kind: "custody", stage: "seed-kept" },
+  { kind: "custody", stage: "code-derived" },
+  { kind: "provider", says: "setup-authenticator" },
+  { kind: "provider", says: "device-connected" },
+  { kind: "provider", says: "device-consent" },
 ];
 
 test("DEMO-CAPTIONS: no caption prints a password, code, link, token or address", () => {
@@ -136,6 +160,9 @@ test("DEMO-CAPTIONS: panels and chain summaries carry no values either", () => {
     { kind: "chain", chain: [...phases], current: "verified", finished: true },
     { kind: "inbox", stage: "provisioned" },
     { kind: "inbox", stage: "received" },
+    { kind: "custody", stage: "empty" },
+    { kind: "custody", stage: "held" },
+    { kind: "custody", stage: "used" },
   ];
   for (const event of panels) {
     const drawn = panel(event);
@@ -156,6 +183,59 @@ test("DEMO-CAPTIONS: panels and chain summaries carry no values either", () => {
     }
   }
   for (const line of chainSummary([...phases])) assertClean(line, "chain");
+});
+
+test("DEMO-CAPTIONS: a device's wall is reported as a hand-off, never guessed past", () => {
+  assert.equal(
+    caption({ kind: "blocked", reason: "device-code-required" }),
+    "Agent: the device's code is not in the plan",
+  );
+  assert.equal(
+    caption({
+      kind: "fill",
+      actor: "person",
+      role: "user-code",
+      source: "device-screen",
+    }),
+    "Person: fill device code (read off the device)",
+  );
+  assert.equal(
+    caption({
+      kind: "fill",
+      actor: "agent",
+      role: "totp-code",
+      source: "totp-seed",
+    }),
+    "Agent: fill authenticator code (from held seed)",
+  );
+});
+
+test("DEMO-DEVICE: the simulated device says it is simulated, and prints no token", () => {
+  const device = {
+    name: "Driftwood Terminal",
+    userCode: "BCDF-GHJK",
+    verificationUri: "http://127.0.0.1:4000/device",
+    interval: 5,
+    product: "Acme Accounts",
+  };
+  for (const screen of ["requested", "polling", "connected"] as const) {
+    const drawn = deviceScreen(device, screen, "owner@ceremony.invalid");
+    assert.deepEqual(drawn.text.slice(0, 2), [
+      "Simulated device",
+      "not a real product",
+    ]);
+    assert.ok(drawn.html.includes("Simulated device"));
+    // What a device shows a person: the code and the URL, with no query.
+    assert.ok(drawn.text.includes("BCDF-GHJK"));
+    assert.ok(drawn.text.includes("127.0.0.1:4000/device"));
+    for (const line of drawn.text)
+      assert.ok(!line.includes(canaries.token) && !line.includes("?"), line);
+  }
+  assert.ok(
+    deviceScreen(device, "connected", "owner@ceremony.invalid").text.includes(
+      "Access token saved (not shown).",
+    ),
+  );
 });
 
 test("DEMO-CAPTIONS: the end card reports counts and closed names, not transcript notes", () => {

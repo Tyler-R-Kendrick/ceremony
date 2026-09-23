@@ -15,7 +15,11 @@ export function disclosure(entry: DemoEntry, seed: number): string[] {
     `Provider: self-hosted test provider (tests/doubles/auth-provider), "${productNames[entry.layout] ?? "test provider"}" ${entry.layout} layout, seed ${seed}. An invented product: not a real service, no real accounts.`,
     "Driver: Ceremony's runCeremony + Playwright page adapter, attached over CDP to the Chrome webreel is recording.",
     "Next-step decisions: createHeuristicInterpreter, the production model-free interpreter. It sees only the sanitized page snapshot; no model is called.",
-    "Email: the provider's outbox, read through Ceremony's HTTP agent-inbox adapter. Mail transport is simulated.",
+    ...(entry.mail === false
+      ? []
+      : [
+          "Email: the provider's outbox, read through Ceremony's HTTP agent-inbox adapter. Mail transport is simulated.",
+        ]),
     "Captions name roles and steps. No password, code, link or token is ever shown.",
   ];
 }
