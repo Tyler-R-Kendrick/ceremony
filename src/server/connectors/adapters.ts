@@ -4,6 +4,11 @@ import type { ConnectorAdapter } from "./adapter.js";
 import { createOpenApiHttpAdapter } from "./formats/openapi/adapter.js";
 import { createMicrosoftCustomConnectorAdapter } from "./formats/microsoft/adapter.js";
 import { createCamelKameletAdapter } from "./formats/camel-kamelet/adapter.js";
+import {
+  createCatalogHttpAdapter,
+  createProviderCatalogAdapters,
+  type ProviderCatalogRegistration,
+} from "./formats/provider-catalog/adapter.js";
 
 import { createMcpRegistryAdapter } from "./registries/mcp/adapter.js";
 import { createSmitheryRegistryAdapter } from "./registries/smithery/adapter.js";
@@ -76,6 +81,12 @@ export interface ConnectorInventoryOptions {
    * set. A duplicate id is an error, not a silent replacement.
    */
   additional?: readonly ConnectorAdapter[];
+  /**
+   * Data-defined providers (catalog entries or a Nango providers.yaml). Each
+   * becomes its own `catalog-<id>` connector, still a draft until a reviewer
+   * approves a binding for it.
+   */
+  providerCatalog?: ProviderCatalogRegistration;
 }
 
 /**
@@ -89,6 +100,7 @@ const standardAdapters: readonly (() => ConnectorAdapter)[] = [
   () => createOpenApiHttpAdapter(),
   () => createMicrosoftCustomConnectorAdapter(),
   () => createCamelKameletAdapter(),
+  () => createCatalogHttpAdapter(),
 
   // Catalogs and registries: discovery and import, never execution.
   () => createMcpRegistryAdapter(),
@@ -146,6 +158,8 @@ export function createConnectorRegistry(
       createAuth0TokenVaultAdapter({ identity: ports.auth0Identity }),
     );
 
+  for (const adapter of createProviderCatalogAdapters(options.providerCatalog))
+    registry.register(adapter);
   for (const adapter of options.additional ?? []) registry.register(adapter);
   return registry;
 }

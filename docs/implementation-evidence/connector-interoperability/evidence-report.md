@@ -1975,7 +1975,7 @@ The [source lock](source-lock.md) pins 80 records as of 2026-09-18, each with it
 
 ## Adapter inventory read for this report
 
-27 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
+28 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
 
 ## Ledger problems
 

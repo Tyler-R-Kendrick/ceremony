@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 27 constructible adapters and 26 ledgers.
+Generated from 28 constructible adapters and 26 ledgers.
 
 ## Support by dimension
 
@@ -19,6 +19,7 @@ Generated from 27 constructible adapters and 26 ledgers.
 | `auth0-token-vault`             | auth0-token-vault             | hosted-server | provider-backed | external-credential-broker                            | unsupported                              | implemented / missing / unit             | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `aws-agentcore-gateway`         | aws-agentcore                 | hosted-server | provider-backed | host-owned, external-execution-broker                 | implemented / protocol-fixture           | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `camel-kamelet`                 | camel-kamelet                 | hosted-server | provider-backed | no-credential, external-execution-broker              | implemented / protocol-fixture           | unsupported                              | unsupported                              | unsupported                              | unsupported                              | unsupported                              | implemented / protocol-fixture |
+| `catalog-http`                  | provider-catalog              | hosted-server | fixture         | host-owned, no-credential                             | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                    |
 | `composio`                      | composio                      | hosted-server | provider-backed | external-credential-broker, external-execution-broker | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `dapr`                          | dapr                          | hosted-server | provider-backed | host-owned, no-credential                             | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                    |
 | `docker-mcp-catalog`            | docker-mcp                    | hosted-server | provider-backed | no-credential                                         | implemented / protocol-fixture           | unsupported                              | unsupported                              | unsupported                              | unsupported                              | unsupported                              | implemented / unit             |
@@ -53,6 +54,7 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `auth0-token-vault`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `aws-agentcore-gateway`         | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `camel-kamelet`                 | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
+| `catalog-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `composio`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `dapr`                          | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `docker-mcp-catalog`            | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
@@ -87,6 +89,7 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `auth0-token-vault`             | 2026.09.18      | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret)                                                   | protocol-fixture | IDENTITY-BROKERS   | `external-broker`, `auth0-token-vault-exchange`                                                         |
 | `aws-agentcore-gateway`         | 1.0.0           | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret)                                                    | protocol-fixture | CLOUD              | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`                              |
 | `camel-kamelet`                 | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `camel-kamelet-v1`                                                                                      |
+| `catalog-http`                  | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `oauth-authorization-code`, `oauth-client-credentials`, `api-key`, `http-basic`, `http-bearer`, `none`  |
 | `composio`                      | 1.0.0           | `COMPOSIO_API_KEY` (secret)                                                                                                           | protocol-fixture | COMPOSIO           | `composio-hosted-authorization`, `external-broker`                                                      |
 | `dapr`                          | 1.0.0           | none                                                                                                                                  | not-recorded     | no ledger entry    | `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `api-key`                                         |
 | `docker-mcp-catalog`            | 1.0.0           | none                                                                                                                                  | protocol-fixture | CATALOGS           | `docker-mcp-catalog-v2`                                                                                 |
@@ -187,6 +190,28 @@ Module: `src/server/connectors/formats/camel-kamelet/index.ts` (`createCamelKame
 - revoke: A Kamelet is a route template: it has no service to discover, authorize against, verify or disconnect from.
 - export: Export produces a run descriptor for a configured Camel runner; credential values are never exported, only host configuration names.
 - delegate: No Camel runner is configured for this deployment: Kamelets are imported as descriptions and exported as run descriptors only. Ceremony starts no JVM, resolves no dependency and deploys no integration.
+
+### `catalog-http` — Provider catalog (HTTP)
+
+Module: `src/server/connectors/formats/provider-catalog/index.ts` (`createCatalogHttpAdapter`).
+
+- discover: A catalog is imported as a document; there is no provider listing to discover.
+- import: Reads Ceremony provider catalogs and Nango providers.yaml; unsupported auth modes are kept as descriptions with a reason, never dropped.
+- import: An import creates drafts only; every endpoint in them is contacted only after a reviewer approves a binding.
+- configure: OAuth client ids and secrets, and per-connection values such as a subdomain, come from host configuration by name.
+- authorize: OAuth authorization code always sends S256 PKCE; endpoints come from the reviewed entry, never from discovery.
+- authorize: Client credentials is a local grant request pending the shared engine's own.
+- authorize: API keys, Basic and bearer credentials are collected through the private collector, never through model-visible input.
+- verify: A collected credential is checked only when the entry declares a verification read; otherwise it is stored unverified.
+- verify: Acceptance proves a grant, not which account it belongs to.
+- invoke: The proxy reaches a caller-named path under the approved destination only; the destination must be the entry's declared proxy origin.
+- invoke: Expiring OAuth credentials are refreshed before use; a grant without refresh reports expiry.
+- events: The catalog format declares no webhooks.
+- reconnect: Reconnect repeats authorization under the current binding.
+- disconnect: Local disconnect only; a catalog entry declares no upstream unlink.
+- revoke: A catalog entry declares no revocation endpoint; upstream revocation is not attempted.
+- export: Catalog entries are not exported by this adapter.
+- delegate: There is no third party to delegate to.
 
 ### `composio` — Composio
 
