@@ -25,8 +25,10 @@ import {
 } from "./authored-operations.js";
 import { ceremonyAgentTools } from "./agent-tools.js";
 import {
+  approveCredentialVerification,
   compileDemonstrationDraft,
   deleteAuthoredConnection,
+  proposeCredentialVerification,
   executePublishedRecipe,
   importArazzoDraft,
   importRecipeDraft,
@@ -228,6 +230,36 @@ async function authoringHttp(
           }
         : null,
     });
+  }
+  // Proposing and approving how an authored connector's credential is
+  // verified. Proposal is what the MCP tool does too; approval is a person's,
+  // and the service refuses any other actor kind.
+  const verificationRoute =
+    /^\/authoring\/installed\/([a-z0-9-]{1,64})\/credential-verification(\/approve)?$/.exec(
+      path,
+    );
+  if (verificationRoute) {
+    if (!post) return reply({ error: "unavailable" }, 405);
+    const connectorId = verificationRoute[1]!;
+    if (verificationRoute[2])
+      return reply(
+        await approveCredentialVerification(
+          runtime,
+          actor,
+          connectorId,
+          teachingInputs.verificationApprove.parse(body),
+        ),
+      );
+    return reply(
+      await proposeCredentialVerification(
+        runtime,
+        actor,
+        teachingInputs.verificationPropose.parse({
+          connectorId,
+          declaration: body,
+        }),
+      ),
+    );
   }
   if (path === "/authoring/from-provider") {
     if (!post) return reply({ error: "unavailable" }, 405);

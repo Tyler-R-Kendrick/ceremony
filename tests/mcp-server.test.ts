@@ -8,7 +8,12 @@ import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createCeremonyMcpHandler } from "../src/server/mcp.js";
 import { ceremonyAgentTools } from "../src/server/agent-tools.js";
 import { teachingRefusals } from "../src/server/mcp-teaching.js";
-import { authoringTransportFor } from "../src/server/teaching-operations.js";
+import {
+  approveCredentialVerification,
+  authoringTransportFor,
+} from "../src/server/teaching-operations.js";
+import { teachingHttp } from "../src/server/teaching-http.js";
+import { installedDiscovery } from "../src/server/authored-operations.js";
 import type { AgentConnectorDependencies } from "../src/server/connectors/agents/intents.js";
 import type { ActorContext } from "../src/core/operation-contracts.js";
 import type { RecipeDefinition } from "../src/core/recipe-contracts.js";
@@ -45,7 +50,9 @@ const recipe: RecipeDefinition = {
   outputs: {},
 };
 
-function fixture(options: { waitsOnPerson?: boolean } = {}) {
+function fixture(
+  options: { waitsOnPerson?: boolean; person?: () => ActorContext } = {},
+) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -85,7 +92,8 @@ function fixture(options: { waitsOnPerson?: boolean } = {}) {
   const runtime = createTeachingRuntime({
     store,
     registry,
-    identity: { authenticate: async () => actor },
+    // The browser-side actor, for the HTTP routes some tests also call.
+    identity: { authenticate: async () => options.person?.() ?? actor },
     origin: context.origin,
     connections: new Map([
       [
@@ -791,6 +799,132 @@ test("a run nobody is waiting on carries no handoff", async () => {
     });
     assert.equal(connected.value().status, "complete");
     assert.equal(connected.value().handoff, undefined);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("an assistant proposes how an authored connector's credential is verified; only a person makes it take effect", async () => {
+  // The browser's actor is the same subject as the MCP author, as a person
+  // and their assistant are.
+  const person: ActorContext = { ...author, actorKind: "human" };
+  const f = fixture({ person: () => person });
+  try {
+    const mcp = handlerFor(f.runtime, (token) =>
+      token === "author" ? { ...author, actorKind: "agent" } : byToken(token),
+    );
+    const names = (await toolsFor(mcp, "author")).map((t) => t.name);
+    assert.ok(names.includes("ceremony_author_verification_propose"));
+    assert.ok(
+      !names.some((name) => /verification_(approve|publish)/.test(name)),
+      "no tool approves a declaration",
+    );
+    assert.ok(
+      !(await toolsFor(mcp, "executor"))
+        .map((t) => t.name)
+        .includes("ceremony_author_verification_propose"),
+    );
+    const drafted = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_from_provider",
+      { provider: "acme", origin: "https://acme.example" },
+    );
+    assert.equal(drafted.value().draft.connectorId, "acme");
+    const declaration = {
+      url: "https://acme.example/v1/me",
+      placement: { in: "header", name: "Authorization", prefix: "Bearer " },
+    };
+
+    // The same checks the direct declaration always ran: HTTPS, an origin
+    // the provider declared, no forbidden header, the author's own connector.
+    for (const bad of [
+      { ...declaration, url: "https://attacker.example/collect" },
+      { ...declaration, url: "http://acme.example/v1/me" },
+      { ...declaration, placement: { in: "header", name: "Cookie" } },
+    ]) {
+      const refused = await invoke(
+        mcp,
+        "author",
+        "ceremony_author_verification_propose",
+        { connectorId: "acme", declaration: bad },
+      );
+      assert.equal(refused.isError, true, JSON.stringify(bad));
+    }
+    const elsewhere = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_verification_propose",
+      { connectorId: "someone-elses", declaration },
+    );
+    assert.equal(elsewhere.isError, true);
+
+    const proposed = await invoke(
+      mcp,
+      "author",
+      "ceremony_author_verification_propose",
+      { connectorId: "acme", declaration },
+    );
+    assert.equal(proposed.isError, false, proposed.text);
+    const { digest, state } = proposed.value();
+    assert.equal(state, "pending-review");
+    assert.match(digest, /^[a-f0-9]{64}$/);
+    // Pending verifies nothing.
+    const pending = await installedDiscovery(f.store, person, "acme");
+    assert.equal(pending?.credentialVerification, undefined);
+    assert.equal(pending?.pendingCredentialVerification?.digest, digest);
+
+    // An assistant cannot approve, whatever it holds.
+    await assert.rejects(
+      approveCredentialVerification(
+        f.runtime,
+        { ...author, actorKind: "agent", capabilities: ["admin"] },
+        "acme",
+        { digest },
+      ),
+      /denied/,
+    );
+
+    const http = (path: string, body: unknown) =>
+      teachingHttp(
+        new Request(`${context.origin}/api/v1/teaching${path}`, {
+          method: "POST",
+          headers: {
+            origin: context.origin,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+        f.runtime,
+      );
+    const route = "/authoring/installed/acme/credential-verification";
+    // The HTTP route proposes with the same validation, and a person
+    // approves exactly what was proposed, by digest.
+    assert.equal(
+      (
+        await http(route, {
+          ...declaration,
+          url: "https://attacker.example/collect",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await http(`${route}/approve`, { digest: "0".repeat(64) })).status,
+      400,
+    );
+    const approved = await http(`${route}/approve`, { digest });
+    assert.equal(approved.status, 200);
+    assert.deepEqual(await approved.json(), {
+      connectorId: "acme",
+      state: "active",
+      digest,
+    });
+    const active = await installedDiscovery(f.store, person, "acme");
+    assert.deepEqual(active?.credentialVerification, declaration);
+    assert.equal(active?.pendingCredentialVerification, undefined);
+    // Nothing is left to approve twice.
+    assert.equal((await http(`${route}/approve`, { digest })).status, 403);
   } finally {
     await f.store.close();
   }
