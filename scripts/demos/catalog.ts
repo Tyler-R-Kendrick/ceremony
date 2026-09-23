@@ -1,3 +1,4 @@
+import type { ConsentKind } from "../../src/core/browser-contracts.js";
 import type { Phase } from "./captions.js";
 
 /**
@@ -33,6 +34,14 @@ export type DemoEntry = {
   panelSide?: "left" | "right";
   /** Also published as a small preview under `docs/demos/`. */
   docsPreview: boolean;
+  /**
+   * The advance consent the person gave before a demo that registers an
+   * account: the provider's terms and privacy policy, which every realistic
+   * sign-up page asks the new account to accept. Accepting them is a legal
+   * act, so the driver ticks that box only because this says so, the title
+   * card states it, and the caption on the tick says it was consented to.
+   */
+  consents?: readonly ConsentKind[];
   load: () => Promise<{ record: DemoRecorder }>;
 };
 
@@ -51,6 +60,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-with-emailed-code",
     interpreter: "heuristic",
     docsPreview: true,
+    consents: ["terms", "privacy"],
     load: () => import("./agent-creates-account.js"),
   },
   {
@@ -63,6 +73,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-recovers-with-fresh-address",
     interpreter: "heuristic",
     docsPreview: false,
+    consents: ["terms", "privacy"],
     load: () => import("./registration-recovers.js"),
   },
   {
@@ -83,6 +94,7 @@ export const demoCatalog: readonly DemoEntry[] = [
       "verified",
     ],
     docsPreview: true,
+    consents: ["terms", "privacy"],
     load: () => import("./connect-without-account.js"),
   },
   {
@@ -125,6 +137,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-with-emailed-code",
     interpreter: "heuristic",
     docsPreview: false,
+    consents: ["terms", "privacy"],
     load: () => import("./record-once-replay.js"),
   },
 ];

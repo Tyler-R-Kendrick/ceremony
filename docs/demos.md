@@ -18,7 +18,7 @@ On a sign-up form the agent has never seen, it fills:
 - the work email, using a fresh address from the agent inbox;
 - a generated password and its confirmation, both masked.
 
-It then ticks the required terms box and creates the account. On "Check your email" the inbox panel shows the confirmation email arriving and the code being extracted; the code is never printed. The agent enters the code and verifies. The provider confirms the account exists.
+It then ticks the required terms box, because the person consented in advance to the provider's terms and privacy policy (the title card says so, and so does the caption on the tick), and creates the account. On "Check your email" the inbox panel shows the confirmation email arriving and the code being extracted; the code is never printed. The agent enters the code and verifies. The provider confirms the account exists.
 
 ### 2. Connect an API for someone with no account yet: the stitched run
 
@@ -127,5 +127,5 @@ webreel needs an ffmpeg with `libx264`. It looks, in order, at `FFMPEG_PATH`, a 
 - Any real provider. Recording a live provider would retain exactly what verification is forbidden to keep, so this is never pointed at one. See [auth scenario doubles](auth-scenario-doubles.md).
 - A model. The interpreter on screen is the production model-free one; model quality is not demonstrated here.
 - Real mail delivery. The inbox adapter and code extraction are real; SMTP is not.
-- A person accepting terms. The model-free interpreter ticks a required terms checkbox itself, and the caption says so.
+- A person accepting terms in the moment. Every registration demo declares the person's advance consent to the terms and privacy policy (`consents` in `scripts/demos/catalog.ts`); the driver ticks the box only because of it, and the caption says "(consented)". Without it the box is handed to a person. A newsletter box is never ticked.
 - The Ceremony app UI. These videos show the isolated browser the agent drives, not the product surface that starts a run.

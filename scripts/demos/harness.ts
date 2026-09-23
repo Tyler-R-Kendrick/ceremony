@@ -24,7 +24,10 @@ import {
   type CDPClient,
 } from "@webreel/core";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
-import type { CeremonyRole } from "../../src/core/browser-contracts.js";
+import {
+  checkboxConsent,
+  type CeremonyRole,
+} from "../../src/core/browser-contracts.js";
 import type { RecordedTraceEntry } from "../../src/core/recorded-ceremony.js";
 import type { DriverAction } from "../../src/core/browser-contracts.js";
 import {
@@ -675,9 +678,16 @@ export async function recordDemo(
               control: element.kind,
               ...(phase ? { phase } : {}),
             });
-          else if (action.action === "check")
-            session.say({ kind: "check", actor: "agent" });
-          else if (action.action === "wait")
+          else if (action.action === "check") {
+            // Kinds only, read from the box the way the driver reads it: a
+            // tick that accepts terms says it was consented to.
+            const consent = element ? checkboxConsent(element).kinds : [];
+            session.say({
+              kind: "check",
+              actor: "agent",
+              ...(consent.length ? { consent } : {}),
+            });
+          } else if (action.action === "wait")
             session.say({ kind: "wait", actor: "agent" });
           else if (action.action === "done")
             session.say({ kind: "claim-done", actor: "agent" });
