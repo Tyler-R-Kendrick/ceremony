@@ -1202,6 +1202,66 @@ test("after a provider fault the heuristic retries through the provider's own li
   );
 });
 
+test("a passkey hint on an identifier field alone is conditional UI, not a prompt", async () => {
+  // Step one of an identifier-first page asks for the address only, and a
+  // provider offering conditional passkey UI puts `webauthn` on that field.
+  // There is no password box yet, and nothing about the page needs a person:
+  // handing off here stopped every such provider at its first page.
+  const identifierStep = snapshot({
+    passkey: true,
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        label: "Email or username",
+        autocomplete: "username webauthn",
+      },
+      { index: 1, kind: "button", text: "Next" },
+    ],
+  });
+  const page = inertPage();
+  page.snapshot = async () => identifierStep;
+  let consulted = 0;
+  const result = await runCeremony({
+    page,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      consulted++;
+      return { action: "blocked", reason: "unsupported-page" };
+    },
+    secrets: createSecrets({ username: "casey" }),
+  });
+  assert.equal(consulted, 1, "the interpreter must be asked, not a person");
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+  assert.equal(result.handoffs, 0);
+
+  // A prompt with nothing to type is still a person's step.
+  const prompt = inertPage();
+  prompt.snapshot = async () =>
+    snapshot({
+      passkey: true,
+      elements: [{ index: 0, kind: "button", text: "Continue with passkey" }],
+    });
+  const handedOff = await runCeremony({
+    page: prompt,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      throw new Error("A passkey prompt must never reach the interpreter");
+    },
+    secrets: createSecrets({ username: "casey" }),
+  });
+  assert.equal(
+    handedOff.status === "blocked" && handedOff.reason,
+    "passkey-required",
+  );
+});
+
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
   const interpret = createHeuristicInterpreter();
   assert.deepEqual(

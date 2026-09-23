@@ -651,7 +651,12 @@ for (const engine of browserEngines) {
       //
       //   const passkeyOnly =
       //     snapshot.passkey &&
-      //     !snapshot.elements.some((element) => element.type === "password");
+      //     !snapshot.elements.some(
+      //       (element) =>
+      //         element.type === "password" ||
+      //         (element.kind === "input" &&
+      //           /\bwebauthn\b/.test(element.autocomplete ?? "")),
+      //     );
       //
       // `[autocomplete~="webauthn"]` is a real published signal, and its own
       // comment calls it conditional passkey UI - a browser *may* offer a

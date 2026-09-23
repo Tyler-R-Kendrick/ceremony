@@ -743,11 +743,19 @@ export async function runCeremony(
     const snapshot = observed.snapshot;
     // A step needing a person is never handed to an interpreter to solve.
     // A passkey hint beside a password box is conditional UI: the page still
-    // accepts a password, so it is driven normally. Only a prompt with nothing
-    // else to fill actually requires the authenticator, and so a person.
+    // accepts a password, so it is driven normally. So is the hint on an
+    // identifier field with no password beside it yet - the first step of an
+    // identifier-first page, where the `webauthn` token sits on the field a
+    // person types their address into. Only a prompt with nothing else to
+    // fill actually requires the authenticator, and so a person.
     const passkeyOnly =
       snapshot.passkey &&
-      !snapshot.elements.some((element) => element.type === "password");
+      !snapshot.elements.some(
+        (element) =>
+          element.type === "password" ||
+          (element.kind === "input" &&
+            /\bwebauthn\b/.test(element.autocomplete ?? "")),
+      );
     const humanStep: HumanStepReason | undefined = snapshot.challenge
       ? "human-challenge"
       : passkeyOnly
