@@ -32,6 +32,7 @@ import {
   OAUTH_SETTINGS_KEY,
   PROFILES_SETTINGS_KEY,
   renewCredential,
+  revokeOpenApi,
 } from "./authorize.js";
 import { exportOpenApi } from "./export.js";
 import { OPENAPI_PROFILES, READER_VERSION, isReadResult } from "./model.js";
@@ -360,15 +361,17 @@ export function createOpenApiHttpAdapter(
           profile,
           evidence,
           limitations: [
-            "Local disconnect only; an OpenAPI description declares no upstream unlink operation.",
+            "A local disconnect releases host-held credentials only and never contacts the provider; an OpenAPI description declares no upstream unlink operation.",
+            "An upstream disconnect revokes an OAuth grant (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint; otherwise it reports not-attempted or unsupported.",
           ],
         }),
         capabilityStatus(adapter, {
           dimension: "revoke",
           profile,
-          implementation: "unsupported",
+          evidence,
           limitations: [
-            "An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.",
+            "Only OAuth grants, at the issuer's advertised RFC 7009 endpoint, when the reviewed issuer policy allows it; an issuer answers 200 for tokens it no longer knows, so success is the issuer's statement.",
+            "API key, HTTP basic and HTTP bearer values have no revocation protocol here; they are released locally and must be revoked at the provider.",
           ],
         }),
         capabilityStatus(adapter, {
@@ -834,24 +837,28 @@ export function createOpenApiHttpAdapter(
     },
 
     async disconnect(
-      _ctx: AdapterCallContext,
+      ctx: AdapterCallContext,
       scope: "local" | "broker" | "upstream",
     ): Promise<DisconnectResult> {
-      // Local custody is released by the command layer. An OpenAPI description
-      // declares no unlink or revocation endpoint, so nothing upstream is
-      // attempted and the report says so rather than claiming success.
+      // Local custody is released by the command layer. An OpenAPI
+      // description declares no unlink operation; the only upstream act is
+      // RFC 7009 revocation of an OAuth grant, and only when the host's
+      // reviewed issuer policy asked for it and the issuer advertises it.
       return {
         local: scope === "local" ? "applied" : "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream:
+          scope === "upstream"
+            ? await revokeOpenApi(ctx, oauthOptions)
+            : "not-attempted",
       };
     },
 
-    async revoke(_ctx: AdapterCallContext): Promise<DisconnectResult> {
+    async revoke(ctx: AdapterCallContext): Promise<DisconnectResult> {
       return {
         local: "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream: await revokeOpenApi(ctx, oauthOptions),
       };
     },
 

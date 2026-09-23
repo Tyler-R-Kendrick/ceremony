@@ -757,3 +757,70 @@ test("only a person pins an issuer policy, only through review, and only for an 
     ["listItems"],
   );
 });
+
+test("an upstream disconnect revokes the grant at the issuer only when the reviewed policy allows it; a local one never does", async (t) => {
+  // Revocation allowed by the host's reviewed policy.
+  const allowed = await setup(t, {
+    document: description("authorizationCode", { refreshUrl: true }),
+    policy: { revocation: "on-upstream-disconnect" },
+  });
+  const local = await connectWithBrowser(allowed);
+  const localView = await allowed.harness.service.disconnect(
+    allowed.actor,
+    local.done.connectionRef,
+    { expectedRevision: local.done.revision, scope: "local" },
+  );
+  assert.equal(localView.result.upstream, "not-attempted");
+  assert.equal(localView.connection.lifecycle, "locally-disconnected");
+  assert.equal(
+    allowed.as.counts.revocation,
+    0,
+    "a local unlink is not revocation",
+  );
+
+  const { done } = await connectWithBrowser(allowed);
+  const first = await allowed.harness.service.invoke(
+    allowed.actor,
+    done.connectionRef,
+    {
+      operationRef: allowed.operationRef,
+      commandId: "before-revoke",
+      confirm: true,
+    },
+  );
+  assert.equal(first.state, "complete");
+  const presented = allowed.api.requests
+    .at(-1)!
+    .headers["authorization"]!.slice(7);
+  assert.ok(allowed.as.accessTokenActive(presented));
+  const held = heldSecrets(allowed);
+  const current = await allowed.harness.service.status(
+    allowed.actor,
+    done.connectionRef,
+  );
+  const upstream = await allowed.harness.service.disconnect(
+    allowed.actor,
+    done.connectionRef,
+    { expectedRevision: current.revision, scope: "upstream" },
+  );
+  assert.equal(upstream.result.upstream, "applied");
+  assert.equal(upstream.connection.lifecycle, "upstream-revoked");
+  // Refresh token first, then the access token, each to the issuer's endpoint.
+  assert.equal(allowed.as.counts.revocation, 2);
+  assert.equal(allowed.as.accessTokenActive(presented), false);
+  assertNoSecrets(allowed, [presented, ...held], "revocation", upstream);
+
+  // The same deployment without the policy flag: nothing is presented.
+  const off = await setup(t, {
+    document: description("authorizationCode", { refreshUrl: true }),
+  });
+  const kept = await connectWithBrowser(off);
+  const unrevoked = await off.harness.service.disconnect(
+    off.actor,
+    kept.done.connectionRef,
+    { expectedRevision: kept.done.revision, scope: "upstream" },
+  );
+  assert.equal(unrevoked.result.upstream, "not-attempted");
+  assert.equal(unrevoked.connection.lifecycle, "locally-disconnected");
+  assert.equal(off.as.counts.revocation, 0);
+});

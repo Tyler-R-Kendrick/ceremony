@@ -98,6 +98,14 @@ export const issuerPolicySchema = z.strictObject({
   pushedAuthorization: z.enum(["if-required", "prefer"]).default("if-required"),
   /** Loopback HTTP is for fixtures only; a remote issuer is always HTTPS. */
   allowLoopbackHttp: z.boolean().default(false),
+  /**
+   * RFC 7009: whether an upstream disconnect or an administrative revoke
+   * presents the held tokens to the issuer's advertised revocation endpoint.
+   * Off unless the host turns it on; a local disconnect never does.
+   */
+  revocation: z
+    .enum(["disabled", "on-upstream-disconnect"])
+    .default("disabled"),
   tokenExchange: z
     .strictObject({
       enabled: z.boolean().default(false),

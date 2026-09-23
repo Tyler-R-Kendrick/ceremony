@@ -157,6 +157,8 @@ export type AuthorizationServerDouble = {
     device: number;
     deviceToken: number;
     registration: number;
+    /** RFC 7009 revocation requests received, one per token presented. */
+    revocation: number;
     introspection: number;
     par: number;
     jwks: number;
@@ -271,6 +273,7 @@ export async function startAuthorizationServer(
     device: 0,
     deviceToken: 0,
     registration: 0,
+    revocation: 0,
     introspection: 0,
     par: 0,
     jwks: 0,
@@ -852,6 +855,10 @@ export async function startAuthorizationServer(
     }
 
     if (route === "/revoke" && request.method === "POST") {
+      counts.revocation++;
+      // RFC 7009 §2.1: the client authenticates as it does at the token endpoint.
+      if (!authenticateClient(parameters, authorization).ok)
+        return oauthError(401, "invalid_client");
       const token = parameters["token"];
       if (token) {
         refreshTokens.delete(token);

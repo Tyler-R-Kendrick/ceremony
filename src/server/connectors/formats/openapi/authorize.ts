@@ -5,6 +5,7 @@ import type {
   AuthorizationStart,
   CompletionInput,
   CompletionResult,
+  DisconnectOutcome,
   HandoffProposal,
 } from "../../adapter.js";
 import {
@@ -33,6 +34,7 @@ import {
   type DevicePollState,
 } from "../../auth/device.js";
 import { assertHandoffCurrent } from "../../auth/handoff.js";
+import { revokeUpstreamGrant } from "../../auth/revocation.js";
 import type { IssuerPolicy } from "../../auth/policy.js";
 import type { RuntimeBinding } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
@@ -522,6 +524,45 @@ export async function acquireForVerification(
       requestedPermissions: [],
     }),
     scope: connectionCredentialScope(ctx),
+  });
+}
+
+/**
+ * Upstream revocation of the connection's OAuth grant, for an upstream
+ * disconnect or an administrative revoke. An API key, basic or bearer value
+ * has no revocation protocol here and is released locally only
+ * (`unsupported`); an OAuth grant is revoked only under the conditions
+ * `revokeUpstreamGrant` states, and nothing is discovered when the host's
+ * policy leaves revocation off.
+ */
+export async function revokeOpenApi(
+  ctx: AdapterCallContext,
+  options: ConnectorOAuthOptions,
+): Promise<DisconnectOutcome> {
+  const credentialRef = ctx.connection?.credentialRef;
+  if (!credentialRef) return "not-attempted";
+  const requested = ctx.connection?.state["profileId"];
+  const selected = selectProfile(
+    ctx.binding,
+    typeof requested === "string" ? requested : undefined,
+  );
+  if (selected.kind !== "profile" || !OAUTH_KINDS.has(selected.profile.kind))
+    return "unsupported";
+  const policy = oauthPolicyFor(ctx.binding, selected.profile.id);
+  if (!policy) return "unsupported";
+  if (policy.revocation !== "on-upstream-disconnect") return "not-attempted";
+  let oauth: ConnectorOAuth;
+  try {
+    oauth = await resolveConnectorOAuth(ctx, policy, options);
+  } catch {
+    return "failed";
+  }
+  return revokeUpstreamGrant(ctx, {
+    server: oauth.server,
+    client: oauth.client,
+    policy,
+    scope: connectionCredentialScope(ctx),
+    credentialRef,
   });
 }
 

@@ -742,7 +742,7 @@ test("without a named verifier, verification stays pending rather than inventing
   assert.equal(fixtureState.server.requests.length, 0);
 });
 
-test("disconnect and revoke report local scope only, never an upstream claim", async (t) => {
+test("an API-key connection's disconnect and revoke report local scope only, never an upstream claim", async (t) => {
   const fixtureState = await bind(t, {
     handler: () => ({ status: 200, body: [] }),
     credential: { apiKey: "key-value" },
@@ -752,13 +752,15 @@ test("disconnect and revoke report local scope only, never an upstream claim", a
     "local",
   );
   assert.equal(local.local, "applied");
-  assert.equal(local.upstream, "unsupported");
+  // A local disconnect never contacts the provider.
+  assert.equal(local.upstream, "not-attempted");
   const upstream = await fixtureState.adapter.disconnect!(
     fixtureState.ctx,
     "upstream",
   );
   assert.equal(upstream.upstream, "unsupported");
   assert.equal(upstream.local, "not-attempted");
+  // An API key has no revocation protocol here: revoking it is the provider's.
   const revoked = await fixtureState.adapter.revoke!(fixtureState.ctx);
   assert.equal(revoked.upstream, "unsupported");
   assert.equal(fixtureState.server.requests.length, 0);
@@ -770,7 +772,6 @@ test("capabilities report per dimension and never claim evidence for an unsuppor
   const byDimension = new Map(rows.map((row) => [row.dimension, row]));
   assert.equal(byDimension.get("discover")?.implementation, "unsupported");
   assert.equal(byDimension.get("events")?.implementation, "unsupported");
-  assert.equal(byDimension.get("revoke")?.implementation, "unsupported");
   assert.equal(byDimension.get("delegate")?.implementation, "unsupported");
   for (const dimension of [
     "import",
@@ -779,6 +780,8 @@ test("capabilities report per dimension and never claim evidence for an unsuppor
     "verify",
     "invoke",
     "export",
+    // RFC 7009 for OAuth grants, under the reviewed issuer policy only.
+    "revoke",
   ] as const)
     assert.equal(byDimension.get(dimension)?.implementation, "implemented");
   for (const row of rows)
