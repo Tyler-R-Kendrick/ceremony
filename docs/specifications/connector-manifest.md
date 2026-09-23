@@ -12,7 +12,19 @@ Runtime: `connectorManifestV1Schema`, `manifestSchema`, `methodContractSchema`, 
 | `name`, `description` | Bounded display text, not instructions or authority                                                         |
 | `methods`             | 1–12 uniquely identified methods, each with an explicit contract                                            |
 
-Unknown keys and versions MUST be rejected. Import MUST be bounded to 256 KiB UTF-8 before JSON parsing. `parseConnectorManifest` implements that boundary. Endpoint URLs, credentials, callbacks, recipients, executable code, publication grants and runtime artifact handles MUST NOT be embedded. The host MUST separately register handlers and approved origins; an imported inventory cannot enable a live method.
+Unknown keys and versions MUST be rejected. Import MUST be bounded to 256 KiB UTF-8 before JSON parsing. `parseConnectorManifest` implements that boundary. A v1 manifest describes methods bound to host-registered handlers, so endpoint URLs, credentials, callbacks, recipients, executable code, publication grants and runtime artifact handles MUST NOT be embedded in it. The host MUST separately register handlers and approved origins; an imported manifest cannot enable a live method. A provider whose endpoints are data is described by a provider catalog entry instead, under [declared endpoints](#declared-endpoints).
+
+## Declared endpoints
+
+A data-defined provider (a [provider catalog](../provider-catalog.md) entry, including one imported from a Nango `providers.yaml`) MAY declare authorization, token, refresh and proxy base URLs. A declaration is not an approval: the rule is _declared endpoints, approved at binding review_.
+
+- A declared endpoint MUST be an `https:` URL with no userinfo and no fragment. Loopback `http:` MAY be declared only when the host constructs the reader with `allowLoopbackHttp`, and MUST NOT be contacted unless host network policy admitted the binding's destination as `loopback-fixture`.
+- The only template form is `${connectionConfig.<field>}`, for a field the entry declares. A template MAY fill whole leftmost host labels (with at least two fixed labels to their right, and only from a field whose format is `dns-label`), path segments and parameter or header values. It MUST NOT fill a scheme, a port, userinfo, part of a host label or a registrable domain. A resolved value MUST be a single DNS label or URL token, and the resolved URL MUST be the one the template described (same scheme, port and fixed host suffix, and a path the parser did not rewrite).
+- Credentials MUST NOT be embedded in an entry or placed by a template. The entry's typed auth mode (OAuth authorization code, OAuth client credentials, API key header or query, Basic, bearer, none) is the only thing that places one.
+- Importing or registering an entry MUST NOT make any endpoint contactable. An endpoint becomes contactable only through an approved runtime binding: the reviewer approves the proxy destination as an exact origin under host network policy, and approves the entry itself as binding settings covered by the binding's reviewed digest.
+- At use, the adapter MUST validate the entry again, MUST refuse an entry that does not match the binding's recorded digest (or, for a host-registered provider, the host's own entry), and MUST refuse any proxy request whose approved destination origin differs from the entry's declared proxy origin. A caller supplies a path under the declared base, never a host or URL.
+- An entry whose auth mode cannot execute MUST be kept as a described entry with its reason and a blocking compatibility issue, and MUST be labelled `catalog-only`. It MUST NOT be silently dropped or labelled executable.
+- Support for a data-defined provider is `fixture` until live evidence for that provider exists; registering an entry is never evidence.
 
 ## Authentication method
 
