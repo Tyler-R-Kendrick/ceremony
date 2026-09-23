@@ -5,6 +5,7 @@ import {
   completeAuthorizationCode,
   callbackUri,
   refreshAccessToken,
+  ID_TOKEN_SIGNING_ALGORITHMS,
   reviewPermissionEscalation,
   scopeEnforcement,
   credentialScopeFor,
@@ -163,6 +164,83 @@ test("AC-AUTH-03: an ID token signed by a key the issuer never published cannot 
   assert.equal(
     harness.ports.inspect.effects()[0]?.outcome?.code,
     "oauth.token.invalid-response",
+  );
+});
+
+test("an ID token signed with HS256, not at all, or outside the pin is refused, even from an issuer that advertises it", async (t) => {
+  // Pinned, not inherited: the list is this engine's own statement.
+  assert.deepEqual(ID_TOKEN_SIGNING_ALGORITHMS, [
+    "RS256",
+    "PS256",
+    "ES256",
+    "EdDSA",
+  ]);
+  for (const algorithm of ["HS256", "none", "ES384"] as const) {
+    const harness = await authHarness(t, {
+      configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+      server: {
+        openidConnect: true,
+        subject: "ada",
+        misbehave: { idTokenSignedWith: algorithm },
+      },
+    });
+    const ctx = harness.ctx();
+    const { record } = await begun(harness, ctx);
+    const callback = await harness.server.authorize(
+      record.private["authorizationUrl"]!,
+    );
+    await assert.rejects(
+      completeAuthorizationCode(ctx, {
+        url: new URL(callback),
+        handoff: record,
+        server: harness.resolved,
+        client: harness.client,
+        policy: harness.policy,
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "upstream-rejected" &&
+        error.detail === "oauth.token.invalid-response",
+      algorithm,
+    );
+    assert.deepEqual(harness.ports.inspect.credentialRefs(), [], algorithm);
+    assert.equal(inspectHandoffs(harness)[0]?.state, "denied", algorithm);
+  }
+});
+
+test("a client-level algorithm override cannot widen the pin", async (t) => {
+  // oauth4webapi prefers a client's `id_token_signed_response_alg` over the
+  // issuer's list; the engine drops it, so HS256 named there is still refused.
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      subject: "ada",
+      misbehave: { idTokenSignedWith: "HS256" },
+    },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  await assert.rejects(
+    completeAuthorizationCode(ctx, {
+      url: new URL(callback),
+      handoff: record,
+      server: harness.resolved,
+      client: {
+        ...harness.client,
+        client: {
+          ...harness.client.client,
+          id_token_signed_response_alg: "HS256",
+        },
+      },
+      policy: harness.policy,
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.token.invalid-response",
   );
 });
 

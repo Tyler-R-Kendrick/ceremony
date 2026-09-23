@@ -1,5 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
+import {
+  exportJWK,
+  generateKeyPair,
+  SignJWT,
+  UnsecuredJWT,
+  type CryptoKey,
+} from "jose";
 import { startHttpFixture, type FixtureReply } from "./http-fixture.js";
 
 /*
@@ -71,6 +77,14 @@ export type AuthorizationServerMisbehaviour = {
   idTokenNonce?: string;
   /** Stamp the ID token's `iat` this many seconds from the real clock. */
   idTokenIssuedAtOffsetSeconds?: number;
+  /**
+   * Sign the ID token with HMAC over the client's own secret (`HS256`), or
+   * not at all (`none`), and advertise that algorithm in the metadata too:
+   * the key-confusion and unsecured-token attacks, as an issuer that has been
+   * told to accept them would serve them. `ES384` is an honest asymmetric
+   * signature from a published key, in an algorithm outside the client's pin.
+   */
+  idTokenSignedWith?: "HS256" | "none" | "ES384";
 };
 
 export type AuthorizationServerOptions = {
@@ -263,6 +277,12 @@ export async function startAuthorizationServer(
     bad.forgedIdTokenSubject === undefined
       ? undefined
       : (await generateKeyPair("ES256", { extractable: true })).privateKey;
+  // A published ES384 key, only for the ID token outside the client's pin.
+  const es384 =
+    bad.idTokenSignedWith === "ES384"
+      ? await generateKeyPair("ES384", { extractable: true })
+      : undefined;
+  const es384KeyId = `es384-${randomBytes(4).toString("hex")}`;
   const subject = options.subject ?? "user-1";
   const deviceInterval = options.deviceInterval ?? 1;
   const clientSecret = options.clientSecret;
@@ -365,7 +385,11 @@ export async function startAuthorizationServer(
     ...(options.openidConnect
       ? {
           userinfo_endpoint: endpoint("userinfo"),
-          id_token_signing_alg_values_supported: ["ES256", "RS256"],
+          id_token_signing_alg_values_supported: [
+            "ES256",
+            "RS256",
+            ...(bad.idTokenSignedWith ? [bad.idTokenSignedWith] : []),
+          ],
           subject_types_supported: ["public"],
         }
       : {}),
@@ -413,6 +437,42 @@ export async function startAuthorizationServer(
         input.signWith ??
           ((rs256 && rsa ? rsa.privateKey : privateKey) as CryptoKey),
       );
+  };
+
+  /** An ID token nobody should accept: HMAC over the client secret, or unsigned. */
+  const weakIdToken = async (
+    algorithm: "HS256" | "none" | "ES384",
+    input: { subject: string; audience: string; nonce?: string },
+  ) => {
+    const claims = {
+      ...(input.nonce !== undefined ? { nonce: input.nonce } : {}),
+    };
+    const seconds = Math.floor(now() / 1000);
+    if (algorithm === "none")
+      return new UnsecuredJWT(claims)
+        .setIssuer(issuer)
+        .setSubject(input.subject)
+        .setAudience(input.audience)
+        .setIssuedAt(Math.floor(Date.now() / 1000))
+        .setExpirationTime(seconds + 3600)
+        .encode();
+    if (algorithm === "ES384")
+      return new SignJWT(claims)
+        .setProtectedHeader({ alg: "ES384", kid: es384KeyId })
+        .setIssuer(issuer)
+        .setSubject(input.subject)
+        .setAudience(input.audience)
+        .setIssuedAt(Math.floor(Date.now() / 1000))
+        .setExpirationTime(seconds + 3600)
+        .sign(es384!.privateKey);
+    return new SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(issuer)
+      .setSubject(input.subject)
+      .setAudience(input.audience)
+      .setIssuedAt(Math.floor(Date.now() / 1000))
+      .setExpirationTime(seconds + 3600)
+      .sign(new TextEncoder().encode(clientSecret ?? "no-secret"));
   };
 
   const issueAccessToken = async (input: {
@@ -537,6 +597,16 @@ export async function startAuthorizationServer(
                   kid: rsaKeyId,
                   use: "sig",
                   alg: "RS256",
+                },
+              ]
+            : []),
+          ...(es384
+            ? [
+                {
+                  ...(await exportJWK(es384.publicKey as CryptoKey)),
+                  kid: es384KeyId,
+                  use: "sig",
+                  alg: "ES384",
                 },
               ]
             : []),
@@ -723,24 +793,32 @@ export async function startAuthorizationServer(
           expires_in: 3600,
           refresh_token: refresh,
           ...(bad.omitScope ? {} : { scope: granted }),
-          ...(options.openidConnect
+          ...(options.openidConnect && bad.idTokenSignedWith
             ? {
-                id_token: await signJwt({
-                  subject: bad.forgedIdTokenSubject ?? grant.subject,
+                id_token: await weakIdToken(bad.idTokenSignedWith, {
+                  subject: grant.subject,
                   audience: authenticated.clientId,
-                  ...(bad.idTokenNonce !== undefined
-                    ? { nonce: bad.idTokenNonce }
-                    : grant.nonce !== undefined
-                      ? { nonce: grant.nonce }
-                      : {}),
-                  ...(strangerKey ? { signWith: strangerKey } : {}),
-                  ...(options.idTokenAlgorithm
-                    ? { algorithm: options.idTokenAlgorithm }
-                    : {}),
-                  issuedAtOffsetSeconds: bad.idTokenIssuedAtOffsetSeconds,
+                  ...(grant.nonce !== undefined ? { nonce: grant.nonce } : {}),
                 }),
               }
-            : {}),
+            : options.openidConnect
+              ? {
+                  id_token: await signJwt({
+                    subject: bad.forgedIdTokenSubject ?? grant.subject,
+                    audience: authenticated.clientId,
+                    ...(bad.idTokenNonce !== undefined
+                      ? { nonce: bad.idTokenNonce }
+                      : grant.nonce !== undefined
+                        ? { nonce: grant.nonce }
+                        : {}),
+                    ...(strangerKey ? { signWith: strangerKey } : {}),
+                    ...(options.idTokenAlgorithm
+                      ? { algorithm: options.idTokenAlgorithm }
+                      : {}),
+                    issuedAtOffsetSeconds: bad.idTokenIssuedAtOffsetSeconds,
+                  }),
+                }
+              : {}),
         });
       }
 

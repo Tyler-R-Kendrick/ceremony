@@ -186,8 +186,10 @@ from Nango.
   or equal the entry's optional `jwksUrl`; an issuer that publishes no keys is
   refused before the person is sent anywhere (`catalog.oidc.jwks-missing`).
   The engine then sends a nonce and verifies the ID token's signature against
-  the published keys (ES256, RS256 and the other asymmetric algorithms
-  oauth4webapi supports; never HMAC), its issuer, audience, `exp` (30 second
+  the published keys, in one of the engine's pinned algorithms (`RS256`,
+  `PS256`, `ES256`, `EdDSA`, narrowed further by what the issuer advertises
+  and never widened by it or by a client setting; `HS256`, `none` and any
+  other algorithm are refused), its issuer, audience, `exp` (30 second
   tolerance), `iat` (no more than a minute ahead) and nonce. Only the verified
   subject leaves the engine, as the connection's account identity; the ID
   token and its other claims are neither stored nor projected. Without
