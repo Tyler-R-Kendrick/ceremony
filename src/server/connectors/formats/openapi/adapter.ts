@@ -20,6 +20,7 @@ import {
   type CompletionResult,
 } from "../../adapter.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
+import { beginAttempt } from "../../attempts.js";
 import { boundOperation, destinationFor } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialScope } from "../../ports.js";
@@ -28,12 +29,21 @@ import {
   authorizeOpenApi,
   completeOpenApi,
   credentialRequired,
+  OAUTH_SETTINGS_KEY,
+  PROFILES_SETTINGS_KEY,
   renewCredential,
+  revokeOpenApi,
 } from "./authorize.js";
 import { exportOpenApi } from "./export.js";
 import { OPENAPI_PROFILES, READER_VERSION, isReadResult } from "./model.js";
-import { planFromBinding, planSettingsOf, type OperationPlan } from "./plan.js";
+import {
+  PLAN_SETTINGS_KEY,
+  planFromBinding,
+  planSettingsOf,
+  type OperationPlan,
+} from "./plan.js";
 import { readOpenApi, type ReadOptions } from "./read.js";
+import { reviewOpenApiBinding } from "./review.js";
 import {
   InputRejected,
   RESERVED_REQUEST_HEADERS,
@@ -351,15 +361,17 @@ export function createOpenApiHttpAdapter(
           profile,
           evidence,
           limitations: [
-            "Local disconnect only; an OpenAPI description declares no upstream unlink operation.",
+            "A local disconnect releases host-held credentials only and never contacts the provider; an OpenAPI description declares no upstream unlink operation.",
+            "An upstream disconnect revokes an OAuth grant (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint; otherwise it reports not-attempted or unsupported.",
           ],
         }),
         capabilityStatus(adapter, {
           dimension: "revoke",
           profile,
-          implementation: "unsupported",
+          evidence,
           limitations: [
-            "An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.",
+            "Only OAuth grants, at the issuer's advertised RFC 7009 endpoint, when the reviewed issuer policy allows it; an issuer answers 200 for tokens it no longer knows, so success is the issuer's statement.",
+            "API key, HTTP basic and HTTP bearer values have no revocation protocol here; they are released locally and must be revoked at the provider.",
           ],
         }),
         capabilityStatus(adapter, {
@@ -537,38 +549,49 @@ export function createOpenApiHttpAdapter(
                 destination: destination.id,
                 target: effectTarget,
                 body: serialized.body ?? null,
-                // The attempt after a renewal is its own journal entry: the first
-                // was refused before it was applied and already recorded as such.
-                ...(renewed ? { attempt: "credential-renewed" } : {}),
               }),
             );
-            const { effectRef, prior } = await ctx.environment.effects.begin({
-              actor: ctx.actor,
-              ...(ctx.connection
-                ? { connectionRef: ctx.connection.connectionRef }
-                : {}),
-              bindingRef: ctx.binding.bindingRef,
-              operation: request.operationRef,
-              digest,
-              ...(request.idempotencyKey &&
-              bound.replay === "upstream-idempotency-key"
-                ? {
-                    idempotency: {
-                      key: request.idempotencyKey,
-                      scope: destination.id,
-                    },
-                  }
-                : {}),
-              commandId: request.commandId,
-            });
-            if (
-              prior &&
-              bound.replay !== "read-only" &&
-              prior.status !== "not-applied"
-            )
+            // A read-only read is its own entry every time; any other request
+            // is an attempt at one effect, and the attempt after a refusal
+            // that never applied (the 401 a renewal cures included) is the
+            // next entry of that effect. See `../../attempts.ts`.
+            const { effectRef, prior } = await beginAttempt(
+              ctx.environment.effects,
+              {
+                actor: ctx.actor,
+                ...(ctx.connection
+                  ? { connectionRef: ctx.connection.connectionRef }
+                  : {}),
+                bindingRef: ctx.binding.bindingRef,
+                operation: request.operationRef,
+                digest,
+                ...(request.idempotencyKey &&
+                bound.replay === "upstream-idempotency-key"
+                  ? {
+                      idempotency: {
+                        key: request.idempotencyKey,
+                        scope: destination.id,
+                      },
+                    }
+                  : {}),
+                commandId: request.commandId,
+              },
+              {
+                mode:
+                  bound.replay === "read-only"
+                    ? "each-request"
+                    : "until-applied",
+                random: ctx.environment.random,
+              },
+            );
+            if (prior)
               return {
                 state:
-                  prior.status === "applied" ? "complete" : "indeterminate",
+                  prior.status === "applied" || prior.status === "reconciled"
+                    ? "complete"
+                    : prior.status === "indeterminate"
+                      ? "indeterminate"
+                      : "failed",
                 outputClassification: bound.outputClassification,
                 effect: bound.effect,
                 ...(prior.code ? { code: prior.code } : {}),
@@ -749,6 +772,20 @@ export function createOpenApiHttpAdapter(
       }
     },
 
+    reservedSettings: [
+      PLAN_SETTINGS_KEY,
+      PROFILES_SETTINGS_KEY,
+      OAUTH_SETTINGS_KEY,
+    ],
+
+    async reviewBinding(input) {
+      return reviewOpenApiBinding(input, {
+        maxImportBytes,
+        parseDocument: options.parseDocument,
+        resolveExternal: options.resolveExternal,
+      });
+    },
+
     async authorize(ctx, intent) {
       return authorizeOpenApi(ctx, intent, oauthOptions);
     },
@@ -800,24 +837,28 @@ export function createOpenApiHttpAdapter(
     },
 
     async disconnect(
-      _ctx: AdapterCallContext,
+      ctx: AdapterCallContext,
       scope: "local" | "broker" | "upstream",
     ): Promise<DisconnectResult> {
-      // Local custody is released by the command layer. An OpenAPI description
-      // declares no unlink or revocation endpoint, so nothing upstream is
-      // attempted and the report says so rather than claiming success.
+      // Local custody is released by the command layer. An OpenAPI
+      // description declares no unlink operation; the only upstream act is
+      // RFC 7009 revocation of an OAuth grant, and only when the host's
+      // reviewed issuer policy asked for it and the issuer advertises it.
       return {
         local: scope === "local" ? "applied" : "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream:
+          scope === "upstream"
+            ? await revokeOpenApi(ctx, oauthOptions)
+            : "not-attempted",
       };
     },
 
-    async revoke(_ctx: AdapterCallContext): Promise<DisconnectResult> {
+    async revoke(ctx: AdapterCallContext): Promise<DisconnectResult> {
       return {
         local: "not-attempted",
         broker: "unsupported",
-        upstream: "unsupported",
+        upstream: await revokeOpenApi(ctx, oauthOptions),
       };
     },
 

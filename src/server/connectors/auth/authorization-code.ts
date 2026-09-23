@@ -5,6 +5,7 @@ import type {
   CompletionResult,
   HandoffProposal,
 } from "../adapter.js";
+import { beginAttempt } from "../attempts.js";
 import { ConnectorError } from "../errors.js";
 import type {
   CredentialMaterial,
@@ -704,21 +705,32 @@ export async function refreshAccessToken(
               : {}),
           };
         }
-        const begun = await ctx.environment.effects.begin({
-          actor: ctx.actor,
-          connectionRef: input.scope.connectionRef,
-          bindingRef: input.scope.bindingRef,
-          operation: OAUTH_REFRESH_OPERATION,
-          digest: sha256Hex(
-            "refresh",
-            input.server.issuer,
-            input.client.client.client_id,
-            refreshToken,
-          ),
-        });
-        if (begun.prior && begun.prior.status !== "not-applied")
+        // An attempt that never reached the issuer leaves the next attempt its
+        // own journal entry; one that was applied or may have been is final.
+        const begun = await beginAttempt(
+          ctx.environment.effects,
+          {
+            actor: ctx.actor,
+            connectionRef: input.scope.connectionRef,
+            bindingRef: input.scope.bindingRef,
+            operation: OAUTH_REFRESH_OPERATION,
+            digest: sha256Hex(
+              "refresh",
+              input.server.issuer,
+              input.client.client.client_id,
+              refreshToken,
+            ),
+          },
+          { mode: "until-applied", random: ctx.environment.random },
+        );
+        const settled = begun.prior;
+        if (settled?.status === "not-applied")
+          throw new ConnectorError("upstream-unavailable", {
+            detail: "oauth.refresh.unreachable",
+          });
+        if (settled)
           throw new ConnectorError(
-            begun.prior.status === "applied" ? "conflict" : "indeterminate",
+            settled.status === "applied" ? "conflict" : "indeterminate",
             { detail: "oauth.refresh.already-used" },
           );
         const now = () => ctx.environment.now();

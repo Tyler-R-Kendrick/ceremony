@@ -5,20 +5,14 @@ import {
   type RuntimeBinding,
 } from "../../../src/server/connectors/index.js";
 import { CONNECTOR_CALLBACK_PATH } from "../../../src/server/connectors/commands/service.js";
-import {
-  compileOperations,
-  createOpenApiHttpAdapter,
-  isReadResult,
-  readOpenApi,
-} from "../../../src/server/connectors/formats/openapi/index.js";
+import { createOpenApiHttpAdapter } from "../../../src/server/connectors/formats/openapi/index.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
   startAuthorizationServer,
   type AuthorizationServerOptions,
 } from "../doubles/authorization-server.js";
 import { startHttpFixture } from "../doubles/http-fixture.js";
-import { createHarness, human, ORIGIN, TENANT } from "../commands/harness.js";
-import { loopbackDestination } from "./helpers.js";
+import { agent, createHarness, human, ORIGIN } from "../commands/harness.js";
 
 /*
  * An imported OpenAPI description, approved into a binding, connected by a
@@ -114,6 +108,53 @@ const apiKeyDescription = {
   },
 };
 
+/**
+ * The reviewed path a deployment takes: the description is imported through
+ * the command service, and a person approves a binding naming the destination,
+ * the operation and the issuer policy. The adapter compiles the plans from the
+ * imported bytes; nothing is written into the store by hand.
+ */
+async function approveThroughReview(
+  harness: Awaited<ReturnType<typeof createHarness>>,
+  reviewer: ReturnType<typeof human>,
+  input: {
+    document: unknown;
+    destination: string;
+    oauth?: Record<string, unknown>;
+    settings?: Record<string, unknown>;
+    verifier?: { nativeId: string };
+  },
+): Promise<RuntimeBinding> {
+  const imported = await harness.service.import(reviewer, {
+    kind: "upload",
+    mediaType: "application/json",
+    text: JSON.stringify(input.document),
+    adapterId: "openapi-http",
+  });
+  const definitionRef = imported.definitions[0];
+  assert.ok(definitionRef, "the description imported");
+  const reference = await harness.service.approveBinding(reviewer, {
+    definitionRef,
+    adapterId: "openapi-http",
+    approvals: {
+      destinations: [input.destination],
+      operations: ["listItems"],
+      ...(input.oauth ? { oauth: input.oauth } : {}),
+      ...(input.settings ? { settings: input.settings } : {}),
+      ...(input.verifier ? { verifier: input.verifier } : {}),
+    },
+  });
+  const binding = harness.definitions
+    .bindings()
+    .find(
+      (item) =>
+        item.bindingRef === reference.bindingRef &&
+        item.revision === reference.revision,
+    );
+  assert.ok(binding, "the approval persisted a binding");
+  return binding;
+}
+
 type Setup = Awaited<ReturnType<typeof setup>>;
 
 async function setup(
@@ -155,17 +196,6 @@ async function setup(
   const harness = await createHarness({ now, service: { registry } });
   t.after(() => harness.close());
 
-  const read = await readOpenApi(input.document);
-  assert.ok(isReadResult(read), "the description reads");
-  const destination = loopbackDestination(api.origin, "api");
-  const compiled = compileOperations(read.definition, read, {
-    destinationId: destination.id,
-    destination,
-  });
-  const operation = compiled.operations.find(
-    (item) => item.nativeId === "listItems",
-  );
-  assert.ok(operation, "listItems compiled");
   const policy =
     input.policy === false
       ? undefined
@@ -181,33 +211,17 @@ async function setup(
           },
           ...input.policy,
         };
-  const binding: RuntimeBinding = {
-    bindingRef: "binding:items",
-    definitionRef: read.definition.definitionRef,
-    revision: 1,
-    adapterId: "openapi-http",
-    adapterVersion: "1.0.0",
-    runtime: "hosted-server",
-    custody: "host-owned",
-    authorityInstance: api.origin,
-    status: "approved",
-    approvedAt: "2026-09-23T00:00:00.000Z",
-    policyRevision: harness.policy.revision,
-    tenantId: TENANT,
-    destinations: [destination],
-    operations: compiled.operations,
-    configuration: [],
-    permittedTargets: [],
-    reviewedDigest: "b".repeat(64),
-    settings: {
-      ...compiled.settings,
-      "openapi-http-profiles": read.definition.authentication,
-      ...(policy ? { oauth: policy } : {}),
-    },
-  };
-  await harness.definitions.putDefinition(TENANT, read.definition);
-  await harness.definitions.putBinding(binding);
-  const actor = human();
+  const reviewer = human();
+  const binding = await approveThroughReview(harness, reviewer, {
+    document: input.document,
+    destination: api.origin,
+    ...(policy ? { oauth: policy } : {}),
+  });
+  const operation = binding.operations.find(
+    (item) => item.nativeId === "listItems",
+  );
+  assert.ok(operation, "listItems was approved");
+  const actor = reviewer;
   for (const [name, value] of Object.entries(
     input.configuration ?? { ITEMS_CLIENT_ID: "items-client" },
   ))
@@ -350,7 +364,7 @@ test("an expired token is refreshed once and the call proceeds, even when two ca
   assertNoSecrets(state, [], "refresh", first, second);
 });
 
-test("a 401 to a live-looking token triggers one refresh and one retry, journaled as two attempts", async (t) => {
+test("a 401 to a live-looking token triggers one refresh and one retry, each journaled as its own attempt", async (t) => {
   const state = await setup(t, { document: description("authorizationCode") });
   const { done } = await connectWithBrowser(state);
   const first = await state.harness.service.invoke(
@@ -387,10 +401,10 @@ test("a 401 to a live-looking token triggers one refresh and one retry, journale
     .effects()
     .filter((entry) => entry.intent.operation === state.operationRef)
     .map((entry) => entry.outcome?.status);
-  // Identical reads share one journal entry (read-only replay), so the first
-  // call and the refused one are the same entry, now recorded as refused; the
-  // retry after renewal is an entry of its own.
-  assert.deepEqual(attempts, ["not-applied", "applied"]);
+  // Every request sent is its own journal entry: the first read, the one the
+  // destination refused (not applied), and the retry after renewal. None of
+  // them overwrites another's outcome.
+  assert.deepEqual(attempts, ["applied", "not-applied", "applied"]);
   assertNoSecrets(state, [revoked], "401 retry", result);
 });
 
@@ -652,4 +666,161 @@ test("capabilities describe authorize by profile kind and name what is unsupport
     "not supported",
   ])
     assert.ok(text.includes(phrase), phrase);
+});
+
+test("only a person pins an issuer policy, only through review, and only for an issuer host policy admits", async (t) => {
+  const api = await startHttpFixture(() => ({ status: 200, body: [] }));
+  t.after(() => api.close());
+  const registry = new ConnectorAdapterRegistry();
+  registry.register(createOpenApiHttpAdapter());
+  // Delegation checks are another test's subject: this policy lets the agent
+  // reach the approval, so the refusal below is the issuer rule's own.
+  const harness = await createHarness({
+    service: { registry },
+    policy: (base) => ({ ...base, authorize: () => true }),
+  });
+  t.after(() => harness.close());
+  const reviewer = human();
+  const declared = {
+    issuer: "https://declared.example.test",
+    registration: { clientIdConfiguration: "ITEMS_CLIENT_ID" },
+  };
+  const refused = (detail: string) => (error: unknown) =>
+    error instanceof ConnectorError && error.detail === detail;
+
+  await assert.rejects(
+    approveThroughReview(
+      harness,
+      agent({ capabilities: ["author", "reviewer", "executor"] }),
+      {
+        document: description("authorizationCode"),
+        destination: api.origin,
+        oauth: declared,
+      },
+    ),
+    refused("oauth.policy.human-only"),
+  );
+  for (const key of ["oauth", "openapi-http", "openapi-http-oauth"])
+    await assert.rejects(
+      approveThroughReview(harness, reviewer, {
+        document: description("authorizationCode"),
+        destination: api.origin,
+        settings: { [key]: declared },
+      }),
+      refused("settings.reserved"),
+      `${key} cannot ride in free-form settings`,
+    );
+  await assert.rejects(
+    approveThroughReview(harness, reviewer, {
+      document: description("authorizationCode"),
+      destination: api.origin,
+      oauth: { ...declared, issuer: "https://elsewhere.example.test" },
+    }),
+    refused("oauth.issuer.not-permitted"),
+  );
+  await assert.rejects(
+    approveThroughReview(harness, reviewer, {
+      document: description("authorizationCode"),
+      destination: api.origin,
+      oauth: {
+        ...declared,
+        trustedOrigins: ["https://elsewhere.example.test"],
+      },
+    }),
+    refused("oauth.issuer.not-permitted"),
+    "every origin the policy may contact is judged, not only the issuer's",
+  );
+
+  // The declared issuer, named by a person: approved, pinned and digested,
+  // with the approved read the reviewer named as verifier.
+  const binding = await approveThroughReview(harness, reviewer, {
+    document: description("authorizationCode"),
+    destination: api.origin,
+    oauth: declared,
+    verifier: { nativeId: "listItems" },
+  });
+  assert.equal(
+    (
+      binding.settings["openapi-http"] as {
+        verifier?: { operationRef: string };
+      }
+    ).verifier?.operationRef,
+    binding.operations[0]?.operationRef,
+  );
+  assert.equal(
+    (binding.settings["oauth"] as { issuer?: string }).issuer,
+    declared.issuer,
+  );
+  assert.ok(binding.settings["openapi-http"], "the plans were compiled");
+  assert.deepEqual(
+    binding.operations.map((item) => item.nativeId),
+    ["listItems"],
+  );
+});
+
+test("an upstream disconnect revokes the grant at the issuer only when the reviewed policy allows it; a local one never does", async (t) => {
+  // Revocation allowed by the host's reviewed policy.
+  const allowed = await setup(t, {
+    document: description("authorizationCode", { refreshUrl: true }),
+    policy: { revocation: "on-upstream-disconnect" },
+  });
+  const local = await connectWithBrowser(allowed);
+  const localView = await allowed.harness.service.disconnect(
+    allowed.actor,
+    local.done.connectionRef,
+    { expectedRevision: local.done.revision, scope: "local" },
+  );
+  assert.equal(localView.result.upstream, "not-attempted");
+  assert.equal(localView.connection.lifecycle, "locally-disconnected");
+  assert.equal(
+    allowed.as.counts.revocation,
+    0,
+    "a local unlink is not revocation",
+  );
+
+  const { done } = await connectWithBrowser(allowed);
+  const first = await allowed.harness.service.invoke(
+    allowed.actor,
+    done.connectionRef,
+    {
+      operationRef: allowed.operationRef,
+      commandId: "before-revoke",
+      confirm: true,
+    },
+  );
+  assert.equal(first.state, "complete");
+  const presented = allowed.api.requests
+    .at(-1)!
+    .headers["authorization"]!.slice(7);
+  assert.ok(allowed.as.accessTokenActive(presented));
+  const held = heldSecrets(allowed);
+  const current = await allowed.harness.service.status(
+    allowed.actor,
+    done.connectionRef,
+  );
+  const upstream = await allowed.harness.service.disconnect(
+    allowed.actor,
+    done.connectionRef,
+    { expectedRevision: current.revision, scope: "upstream" },
+  );
+  assert.equal(upstream.result.upstream, "applied");
+  assert.equal(upstream.connection.lifecycle, "upstream-revoked");
+  // Refresh token first, then the access token, each to the issuer's endpoint.
+  assert.equal(allowed.as.counts.revocation, 2);
+  assert.equal(allowed.as.accessTokenActive(presented), false);
+  assertNoSecrets(allowed, [presented, ...held], "revocation", upstream);
+
+  // The same deployment without the policy flag: nothing is presented.
+  const off = await setup(t, {
+    document: description("authorizationCode", { refreshUrl: true }),
+  });
+  const kept = await connectWithBrowser(off);
+  const unrevoked = await off.harness.service.disconnect(
+    off.actor,
+    kept.done.connectionRef,
+    { expectedRevision: kept.done.revision, scope: "upstream" },
+  );
+  assert.equal(unrevoked.result.upstream, "not-attempted");
+  assert.equal(unrevoked.connection.lifecycle, "locally-disconnected");
+  assert.equal(off.as.counts.revocation, 0);
 });

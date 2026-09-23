@@ -225,6 +225,15 @@ export function memoryPorts(options: { now?: () => number } = {}) {
     async complete(effectRef, outcome) {
       const entry = effectRecords.get(effectRef);
       if (!entry) throw new Error("unknown effect");
+      // As the durable journal: an outcome is recorded once. Recording the
+      // same status again is a no-op; a different one is refused, so an
+      // adapter that reuses an entry for a second request fails here too.
+      if (entry.outcome) {
+        if (entry.outcome.status === outcome.status) return;
+        throw new ConnectorError("conflict", {
+          detail: "effect.already-completed",
+        });
+      }
       entry.outcome = outcome;
     },
     async get(actor, effectRef) {

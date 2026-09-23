@@ -40,10 +40,16 @@ function nangoDocument(server: { origin: string }, api: { origin: string }) {
 
 async function connected(
   t: TestContext,
-  options: { destination?: (api: { origin: string }) => string } = {},
+  options: {
+    destination?: (api: { origin: string }) => string;
+    /** How the provider API decides a bearer is good; defaults to any bearer. */
+    accept?: (
+      server: Awaited<ReturnType<typeof startOAuthServer>>,
+    ) => Parameters<typeof startProviderApi>[1];
+  } = {},
 ) {
   const server = await startOAuthServer(t);
-  const api = await startProviderApi(t);
+  const api = await startProviderApi(t, options.accept?.(server));
   const harness = await catalogHarness(t);
   harness.setConfiguration(harness.actor, "LOCAL_CRM_CLIENT_ID", CLIENT_ID);
   harness.setConfiguration(
@@ -351,4 +357,46 @@ test("an ID token is never asked for without keys to verify it", async (t) => {
       error.detail === "catalog.scope.openid",
   );
   assert.equal(server.counts.authorize, 0);
+});
+
+test("a token the provider refuses is renewed once and the call retried, each request journaled as its own attempt", async (t) => {
+  const { server, api, harness, approved, connectionRef } = await connected(t, {
+    accept: (issuer) => ({
+      accept: (headers) =>
+        issuer.accessTokenActive(
+          (headers["authorization"] ?? "").replace(/^Bearer /, ""),
+        ),
+    }),
+  });
+  const read = () =>
+    harness.service.invoke(harness.actor, connectionRef, {
+      operationRef: approved.operation("proxy.get"),
+      input: { path: "/items" },
+      commandId: commandId(),
+    });
+  const first = await read();
+  assert.equal(first.state, "complete");
+  const revoked = api.requests
+    .at(-1)!
+    .headers["authorization"]!.replace(/^Bearer /, "");
+  server.revokeAccessToken(revoked);
+
+  const second = await read();
+  assert.equal(second.state, "complete");
+  assert.equal(api.requests.length, 3, "one refused request, one retry");
+  assert.equal(
+    server.tokenRequests.filter((item) => item.grantType === "refresh_token")
+      .length,
+    1,
+  );
+  const attempts = harness.ports.inspect
+    .effects()
+    .filter(
+      (entry) => entry.intent.operation === approved.operation("proxy.get"),
+    )
+    .map((entry) => entry.outcome?.status);
+  // A repeated read is its own entry every time; none overwrites another.
+  assert.deepEqual(attempts, ["applied", "not-applied", "applied"]);
+  for (const surface of [first, second])
+    assert.ok(!JSON.stringify(surface).includes(revoked));
 });

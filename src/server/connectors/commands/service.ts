@@ -40,6 +40,7 @@ import type {
   ImportInput as AdapterImportInput,
   ImportOutcome,
   InvokeResult,
+  ReviewedOperation,
 } from "../adapter.js";
 import {
   boundOperation,
@@ -48,6 +49,12 @@ import {
   type BoundOperation,
   type RuntimeBinding,
 } from "../binding.js";
+import {
+  issuerPolicy,
+  issuerPolicyOrigins,
+  type IssuerPolicy,
+  type IssuerPolicyInput,
+} from "../auth/policy.js";
 import { ConnectorError } from "../errors.js";
 import { catalogFor } from "../inventory.js";
 import type {
@@ -201,6 +208,21 @@ const revocationRequestSchema = z.object({
 const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
+/** Origins a definition declares for its OAuth profiles; candidates for review, never approval. */
+function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
+  const origins = new Set<string>();
+  for (const profile of definition.authentication)
+    for (const key of [
+      "issuer",
+      "authorizationEndpoint",
+      "tokenEndpoint",
+      "deviceAuthorizationEndpoint",
+    ] as const) {
+      const value = (profile as Partial<Record<typeof key, string>>)[key];
+      if (value && URL.canParse(value)) origins.add(new URL(value).origin);
+    }
+  return [...origins];
+}
 const code = (value: string | undefined, fallback: string) =>
   value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
 /**
@@ -898,15 +920,44 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
-    const operations = approvals.operations.map((approval, index) =>
+    const reviewed = await this.reviewInputs(
+      actor,
+      adapter,
+      definition,
+      approvals,
+    );
+    const compiled = approvals.operations.map((approval, index) =>
       this.compileOperation(
         definition,
         destinations,
         typeof approval === "string" ? { nativeId: approval } : approval,
         approvals.profileId,
         index,
+        Boolean(adapter.reviewBinding),
       ),
     );
+    let operations = compiled as BoundOperation[];
+    let settings: Record<string, unknown> = { ...approvals.settings };
+    if (adapter.reviewBinding) {
+      // The format compiles what the command layer resolved: transport and
+      // plan come from the source, every decision from the reviewer.
+      const result = await adapterCall(() =>
+        adapter.reviewBinding!({
+          definition,
+          ...(reviewed.source ? { source: reviewed.source } : {}),
+          destinations,
+          operations: compiled as ReviewedOperation[],
+          ...(approvals.profileId ? { profileId: approvals.profileId } : {}),
+          ...(approvals.verifier ? { verifier: approvals.verifier } : {}),
+        }),
+      );
+      operations = result.operations;
+      settings = { ...settings, ...result.settings };
+    } else if (approvals.verifier)
+      throw new ConnectorError("unsupported", {
+        detail: "verifier.adapter-unsupported",
+      });
+    if (reviewed.oauth) settings = { ...settings, oauth: reviewed.oauth };
     const configuration =
       approvals.configuration ??
       definition.configuration
@@ -944,7 +995,7 @@ export class ConnectorCommandService {
       operations,
       permittedTargets: approvals.permittedTargets,
       configuration,
-      settings: approvals.settings,
+      settings,
       policyRevision: this.policy.revision,
       ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
@@ -967,11 +1018,91 @@ export class ConnectorCommandService {
       configuration,
       permittedTargets: approvals.permittedTargets,
       reviewedDigest,
-      settings: approvals.settings,
+      settings,
       ...(agentOutputConsent ? { agentOutputConsent } : {}),
     });
     await this.ports.definitions.putBinding(binding);
     return this.reference(binding);
+  }
+
+  /**
+   * What only the reviewed path writes into a binding. The OAuth issuer
+   * policy is set by a person and admitted by host policy for every origin it
+   * lets the grants contact; a format adapter that compiles its own plans is
+   * handed the exact, digest-checked bytes the definition was imported from.
+   * A reviewer's free-form settings can carry neither.
+   */
+  private async reviewInputs(
+    actor: ActorContext,
+    adapter: ConnectorAdapter,
+    definition: NormalizedDefinition,
+    approvals: BindingApprovalInput["approvals"],
+  ): Promise<{
+    oauth?: IssuerPolicy;
+    source?: { bytes: Uint8Array; mediaType: string };
+  }> {
+    const reserved = new Set(["oauth", ...(adapter.reservedSettings ?? [])]);
+    if (Object.keys(approvals.settings).some((key) => reserved.has(key)))
+      throw new ConnectorError("invalid-request", {
+        detail: "settings.reserved",
+      });
+    let oauth: IssuerPolicy | undefined;
+    if (approvals.oauth !== undefined) {
+      if (actor.actorKind !== "human")
+        throw new ConnectorError("denied", {
+          detail: "oauth.policy.human-only",
+        });
+      try {
+        oauth = issuerPolicy(approvals.oauth as IssuerPolicyInput);
+      } catch (error) {
+        if (
+          error instanceof ConnectorError &&
+          error.code === "configuration-required"
+        )
+          throw new ConnectorError("invalid-request", {
+            detail: "oauth.policy.invalid",
+          });
+        throw error;
+      }
+      let allowed = false;
+      try {
+        allowed = this.policy.allowIssuer
+          ? await this.policy.allowIssuer(actor, {
+              issuer: oauth.issuer,
+              origins: issuerPolicyOrigins(oauth),
+              declaredOrigins: declaredOAuthOrigins(definition),
+              definition,
+            })
+          : false;
+      } catch {
+        allowed = false;
+      }
+      if (!allowed)
+        throw new ConnectorError("network-policy", {
+          detail: "oauth.issuer.not-permitted",
+        });
+    }
+    let source: { bytes: Uint8Array; mediaType: string } | undefined;
+    if (adapter.reviewBinding) {
+      const record = await this.ports.definitions.getSource(
+        actor.tenantId,
+        definition.sourceRef,
+      );
+      const artifact = record?.artifactRef
+        ? await this.ports.artifacts.get(actor.tenantId, record.artifactRef)
+        : undefined;
+      if (record && artifact) {
+        const digest = createHash("sha256")
+          .update(artifact.bytes)
+          .digest("hex");
+        if (digest !== record.digest.value)
+          throw new ConnectorError("conflict", {
+            detail: "source.digest-mismatch",
+          });
+        source = { bytes: artifact.bytes, mediaType: artifact.mediaType };
+      }
+    }
+    return { ...(oauth ? { oauth } : {}), ...(source ? { source } : {}) };
   }
 
   private async approveDestinations(
@@ -1037,7 +1168,9 @@ export class ConnectorCommandService {
     approval: OperationApproval,
     profileId: string | undefined,
     index: number,
-  ): BoundOperation {
+    /** The adapter compiles transports itself (`reviewBinding`); none is required here. */
+    adapterCompiles = false,
+  ): BoundOperation | ReviewedOperation {
     const capability = definition.capabilities.find(
       (item) => item.nativeId === approval.nativeId,
     );
@@ -1052,9 +1185,15 @@ export class ConnectorCommandService {
       : declaredTransport !== undefined
         ? boundOperationTransport(declaredTransport)
         : undefined;
-    if (!transport)
+    if (!transport && !adapterCompiles)
       throw new ConnectorError("invalid-request", {
         detail: "operation.transport-unknown",
+      });
+    // A reviewer cannot hand a format adapter a transport of their own: its
+    // transport comes from the source it compiles.
+    if (adapterCompiles && approval.transport)
+      throw new ConnectorError("invalid-request", {
+        detail: "operation.transport-adapter-owned",
       });
     const destination = this.pickDestination(
       definition,
@@ -1083,17 +1222,26 @@ export class ConnectorCommandService {
       });
     const replay =
       approval.replay ?? (effect === "read" ? "read-only" : "none");
-    return {
-      operationRef: `operation:${sha256Hex([approval.nativeId, index]).slice(0, 32)}`,
+    const decisions: ReviewedOperation = {
       nativeId: approval.nativeId,
       destinationId: destination.id,
-      transport,
       effect,
       outputClassification,
       cost: approval.cost ?? capability.cost,
       consent: approval.consent ?? (effect === "read" ? "none" : "confirm"),
       replay: effect !== "read" && replay === "read-only" ? "none" : replay,
       targetParameters: approval.targetParameters ?? [],
+      ...(approval.authenticationProfile
+        ? { authenticationProfile: approval.authenticationProfile }
+        : {}),
+    };
+    if (!transport || adapterCompiles) return decisions;
+    const { authenticationProfile: _explicit, ...rest } = decisions;
+    void _explicit;
+    return {
+      ...rest,
+      operationRef: `operation:${sha256Hex([approval.nativeId, index]).slice(0, 32)}`,
+      transport,
       ...(authenticationProfile ? { authenticationProfile } : {}),
       ...(capability.label ? { description: capability.label } : {}),
     };

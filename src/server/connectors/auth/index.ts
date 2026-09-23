@@ -149,10 +149,18 @@ export {
 export {
   acquireClientCredentials,
   CLIENT_CREDENTIALS_GRANT,
+  grantClientCredentials,
   OAUTH_CLIENT_CREDENTIALS_OPERATION,
   renewClientCredentials,
+  type ClientCredentialsGrant,
   type ClientCredentialsInput,
 } from "./client-credentials.js";
+
+export {
+  OAUTH_REVOKE_OPERATION,
+  revokeUpstreamGrant,
+  type RevokeUpstreamInput,
+} from "./revocation.js";
 
 export {
   connectionCredentialScope,

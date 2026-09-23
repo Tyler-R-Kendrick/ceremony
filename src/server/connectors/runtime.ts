@@ -93,6 +93,8 @@ export interface ConnectorRuntimeOptions {
   rateLimit?: { limit: number; windowMs: number };
   /** Exact HTTPS origins the default policy admits beyond those a description declares. */
   destinations?: readonly string[];
+  /** Exact HTTPS origins the default policy admits for a reviewed OAuth issuer policy, beyond those a description declares. */
+  issuers?: readonly string[];
   callTimeoutMs?: number;
 }
 
@@ -119,8 +121,17 @@ export function createConnectorRuntime(
   if (new URL(options.origin).origin !== options.origin)
     throw new Error("Connector runtime origin must be an exact origin");
 
-  const registry = createConnectorRegistry(options.inventory ?? {});
   const ports = createConnectorPorts(options.store);
+  // A runtime always has a durable store, so dynamic client registration
+  // persists there unless the host supplies its own registrations store.
+  const inventory = options.inventory ?? {};
+  const registry = createConnectorRegistry({
+    ...inventory,
+    oauth: {
+      ...inventory.oauth,
+      registrations: inventory.oauth?.registrations ?? ports.registrations,
+    },
+  });
   const approved = createApprovedFetch(options.network);
   // The approved fetcher is the only way out. Narrowing it to `typeof fetch`
   // here rather than at each call site means a module that wants a plain
@@ -130,6 +141,7 @@ export function createConnectorRuntime(
   const base = defaultConnectorPolicy({
     store: options.store,
     ...(options.destinations ? { destinations: options.destinations } : {}),
+    ...(options.issuers ? { issuers: options.issuers } : {}),
     ...(options.network.mode === "loopback-fixture"
       ? { loopbackFixtures: true }
       : {}),
