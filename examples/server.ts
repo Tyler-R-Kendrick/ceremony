@@ -36,6 +36,7 @@ import {
 } from "../src/core/web-bot-auth.js";
 import { authoringPrompt, validateTemplate } from "../src/react/templates.js";
 import { manifests } from "./manifests.js";
+import { catalog as connectionCatalog } from "./web/catalog.js";
 import { createReferenceProvider } from "./provider.js";
 import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
@@ -91,6 +92,20 @@ export interface ReferenceOptions {
    * development server that has signed up for nothing.
    */
   connectors?: boolean;
+  /**
+   * Offer the retained-browser login tools (`browser_login`,
+   * `browser_session_status`, `browser_release`, `browser_backends`) over MCP
+   * and `/api/v1/teaching/tools/browser-*`. Default off.
+   *
+   * This reference host launches managed browsers on this machine and has no
+   * private collector for browser-login credential references, so every
+   * reference resolves to nothing: a plan that needs a password stops by name
+   * rather than typing anything. It registers no provider verifier either, so
+   * the best outcome here is `submitted-unverified`. A host that holds
+   * credentials and has reviewed verifiers supplies both to
+   * `createGitHubRuntime({ browserLogin })` instead.
+   */
+  browserLogin?: boolean;
 }
 export async function startReferenceApp(options: ReferenceOptions = {}) {
   if (process.env.NODE_ENV === "production")
@@ -302,6 +317,19 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
           origin,
           environment: "development",
           configurationVersion: "v1",
+          ...(options.browserLogin
+            ? {
+                browserLogin: {
+                  // No private collector holds browser-login references here,
+                  // so none resolves: a login needing a secret stops by name.
+                  credentials: { resolve: async () => undefined },
+                  // The directory the Add Connection wizard draws from, and
+                  // nothing else. An unknown connector is a rejection.
+                  knownConnectors: () =>
+                    new Set(connectionCatalog.map((entry) => entry.id)),
+                },
+              }
+            : {}),
           browser: createAuthorizationBrowser({
             ...(options.live?.cloudflare
               ? { cloudflare: options.live.cloudflare }
@@ -1281,6 +1309,7 @@ if (
   const app = await startReferenceApp({
     teaching: true,
     mcp: process.env.CEREMONY_MCP === "true",
+    browserLogin: process.env.CEREMONY_BROWSER_LOGIN === "true",
     port: number.parse(process.env.CEREMONY_PORT ?? 4173),
     providerPort: number.parse(process.env.CEREMONY_PROVIDER_PORT ?? 4174),
     live,

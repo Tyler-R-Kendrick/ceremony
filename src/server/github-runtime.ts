@@ -24,6 +24,10 @@ import {
   registerAuthoredOperations,
 } from "./authored-operations.js";
 import type { AuthorizationBrowser } from "./browser-executor.js";
+import {
+  createHostBrowserLogin,
+  type HostBrowserLoginOptions,
+} from "./browser-login-host.js";
 import type { ProgrammableInbox } from "./authored-inbox.js";
 import {
   type AsyncCeremonyStore,
@@ -76,6 +80,13 @@ export interface GitHubRuntimeOptions {
   expectedAccount?: string;
   modelConfiguration?: ModelConfiguration;
   browser?: AuthorizationBrowser;
+  /**
+   * Retained-browser login (`browser_login` and its three companions), when
+   * this deployment can launch browsers and has decided how credential
+   * references resolve. Off unless configured: both transports then offer no
+   * browser tools at all rather than tools that always refuse.
+   */
+  browserLogin?: Omit<HostBrowserLoginOptions, "store">;
   inbox?: ProgrammableInbox;
   /** Host transport for authored discovery, OAuth and human continuation. */
   authoredFetch?: typeof fetch;
@@ -371,6 +382,14 @@ export function createGitHubRuntime(
     identity,
     registry,
     origin,
+    ...(options.browserLogin
+      ? {
+          browserLogin: createHostBrowserLogin({
+            ...options.browserLogin,
+            store,
+          }),
+        }
+      : {}),
     authoringFetch: authoredFetch,
     connections: new Map([
       [
