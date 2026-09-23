@@ -232,8 +232,8 @@ export interface CeremonyRunOptions {
    * password, so a later snapshot or note reproducing it fails the attempt.
    * The values are never in the result, the transcript or anything the
    * interpreter is given; the transcript records a `kept` step naming the
-   * kinds. While any declared
-   * value is still unread, a claim of completion is not accepted.
+   * kinds. While any declared value is still unread, neither a claim of
+   * completion nor an arrival at the callback completes the attempt.
    */
   issued?: {
     fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
@@ -830,6 +830,9 @@ export async function runCeremony(
           steps,
         });
       if (code) {
+        // A code is not what an `issued` plan came for: with a declared value
+        // still unread, arriving here is no more a completion than a claim is.
+        if (!kept) return finish({ status: "unverified", steps });
         const state = parsed.searchParams.get("state");
         const callback: CeremonyCallback = { code };
         if (state !== null) callback.state = state;

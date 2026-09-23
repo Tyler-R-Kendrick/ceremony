@@ -2841,6 +2841,24 @@ test("ISSUED-UNREAD: a completion claim is refused while a declared value is sti
   assert.equal(kept, 0);
 });
 
+test("ISSUED-UNREAD: a callback does not complete the attempt while a declared value is still unread", async () => {
+  const result = await runCeremony({
+    page: inertPage("https://host.example/callback?code=canary-code-1&state=s"),
+    interpreter: async () => ({ action: "done" }),
+    goal: "obtain-credential",
+    secrets: createSecrets({}),
+    allowedOrigins: ["https://provider.example"],
+    redirectUri: "https://host.example/callback",
+    issued: {
+      fields: issuedFields,
+      keep: async () => assert.fail("nothing was shown to keep"),
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "unverified");
+  assert.equal(JSON.stringify(result).includes("canary-code-1"), false);
+});
+
 test("ISSUED-AMBIGUOUS: a label that matches two fields identifies neither, and nothing is kept", async () => {
   const page = issuingPage({ duplicateSecret: true });
   let kept = 0;
