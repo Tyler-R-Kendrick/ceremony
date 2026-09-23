@@ -45,7 +45,7 @@ const recipe: RecipeDefinition = {
   outputs: {},
 };
 
-function fixture() {
+function fixture(options: { waitsOnPerson?: boolean } = {}) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -76,8 +76,11 @@ function fixture() {
       target: { classification: "public", schema: z.string().min(1) },
     },
     fixtures: ["local"],
-    handler: async () => ({ state: "complete" as const, outputs: {} }),
-    verify: async () => true,
+    handler: async () =>
+      options.waitsOnPerson
+        ? { state: "awaiting-human" as const, outputs: {} }
+        : { state: "complete" as const, outputs: {} },
+    verify: async () => !options.waitsOnPerson,
   });
   const runtime = createTeachingRuntime({
     store,
@@ -739,6 +742,55 @@ test("connector intents mounted alone offer their own status and connect", async
       assert.ok(names.includes(name), `${name} is not offered`);
     assert.ok(!names.includes("connector_invoke"));
     assert.equal(new Set(names).size, names.length);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("a run that waits on a person tells the MCP caller where that person continues", async () => {
+  const f = fixture({ waitsOnPerson: true });
+  try {
+    const mcp = handlerFor(f.runtime, () => actor);
+    await call(mcp, "good", initialize);
+    const connected = await invoke(mcp, "good", "ceremony_connect", {
+      connectorId: "fixture",
+    });
+    assert.equal(connected.isError, false, connected.text);
+    const run = connected.value();
+    assert.equal(run.nodes[0].state, "awaiting-human");
+    // The coordinator's projection: kind, reason and the same-origin human
+    // route, and nothing a person has not already got.
+    const expected = {
+      kind: "person",
+      runId: run.id,
+      nodeId: "node",
+      operationId: "verify",
+      nodeState: "awaiting-human",
+      reason: "human-step",
+      path: `/api/v1/teaching/fixture-provider/${encodeURIComponent(run.id)}/human`,
+    };
+    assert.deepEqual(run.handoff, expected);
+    assert.doesNotMatch(connected.text, /[?&](code|state|token)=|https?:\/\//);
+
+    const read = await invoke(mcp, "good", "ceremony_snapshot", {
+      runId: run.id,
+    });
+    assert.deepEqual(read.value().handoff, expected);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("a run nobody is waiting on carries no handoff", async () => {
+  const f = fixture();
+  try {
+    const mcp = handlerFor(f.runtime, () => actor);
+    await call(mcp, "good", initialize);
+    const connected = await invoke(mcp, "good", "ceremony_connect", {
+      connectorId: "fixture",
+    });
+    assert.equal(connected.value().status, "complete");
+    assert.equal(connected.value().handoff, undefined);
   } finally {
     await f.store.close();
   }

@@ -780,9 +780,18 @@ async function agentHttp(
         await startAgent(runId, turnId);
         return reply({ turnId, status: "running" });
       }
+      // The same projection the status route answers with: the handoff is
+      // included while the turn waits on a person, so a caller that started
+      // the agent inline learns where the person continues without polling.
+      const outcome = await runtime.agent.turnOutcome(actor, runId, turnId);
       return reply({
         turnId,
-        status: await runtime.agent.turn(actor, runId, turnId),
+        status: outcome.status,
+        ...((outcome.status === "awaiting-human" ||
+          outcome.status === "uncertain") &&
+        outcome.handoff
+          ? { handoff: outcome.handoff }
+          : {}),
       });
     }
     if (!post && agentRoute[2] === "status")

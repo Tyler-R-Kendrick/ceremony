@@ -165,6 +165,22 @@ export function createCeremonyMcpHandler(
       },
     });
   const tools = ceremonyAgentTools(runtime);
+  /*
+   * A run that waits on a person says so in its node states, which tells an
+   * assistant only that it is stuck. The handoff says where that person
+   * continues: the coordinator's projection, with the same-origin human route
+   * while a node awaits someone. It carries no code, token or query, and
+   * opening it still needs the owner's session, so passing it on grants
+   * nothing.
+   */
+  const withHandoff = <
+    T extends Parameters<typeof runtime.agent.pendingHandoff>[0],
+  >(
+    run: T,
+  ) => {
+    const handoff = runtime.agent.pendingHandoff(run);
+    return handoff ? { ...run, handoff } : run;
+  };
 
   // The collector is a property of the deployment, not of a request, so the
   // decision is made once here and reported rather than retried per call.
@@ -222,7 +238,8 @@ export function createCeremonyMcpHandler(
         }),
         annotations: { destructiveHint: false, openWorldHint: true },
       },
-      async (input) => await run((who) => tools.connect(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.connect(who, input))),
     );
     server.registerTool(
       "ceremony_snapshot",
@@ -232,7 +249,8 @@ export function createCeremonyMcpHandler(
         inputSchema: z.strictObject({ runId: z.string() }),
         annotations: { readOnlyHint: true },
       },
-      async (input) => await run((who) => tools.snapshot(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.snapshot(who, input))),
     );
     server.registerTool(
       "ceremony_advance",
@@ -255,7 +273,8 @@ export function createCeremonyMcpHandler(
           openWorldHint: true,
         },
       },
-      async (input) => await run((who) => tools.advance(who, input)),
+      async (input) =>
+        await run(async (who) => withHandoff(await tools.advance(who, input))),
     );
     server.registerTool(
       "ceremony_cancel",

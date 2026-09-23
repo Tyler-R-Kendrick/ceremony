@@ -159,6 +159,38 @@ export const connectorToolInputs = {
 
 const waiting = new Set<string>(["issued", "waiting"]);
 
+/**
+ * How a connector handoff leaves for an assistant over MCP: kind and state
+ * always and, while a person is actually awaited, the same-origin path of the
+ * owner's page for that connection (`<route>?connection=<ref>`). The path is
+ * built here from the connection reference the caller already holds, never
+ * from anything a service or provider said, so it carries no code, token,
+ * state or provider URL. The connector tools and the connector intents share
+ * it, so both answer the same way.
+ */
+export function connectorHandoffViews(humanRoute = "/connectors") {
+  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(humanRoute))
+    throw new Error("Invalid connector human route");
+  const personPath = (connectionRef: string) =>
+    `${humanRoute}?${new URLSearchParams({ connection: connectionRef })}`;
+  const handoffView = (
+    connectionRef: string,
+    handoff: { kind: string; state: string } | undefined,
+  ) =>
+    handoff
+      ? {
+          handoff: {
+            kind: handoff.kind,
+            state: handoff.state,
+            ...(waiting.has(handoff.state)
+              ? { path: personPath(connectionRef) }
+              : {}),
+          },
+        }
+      : {};
+  return { personPath, handoffView };
+}
+
 function text(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
 }
@@ -179,28 +211,7 @@ export function registerConnectorServerTools(
   deps: ConnectorToolDependencies,
   context: ConnectorToolContext,
 ): void {
-  const route = context.humanRoute ?? "/connectors";
-  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(route))
-    throw new Error("Invalid connector human route");
-  /** The owner's page for this connection. No code, token, state or provider URL. */
-  const personPath = (connectionRef: string) =>
-    `${route}?${new URLSearchParams({ connection: connectionRef })}`;
-  /** Kind and state always; the person-bound path only while a person is actually awaited. */
-  const handoffView = (
-    connectionRef: string,
-    handoff: { kind: string; state: string } | undefined,
-  ) =>
-    handoff
-      ? {
-          handoff: {
-            kind: handoff.kind,
-            state: handoff.state,
-            ...(waiting.has(handoff.state)
-              ? { path: personPath(connectionRef) }
-              : {}),
-          },
-        }
-      : {};
+  const { personPath, handoffView } = connectorHandoffViews(context.humanRoute);
   const run = async <T>(operate: (actor: ActorContext) => Promise<T>) => {
     const actor = context.actor();
     if (!actor) return refusal("Sign in to the ceremony application first.");

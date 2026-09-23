@@ -190,8 +190,32 @@ test("AC-10 AC-14 AC-19: mounted authoring lifecycle and reconnect reads preserv
       enabled,
       schedule,
     );
-  // A configured assistant at a known human wait does not try the unreachable model.
-  assert.equal((await (await start()).json()).status, "awaiting-human");
+  // A configured assistant at a known human wait does not try the unreachable
+  // model, and its start answer carries the same handoff the status route
+  // reports: where the person continues, and nothing that grants anything.
+  const inline = await (await start()).json();
+  assert.equal(inline.status, "awaiting-human");
+  assert.ok(inline.turnId);
+  assert.deepEqual(inline.handoff, {
+    kind: "person",
+    runId: run.id,
+    nodeId: "verify",
+    operationId: "verify",
+    nodeState: "awaiting-human",
+    reason: "human-step",
+    path: `/api/v1/teaching/github/${encodeURIComponent(run.id)}/human`,
+  });
+  assert.deepEqual(
+    (
+      await (
+        await call(
+          `/agent/${run.id}/status?turnId=${encodeURIComponent(inline.turnId)}`,
+        )
+      ).json()
+    ).handoff,
+    inline.handoff,
+    "start and status project the handoff identically",
+  );
   let scheduled = 0;
   const delegated = await (
     await start(async (runId, turnId) => {
