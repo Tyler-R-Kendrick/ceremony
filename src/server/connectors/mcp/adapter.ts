@@ -1189,6 +1189,10 @@ export function createMcpRemoteAdapter(
       "Connect an authenticated remote MCP server and use the tools, resources and prompts a reviewer approved.",
     service: options.service ?? "mcp",
     support: "provider-backed",
+    // Any reviewed remote server a person imported runs through this one
+    // adapter, so its suites prove the client, not the server behind a
+    // definition nobody exercised: evidence speaks per definition.
+    evidenceScope: "definition",
     custody: ["host-owned", "no-credential", "external-credential-broker"],
     configuration: [],
     profiles: [

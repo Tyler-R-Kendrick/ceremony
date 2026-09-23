@@ -57,9 +57,10 @@ import {
  * future or expired entry, so a clock that returns one is refused.
  *
  * Scope. Most adapters speak for one provider, so an entry about the adapter
- * speaks for every connection through it. A generic adapter (the OpenAPI and
- * provider-catalog adapters, `evidenceScope: "definition"`) runs whatever
- * description a person imported: its own suites prove the code path, not any
+ * speaks for every connection through it. A generic adapter (the OpenAPI,
+ * provider-catalog, remote MCP and Microsoft custom-connector adapters,
+ * `evidenceScope: "definition"`) runs whatever description a person
+ * imported: its own suites prove the code path, not any
  * provider behind a definition nobody exercised. So an entry may name the
  * definition it exercised (`definition`: its `definitionRef`, or
  * `sha256:<normalizedDigest>`), and:

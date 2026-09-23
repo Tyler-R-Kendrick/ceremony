@@ -324,6 +324,10 @@ test("the published matrix and the runtime's recorded evidence are exactly what 
   // never live, and marked as describing the code path, not a definition.
   assert.equal(labelOf("openapi-http"), "local (code path)");
   assert.equal(labelOf("catalog-http"), "local (code path)");
+  // So are the remote MCP and Microsoft custom-connector adapters, which
+  // run whatever server or connector a person imported.
+  assert.equal(labelOf("mcp-remote"), "local (code path)");
+  assert.equal(labelOf("microsoft-custom-connector"), "local (code path)");
   // The adapters whose ledgers used to be dropped now have a label, earned
   // by their own suites against loopback stand-ins.
   for (const id of ["camel-kamelet", "dapr", "open-service-broker"])

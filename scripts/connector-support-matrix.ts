@@ -756,7 +756,7 @@ export function renderSupportMatrix(input: {
     "",
     "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.",
     "",
-    "A generic adapter (`evidenceScope: definition`: the OpenAPI and provider-catalog adapters) runs whatever description a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.",
+    "A generic adapter (`evidenceScope: definition`: the OpenAPI, provider-catalog, remote MCP and Microsoft custom-connector adapters) runs whatever description, server or connector a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.",
     "",
     ...(expired.length > 0
       ? [

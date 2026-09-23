@@ -4,6 +4,8 @@ import { SupportEvidenceError } from "../../../src/core/connectors/index.js";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
 import { createConnectorRegistration } from "../../../src/server/connectors/commands/index.js";
 import type { ConnectorPolicy } from "../../../src/server/connectors/commands/policy.js";
+import { createMicrosoftCustomConnectorAdapter } from "../../../src/server/connectors/formats/microsoft/index.js";
+import { createMcpRemoteAdapter } from "../../../src/server/connectors/mcp/index.js";
 import { createSupportLabeler } from "../../../src/server/connectors/support.js";
 import { recordedSupportEvidence } from "../../../src/server/connectors/recorded-evidence.js";
 import type { SupportLabelOptions } from "../../../src/server/connectors/support.js";
@@ -259,6 +261,56 @@ test("the recorded entries never make a label live, and never fail a clock set b
   // `local`; one whose suites never reach a stand-in server stays `fixture`.
   assert.equal(current.label({ id: "nango" }, true), "local");
   assert.equal(current.label({ id: "supabase-wrappers" }, true), "fixture");
+});
+
+test("the MCP remote and Microsoft custom-connector adapters are labelled per definition", () => {
+  // Both run whatever a person imported -- a remote MCP server, a custom
+  // connector -- so, like the OpenAPI and catalog adapters, their own suites
+  // describe the code path and never an imported definition.
+  const mcp = createMcpRemoteAdapter();
+  const microsoft = createMicrosoftCustomConnectorAdapter();
+  const imported = `sha256:${"b".repeat(64)}`;
+  for (const adapter of [mcp, microsoft]) {
+    assert.equal(adapter.evidenceScope, "definition", adapter.id);
+    const hostEntry = (
+      target: "recorded-live" | "local-double",
+      extra: { definition?: string } = {},
+    ) => ({
+      adapterId: adapter.id,
+      check: "tests/connectors/commands/support-labels.test.ts",
+      target,
+      recordedAt: "2026-09-22",
+      ...extra,
+    });
+    const recordedOnly = createSupportLabeler({
+      now: () => Date.parse("2026-09-23T12:00:00.000Z"),
+    });
+    assert.equal(recordedOnly.label(adapter, true), "local", adapter.id);
+    assert.equal(
+      recordedOnly.label(adapter, true, [imported]),
+      "unverified",
+      `${adapter.id}: a definition nobody exercised`,
+    );
+    // An adapter-wide live entry names no provider, so it promotes no
+    // definition and is not read even for the code path.
+    const adapterWide = createSupportLabeler({
+      now: () => Date.parse("2026-09-23T12:00:00.000Z"),
+      evidence: [hostEntry("recorded-live")],
+    });
+    assert.equal(adapterWide.label(adapter, true), "local", adapter.id);
+    assert.equal(adapterWide.label(adapter, true, [imported]), "unverified");
+    // Only an entry naming the definition speaks for it, and only for it.
+    const named = createSupportLabeler({
+      now: () => Date.parse("2026-09-23T12:00:00.000Z"),
+      evidence: [hostEntry("recorded-live", { definition: imported })],
+    });
+    assert.equal(named.label(adapter, true, [imported]), "live", adapter.id);
+    assert.equal(
+      named.label(adapter, true, [`sha256:${"c".repeat(64)}`]),
+      "unverified",
+    );
+    assert.equal(named.label(adapter, true), "local");
+  }
 });
 
 test("a labeler whose clock is not a finite instant refuses rather than admits", () => {
