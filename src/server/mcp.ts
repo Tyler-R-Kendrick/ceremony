@@ -6,7 +6,7 @@ import {
   type McpRequestContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ceremonyAgentTools } from "./agent-tools.js";
+import { ceremonyAgentTools, type AgentTurnLauncher } from "./agent-tools.js";
 import {
   browserLoginAgentToolInputs,
   browserLoginToolInputs,
@@ -106,6 +106,13 @@ export interface CeremonyMcpOptions {
    * be, or `false` to leave throttling to something in front of this.
    */
   rateLimit?: McpRateLimitOptions | false;
+  /**
+   * Where `ceremony_agent_start` runs the agent's turn: the same launcher the
+   * HTTP start route is given (a durable workflow in the hosted deployment).
+   * Without one the turn runs inside the tool call, as the route does
+   * without one, and its outcome is the answer.
+   */
+  startAgent?: AgentTurnLauncher;
   serverName?: string;
   serverVersion?: string;
   onerror?(error: Error): void;
@@ -179,7 +186,7 @@ export function createCeremonyMcpHandler(
         "cache-control": "no-store",
       },
     });
-  const tools = ceremonyAgentTools(runtime);
+  const tools = ceremonyAgentTools(runtime, { launch: options.startAgent });
   /*
    * A run that waits on a person says so in its node states, which tells an
    * assistant only that it is stuck. The handoff says where that person
@@ -350,6 +357,23 @@ export function createCeremonyMcpHandler(
             : "web-application-only",
         })),
     );
+
+    // Starting the server's own agent on a run. Offered only where a model is
+    // configured: without one the route answers `unavailable` every time, and
+    // an always-refusing tool teaches a model to keep asking.
+    if (runtime.modelConfiguration.model)
+      server.registerTool(
+        "ceremony_agent_start",
+        {
+          description:
+            "Start this server's agent on one of your runs. It advances the steps it can and stops at the first that needs a person; the answer says whether it is running, finished, or waiting, and where that person continues. The same gate and answer as the web application's start button.",
+          inputSchema: z.strictObject({
+            runId: z.string().describe("A run you started, by its id."),
+          }),
+          annotations: { destructiveHint: false, openWorldHint: true },
+        },
+        async (input) => await run((who) => tools.startAgent(who, input)),
+      );
 
     registerTeachingTools(server, runtime, { actor, run });
 
