@@ -431,6 +431,24 @@ describe("SCHEMA: a recording cannot hold a value", () => {
       ticking("Send me product news and special offers", ["terms"]),
       false,
     );
+    // Pressing a box ticks it, with no consent recorded; a box is checked.
+    const clicked = base() as unknown as { steps: unknown[] };
+    clicked.steps.push({
+      id: "step-2",
+      page: { origin: "https://idp.example", path: "/signin" },
+      action: {
+        kind: "click",
+        expect: "same-page",
+        target: {
+          kind: "checkbox",
+          label: "I agree to the Terms of Service",
+          ordinal: 0,
+          of: 1,
+        },
+      },
+      optional: false,
+    });
+    assert.equal(recordedCeremonySchema.safeParse(clicked).success, false);
   });
 
   test("a value field is not a field", () => {

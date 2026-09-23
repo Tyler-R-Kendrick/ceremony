@@ -3587,6 +3587,55 @@ test("CONSENT: the driver refuses any interpreter's tick the plan did not consen
   assert.deepEqual(applied[0]?.consent, ["terms", "privacy"]);
 });
 
+test("CONSENT: clicking a terms box is ticking it, held to the same gate and recorded as a check", async () => {
+  // A rogue interpreter that presses the box rather than checking it. A
+  // click on a checkbox toggles it, so without the gate this accepted the
+  // terms for a person who never agreed to them.
+  const clicking: CeremonyInterpreter = async ({ snapshot: current }) =>
+    current.elements[0]?.filled
+      ? { action: "done" }
+      : { action: "click", element: 0 };
+  const page = consentPage("I agree to the Terms of Service");
+  const result = await runCeremony({
+    page,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: clicking,
+    maxSteps: 4,
+  });
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "consent-required",
+  );
+  assert.equal(page.ticked(), false);
+  assert.ok(!page.calls.includes("click:0"), JSON.stringify(page.calls));
+
+  // Under consent the press is applied as a check, and what is recorded is a
+  // check carrying the consent - never a click on a checkbox.
+  const covered = consentPage("I agree to the Terms of Service");
+  const applied: RecordedTraceEntry[] = [];
+  await runCeremony({
+    page: covered,
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: clicking,
+    consents: ["terms"],
+    onApplied: (entry) => applied.push(entry),
+    maxSteps: 3,
+  });
+  assert.equal(covered.ticked(), true);
+  assert.ok(covered.calls.includes("check:0"));
+  assert.ok(!covered.calls.includes("click:0"));
+  assert.deepEqual(
+    applied
+      .filter((entry) => entry.action !== "done")
+      .map((entry) => [entry.action, entry.consent]),
+    [["check", ["terms"]]],
+  );
+});
+
 test("CONSENT: a newsletter is never ticked whatever the plan says; a required one goes to a person", async () => {
   const optional = consentPage("Send me product news and special offers");
   const result = await runCeremony({

@@ -325,7 +325,8 @@ not guessed: it is handed to a person (`choice`), or ends `choice-required`.
 
 Ticking a box that accepts a provider's terms of service or privacy policy, or
 attests to the person's age, is a legal act on their behalf. The driver (not
-the interpreter) reads every proposed `check` against the box's own words
+the interpreter) reads every proposed `check` - and a `click` on a checkbox,
+which it applies as a `check` - against the box's own words
 (`checkboxConsent` in `src/core/browser-contracts.ts`) and ticks such a box only
 when the plan carries the person's advance consent to **every** kind it names:
 `consents: ["terms", "privacy", "age"]`, any subset. The kinds are canonical and

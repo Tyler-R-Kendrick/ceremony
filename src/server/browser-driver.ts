@@ -689,6 +689,13 @@ export async function runCeremony(
     // A block the page shows a value in - a `<code>` with a new token in it -
     // is something to read, never something to act on.
     if (element.type === "code") return unusable();
+    // A click on a checkbox ticks it as surely as `check` does, so it is a
+    // `check`: held to the same consent gate, recorded as one, and applied
+    // the same way. Left as a click it would reach the page untested, and
+    // "I agree to the Terms" would be accepted by whoever chose to press it
+    // rather than tick it.
+    if (action.action === "click" && element.kind === "checkbox")
+      action = { ...action, action: "check" };
 
     if (action.action === "fill") {
       const role = action.role;

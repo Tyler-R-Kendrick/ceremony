@@ -368,6 +368,10 @@ export const recordedCeremonySchema = z
       }
       if (action.kind === "check" && action.target.kind !== "checkbox")
         issue(`step ${step.id} checks something that is not a checkbox`);
+      // Pressing a box ticks it. A step that did so would be a tick with no
+      // consent recorded on it, so a box is only ever checked, never clicked.
+      if (action.kind === "click" && action.target.kind === "checkbox")
+        issue(`step ${step.id} clicks a checkbox instead of checking it`);
       if (action.kind === "check") {
         // What the box says it accepts has to be what the step says it
         // accepts, so a reviewer reading "consent: terms" is reading the
