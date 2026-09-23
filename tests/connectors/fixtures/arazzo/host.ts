@@ -119,6 +119,8 @@ export function storeRegistry(options: StoreRegistryOptions): {
         ]),
       ),
       fixtures: ["loopback-store-fixture"],
+      // Every fixture operation only reads, so repeating one is safe.
+      replay: "read-only",
       handler: async (
         context: OperationContext,
         inputs: Record<string, unknown>,
@@ -134,6 +136,9 @@ export function storeRegistry(options: StoreRegistryOptions): {
         await options.behavior?.afterRequest?.(shape.id);
         const override = options.behavior?.result?.(shape.id);
         if (override) return override;
+        // The status and the one header the provider documents as public
+        // are what compiled success criteria may read.
+        const verifiedHeader = response.headers.get("x-verified");
         return {
           state: "complete",
           outputs: Object.fromEntries(
@@ -141,6 +146,12 @@ export function storeRegistry(options: StoreRegistryOptions): {
               body[name] === undefined ? [] : [[name, body[name]]],
             ),
           ),
+          response: {
+            statusCode: response.status,
+            ...(verifiedHeader === null
+              ? {}
+              : { headers: { "X-Verified": verifiedHeader } }),
+          },
         };
       },
       verify: async () => options.behavior?.verified?.(shape.id) ?? true,

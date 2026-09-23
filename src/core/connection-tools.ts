@@ -23,6 +23,16 @@ const safeState = z.strictObject({
           "failed",
         ]),
         verified: z.boolean(),
+        // A step that runs under another connector names that context.
+        provider: z.string().max(100).optional(),
+        profile: z.string().max(100).optional(),
+        // A failed step with a declared retry still left.
+        retry: z
+          .strictObject({
+            attempts: z.number().int().nonnegative(),
+            notBefore: z.number().int().nonnegative(),
+          })
+          .optional(),
       }),
     )
     .max(32),

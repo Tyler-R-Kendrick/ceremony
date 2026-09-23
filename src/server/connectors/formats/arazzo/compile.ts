@@ -5,12 +5,16 @@ import {
 } from "../../../../core/operation-contracts.js";
 import {
   RECIPE_LIMITS,
+  outcomeReferenceSchema,
   recipeDefinitionSchema,
+  recipeOutcomeSchema,
   type Binding,
   type RecipeDefinition,
   type RecipeInvocation,
+  type RecipeOutcome,
 } from "../../../../core/recipe-contracts.js";
 import type { RunPlanNode } from "../../../commands.js";
+import { outcomeReferenceKey } from "../../../recipes/outcome.js";
 import type {
   OperationRegistry,
   RegisteredOperation,
@@ -488,6 +492,7 @@ export function toRunPlan(leaves: readonly RecipeInvocation[]): RunPlanNode[] {
       operationVersion: leaf.use.version,
       dependsOn: [...leaf.dependsOn],
       bindings: structuredClone(leaf.bindings),
+      ...(leaf.outcome ? { outcome: structuredClone(leaf.outcome) } : {}),
     };
   });
 }
@@ -731,7 +736,18 @@ class Compiler {
       compiled,
     );
     const retry = this.compileRetry(analysis, binding.entry, compiled);
-    if (retry) compiled.retry = retry;
+    if (retry) {
+      compiled.retry = retry;
+      // The catalog vouches for the document; the registry vouches for the
+      // operation the command service will actually repeat.
+      if (!operation.replay)
+        this.issue(
+          "arazzo.policy.retry-not-replay-safe",
+          analysis.onFailure.find(({ action }) => action.type === "retry")
+            ?.pointer ?? `${step.pointer}/onFailure`,
+        );
+    }
+    const outcome = this.compileOutcome(compiled);
     this.invocations.push({
       id: nodeId,
       use: {
@@ -739,10 +755,87 @@ class Compiler {
         id: binding.operation.id,
         version: binding.operation.version,
       },
-      dependsOn,
+      dependsOn: outcome
+        ? [...new Set([...dependsOn, ...outcome.producers])]
+        : dependsOn,
       bindings,
+      ...(outcome ? { outcome: outcome.outcome } : {}),
     });
     return compiled;
+  }
+
+  /**
+   * The recipe outcome that enforces a step's compiled criteria and retry at
+   * run time. Every value a condition reads becomes a recipe binding, and
+   * must be public: a criterion over a secret would disclose it one attempt
+   * at a time. Transport facts (`$statusCode`, `$url`, `$method`,
+   * `$response.header.*`) are left to the handler to report.
+   */
+  compileOutcome(
+    step: CompiledStep,
+  ): { outcome: RecipeOutcome; producers: string[] } | undefined {
+    const criteria = [...step.successCriteria, ...(step.retry?.criteria ?? [])];
+    if (!criteria.length && !step.retry) return undefined;
+    const values: Record<string, Binding> = {};
+    const producers = new Set<string>();
+    for (const { pointer, condition } of criteria)
+      for (const { expression } of condition.references) {
+        const reference = outcomeReferenceKey(expression);
+        if (!reference) continue;
+        const at = `${pointer}/condition`;
+        if (!outcomeReferenceSchema.safeParse(reference).success) {
+          this.issue("arazzo.identity.name-unrepresentable", at);
+          continue;
+        }
+        let binding: Binding | undefined;
+        let classification: Classification | undefined;
+        if (expression.kind === "inputs") {
+          const input = this.inputs[expression.name];
+          if (input) {
+            binding = { from: "input", name: expression.name };
+            classification = input.classification;
+          }
+        } else if (expression.kind === "steps") {
+          const producer = this.compiled.get(expression.stepId);
+          const output = producer?.outputs[expression.name];
+          if (producer && output) {
+            binding = {
+              from: "output",
+              node: producer.nodeId,
+              name: output.name,
+            };
+            classification = output.classification;
+            producers.add(producer.nodeId);
+          }
+        }
+        // compileCriteria already reported a reference that resolves to nothing.
+        if (!binding) continue;
+        if (classification !== "public")
+          this.issue("arazzo.policy.private-criterion", at);
+        values[reference] = binding;
+      }
+    const parsed = recipeOutcomeSchema.safeParse({
+      successCriteria: step.successCriteria.map(
+        ({ condition }) => condition.source,
+      ),
+      ...(step.retry
+        ? {
+            retry: {
+              limit: step.retry.limit,
+              afterMs: step.retry.afterMs,
+              criteria: step.retry.criteria.map(
+                ({ condition }) => condition.source,
+              ),
+            },
+          }
+        : {}),
+      values,
+    });
+    if (!parsed.success) {
+      this.issue("arazzo.structure.recipe-limit", step.pointer);
+      return undefined;
+    }
+    return { outcome: parsed.data, producers: [...producers] };
   }
 
   bindInputs(
@@ -921,6 +1014,18 @@ class Compiler {
       `${step.pointer}/successCriteria`,
       compiled,
     );
+    // A recipe outcome belongs to one operation; a child recipe has none to
+    // carry it, so neither criteria nor a retry can be dropped silently here.
+    if (step.successCriteria?.length)
+      this.issue(
+        "arazzo.step.workflow-outcome-unsupported",
+        `${step.pointer}/successCriteria`,
+      );
+    if (analysis.onFailure.some(({ action }) => action.type === "retry"))
+      this.issue(
+        "arazzo.step.workflow-outcome-unsupported",
+        `${step.pointer}/onFailure`,
+      );
     this.invocations.push({
       id: nodeId,
       use: { kind: "recipe", ...entry.recipe },

@@ -4,7 +4,9 @@ import type { ActorContext } from "../core/operation-contracts.js";
 import {
   ProtectedCommandService,
   deliverContinuations,
+  type NodeContext,
   type RunContext,
+  type RunPlanNode,
   type RunRecord,
 } from "./commands.js";
 import { Demonstrations } from "./demonstrations.js";
@@ -24,6 +26,7 @@ import { AgentCoordinator } from "./agent/coordinator.js";
 import { configuredModel, type ModelConfiguration } from "./agent/model.js";
 import type { RecipeDefinition } from "../core/recipe-contracts.js";
 import type { BrowserLoginTools } from "./browser-login-tools.js";
+import type { OperationBindingCatalogInput } from "./connectors/formats/arazzo/catalog.js";
 import {
   authoredAccountIntentKey,
   saveAuthoredAccountIntent,
@@ -119,6 +122,15 @@ export interface TeachingRuntimeOptions {
     connectorId: string,
     authored?: boolean,
   ): Promise<RunContext>;
+  /**
+   * The host's reviewed Arazzo operation-binding catalog for the actor's
+   * tenant: which document, version and registered operation each Arazzo
+   * reference means. Arazzo import is offered only when this is present; an
+   * imported description never supplies it.
+   */
+  arazzoCatalog?: (
+    actor: ActorContext,
+  ) => Promise<OperationBindingCatalogInput>;
   authoringSearch?: ProviderSearch;
   authoringFetch?: typeof fetch;
   accountStatus?: (
@@ -131,6 +143,14 @@ export interface TeachingRuntimeOptions {
     target: string,
     connectorId?: string,
   ) => Promise<void>;
+  /**
+   * Host policy for one operation of one run. For a step a recipe placed
+   * under another connector, `run` is that step's view: its context fields
+   * (provider, profile, target, origin, environment, configuration version)
+   * are the step's own, and `run.scope` names the step and its connector, so
+   * a policy written for single-provider runs evaluates the right context
+   * without change.
+   */
   authorize(
     actor: ActorContext,
     run: RunRecord,
@@ -273,14 +293,40 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       )
         throw new AuthorizationError("denied");
     }
-    const nodes = checked.leaves.map((n) => ({
-      id: n.id,
-      operationId: n.use.id,
-      operationVersion: n.use.version,
-      dependsOn: n.dependsOn,
-      bindings: n.bindings,
-    }));
     const runContext = await options.context(actor, connectorId, authored);
+    // A step a recipe placed under another connector runs in that connector's
+    // context, resolved by the host for this actor. An unknown connector is
+    // refused here; one the host will not authorize is refused by createRun.
+    // Either way no run exists.
+    const contexts = new Map<string, NodeContext>();
+    for (const leaf of checked.leaves) {
+      const other = leaf.connector;
+      if (!other || other === connectorId || contexts.has(other)) continue;
+      const installed = Boolean(await authoring.getInstalled(actor, other));
+      await connection(actor, other, installed);
+      const resolved = await options.context(actor, other, installed);
+      contexts.set(other, {
+        provider: resolved.provider,
+        profile: resolved.profile,
+        target: resolved.target,
+        origin: resolved.origin,
+        environment: resolved.environment,
+        configurationVersion: resolved.configurationVersion,
+        connectorId: other,
+      });
+    }
+    const nodes: RunPlanNode[] = checked.leaves.map((n) => {
+      const context = n.connector ? contexts.get(n.connector) : undefined;
+      return {
+        id: n.id,
+        operationId: n.use.id,
+        operationVersion: n.use.version,
+        dependsOn: n.dependsOn,
+        bindings: n.bindings,
+        ...(context ? { context } : {}),
+        ...(n.outcome ? { outcome: n.outcome } : {}),
+      };
+    });
     const identifier = sourceRunId
       ? await store.transaction(async (tx) => {
           const source = await tx.get<RunRecord>({
@@ -559,6 +605,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     cancel: options.cancel,
     selectTarget: options.selectTarget,
     browserLogin: options.browserLogin,
+    arazzoCatalog: options.arazzoCatalog,
     flushContinuations,
   };
 }

@@ -28,6 +28,7 @@ import {
   compileDemonstrationDraft,
   deleteAuthoredConnection,
   executePublishedRecipe,
+  importArazzoDraft,
   importRecipeDraft,
   listPublishedRecipes,
   teachingInputs,
@@ -627,6 +628,15 @@ async function draftHttp(
         runtime,
         actor,
         teachingInputs.draftImport.parse(body),
+      ),
+    );
+  // Absent, like its MCP tool, where the host has no reviewed catalog.
+  if (path === "/drafts/arazzo" && post && runtime.arazzoCatalog)
+    return reply(
+      await importArazzoDraft(
+        runtime,
+        actor,
+        teachingInputs.arazzoImport.parse(body),
       ),
     );
   const draftRoute =

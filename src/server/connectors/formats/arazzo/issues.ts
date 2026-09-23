@@ -531,6 +531,18 @@ export const arazzoIssueTable = {
     "policy",
     "Retrying through another step or workflow is outside the executable profile.",
   ),
+  "arazzo.policy.private-criterion": blocking(
+    "policy",
+    "A success or retry criterion reads a value that is not classified public, so its outcome would disclose that value.",
+    "Compare only public inputs and step outputs, or the response status and headers.",
+    "blocks-operation",
+    "rejected",
+  ),
+  "arazzo.step.workflow-outcome-unsupported": blocking(
+    "structure",
+    "Success criteria and retries on a workflow step are outside the executable profile.",
+    "Put the criteria and the retry on the steps of the referenced workflow.",
+  ),
   "arazzo.policy.timeout-exceeded": blocking(
     "policy",
     "A step timeout exceeds the bounded maximum.",
@@ -540,7 +552,7 @@ export const arazzoIssueTable = {
   ),
   "arazzo.step.timeout-adapted": warning(
     "policy",
-    "The step timeout is carried in the compiled plan; the host enforces it through the command signal.",
+    "The step timeout is reported for review but not carried into the recipe; each attempt is bounded by the host's command signal instead.",
   ),
   "arazzo.step.channel-unsupported": blocking(
     "structure",

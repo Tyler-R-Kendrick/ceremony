@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { validateRecipe } from "../../../src/server/recipes/index.js";
+import {
+  OperationRegistry,
+  validateRecipe,
+} from "../../../src/server/recipes/index.js";
 import {
   compileArazzoToRecipe,
   readArazzo,
@@ -488,4 +491,154 @@ test("compiling names a workflow that exists and reports issues only in its own 
   const absent = compile(storeWorkflow101(), { workflowId: "nope" });
   assert.equal(absent.status, "blocked");
   assert.ok(codes(absent).includes("arazzo.reference.unknown-workflow"));
+});
+
+test("compiled criteria and retries travel in the recipe as an enforceable outcome", async () => {
+  const compilation = compile(storeWorkflow101());
+  const [prepare, verify] = compilation.recipe!.invocations;
+  assert.deepEqual(prepare!.outcome, {
+    successCriteria: ["$statusCode == 200"],
+    values: {},
+  });
+  assert.deepEqual(verify!.outcome, {
+    successCriteria: [
+      "$statusCode == 200 && $response.header.X-Verified == 'true'",
+    ],
+    retry: { limit: 2, afterMs: 1000, criteria: [] },
+    values: {},
+  });
+
+  // A criterion over a public input or an earlier public output becomes a
+  // bound value, and its producer an explicit dependency.
+  const document = storeWorkflow101();
+  const steps = (document.workflows as Record<string, unknown>[])[0]!
+    .steps as Record<string, unknown>[];
+  steps.push({
+    stepId: "again",
+    description: "Verify again",
+    operationId: "verifyAccount",
+    parameters: [
+      { name: "setup", in: "query", value: "$steps.prepare.outputs.setup" },
+    ],
+    successCriteria: [
+      {
+        condition:
+          "$inputs.region == 'eu' && $steps.verify.outputs.account != null",
+      },
+    ],
+    outputs: { account: "$response.body#/account" },
+  });
+  const extended = compile(document);
+  assert.deepEqual(blocking(extended), []);
+  const again = extended.recipe!.invocations[2]!;
+  assert.deepEqual(again.dependsOn, ["verify", "prepare"]);
+  assert.deepEqual(again.outcome!.values, {
+    "$inputs.region": { from: "input", name: "region" },
+    "$steps.verify.outputs.account": {
+      from: "output",
+      node: "verify",
+      name: "account",
+    },
+  });
+  const validated = await validateRecipe(
+    extended.recipe!,
+    registryOf(),
+    noChildren,
+  );
+  assert.deepEqual(validated.diagnostics, []);
+});
+
+test("a criterion over a non-public value is blocked, not compiled into an oracle", () => {
+  const document = storeWorkflow101();
+  const verify = (
+    (document.workflows as Record<string, unknown>[])[0]!.steps as Record<
+      string,
+      unknown
+    >[]
+  )[1]!;
+  // `setup` is an artifact handle: comparing it would disclose it bit by bit.
+  verify.successCriteria = [
+    { condition: "$steps.prepare.outputs.setup == 'guess'" },
+  ];
+  const compilation = compile(document);
+  assert.equal(compilation.status, "blocked");
+  const issue = compilation.issues.find(
+    (item) => item.code === "arazzo.policy.private-criterion",
+  )!;
+  assert.equal(issue.severity, "blocking");
+  assert.equal(
+    issue.sourcePointer,
+    "/workflows/0/steps/1/successCriteria/0/condition",
+  );
+});
+
+test("a retry needs replay evidence in the registry as well as the catalog", () => {
+  const { registry } = storeRegistry({ origin: "http://127.0.0.1:1" });
+  // The same operations, registered without the host's replay evidence.
+  const bare = new OperationRegistry(registry.vocabulary);
+  for (const contract of registry.catalog()) {
+    const { replay, ...operation } = registry.get(
+      contract.id,
+      contract.version,
+    )!;
+    assert.equal(replay, "read-only");
+    bare.register(operation);
+  }
+  const compilation = compileArazzoToRecipe(
+    readArazzo(storeWorkflow101()),
+    storeCatalog(storeActor.tenantId),
+    {
+      workflowId: "connect-store",
+      registry: bare,
+      tenantId: storeActor.tenantId,
+    },
+  );
+  assert.equal(compilation.status, "blocked");
+  assert.deepEqual(
+    compilation.issues
+      .filter((item) => item.code === "arazzo.policy.retry-not-replay-safe")
+      .map((item) => item.sourcePointer),
+    ["/workflows/0/steps/1/onFailure/0"],
+  );
+});
+
+test("criteria or a retry on a workflow step are blocked rather than dropped", () => {
+  const document = storeWorkflow101();
+  const workflows = document.workflows as Record<string, unknown>[];
+  const child = structuredClone(workflows[0]!);
+  child.workflowId = "prepare-store";
+  (child.steps as Record<string, unknown>[]).length = 1;
+  child.outputs = { setup: "$steps.prepare.outputs.setup" };
+  workflows.push(child);
+  workflows[0]!.steps = [
+    {
+      stepId: "setup",
+      description: "Run the prepare workflow",
+      workflowId: "prepare-store",
+      parameters: [{ name: "region", value: "$inputs.region" }],
+      successCriteria: [{ condition: "$statusCode == 200" }],
+      onFailure: [{ name: "again", type: "retry", retryLimit: 1 }],
+    },
+  ];
+  workflows[0]!.outputs = {};
+  const catalog = storeCatalog(storeActor.tenantId);
+  catalog.workflows = [
+    {
+      workflowId: "prepare-store",
+      documentDigest: readArazzo(document).digest!,
+      recipe: { id: "prepare-store", version: "1.0.1", digest: "a".repeat(64) },
+      inputs: { region: "region" },
+      outputs: { setup: "setup" },
+    },
+  ];
+  const compilation = compile(document, { catalog });
+  assert.equal(compilation.status, "blocked");
+  assert.deepEqual(
+    compilation.issues
+      .filter(
+        (item) => item.code === "arazzo.step.workflow-outcome-unsupported",
+      )
+      .map((item) => item.sourcePointer),
+    ["/workflows/0/steps/0/successCriteria", "/workflows/0/steps/0/onFailure"],
+  );
 });

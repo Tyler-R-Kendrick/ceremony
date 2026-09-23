@@ -37,10 +37,22 @@ const neutral = (
   classification,
   provider: NEUTRAL_PROVIDER,
   profile: NEUTRAL_PROVIDER,
+  // Neutral values name nothing provider-specific (a run-bound handle, a
+  // public host name), so they may cross between the connectors of one run.
+  crossProvider: true,
 });
 export const commonVocabulary = new Map<string, VocabularyEntry>([
   ["common.inbox", neutral(handleSchema("inbox"), "artifact")],
   ["common.verification", neutral(handleSchema("verification"), "artifact")],
+  /**
+   * The shared contract for "create a client at provider A, use it at
+   * provider B": an opaque handle to a client registration held server-side
+   * for the run that minted it. Provider A's trusted handler stores the
+   * client with `mintOAuthClient`; provider B's resolves it with
+   * `readOAuthClient`. The secret never enters a binding, a snapshot or an
+   * event.
+   */
+  ["common.oauth-client", neutral(handleSchema("client"), "artifact")],
   [
     "common.link-host",
     neutral(
@@ -79,13 +91,23 @@ const verificationRecordSchema = z.strictObject({
   link: z.string().max(2100).optional(),
   expires: z.number(),
 });
+const oauthClientRecordSchema = z.strictObject({
+  kind: z.literal("oauth-client"),
+  runId: z.string(),
+  subjectId: z.string(),
+  clientId: z.string().min(1).max(512),
+  clientSecret: z.string().min(1).max(4096).optional(),
+  expires: z.number(),
+});
+/** A client registration outlives one step but not the run that needs it. */
+const OAUTH_CLIENT_TTL_MS = 60 * 60_000;
 type Owner = { actor: ActorContext; runId: string };
 const recordKey = (actor: ActorContext, handle: string) => ({
   tenant: actor.tenantId,
   kind: "artifact" as const,
   id: `common-step:${handle}`,
 });
-const newHandle = (kind: "inbox" | "verification") =>
+const newHandle = (kind: "inbox" | "verification" | "client") =>
   `common-${kind}-${randomBytes(16).toString("hex")}`;
 
 async function readRecord<T extends { runId: string; subjectId: string }>(
@@ -148,6 +170,57 @@ export async function consumeInboxVerification(
   return {
     ...(record.code ? { code: record.code } : {}),
     ...(record.link ? { link: record.link } : {}),
+  };
+}
+
+/**
+ * Trusted storage of a client registration by the provider step that created
+ * it. Returns the opaque `common.oauth-client` handle the step outputs; the
+ * identifier and secret stay in this record, bound to the run and subject.
+ */
+export async function mintOAuthClient(
+  store: AsyncCeremonyStore,
+  owner: Owner,
+  client: { clientId: string; clientSecret?: string },
+): Promise<string> {
+  const handle = newHandle("client");
+  await store.transaction(async (tx) => {
+    await tx.put(
+      recordKey(owner.actor, handle),
+      oauthClientRecordSchema.parse({
+        kind: "oauth-client",
+        runId: owner.runId,
+        subjectId: owner.actor.subjectId,
+        clientId: client.clientId,
+        ...(client.clientSecret ? { clientSecret: client.clientSecret } : {}),
+        expires: (await tx.now()) + OAUTH_CLIENT_TTL_MS,
+      }),
+      null,
+    );
+  });
+  return handle;
+}
+
+/**
+ * Trusted server-side resolution of a `common.oauth-client` handle, for a
+ * step of the same run, whichever connector's context that step runs in.
+ * Never a tool result.
+ */
+export async function readOAuthClient(
+  store: AsyncCeremonyStore,
+  owner: Owner,
+  handle: unknown,
+): Promise<{ clientId: string; clientSecret?: string } | undefined> {
+  const record = await readRecord(
+    store,
+    owner,
+    handle,
+    oauthClientRecordSchema,
+  );
+  if (!record) return undefined;
+  return {
+    clientId: record.clientId,
+    ...(record.clientSecret ? { clientSecret: record.clientSecret } : {}),
   };
 }
 
