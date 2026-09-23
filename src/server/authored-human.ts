@@ -286,6 +286,34 @@ export async function authoredHuman(
   };
   const screenshotResponse = await browserImage();
   if (screenshotResponse) return screenshotResponse;
+  /**
+   * The provider's live view of the waiting tab, for a remote browser that
+   * offers one. Minted here, in the authenticated human route, by the
+   * process holding the browser, and handed over only as this redirect: the
+   * URL controls the tab, so it never reaches a page body, a run record or
+   * the assistant.
+   */
+  const liveViewRedirect = async () => {
+    if (
+      request.method !== "GET" ||
+      !new URL(request.url).searchParams.has("live-view")
+    )
+      return;
+    const url =
+      browserState?.pending && (await options.browser?.liveView?.(browserKey));
+    return url
+      ? new Response(null, {
+          status: 303,
+          headers: {
+            ...headers,
+            location: url,
+            "referrer-policy": "no-referrer",
+          },
+        })
+      : new Response("Browser session expired", { status: 410, headers });
+  };
+  const liveViewResponse = await liveViewRedirect();
+  if (liveViewResponse) return liveViewResponse;
   const oauthKey = {
     tenant: context.actor.tenantId,
     kind: "handoff" as const,
@@ -744,6 +772,7 @@ export async function authoredHuman(
           `<h1>Browser session expired</h1><p>The waiting browser is no longer available. Check the provider account before starting a new connection; registration may already have been submitted.</p>`,
         );
       return page(`<h1>Continue ${escape(name)}</h1><p>The browser is paused for your input. ${blocker === "required-input" ? "The provider needs information or confirmation that cannot be inferred. The missing field is selected; enter your answer below or interact with the provider page." : "Complete the challenge below, then continue."} This session expires after ten minutes.</p>
+      ${options.browser?.liveView ? `<p><a href="?live-view=1" target="_blank" rel="noopener noreferrer">Take over the provider page in a live browser</a>, then return here and continue.</p>` : ""}
       <form method="post"><input type="hidden" name="action" value="browser"><label>Verification code <input name="code" autocomplete="one-time-code" maxlength="128" required></label><button>Submit code and continue</button></form>
       <div class="provider-browser" role="region" aria-label="Provider browser viewport" tabindex="0"><form method="post"><input type="hidden" name="action" value="browser"><input type="image" src="?browser-image=1" width="1280" height="720" alt="Current provider page. Scroll to view, click to interact."></form></div>
       <form method="post"><input type="hidden" name="action" value="browser"><label>Text or dropdown option label for the selected provider field <input name="text" maxlength="1024" autocomplete="off"></label><button>Apply input</button></form>

@@ -3230,3 +3230,65 @@ test("declaring a window outside the authorization's origins is refused before a
   assert.deepEqual(result, { status: "blocked", reason: "popup-undeclared" });
   assert.equal(opened, 0);
 });
+
+test("a session waiting on a person offers the browser provider's live view, and only while it waits", async (t) => {
+  const provider = await listen({ onSignup: () => "challenge" });
+  t.after(() => provider.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const minted: string[] = [];
+  const executor = createAuthorizationBrowser({
+    open: async () => ({
+      browser,
+      close: async () => {},
+      liveView: async (page) => {
+        minted.push(page.url());
+        return "https://viewer.example/live/fixture-tab";
+      },
+    }),
+  });
+  t.after(() => executor.close?.("live-view"));
+  assert.equal(await executor.liveView?.("live-view"), undefined);
+  const result = await executor.complete({
+    sessionKey: "live-view",
+    startUrl: `${provider.origin}/signup`,
+    redirectUri: `${provider.origin}/callback`,
+    allowedOrigins: [provider.origin],
+    generateAccount: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.sessionPending, true);
+  // The URL is a host-only value: nothing in the result carries it.
+  assert.doesNotMatch(JSON.stringify(result), /viewer\.example/);
+  assert.equal(
+    await executor.liveView?.("live-view"),
+    "https://viewer.example/live/fixture-tab",
+  );
+  // Minted for the tab that is waiting, at the provider.
+  assert.equal(new URL(minted[0]!).origin, provider.origin);
+  assert.equal(await executor.liveView?.("another-session"), undefined);
+  await executor.close?.("live-view");
+  assert.equal(await executor.liveView?.("live-view"), undefined);
+});
+
+test("a local browser has no live view to offer", async (t) => {
+  const provider = await listen({ onSignup: () => "challenge" });
+  t.after(() => provider.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+  });
+  t.after(() => executor.close?.("no-live-view"));
+  const result = await executor.complete({
+    sessionKey: "no-live-view",
+    startUrl: `${provider.origin}/signup`,
+    redirectUri: `${provider.origin}/callback`,
+    allowedOrigins: [provider.origin],
+    generateAccount: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.sessionPending, true);
+  assert.equal(await executor.liveView?.("no-live-view"), undefined);
+});

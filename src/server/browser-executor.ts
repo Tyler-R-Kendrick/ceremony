@@ -3,6 +3,16 @@ import type { Browser, CDPSession, Locator, Page } from "playwright-core";
 import { z } from "zod";
 import { chromium } from "./playwright.js";
 import { createWindowTracker, type WindowOpener } from "./browser-windows.js";
+import {
+  browserbaseLiveView,
+  cloudflareLiveView,
+  liveViewTemplateAllowed,
+  remoteCdpEndpointAllowed,
+  templateLiveView,
+  type LiveViewMinter,
+} from "./live-view.js";
+
+export { remoteCdpEndpointAllowed } from "./live-view.js";
 import { createBrowserEgressProxy } from "./browser-egress.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 
@@ -122,9 +132,24 @@ export type AuthorizationBrowser = {
     action: z.infer<typeof browserHumanActionSchema>,
   ): Promise<boolean>;
   close?(sessionKey: string): Promise<void>;
+  /**
+   * A takeover URL for a session waiting on a person, when the browser runs
+   * at a provider that offers a live view (Cloudflare Browser Run,
+   * Browserbase, or a CDP endpoint configured with a live-view template).
+   * `undefined` when there is no such session here or no live view.
+   *
+   * The URL controls the whole tab. Only a host's authenticated human route
+   * may ask for it, and it is never part of a result or an event.
+   */
+  liveView?(sessionKey: string): Promise<string | undefined>;
 };
 
-type Opened = { browser: Browser; close: () => Promise<void> };
+type Opened = {
+  browser: Browser;
+  close: () => Promise<void>;
+  /** How this browser's provider mints a takeover URL, if it can. */
+  liveView?: LiveViewMinter;
+};
 
 /**
  * Any browser that speaks the Chrome DevTools Protocol over a websocket.
@@ -144,32 +169,13 @@ export type RemoteCdpBrowser = {
   endpoint: string;
   /** Presented on the websocket upgrade, e.g. an `Authorization` header. */
   headers?: Record<string, string>;
+  /**
+   * The operator's live view for this endpoint, with `{targetId}` for the
+   * tab's CDP target id - how a person takes over a login this browser is
+   * waiting on. Absent, the endpoint offers no takeover link.
+   */
+  liveViewUrlTemplate?: string;
 };
-
-const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
-
-/**
- * Whether a CDP endpoint may be dialled at all.
- *
- * Encrypted anywhere; plaintext only on this machine. A `ws://` endpoint on a
- * network would send the browser's control channel — and any header that
- * authenticates it — in the clear. Credentials belong in `headers` rather than
- * in the URL's userinfo, where they end up in every log line that prints it.
- */
-export function remoteCdpEndpointAllowed(endpoint: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return false;
-  }
-  if (url.username || url.password) return false;
-  if (url.protocol === "wss:" || url.protocol === "https:") return true;
-  return (
-    (url.protocol === "ws:" || url.protocol === "http:") &&
-    loopbackHosts.has(url.hostname)
-  );
-}
 
 type BrowserOptions = {
   open?: () => Promise<Opened>;
@@ -197,6 +203,8 @@ export type RemoteBrowserOptions = Pick<
  * - `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID`: Browserbase sessions.
  * - `CEREMONY_BROWSER_CDP_URL`: any CDP websocket endpoint.
  * - `CEREMONY_BROWSER_CDP_HEADERS`: a JSON object of headers for it.
+ * - `CEREMONY_BROWSER_CDP_LIVE_VIEW_URL`: the operator's live view for that
+ *   endpoint, an `https:` template with `{targetId}` for the tab.
  * - `CEREMONY_BROWSER_REMOTE_PROXY`: the egress proxy every remote browser is
  *   required to use, with `CEREMONY_BROWSER_REMOTE_PROXY_USERNAME` and
  *   `CEREMONY_BROWSER_REMOTE_PROXY_PASSWORD` when it authenticates.
@@ -230,9 +238,15 @@ export function remoteBrowserOptionsFromEnv(
     // are usually the endpoint's credential.
     if (headers && !headers.success)
       throw new Error("CEREMONY_BROWSER_CDP_HEADERS must be a JSON object");
+    const liveView = env.CEREMONY_BROWSER_CDP_LIVE_VIEW_URL;
+    if (liveView !== undefined && !liveViewTemplateAllowed(liveView))
+      throw new Error(
+        "CEREMONY_BROWSER_CDP_LIVE_VIEW_URL must be an https:// URL with no userinfo, using only {targetId}",
+      );
     options.cdp = {
       endpoint: env.CEREMONY_BROWSER_CDP_URL,
       ...(headers?.success ? { headers: headers.data } : {}),
+      ...(liveView ? { liveViewUrlTemplate: liveView } : {}),
     };
   }
   if (env.CEREMONY_BROWSER_REMOTE_PROXY) {
@@ -595,12 +609,19 @@ async function openRemote(options: {
     });
     if (response.ok) {
       const session = z
-        .object({ connectUrl: z.string().url() })
+        .object({ id: z.string().min(1), connectUrl: z.string().url() })
         .parse(await response.json());
       const browser = await chromium.connectOverCDP(session.connectUrl, {
         timeout: 20_000,
       });
-      return { browser, close: () => browser.close() };
+      return {
+        browser,
+        close: () => browser.close(),
+        liveView: browserbaseLiveView({
+          apiKey: options.browserbase.apiKey,
+          sessionId: session.id,
+        }),
+      };
     }
   }
   if (options.cloudflare) {
@@ -611,18 +632,30 @@ async function openRemote(options: {
         timeout: 20_000,
       },
     );
-    return { browser, close: () => browser.close() };
+    return {
+      browser,
+      close: () => browser.close(),
+      liveView: cloudflareLiveView(),
+    };
   }
   if (options.cdp) {
     // Checked again here and not only at boot: a host that builds these
     // options in code never passes through the environment reader.
     if (!remoteCdpEndpointAllowed(options.cdp.endpoint))
       throw new Error("Invalid remote CDP endpoint");
+    // Checked before dialling, so a bad template never opens a browser.
+    const liveView = options.cdp.liveViewUrlTemplate
+      ? templateLiveView(options.cdp.liveViewUrlTemplate)
+      : undefined;
     const browser = await chromium.connectOverCDP(options.cdp.endpoint, {
       ...(options.cdp.headers ? { headers: { ...options.cdp.headers } } : {}),
       timeout: 20_000,
     });
-    return { browser, close: () => browser.close() };
+    return {
+      browser,
+      close: () => browser.close(),
+      ...(liveView ? { liveView } : {}),
+    };
   }
 }
 
@@ -1420,11 +1453,15 @@ async function driveInferred(
 export function createAuthorizationBrowser(
   options: BrowserOptions = {},
 ): AuthorizationBrowser {
-  // ponytail: sessions are process-local; a restarted worker expires the handoff.
+  // Sessions are process-local: a page cannot outlive the process holding
+  // its CDP connection. What survives a restart is the host's durable record
+  // that a browser was pending, and a resume against a session this process
+  // does not hold ends as `session-expired` rather than as a fresh attempt.
   const sessions = new Map<
     string,
     {
       page: Page;
+      liveView?: LiveViewMinter | undefined;
       busy: boolean;
       allowed: () => boolean;
       resume: (
@@ -1436,6 +1473,11 @@ export function createAuthorizationBrowser(
     }
   >();
   return {
+    async liveView(key) {
+      const held = sessions.get(key);
+      if (!held?.liveView || held.busy || !held.allowed()) return undefined;
+      return held.liveView(held.page).catch(() => undefined);
+    },
     async screenshot(key) {
       const held = sessions.get(key);
       if (!held || held.busy || !held.allowed()) return undefined;
@@ -1991,6 +2033,7 @@ export function createAuthorizationBrowser(
       };
       const held = {
         page,
+        liveView: opened.liveView,
         privateValues,
         busy: true,
         allowed: () =>
