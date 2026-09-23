@@ -167,3 +167,9 @@ export const supportKey = (
   kind: "connector-support",
   id: `adapter:${sha256Hex(adapterId, adapterVersion)}`,
 });
+
+export const registrationKey = (tenant: string, key: string): RecordKey => ({
+  tenant,
+  kind: "connector-oauth-registration",
+  id: `registration:${sha256Hex(key)}`,
+});

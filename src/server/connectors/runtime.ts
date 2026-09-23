@@ -121,8 +121,17 @@ export function createConnectorRuntime(
   if (new URL(options.origin).origin !== options.origin)
     throw new Error("Connector runtime origin must be an exact origin");
 
-  const registry = createConnectorRegistry(options.inventory ?? {});
   const ports = createConnectorPorts(options.store);
+  // A runtime always has a durable store, so dynamic client registration
+  // persists there unless the host supplies its own registrations store.
+  const inventory = options.inventory ?? {};
+  const registry = createConnectorRegistry({
+    ...inventory,
+    oauth: {
+      ...inventory.oauth,
+      registrations: inventory.oauth?.registrations ?? ports.registrations,
+    },
+  });
   const approved = createApprovedFetch(options.network);
   // The approved fetcher is the only way out. Narrowing it to `typeof fetch`
   // here rather than at each call site means a module that wants a plain
