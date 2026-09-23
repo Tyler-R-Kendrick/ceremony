@@ -6,7 +6,12 @@ import type {
   AsyncTransaction,
 } from "../persistence/index.js";
 import { AsyncPrivateCollectionBroker } from "../persistence/collections.js";
-import type { RunRecord, RunPlanNode } from "../commands.js";
+import {
+  readScopedRun,
+  scopedRunFor,
+  type RunRecord,
+  type RunPlanNode,
+} from "../commands.js";
 import { AuthorizationError } from "../identity.js";
 import { appendSemanticTransition } from "../demonstrations.js";
 import {
@@ -150,14 +155,9 @@ export class AsyncSupabaseChildren {
   private async authorize(context: OperationContext) {
     context.signal.throwIfAborted();
     await this.options.authorize(context);
-    const record = await this.store.transaction((tx) =>
-      tx.get<RunRecord>({
-        tenant: context.actor.tenantId,
-        kind: "run",
-        id: context.runId,
-      }),
-    );
-    const run = record?.value;
+    // The step's own context: a Supabase step may be planned inside another
+    // provider's run, under the Supabase connector.
+    const run = await readScopedRun(this.store, context);
     if (
       !run ||
       run.subjectId !== context.actor.subjectId ||
@@ -211,7 +211,8 @@ export class AsyncSupabaseChildren {
       run.value.status !== "active" ||
       run.value.subjectId !== context.actor.subjectId ||
       run.value.sessionId !== context.actor.sessionId ||
-      run.value.configurationVersion !== context.configurationVersion
+      scopedRunFor(run.value, context.nodeId).configurationVersion !==
+        context.configurationVersion
     )
       throw new AuthorizationError("denied");
     const key = this.key(context, kind),
@@ -411,7 +412,8 @@ export class AsyncSupabaseChildren {
           !run ||
           run.value.status !== "active" ||
           run.value.subjectId !== context.actor.subjectId ||
-          run.value.configurationVersion !== context.configurationVersion ||
+          scopedRunFor(run.value, context.nodeId).configurationVersion !==
+            context.configurationVersion ||
           command?.value.state !== "running" ||
           command.value.effectId !== context.effectId
         )

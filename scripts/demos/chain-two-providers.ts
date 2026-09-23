@@ -277,7 +277,10 @@ export async function record(session: DemoSession) {
       { client: "common.oauth-client" },
       async (context) => {
         let handle: string | undefined;
-        session.redact("#oauth-app-client-secret");
+        session.redact(
+          "#oauth-app-client-secret",
+          "Generate a new client secret",
+        );
         const result = await browse(
           registrationPlan(chain),
           "a-register-app",

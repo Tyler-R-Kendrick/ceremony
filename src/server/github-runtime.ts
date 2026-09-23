@@ -42,7 +42,7 @@ import {
   requireCapability,
   type HostIdentityAdapter,
 } from "./identity.js";
-import type { RunRecord } from "./commands.js";
+import { readScopedRun, type RunRecord } from "./commands.js";
 import type { ModelConfiguration } from "./agent/model.js";
 import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
 import { boundedJson, assertRequestBoundary } from "./authorization.js";
@@ -233,18 +233,14 @@ export function createGitHubRuntime(
       : {}),
     ...options.github,
     authorize: async (context) => {
-      const run = await store.transaction((tx) =>
-        tx.get<RunRecord>({
-          tenant: context.actor.tenantId,
-          kind: "run",
-          id: context.runId,
-        }),
-      );
+      // Authorized as the step sees the run, so a step planned under another
+      // connector is admitted by that connector's provider and the host.
+      const run = await readScopedRun(store, context);
       if (
         !run ||
-        run.value.subjectId !== context.actor.subjectId ||
-        run.value.status === "cancelled" ||
-        !(await authorize(context.actor, run.value, run.value.provider))
+        run.subjectId !== context.actor.subjectId ||
+        run.status === "cancelled" ||
+        !(await authorize(context.actor, run, run.provider))
       )
         throw new AuthorizationError("denied");
     },

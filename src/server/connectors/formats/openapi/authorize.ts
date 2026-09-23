@@ -201,9 +201,11 @@ function requestedScopes(
       ? needed
       : [...declared];
   // A request may narrow what the description declares, never exceed it: a
-  // scope nobody reviewed is not one this connection should hold.
+  // scope nobody reviewed is not one this connection should hold. Declaring
+  // none leaves nothing to narrow, not everything to ask for.
   const known = new Set([...declared, ...needed]);
-  if (known.size && scopes.some((scope) => !known.has(scope)))
+  if (profile.kind === "openid-connect") known.add("openid");
+  if (scopes.some((scope) => !known.has(scope)))
     throw new ConnectorError("invalid-request", {
       detail: "openapi.scope-undeclared",
     });
