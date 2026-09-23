@@ -999,12 +999,15 @@ export type CheckboxConsent = {
 };
 
 /**
- * Opt-ins that are nobody's to give: marketing, newsletters, and sharing the
- * person's data with partners. "I agree" is how these are worded too, so a
- * box naming one is never read as terms alone.
+ * Opt-ins that are nobody's to give: marketing, newsletters, being contacted,
+ * and sharing the person's data with partners. "I agree" is how these are
+ * worded too - and they are usually bundled into the terms sentence ("I agree
+ * to the Terms and to receive emails from us") - so a box naming one is never
+ * read as terms alone. Deliberately broad: a false positive leaves a box for
+ * the person, a false negative signs them up.
  */
 const marketingWords =
-  /newsletter|marketing|promot|special offers|\boffers\b|\bupdates\b|product news|(e-?mail|send) me (news|offers|tips)|subscribe|partners|third[- ]part(y|ies)|share my (data|information)/i;
+  /newsletter|marketing|promot|special offers|\boffers\b|\bupdates\b|\bnews\b|\btips\b|\bfeatures\b|subscribe|partners|third[- ]part(y|ies)|share my (data|information)|receiv(e|ing) (e-?mails?|communications?|messages?|news|updates|offers|information|texts?|sms|calls?)|(e-?mail|send|text|call|message) me|\bcontact(ed)? (me|by)|keep me (informed|updated|posted|in the loop)|hear (about|from|more)|communications? from/i;
 const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
   // A bare "I agree" or "I accept" is read as terms: it is the conservative
   // reading, since it asks a person rather than ticking.

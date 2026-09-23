@@ -334,7 +334,11 @@ part of the digest. Without them the box is handed to a person (`consent`), who
 ticks it themselves, or the login ends `consent-required` (`requires-human` /
 `consent` through the service). A marketing or newsletter opt-in is never
 ticked, whatever the plan says: an optional one is left alone and a required
-one is the person's.
+one is the person's. That includes one bundled into the terms sentence ("I
+agree to the Terms and to receive emails from us", "... to be contacted by
+sales", "keep me informed", "hear about new features"): the box is read for
+receiving mail, messages or news, being contacted, product updates, tips,
+features and data sharing, and any of them makes it an opt-in, not terms.
 
 `consents` is the person's to set and nobody else's. The compiler refuses it
 with `consent-not-delegable` unless the host identified the caller as the

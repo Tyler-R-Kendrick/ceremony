@@ -3382,6 +3382,24 @@ test("CONSENT: a checkbox is read for the legal acts ticking it performs", () =>
   const bundled = read("I agree to the Terms and to receive marketing emails");
   assert.deepEqual(bundled, { kinds: ["terms"], marketing: true });
   assert.equal(consentCovers(bundled, ["terms", "privacy", "age"]), false);
+  // However the opt-in is worded, bundled into the terms sentence it is
+  // still an opt-in, and no advance consent covers it.
+  for (const label of [
+    "I agree to the Terms of Service and to receive emails from Acme",
+    "I agree to the Terms and would like to hear about new features",
+    "I accept the Terms. Keep me informed about Acme products",
+    "I agree to the Terms and consent to receive communications from Acme",
+    "I agree to the Terms and Privacy Policy and to be contacted by sales",
+    "I accept the Terms; send me tips and product news",
+    "I agree to the Terms and to receiving text messages",
+  ]) {
+    assert.equal(read(label).marketing, true, label);
+    assert.equal(
+      consentCovers(read(label), ["terms", "privacy", "age"]),
+      false,
+      label,
+    );
+  }
   // Ordinary boxes are nobody's legal act.
   for (const label of ["Remember me", "Keep me signed in", "I understand"])
     assert.equal(needsConsent(read(label)), false, label);
@@ -3782,6 +3800,8 @@ test("CONSENT: a recording writes the consent down and a replay does not stretch
   for (const label of [
     "I agree to the Terms of Service and privacy policy",
     "I agree to the Terms of Service and to marketing emails",
+    "I agree to the Terms of Service and to receive emails from Acme",
+    "I agree to the Terms of Service and to be contacted by sales",
   ]) {
     const changed = consentPage(label);
     const drifted = await runRecordedCeremony({
