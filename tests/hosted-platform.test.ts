@@ -339,6 +339,8 @@ test("a roles claim maps to capabilities, and gates the authoring tools over MCP
     "connector_status",
     "connector_connect",
     "connector_invoke",
+    "connector_verify",
+    "connector_revoke_request",
     "connector_list",
     "connector_inspect",
     "connector_operations",

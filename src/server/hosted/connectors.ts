@@ -47,7 +47,7 @@ import type { AgentConnectorDependencies } from "../connectors/agents/intents.js
 
 export interface HostedConnectors {
   runtime: ConnectorRuntime;
-  /** The four connector tools, with connect and invoke, for the MCP endpoint. */
+  /** The connector tools (catalog, status, connect, invoke, verify, revocation request) for the MCP endpoint. */
   tools: ConnectorToolDependencies;
   /** The safe intents (list, inspect, operations, reconnect, disconnect). */
   intents: AgentConnectorDependencies;
@@ -205,5 +205,14 @@ function connectorTools(runtime: ConnectorRuntime): ConnectorToolDependencies {
         ...handoff(result.handoff),
       };
     },
+    // Verification refreshes evidence for a grant that already exists, then
+    // reports it through the same projection `status` uses.
+    verify: async (actor, connectionRef) => {
+      await runtime.service.verify(actor, connectionRef);
+      return intents.status(actor, connectionRef);
+    },
+    // Only queues the request; revoking stays the admin's human-only action.
+    requestRevocation: (actor, connectionRef) =>
+      runtime.service.requestRevocation(actor, connectionRef),
   };
 }
